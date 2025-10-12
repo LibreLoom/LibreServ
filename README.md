@@ -1,6 +1,6 @@
 # LibreServ
 
-Self-hosting platform that makes running your own server as simple as using a smartphone.
+Self-hosting platform that makes running your own server as simple as plugging in a black box.
 
 ## 🚧 Status
 
