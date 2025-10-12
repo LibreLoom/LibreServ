@@ -4,7 +4,7 @@ Self-hosting platform that makes running your own server as simple as using a sm
 
 ## 🚧 Status
 
-In active development - MVP target: 6 months
+In active development - MVP target: April 30, 2026
 
 ## 🎯 Goals
 
@@ -35,4 +35,6 @@ Coming soon...
 
 ## 📝 License
 
-See LICENSE file
+AGPL 3.0. See LICENSE file. 
+
+Copyleft 🄯 2025 LibreLoom
