@@ -1,0 +1,28 @@
+# Go
+bin/
+*.exe
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Development
+dev/data/
+dev/logs/
+*.db
+.env
+.env.local
+
+# IDEs
+.vscode/
+.idea/
+
+# Temp
+tmp/
+*.swp
