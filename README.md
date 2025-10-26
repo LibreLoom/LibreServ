@@ -31,7 +31,7 @@ In active development - MVP target: April 30, 2026
 
 ## 🚀 Development
 
-Coming soon...
+See ThePlan.md
 
 ## 📝 License
 
