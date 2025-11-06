@@ -33,6 +33,10 @@ In active development - MVP target: April 30, 2026
 
 See ThePlan.md
 
+## 🤑 Monetary Contributions!
+
+- Donate [here](https://ko-fi.com/libreloom)!
+
 ## 📝 License
 
 AGPL 3.0. See LICENSE file. 
