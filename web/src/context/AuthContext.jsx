@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi, ApiError } from '../api';
 
 const AuthContext = createContext(null);
 
@@ -7,140 +6,107 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSetupComplete, setIsSetupComplete] = useState(true);
-  const [error, setError] = useState(null);
 
-  // Check authentication status on mount
+  // Check auth status on mount
   useEffect(() => {
-    // DEV MODE: Skip auth check, set mock user
-    if (import.meta.env.DEV) {
-      setUser({ username: 'admin', role: 'admin' });
-      setIsSetupComplete(true);
-      setIsLoading(false);
-      return;
-    }
     checkAuth();
   }, []);
 
   const checkAuth = async () => {
     setIsLoading(true);
-    setError(null);
-    
     try {
-      // First check if setup is complete
-      const setupStatus = await authApi.getSetupStatus();
-      setIsSetupComplete(setupStatus.setup_complete);
-
-      if (!setupStatus.setup_complete) {
-        setIsLoading(false);
-        return;
-      }
-
-      // Check if we have a token
-      const token = localStorage.getItem('libreserv-token');
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
-
-      // Validate token by getting current user
-      const userData = await authApi.me();
-      setUser(userData);
-    } catch (err) {
-      // If unauthorized, clear token
-      if (err instanceof ApiError && err.status === 401) {
-        authApi.logout();
-      }
-      // Setup endpoint might not exist yet, assume complete
-      if (err instanceof ApiError && err.status === 404) {
+      // DEV MODE: Auto-login for development
+      if (import.meta.env.DEV) {
+        setUser({
+          id: 'dev-admin',
+          username: 'admin',
+          email: 'admin@localhost',
+          role: 'admin',
+          permissions: ['*'], // Admin has all permissions
+        });
         setIsSetupComplete(true);
+        return;
       }
-      console.error('Auth check failed:', err);
+
+      // TODO: Replace with actual API call
+      const token = localStorage.getItem('libreserv-token');
+      if (token) {
+        // Validate token with API
+        setUser({
+          id: '1',
+          username: 'admin',
+          email: 'admin@example.com',
+          role: 'admin',
+          permissions: ['*'],
+        });
+      }
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
   };
 
   const login = useCallback(async (username, password) => {
-    setError(null);
     try {
-      const response = await authApi.login(username, password);
+      // TODO: Replace with actual API call
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Store refresh token
-      if (response.refresh_token) {
-        localStorage.setItem('libreserv-refresh-token', response.refresh_token);
-      }
+      const userData = {
+        id: '1',
+        username,
+        email: `${username}@example.com`,
+        role: 'admin',
+        permissions: ['*'],
+      };
       
-      // Get user data
-      const userData = await authApi.me();
+      localStorage.setItem('libreserv-token', 'mock-token');
       setUser(userData);
-      
-      return userData;
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Login failed';
-      setError(message);
-      throw err;
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: 'Invalid credentials' };
     }
   }, []);
 
   const logout = useCallback(() => {
-    authApi.logout();
+    localStorage.removeItem('libreserv-token');
     setUser(null);
   }, []);
 
   const completeSetup = useCallback(async (setupData) => {
-    setError(null);
     try {
-      const response = await authApi.completeSetup(setupData);
-      
-      // Store refresh token
-      if (response.refresh_token) {
-        localStorage.setItem('libreserv-refresh-token', response.refresh_token);
-      }
-      
+      // TODO: Replace with actual API call
+      await new Promise(resolve => setTimeout(resolve, 500));
       setIsSetupComplete(true);
-      
-      // Get user data
-      const userData = await authApi.me();
-      setUser(userData);
-      
-      return userData;
-    } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Setup failed';
-      setError(message);
-      throw err;
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: 'Setup failed' };
     }
   }, []);
 
-  const refreshAuth = useCallback(async () => {
-    const refreshToken = localStorage.getItem('libreserv-refresh-token');
-    if (!refreshToken) {
-      logout();
-      return false;
+  // Check if user has permission for an action
+  const hasPermission = useCallback((permission, appId = null) => {
+    if (!user) return false;
+    if (user.permissions.includes('*')) return true; // Admin
+    
+    if (appId) {
+      return user.permissions.includes(`${appId}:${permission}`) ||
+             user.permissions.includes(`${appId}:*`);
     }
-
-    try {
-      const response = await authApi.refreshToken(refreshToken);
-      if (response.refresh_token) {
-        localStorage.setItem('libreserv-refresh-token', response.refresh_token);
-      }
-      return true;
-    } catch (err) {
-      logout();
-      return false;
-    }
-  }, [logout]);
+    
+    return user.permissions.includes(permission);
+  }, [user]);
 
   const value = {
     user,
     isLoading,
-    isSetupComplete,
     isAuthenticated: !!user,
-    error,
+    isSetupComplete,
     login,
     logout,
     completeSetup,
-    refreshAuth,
-    checkAuth,
+    hasPermission,
   };
 
   return (

@@ -1,74 +1,13 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { MainLayout } from './components/layout';
+import { NavigationProvider } from './context/NavigationContext';
+
+import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
-import Settings from './pages/Settings';
-import Users from './pages/Users';
-import Profile from './pages/Profile';
-import AppDetail from './pages/AppDetail';
-import Login from './pages/Login';
-import Setup from './pages/Setup';
+import Apps from './pages/Apps';
 
-// Loading spinner component
-function LoadingScreen() {
-  return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-8 h-8 border-2 border-[var(--color-secondary)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-        <p className="font-mono text-[var(--color-accent)]">Loading...</p>
-      </div>
-    </div>
-  );
-}
-
-// App routes with auth logic
-function AppRoutes() {
-  const { user, isLoading, isSetupComplete, isAuthenticated, login, logout, completeSetup } = useAuth();
-
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
-
-  // Show setup if not complete
-  if (!isSetupComplete) {
-    return <Setup onComplete={completeSetup} />;
-  }
-
-  // Show login if not authenticated
-  if (!isAuthenticated) {
-    return <Login onLogin={login} />;
-  }
-
-  // Main app
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<MainLayout user={user} systemStatus="operational" onLogout={logout} />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/users" element={<Users />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/support" element={<PlaceholderPage title="Support" />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/apps/:appId" element={<AppDetail />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
-  );
-}
-
-function App() {
-  return (
-    <ThemeProvider>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </ThemeProvider>
-  );
-}
-
-// Placeholder component for pages not yet implemented
+// Placeholder for pages not yet built
 function PlaceholderPage({ title }) {
   return (
     <div className="flex items-center justify-center h-[60vh]">
@@ -80,4 +19,82 @@ function PlaceholderPage({ title }) {
   );
 }
 
-export default App;
+// Loading screen
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[var(--color-primary)]">
+      <div className="text-center">
+        <div className="w-10 h-10 border-2 border-[var(--color-secondary)] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="font-mono text-[var(--color-accent)]">Loading LibreServ...</p>
+      </div>
+    </div>
+  );
+}
+
+// Login page (simple for now)
+function LoginPage() {
+  const { login } = useAuth();
+  
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[var(--color-primary)] p-4">
+      <div className="w-full max-w-sm text-center">
+        <h1 className="font-mono text-3xl mb-8">LibreServ</h1>
+        <button
+          onClick={() => login('admin', 'password')}
+          className="
+            w-full px-6 py-3
+            bg-[var(--color-secondary)] text-[var(--color-primary)]
+            border-2 border-[var(--color-secondary)]
+            rounded-full font-mono
+            hover:bg-transparent hover:text-[var(--color-secondary)]
+            transition-all duration-200
+          "
+        >
+          Sign In
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Routes with auth
+function AppRoutes() {
+  const { user, isLoading, isAuthenticated } = useAuth();
+
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/apps" element={<Apps />} />
+          <Route path="/apps/:appId" element={<PlaceholderPage title="App Details" />} />
+          <Route path="/users" element={<PlaceholderPage title="Users" />} />
+          <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+          <Route path="/support" element={<PlaceholderPage title="Support" />} />
+          <Route path="/profile" element={<PlaceholderPage title="Profile" />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <NavigationProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </NavigationProvider>
+    </ThemeProvider>
+  );
+}

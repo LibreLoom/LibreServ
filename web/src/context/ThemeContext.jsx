@@ -1,62 +1,100 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const ThemeContext = createContext(null);
 
 const defaultTheme = {
-  mode: 'light', // Default to light mode to match whiteboard vibe
+  mode: 'light',
   customColors: {
     primary: '#FFFFFF',
     secondary: '#000000',
     accent: '#767676',
   },
+  darkCustomColors: {
+    primary: '#000000',
+    secondary: '#FFFFFF',
+    accent: '#767676',
+  },
   useDifferentDarkPalette: false,
+  hapticsEnabled: true,
+  hapticsIntensity: 'medium', // 'light', 'medium', 'heavy'
 };
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem('libreserv-theme-v2');
-    return saved ? JSON.parse(saved) : defaultTheme;
+    try {
+      const saved = localStorage.getItem('libreserv-theme-v3');
+      return saved ? { ...defaultTheme, ...JSON.parse(saved) } : defaultTheme;
+    } catch {
+      return defaultTheme;
+    }
   });
 
+  // Apply theme to DOM
   useEffect(() => {
-    localStorage.setItem('libreserv-theme-v2', JSON.stringify(theme));
+    localStorage.setItem('libreserv-theme-v3', JSON.stringify(theme));
     
-    // Apply theme to document
-    document.documentElement.setAttribute('data-theme', theme.mode);
+    const root = document.documentElement;
+    root.setAttribute('data-theme', theme.mode);
     
-    // Apply custom colors if in custom mode
     if (theme.mode === 'custom') {
-      document.documentElement.style.setProperty('--custom-primary', theme.customColors.primary);
-      document.documentElement.style.setProperty('--custom-secondary', theme.customColors.secondary);
-      document.documentElement.style.setProperty('--custom-accent', theme.customColors.accent);
+      root.style.setProperty('--custom-primary', theme.customColors.primary);
+      root.style.setProperty('--custom-secondary', theme.customColors.secondary);
+      root.style.setProperty('--custom-accent', theme.customColors.accent);
     }
   }, [theme]);
 
-  const setMode = (mode) => {
+  const setMode = useCallback((mode) => {
     setTheme(prev => ({ ...prev, mode }));
-  };
+  }, []);
 
-  const setCustomColors = (colors) => {
-    setTheme(prev => ({
-      ...prev,
-      customColors: { ...prev.customColors, ...colors },
-    }));
-  };
-
-  const toggleDarkMode = () => {
+  const toggleMode = useCallback(() => {
     setTheme(prev => ({
       ...prev,
       mode: prev.mode === 'dark' ? 'light' : 'dark',
     }));
-  };
+  }, []);
+
+  const setCustomColors = useCallback((colors) => {
+    setTheme(prev => ({
+      ...prev,
+      customColors: { ...prev.customColors, ...colors },
+    }));
+  }, []);
+
+  const setHaptics = useCallback((enabled, intensity) => {
+    setTheme(prev => ({
+      ...prev,
+      hapticsEnabled: enabled ?? prev.hapticsEnabled,
+      hapticsIntensity: intensity ?? prev.hapticsIntensity,
+    }));
+  }, []);
+
+  // Trigger haptic feedback
+  const haptic = useCallback((type = 'light') => {
+    if (!theme.hapticsEnabled) return;
+    
+    // Web Vibration API
+    if ('vibrate' in navigator) {
+      const patterns = {
+        light: [10],
+        medium: [20],
+        heavy: [30],
+        success: [10, 50, 10],
+        error: [50, 30, 50],
+      };
+      navigator.vibrate(patterns[type] || patterns.light);
+    }
+  }, [theme.hapticsEnabled]);
 
   const value = {
     theme,
     setTheme,
     setMode,
+    toggleMode,
     setCustomColors,
-    toggleDarkMode,
-    isDark: theme.mode === 'dark' || (theme.mode === 'custom' && theme.useDifferentDarkPalette),
+    setHaptics,
+    haptic,
+    isDark: theme.mode === 'dark',
   };
 
   return (
