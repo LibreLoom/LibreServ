@@ -6,6 +6,11 @@ import { NavigationProvider } from './context/NavigationContext';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Apps from './pages/Apps';
+import AppDetail from './pages/AppDetail';
+import Users from './pages/Users';
+import Settings from './pages/Settings';
+import Profile from './pages/Profile';
+import Support from './pages/Support';
 
 // Placeholder for pages not yet built
 function PlaceholderPage({ title }) {
@@ -75,11 +80,11 @@ function AppRoutes() {
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/apps" element={<Apps />} />
-          <Route path="/apps/:appId" element={<PlaceholderPage title="App Details" />} />
-          <Route path="/users" element={<PlaceholderPage title="Users" />} />
-          <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
-          <Route path="/support" element={<PlaceholderPage title="Support" />} />
-          <Route path="/profile" element={<PlaceholderPage title="Profile" />} />
+          <Route path="/apps/:appId" element={<AppDetail />} />
+          <Route path="/users" element={<Users />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/support" element={<Support />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

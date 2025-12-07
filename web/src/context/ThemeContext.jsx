@@ -2,99 +2,117 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 
 const ThemeContext = createContext(null);
 
-const defaultTheme = {
-  mode: 'light',
-  customColors: {
+const defaultCustomColors = {
+  light: {
     primary: '#FFFFFF',
     secondary: '#000000',
     accent: '#767676',
   },
-  darkCustomColors: {
+  dark: {
     primary: '#000000',
     secondary: '#FFFFFF',
     accent: '#767676',
   },
-  useDifferentDarkPalette: false,
-  hapticsEnabled: true,
-  hapticsIntensity: 'medium', // 'light', 'medium', 'heavy'
+};
+
+const defaultSettings = {
+  mode: 'light', // 'light', 'dark', 'custom'
+  customColors: defaultCustomColors,
+  hapticEnabled: true,
 };
 
 export function ThemeProvider({ children }) {
-  const [theme, setTheme] = useState(() => {
+  const [settings, setSettings] = useState(() => {
     try {
-      const saved = localStorage.getItem('libreserv-theme-v3');
-      return saved ? { ...defaultTheme, ...JSON.parse(saved) } : defaultTheme;
+      const saved = localStorage.getItem('libreserv-theme-v4');
+      return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
     } catch {
-      return defaultTheme;
+      return defaultSettings;
     }
   });
 
   // Apply theme to DOM
   useEffect(() => {
-    localStorage.setItem('libreserv-theme-v3', JSON.stringify(theme));
+    localStorage.setItem('libreserv-theme-v4', JSON.stringify(settings));
     
     const root = document.documentElement;
-    root.setAttribute('data-theme', theme.mode);
+    root.setAttribute('data-theme', settings.mode);
     
-    if (theme.mode === 'custom') {
-      root.style.setProperty('--custom-primary', theme.customColors.primary);
-      root.style.setProperty('--custom-secondary', theme.customColors.secondary);
-      root.style.setProperty('--custom-accent', theme.customColors.accent);
+    // Apply custom colors when in custom mode
+    if (settings.mode === 'custom') {
+      // Determine if we're in system dark mode for custom theme
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const colors = prefersDark ? settings.customColors.dark : settings.customColors.light;
+      
+      root.style.setProperty('--custom-primary', colors.primary);
+      root.style.setProperty('--custom-secondary', colors.secondary);
+      root.style.setProperty('--custom-accent', colors.accent);
     }
-  }, [theme]);
+  }, [settings]);
 
-  const setMode = useCallback((mode) => {
-    setTheme(prev => ({ ...prev, mode }));
+  // Theme mode setters
+  const setTheme = useCallback((mode) => {
+    setSettings(prev => ({ ...prev, mode }));
   }, []);
 
-  const toggleMode = useCallback(() => {
-    setTheme(prev => ({
+  const toggleTheme = useCallback(() => {
+    setSettings(prev => ({
       ...prev,
       mode: prev.mode === 'dark' ? 'light' : 'dark',
     }));
   }, []);
 
+  // Custom colors setter
   const setCustomColors = useCallback((colors) => {
-    setTheme(prev => ({
+    setSettings(prev => ({
       ...prev,
-      customColors: { ...prev.customColors, ...colors },
+      customColors: {
+        light: colors.light || prev.customColors.light,
+        dark: colors.dark || prev.customColors.dark,
+      },
     }));
   }, []);
 
-  const setHaptics = useCallback((enabled, intensity) => {
-    setTheme(prev => ({
-      ...prev,
-      hapticsEnabled: enabled ?? prev.hapticsEnabled,
-      hapticsIntensity: intensity ?? prev.hapticsIntensity,
-    }));
+  // Haptic setters
+  const setHapticEnabled = useCallback((enabled) => {
+    setSettings(prev => ({ ...prev, hapticEnabled: enabled }));
   }, []);
 
   // Trigger haptic feedback
   const haptic = useCallback((type = 'light') => {
-    if (!theme.hapticsEnabled) return;
+    if (!settings.hapticEnabled) return;
     
     // Web Vibration API
     if ('vibrate' in navigator) {
       const patterns = {
         light: [10],
-        medium: [20],
-        heavy: [30],
-        success: [10, 50, 10],
-        error: [50, 30, 50],
+        medium: [25],
+        heavy: [50],
+        success: [15, 50, 15],
+        error: [60, 30, 60],
       };
       navigator.vibrate(patterns[type] || patterns.light);
     }
-  }, [theme.hapticsEnabled]);
+  }, [settings.hapticEnabled]);
 
   const value = {
-    theme,
+    // Current theme mode
+    theme: settings.mode,
     setTheme,
-    setMode,
-    toggleMode,
+    toggleTheme,
+    
+    // Custom colors
+    customColors: settings.customColors,
     setCustomColors,
-    setHaptics,
+    
+    // Haptics
+    hapticEnabled: settings.hapticEnabled,
+    setHapticEnabled,
     haptic,
-    isDark: theme.mode === 'dark',
+    
+    // Convenience flags
+    isDark: settings.mode === 'dark',
+    isCustom: settings.mode === 'custom',
   };
 
   return (
