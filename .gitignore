@@ -26,3 +26,6 @@ dev/logs/
 # Temp
 tmp/
 *.swp
+bin/
+*.tar.gz
+libreserv

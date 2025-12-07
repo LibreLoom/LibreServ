@@ -1,0 +1,20 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  mode: development
+
+database:
+  path: "./dev/data/libreserv.db"
+
+apps:
+  data_path: "./dev/data/apps"
+  catalog_path: "./apps"
+
+docker:
+  method: auto
+  socket_path: "/var/run/docker.sock"
+  timeout: "30s"
+
+logging:
+  level: debug
+  path: "./dev/logs"
