@@ -1,1 +1,276 @@
+/* Import Google Fonts - FreeMono fallback to Courier New, Noto Sans */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
 @import "tailwindcss";
+
+/* Simplex Mono Design Language - Theme System */
+
+:root {
+  /* Default Light Mode Colors */
+  --color-primary: #FFFFFF;
+  --color-secondary: #000000;
+  --color-accent: #767676;
+  
+  /* Semantic Colors */
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-info: #3B82F6;
+  
+  /* Typography */
+  --font-heading: 'Courier Prime', 'Courier New', monospace;
+  --font-body: 'Noto Sans', 'Helvetica Neue', sans-serif;
+  
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+  
+  /* Border Radius - Simplex Mono uses rounded/pill shapes */
+  --radius-sm: 0.5rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.5rem;
+  --radius-full: 9999px;
+  
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 400ms ease;
+  
+  /* Navbar height */
+  --navbar-height: 3.5rem;
+}
+
+/* Dark Mode - Swap primary and secondary */
+[data-theme="dark"] {
+  --color-primary: #000000;
+  --color-secondary: #FFFFFF;
+}
+
+/* Custom Theme Support - User can override these */
+[data-theme="custom"] {
+  --color-primary: var(--custom-primary, #000000);
+  --color-secondary: var(--custom-secondary, #FFFFFF);
+  --color-accent: var(--custom-accent, #767676);
+}
+
+/* Base Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-primary);
+  color: var(--color-secondary);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* Typography */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+h1 { font-size: 2.5rem; }
+h2 { font-size: 2rem; }
+h3 { font-size: 1.5rem; }
+h4 { font-size: 1.25rem; }
+h5 { font-size: 1rem; }
+h6 { font-size: 0.875rem; }
+
+/* Monospace text utility */
+.mono {
+  font-family: var(--font-heading);
+}
+
+/* Emphasis as per Simplex Mono guidelines */
+em, .emphasis {
+  font-style: italic;
+}
+
+strong, .emphasis-line {
+  font-weight: 700;
+}
+
+/* Simplex Mono Button Base */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  font-family: var(--font-heading);
+  font-size: 0.875rem;
+  border: 2px solid var(--color-secondary);
+  border-radius: var(--radius-full);
+  background-color: transparent;
+  color: var(--color-secondary);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  text-decoration: none;
+}
+
+.btn:hover {
+  background-color: var(--color-secondary);
+  color: var(--color-primary);
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-filled {
+  background-color: var(--color-secondary);
+  color: var(--color-primary);
+}
+
+.btn-filled:hover {
+  background-color: transparent;
+  color: var(--color-secondary);
+}
+
+/* Card Base */
+.card {
+  background-color: var(--color-primary);
+  border: 2px solid var(--color-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+}
+
+/* Pill/Badge */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 2px solid var(--color-secondary);
+  border-radius: var(--radius-full);
+  font-family: var(--font-heading);
+  font-size: 0.875rem;
+}
+
+/* Status Dot */
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.status-dot--success { background-color: var(--color-success); }
+.status-dot--warning { background-color: var(--color-warning); }
+.status-dot--error { background-color: var(--color-error); }
+.status-dot--info { background-color: var(--color-info); }
+.status-dot--neutral { background-color: var(--color-accent); }
+
+/* Input Base */
+.input {
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  border: 2px solid var(--color-secondary);
+  border-radius: var(--radius-full);
+  background-color: transparent;
+  color: var(--color-secondary);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.input::placeholder {
+  color: var(--color-accent);
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+}
+
+/* Divider - for navbar sections */
+.divider {
+  width: 2px;
+  height: 80%;
+  background-color: var(--color-accent);
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-accent);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-secondary);
+}
+
+/* Utility Classes */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.justify-between { justify-content: space-between; }
+.gap-sm { gap: var(--spacing-sm); }
+.gap-md { gap: var(--spacing-md); }
+.gap-lg { gap: var(--spacing-lg); }
+
+/* Animation utilities */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { 
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from { 
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to { 
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn var(--transition-normal) ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp var(--transition-normal) ease-out;
+}
+
+.animate-scale-in {
+  animation: scaleIn var(--transition-normal) ease-out;
+}
