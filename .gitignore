@@ -13,8 +13,7 @@ web/dist/
 web/.vite/
 
 # Development
-dev/data/
-dev/logs/
+dev/
 *.db
 .env
 .env.local

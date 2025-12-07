@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 	
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
@@ -62,7 +63,7 @@ func (d *DB) Ping() error {
 
 // HealthCheck performs a quick self-diagnostic
 func (d *DB) HealthCheck() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5000) // 5s timeout using simple int for now, or import time
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var count int
