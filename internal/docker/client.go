@@ -124,6 +124,11 @@ func (c *Client) Close() error {
 	return c.cli.Close()
 }
 
+// GetRawClient returns the underlying Docker client for direct API access
+func (c *Client) GetRawClient() *client.Client {
+	return c.cli
+}
+
 // Compose operations - delegate to ComposeManager
 
 // ComposeUp starts containers defined in a compose file

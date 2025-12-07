@@ -16,6 +16,7 @@ func (s *Server) setupRoutes() {
 	appsHandler := handlers.NewAppsHandler(s.appManager)
 	authHandler := handlers.NewAuthHandler(s.authService)
 	setupHandler := handlers.NewSetupHandler(s.authService)
+	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor)
 
 	// Auth middleware config
 	authConfig := &middleware.AuthConfig{
@@ -80,10 +81,18 @@ func (s *Server) setupRoutes() {
 
 			// Monitoring
 			r.Route("/monitoring", func(r chi.Router) {
-				r.Get("/stats", s.notImplemented)     // Overall system stats
-				r.Get("/apps/{appID}/metrics", s.notImplemented)
-				r.Get("/apps/{appID}/logs", s.notImplemented)
+				r.Get("/system", monitoringHandler.SystemHealth)
+				r.Post("/cleanup", monitoringHandler.CleanupMetrics)
 			})
+
+			// App-specific health and metrics (under /apps routes)
+			r.Route("/apps/{appID}/health", func(r chi.Router) {
+				r.Get("/", monitoringHandler.GetAppHealth)
+				r.Post("/register", monitoringHandler.RegisterHealthCheck)
+				r.Delete("/", monitoringHandler.UnregisterHealthCheck)
+			})
+			r.Get("/apps/{appID}/metrics", monitoringHandler.GetAppMetrics)
+			r.Get("/apps/{appID}/metrics/history", monitoringHandler.GetMetricsHistory)
 
 			// Backups
 			r.Route("/backups", func(r chi.Router) {

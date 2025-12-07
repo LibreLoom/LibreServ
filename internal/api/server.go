@@ -13,6 +13,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 )
 
 // Server represents the HTTP API server
@@ -23,12 +24,13 @@ type Server struct {
 	db          *database.DB
 	appManager  *apps.Manager
 	authService *auth.Service
+	monitor     *monitoring.Monitor
 	devMode     bool
 	logger      *slog.Logger
 }
 
 // NewServer creates a new API server instance
-func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, devMode bool) *Server {
+func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, devMode bool) *Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	logger := slog.Default().With("component", "api")
 
@@ -50,6 +52,7 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 		db:          db,
 		appManager:  appManager,
 		authService: authService,
+		monitor:     monitor,
 		devMode:     devMode,
 		logger:      logger,
 	}
