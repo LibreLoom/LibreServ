@@ -42,8 +42,9 @@ const Login = ({ onLogin }) => {
           <form onSubmit={handleSubmit}>
             <h2 className="font-mono text-xl mb-6 text-center">Sign In</h2>
 
+            {/* Error - dashed border + pulse instead of red */}
             {error && (
-              <div className="mb-4 p-3 bg-red-500/10 border-2 border-red-500 rounded-xl text-red-500 text-sm text-center">
+              <div className="mb-4 p-3 border-2 border-dashed border-[var(--color-secondary)] rounded-xl text-[var(--color-secondary)] text-sm text-center animate-pulse">
                 {error}
               </div>
             )}
@@ -96,6 +97,7 @@ const Login = ({ onLogin }) => {
             <Button
               type="submit"
               variant="filled"
+              size="lg"
               className="w-full mt-6"
               disabled={isLoading}
             >

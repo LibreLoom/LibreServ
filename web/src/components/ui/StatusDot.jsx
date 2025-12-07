@@ -1,30 +1,39 @@
 const StatusDot = ({ 
-  status = 'neutral', // 'success' | 'warning' | 'error' | 'info' | 'neutral'
+  status = 'neutral', // 'active' | 'inactive' | 'attention' | 'neutral'
   size = 'md', // 'sm' | 'md' | 'lg'
   className = '',
-  pulse = false,
 }) => {
-  const statusColors = {
-    success: 'bg-green-500',
-    warning: 'bg-amber-500',
-    error: 'bg-red-500',
-    info: 'bg-blue-500',
-    neutral: 'bg-[var(--color-accent)]',
-  };
+  // Shape-based status indication (no semantic colors!)
+  // - active: filled circle
+  // - inactive: hollow circle  
+  // - attention: hollow circle with pulse
+  // - neutral: hollow circle (accent color)
 
   const sizes = {
-    sm: 'w-1.5 h-1.5',
-    md: 'w-2 h-2',
+    sm: 'w-2 h-2',
+    md: 'w-2.5 h-2.5',
     lg: 'w-3 h-3',
+  };
+
+  const borderSizes = {
+    sm: 'border',
+    md: 'border-[1.5px]',
+    lg: 'border-2',
+  };
+
+  const statusStyles = {
+    active: `bg-[var(--color-secondary)]`, // Filled
+    inactive: `bg-transparent border ${borderSizes[size]} border-[var(--color-secondary)]`, // Hollow
+    attention: `bg-transparent border ${borderSizes[size]} border-[var(--color-secondary)] animate-pulse`, // Hollow + pulse
+    neutral: `bg-transparent border ${borderSizes[size]} border-[var(--color-accent)]`, // Hollow accent
   };
 
   return (
     <span 
       className={`
         inline-block rounded-full flex-shrink-0
-        ${statusColors[status]}
         ${sizes[size]}
-        ${pulse ? 'animate-pulse' : ''}
+        ${statusStyles[status]}
         ${className}
       `}
       aria-hidden="true"

@@ -70,7 +70,7 @@ const Sidebar = ({ stats }) => {
         value={
           <span className="flex items-center gap-2">
             <StatusDot 
-              status={storagePercent > 80 ? 'warning' : storagePercent > 95 ? 'error' : 'success'} 
+              status={storagePercent > 90 ? 'attention' : storagePercent > 75 ? 'neutral' : 'active'} 
             />
             {data.storage.used}/{data.storage.total}GB
           </span>

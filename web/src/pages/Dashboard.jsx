@@ -162,10 +162,10 @@ const Dashboard = () => {
           </Button>
         </div>
 
-        {/* Error Message */}
+        {/* Error Message - uses dashed border + pulse animation instead of color */}
         {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border-2 border-red-500 rounded-xl text-red-500 text-center">
-            {error}
+          <div className="mb-6 p-4 border-2 border-dashed border-[var(--color-secondary)] rounded-xl text-center animate-pulse">
+            <span className="text-[var(--color-secondary)]">{error}</span>
             <Button 
               variant="outline" 
               size="sm" 

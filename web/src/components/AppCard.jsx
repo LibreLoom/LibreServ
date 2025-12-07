@@ -8,12 +8,13 @@ const AppCard = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
+  // Shape-based status (no semantic colors!)
   const statusMap = {
-    running: { status: 'success', text: 'Running' },
-    stopped: { status: 'neutral', text: 'Stopped' },
-    error: { status: 'error', text: 'Error' },
-    starting: { status: 'info', text: 'Starting' },
-    stopping: { status: 'warning', text: 'Stopping' },
+    running: { status: 'active', text: 'Running' },
+    stopped: { status: 'inactive', text: 'Stopped' },
+    error: { status: 'attention', text: 'Error' },
+    starting: { status: 'attention', text: 'Starting' },
+    stopping: { status: 'attention', text: 'Stopping' },
   };
 
   const { status: dotStatus, text: statusText } = statusMap[app.status] || statusMap.stopped;

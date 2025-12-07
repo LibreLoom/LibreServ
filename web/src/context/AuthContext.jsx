@@ -11,6 +11,13 @@ export function AuthProvider({ children }) {
 
   // Check authentication status on mount
   useEffect(() => {
+    // DEV MODE: Skip auth check, set mock user
+    if (import.meta.env.DEV) {
+      setUser({ username: 'admin', role: 'admin' });
+      setIsSetupComplete(true);
+      setIsLoading(false);
+      return;
+    }
     checkAuth();
   }, []);
 

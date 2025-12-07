@@ -6,16 +6,10 @@
 /* Simplex Mono Design Language - Theme System */
 
 :root {
-  /* Default Light Mode Colors */
+  /* Simplex Mono - Only 3 core colors */
   --color-primary: #FFFFFF;
   --color-secondary: #000000;
   --color-accent: #767676;
-  
-  /* Semantic Colors */
-  --color-success: #22C55E;
-  --color-warning: #F59E0B;
-  --color-error: #EF4444;
-  --color-info: #3B82F6;
   
   /* Typography */
   --font-heading: 'Courier Prime', 'Courier New', monospace;
