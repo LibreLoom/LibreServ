@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sun, Moon, Palette, Check, RotateCcw, Save } from 'lucide-react';
+import { Sun, Moon, Palette, Circle, RotateCcw, Save } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { Card, Button, Input } from '../components/ui';
 
@@ -95,7 +95,7 @@ const Settings = () => {
           >
             <Sun size={24} />
             <span className="font-mono text-sm">Light</span>
-            {theme.mode === 'light' && <Check size={16} className="text-[var(--color-success)]" />}
+            {theme.mode === 'light' && <Circle size={12} fill="currentColor" />}
           </button>
 
           <button
@@ -110,7 +110,7 @@ const Settings = () => {
           >
             <Moon size={24} />
             <span className="font-mono text-sm">Dark</span>
-            {theme.mode === 'dark' && <Check size={16} className="text-[var(--color-success)]" />}
+            {theme.mode === 'dark' && <Circle size={12} fill="currentColor" />}
           </button>
 
           <button
@@ -125,7 +125,7 @@ const Settings = () => {
           >
             <Palette size={24} />
             <span className="font-mono text-sm">Custom</span>
-            {theme.mode === 'custom' && <Check size={16} className="text-[var(--color-success)]" />}
+            {theme.mode === 'custom' && <Circle size={12} fill="currentColor" />}
           </button>
         </div>
       </Card>
@@ -166,7 +166,7 @@ const Settings = () => {
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-mono text-lg">Custom Colors</h2>
           {hasUnsavedChanges && (
-            <span className="text-xs text-[var(--color-warning)] font-mono">Unsaved changes</span>
+            <span className="text-xs text-[var(--color-accent)] font-mono animate-pulse">● Unsaved changes</span>
           )}
         </div>
 

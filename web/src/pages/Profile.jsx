@@ -112,17 +112,23 @@ const Profile = () => {
         </div>
       </Card>
 
-      {/* Success Message */}
+      {/* Success Message - Simplex Mono: solid border + filled dot */}
       {successMessage && (
-        <div className="p-4 bg-[var(--color-success)]/10 border-2 border-[var(--color-success)] rounded-xl text-[var(--color-success)] text-center">
-          {successMessage}
+        <div className="p-4 border-2 border-[var(--color-secondary)] rounded-xl text-center">
+          <span className="inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[var(--color-secondary)]"></span>
+            {successMessage}
+          </span>
         </div>
       )}
 
-      {/* Error Message */}
+      {/* Error Message - Simplex Mono: dashed border + pulse animation */}
       {errors.submit && (
-        <div className="p-4 bg-red-500/10 border-2 border-red-500 rounded-xl text-red-500 text-center">
-          {errors.submit}
+        <div className="p-4 border-2 border-dashed border-[var(--color-secondary)] rounded-xl text-center animate-pulse">
+          <span className="inline-flex items-center gap-2">
+            <span className="text-[var(--color-accent)]">⚠</span>
+            {errors.submit}
+          </span>
         </div>
       )}
 
@@ -154,7 +160,7 @@ const Profile = () => {
                     placeholder="Enter username"
                   />
                   {errors.username && (
-                    <p className="text-red-500 text-xs mt-1">{errors.username}</p>
+                    <p className="text-[var(--color-accent)] text-xs mt-1 animate-pulse">⚠ {errors.username}</p>
                   )}
                 </>
               ) : (
@@ -219,7 +225,7 @@ const Profile = () => {
                   </button>
                 </div>
                 {errors.currentPassword && (
-                  <p className="text-red-500 text-xs mt-1">{errors.currentPassword}</p>
+                  <p className="text-[var(--color-accent)] text-xs mt-1 animate-pulse">⚠ {errors.currentPassword}</p>
                 )}
               </div>
 
@@ -237,7 +243,7 @@ const Profile = () => {
                   placeholder="Enter new password"
                 />
                 {errors.newPassword && (
-                  <p className="text-red-500 text-xs mt-1">{errors.newPassword}</p>
+                  <p className="text-[var(--color-accent)] text-xs mt-1 animate-pulse">⚠ {errors.newPassword}</p>
                 )}
               </div>
 
@@ -255,7 +261,7 @@ const Profile = () => {
                   placeholder="Confirm new password"
                 />
                 {errors.confirmPassword && (
-                  <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>
+                  <p className="text-[var(--color-accent)] text-xs mt-1 animate-pulse">⚠ {errors.confirmPassword}</p>
                 )}
               </div>
             </div>
@@ -276,15 +282,15 @@ const Profile = () => {
         )}
       </form>
 
-      {/* Danger Zone */}
-      <Card className="border-red-500/50">
-        <h2 className="font-mono text-lg mb-4 text-red-500">Danger Zone</h2>
+      {/* Danger Zone - Simplex Mono: dashed border for caution/attention */}
+      <Card className="border-dashed">
+        <h2 className="font-mono text-lg mb-4">⚠ Danger Zone</h2>
         <p className="text-[var(--color-accent)] text-sm mb-4">
           These actions are irreversible. Please proceed with caution.
         </p>
         <Button 
           variant="outline" 
-          className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
+          className="border-dashed"
           onClick={() => {
             if (confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
               // TODO: Handle account deletion

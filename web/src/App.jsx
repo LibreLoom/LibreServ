@@ -3,6 +3,10 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { MainLayout } from './components/layout';
 import Dashboard from './pages/Dashboard';
+import Settings from './pages/Settings';
+import Users from './pages/Users';
+import Profile from './pages/Profile';
+import AppDetail from './pages/AppDetail';
 import Login from './pages/Login';
 import Setup from './pages/Setup';
 
@@ -42,11 +46,11 @@ function AppRoutes() {
       <Routes>
         <Route element={<MainLayout user={user} systemStatus="operational" onLogout={logout} />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/users" element={<PlaceholderPage title="Users" />} />
-          <Route path="/settings" element={<PlaceholderPage title="Settings" />} />
+          <Route path="/users" element={<Users />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/support" element={<PlaceholderPage title="Support" />} />
-          <Route path="/profile" element={<PlaceholderPage title="Profile" />} />
-          <Route path="/apps/:appId" element={<PlaceholderPage title="App Management" />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/apps/:appId" element={<AppDetail />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

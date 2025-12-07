@@ -101,15 +101,16 @@ const Users = () => {
   };
 
   const getRoleBadge = (role) => {
+    // Simplex Mono: Use shape-based indication, not color
     const config = {
-      admin: { color: 'success', label: 'Admin' },
-      user: { color: 'info', label: 'User' },
-      viewer: { color: 'warning', label: 'Viewer' },
+      admin: { status: 'active', label: 'Admin' },    // Filled circle = elevated privileges
+      user: { status: 'inactive', label: 'User' },    // Hollow circle = standard user
+      viewer: { status: 'inactive', label: 'Viewer' }, // Hollow circle = read-only
     };
-    const { color, label } = config[role] || config.user;
+    const { status, label } = config[role] || config.user;
     return (
       <Pill size="sm">
-        <StatusDot status={color} />
+        <StatusDot status={status} />
         {label}
       </Pill>
     );
@@ -199,7 +200,7 @@ const Users = () => {
                   placeholder="Enter username"
                 />
                 {errors.username && (
-                  <p className="text-red-500 text-xs mt-1">{errors.username}</p>
+                  <p className="text-[var(--color-accent)] text-xs mt-1 animate-pulse">⚠ {errors.username}</p>
                 )}
               </div>
 
@@ -222,7 +223,7 @@ const Users = () => {
                   placeholder="Enter password (min 8 characters)"
                 />
                 {errors.password && (
-                  <p className="text-red-500 text-xs mt-1">{errors.password}</p>
+                  <p className="text-[var(--color-accent)] text-xs mt-1 animate-pulse">⚠ {errors.password}</p>
                 )}
               </div>
 
@@ -240,7 +241,7 @@ const Users = () => {
               </div>
 
               {errors.submit && (
-                <p className="text-red-500 text-sm">{errors.submit}</p>
+                <p className="text-[var(--color-accent)] text-sm border-2 border-dashed border-[var(--color-secondary)] p-3 rounded-xl animate-pulse">⚠ {errors.submit}</p>
               )}
 
               <div className="flex gap-3 pt-4">
@@ -307,7 +308,7 @@ const Users = () => {
                 {user.username !== 'admin' && (
                   <button
                     onClick={() => handleDeleteUser(user.id, user.username)}
-                    className="p-2 hover:bg-red-500/10 rounded-full transition-colors text-red-500"
+                    className="p-2 hover:bg-[var(--color-secondary)]/10 rounded-full transition-colors text-[var(--color-accent)] hover:text-[var(--color-secondary)]"
                     title="Delete User"
                   >
                     <Trash2 size={18} />

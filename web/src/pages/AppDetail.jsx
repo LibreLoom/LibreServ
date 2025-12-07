@@ -124,14 +124,16 @@ const AppDetail = () => {
     return `${minutes}m`;
   };
 
-  const getLogLevelColor = (level) => {
-    const colors = {
-      info: 'text-[var(--color-info)]',
-      warn: 'text-[var(--color-warning)]',
-      error: 'text-red-500',
-      debug: 'text-[var(--color-accent)]',
+  const getLogLevelStyle = (level) => {
+    // Simplex Mono: No semantic colors, use only accent/secondary
+    // Differentiate by text decoration/style instead
+    const styles = {
+      info: 'text-[var(--color-accent)]',
+      warn: 'text-[var(--color-secondary)] font-bold',
+      error: 'text-[var(--color-secondary)] font-bold underline',
+      debug: 'text-[var(--color-accent)] italic',
     };
-    return colors[level] || colors.info;
+    return styles[level] || styles.info;
   };
 
   if (isLoading) {
@@ -171,15 +173,15 @@ const AppDetail = () => {
           <div className="flex items-center gap-3">
             <h1 className="font-mono text-2xl">{app.name}</h1>
             <Pill size="sm">
-              <StatusDot status={app.status === 'running' ? 'success' : 'neutral'} />
+              <StatusDot status={app.status === 'running' ? 'active' : 'inactive'} />
               {app.status}
             </Pill>
           </div>
           <p className="text-[var(--color-accent)]">
             Version {app.version}
             {app.updateAvailable && (
-              <span className="text-[var(--color-warning)] ml-2">
-                (Update to {app.newVersion} available)
+              <span className="ml-2 animate-pulse">
+                ● Update to {app.newVersion} available
               </span>
             )}
           </p>
@@ -227,7 +229,7 @@ const AppDetail = () => {
             <Button 
               onClick={() => handleAction('update')}
               disabled={actionLoading === 'update'}
-              className="bg-[var(--color-warning)]/20 border-[var(--color-warning)] text-[var(--color-warning)]"
+              className="animate-pulse"
             >
               <Download size={16} />
               {actionLoading === 'update' ? 'Updating...' : `Update to ${app.newVersion}`}
@@ -236,7 +238,7 @@ const AppDetail = () => {
 
           <Button 
             variant="outline"
-            className="border-red-500 text-red-500 hover:bg-red-500 hover:text-white ml-auto"
+            className="border-dashed ml-auto"
             onClick={() => handleAction('delete')}
             disabled={actionLoading === 'delete'}
           >
@@ -284,14 +286,14 @@ const AppDetail = () => {
         <h2 className="font-mono text-lg mb-4">Network</h2>
         <div className="grid grid-cols-2 gap-4">
           <div className="flex items-center gap-3">
-            <Download size={20} className="text-[var(--color-success)]" />
+            <Download size={20} className="text-[var(--color-accent)]" />
             <div>
               <p className="font-mono">{app.metrics.network.rx} MB/s</p>
               <p className="text-[var(--color-accent)] text-sm">Download</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Upload size={20} className="text-[var(--color-info)]" />
+            <Upload size={20} className="text-[var(--color-accent)]" />
             <div>
               <p className="font-mono">{app.metrics.network.tx} MB/s</p>
               <p className="text-[var(--color-accent)] text-sm">Upload</p>
@@ -314,7 +316,7 @@ const AppDetail = () => {
                 <p className="text-[var(--color-accent)] text-sm">{container.image}</p>
               </div>
               <Pill size="sm">
-                <StatusDot status={container.status === 'running' ? 'success' : 'error'} />
+                <StatusDot status={container.status === 'running' ? 'active' : 'attention'} />
                 {container.status}
               </Pill>
             </div>
@@ -340,7 +342,7 @@ const AppDetail = () => {
                   <span className="text-[var(--color-accent)] shrink-0">
                     {new Date(log.timestamp).toLocaleTimeString()}
                   </span>
-                  <span className={`${getLogLevelColor(log.level)} shrink-0 w-12`}>
+                  <span className={`${getLogLevelStyle(log.level)} shrink-0 w-12`}>
                     [{log.level.toUpperCase()}]
                   </span>
                   <span className="text-[var(--color-secondary)]">
