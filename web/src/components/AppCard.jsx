@@ -20,7 +20,7 @@ const AppCard = ({
   const { status: dotStatus, text: statusText } = statusMap[app.status] || statusMap.stopped;
 
   return (
-    <Card className="h-full min-h-[320px] flex flex-col relative p-6">
+    <Card className="h-full min-h-[240px] flex flex-col relative" padding="lg">
       {/* Top Section */}
       <div className="space-y-4">
         {/* Header */}

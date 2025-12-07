@@ -3,10 +3,10 @@ import { createContext, useContext, useState, useEffect } from 'react';
 const ThemeContext = createContext(null);
 
 const defaultTheme = {
-  mode: 'dark', // 'light', 'dark', or 'custom'
+  mode: 'light', // Default to light mode to match whiteboard vibe
   customColors: {
-    primary: '#000000',
-    secondary: '#FFFFFF',
+    primary: '#FFFFFF',
+    secondary: '#000000',
     accent: '#767676',
   },
   useDifferentDarkPalette: false,
@@ -14,12 +14,12 @@ const defaultTheme = {
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem('libreserv-theme');
+    const saved = localStorage.getItem('libreserv-theme-v2');
     return saved ? JSON.parse(saved) : defaultTheme;
   });
 
   useEffect(() => {
-    localStorage.setItem('libreserv-theme', JSON.stringify(theme));
+    localStorage.setItem('libreserv-theme-v2', JSON.stringify(theme));
     
     // Apply theme to document
     document.documentElement.setAttribute('data-theme', theme.mode);
