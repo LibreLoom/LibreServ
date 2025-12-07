@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft,
@@ -23,8 +23,9 @@ import {
 import { Card, Button, Input, Pill, StatusIndicator, Modal } from '../components/ui';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useApp, useAppActions, useAppMetrics } from '../hooks';
 
-// Mock app data
+// Mock app data for fallback/development
 const MOCK_APPS = {
   nextcloud: {
     id: 'nextcloud',
@@ -134,7 +135,48 @@ const MOCK_APPS = {
       { key: 'ADMIN_TOKEN', value: '********', secret: true },
     ],
   },
+  convertx: {
+    id: 'convertx',
+    name: 'ConvertX',
+    description: 'File conversion service',
+    version: '1.2.0',
+    status: 'running',
+    url: null,
+    image: 'convertx:1.2.0',
+    created: '2024-02-20T08:00:00Z',
+    updated: '2024-02-20T08:00:00Z',
+    metrics: { cpu: 8, memory: 12, storage: 5, storageTotal: 50, networkIn: '1 GB', networkOut: '500 MB', uptime: '5d 2h', requests: '10/min' },
+    containers: [{ name: 'convertx', status: 'running', cpu: 8, memory: 12 }],
+    ports: [{ internal: 3000, external: 3000, protocol: 'tcp' }],
+    volumes: [{ name: 'convertx_data', mountPath: '/data', size: '5 GB' }],
+    env: [],
+  },
+  searxng: {
+    id: 'searxng',
+    name: 'SearXNG',
+    description: 'Privacy-respecting metasearch engine',
+    version: '2024.1.1',
+    status: 'running',
+    url: 'https://search.example.com',
+    image: 'searxng/searxng:2024.1.1',
+    created: '2024-03-01T10:00:00Z',
+    updated: '2024-03-01T10:00:00Z',
+    metrics: { cpu: 5, memory: 10, storage: 2, storageTotal: 20, networkIn: '500 MB', networkOut: '200 MB', uptime: '2d 8h', requests: '100/min' },
+    containers: [{ name: 'searxng', status: 'running', cpu: 5, memory: 10 }],
+    ports: [{ internal: 8080, external: 8888, protocol: 'tcp' }],
+    volumes: [{ name: 'searxng_config', mountPath: '/etc/searxng', size: '100 MB' }],
+    env: [{ key: 'SEARXNG_SECRET', value: '********', secret: true }],
+  },
 };
+
+const MOCK_LOGS = [
+  { time: '2024-03-01 14:20:15', level: 'info', message: 'Container started successfully' },
+  { time: '2024-03-01 14:20:14', level: 'info', message: 'Pulling image...' },
+  { time: '2024-03-01 14:20:10', level: 'info', message: 'Starting container' },
+  { time: '2024-03-01 14:20:05', level: 'warn', message: 'Previous container stopped unexpectedly' },
+  { time: '2024-03-01 14:19:58', level: 'info', message: 'Health check passed' },
+  { time: '2024-03-01 14:19:50', level: 'info', message: 'Database connection established' },
+];
 
 export default function AppDetail() {
   const { appId } = useParams();
@@ -142,71 +184,120 @@ export default function AppDetail() {
   const { haptic } = useTheme();
   const { hasPermission } = useAuth();
   
-  const [app, setApp] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [logs, setLogs] = useState([]);
   const [showLogs, setShowLogs] = useState(false);
   const [showEnv, setShowEnv] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  const [isActionLoading, setIsActionLoading] = useState(false);
+  const [useMockData, setUseMockData] = useState(false);
+  const [localApp, setLocalApp] = useState(null);
+  const [logs, setLogs] = useState(MOCK_LOGS);
 
+  // Fetch real data from API
+  const { app: apiApp, isLoading, error: appError, refetch } = useApp(appId);
+  const { data: metricsData, error: metricsError } = useAppMetrics(appId, { pollInterval: 5000, enabled: !!appId && !useMockData });
+  const actions = useAppActions(appId);
+
+  // Detect API availability
   useEffect(() => {
-    loadApp();
-  }, [appId]);
-
-  const loadApp = async () => {
-    setIsLoading(true);
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const appData = MOCK_APPS[appId];
-      if (appData) {
-        setApp(appData);
-        // Generate some mock logs
-        setLogs([
-          { time: '2024-03-01 14:20:15', level: 'info', message: 'Container started successfully' },
-          { time: '2024-03-01 14:20:14', level: 'info', message: 'Pulling image nextcloud:28...' },
-          { time: '2024-03-01 14:20:10', level: 'info', message: 'Starting container nextcloud-app' },
-          { time: '2024-03-01 14:20:05', level: 'warn', message: 'Previous container stopped unexpectedly' },
-          { time: '2024-03-01 14:19:58', level: 'info', message: 'Health check passed' },
-          { time: '2024-03-01 14:19:50', level: 'info', message: 'Database connection established' },
-        ]);
+    if (appError) {
+      setUseMockData(true);
+      const mockApp = MOCK_APPS[appId];
+      if (mockApp) {
+        setLocalApp(mockApp);
       }
-    } catch (error) {
-      console.error('Failed to load app:', error);
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [appError, appId]);
+
+  // Transform API app to display format
+  const app = useMemo(() => {
+    if (useMockData || appError) {
+      return localApp;
+    }
+    
+    if (!apiApp) return null;
+    
+    // Transform API response to our display format
+    return {
+      id: apiApp.instance_id || apiApp.id,
+      name: apiApp.name || apiApp.app_id,
+      description: apiApp.description || '',
+      version: apiApp.version || 'N/A',
+      status: apiApp.status || 'unknown',
+      url: apiApp.url || null,
+      image: apiApp.image || 'N/A',
+      created: apiApp.created_at || apiApp.installed_at || new Date().toISOString(),
+      updated: apiApp.updated_at || new Date().toISOString(),
+      metrics: {
+        cpu: metricsData?.cpu || apiApp.resource_usage?.cpu || 0,
+        memory: metricsData?.memory || apiApp.resource_usage?.memory || 0,
+        storage: apiApp.storage_used || 0,
+        storageTotal: apiApp.storage_total || 100,
+        networkIn: apiApp.network_in || '0 B',
+        networkOut: apiApp.network_out || '0 B',
+        uptime: apiApp.uptime || 'N/A',
+        requests: apiApp.requests || '0/min',
+      },
+      containers: apiApp.containers || [{ name: apiApp.name, status: apiApp.status, cpu: 0, memory: 0 }],
+      ports: apiApp.ports || [],
+      volumes: apiApp.volumes || [],
+      env: apiApp.env || [],
+    };
+  }, [apiApp, appError, useMockData, localApp, metricsData]);
 
   const handleAction = async (action) => {
     haptic('medium');
-    setIsActionLoading(true);
     
-    // Simulate action
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    if (action === 'start') {
-      setApp(prev => ({ ...prev, status: 'running' }));
-    } else if (action === 'stop') {
-      setApp(prev => ({ ...prev, status: 'stopped' }));
-    } else if (action === 'restart') {
-      setApp(prev => ({ ...prev, status: 'running' }));
+    if (useMockData) {
+      // Mock action simulation
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      if (action === 'start') {
+        setLocalApp(prev => prev ? { ...prev, status: 'running' } : prev);
+      } else if (action === 'stop') {
+        setLocalApp(prev => prev ? { ...prev, status: 'stopped' } : prev);
+      } else if (action === 'restart') {
+        setLocalApp(prev => prev ? { ...prev, status: 'running' } : prev);
+      }
+    } else {
+      // Real API actions
+      try {
+        switch (action) {
+          case 'start':
+            await actions.start();
+            break;
+          case 'stop':
+            await actions.stop();
+            break;
+          case 'restart':
+            await actions.restart();
+            break;
+          case 'update':
+            await actions.update();
+            break;
+        }
+        // Refresh app data
+        await refetch();
+      } catch (error) {
+        console.error(`Failed to ${action} app:`, error);
+      }
     }
-    
-    setIsActionLoading(false);
   };
 
   const handleDelete = async () => {
-    if (deleteConfirmText !== app.name) return;
+    if (deleteConfirmText !== app?.name) return;
     
     haptic('heavy');
     setShowDeleteModal(false);
     
-    // Simulate deletion
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    if (useMockData) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } else {
+      try {
+        await actions.uninstall();
+      } catch (error) {
+        console.error('Failed to delete app:', error);
+      }
+    }
     
     navigate('/apps');
   };
@@ -221,7 +312,7 @@ export default function AppDetail() {
     });
   };
 
-  if (isLoading) {
+  if (isLoading && !useMockData) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <div className="text-center animate-pulse">
@@ -248,8 +339,22 @@ export default function AppDetail() {
     );
   }
 
+  const isActionLoading = actions.isLoading;
+
   return (
     <div className="space-y-6">
+      {/* API Error Banner */}
+      {appError && (
+        <Card padding="sm" className="border-dashed animate-pulse-subtle">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={18} className="text-[var(--color-accent)]" />
+            <p className="text-sm text-[var(--color-accent)]">
+              Unable to connect to API. Showing demo data.
+            </p>
+          </div>
+        </Card>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
@@ -260,7 +365,7 @@ export default function AppDetail() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="font-mono text-2xl">{app.name}</h1>
-              <StatusIndicator status={app.status} />
+              <StatusIndicator status={app.status === 'running' ? 'active' : 'inactive'} />
             </div>
             <p className="text-[var(--color-accent)] mt-1">{app.description}</p>
           </div>
@@ -282,8 +387,8 @@ export default function AppDetail() {
 
       {/* Quick Actions */}
       <Card>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-2 flex-wrap">
             {app.status === 'running' ? (
               <>
                 <Button
@@ -313,7 +418,7 @@ export default function AppDetail() {
               </Button>
             )}
             
-            <Button variant="outline" disabled={isActionLoading}>
+            <Button variant="outline" disabled={isActionLoading} onClick={() => handleAction('update')}>
               <Download size={16} />
               Update
             </Button>
@@ -321,8 +426,8 @@ export default function AppDetail() {
 
           <div className="flex items-center gap-4 text-sm text-[var(--color-accent)]">
             <span className="font-mono">v{app.version}</span>
-            <span>•</span>
-            <span>Image: {app.image}</span>
+            <span className="hidden sm:inline">•</span>
+            <span className="hidden sm:inline">Image: {app.image}</span>
           </div>
         </div>
       </Card>
@@ -417,16 +522,18 @@ export default function AppDetail() {
         </div>
 
         {/* Ports */}
-        <div className="mt-4">
-          <h3 className="font-mono text-sm text-[var(--color-accent)] mb-2">Port Mappings</h3>
-          <div className="flex flex-wrap gap-2">
-            {app.ports.map((port, i) => (
-              <Pill key={i} size="sm">
-                {port.external}:{port.internal}/{port.protocol}
-              </Pill>
-            ))}
+        {app.ports.length > 0 && (
+          <div className="mt-4">
+            <h3 className="font-mono text-sm text-[var(--color-accent)] mb-2">Port Mappings</h3>
+            <div className="flex flex-wrap gap-2">
+              {app.ports.map((port, i) => (
+                <Pill key={i} size="sm">
+                  {port.external}:{port.internal}/{port.protocol}
+                </Pill>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </Card>
 
       {/* Containers */}
@@ -443,7 +550,7 @@ export default function AppDetail() {
               className="flex items-center justify-between p-3 bg-[var(--color-secondary)]/5 rounded-2xl"
             >
               <div className="flex items-center gap-3">
-                <StatusIndicator status={container.status} />
+                <StatusIndicator status={container.status === 'running' ? 'active' : 'inactive'} />
                 <span className="font-mono">{container.name}</span>
               </div>
               
@@ -457,60 +564,64 @@ export default function AppDetail() {
       </Card>
 
       {/* Volumes */}
-      <Card>
-        <h2 className="font-mono text-lg mb-4 flex items-center gap-2">
-          <HardDrive size={20} />
-          Volumes
-        </h2>
-        
-        <div className="space-y-3">
-          {app.volumes.map((volume, i) => (
-            <div 
-              key={i}
-              className="flex items-center justify-between p-3 bg-[var(--color-secondary)]/5 rounded-2xl"
-            >
-              <div>
-                <p className="font-mono">{volume.name}</p>
-                <p className="text-[var(--color-accent)] text-sm">{volume.mountPath}</p>
-              </div>
-              <Pill size="sm">{volume.size}</Pill>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      {/* Environment Variables */}
-      <Card>
-        <button
-          onClick={() => {
-            haptic('light');
-            setShowEnv(!showEnv);
-          }}
-          className="w-full flex items-center justify-between"
-        >
-          <h2 className="font-mono text-lg flex items-center gap-2">
-            <Settings size={20} />
-            Environment Variables
+      {app.volumes.length > 0 && (
+        <Card>
+          <h2 className="font-mono text-lg mb-4 flex items-center gap-2">
+            <HardDrive size={20} />
+            Volumes
           </h2>
-          {showEnv ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-        </button>
-        
-        {showEnv && (
-          <div className="mt-4 space-y-2 animate-slide-down">
-            {app.env.map((env, i) => (
+          
+          <div className="space-y-3">
+            {app.volumes.map((volume, i) => (
               <div 
                 key={i}
-                className="flex items-center justify-between p-3 bg-[var(--color-secondary)]/5 rounded-2xl font-mono text-sm"
+                className="flex items-center justify-between p-3 bg-[var(--color-secondary)]/5 rounded-2xl"
               >
-                <span>{env.key}</span>
-                <span className="text-[var(--color-accent)]">
-                  {env.secret ? '••••••••' : env.value}
-                </span>
+                <div>
+                  <p className="font-mono">{volume.name}</p>
+                  <p className="text-[var(--color-accent)] text-sm">{volume.mountPath}</p>
+                </div>
+                <Pill size="sm">{volume.size}</Pill>
               </div>
             ))}
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
+
+      {/* Environment Variables */}
+      {app.env.length > 0 && (
+        <Card>
+          <button
+            onClick={() => {
+              haptic('light');
+              setShowEnv(!showEnv);
+            }}
+            className="w-full flex items-center justify-between"
+          >
+            <h2 className="font-mono text-lg flex items-center gap-2">
+              <Settings size={20} />
+              Environment Variables
+            </h2>
+            {showEnv ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+          </button>
+          
+          {showEnv && (
+            <div className="mt-4 space-y-2 animate-slide-down">
+              {app.env.map((env, i) => (
+                <div 
+                  key={i}
+                  className="flex items-center justify-between p-3 bg-[var(--color-secondary)]/5 rounded-2xl font-mono text-sm"
+                >
+                  <span>{env.key}</span>
+                  <span className="text-[var(--color-accent)]">
+                    {env.secret ? '••••••••' : env.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Logs */}
       <Card>

@@ -1,21 +1,90 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
   Plus, 
-  Filter,
   Grid,
   List,
   Play,
   Square,
   RotateCcw,
   ExternalLink,
-  MoreVertical,
-  Download
+  Download,
+  AlertCircle
 } from 'lucide-react';
 import { Card, Button, Input, StatusIndicator, Pill, Modal } from '../components/ui';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useApps, useAppActions, useCatalog, useInstallApp } from '../hooks';
+
+// Mock data for development/fallback
+const MOCK_APPS = [
+  {
+    id: 'nextcloud',
+    name: 'Nextcloud',
+    description: 'Self-hosted productivity platform',
+    status: 'running',
+    version: '27.1.5',
+    updateAvailable: true,
+    newVersion: '28.0.0',
+    url: 'https://cloud.local',
+    resourceUsage: { cpu: 15, memory: 45, disk: 28 },
+    installedAt: '2024-01-15',
+  },
+  {
+    id: 'convertx',
+    name: 'ConvertX',
+    description: 'File conversion service',
+    status: 'running',
+    version: '1.2.0',
+    updateAvailable: false,
+    url: null,
+    resourceUsage: { cpu: 8, memory: 12, disk: 5 },
+    installedAt: '2024-02-20',
+  },
+  {
+    id: 'searxng',
+    name: 'SearXNG',
+    description: 'Privacy-respecting metasearch engine',
+    status: 'running',
+    version: '2024.1.1',
+    updateAvailable: false,
+    url: 'https://search.local',
+    resourceUsage: { cpu: 5, memory: 10, disk: 2 },
+    installedAt: '2024-03-01',
+  },
+  {
+    id: 'vaultwarden',
+    name: 'Vaultwarden',
+    description: 'Password manager server',
+    status: 'stopped',
+    version: '1.30.0',
+    updateAvailable: true,
+    newVersion: '1.31.0',
+    url: 'https://vault.local',
+    resourceUsage: { cpu: 0, memory: 0, disk: 1 },
+    installedAt: '2024-01-10',
+  },
+  {
+    id: 'jellyfin',
+    name: 'Jellyfin',
+    description: 'Media streaming server',
+    status: 'running',
+    version: '10.8.13',
+    updateAvailable: false,
+    url: 'https://media.local',
+    resourceUsage: { cpu: 25, memory: 35, disk: 150 },
+    installedAt: '2024-02-01',
+  },
+];
+
+const MOCK_CATALOG = [
+  { id: 'gitea', name: 'Gitea', description: 'Git service', category: 'Development' },
+  { id: 'immich', name: 'Immich', description: 'Photo management', category: 'Media' },
+  { id: 'homeassistant', name: 'Home Assistant', description: 'Home automation', category: 'IoT' },
+  { id: 'pihole', name: 'Pi-hole', description: 'Network ad blocker', category: 'Network' },
+  { id: 'syncthing', name: 'Syncthing', description: 'File synchronization', category: 'Storage' },
+];
 
 export default function Apps() {
   const navigate = useNavigate();
@@ -23,100 +92,59 @@ export default function Apps() {
   const { hasPermission } = useAuth();
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
-  const [filterStatus, setFilterStatus] = useState('all'); // 'all' | 'running' | 'stopped'
-  const [isLoading, setIsLoading] = useState(true);
-  const [apps, setApps] = useState([]);
-  const [actionLoading, setActionLoading] = useState(null);
+  const [viewMode, setViewMode] = useState('grid');
+  const [filterStatus, setFilterStatus] = useState('all');
   const [showInstallModal, setShowInstallModal] = useState(false);
-  const [availableApps, setAvailableApps] = useState([]);
+  const [useMockData, setUseMockData] = useState(false);
+  const [localApps, setLocalApps] = useState(MOCK_APPS);
+  const [actionLoading, setActionLoading] = useState(null);
 
+  // Fetch real data from API
+  const { apps: apiApps, isLoading, error: appsError, refetch } = useApps({ poll: true, pollInterval: 10000 });
+  const { apps: catalogApps, isLoading: catalogLoading, error: catalogError } = useCatalog({ immediate: true });
+  const { install, isLoading: installLoading } = useInstallApp();
+
+  // Detect API availability
   useEffect(() => {
-    loadApps();
-    loadAvailableApps();
-  }, []);
-
-  const loadApps = async () => {
-    setIsLoading(true);
-    try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      setApps([
-        {
-          id: 'nextcloud',
-          name: 'Nextcloud',
-          description: 'Self-hosted productivity platform',
-          status: 'running',
-          version: '27.1.5',
-          updateAvailable: true,
-          newVersion: '28.0.0',
-          url: 'https://cloud.local',
-          resourceUsage: { cpu: 15, memory: 45, disk: 28 },
-          installedAt: '2024-01-15',
-        },
-        {
-          id: 'convertx',
-          name: 'ConvertX',
-          description: 'File conversion service',
-          status: 'running',
-          version: '1.2.0',
-          updateAvailable: false,
-          url: null,
-          resourceUsage: { cpu: 8, memory: 12, disk: 5 },
-          installedAt: '2024-02-20',
-        },
-        {
-          id: 'searxng',
-          name: 'SearXNG',
-          description: 'Privacy-respecting metasearch engine',
-          status: 'running',
-          version: '2024.1.1',
-          updateAvailable: false,
-          url: 'https://search.local',
-          resourceUsage: { cpu: 5, memory: 10, disk: 2 },
-          installedAt: '2024-03-01',
-        },
-        {
-          id: 'vaultwarden',
-          name: 'Vaultwarden',
-          description: 'Password manager server',
-          status: 'stopped',
-          version: '1.30.0',
-          updateAvailable: true,
-          newVersion: '1.31.0',
-          url: 'https://vault.local',
-          resourceUsage: { cpu: 0, memory: 0, disk: 1 },
-          installedAt: '2024-01-10',
-        },
-        {
-          id: 'jellyfin',
-          name: 'Jellyfin',
-          description: 'Media streaming server',
-          status: 'running',
-          version: '10.8.13',
-          updateAvailable: false,
-          url: 'https://media.local',
-          resourceUsage: { cpu: 25, memory: 35, disk: 150 },
-          installedAt: '2024-02-01',
-        },
-      ]);
-    } catch (error) {
-      console.error('Failed to load apps:', error);
-    } finally {
-      setIsLoading(false);
+    if (appsError) {
+      setUseMockData(true);
     }
-  };
+  }, [appsError]);
 
-  const loadAvailableApps = async () => {
-    // Apps available for installation
-    setAvailableApps([
-      { id: 'gitea', name: 'Gitea', description: 'Git service', category: 'Development' },
-      { id: 'immich', name: 'Immich', description: 'Photo management', category: 'Media' },
-      { id: 'homeassistant', name: 'Home Assistant', description: 'Home automation', category: 'IoT' },
-      { id: 'pihole', name: 'Pi-hole', description: 'Network ad blocker', category: 'Network' },
-      { id: 'syncthing', name: 'Syncthing', description: 'File synchronization', category: 'Storage' },
-    ]);
-  };
+  // Transform API apps to display format
+  const apps = useMemo(() => {
+    if (useMockData || appsError) return localApps;
+    
+    return apiApps.map(app => ({
+      id: app.instance_id || app.id,
+      name: app.name || app.app_id,
+      description: app.description || '',
+      status: app.status || 'unknown',
+      version: app.version || 'N/A',
+      updateAvailable: app.update_available || false,
+      newVersion: app.new_version || null,
+      url: app.url || null,
+      resourceUsage: {
+        cpu: app.resource_usage?.cpu || 0,
+        memory: app.resource_usage?.memory || 0,
+        disk: app.resource_usage?.disk || 0,
+      },
+      installedAt: app.installed_at || new Date().toISOString().split('T')[0],
+    }));
+  }, [apiApps, appsError, useMockData, localApps]);
+
+  // Available apps for installation
+  const availableApps = useMemo(() => {
+    if (useMockData || catalogError) {
+      // Filter out already installed apps
+      const installedIds = new Set(localApps.map(a => a.id));
+      return MOCK_CATALOG.filter(a => !installedIds.has(a.id));
+    }
+    
+    // Filter catalog to exclude installed apps
+    const installedIds = new Set(apps.map(a => a.id));
+    return (catalogApps || []).filter(a => !installedIds.has(a.id));
+  }, [catalogApps, catalogError, apps, useMockData, localApps]);
 
   const handleAppAction = async (appId, action) => {
     if (!hasPermission('manage', appId)) {
@@ -128,24 +156,49 @@ export default function Apps() {
     haptic('medium');
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      setApps(prev => prev.map(app => {
-        if (app.id !== appId) return app;
+      if (useMockData) {
+        // Mock action simulation
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        setLocalApps(prev => prev.map(app => {
+          if (app.id !== appId) return app;
+          
+          switch (action) {
+            case 'start':
+              return { ...app, status: 'running' };
+            case 'stop':
+              return { ...app, status: 'stopped', resourceUsage: { cpu: 0, memory: 0, disk: app.resourceUsage.disk } };
+            case 'restart':
+              return { ...app, status: 'running' };
+            case 'update':
+              return { ...app, version: app.newVersion, updateAvailable: false };
+            default:
+              return app;
+          }
+        }));
+      } else {
+        // Real API call would go here
+        // The hooks would handle this, but for now we'll call directly
+        const appsApi = await import('../api/apps');
         
         switch (action) {
           case 'start':
-            return { ...app, status: 'running' };
+            await appsApi.startApp(appId);
+            break;
           case 'stop':
-            return { ...app, status: 'stopped', resourceUsage: { cpu: 0, memory: 0, disk: app.resourceUsage.disk } };
+            await appsApi.stopApp(appId);
+            break;
           case 'restart':
-            return { ...app, status: 'running' };
+            await appsApi.restartApp(appId);
+            break;
           case 'update':
-            return { ...app, version: app.newVersion, updateAvailable: false };
-          default:
-            return app;
+            await appsApi.updateApp(appId);
+            break;
         }
-      }));
+        
+        // Refresh apps list
+        await refetch();
+      }
     } catch (error) {
       console.error(`Failed to ${action} app:`, error);
     } finally {
@@ -155,23 +208,35 @@ export default function Apps() {
 
   const handleInstallApp = async (appToInstall) => {
     haptic('medium');
-    setShowInstallModal(false);
     
-    // Add to installed apps (simulated)
-    const newApp = {
-      id: appToInstall.id,
-      name: appToInstall.name,
-      description: appToInstall.description,
-      status: 'stopped',
-      version: '1.0.0',
-      updateAvailable: false,
-      url: null,
-      resourceUsage: { cpu: 0, memory: 0, disk: 0 },
-      installedAt: new Date().toISOString().split('T')[0],
-    };
-    
-    setApps(prev => [...prev, newApp]);
-    setAvailableApps(prev => prev.filter(a => a.id !== appToInstall.id));
+    if (useMockData) {
+      // Mock installation
+      setShowInstallModal(false);
+      
+      const newApp = {
+        id: appToInstall.id,
+        name: appToInstall.name,
+        description: appToInstall.description,
+        status: 'stopped',
+        version: '1.0.0',
+        updateAvailable: false,
+        url: null,
+        resourceUsage: { cpu: 0, memory: 0, disk: 0 },
+        installedAt: new Date().toISOString().split('T')[0],
+      };
+      
+      setLocalApps(prev => [...prev, newApp]);
+    } else {
+      try {
+        const result = await install(appToInstall.id, appToInstall.name);
+        if (result.success) {
+          setShowInstallModal(false);
+          await refetch();
+        }
+      } catch (error) {
+        console.error('Installation failed:', error);
+      }
+    }
   };
 
   const filteredApps = apps
@@ -181,7 +246,7 @@ export default function Apps() {
       return true;
     });
 
-  if (isLoading) {
+  if (isLoading && !useMockData) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <div className="text-center animate-pulse">
@@ -194,6 +259,18 @@ export default function Apps() {
 
   return (
     <div className="space-y-6">
+      {/* API Error Banner */}
+      {appsError && (
+        <Card padding="sm" className="border-dashed animate-pulse-subtle">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={18} className="text-[var(--color-accent)]" />
+            <p className="text-sm text-[var(--color-accent)]">
+              Unable to connect to API. Showing demo data.
+            </p>
+          </div>
+        </Card>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

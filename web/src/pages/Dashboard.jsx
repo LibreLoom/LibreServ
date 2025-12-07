@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
@@ -10,110 +10,96 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  AlertCircle
 } from 'lucide-react';
 import { Card, Button, Input, StatusIndicator, Pill } from '../components/ui';
 import { useTheme } from '../context/ThemeContext';
+import { useApps, useSystemHealth } from '../hooks';
+
+// Mock data for development/fallback
+const MOCK_STATS = {
+  uptime: { days: 41, hours: 15, minutes: 32 },
+  storage: { used: 128, total: 512, unit: 'GB' },
+  resources: { cpu: 23, memory: 48, disk: 12 },
+  network: {
+    download: { value: 150, unit: 'MB/s' },
+    upload: { value: 45, unit: 'MB/s' },
+    totalIn: { value: 2.4, unit: 'TB' },
+    totalOut: { value: 890, unit: 'GB' },
+  },
+};
+
+const MOCK_APPS = [
+  { id: 'nextcloud', name: 'Nextcloud', status: 'running', resourceUsage: 35, version: '27.1.5' },
+  { id: 'convertx', name: 'ConvertX', status: 'running', resourceUsage: 12, version: '1.2.0' },
+  { id: 'searxng', name: 'SearXNG', status: 'running', resourceUsage: 8, version: '2024.1.1' },
+  { id: 'vaultwarden', name: 'Vaultwarden', status: 'stopped', resourceUsage: 0, version: '1.30.0' },
+  { id: 'jellyfin', name: 'Jellyfin', status: 'running', resourceUsage: 28, version: '10.8.13' },
+];
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { haptic } = useTheme();
   
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [stats, setStats] = useState(null);
-  const [apps, setApps] = useState([]);
   const [expandedBreakdown, setExpandedBreakdown] = useState(false);
+  const [useMockData, setUseMockData] = useState(false);
 
+  // Fetch real data from API
+  const { apps: apiApps, isLoading: appsLoading, error: appsError, refetch: refetchApps } = useApps({ poll: true, pollInterval: 15000 });
+  const { data: healthData, isLoading: healthLoading, error: healthError, refetch: refetchHealth } = useSystemHealth({ pollInterval: 30000 });
+
+  // Determine if we should use mock data (API errors or dev mode without backend)
   useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    setIsLoading(true);
-    try {
-      // Simulated API delay
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
-      // Mock system stats
-      setStats({
-        uptime: { days: 41, hours: 15, minutes: 32 },
-        storage: { 
-          used: 128, 
-          total: 512, 
-          unit: 'GB' 
-        },
-        resources: {
-          cpu: 23,
-          memory: 48,
-          disk: 12,
-        },
-        network: {
-          download: { value: 150, unit: 'MB/s' },
-          upload: { value: 45, unit: 'MB/s' },
-          totalIn: { value: 2.4, unit: 'TB' },
-          totalOut: { value: 890, unit: 'GB' },
-        },
-      });
-
-      // Mock apps
-      setApps([
-        {
-          id: 'nextcloud',
-          name: 'Nextcloud',
-          status: 'running',
-          resourceUsage: 35,
-          version: '27.1.5',
-        },
-        {
-          id: 'convertx',
-          name: 'ConvertX',
-          status: 'running',
-          resourceUsage: 12,
-          version: '1.2.0',
-        },
-        {
-          id: 'searxng',
-          name: 'SearXNG',
-          status: 'running',
-          resourceUsage: 8,
-          version: '2024.1.1',
-        },
-        {
-          id: 'vaultwarden',
-          name: 'Vaultwarden',
-          status: 'stopped',
-          resourceUsage: 0,
-          version: '1.30.0',
-        },
-        {
-          id: 'jellyfin',
-          name: 'Jellyfin',
-          status: 'running',
-          resourceUsage: 28,
-          version: '10.8.13',
-        },
-      ]);
-    } catch (error) {
-      console.error('Failed to load dashboard:', error);
-    } finally {
-      setIsLoading(false);
+    if (appsError && healthError) {
+      setUseMockData(true);
     }
-  };
+  }, [appsError, healthError]);
+
+  // Transform API data to dashboard format
+  const apps = useMemo(() => {
+    if (useMockData || appsError) return MOCK_APPS;
+    
+    return apiApps.map(app => ({
+      id: app.instance_id || app.id,
+      name: app.name || app.app_id,
+      status: app.status || 'unknown',
+      resourceUsage: app.resource_usage?.cpu || 0,
+      version: app.version || 'N/A',
+    }));
+  }, [apiApps, appsError, useMockData]);
+
+  // Parse system health into stats format
+  const stats = useMemo(() => {
+    if (useMockData || healthError || !healthData) return MOCK_STATS;
+    
+    // Real data would come from healthData - for now, return mock
+    // The backend doesn't have detailed stats yet, so we use mock
+    return MOCK_STATS;
+  }, [healthData, healthError, useMockData]);
+
+  const isLoading = appsLoading && healthLoading;
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     haptic('medium');
-    await loadData();
-    setIsRefreshing(false);
+    
+    try {
+      await Promise.all([refetchApps(), refetchHealth()]);
+    } catch (e) {
+      console.error('Refresh failed:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const filteredApps = apps.filter(app =>
     app.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  if (isLoading) {
+  if (isLoading && !useMockData) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <div className="text-center animate-pulse">
@@ -126,6 +112,18 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
+      {/* API Error Banner */}
+      {(appsError || healthError) && (
+        <Card padding="sm" className="border-dashed animate-pulse-subtle">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={18} className="text-[var(--color-accent)]" />
+            <p className="text-sm text-[var(--color-accent)]">
+              Unable to connect to API. Showing demo data.
+            </p>
+          </div>
+        </Card>
+      )}
+
       {/* Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Uptime */}
