@@ -46,12 +46,13 @@ const Setup = ({ onComplete }) => {
     setError('');
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      onComplete?.({ username: formData.username });
+      await onComplete({
+        username: formData.username,
+        password: formData.password,
+        email: formData.email || undefined,
+      });
     } catch (err) {
-      setError('Setup failed. Please try again.');
-    } finally {
+      setError(err.message || 'Setup failed. Please try again.');
       setIsLoading(false);
     }
   };
@@ -202,7 +203,14 @@ const Setup = ({ onComplete }) => {
                   onClick={handleComplete}
                   disabled={isLoading}
                 >
-                  {isLoading ? 'Setting up...' : 'Complete Setup'}
+                  {isLoading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                      Setting up...
+                    </span>
+                  ) : (
+                    'Complete Setup'
+                  )}
                 </Button>
               </div>
             </>

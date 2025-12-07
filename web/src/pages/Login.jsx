@@ -12,19 +12,18 @@ const Login = ({ onLogin }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    
+    if (!username || !password) {
+      setError('Please enter username and password');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // TODO: Replace with actual API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      if (username && password) {
-        onLogin?.({ username });
-      } else {
-        setError('Please enter username and password');
-      }
+      await onLogin(username, password);
     } catch (err) {
-      setError('Login failed. Please try again.');
+      setError(err.message || 'Login failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -62,6 +61,7 @@ const Login = ({ onLogin }) => {
                   onChange={(e) => setUsername(e.target.value)}
                   autoComplete="username"
                   required
+                  disabled={isLoading}
                 />
               </div>
 
@@ -79,11 +79,13 @@ const Login = ({ onLogin }) => {
                     autoComplete="current-password"
                     required
                     className="pr-12"
+                    disabled={isLoading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[var(--color-accent)] hover:text-[var(--color-secondary)] transition-colors"
+                    disabled={isLoading}
                   >
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -98,7 +100,10 @@ const Login = ({ onLogin }) => {
               disabled={isLoading}
             >
               {isLoading ? (
-                'Signing in...'
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  Signing in...
+                </span>
               ) : (
                 <>
                   <LogIn size={18} />
