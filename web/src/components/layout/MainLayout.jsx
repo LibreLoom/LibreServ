@@ -19,7 +19,7 @@ const MainLayout = ({ user, systemStatus = 'operational' }) => {
         systemStatus={systemStatus}
       />
       
-      <main className="flex-1 px-4 md:px-6">
+      <main className="flex-1 px-6 md:px-12 py-8 max-w-[1600px] mx-auto w-full">
         <Outlet />
       </main>
       

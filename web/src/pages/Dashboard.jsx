@@ -131,14 +131,14 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6">
+    <div className="flex flex-col lg:flex-row gap-10">
       {/* Sidebar with Stats */}
       <Sidebar stats={stats} />
 
       {/* Main Content */}
-      <div className="flex-1">
+      <div className="flex-1 space-y-8">
         {/* Search Bar and Refresh */}
-        <div className="flex gap-3 mb-6">
+        <div className="flex gap-4">
           <div className="relative flex-1">
             <Search 
               className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-accent)]" 
@@ -178,7 +178,7 @@ const Dashboard = () => {
         )}
 
         {/* App Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {displayApps.map(app => (
             <AppCard 
               key={app.id} 

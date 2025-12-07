@@ -12,8 +12,8 @@
   --color-accent: #767676;
   
   /* Typography */
-  --font-heading: 'Courier Prime', 'Courier New', monospace;
-  --font-body: 'Noto Sans', 'Helvetica Neue', sans-serif;
+  --font-heading: 'Courier Prime', 'Courier New', Courier, monospace;
+  --font-body: 'Noto Sans', system-ui, -apple-system, sans-serif;
   
   /* Spacing */
   --spacing-xs: 0.25rem;

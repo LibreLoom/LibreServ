@@ -6,9 +6,9 @@ const StatCard = ({ title, value, subtitle, showBreakdown, breakdown }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <Card className="mb-4">
-      <h3 className="font-mono text-sm text-[var(--color-accent)] mb-1">{title}</h3>
-      <p className="font-mono text-2xl mb-1">{value}</p>
+    <Card>
+      <h3 className="font-mono text-sm text-[var(--color-accent)] mb-2">{title}</h3>
+      <p className="font-mono text-2xl mb-2">{value}</p>
       {subtitle && (
         <p className="text-sm text-[var(--color-accent)]">{subtitle}</p>
       )}
@@ -59,7 +59,7 @@ const Sidebar = ({ stats }) => {
   const storagePercent = Math.round((data.storage.used / data.storage.total) * 100);
 
   return (
-    <aside className="w-full lg:w-72 flex-shrink-0 p-4">
+    <aside className="w-full lg:w-80 flex-shrink-0 space-y-6">
       <StatCard
         title="Uptime"
         value={`${data.uptime.days} days, ${data.uptime.hours} hours`}

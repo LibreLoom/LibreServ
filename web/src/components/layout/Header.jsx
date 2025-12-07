@@ -6,15 +6,15 @@ const Header = ({
   systemStatus = 'operational', // 'operational' | 'degraded' | 'down'
 }) => {
   const statusConfig = {
-    operational: { text: 'All Systems Operational', status: 'success' },
-    degraded: { text: 'Some Systems Degraded', status: 'warning' },
-    down: { text: 'Systems Down', status: 'error' },
+    operational: { text: 'All Systems Operational', status: 'active' },
+    degraded: { text: 'Some Systems Degraded', status: 'attention' },
+    down: { text: 'Systems Down', status: 'attention' },
   };
 
   const { text, status } = statusConfig[systemStatus] || statusConfig.operational;
 
   return (
-    <header className="flex items-center justify-between px-6 py-4">
+    <header className="flex items-center justify-between px-6 md:px-12 py-8">
       <Pill>
         {greeting}, {userName}
       </Pill>
