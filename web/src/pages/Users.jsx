@@ -354,21 +354,21 @@ export default function Users() {
                         This user has full admin access to all apps.
                       </p>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {apps.map(app => {
                           const currentLevel = user.permissions[app.id] || 'none';
                           
                           return (
-                            <div key={app.id} className="flex items-center justify-between">
+                            <div key={app.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                               <span className="font-mono text-sm">{app.name}</span>
                               
-                              <div className="flex items-center gap-1">
+                              <div className="flex flex-wrap items-center gap-1">
                                 {Object.entries(PERMISSION_LEVELS).map(([level, { label }]) => (
                                   <button
                                     key={level}
                                     onClick={() => handleUpdatePermission(user.id, app.id, level)}
                                     className={`
-                                      px-3 py-1 text-xs font-mono rounded-full
+                                      px-2 sm:px-3 py-1 text-xs font-mono rounded-full
                                       border-2 border-[var(--color-secondary)]
                                       transition-all duration-200
                                       ${currentLevel === level 
@@ -403,7 +403,7 @@ export default function Users() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card padding="md" className="text-center">
           <p className="font-mono text-2xl">{users.length}</p>
           <p className="text-[var(--color-accent)] text-sm">Total Users</p>

@@ -101,15 +101,15 @@ export default function Profile() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center gap-6">
+      <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
         {/* Avatar */}
-        <div className="w-20 h-20 rounded-full border-2 border-[var(--color-secondary)] flex items-center justify-center font-mono text-2xl">
+        <div className="w-20 h-20 rounded-full border-2 border-[var(--color-secondary)] flex items-center justify-center font-mono text-2xl flex-shrink-0">
           {getInitials(profile.displayName)}
         </div>
         
         <div>
-          <h1 className="font-mono text-2xl">{profile.displayName}</h1>
-          <div className="flex items-center gap-2 mt-1">
+          <h1 className="font-mono text-xl sm:text-2xl">{profile.displayName}</h1>
+          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mt-1">
             <Pill size="sm" variant="filled">
               <Shield size={12} />
               {user?.role || 'Admin'}

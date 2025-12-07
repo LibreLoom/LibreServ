@@ -250,7 +250,7 @@ export default function Settings() {
           <h3 className="font-mono text-sm mb-3 text-[var(--color-accent)]">
             Light Mode
           </h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm mb-2">Primary</label>
               <div className="flex items-center gap-2">
@@ -258,12 +258,12 @@ export default function Settings() {
                   type="color"
                   value={localColors.light?.primary || '#FFFFFF'}
                   onChange={(e) => handleColorChange('light', 'primary', e.target.value)}
-                  className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer"
+                  className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer flex-shrink-0"
                 />
                 <Input
                   value={localColors.light?.primary || '#FFFFFF'}
                   onChange={(e) => handleColorChange('light', 'primary', e.target.value)}
-                  className="flex-1 font-mono text-sm"
+                  className="flex-1 font-mono text-sm min-w-0"
                   maxLength={7}
                 />
               </div>
@@ -275,12 +275,12 @@ export default function Settings() {
                   type="color"
                   value={localColors.light?.secondary || '#000000'}
                   onChange={(e) => handleColorChange('light', 'secondary', e.target.value)}
-                  className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer"
+                  className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer flex-shrink-0"
                 />
                 <Input
                   value={localColors.light?.secondary || '#000000'}
                   onChange={(e) => handleColorChange('light', 'secondary', e.target.value)}
-                  className="flex-1 font-mono text-sm"
+                  className="flex-1 font-mono text-sm min-w-0"
                   maxLength={7}
                 />
               </div>
@@ -292,12 +292,12 @@ export default function Settings() {
                   type="color"
                   value={localColors.light?.accent || '#767676'}
                   onChange={(e) => handleColorChange('light', 'accent', e.target.value)}
-                  className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer"
+                  className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer flex-shrink-0"
                 />
                 <Input
                   value={localColors.light?.accent || '#767676'}
                   onChange={(e) => handleColorChange('light', 'accent', e.target.value)}
-                  className="flex-1 font-mono text-sm"
+                  className="flex-1 font-mono text-sm min-w-0"
                   maxLength={7}
                 />
               </div>
@@ -340,7 +340,7 @@ export default function Settings() {
             <h3 className="font-mono text-sm mb-3 text-[var(--color-accent)]">
               Dark Mode
             </h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm mb-2">Primary</label>
                 <div className="flex items-center gap-2">
@@ -348,12 +348,12 @@ export default function Settings() {
                     type="color"
                     value={localColors.dark?.primary || '#000000'}
                     onChange={(e) => handleColorChange('dark', 'primary', e.target.value)}
-                    className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer"
+                    className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer flex-shrink-0"
                   />
                   <Input
                     value={localColors.dark?.primary || '#000000'}
                     onChange={(e) => handleColorChange('dark', 'primary', e.target.value)}
-                    className="flex-1 font-mono text-sm"
+                    className="flex-1 font-mono text-sm min-w-0"
                     maxLength={7}
                   />
                 </div>
@@ -365,12 +365,12 @@ export default function Settings() {
                     type="color"
                     value={localColors.dark?.secondary || '#FFFFFF'}
                     onChange={(e) => handleColorChange('dark', 'secondary', e.target.value)}
-                    className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer"
+                    className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer flex-shrink-0"
                   />
                   <Input
                     value={localColors.dark?.secondary || '#FFFFFF'}
                     onChange={(e) => handleColorChange('dark', 'secondary', e.target.value)}
-                    className="flex-1 font-mono text-sm"
+                    className="flex-1 font-mono text-sm min-w-0"
                     maxLength={7}
                   />
                 </div>
@@ -382,12 +382,12 @@ export default function Settings() {
                     type="color"
                     value={localColors.dark?.accent || '#767676'}
                     onChange={(e) => handleColorChange('dark', 'accent', e.target.value)}
-                    className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer"
+                    className="w-10 h-10 rounded-full border-2 border-[var(--color-secondary)] cursor-pointer flex-shrink-0"
                   />
                   <Input
                     value={localColors.dark?.accent || '#767676'}
                     onChange={(e) => handleColorChange('dark', 'accent', e.target.value)}
-                    className="flex-1 font-mono text-sm"
+                    className="flex-1 font-mono text-sm min-w-0"
                     maxLength={7}
                   />
                 </div>
