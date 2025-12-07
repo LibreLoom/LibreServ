@@ -6,29 +6,31 @@ const StatCard = ({ title, value, subtitle, showBreakdown, breakdown }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <Card>
-      <h3 className="font-mono text-sm text-[var(--color-accent)] mb-2">{title}</h3>
-      <p className="font-mono text-2xl mb-2">{value}</p>
+    <Card className="p-6">
+      <h3 className="font-mono text-sm text-[var(--color-accent)] mb-3">{title}</h3>
+      <div className="font-mono text-2xl">
+        {value}
+      </div>
       {subtitle && (
-        <p className="text-sm text-[var(--color-accent)]">{subtitle}</p>
+        <p className="font-mono text-lg mt-1">{subtitle}</p>
       )}
       
       {showBreakdown && breakdown && (
         <>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-1 mt-3 font-mono text-xs text-[var(--color-accent)] hover:text-[var(--color-secondary)] transition-colors"
+            className="flex items-center gap-2 mt-4 font-mono text-sm text-[var(--color-secondary)] hover:opacity-70 transition-opacity"
           >
-            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            <span className="text-[var(--color-accent)]">▼</span>
             {isExpanded ? 'Hide Breakdown' : 'Show Breakdown'}
           </button>
           
           {isExpanded && (
-            <div className="mt-3 pt-3 border-t border-[var(--color-secondary)]/20 animate-slide-up">
+            <div className="mt-3 pt-2 space-y-1 animate-slide-up">
               {breakdown.map((item, index) => (
-                <div key={index} className="flex justify-between items-center py-1 text-sm">
+                <div key={index} className="flex justify-between items-center text-xs font-mono">
                   <span className="text-[var(--color-accent)]">{item.label}</span>
-                  <span className="font-mono">{item.value}</span>
+                  <span>{item.value}</span>
                 </div>
               ))}
             </div>
@@ -68,19 +70,23 @@ const Sidebar = ({ stats }) => {
       <StatCard
         title="Storage Usage"
         value={
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-3">
             <StatusDot 
               status={storagePercent > 90 ? 'attention' : storagePercent > 75 ? 'neutral' : 'active'} 
             />
-            {data.storage.used}/{data.storage.total}GB
+            <span>{data.storage.used}/{data.storage.total}GB ({storagePercent}%)</span>
           </span>
         }
-        subtitle={`${storagePercent}% used`}
       />
       
       <StatCard
         title="Overall Resource Usage"
-        value={`${data.resources.overall}%`}
+        value={
+          <span className="flex items-center gap-3">
+            <StatusDot status="active" />
+            <span>{data.resources.overall}%</span>
+          </span>
+        }
         showBreakdown
         breakdown={data.resources.breakdown}
       />

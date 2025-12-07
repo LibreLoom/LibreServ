@@ -20,74 +20,63 @@ const AppCard = ({
   const { status: dotStatus, text: statusText } = statusMap[app.status] || statusMap.stopped;
 
   return (
-    <Card className="h-full min-h-[280px] flex flex-col justify-between">
+    <Card className="h-full min-h-[320px] flex flex-col relative p-6">
       {/* Top Section */}
-      <div>
+      <div className="space-y-4">
         {/* Header */}
-        <div className="flex items-start justify-between mb-6">
+        <h3 className="font-mono text-xl border-b-2 border-[var(--color-secondary)] pb-2 mb-4">
+          {app.name}
+        </h3>
+
+        {/* Stats Grid */}
+        <div className="space-y-3 font-mono text-sm">
+          {/* Status */}
           <div>
-            <h3 className="font-mono text-lg">{app.name}</h3>
-            <div className="flex items-center gap-2 mt-1">
+            <p className="text-[var(--color-accent)] mb-1">Status</p>
+            <div className="flex items-center gap-2">
               <StatusDot status={dotStatus} />
-              <span className="text-sm text-[var(--color-accent)]">{statusText}</span>
+              <span>{statusText}</span>
             </div>
           </div>
-          {app.url && (
-            <a 
-              href={app.url} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="p-2 hover:bg-[var(--color-secondary)]/10 rounded-full transition-colors"
-              title="Open in new tab"
-            >
-              <ExternalLink size={16} />
-            </a>
-          )}
-        </div>
 
-        {/* Resource Usage */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between text-sm mb-1">
-            <span className="text-[var(--color-accent)]">Resource Usage</span>
-            <span className="font-mono">{app.resourceUsage || 0}%</span>
-          </div>
-          <div className="h-1.5 bg-[var(--color-secondary)]/20 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-[var(--color-secondary)] rounded-full transition-all duration-500"
-              style={{ width: `${app.resourceUsage || 0}%` }}
-            />
+          {/* Resource Usage */}
+          <div>
+            <p className="text-[var(--color-accent)] mb-1">Resource Usage</p>
+            <div className="flex items-center gap-2">
+              <StatusDot status={'active'} />
+              <span>{app.resourceUsage || 0}%</span>
+            </div>
           </div>
         </div>
 
         {/* Breakdown Toggle */}
         {app.breakdown && (
-          <>
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center gap-1 font-mono text-xs text-[var(--color-accent)] hover:text-[var(--color-secondary)] transition-colors mb-4"
-            >
-              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              {isExpanded ? 'Hide Breakdown' : 'Show Breakdown'}
-            </button>
-            
-            {isExpanded && (
-              <div className="mb-4 pt-3 border-t border-[var(--color-secondary)]/20 animate-slide-up">
-                {app.breakdown.map((item, index) => (
-                  <div key={index} className="flex justify-between items-center py-1 text-sm">
-                    <span className="text-[var(--color-accent)]">{item.label}</span>
-                    <span className="font-mono">{item.value}</span>
-                  </div>
-                ))}
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="flex items-center gap-2 font-mono text-sm text-[var(--color-secondary)] hover:opacity-70 transition-opacity mt-2"
+          >
+            <span className="text-[var(--color-accent)]">▼</span>
+            {isExpanded ? 'Hide Breakdown' : 'Show Breakdown'}
+          </button>
+        )}
+        
+        {isExpanded && app.breakdown && (
+          <div className="pt-2 space-y-1 animate-slide-up">
+            {app.breakdown.map((item, index) => (
+              <div key={index} className="flex justify-between text-xs font-mono">
+                <span className="text-[var(--color-accent)]">{item.label}</span>
+                <span>{item.value}</span>
               </div>
-            )}
-          </>
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Actions */}
-      <div className="mt-auto pt-4 border-t border-[var(--color-secondary)]/20">
+      {/* Manage Button - Floating Pill at Bottom Center */}
+      <div className="mt-auto pt-6 flex justify-center">
         <Button 
-          className="w-full"
+          variant="outline"
+          className="px-8"
           onClick={() => onManage?.(app)}
         >
           Manage

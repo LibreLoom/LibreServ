@@ -15,7 +15,7 @@ const Input = forwardRef(({
         px-4 py-3
         font-sans text-base
         border-2 border-[var(--color-secondary)]
-        rounded-full
+        rounded-2xl
         bg-[var(--color-primary)]
         text-[var(--color-secondary)]
         placeholder:text-[var(--color-accent)]
