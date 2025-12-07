@@ -1,0 +1,48 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: "{{.instance_id}}-searxng"
+    restart: unless-stopped
+    ports:
+      - "{{.http_port}}:8080"
+    environment:
+      - "SEARXNG_BASE_URL=http://localhost:{{.http_port}}/"
+      - "SEARXNG_SECRET={{.secret_key}}"
+    volumes:
+      - "{{ configPath }}/searxng:/etc/searxng:rw"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    depends_on:
+      - redis
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"
+    networks:
+      - searxng-net
+
+  redis:
+    image: redis:alpine
+    container_name: "{{.instance_id}}-redis"
+    restart: unless-stopped
+    command: redis-server --save 30 1 --loglevel warning
+    volumes:
+      - "{{ dataPath }}/redis:/data"
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.component=redis"
+    networks:
+      - searxng-net
+
+networks:
+  searxng-net:
+    driver: bridge

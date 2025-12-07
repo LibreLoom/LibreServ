@@ -19,14 +19,31 @@ func NewComposeManager(client *Client) *ComposeManager {
 	return &ComposeManager{client: client}
 }
 
+// getComposeArgs returns the compose file argument based on whether a full path or directory is provided
+func (cm *ComposeManager) getComposeArgs(composePath string) (composeFile string, workDir string) {
+	// Check if composePath is a file or directory
+	if strings.HasSuffix(composePath, ".yml") || strings.HasSuffix(composePath, ".yaml") {
+		// Full path to compose file
+		composeFile = composePath
+		workDir = filepath.Dir(composePath)
+	} else {
+		// Directory path - look for docker-compose.yml
+		composeFile = filepath.Join(composePath, "docker-compose.yml")
+		workDir = composePath
+	}
+	return
+}
+
 // Up runs `docker compose up -d`
 // Implements Recommendation #7: Custom App Security (Sandboxing) via RunCustomAppSafely wrapper (future)
-func (cm *ComposeManager) Up(ctx context.Context, projectPath string) error {
+func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
+	composeFile, workDir := cm.getComposeArgs(composePath)
+	
 	cmd := exec.CommandContext(ctx, "docker", "compose",
-		"-f", filepath.Join(projectPath, "docker-compose.yml"),
+		"-f", composeFile,
 		"up", "-d", "--remove-orphans")
 	
-	cmd.Dir = projectPath
+	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// Implements Recommendation #1: Better Error Messages
@@ -42,12 +59,14 @@ func (cm *ComposeManager) Up(ctx context.Context, projectPath string) error {
 	return nil
 }
 
-func (cm *ComposeManager) Down(ctx context.Context, projectPath string) error {
+func (cm *ComposeManager) Down(ctx context.Context, composePath string) error {
+	composeFile, workDir := cm.getComposeArgs(composePath)
+	
 	cmd := exec.CommandContext(ctx, "docker", "compose",
-		"-f", filepath.Join(projectPath, "docker-compose.yml"),
+		"-f", composeFile,
 		"down")
 	
-	cmd.Dir = projectPath
+	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("compose down failed: %s: %w", string(output), err)
@@ -55,15 +74,33 @@ func (cm *ComposeManager) Down(ctx context.Context, projectPath string) error {
 	return nil
 }
 
-func (cm *ComposeManager) Pull(ctx context.Context, projectPath string) error {
+func (cm *ComposeManager) Pull(ctx context.Context, composePath string) error {
+	composeFile, workDir := cm.getComposeArgs(composePath)
+	
 	cmd := exec.CommandContext(ctx, "docker", "compose",
-		"-f", filepath.Join(projectPath, "docker-compose.yml"),
+		"-f", composeFile,
 		"pull")
 	
-	cmd.Dir = projectPath
+	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("compose pull failed: %s: %w", string(output), err)
+	}
+	return nil
+}
+
+// Stop stops containers without removing them
+func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
+	composeFile, workDir := cm.getComposeArgs(composePath)
+	
+	cmd := exec.CommandContext(ctx, "docker", "compose",
+		"-f", composeFile,
+		"stop")
+	
+	cmd.Dir = workDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("compose stop failed: %s: %w", string(output), err)
 	}
 	return nil
 }

@@ -123,3 +123,29 @@ func (c *Client) HealthCheck() error {
 func (c *Client) Close() error {
 	return c.cli.Close()
 }
+
+// Compose operations - delegate to ComposeManager
+
+// ComposeUp starts containers defined in a compose file
+func (c *Client) ComposeUp(ctx context.Context, composePath string) error {
+	cm := NewComposeManager(c)
+	return cm.Up(ctx, composePath)
+}
+
+// ComposeDown stops and removes containers defined in a compose file
+func (c *Client) ComposeDown(ctx context.Context, composePath string) error {
+	cm := NewComposeManager(c)
+	return cm.Down(ctx, composePath)
+}
+
+// ComposePull pulls images defined in a compose file
+func (c *Client) ComposePull(ctx context.Context, composePath string) error {
+	cm := NewComposeManager(c)
+	return cm.Pull(ctx, composePath)
+}
+
+// ComposeStop stops containers without removing them
+func (c *Client) ComposeStop(ctx context.Context, composePath string) error {
+	cm := NewComposeManager(c)
+	return cm.Stop(ctx, composePath)
+}

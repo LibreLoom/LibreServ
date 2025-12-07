@@ -1,0 +1,64 @@
+id: convertx
+name: ConvertX
+description: Self-hosted file converter supporting 800+ formats including documents, images, audio, video, and archives
+version: "0.5.2"
+category: utility
+icon: https://raw.githubusercontent.com/C4illin/ConvertX/main/public/favicon.svg
+website: https://github.com/C4illin/ConvertX
+repository: https://github.com/C4illin/ConvertX
+featured: false
+
+deployment:
+  compose_file: docker-compose.yml
+  ports:
+    - host: 3000
+      container: 3000
+      protocol: tcp
+  volumes:
+    - name: data
+      mount_path: /app/data
+  restart_policy: unless-stopped
+
+configuration:
+  - name: http_port
+    label: HTTP Port
+    description: Port to access ConvertX web interface
+    type: port
+    default: 3000
+    required: true
+    env_var: HTTP_PORT
+  - name: http_allowed
+    label: Allowed HTTP Origins
+    description: Comma-separated list of allowed origins for CORS (use * for all)
+    type: string
+    default: "*"
+    required: false
+    env_var: HTTP_ALLOWED
+  - name: account_registration
+    label: Allow Registration
+    description: Allow new users to register accounts
+    type: boolean
+    default: true
+    required: false
+    env_var: ACCOUNT_REGISTRATION
+
+health_check:
+  type: http
+  endpoint: /
+  port: 3000
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+requirements:
+  min_ram: "512M"
+  min_cpu: 0.5
+  min_disk: "2G"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: true
+  allow_downgrade: false

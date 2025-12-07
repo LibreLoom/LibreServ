@@ -1,0 +1,84 @@
+services:
+  librechat:
+    image: ghcr.io/danny-avila/librechat-dev-api:latest
+    container_name: "{{.instance_id}}-librechat"
+    restart: always
+    ports:
+      - "{{.http_port}}:3080"
+    depends_on:
+      - mongodb
+{{- if .enable_meilisearch }}
+      - meilisearch
+{{- end }}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - "HOST=0.0.0.0"
+      - "NODE_ENV=production"
+      - "MONGO_URI=mongodb://mongodb:27017/LibreChat"
+      - "APP_TITLE={{.app_title}}"
+      - "ALLOW_REGISTRATION={{.allow_registration}}"
+      - "ALLOW_SOCIAL_LOGIN={{.allow_social_login}}"
+      - "JWT_SECRET={{.jwt_secret}}"
+      - "JWT_REFRESH_SECRET={{.jwt_refresh_secret}}"
+      - "CREDS_KEY={{.creds_key}}"
+      - "CREDS_IV={{.creds_iv}}"
+{{- if .openai_api_key }}
+      - "OPENAI_API_KEY={{.openai_api_key}}"
+{{- end }}
+{{- if .anthropic_api_key }}
+      - "ANTHROPIC_API_KEY={{.anthropic_api_key}}"
+{{- end }}
+{{- if .google_key }}
+      - "GOOGLE_KEY={{.google_key}}"
+{{- end }}
+{{- if .enable_meilisearch }}
+      - "SEARCH=true"
+      - "MEILI_HOST=http://meilisearch:7700"
+      - "MEILI_MASTER_KEY={{.meili_master_key}}"
+{{- end }}
+    volumes:
+      - "{{ dataPath }}/librechat/images:/app/client/public/images"
+      - "{{ dataPath }}/librechat/uploads:/app/uploads"
+      - "{{ dataPath }}/librechat/logs:/app/api/logs"
+      - "{{ configPath }}/librechat/librechat.yaml:/app/librechat.yaml"
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"
+    networks:
+      - librechat-net
+
+  mongodb:
+    image: mongo:latest
+    container_name: "{{.instance_id}}-mongodb"
+    restart: always
+    command: mongod --noauth
+    volumes:
+      - "{{ dataPath }}/mongodb:/data/db"
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.component=mongodb"
+    networks:
+      - librechat-net
+
+{{- if .enable_meilisearch }}
+  meilisearch:
+    image: getmeili/meilisearch:v1.12.3
+    container_name: "{{.instance_id}}-meilisearch"
+    restart: always
+    environment:
+      - "MEILI_HOST=http://meilisearch:7700"
+      - "MEILI_NO_ANALYTICS=true"
+      - "MEILI_MASTER_KEY={{.meili_master_key}}"
+    volumes:
+      - "{{ dataPath }}/meilisearch:/meili_data"
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.component=meilisearch"
+    networks:
+      - librechat-net
+{{- end }}
+
+networks:
+  librechat-net:
+    driver: bridge

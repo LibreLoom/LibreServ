@@ -1,0 +1,86 @@
+id: searxng
+name: SearXNG
+description: Privacy-respecting, hackable metasearch engine aggregating results from multiple search engines without tracking
+version: latest
+category: search
+icon: https://docs.searxng.org/_static/searxng-wordmark.svg
+website: https://docs.searxng.org
+repository: https://github.com/searxng/searxng
+featured: true
+
+deployment:
+  compose_file: docker-compose.yml
+  ports:
+    - host: 8080
+      container: 8080
+      protocol: tcp
+  volumes:
+    - name: config
+      mount_path: /etc/searxng
+  depends_on:
+    - redis
+  restart_policy: unless-stopped
+
+configuration:
+  - name: http_port
+    label: HTTP Port
+    description: Port to access SearXNG web interface
+    type: port
+    default: 8080
+    required: true
+    env_var: SEARXNG_PORT
+  - name: instance_name
+    label: Instance Name
+    description: Name shown in the SearXNG interface
+    type: string
+    default: "LibreServ SearXNG"
+    required: false
+  - name: secret_key
+    label: Secret Key
+    description: Secret key for SearXNG (auto-generated if empty)
+    type: password
+    required: false
+    env_var: SEARXNG_SECRET
+  - name: autocomplete
+    label: Autocomplete Engine
+    description: Search engine to use for autocomplete suggestions
+    type: select
+    options:
+      - ""
+      - google
+      - duckduckgo
+      - qwant
+      - wikipedia
+    default: "duckduckgo"
+    required: false
+  - name: safe_search
+    label: Safe Search Default
+    description: Default safe search level (0=off, 1=moderate, 2=strict)
+    type: select
+    options:
+      - "0"
+      - "1"
+      - "2"
+    default: "1"
+    required: false
+
+health_check:
+  type: http
+  endpoint: /healthz
+  port: 8080
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+requirements:
+  min_ram: "256M"
+  min_cpu: 0.25
+  min_disk: "500M"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: true
+  allow_downgrade: false

@@ -1,0 +1,15 @@
+services:
+  convertx:
+    image: ghcr.io/c4illin/convertx:latest
+    container_name: "{{.instance_id}}-convertx"
+    restart: unless-stopped
+    ports:
+      - "{{.http_port}}:3000"
+    environment:
+      - "HTTP_ALLOWED={{.http_allowed}}"
+      - "ACCOUNT_REGISTRATION={{.account_registration}}"
+    volumes:
+      - "{{ dataPath }}/convertx:/app/data"
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"

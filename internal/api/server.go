@@ -10,20 +10,22 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 )
 
 // Server represents the HTTP API server
 type Server struct {
-	router     chi.Router
-	httpServer *http.Server
-	addr       string
-	db         *database.DB
-	logger     *slog.Logger
+	router      chi.Router
+	httpServer  *http.Server
+	addr        string
+	db          *database.DB
+	appManager  *apps.Manager
+	logger      *slog.Logger
 }
 
 // NewServer creates a new API server instance
-func NewServer(host string, port int, db *database.DB) *Server {
+func NewServer(host string, port int, db *database.DB, appManager *apps.Manager) *Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	logger := slog.Default().With("component", "api")
 
@@ -40,10 +42,11 @@ func NewServer(host string, port int, db *database.DB) *Server {
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 
 	server := &Server{
-		router: r,
-		addr:   addr,
-		db:     db,
-		logger: logger,
+		router:     r,
+		addr:       addr,
+		db:         db,
+		appManager: appManager,
+		logger:     logger,
 	}
 
 	// Setup routes

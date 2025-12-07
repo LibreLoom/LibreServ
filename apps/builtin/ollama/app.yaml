@@ -1,0 +1,94 @@
+id: ollama
+name: Ollama
+description: Run large language models locally with a simple API. Supports Llama, Mistral, Code Llama, and many more models
+version: latest
+category: ai
+icon: https://ollama.ai/public/ollama.png
+website: https://ollama.ai
+repository: https://github.com/ollama/ollama
+featured: true
+
+deployment:
+  compose_file: docker-compose.yml
+  ports:
+    - host: 11434
+      container: 11434
+      protocol: tcp
+  volumes:
+    - name: models
+      mount_path: /root/.ollama
+  restart_policy: unless-stopped
+  gpu:
+    supported: true
+    required: false
+    runtime: nvidia
+
+configuration:
+  - name: api_port
+    label: API Port
+    description: Port for Ollama API access
+    type: port
+    default: 11434
+    required: true
+    env_var: OLLAMA_PORT
+  - name: enable_gpu
+    label: Enable GPU
+    description: Enable NVIDIA GPU acceleration (requires nvidia-container-toolkit)
+    type: boolean
+    default: false
+    required: false
+  - name: gpu_count
+    label: GPU Count
+    description: Number of GPUs to use (0 for all available)
+    type: number
+    default: 0
+    required: false
+  - name: num_parallel
+    label: Parallel Requests
+    description: Number of parallel requests to handle
+    type: number
+    default: 1
+    required: false
+    env_var: OLLAMA_NUM_PARALLEL
+  - name: max_loaded_models
+    label: Max Loaded Models
+    description: Maximum number of models to keep in memory
+    type: number
+    default: 1
+    required: false
+    env_var: OLLAMA_MAX_LOADED_MODELS
+  - name: host
+    label: Listen Address
+    description: Address to listen on (0.0.0.0 for all interfaces)
+    type: string
+    default: "0.0.0.0"
+    required: false
+    env_var: OLLAMA_HOST
+  - name: origins
+    label: Allowed Origins
+    description: Comma-separated list of allowed CORS origins
+    type: string
+    default: "*"
+    required: false
+    env_var: OLLAMA_ORIGINS
+
+health_check:
+  type: http
+  endpoint: /api/tags
+  port: 11434
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+requirements:
+  min_ram: "4G"
+  min_cpu: 2.0
+  min_disk: "20G"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: false
+  allow_downgrade: true

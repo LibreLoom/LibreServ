@@ -10,8 +10,10 @@ import (
 
 // setupRoutes configures all API routes
 func (s *Server) setupRoutes() {
-	// Health handlers
+	// Handlers
 	healthHandler := handlers.NewHealthHandler(s.db)
+	catalogHandler := handlers.NewCatalogHandler(s.appManager)
+	appsHandler := handlers.NewAppsHandler(s.appManager)
 
 	// Public routes (no authentication required)
 	s.router.Group(func(r chi.Router) {
@@ -35,21 +37,25 @@ func (s *Server) setupRoutes() {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.Auth())
 
-			// Apps management
-			r.Route("/apps", func(r chi.Router) {
-				r.Get("/", s.notImplemented)          // List all apps
-				r.Get("/{appID}", s.notImplemented)   // Get single app
-				r.Post("/{appID}/start", s.notImplemented)
-				r.Post("/{appID}/stop", s.notImplemented)
-				r.Post("/{appID}/restart", s.notImplemented)
-				r.Delete("/{appID}", s.notImplemented) // Uninstall app
+			// Catalog - browse available apps
+			r.Route("/catalog", func(r chi.Router) {
+				r.Get("/", catalogHandler.ListApps)
+				r.Get("/categories", catalogHandler.GetCategories)
+				r.Post("/refresh", catalogHandler.RefreshCatalog)
+				r.Get("/{appId}", catalogHandler.GetApp)
 			})
 
-			// Catalog
-			r.Route("/catalog", func(r chi.Router) {
-				r.Get("/", s.notImplemented)          // List available apps
-				r.Get("/{appID}", s.notImplemented)   // Get catalog app details
-				r.Post("/{appID}/install", s.notImplemented)
+			// Apps management - installed apps
+			r.Route("/apps", func(r chi.Router) {
+				r.Get("/", appsHandler.ListInstalledApps)
+				r.Post("/", appsHandler.InstallApp)
+				r.Get("/{instanceId}", appsHandler.GetInstalledApp)
+				r.Delete("/{instanceId}", appsHandler.UninstallApp)
+				r.Get("/{instanceId}/status", appsHandler.GetAppStatus)
+				r.Post("/{instanceId}/start", appsHandler.StartApp)
+				r.Post("/{instanceId}/stop", appsHandler.StopApp)
+				r.Post("/{instanceId}/restart", appsHandler.RestartApp)
+				r.Post("/{instanceId}/update", appsHandler.UpdateApp)
 			})
 
 			// Monitoring

@@ -1,0 +1,137 @@
+id: librechat
+name: LibreChat
+description: Enhanced ChatGPT clone supporting multiple AI providers (OpenAI, Anthropic, Google, Azure, local models via Ollama) with conversation branching, plugins, and multi-user support
+version: latest
+category: ai
+icon: https://raw.githubusercontent.com/danny-avila/LibreChat/main/client/public/assets/logo.svg
+website: https://librechat.ai
+repository: https://github.com/danny-avila/LibreChat
+featured: true
+
+deployment:
+  compose_file: docker-compose.yml
+  ports:
+    - host: 3080
+      container: 3080
+      protocol: tcp
+  volumes:
+    - name: data
+      mount_path: /app/data
+    - name: images
+      mount_path: /app/client/public/images
+    - name: logs
+      mount_path: /app/api/logs
+  depends_on:
+    - mongodb
+  restart_policy: always
+
+configuration:
+  - name: http_port
+    label: HTTP Port
+    description: Port to access LibreChat web interface
+    type: port
+    default: 3080
+    required: true
+    env_var: PORT
+  - name: app_title
+    label: App Title
+    description: Title shown in the web interface
+    type: string
+    default: "LibreChat"
+    required: false
+    env_var: APP_TITLE
+  - name: allow_registration
+    label: Allow Registration
+    description: Allow new users to register accounts
+    type: boolean
+    default: true
+    required: false
+    env_var: ALLOW_REGISTRATION
+  - name: allow_social_login
+    label: Allow Social Login
+    description: Enable social login providers (Google, GitHub, etc.)
+    type: boolean
+    default: false
+    required: false
+    env_var: ALLOW_SOCIAL_LOGIN
+  - name: openai_api_key
+    label: OpenAI API Key
+    description: API key for OpenAI models (optional - can be user-provided)
+    type: password
+    required: false
+    env_var: OPENAI_API_KEY
+  - name: anthropic_api_key
+    label: Anthropic API Key
+    description: API key for Claude models (optional - can be user-provided)
+    type: password
+    required: false
+    env_var: ANTHROPIC_API_KEY
+  - name: google_key
+    label: Google AI API Key
+    description: API key for Google AI/Gemini models (optional)
+    type: password
+    required: false
+    env_var: GOOGLE_KEY
+  - name: ollama_base_url
+    label: Ollama Base URL
+    description: URL to Ollama API for local models (e.g., http://host.docker.internal:11434)
+    type: string
+    default: ""
+    required: false
+  - name: enable_meilisearch
+    label: Enable Search
+    description: Enable Meilisearch for conversation search
+    type: boolean
+    default: true
+    required: false
+  - name: meili_master_key
+    label: Meilisearch Master Key
+    description: Master key for Meilisearch (auto-generated if empty)
+    type: password
+    required: false
+    env_var: MEILI_MASTER_KEY
+  - name: jwt_secret
+    label: JWT Secret
+    description: Secret key for JWT tokens (auto-generated if empty)
+    type: password
+    required: false
+    env_var: JWT_SECRET
+  - name: jwt_refresh_secret
+    label: JWT Refresh Secret
+    description: Secret key for JWT refresh tokens (auto-generated if empty)
+    type: password
+    required: false
+    env_var: JWT_REFRESH_SECRET
+  - name: creds_key
+    label: Credentials Encryption Key
+    description: 32-char key for encrypting stored credentials (auto-generated if empty)
+    type: password
+    required: false
+    env_var: CREDS_KEY
+  - name: creds_iv
+    label: Credentials IV
+    description: 16-char initialization vector for encryption (auto-generated if empty)
+    type: password
+    required: false
+    env_var: CREDS_IV
+
+health_check:
+  type: http
+  endpoint: /api/health
+  port: 3080
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+requirements:
+  min_ram: "2G"
+  min_cpu: 1.0
+  min_disk: "5G"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: true
+  allow_downgrade: false
