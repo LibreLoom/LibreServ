@@ -10,9 +10,14 @@ import (
 type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
+	Auth     AuthConfig     `mapstructure:"auth"`
 	Apps     AppsConfig     `mapstructure:"apps"`
 	Docker   DockerConfig   `mapstructure:"docker"`
 	Logging  LoggingConfig  `mapstructure:"logging"`
+}
+
+type AuthConfig struct {
+	JWTSecret string `mapstructure:"jwt_secret"` // Auto-generated if empty
 }
 
 type ServerConfig struct {

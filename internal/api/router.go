@@ -14,6 +14,14 @@ func (s *Server) setupRoutes() {
 	healthHandler := handlers.NewHealthHandler(s.db)
 	catalogHandler := handlers.NewCatalogHandler(s.appManager)
 	appsHandler := handlers.NewAppsHandler(s.appManager)
+	authHandler := handlers.NewAuthHandler(s.authService)
+	setupHandler := handlers.NewSetupHandler(s.authService)
+
+	// Auth middleware config
+	authConfig := &middleware.AuthConfig{
+		AuthService: s.authService,
+		DevMode:     s.devMode,
+	}
 
 	// Public routes (no authentication required)
 	s.router.Group(func(r chi.Router) {
@@ -28,14 +36,26 @@ func (s *Server) setupRoutes() {
 
 	// API v1 routes
 	s.router.Route("/api/v1", func(r chi.Router) {
+		// Setup routes (public, but only work when setup is incomplete)
+		r.Route("/setup", func(r chi.Router) {
+			r.Get("/status", setupHandler.GetStatus)
+			r.Post("/complete", setupHandler.CompleteSetup)
+		})
+
 		// Public auth routes
 		r.Group(func(r chi.Router) {
-			r.Post("/auth/login", s.notImplemented)
+			r.Post("/auth/login", authHandler.Login)
+			r.Post("/auth/register", authHandler.Register)
+			r.Post("/auth/refresh", authHandler.RefreshToken)
 		})
 
 		// Protected routes (require authentication)
 		r.Group(func(r chi.Router) {
-			r.Use(middleware.Auth())
+			r.Use(middleware.Auth(authConfig))
+
+			// Auth - authenticated user endpoints
+			r.Get("/auth/me", authHandler.Me)
+			r.Post("/auth/change-password", authHandler.ChangePassword)
 
 			// Catalog - browse available apps
 			r.Route("/catalog", func(r chi.Router) {
@@ -75,6 +95,7 @@ func (s *Server) setupRoutes() {
 
 			// Users (admin only)
 			r.Route("/users", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", s.notImplemented)
 				r.Post("/", s.notImplemented)
 				r.Get("/{userID}", s.notImplemented)

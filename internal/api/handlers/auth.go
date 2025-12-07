@@ -1,0 +1,170 @@
+package handlers
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+)
+
+// AuthHandler handles authentication-related API endpoints
+type AuthHandler struct {
+	authService *auth.Service
+}
+
+// NewAuthHandler creates a new AuthHandler
+func NewAuthHandler(authService *auth.Service) *AuthHandler {
+	return &AuthHandler{
+		authService: authService,
+	}
+}
+
+// Login handles POST /api/v1/auth/login
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var req auth.LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Username == "" || req.Password == "" {
+		JSONError(w, http.StatusBadRequest, "username and password are required")
+		return
+	}
+
+	response, err := h.authService.Login(r.Context(), &req)
+	if err != nil {
+		if err == auth.ErrInvalidCredentials {
+			JSONError(w, http.StatusUnauthorized, "invalid username or password")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "login failed")
+		return
+	}
+
+	JSON(w, http.StatusOK, response)
+}
+
+// Register handles POST /api/v1/auth/register
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var req auth.RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Username == "" || req.Password == "" {
+		JSONError(w, http.StatusBadRequest, "username and password are required")
+		return
+	}
+
+	user, err := h.authService.Register(r.Context(), &req)
+	if err != nil {
+		if err == auth.ErrUserExists {
+			JSONError(w, http.StatusConflict, "username already exists")
+			return
+		}
+		if err == auth.ErrPasswordTooShort {
+			JSONError(w, http.StatusBadRequest, "password must be at least 8 characters")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "registration failed")
+		return
+	}
+
+	JSON(w, http.StatusCreated, map[string]interface{}{
+		"message": "user registered successfully",
+		"user":    user,
+	})
+}
+
+// RefreshToken handles POST /api/v1/auth/refresh
+func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.RefreshToken == "" {
+		JSONError(w, http.StatusBadRequest, "refresh_token is required")
+		return
+	}
+
+	tokens, err := h.authService.RefreshTokens(req.RefreshToken)
+	if err != nil {
+		if err == auth.ErrInvalidToken || err == auth.ErrExpiredToken {
+			JSONError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "failed to refresh token")
+		return
+	}
+
+	JSON(w, http.StatusOK, tokens)
+}
+
+// ChangePasswordRequest represents a password change request
+type ChangePasswordRequest struct {
+	OldPassword string `json:"old_password"`
+	NewPassword string `json:"new_password"`
+}
+
+// ChangePassword handles POST /api/v1/auth/change-password
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	// Get user from context (set by auth middleware)
+	userID := r.Context().Value("user_id")
+	if userID == nil {
+		JSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.OldPassword == "" || req.NewPassword == "" {
+		JSONError(w, http.StatusBadRequest, "old_password and new_password are required")
+		return
+	}
+
+	err := h.authService.ChangePassword(r.Context(), userID.(string), req.OldPassword, req.NewPassword)
+	if err != nil {
+		if err == auth.ErrInvalidCredentials {
+			JSONError(w, http.StatusUnauthorized, "current password is incorrect")
+			return
+		}
+		if err == auth.ErrPasswordTooShort {
+			JSONError(w, http.StatusBadRequest, "new password must be at least 8 characters")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "failed to change password")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{
+		"message": "password changed successfully",
+	})
+}
+
+// Me handles GET /api/v1/auth/me
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	// Get user ID from context (set by auth middleware)
+	userID := r.Context().Value("user_id")
+	if userID == nil {
+		JSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	user, err := h.authService.GetUserByID(r.Context(), userID.(string))
+	if err != nil {
+		JSONError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	JSON(w, http.StatusOK, user)
+}
