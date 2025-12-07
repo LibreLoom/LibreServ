@@ -14,23 +14,25 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
 // Server represents the HTTP API server
 type Server struct {
-	router      chi.Router
-	httpServer  *http.Server
-	addr        string
-	db          *database.DB
-	appManager  *apps.Manager
-	authService *auth.Service
-	monitor     *monitoring.Monitor
-	devMode     bool
-	logger      *slog.Logger
+	router        chi.Router
+	httpServer    *http.Server
+	addr          string
+	db            *database.DB
+	appManager    *apps.Manager
+	authService   *auth.Service
+	monitor       *monitoring.Monitor
+	backupService *storage.BackupService
+	devMode       bool
+	logger        *slog.Logger
 }
 
 // NewServer creates a new API server instance
-func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, devMode bool) *Server {
+func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, backupService *storage.BackupService, devMode bool) *Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	logger := slog.Default().With("component", "api")
 
@@ -47,14 +49,15 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 
 	server := &Server{
-		router:      r,
-		addr:        addr,
-		db:          db,
-		appManager:  appManager,
-		authService: authService,
-		monitor:     monitor,
-		devMode:     devMode,
-		logger:      logger,
+		router:        r,
+		addr:          addr,
+		db:            db,
+		appManager:    appManager,
+		authService:   authService,
+		monitor:       monitor,
+		backupService: backupService,
+		devMode:       devMode,
+		logger:        logger,
 	}
 
 	// Setup routes

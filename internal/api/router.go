@@ -17,6 +17,7 @@ func (s *Server) setupRoutes() {
 	authHandler := handlers.NewAuthHandler(s.authService)
 	setupHandler := handlers.NewSetupHandler(s.authService)
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor)
+	backupHandler := handlers.NewBackupHandlers(s.backupService)
 
 	// Auth middleware config
 	authConfig := &middleware.AuthConfig{
@@ -96,10 +97,15 @@ func (s *Server) setupRoutes() {
 
 			// Backups
 			r.Route("/backups", func(r chi.Router) {
-				r.Get("/", s.notImplemented)          // List backups
-				r.Post("/", s.notImplemented)         // Create backup
-				r.Post("/{backupID}/restore", s.notImplemented)
-				r.Delete("/{backupID}", s.notImplemented)
+				r.Get("/", backupHandler.ListBackups)
+				r.Post("/", backupHandler.CreateBackup)
+				r.Get("/{backupID}", backupHandler.GetBackup)
+				r.Post("/{backupID}/restore", backupHandler.RestoreBackup)
+				r.Delete("/{backupID}", backupHandler.DeleteBackup)
+				
+				// Database backups
+				r.Get("/database", backupHandler.ListDatabaseBackups)
+				r.Post("/database", backupHandler.CreateDatabaseBackup)
 			})
 
 			// Users (admin only)
