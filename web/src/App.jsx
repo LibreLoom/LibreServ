@@ -11,6 +11,8 @@ import Users from './pages/Users';
 import Settings from './pages/Settings';
 import Profile from './pages/Profile';
 import Support from './pages/Support';
+import Network from './pages/Network';
+import SetupWizard from './pages/SetupWizard';
 
 // Placeholder for pages not yet built
 function PlaceholderPage({ title }) {
@@ -64,10 +66,14 @@ function LoginPage() {
 
 // Routes with auth
 function AppRoutes() {
-  const { user, isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isAuthenticated, isSetupComplete } = useAuth();
 
   if (isLoading) {
     return <LoadingScreen />;
+  }
+
+  if (!isSetupComplete) {
+    return <SetupWizard />;
   }
 
   if (!isAuthenticated) {
@@ -83,6 +89,7 @@ function AppRoutes() {
           <Route path="/apps/:appId" element={<AppDetail />} />
           <Route path="/users" element={<Users />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/network" element={<Network />} />
           <Route path="/support" element={<Support />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="*" element={<Navigate to="/" replace />} />

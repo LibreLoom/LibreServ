@@ -9,7 +9,8 @@ import {
   User,
   Menu,
   X,
-  GripVertical
+  GripVertical,
+  Wifi
 } from 'lucide-react';
 import { useNavigation } from '../context/NavigationContext';
 import { useTheme } from '../context/ThemeContext';
@@ -19,6 +20,7 @@ const navItems = [
   { path: '/apps', label: 'Apps', icon: AppWindow },
   { path: '/users', label: 'Users', icon: Users },
   { path: '/settings', label: 'Settings', icon: Settings },
+  { path: '/network', label: 'Network', icon: Wifi },
   { path: '/support', label: 'Support', icon: HelpCircle },
 ];
 

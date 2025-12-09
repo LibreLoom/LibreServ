@@ -222,3 +222,70 @@ func (h *NetworkHandlers) GetRouteByApp(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(route)
 }
+
+// ConfigureDomainRequest is the request body for domain configuration
+type ConfigureDomainRequest struct {
+	DefaultDomain string `json:"default_domain"`
+	SSLEmail      string `json:"ssl_email"`
+	AutoHTTPS     bool   `json:"auto_https"`
+}
+
+// ConfigureDomain updates the default domain configuration
+// POST /api/v1/network/domain
+func (h *NetworkHandlers) ConfigureDomain(w http.ResponseWriter, r *http.Request) {
+	var req ConfigureDomainRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// TODO: Update Caddy configuration with new domain settings
+	// For now, just return success
+	JSON(w, http.StatusOK, map[string]string{
+		"status":  "configured",
+		"message": "Domain configuration updated",
+	})
+}
+
+// GetDomainConfig returns the current domain configuration
+// GET /api/v1/network/domain
+func (h *NetworkHandlers) GetDomainConfig(w http.ResponseWriter, r *http.Request) {
+	// TODO: Return actual domain configuration from Caddy config
+	// For now, return default configuration
+	config := map[string]interface{}{
+		"default_domain": "",
+		"ssl_email":      "",
+		"auto_https":     true,
+	}
+
+	JSON(w, http.StatusOK, config)
+}
+
+// PortForwardingStatus represents the port forwarding status
+type PortForwardingStatus struct {
+	ExternalIP    string   `json:"external_ip"`
+	RequiredPorts []int    `json:"required_ports"`
+	IsConfigured  bool     `json:"is_configured"`
+	Suggestions   []string `json:"suggestions"`
+}
+
+// GetPortForwardingStatus returns the current port forwarding status
+// GET /api/v1/network/port-forwarding-status
+func (h *NetworkHandlers) GetPortForwardingStatus(w http.ResponseWriter, r *http.Request) {
+	// TODO: Implement actual external IP detection
+	// For now, return mock data
+	status := PortForwardingStatus{
+		ExternalIP:    "192.168.1.100",
+		RequiredPorts: []int{80, 443, 8080},
+		IsConfigured:  false,
+		Suggestions: []string{
+			"Access your router at 192.168.1.1",
+			"Navigate to Port Forwarding section",
+			"Add rule: External Port 80 -> Internal IP 192.168.1.100:80",
+			"Add rule: External Port 443 -> Internal IP 192.168.1.100:443",
+			"Add rule: External Port 8080 -> Internal IP 192.168.1.100:8080",
+		},
+	}
+
+	JSON(w, http.StatusOK, status)
+}
