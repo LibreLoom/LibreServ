@@ -1,0 +1,75 @@
+id: nextcloud-aio
+name: Nextcloud AIO
+description: Official Nextcloud All-in-One stack with built-in updater, Talk, and full suite managed by the AIO master container
+version: latest
+category: productivity
+icon: https://nextcloud.com/wp-content/themes/next/assets/img/common/nextcloud-square-logo.png
+website: https://nextcloud.com/all-in-one
+repository: https://github.com/nextcloud/all-in-one
+featured: true
+
+deployment:
+  compose_file: docker-compose.yml
+  ports:
+    - host: 80
+      container: 80
+      protocol: tcp
+    - host: 443
+      container: 443
+      protocol: tcp
+    - host: 8080
+      container: 8080
+      protocol: tcp
+  volumes:
+    - name: aio-config
+      mount_path: /mnt/docker-aio-config
+    - name: ncdata
+      mount_path: /mnt/ncdata
+  restart_policy: unless-stopped
+
+configuration:
+  - name: http_port
+    label: HTTP Port
+    description: Public HTTP port exposed by the master container (per Nextcloud AIO docs)
+    type: port
+    default: 80
+    required: true
+  - name: https_port
+    label: HTTPS Port
+    description: Public HTTPS port exposed by the master container (per Nextcloud AIO docs)
+    type: port
+    default: 443
+    required: true
+  - name: aio_port
+    label: AIO Admin Port
+    description: Local-only admin interface port (default 8080 as documented)
+    type: port
+    default: 8080
+    required: true
+  - name: data_dir
+    label: Data Directory
+    description: Host path for Nextcloud data, passed via NEXTCLOUD_DATADIR (officially supported)
+    type: string
+    default: "{{ dataPath }}/ncdata"
+    required: true
+
+health_check:
+  type: http
+  endpoint: /
+  port: 8080
+  interval: 30s
+  timeout: 15s
+  retries: 5
+
+requirements:
+  min_ram: "4G"
+  min_cpu: 2
+  min_disk: "20G"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: true
+  allow_downgrade: false

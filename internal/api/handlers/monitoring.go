@@ -7,18 +7,24 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 )
 
 // MonitoringHandlers handles monitoring-related API endpoints
 type MonitoringHandlers struct {
 	monitor *monitoring.Monitor
+	db      *database.DB
+	docker  *docker.Client
 }
 
 // NewMonitoringHandlers creates new monitoring handlers
-func NewMonitoringHandlers(monitor *monitoring.Monitor) *MonitoringHandlers {
+func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, dockerClient *docker.Client) *MonitoringHandlers {
 	return &MonitoringHandlers{
 		monitor: monitor,
+		db:      db,
+		docker:  dockerClient,
 	}
 }
 
@@ -174,19 +180,27 @@ func (h *MonitoringHandlers) UnregisterHealthCheck(w http.ResponseWriter, r *htt
 // SystemHealth returns overall system health
 // GET /api/system/health
 func (h *MonitoringHandlers) SystemHealth(w http.ResponseWriter, r *http.Request) {
-	// TODO: Add more comprehensive system health checks
-	// - Docker daemon connectivity
-	// - Database health
-	// - Disk space
-	// - Memory usage
-	
+	dbStatus := "healthy"
+	if err := h.db.HealthCheck(); err != nil {
+		dbStatus = "unhealthy"
+	}
+
+	dockerStatus := "unknown"
+	if h.docker != nil {
+		if err := h.docker.HealthCheck(); err != nil {
+			dockerStatus = "unhealthy"
+		} else {
+			dockerStatus = "healthy"
+		}
+	}
+
 	response := map[string]interface{}{
 		"status":    "healthy",
 		"timestamp": time.Now(),
 		"checks": map[string]interface{}{
-			"api":       "healthy",
-			"database":  "healthy",
-			"docker":    "healthy",
+			"api":      "healthy",
+			"database": dbStatus,
+			"docker":   dockerStatus,
 		},
 	}
 

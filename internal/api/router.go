@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
@@ -16,8 +17,14 @@ func (s *Server) setupRoutes() {
 	appsHandler := handlers.NewAppsHandler(s.appManager)
 	authHandler := handlers.NewAuthHandler(s.authService)
 	setupHandler := handlers.NewSetupHandler(s.authService)
-	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor)
+	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient)
 	backupHandler := handlers.NewBackupHandlers(s.backupService)
+	usersHandler := handlers.NewUsersHandler(s.authService)
+	settingsHandler := handlers.NewSettingsHandler()
+	var networkHandler *handlers.NetworkHandlers
+	if s.caddyManager != nil {
+		networkHandler = handlers.NewNetworkHandlers(s.caddyManager)
+	}
 
 	// Auth middleware config
 	authConfig := &middleware.AuthConfig{
@@ -102,29 +109,49 @@ func (s *Server) setupRoutes() {
 				r.Get("/{backupID}", backupHandler.GetBackup)
 				r.Post("/{backupID}/restore", backupHandler.RestoreBackup)
 				r.Delete("/{backupID}", backupHandler.DeleteBackup)
-				
+
 				// Database backups
 				r.Get("/database", backupHandler.ListDatabaseBackups)
 				r.Post("/database", backupHandler.CreateDatabaseBackup)
 			})
 
+			// Network / Caddy
+			if networkHandler != nil {
+				r.Route("/network", func(r chi.Router) {
+					r.Get("/status", networkHandler.GetCaddyStatus)
+					r.Get("/routes", networkHandler.ListRoutes)
+					r.Post("/routes", networkHandler.CreateRoute)
+					r.Get("/routes/{routeID}", networkHandler.GetRoute)
+					r.Put("/routes/{routeID}", networkHandler.UpdateRoute)
+					r.Delete("/routes/{routeID}", networkHandler.DeleteRoute)
+					r.Get("/caddyfile", networkHandler.GetCaddyfile)
+					r.Post("/test-backend", networkHandler.TestBackend)
+				})
+			}
+
 			// Users (admin only)
 			r.Route("/users", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
-				r.Get("/", s.notImplemented)
-				r.Post("/", s.notImplemented)
-				r.Get("/{userID}", s.notImplemented)
-				r.Put("/{userID}", s.notImplemented)
-				r.Delete("/{userID}", s.notImplemented)
+				r.Get("/", usersHandler.ListUsers)
+				r.Post("/", usersHandler.CreateUser)
+				r.Get("/{userID}", usersHandler.GetUser)
+				r.Put("/{userID}", usersHandler.UpdateUser)
+				r.Delete("/{userID}", usersHandler.DeleteUser)
 			})
 
 			// Settings
 			r.Route("/settings", func(r chi.Router) {
-				r.Get("/", s.notImplemented)
-				r.Put("/", s.notImplemented)
+				r.Get("/", settingsHandler.Get)
+				r.Put("/", settingsHandler.Update)
 			})
 		})
 	})
+
+	// Serve static frontend (SPA) for all other routes
+	s.router.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.staticDir, "assets")))))
+	s.router.Handle("/", http.HandlerFunc(s.serveSPA))
+	s.router.Handle("/*", http.HandlerFunc(s.serveSPA))
+	s.router.NotFound(http.HandlerFunc(s.serveSPA))
 }
 
 // notImplemented is a placeholder handler for routes not yet implemented

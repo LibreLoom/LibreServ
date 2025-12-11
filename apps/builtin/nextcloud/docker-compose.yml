@@ -1,0 +1,36 @@
+version: "3.8"
+
+# Based on the official Nextcloud AIO installation documentation:
+# https://github.com/nextcloud/all-in-one/blob/main/compose.yml
+services:
+  nextcloud-aio-mastercontainer:
+    image: nextcloud/all-in-one:latest
+    container_name: "{{.instance_id}}-nextcloud-aio-master"
+    restart: unless-stopped
+    ports:
+      - "{{.http_port}}:80"
+      - "{{.https_port}}:443"
+      - "{{.aio_port}}:8080"
+    environment:
+      - NEXTCLOUD_DATADIR={{.data_dir}}
+    volumes:
+      - "{{ dataPath }}/aio-config:/mnt/docker-aio-config"
+      - "{{ dataPath }}/ncdata:/mnt/ncdata"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    stop_grace_period: 1m
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"
+    networks:
+      - nextcloud-aio
+
+networks:
+  nextcloud-aio:
+    driver: bridge

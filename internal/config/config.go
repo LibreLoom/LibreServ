@@ -14,6 +14,7 @@ type Config struct {
 	Apps     AppsConfig     `mapstructure:"apps"`
 	Docker   DockerConfig   `mapstructure:"docker"`
 	Logging  LoggingConfig  `mapstructure:"logging"`
+	Network  NetworkConfig  `mapstructure:"network"`
 }
 
 type AuthConfig struct {
@@ -59,6 +60,20 @@ type SSHConfig struct {
 type LoggingConfig struct {
 	Level string `mapstructure:"level"`
 	Path  string `mapstructure:"path"`
+}
+
+// NetworkConfig holds reverse proxy settings (Caddy)
+type NetworkConfig struct {
+	Caddy CaddyConfig `mapstructure:"caddy"`
+}
+
+// CaddyConfig mirrors the network.CaddyConfig but avoids import cycles
+type CaddyConfig struct {
+	AdminAPI      string `mapstructure:"admin_api"`
+	ConfigPath    string `mapstructure:"config_path"`
+	DefaultDomain string `mapstructure:"default_domain"`
+	Email         string `mapstructure:"email"`
+	AutoHTTPS     bool   `mapstructure:"auto_https"`
 }
 
 var globalConfig *Config

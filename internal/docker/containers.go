@@ -2,9 +2,11 @@ package docker
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 )
 
 type ContainerStats struct {
@@ -16,9 +18,15 @@ type ContainerStats struct {
 }
 
 func (c *Client) ListContainersByLabel(label string) ([]types.Container, error) {
+	if c == nil || c.cli == nil {
+		return nil, errors.New("docker client not initialized")
+	}
+	args := filters.NewArgs()
+	args.Add("label", label)
+
 	return c.cli.ContainerList(c.ctx, container.ListOptions{
-		// Filter by label would go here
-		All: true,
+		All:     true,
+		Filters: args,
 	})
 }
 
@@ -39,7 +47,7 @@ func (c *Client) GetContainerStats(containerID string) (*ContainerStats, error) 
 	// Calculate CPU Percent (simplified)
 	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage) - float64(v.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(v.CPUStats.SystemUsage) - float64(v.PreCPUStats.SystemUsage)
-	
+
 	cpuPercent := 0.0
 	if systemDelta > 0.0 && cpuDelta > 0.0 {
 		cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0

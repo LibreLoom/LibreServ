@@ -11,6 +11,10 @@ go.work
 web/node_modules/
 web/dist/
 web/.vite/
+node_modules/
+package-lock.json
+node_modules/
+package-lock.json
 
 # Development
 dev/

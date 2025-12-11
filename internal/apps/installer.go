@@ -5,16 +5,19 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 	"time"
 
 	"gopkg.in/yaml.v3"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 )
 
 // Installer handles app installation and configuration
@@ -24,16 +27,18 @@ type Installer struct {
 	db          *database.DB
 	appsDataDir string
 	logger      *slog.Logger
+	monitor     *monitoring.Monitor
 }
 
 // NewInstaller creates a new Installer
-func NewInstaller(catalog *Catalog, dockerClient *docker.Client, db *database.DB, appsDataDir string) *Installer {
+func NewInstaller(catalog *Catalog, dockerClient *docker.Client, db *database.DB, appsDataDir string, monitor *monitoring.Monitor) *Installer {
 	return &Installer{
 		catalog:     catalog,
 		docker:      dockerClient,
 		db:          db,
 		appsDataDir: appsDataDir,
 		logger:      slog.Default().With("component", "installer"),
+		monitor:     monitor,
 	}
 }
 
@@ -46,9 +51,9 @@ type InstallOptions struct {
 
 // InstallResult contains the result of an installation
 type InstallResult struct {
-	Success    bool           `json:"success"`
-	App        *InstalledApp  `json:"app,omitempty"`
-	Error      string         `json:"error,omitempty"`
+	Success bool          `json:"success"`
+	App     *InstalledApp `json:"app,omitempty"`
+	Error   string        `json:"error,omitempty"`
 }
 
 // Install installs an app from the catalog
@@ -136,11 +141,24 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 
 	// Update status to running
 	installedApp.Status = StatusRunning
+	installedApp.HealthStatus = HealthUnknown
 
 	// Determine URL if app exposes a web interface
 	if len(appDef.Deployment.Ports) > 0 {
 		port := appDef.Deployment.Ports[0].Host
 		installedApp.URL = fmt.Sprintf("http://localhost:%d", port)
+	}
+
+	// Persist installed app
+	if err := i.saveInstalledApp(installedApp); err != nil {
+		i.logger.Error("Failed to save installed app", "error", err)
+	}
+
+	// Register default health checks if configured
+	if i.monitor != nil {
+		if err := i.registerHealth(appDef, instanceID, config); err != nil {
+			i.logger.Warn("Failed to register health check", "error", err)
+		}
 	}
 
 	i.logger.Info("App installed successfully", "app_id", opts.AppID, "instance_id", instanceID)
@@ -268,7 +286,7 @@ func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition
 func (i *Installer) createDataDirectories(installPath string, appDef *AppDefinition) error {
 	// Create standard directories
 	dirs := []string{"data", "config", "logs"}
-	
+
 	for _, dir := range dirs {
 		path := filepath.Join(installPath, dir)
 		if err := os.MkdirAll(path, 0755); err != nil {
@@ -324,6 +342,21 @@ func (i *Installer) ValidateConfig(appID string, config map[string]interface{}) 
 
 // Helper functions
 
+// saveInstalledApp stores an installed app record in the database
+func (i *Installer) saveInstalledApp(app *InstalledApp) error {
+	configJSON, err := json.Marshal(app.Config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal app config: %w", err)
+	}
+
+	_, err = i.db.Exec(`
+		INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, app.ID, app.Name, string(app.Type), app.AppID, app.Path, string(app.Status), string(app.HealthStatus), app.InstalledAt, app.UpdatedAt, string(configJSON))
+
+	return err
+}
+
 func generateInstanceID() string {
 	bytes := make([]byte, 8)
 	rand.Read(bytes)
@@ -338,4 +371,69 @@ func generateSecurePassword(length int) string {
 		bytes[i] = chars[int(b)%len(chars)]
 	}
 	return string(bytes)
+}
+
+// registerHealth converts app definition health config to monitoring config and registers it
+func (i *Installer) registerHealth(appDef *AppDefinition, instanceID string, cfg map[string]interface{}) error {
+	hc := appDef.HealthCheck
+	if hc.Type == "" {
+		return nil
+	}
+
+	const (
+		defaultInterval = 30 * time.Second
+		defaultTimeout  = 10 * time.Second
+	)
+
+	mcfg := monitoring.HealthCheckConfig{
+		Interval:         hc.Interval,
+		Timeout:          hc.Timeout,
+		FailureThreshold: hc.Retries,
+		SuccessThreshold: 1,
+	}
+	if mcfg.Interval == 0 {
+		mcfg.Interval = defaultInterval
+	}
+	if mcfg.Timeout == 0 {
+		mcfg.Timeout = defaultTimeout
+	}
+	if mcfg.FailureThreshold == 0 {
+		mcfg.FailureThreshold = 3
+	}
+
+	switch strings.ToLower(hc.Type) {
+	case "http":
+		port := hc.Port
+		if port == 0 && len(appDef.Deployment.Ports) > 0 {
+			port = appDef.Deployment.Ports[0].Host
+		}
+		if port == 0 {
+			return fmt.Errorf("no port available for http health check")
+		}
+		endpoint := hc.Endpoint
+		if endpoint == "" {
+			endpoint = "/"
+		}
+		mcfg.HTTP = &monitoring.HTTPCheckConfig{
+			URL:            fmt.Sprintf("http://localhost:%d%s", port, endpoint),
+			Method:         "GET",
+			ExpectedStatus: 200,
+		}
+	case "tcp":
+		host := "localhost"
+		port := hc.Port
+		if port == 0 && len(appDef.Deployment.Ports) > 0 {
+			port = appDef.Deployment.Ports[0].Host
+		}
+		if port == 0 {
+			return fmt.Errorf("no port available for tcp health check")
+		}
+		mcfg.TCP = &monitoring.TCPCheckConfig{Host: host, Port: port}
+	case "container":
+		mcfg.Container = &monitoring.ContainerCheckConfig{ContainerName: instanceID}
+	default:
+		return nil
+	}
+
+	return i.monitor.RegisterApp(instanceID, mcfg)
 }

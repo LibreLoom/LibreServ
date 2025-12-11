@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,7 +16,9 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
@@ -29,10 +34,13 @@ type Server struct {
 	backupService *storage.BackupService
 	devMode       bool
 	logger        *slog.Logger
+	staticDir     string
+	dockerClient  *docker.Client
+	caddyManager  *network.CaddyManager
 }
 
 // NewServer creates a new API server instance
-func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, backupService *storage.BackupService, devMode bool) *Server {
+func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, backupService *storage.BackupService, dockerClient *docker.Client, caddyManager *network.CaddyManager, devMode bool) *Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	logger := slog.Default().With("component", "api")
 
@@ -58,6 +66,9 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 		backupService: backupService,
 		devMode:       devMode,
 		logger:        logger,
+		staticDir:     resolveStaticDir(),
+		dockerClient:  dockerClient,
+		caddyManager:  caddyManager,
 	}
 
 	// Setup routes
@@ -89,4 +100,33 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // Router returns the chi router (useful for testing)
 func (s *Server) Router() chi.Router {
 	return s.router
+}
+
+// serveSPA serves static assets from the web/dist directory with index.html fallback for SPA routes
+func (s *Server) serveSPA(w http.ResponseWriter, r *http.Request) {
+	s.logger.Debug("SPA handler", "path", r.URL.Path, "static_dir", s.staticDir)
+	// Prevent directory traversal
+	path := strings.TrimPrefix(filepath.Clean(r.URL.Path), "/")
+	if path == "" || path == "." {
+		path = "index.html"
+	}
+
+	staticPath := filepath.Join(s.staticDir, path)
+
+	// If the file does not exist, serve index.html for client-side routing
+	if _, err := os.Stat(staticPath); err != nil {
+		http.ServeFile(w, r, filepath.Join(s.staticDir, "index.html"))
+		return
+	}
+
+	http.ServeFile(w, r, staticPath)
+}
+
+// resolveStaticDir returns an absolute path to the built frontend assets
+func resolveStaticDir() string {
+	abs, err := filepath.Abs("./web/dist")
+	if err != nil {
+		return "./web/dist"
+	}
+	return abs
 }

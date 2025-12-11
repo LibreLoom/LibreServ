@@ -18,3 +18,11 @@ docker:
 logging:
   level: debug
   path: "./dev/logs"
+
+network:
+  caddy:
+    admin_api: ""
+    config_path: "./dev/caddy/Caddyfile"
+    default_domain: "localhost"
+    email: ""
+    auto_https: false
