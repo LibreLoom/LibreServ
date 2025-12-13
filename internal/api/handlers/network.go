@@ -2,22 +2,37 @@ package handlers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
 
 // NetworkHandlers handles network-related API endpoints
 type NetworkHandlers struct {
 	caddyManager *network.CaddyManager
+	appManager   *apps.Manager
+	checkLimiter *middleware.LeakyBucket
+	acmeHandler  *ACMEHandler
 }
 
 // NewNetworkHandlers creates new network handlers
-func NewNetworkHandlers(caddyManager *network.CaddyManager) *NetworkHandlers {
+func NewNetworkHandlers(caddyManager *network.CaddyManager, appManager *apps.Manager) *NetworkHandlers {
 	return &NetworkHandlers{
 		caddyManager: caddyManager,
+		appManager:   appManager,
+		checkLimiter: middleware.NewLeakyBucket(10, 30), // allow light bursts for typeahead checks
+		acmeHandler:  nil,
 	}
+}
+
+// WithACME allows injecting ACME handler for auto-issuance.
+func (h *NetworkHandlers) WithACME(acme *ACMEHandler) *NetworkHandlers {
+	h.acmeHandler = acme
+	return h
 }
 
 // GetCaddyStatus returns the current Caddy status
@@ -45,6 +60,16 @@ func (h *NetworkHandlers) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func detectExternalIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	local := conn.LocalAddr().(*net.UDPAddr)
+	return local.IP.String()
+}
+
 // GetRoute returns a specific route
 // GET /api/network/routes/{routeID}
 func (h *NetworkHandlers) GetRoute(w http.ResponseWriter, r *http.Request) {
@@ -64,11 +89,49 @@ func (h *NetworkHandlers) GetRoute(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(route)
 }
 
+// CheckRouteAvailability checks whether a subdomain+domain is free
+// POST /api/network/routes/check
+func (h *NetworkHandlers) CheckRouteAvailability(w http.ResponseWriter, r *http.Request) {
+	if !h.checkLimiter.Allow() {
+		w.Header().Set("Retry-After", "1")
+		JSONError(w, http.StatusTooManyRequests, "slow down")
+		return
+	}
+	var req CheckRouteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Subdomain == "" {
+		JSONError(w, http.StatusBadRequest, "subdomain is required")
+		return
+	}
+	available := h.caddyManager.IsDomainAvailable(req.Subdomain, req.Domain)
+	domain := req.Domain
+	if domain == "" {
+		domain = h.caddyManager.Config().DefaultDomain
+	}
+	full := req.Subdomain + "." + domain
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"available":  available,
+		"fullDomain": full,
+	})
+}
+
 // CreateRouteRequest is the request body for creating a route
 type CreateRouteRequest struct {
+	Subdomain    string `json:"subdomain"`
+	Domain       string `json:"domain,omitempty"`  // optional override; defaults to configured base domain
+	Backend      string `json:"backend,omitempty"` // optional if app_id provided
+	AppID        string `json:"app_id,omitempty"`
+	BackendName  string `json:"backend_name,omitempty"`  // optional logical backend (ui/api/admin)
+	BackendIndex int    `json:"backend_index,omitempty"` // optional backend index
+}
+
+// CheckRouteRequest is the request body for availability check
+type CheckRouteRequest struct {
 	Subdomain string `json:"subdomain"`
-	Backend   string `json:"backend"`
-	AppID     string `json:"app_id"`
+	Domain    string `json:"domain,omitempty"`
 }
 
 // CreateRoute creates a new route
@@ -85,15 +148,47 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Backend == "" {
-		JSONError(w, http.StatusBadRequest, "backend is required")
+	if !h.caddyManager.IsDomainAvailable(req.Subdomain, req.Domain) {
+		full := req.Subdomain
+		if req.Domain != "" {
+			full = full + "." + req.Domain
+		}
+		JSONError(w, http.StatusConflict, "route already exists for "+full)
 		return
 	}
 
-	route, err := h.caddyManager.AddRoute(r.Context(), req.Subdomain, req.Backend, req.AppID)
+	backend := req.Backend
+	if backend == "" && req.AppID != "" && h.appManager != nil {
+		if req.BackendName != "" {
+			backend = h.appManager.GetBackendByName(req.AppID, req.BackendName)
+		}
+		if backend == "" && req.BackendIndex > 0 {
+			backend = h.appManager.GetBackendByIndex(req.AppID, req.BackendIndex)
+		}
+		if backend == "" {
+			backend = h.appManager.GetBackendURL(req.AppID)
+		}
+	}
+
+	if backend == "" {
+		JSONError(w, http.StatusBadRequest, "backend is required (provide backend or app_id with a resolvable backend)")
+		return
+	}
+
+	route, err := h.caddyManager.AddRoute(r.Context(), req.Subdomain, req.Domain, backend, req.AppID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// Optionally trigger ACME auto-issuance if available
+	if h.acmeHandler != nil && h.acmeHandler.manager != nil {
+		go func(domain string) {
+			_ = h.acmeHandler.manager.Issue(r.Context(), network.ACMERequest{
+				Domain: domain,
+				Email:  "",
+			})
+		}(route.FullDomain())
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -272,18 +367,13 @@ type PortForwardingStatus struct {
 // GetPortForwardingStatus returns the current port forwarding status
 // GET /api/v1/network/port-forwarding-status
 func (h *NetworkHandlers) GetPortForwardingStatus(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement actual external IP detection
-	// For now, return mock data
+	ip := detectExternalIP()
 	status := PortForwardingStatus{
-		ExternalIP:    "192.168.1.100",
-		RequiredPorts: []int{80, 443, 8080},
-		IsConfigured:  false,
+		ExternalIP:    ip,
+		RequiredPorts: []int{80, 443},
+		IsConfigured:  ip != "",
 		Suggestions: []string{
-			"Access your router at 192.168.1.1",
-			"Navigate to Port Forwarding section",
-			"Add rule: External Port 80 -> Internal IP 192.168.1.100:80",
-			"Add rule: External Port 443 -> Internal IP 192.168.1.100:443",
-			"Add rule: External Port 8080 -> Internal IP 192.168.1.100:8080",
+			"Forward ports 80 and 443 from your router to this device's IP",
 		},
 	}
 

@@ -42,6 +42,35 @@ func NewCaddyManager(db *database.DB, config CaddyConfig) *CaddyManager {
 	}
 }
 
+// AdminEndpoint returns the admin API URL if configured.
+func (cm *CaddyManager) AdminEndpoint() string {
+	return cm.config.AdminAPI
+}
+
+// ConfigPath returns the Caddyfile path.
+func (cm *CaddyManager) ConfigPath() string {
+	return cm.config.ConfigPath
+}
+
+// UpdateDefaults updates domain/email/autohttps defaults and regenerates config.
+func (cm *CaddyManager) UpdateDefaults(defaultDomain, email string, autoHTTPS bool) error {
+	cm.routesMu.Lock()
+	defer cm.routesMu.Unlock()
+	if defaultDomain != "" {
+		cm.config.DefaultDomain = defaultDomain
+	}
+	if email != "" {
+		cm.config.Email = email
+	}
+	cm.config.AutoHTTPS = autoHTTPS
+	return cm.regenerateCaddyfile()
+}
+
+// Config returns the underlying Caddy configuration.
+func (cm *CaddyManager) Config() CaddyConfig {
+	return cm.config
+}
+
 // Initialize loads existing routes and validates Caddy configuration
 func (cm *CaddyManager) Initialize(ctx context.Context) error {
 	// Load routes from database
@@ -57,17 +86,20 @@ func (cm *CaddyManager) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// AddRoute adds a new route for an app
-func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, backend, appID string) (*Route, error) {
+// AddRoute adds a new route for an app (subdomain + domain).
+// If domain is empty, cm.config.DefaultDomain is used.
+func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend, appID string) (*Route, error) {
 	cm.routesMu.Lock()
 	defer cm.routesMu.Unlock()
 
+	if domain == "" {
+		domain = cm.config.DefaultDomain
+	}
+
 	// Check if route already exists
-	fullDomain := subdomain + "." + cm.config.DefaultDomain
-	for _, r := range cm.routes {
-		if r.FullDomain() == fullDomain {
-			return nil, fmt.Errorf("route for %s already exists", fullDomain)
-		}
+	fullDomain := subdomain + "." + domain
+	if !cm.isAvailable(fullDomain) {
+		return nil, fmt.Errorf("route for %s already exists", fullDomain)
 	}
 
 	// Backup current config
@@ -77,7 +109,7 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, backend, appID 
 	route := &Route{
 		ID:        uuid.New().String(),
 		Subdomain: subdomain,
-		Domain:    cm.config.DefaultDomain,
+		Domain:    domain,
 		Backend:   backend,
 		AppID:     appID,
 		SSL:       cm.config.AutoHTTPS,
@@ -121,6 +153,54 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, backend, appID 
 	return route, nil
 }
 
+// AddDomainRoute adds a route for a full domain (no default domain prefix).
+func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, comment string) (*Route, error) {
+	cm.routesMu.Lock()
+	defer cm.routesMu.Unlock()
+
+	if !cm.isAvailable(domain) {
+		if existing, ok := cm.findByDomain(domain); ok {
+			return existing, nil
+		}
+		return nil, fmt.Errorf("route for %s already exists", domain)
+	}
+	cm.backupCurrentConfig()
+	route := &Route{
+		ID:        uuid.New().String(),
+		Subdomain: "",
+		Domain:    domain,
+		Backend:   backend,
+		AppID:     "",
+		SSL:       true,
+		Enabled:   true,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Comment:   comment,
+	}
+	cm.routes[route.ID] = route
+	if err := cm.validateConfig(); err != nil {
+		delete(cm.routes, route.ID)
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+	if err := cm.saveRoute(ctx, route); err != nil {
+		delete(cm.routes, route.ID)
+		return nil, fmt.Errorf("failed to save route: %w", err)
+	}
+	if err := cm.regenerateCaddyfile(); err != nil {
+		delete(cm.routes, route.ID)
+		_ = cm.deleteRoute(ctx, route.ID)
+		cm.restoreBackup()
+		return nil, fmt.Errorf("failed to apply configuration: %w", err)
+	}
+	if err := cm.reloadCaddy(); err != nil {
+		delete(cm.routes, route.ID)
+		_ = cm.deleteRoute(ctx, route.ID)
+		cm.restoreBackup()
+		return nil, fmt.Errorf("failed to reload Caddy: %w", err)
+	}
+	return route, nil
+}
+
 // RemoveRoute removes a route
 func (cm *CaddyManager) RemoveRoute(ctx context.Context, routeID string) error {
 	cm.routesMu.Lock()
@@ -157,6 +237,40 @@ func (cm *CaddyManager) RemoveRoute(ctx context.Context, routeID string) error {
 
 	log.Printf("Route removed: %s", route.FullDomain())
 	return nil
+}
+
+// IsDomainAvailable reports whether subdomain+domain (or full domain) is unused.
+func (cm *CaddyManager) IsDomainAvailable(subdomain, domain string) bool {
+	if domain == "" {
+		domain = cm.config.DefaultDomain
+	}
+	full := subdomain
+	if full != "" {
+		full = full + "." + domain
+	} else {
+		full = domain
+	}
+	cm.routesMu.RLock()
+	defer cm.routesMu.RUnlock()
+	return cm.isAvailable(full)
+}
+
+func (cm *CaddyManager) isAvailable(fullDomain string) bool {
+	for _, r := range cm.routes {
+		if r.FullDomain() == fullDomain {
+			return false
+		}
+	}
+	return true
+}
+
+func (cm *CaddyManager) findByDomain(fullDomain string) (*Route, bool) {
+	for _, r := range cm.routes {
+		if r.FullDomain() == fullDomain {
+			return r, true
+		}
+	}
+	return nil, false
 }
 
 // UpdateRoute updates an existing route
@@ -224,6 +338,18 @@ func (cm *CaddyManager) GetRouteByApp(appID string) (*Route, error) {
 		}
 	}
 	return nil, fmt.Errorf("no route found for app: %s", appID)
+}
+
+// FindRouteByDomain returns a route matching the full domain if it exists.
+func (cm *CaddyManager) FindRouteByDomain(domain string) (*Route, bool) {
+	cm.routesMu.RLock()
+	defer cm.routesMu.RUnlock()
+	for _, route := range cm.routes {
+		if route.FullDomain() == domain {
+			return route, true
+		}
+	}
+	return nil, false
 }
 
 // ListRoutes returns all routes
@@ -491,6 +617,16 @@ func (cm *CaddyManager) createRoutesTable() error {
 		)
 	`)
 	return err
+}
+
+// ApplyConfig regenerates the Caddyfile and reloads Caddy.
+func (cm *CaddyManager) ApplyConfig() error {
+	cm.routesMu.Lock()
+	defer cm.routesMu.Unlock()
+	if err := cm.regenerateCaddyfile(); err != nil {
+		return err
+	}
+	return cm.reloadCaddy()
 }
 
 // saveRoute saves a route to the database

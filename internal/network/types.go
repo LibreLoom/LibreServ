@@ -15,6 +15,7 @@ type Route struct {
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	Comment     string    `json:"comment,omitempty"`
 }
 
 // FullDomain returns the complete domain name

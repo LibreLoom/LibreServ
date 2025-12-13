@@ -33,7 +33,7 @@ func TestAuthRegisterLogin(t *testing.T) {
 
 	// register
 	rec := httptest.NewRecorder()
-	body := `{"username":"bob","password":"supersecret","email":"bob@example.com"}`
+	body := `{"username":"bob","password":"Superstrongpass123","email":"bob@example.com"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
 	handler.Register(rec, req.WithContext(ctx))
 	if rec.Code != http.StatusCreated {
@@ -42,7 +42,7 @@ func TestAuthRegisterLogin(t *testing.T) {
 
 	// login
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"bob","password":"supersecret"}`))
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"bob","password":"Superstrongpass123"}`))
 	handler.Login(rec, req.WithContext(ctx))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login status %d", rec.Code)
@@ -58,4 +58,3 @@ func TestAuthRegisterLogin(t *testing.T) {
 		t.Fatalf("expected tokens")
 	}
 }
-

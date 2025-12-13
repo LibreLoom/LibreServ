@@ -88,3 +88,41 @@ CREATE INDEX IF NOT EXISTS idx_health_checks_app ON health_checks(app_id, checke
 CREATE INDEX IF NOT EXISTS idx_metrics_app_time ON metrics(app_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_updates_app ON updates(app_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_database_backups_created ON database_backups(created_at);
+
+-- Setup state (single row to track first-boot wizard)
+CREATE TABLE IF NOT EXISTS setup_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    status TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP
+);
+
+-- Support sessions
+CREATE TABLE IF NOT EXISTS support_sessions (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL,
+    token TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    status TEXT NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP NOT NULL,
+    created_by TEXT,
+    revoked_at TIMESTAMP,
+    revoked_by TEXT,
+    support_level TEXT,
+    license_id TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_support_sessions_code_unique ON support_sessions(code, token);
+
+-- Support audit log
+CREATE TABLE IF NOT EXISTS support_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT,
+    actor TEXT,
+    action TEXT,
+    target TEXT,
+    success BOOLEAN,
+    message TEXT,
+    occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

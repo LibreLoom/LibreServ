@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
 )
 
@@ -17,9 +18,11 @@ var (
 
 // SetupRequest represents the initial setup request from the WebUI
 type SetupRequest struct {
-	AdminUsername string `json:"admin_username"`
-	AdminPassword string `json:"admin_password"`
-	AdminEmail    string `json:"admin_email"`
+	AdminUsername string                `json:"admin_username"`
+	AdminPassword string                `json:"admin_password"`
+	AdminEmail    string                `json:"admin_email"`
+	SMTP          *config.SMTPConfig    `json:"smtp,omitempty"`
+	Notify        *config.Notifications `json:"notify,omitempty"`
 }
 
 // SetupStatus represents the current setup status
@@ -91,8 +94,8 @@ func (s *Service) CompleteSetup(ctx context.Context, req *SetupRequest) (*models
 		return nil, fmt.Errorf("failed to create admin user: %w", err)
 	}
 
-	logger.Info("Initial setup complete - admin user created", 
-		"admin_id", admin.ID, 
+	logger.Info("Initial setup complete - admin user created",
+		"admin_id", admin.ID,
 		"admin_username", admin.Username)
 
 	return admin, nil

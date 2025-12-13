@@ -96,6 +96,9 @@ type DeploymentConfig struct {
 
 	// GPU support
 	GPU GPUConfig `yaml:"gpu,omitempty" json:"gpu,omitempty"`
+
+	// Explicit backend endpoints (e.g., internal services not exposed via port mapping)
+	Backends []BackendEndpoint `yaml:"backends,omitempty" json:"backends,omitempty"`
 }
 
 // PortMapping represents a port binding
@@ -103,11 +106,18 @@ type PortMapping struct {
 	Host      int    `yaml:"host" json:"host"`
 	Container int    `yaml:"container" json:"container"`
 	Protocol  string `yaml:"protocol,omitempty" json:"protocol,omitempty"` // tcp, udp, or both
+	Name      string `yaml:"name,omitempty" json:"name,omitempty"`         // logical name (ui, api, admin)
+}
+
+// BackendEndpoint is an explicit backend URL with a logical name.
+type BackendEndpoint struct {
+	Name string `yaml:"name" json:"name"`
+	URL  string `yaml:"url" json:"url"`
 }
 
 // VolumeMapping represents a volume binding
 type VolumeMapping struct {
-	Name      string `yaml:"name" json:"name"`           // Named volume or path
+	Name      string `yaml:"name" json:"name"`             // Named volume or path
 	MountPath string `yaml:"mount_path" json:"mount_path"` // Container mount path
 	ReadOnly  bool   `yaml:"read_only,omitempty" json:"read_only,omitempty"`
 }
@@ -127,16 +137,16 @@ type ConfigField struct {
 	Type        string      `yaml:"type" json:"type"` // string, number, boolean, password, select, port
 	Default     interface{} `yaml:"default,omitempty" json:"default,omitempty"`
 	Required    bool        `yaml:"required" json:"required"`
-	Options     []string    `yaml:"options,omitempty" json:"options,omitempty"` // For select type
+	Options     []string    `yaml:"options,omitempty" json:"options,omitempty"`       // For select type
 	Validation  string      `yaml:"validation,omitempty" json:"validation,omitempty"` // Regex pattern
-	EnvVar      string      `yaml:"env_var,omitempty" json:"env_var,omitempty"` // Maps to this env var
+	EnvVar      string      `yaml:"env_var,omitempty" json:"env_var,omitempty"`       // Maps to this env var
 }
 
 // HealthCheckConfig defines how to check app health
 type HealthCheckConfig struct {
-	Type     string        `yaml:"type" json:"type"` // http, tcp, container, command
+	Type     string        `yaml:"type" json:"type"`                             // http, tcp, container, command
 	Endpoint string        `yaml:"endpoint,omitempty" json:"endpoint,omitempty"` // For http
-	Port     int           `yaml:"port,omitempty" json:"port,omitempty"` // For tcp
+	Port     int           `yaml:"port,omitempty" json:"port,omitempty"`         // For tcp
 	Interval time.Duration `yaml:"interval" json:"interval"`
 	Timeout  time.Duration `yaml:"timeout" json:"timeout"`
 	Retries  int           `yaml:"retries" json:"retries"`
@@ -144,47 +154,54 @@ type HealthCheckConfig struct {
 
 // ResourceRequirements defines minimum system requirements
 type ResourceRequirements struct {
-	MinRAM     string   `yaml:"min_ram,omitempty" json:"min_ram,omitempty"` // e.g., "512M", "2G"
-	MinCPU     float64  `yaml:"min_cpu,omitempty" json:"min_cpu,omitempty"` // CPU cores
-	MinDisk    string   `yaml:"min_disk,omitempty" json:"min_disk,omitempty"` // e.g., "1G"
-	Arch       []string `yaml:"arch,omitempty" json:"arch,omitempty"` // amd64, arm64
+	MinRAM  string   `yaml:"min_ram,omitempty" json:"min_ram,omitempty"`   // e.g., "512M", "2G"
+	MinCPU  float64  `yaml:"min_cpu,omitempty" json:"min_cpu,omitempty"`   // CPU cores
+	MinDisk string   `yaml:"min_disk,omitempty" json:"min_disk,omitempty"` // e.g., "1G"
+	Arch    []string `yaml:"arch,omitempty" json:"arch,omitempty"`         // amd64, arm64
 }
 
 // UpdateConfig defines update behavior
 type UpdateConfig struct {
-	Strategy          string `yaml:"strategy" json:"strategy"` // manual, notify, auto
-	BackupBeforeUpdate bool  `yaml:"backup_before_update" json:"backup_before_update"`
-	AllowDowngrade    bool   `yaml:"allow_downgrade" json:"allow_downgrade"`
+	Strategy           string `yaml:"strategy" json:"strategy"` // manual, notify, auto
+	BackupBeforeUpdate bool   `yaml:"backup_before_update" json:"backup_before_update"`
+	AllowDowngrade     bool   `yaml:"allow_downgrade" json:"allow_downgrade"`
 }
 
 // InstalledApp represents an app instance installed on the system
 type InstalledApp struct {
-	ID            string                 `json:"id"`
-	AppID         string                 `json:"app_id"` // Reference to catalog app
-	Name          string                 `json:"name"`
-	Type          AppType                `json:"type"`
-	Status        AppStatus              `json:"status"`
-	HealthStatus  HealthStatus           `json:"health_status"`
-	Path          string                 `json:"path"` // Installation path
-	Config        map[string]interface{} `json:"config"`
-	URL           string                 `json:"url,omitempty"`
-	InstalledAt   time.Time              `json:"installed_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	LastHealthAt  time.Time              `json:"last_health_at,omitempty"`
-	ContainerIDs  []string               `json:"container_ids,omitempty"`
+	ID           string                 `json:"id"`
+	AppID        string                 `json:"app_id"` // Reference to catalog app
+	Name         string                 `json:"name"`
+	Type         AppType                `json:"type"`
+	Status       AppStatus              `json:"status"`
+	HealthStatus HealthStatus           `json:"health_status"`
+	Path         string                 `json:"path"` // Installation path
+	Config       map[string]interface{} `json:"config"`
+	URL          string                 `json:"url,omitempty"`
+	Backends     []BackendRef           `json:"backends,omitempty"`
+	InstalledAt  time.Time              `json:"installed_at"`
+	UpdatedAt    time.Time              `json:"updated_at"`
+	LastHealthAt time.Time              `json:"last_health_at,omitempty"`
+	ContainerIDs []string               `json:"container_ids,omitempty"`
+}
+
+// BackendRef describes a reachable backend for an installed app.
+type BackendRef struct {
+	Name string `json:"name,omitempty"` // logical name (ui, api, admin)
+	URL  string `json:"url"`            // reachable URL
 }
 
 // AppStatus represents the current status of an installed app
 type AppStatus string
 
 const (
-	StatusPending   AppStatus = "pending"
+	StatusPending    AppStatus = "pending"
 	StatusInstalling AppStatus = "installing"
-	StatusRunning   AppStatus = "running"
-	StatusStopped   AppStatus = "stopped"
-	StatusUpdating  AppStatus = "updating"
-	StatusError     AppStatus = "error"
-	StatusRemoving  AppStatus = "removing"
+	StatusRunning    AppStatus = "running"
+	StatusStopped    AppStatus = "stopped"
+	StatusUpdating   AppStatus = "updating"
+	StatusError      AppStatus = "error"
+	StatusRemoving   AppStatus = "removing"
 )
 
 // HealthStatus represents the health status of an app

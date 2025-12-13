@@ -26,3 +26,28 @@ network:
     default_domain: "localhost"
     email: ""
     auto_https: false
+
+smtp:
+  host: ""
+  port: 587
+  username: ""
+  password: ""
+  from: ""
+  use_tls: true
+  skip_verify: false
+
+notify:
+  enabled: false
+  support_recipients: []
+  support_subject: "LibreServ support session created"
+  support_body: |
+    A support session was created.
+
+    Code: {{.Code}}
+    Token: {{.Token}}
+    Expires: {{.Expires}}
+    Scopes: {{.Scopes}}
+    Created By: {{.CreatedBy}}
+  welcome_subject: "Welcome to LibreServ"
+  welcome_body: |
+    Your LibreServ admin account is ready.

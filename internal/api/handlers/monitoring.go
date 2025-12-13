@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 )
 
@@ -17,6 +19,7 @@ type MonitoringHandlers struct {
 	monitor *monitoring.Monitor
 	db      *database.DB
 	docker  *docker.Client
+	mailer  func() (*email.Sender, error)
 }
 
 // NewMonitoringHandlers creates new monitoring handlers
@@ -25,6 +28,7 @@ func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, dockerC
 		monitor: monitor,
 		db:      db,
 		docker:  dockerClient,
+		mailer:  email.NewSender,
 	}
 }
 
@@ -194,6 +198,17 @@ func (h *MonitoringHandlers) SystemHealth(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	smtpStatus := "not_configured"
+	if err := email.HealthCheck(); err != nil {
+		if err.Error() == "smtp not configured" {
+			smtpStatus = "not_configured"
+		} else {
+			smtpStatus = "unhealthy"
+		}
+	} else {
+		smtpStatus = "healthy"
+	}
+
 	response := map[string]interface{}{
 		"status":    "healthy",
 		"timestamp": time.Now(),
@@ -201,6 +216,7 @@ func (h *MonitoringHandlers) SystemHealth(w http.ResponseWriter, r *http.Request
 			"api":      "healthy",
 			"database": dbStatus,
 			"docker":   dockerStatus,
+			"smtp":     smtpStatus,
 		},
 	}
 
@@ -231,5 +247,41 @@ func (h *MonitoringHandlers) CleanupMetrics(w http.ResponseWriter, r *http.Reque
 		"status":         "cleaned",
 		"retention_days": retentionDays,
 		"message":        "Old monitoring data cleaned up",
+	})
+}
+
+// SendTestEmail sends a test email to verify SMTP configuration
+// POST /api/system/email/test { "to": "user@example.com" }
+func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Request) {
+	if h.mailer == nil {
+		JSONError(w, http.StatusInternalServerError, "mailer not configured")
+		return
+	}
+	var body struct {
+		To   string             `json:"to"`
+		SMTP *config.SMTPConfig `json:"smtp,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.To == "" {
+		JSONError(w, http.StatusBadRequest, "to is required")
+		return
+	}
+	var mailer *email.Sender
+	var err error
+	if body.SMTP != nil {
+		mailer, err = email.NewSenderWithConfig(*body.SMTP)
+	} else {
+		mailer, err = h.mailer()
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "smtp setup error: "+err.Error())
+		return
+	}
+	if err := mailer.Send([]string{body.To}, "LibreServ SMTP Test", "This is a test email from LibreServ."); err != nil {
+		JSONError(w, http.StatusInternalServerError, "send failed: "+err.Error())
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "sent",
+		"to":     body.To,
 	})
 }

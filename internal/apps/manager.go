@@ -16,14 +16,16 @@ import (
 
 // Manager handles the lifecycle of installed apps
 type Manager struct {
-	mu          sync.RWMutex
-	catalog     *Catalog
-	installer   *Installer
-	docker      *docker.Client
-	db          *database.DB
-	appsDataDir string
-	logger      *slog.Logger
-	monitor     *monitoring.Monitor
+	mu            sync.RWMutex
+	catalog       *Catalog
+	installer     *Installer
+	docker        *docker.Client
+	db            *database.DB
+	appsDataDir   string
+	logger        *slog.Logger
+	monitor       *monitoring.Monitor
+	backendMap    map[string][]string            // appID -> backend URLs (primary first)
+	backendByName map[string]map[string][]string // appID -> name -> backends
 }
 
 // NewManager creates a new app Manager
@@ -35,16 +37,26 @@ func NewManager(catalogPath, appsDataDir string, dockerClient *docker.Client, db
 	}
 
 	m := &Manager{
-		catalog:     catalog,
-		docker:      dockerClient,
-		db:          db,
-		appsDataDir: appsDataDir,
-		logger:      slog.Default().With("component", "apps-manager"),
-		monitor:     monitor,
+		catalog:       catalog,
+		docker:        dockerClient,
+		db:            db,
+		appsDataDir:   appsDataDir,
+		logger:        slog.Default().With("component", "apps-manager"),
+		monitor:       monitor,
+		backendMap:    make(map[string][]string),
+		backendByName: make(map[string]map[string][]string),
 	}
 
 	// Create installer
 	m.installer = NewInstaller(catalog, dockerClient, db, appsDataDir, monitor)
+	m.installer.SetBackendRegistrar(func(appID, backend, name string) {
+		if name != "" {
+			m.RegisterNamedBackend(appID, name, backend)
+			return
+		}
+		m.RegisterBackend(appID, backend)
+	})
+	m.RebuildBackends(context.Background())
 
 	return m, nil
 }
@@ -52,6 +64,115 @@ func NewManager(catalogPath, appsDataDir string, dockerClient *docker.Client, db
 // GetCatalog returns the app catalog
 func (m *Manager) GetCatalog() *Catalog {
 	return m.catalog
+}
+
+// GetBackendURL returns a backend URL for an app if known.
+func (m *Manager) GetBackendURL(appID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if backends, ok := m.backendMap[appID]; ok && len(backends) > 0 {
+		return backends[0]
+	}
+	return ""
+}
+
+// GetBackends returns all registered backends for an app ID (primary first).
+func (m *Manager) GetBackends(appID string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]string(nil), m.backendMap[appID]...)
+}
+
+// GetBackendByName returns the first backend that matches a logical name for the app.
+func (m *Manager) GetBackendByName(appID, name string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if name == "" {
+		return ""
+	}
+	if names, ok := m.backendByName[appID]; ok {
+		if backends := names[name]; len(backends) > 0 {
+			return backends[0]
+		}
+	}
+	return ""
+}
+
+// GetBackendByIndex returns a backend by its ordinal (0-based) for an app.
+func (m *Manager) GetBackendByIndex(appID string, idx int) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if idx < 0 {
+		return ""
+	}
+	if backends, ok := m.backendMap[appID]; ok && idx < len(backends) {
+		return backends[idx]
+	}
+	return ""
+}
+
+// registerBackend registers a backend URL for an appID.
+func (m *Manager) addBackend(appID, backend string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if appID == "" || backend == "" {
+		return false
+	}
+	current := m.backendMap[appID]
+	for _, b := range current {
+		if b == backend {
+			return false
+		}
+	}
+	m.backendMap[appID] = append(current, backend)
+	return true
+}
+
+func (m *Manager) registerBackend(appID, backend, name string) {
+	added := m.addBackend(appID, backend)
+	if name == "" && !added {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.backendByName[appID]; !ok {
+		m.backendByName[appID] = make(map[string][]string)
+	}
+	if name == "" {
+		return
+	}
+	list := m.backendByName[appID][name]
+	for _, b := range list {
+		if b == backend {
+			m.backendByName[appID][name] = list
+			return
+		}
+	}
+	m.backendByName[appID][name] = append(list, backend)
+}
+
+// RegisterBackend records a backend URL for a given app ID (used by ACME/Caddy automation).
+func (m *Manager) RegisterBackend(appID, backend string) {
+	m.registerBackend(appID, backend, "")
+}
+
+// RegisterNamedBackend records a backend under a logical name (ui/api/admin) and keeps index list in sync.
+func (m *Manager) RegisterNamedBackend(appID, name, backend string) {
+	m.registerBackend(appID, backend, name)
+}
+
+// RebuildBackends rehydrates backend lookups from installed apps (useful at startup).
+func (m *Manager) RebuildBackends(ctx context.Context) {
+	apps, err := m.ListInstalledApps(ctx)
+	if err != nil {
+		m.logger.Warn("Failed to rebuild backends", "error", err)
+		return
+	}
+	for _, app := range apps {
+		for _, be := range m.inferBackends(app) {
+			m.registerBackend(app.AppID, be.backend, be.name)
+		}
+	}
 }
 
 // GetInstaller returns the installer
@@ -180,6 +301,7 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 			m.logger.Warn("Failed to scan installed app", "error", err)
 			continue
 		}
+		app.Backends = m.listBackendRefs(app.AppID)
 		apps = append(apps, app)
 	}
 
@@ -197,6 +319,8 @@ func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*Inst
 	if err != nil {
 		return nil, fmt.Errorf("app not found: %s", instanceID)
 	}
+
+	app.Backends = m.listBackendRefs(app.AppID)
 
 	return app, nil
 }
@@ -282,6 +406,72 @@ func scanInstalledApp(scanner interface {
 		InstalledAt:  installedAt,
 		UpdatedAt:    updatedAt,
 	}, nil
+}
+
+type backendEntry struct {
+	name    string
+	backend string
+}
+
+func (m *Manager) listBackendRefs(appID string) []BackendRef {
+	refs := []BackendRef{}
+	seen := make(map[string]bool)
+	for _, b := range m.GetBackends(appID) {
+		if seen[b] {
+			continue
+		}
+		seen[b] = true
+		refs = append(refs, BackendRef{URL: b})
+	}
+	// overlay names if available
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if names, ok := m.backendByName[appID]; ok {
+		for name, list := range names {
+			for _, b := range list {
+				key := name + "|" + b
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				refs = append(refs, BackendRef{Name: name, URL: b})
+			}
+		}
+	}
+	return refs
+}
+
+// inferBackends attempts to derive reachable backend URLs for an installed app.
+func (m *Manager) inferBackends(app *InstalledApp) []backendEntry {
+	if app == nil {
+		return nil
+	}
+	var backends []backendEntry
+	if app.URL != "" {
+		backends = append(backends, backendEntry{backend: app.URL})
+	}
+	if m.catalog != nil {
+		if def, err := m.catalog.GetApp(app.AppID); err == nil {
+			for _, p := range def.Deployment.Ports {
+				if p.Host > 0 {
+					backends = append(backends, backendEntry{
+						backend: fmt.Sprintf("http://127.0.0.1:%d", p.Host),
+						name:    p.Name,
+					})
+				}
+			}
+			for _, b := range def.Deployment.Backends {
+				if b.URL == "" {
+					continue
+				}
+				backends = append(backends, backendEntry{
+					backend: b.URL,
+					name:    b.Name,
+				})
+			}
+		}
+	}
+	return backends
 }
 
 func firstName(names []string) string {

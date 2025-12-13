@@ -10,6 +10,8 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 )
 
 func newTestSetupHandler(t *testing.T) (*SetupHandler, context.Context) {
@@ -24,7 +26,11 @@ func newTestSetupHandler(t *testing.T) (*SetupHandler, context.Context) {
 		t.Fatalf("migrate: %v", err)
 	}
 	svc := auth.NewService(db, "secret")
-	return NewSetupHandler(svc), context.Background()
+	setupSvc := setup.NewService(db)
+	if _, err := setupSvc.Ensure(context.Background()); err != nil {
+		t.Fatalf("ensure setup state: %v", err)
+	}
+	return NewSetupHandler(svc, setupSvc, (*docker.Client)(nil), nil), context.Background()
 }
 
 func TestSetupStatusAndComplete(t *testing.T) {
@@ -40,11 +46,10 @@ func TestSetupStatusAndComplete(t *testing.T) {
 
 	// complete setup
 	rec = httptest.NewRecorder()
-	body := `{"admin_username":"admin","admin_password":"supersecret","admin_email":"admin@example.com"}`
+	body := `{"admin_username":"admin","admin_password":"Superstrongpass123","admin_email":"admin@example.com"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewBufferString(body))
 	handler.CompleteSetup(rec, req.WithContext(ctx))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("complete status %d", rec.Code)
 	}
 }
-

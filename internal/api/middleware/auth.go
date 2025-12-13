@@ -29,6 +29,16 @@ type User struct {
 type AuthConfig struct {
 	AuthService *auth.Service
 	DevMode     bool // If true, allows "dev-token" for testing
+	License     LicenseChecker
+	CSRFSecret  string
+}
+
+// LicenseChecker minimal interface for license validity checks.
+type LicenseChecker interface {
+	Valid() bool
+	Reason() string
+	SupportLevel() string
+	LicenseID() string
 }
 
 // Auth returns a middleware that validates JWT tokens

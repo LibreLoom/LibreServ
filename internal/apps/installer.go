@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -22,12 +24,13 @@ import (
 
 // Installer handles app installation and configuration
 type Installer struct {
-	catalog     *Catalog
-	docker      *docker.Client
-	db          *database.DB
-	appsDataDir string
-	logger      *slog.Logger
-	monitor     *monitoring.Monitor
+	catalog         *Catalog
+	docker          *docker.Client
+	db              *database.DB
+	appsDataDir     string
+	logger          *slog.Logger
+	monitor         *monitoring.Monitor
+	registerBackend func(appID, backend, name string)
 }
 
 // NewInstaller creates a new Installer
@@ -40,6 +43,11 @@ func NewInstaller(catalog *Catalog, dockerClient *docker.Client, db *database.DB
 		logger:      slog.Default().With("component", "installer"),
 		monitor:     monitor,
 	}
+}
+
+// SetBackendRegistrar wires a callback used to register the reachable backend for an app (for ACME).
+func (i *Installer) SetBackendRegistrar(fn func(appID, backend, name string)) {
+	i.registerBackend = fn
 }
 
 // InstallOptions contains options for app installation
@@ -147,6 +155,24 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	if len(appDef.Deployment.Ports) > 0 {
 		port := appDef.Deployment.Ports[0].Host
 		installedApp.URL = fmt.Sprintf("http://localhost:%d", port)
+	}
+	if i.registerBackend != nil && installedApp.URL != "" {
+		i.registerBackend(appDef.ID, installedApp.URL, "")
+	}
+	// Register additional named backends if available
+	if i.registerBackend != nil {
+		for _, p := range appDef.Deployment.Ports {
+			if p.Host == 0 || p.Name == "" {
+				continue
+			}
+			i.registerBackend(appDef.ID, fmt.Sprintf("http://localhost:%d", p.Host), p.Name)
+		}
+		for _, b := range appDef.Deployment.Backends {
+			if b.URL == "" || b.Name == "" {
+				continue
+			}
+			i.registerBackend(appDef.ID, b.URL, b.Name)
+		}
 	}
 
 	// Persist installed app
@@ -334,9 +360,83 @@ func (i *Installer) ValidateConfig(appID string, config map[string]interface{}) 
 			return fmt.Errorf("required field '%s' is missing", field.Label)
 		}
 
-		// TODO: Add type validation, regex validation, etc.
+		if exists {
+			if err := validateField(field, value); err != nil {
+				return fmt.Errorf("field %s: %w", field.Name, err)
+			}
+		}
 	}
 
+	return nil
+}
+
+func validateField(field ConfigField, value interface{}) error {
+	switch field.Type {
+	case "string", "password":
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("must be a string")
+		}
+	case "number":
+		switch value.(type) {
+		case int, int64, float64, float32:
+		default:
+			return fmt.Errorf("must be a number")
+		}
+	case "boolean":
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("must be a boolean")
+		}
+	case "select":
+		str, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("must be a string option")
+		}
+		if len(field.Options) > 0 {
+			found := false
+			for _, opt := range field.Options {
+				if opt == str {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("must be one of %v", field.Options)
+			}
+		}
+	case "port":
+		var port int
+		switch v := value.(type) {
+		case float64:
+			port = int(v)
+		case int:
+			port = v
+		case string:
+			// best-effort parse
+			if pv, err := strconv.Atoi(v); err == nil {
+				port = pv
+			} else {
+				return fmt.Errorf("invalid port")
+			}
+		default:
+			return fmt.Errorf("invalid port")
+		}
+		if port <= 0 || port > 65535 {
+			return fmt.Errorf("port out of range")
+		}
+	}
+	if field.Validation != "" {
+		str, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("validation requires string")
+		}
+		re, err := regexp.Compile(field.Validation)
+		if err != nil {
+			return fmt.Errorf("invalid validation regex")
+		}
+		if !re.MatchString(str) {
+			return fmt.Errorf("value does not match required pattern")
+		}
+	}
 	return nil
 }
 

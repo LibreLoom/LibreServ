@@ -15,32 +15,38 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
 )
 
 // Server represents the HTTP API server
 type Server struct {
-	router        chi.Router
-	httpServer    *http.Server
-	addr          string
-	db            *database.DB
-	appManager    *apps.Manager
-	authService   *auth.Service
-	monitor       *monitoring.Monitor
-	backupService *storage.BackupService
-	devMode       bool
-	logger        *slog.Logger
-	staticDir     string
-	dockerClient  *docker.Client
-	caddyManager  *network.CaddyManager
+	router         chi.Router
+	httpServer     *http.Server
+	addr           string
+	db             *database.DB
+	appManager     *apps.Manager
+	authService    *auth.Service
+	monitor        *monitoring.Monitor
+	backupService  *storage.BackupService
+	devMode        bool
+	logger         *slog.Logger
+	staticDir      string
+	dockerClient   *docker.Client
+	caddyManager   *network.CaddyManager
+	setupService   *setup.Service
+	supportService *support.Service
+	licenseService middleware.LicenseChecker
 }
 
 // NewServer creates a new API server instance
-func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, backupService *storage.BackupService, dockerClient *docker.Client, caddyManager *network.CaddyManager, devMode bool) *Server {
+func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, backupService *storage.BackupService, dockerClient *docker.Client, caddyManager *network.CaddyManager, setupService *setup.Service, supportService *support.Service, licenseService middleware.LicenseChecker, devMode bool) *Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	logger := slog.Default().With("component", "api")
 
@@ -51,24 +57,27 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger(logger))
 	r.Use(chimiddleware.Recoverer)
-	r.Use(middleware.CORS())
+	r.Use(middleware.CORS(config.Get().CORS.AllowedOrigins))
 
 	// Set request timeout
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 
 	server := &Server{
-		router:        r,
-		addr:          addr,
-		db:            db,
-		appManager:    appManager,
-		authService:   authService,
-		monitor:       monitor,
-		backupService: backupService,
-		devMode:       devMode,
-		logger:        logger,
-		staticDir:     resolveStaticDir(),
-		dockerClient:  dockerClient,
-		caddyManager:  caddyManager,
+		router:         r,
+		addr:           addr,
+		db:             db,
+		appManager:     appManager,
+		authService:    authService,
+		monitor:        monitor,
+		backupService:  backupService,
+		devMode:        devMode,
+		logger:         logger,
+		staticDir:      resolveStaticDir(),
+		dockerClient:   dockerClient,
+		caddyManager:   caddyManager,
+		setupService:   setupService,
+		supportService: supportService,
+		licenseService: licenseService,
 	}
 
 	// Setup routes
@@ -124,9 +133,9 @@ func (s *Server) serveSPA(w http.ResponseWriter, r *http.Request) {
 
 // resolveStaticDir returns an absolute path to the built frontend assets
 func resolveStaticDir() string {
-	abs, err := filepath.Abs("./web/dist")
+	abs, err := filepath.Abs("./OS/dist")
 	if err != nil {
-		return "./web/dist"
+		return "./OS/dist"
 	}
 	return abs
 }

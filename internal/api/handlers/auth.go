@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 )
@@ -38,6 +39,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusUnauthorized, "invalid username or password")
 			return
 		}
+		if strings.Contains(err.Error(), "locked") {
+			JSONError(w, http.StatusTooManyRequests, "account temporarily locked")
+			return
+		}
 		JSONError(w, http.StatusInternalServerError, "login failed")
 		return
 	}
@@ -55,6 +60,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	if req.Username == "" || req.Password == "" {
 		JSONError(w, http.StatusBadRequest, "username and password are required")
+		return
+	}
+	if err := h.authService.ValidatePassword(req.Password); err != nil {
+		JSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -129,6 +138,10 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	if req.OldPassword == "" || req.NewPassword == "" {
 		JSONError(w, http.StatusBadRequest, "old_password and new_password are required")
+		return
+	}
+	if err := h.authService.ValidatePassword(req.NewPassword); err != nil {
+		JSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

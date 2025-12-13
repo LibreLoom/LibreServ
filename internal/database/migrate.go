@@ -9,7 +9,7 @@ import (
 var initialSchema string
 
 func (d *DB) Migrate() error {
-	// Simple migration runner for now. 
+	// Simple migration runner for now.
 	// In the future, we should track versions in a table.
 	if _, err := d.db.Exec(initialSchema); err != nil {
 		return fmt.Errorf("migration failed: %w", err)

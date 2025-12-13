@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,8 +14,8 @@ import (
 )
 
 var (
-	ErrUserNotFound      = errors.New("user not found")
-	ErrUserExists        = errors.New("user already exists")
+	ErrUserNotFound       = errors.New("user not found")
+	ErrUserExists         = errors.New("user already exists")
 	ErrInvalidCredentials = errors.New("invalid username or password")
 )
 
@@ -23,14 +24,24 @@ type Service struct {
 	db         *database.DB
 	jwtManager *JWTManager
 	logger     *slog.Logger
+
+	mu            sync.Mutex
+	failed        map[string]*loginAttempts
+	lockoutAfter  int
+	lockoutWindow time.Duration
+	lockoutFor    time.Duration
 }
 
 // NewService creates a new auth service
 func NewService(db *database.DB, jwtSecret string) *Service {
 	return &Service{
-		db:         db,
-		jwtManager: NewJWTManager(jwtSecret, 15*time.Minute, 7*24*time.Hour),
-		logger:     slog.Default().With("component", "auth"),
+		db:            db,
+		jwtManager:    NewJWTManager(jwtSecret, 15*time.Minute, 7*24*time.Hour),
+		logger:        slog.Default().With("component", "auth"),
+		failed:        make(map[string]*loginAttempts),
+		lockoutAfter:  5,
+		lockoutWindow: 10 * time.Minute,
+		lockoutFor:    15 * time.Minute,
 	}
 }
 
@@ -55,18 +66,24 @@ type RegisterRequest struct {
 
 // Login authenticates a user and returns tokens
 func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse, error) {
+	if s.isLockedOut(req.Username) {
+		return nil, fmt.Errorf("account locked, please wait before retrying")
+	}
 	// Get user by username
 	user, err := s.GetUserByUsername(ctx, req.Username)
 	if err != nil {
 		s.logger.Warn("Login failed: user not found", "username", req.Username)
+		s.recordFailure(req.Username)
 		return nil, ErrInvalidCredentials
 	}
 
 	// Verify password
 	if err := VerifyPassword(user.PasswordHash, req.Password); err != nil {
 		s.logger.Warn("Login failed: invalid password", "username", req.Username)
+		s.recordFailure(req.Username)
 		return nil, ErrInvalidCredentials
 	}
+	s.clearFailures(req.Username)
 
 	// Generate tokens
 	tokens, err := s.jwtManager.GenerateTokenPair(user.ID, user.Username, user.Role)
@@ -80,6 +97,74 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse,
 		User:   user,
 		Tokens: tokens,
 	}, nil
+}
+
+// ValidatePassword enforces password policy.
+func (s *Service) ValidatePassword(pw string) error {
+	if len(pw) < 12 {
+		return errors.New("password must be at least 12 characters")
+	}
+	var hasLetter, hasDigit bool
+	for _, r := range pw {
+		switch {
+		case 'a' <= r && r <= 'z', 'A' <= r && r <= 'Z':
+			hasLetter = true
+		case '0' <= r && r <= '9':
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return errors.New("password must include letters and numbers")
+	}
+	return nil
+}
+
+type loginAttempts struct {
+	count       int
+	first       time.Time
+	lockedUntil time.Time
+}
+
+func (s *Service) recordFailure(username string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	la, ok := s.failed[username]
+	now := time.Now()
+	if !ok {
+		s.failed[username] = &loginAttempts{count: 1, first: now}
+		return
+	}
+	if la.lockedUntil.After(now) {
+		return
+	}
+	if now.Sub(la.first) > s.lockoutWindow {
+		la.count = 1
+		la.first = now
+		return
+	}
+	la.count++
+	if la.count >= s.lockoutAfter {
+		la.lockedUntil = now.Add(s.lockoutFor)
+	}
+}
+
+func (s *Service) clearFailures(username string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.failed, username)
+}
+
+func (s *Service) isLockedOut(username string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	la, ok := s.failed[username]
+	if !ok {
+		return false
+	}
+	if time.Now().After(la.lockedUntil) {
+		return false
+	}
+	return true
 }
 
 // Register creates a new user
@@ -124,6 +209,11 @@ func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
 // RefreshTokens refreshes tokens using a refresh token
 func (s *Service) RefreshTokens(refreshToken string) (*TokenPair, error) {
 	return s.jwtManager.RefreshTokens(refreshToken)
+}
+
+// DBHealth exposes a simple DB health check for setup/preflight.
+func (s *Service) DBHealth() error {
+	return s.db.HealthCheck()
 }
 
 // CreateUser creates a new user in the database
