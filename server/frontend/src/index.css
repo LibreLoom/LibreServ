@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-    // Setup Fonts
+    /* Setup Fonts */
     --font-mono: "FreeMono","Courier New", monospace;
     --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
 
-    // Setup Colors
-    --color-primary: var(--color-primary)
-    --color-secondary: var(--color-secondary)
-    --color-accent: var(--color-accent)
+    /* Setup Colors */
+    --color-primary: var(--color-primary);
+    --color-secondary: var(--color-secondary);
+    --color-accent: var(--color-accent);
 
-    // Setup Pill Shape
+    /* Setup Pill Shape */
     --radius-pill: 9999px;
 }
 
@@ -35,10 +35,14 @@
 
 body {
     /* Setup colors, fonts, and other styles for the body */
+    /* Colors */
     background-color: var(--color-primary);
     color: var(--color-secondary);
+
+    /* Fonts */
     font-family: var(--font-sans);
 
+    /* Transitions */
     transition-property: color, background-color;
     transition-duration: 200ms;
 }
