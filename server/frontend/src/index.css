@@ -1,3 +1,44 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+    // Setup Fonts
+    --font-mono: "FreeMono","Courier New", monospace;
+    --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
+
+    // Setup Colors
+    --color-primary: var(--color-primary)
+    --color-secondary: var(--color-secondary)
+    --color-accent: var(--color-accent)
+
+    // Setup Pill Shape
+    --radius-pill: 9999px;
+}
+
+:root {
+    /* Initial Color Setup */
+    --palette-light: #FFFFFF;
+    --palette-dark: #000000;
+    --palette-accent: #767676;
+
+    /* Default Mapping (Light Mode) */
+    --color-primary: var(--palette-light);
+    --color-secondary: var(--palette-dark);
+    --color-accent: var(--palette-accent);
+
+}
+
+.dark {
+    /* Dark Mode Mapping (Color Swapping Logic) */
+    --color-primary: var(--palette-dark);
+    --color-secondary: var(--palette-light);
+}
+
+body {
+    /* Setup colors, fonts, and other styles for the body */
+    background-color: var(--color-primary);
+    color: var(--color-secondary);
+    font-family: var(--font-sans);
+
+    transition-property: color, background-color;
+    transition-duration: 200ms;
+}
