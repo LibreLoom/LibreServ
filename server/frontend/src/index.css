@@ -16,9 +16,9 @@
 
 :root {
     /* Initial Color Setup */
-    --palette-light: #FFFFFF;
-    --palette-dark: #000000;
-    --palette-accent: #767676;
+    --palette-light: #ff6666;
+    --palette-dark: #aa4444;
+    --palette-accent: #cc7777;
 
     /* Default Mapping (Light Mode) */
     --color-primary: var(--palette-light);
