@@ -7,9 +7,9 @@ const dividerClasses = "text-accent text-lg";
 
 export default function Navbar() {
     return (
-        <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+        <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6">
             <div className="bg-primary text-secondary border-2 border-accent rounded-pill px-6 py-3">
-                <div className="flex items-center gap-6 text-sm font-sans">
+                <div className="flex items-center gap-6 text-sm font-sans justify-center">
 
                     <button className={navButtonClasses}>
                         <Home size={18} />
