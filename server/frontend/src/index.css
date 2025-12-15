@@ -18,7 +18,7 @@
     /* Initial Color Setup */
     --palette-light: #ff6666;
     --palette-dark: #aa4444;
-    --palette-accent: #cc7777;
+    --palette-accent: #FFFFFF;
 
     /* Default Mapping (Light Mode) */
     --color-primary: var(--palette-light);
