@@ -1,5 +1,7 @@
 # LibreServ
 
+[![CI](https://gt.plainskill.net/api/v1/repos/LibreLoom/LibreServ/actions/workflows/ci.yml/badge)](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml)
+
 Self-hosting platform that aims to make running your own server “plug it in and it works”.
 
 ## Status
@@ -12,6 +14,7 @@ Self-hosting platform that aims to make running your own server “plug it in an
 - **Built-in apps**: Nextcloud AIO, SearXNG, Ollama, ConvertX compose templates live under `server/backend/apps/builtin/`.
 - **CI**: `.github/workflows/backend-test.yml` runs `go test ./...` for the backend.
 - **TODO**: `CODEX_BACKEND_TODO.md` tracks hardening work (Caddy/ACME, SSO, app catalog pins, etc.).
+ - **CI**: `.github/workflows/ci.yml` runs backend vet/tests and frontend lint/build on pushes/PRs.
 
 ## Quick start (backend)
 ```bash
