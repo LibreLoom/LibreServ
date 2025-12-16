@@ -15,6 +15,10 @@ node_modules/
 package-lock.json
 node_modules/
 package-lock.json
+# Generated frontend build artifacts
+server/backend/OS/dist/
+# Local Go build/test caches
+server/backend/.cache/
 
 # Development
 dev/
