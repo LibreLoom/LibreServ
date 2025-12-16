@@ -66,7 +66,9 @@ func validateCSRF(secret, userID, token string) bool {
 	if time.Since(time.Unix(ts, 0)) > 24*time.Hour {
 		return false
 	}
-	expected := GenerateCSRF(secret, userID)
-	expParts := strings.Split(expected, "|")
-	return len(expParts) == 2 && hmac.Equal([]byte(expParts[0]), []byte(sig)) && tsStr == expParts[1]
+	payload := userID + "|" + tsStr
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expectedSig), []byte(sig))
 }

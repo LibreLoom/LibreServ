@@ -22,6 +22,8 @@ func CORS(allowedOrigins []string) func(next http.Handler) http.Handler {
 				} else {
 					allowOrigin = origin
 				}
+			} else if origin == "" {
+				allowOrigin = ""
 			}
 
 			if allowOrigin != "" {

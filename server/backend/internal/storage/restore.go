@@ -31,8 +31,8 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 		return result, result.Error
 	}
 
-	// Verify checksum if requested
-	if opts.VerifyChecksum && backup.Checksum != "" {
+	// Verify checksum if requested or when available
+	if (opts.VerifyChecksum || backup.Checksum != "") && backup.Checksum != "" {
 		checksum, err := fileChecksum(backup.Path)
 		if err != nil {
 			result.Error = fmt.Errorf("failed to verify checksum: %w", err)
@@ -98,14 +98,14 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 			result.Error = fmt.Errorf("failed to start app after restore: %w", err)
 			return result, result.Error
 		}
-		
+
 		// Update app status
 		s.db.Exec("UPDATE apps SET status = 'running', updated_at = ? WHERE id = ?", time.Now(), backup.AppID)
 	}
 
 	result.Duration = time.Since(startTime)
 	log.Printf("Restore completed for %s from backup %s in %v", backup.AppID, backupID, result.Duration)
-	
+
 	return result, nil
 }
 
@@ -169,16 +169,9 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 			}
 			outFile.Close()
 
-		case tar.TypeSymlink:
-			if err := os.Symlink(header.Linkname, targetPath); err != nil {
-				return fmt.Errorf("failed to create symlink %s: %w", targetPath, err)
-			}
-
-		case tar.TypeLink:
-			linkPath := filepath.Join(destPath, header.Linkname)
-			if err := os.Link(linkPath, targetPath); err != nil {
-				return fmt.Errorf("failed to create hard link %s: %w", targetPath, err)
-			}
+		case tar.TypeSymlink, tar.TypeLink:
+			// For safety, disallow link restoration to avoid path escapes.
+			return fmt.Errorf("archive contains links which are not supported for restore: %s", header.Name)
 		}
 
 		// Set modification time
@@ -199,7 +192,7 @@ func (s *BackupService) RestoreDatabase(ctx context.Context, backupID string) er
 		SELECT id, path, size, created_at, checksum 
 		FROM database_backups WHERE id = ?
 	`, backupID).Scan(&backup.ID, &backup.Path, &backup.Size, &backup.CreatedAt, &backup.Checksum)
-	
+
 	if err != nil {
 		return fmt.Errorf("database backup not found: %w", err)
 	}
@@ -214,10 +207,10 @@ func (s *BackupService) RestoreDatabase(ctx context.Context, backupID string) er
 	// 2. Decompressing the backup
 	// 3. Replacing the database file
 	// 4. Reopening the database
-	
+
 	// For safety, this should be done by a separate process or restart
 	// Here we just prepare the restore file
-	
+
 	log.Printf("Database restore from %s requested - requires service restart", backup.Path)
 	return fmt.Errorf("database restore requires service restart - backup prepared at %s", backup.Path)
 }
@@ -263,7 +256,7 @@ func (s *BackupService) CleanupOldDatabaseBackups(ctx context.Context, retention
 		if err := os.Remove(backups[i].Path); err != nil && !os.IsNotExist(err) {
 			log.Printf("Failed to delete old database backup file %s: %v", backups[i].Path, err)
 		}
-		
+
 		// Delete record
 		s.db.Exec("DELETE FROM database_backups WHERE id = ?", backups[i].ID)
 	}

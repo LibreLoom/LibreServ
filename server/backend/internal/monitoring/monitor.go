@@ -16,17 +16,17 @@ type Monitor struct {
 	db               *database.DB
 	dockerClient     *client.Client
 	metricsCollector *MetricsCollector
-	
+
 	// Health check state
-	checkers         map[string]*HealthChecker
-	checkersMu       sync.RWMutex
-	
+	checkers   map[string]*HealthChecker
+	checkersMu sync.RWMutex
+
 	// Configuration
-	metricsInterval  time.Duration
-	
+	metricsInterval time.Duration
+
 	// Control
-	stopCh           chan struct{}
-	wg               sync.WaitGroup
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 // HealthChecker manages health checks for a single app
@@ -37,16 +37,16 @@ type HealthChecker struct {
 	Timeout          time.Duration
 	FailureThreshold int
 	SuccessThreshold int
-	
+
 	// State
-	consecutiveFailures int
+	consecutiveFailures  int
 	consecutiveSuccesses int
-	currentStatus       HealthStatus
-	lastCheck           *CheckResult
-	
+	currentStatus        HealthStatus
+	lastCheck            *CheckResult
+
 	// Control
-	stopCh           chan struct{}
-	mu               sync.RWMutex
+	stopCh chan struct{}
+	mu     sync.RWMutex
 }
 
 // NewMonitor creates a new monitoring instance
@@ -70,70 +70,73 @@ func (m *Monitor) Start() {
 // Stop halts all monitoring activities
 func (m *Monitor) Stop() {
 	close(m.stopCh)
-	
+
 	// Stop all health checkers
 	m.checkersMu.Lock()
 	for _, checker := range m.checkers {
 		checker.Stop()
 	}
 	m.checkersMu.Unlock()
-	
+
 	m.wg.Wait()
 }
 
 // RegisterApp registers an app for health monitoring
 func (m *Monitor) RegisterApp(appID string, config HealthCheckConfig) error {
+	if m.dockerClient == nil {
+		return fmt.Errorf("docker client not available for monitoring")
+	}
 	m.checkersMu.Lock()
 	defer m.checkersMu.Unlock()
-	
+
 	// Stop existing checker if any
 	if existing, ok := m.checkers[appID]; ok {
 		existing.Stop()
 	}
-	
+
 	// Build checks based on config
 	var checks []Check
-	
+
 	if config.HTTP != nil {
 		checks = append(checks, NewHTTPCheck(*config.HTTP, config.Timeout))
 	}
-	
+
 	if config.TCP != nil {
 		checks = append(checks, NewTCPCheck(*config.TCP, config.Timeout))
 	}
-	
+
 	if config.Container != nil {
 		checks = append(checks, NewContainerCheck(*config.Container, m.dockerClient))
 	}
-	
+
 	// If no specific checks configured, add a default container check
 	if len(checks) == 0 {
 		checks = append(checks, NewContainerCheck(ContainerCheckConfig{
 			ContainerName: appID,
 		}, m.dockerClient))
 	}
-	
+
 	// Set defaults
 	interval := config.Interval
 	if interval == 0 {
 		interval = 30 * time.Second
 	}
-	
+
 	timeout := config.Timeout
 	if timeout == 0 {
 		timeout = 10 * time.Second
 	}
-	
+
 	failureThreshold := config.FailureThreshold
 	if failureThreshold == 0 {
 		failureThreshold = 3
 	}
-	
+
 	successThreshold := config.SuccessThreshold
 	if successThreshold == 0 {
 		successThreshold = 1
 	}
-	
+
 	checker := &HealthChecker{
 		AppID:            appID,
 		Checks:           checks,
@@ -144,12 +147,12 @@ func (m *Monitor) RegisterApp(appID string, config HealthCheckConfig) error {
 		currentStatus:    HealthStatusUnknown,
 		stopCh:           make(chan struct{}),
 	}
-	
+
 	m.checkers[appID] = checker
-	
+
 	// Start the checker
 	go m.runHealthChecker(checker)
-	
+
 	return nil
 }
 
@@ -157,7 +160,7 @@ func (m *Monitor) RegisterApp(appID string, config HealthCheckConfig) error {
 func (m *Monitor) UnregisterApp(appID string) {
 	m.checkersMu.Lock()
 	defer m.checkersMu.Unlock()
-	
+
 	if checker, ok := m.checkers[appID]; ok {
 		checker.Stop()
 		delete(m.checkers, appID)
@@ -169,12 +172,12 @@ func (m *Monitor) GetAppHealth(ctx context.Context, appID string) (*AppHealth, e
 	m.checkersMu.RLock()
 	checker, ok := m.checkers[appID]
 	m.checkersMu.RUnlock()
-	
+
 	health := &AppHealth{
 		AppID:  appID,
 		Status: HealthStatusUnknown,
 	}
-	
+
 	if ok {
 		checker.mu.RLock()
 		health.Status = checker.currentStatus
@@ -184,19 +187,19 @@ func (m *Monitor) GetAppHealth(ctx context.Context, appID string) (*AppHealth, e
 		}
 		checker.mu.RUnlock()
 	}
-	
+
 	// Get recent checks from database
 	checks, err := m.getRecentChecks(ctx, appID, 10)
 	if err == nil {
 		health.RecentChecks = checks
 	}
-	
+
 	// Get current metrics
 	metrics, err := m.metricsCollector.CollectAppMetrics(ctx, appID)
 	if err == nil {
 		health.CurrentMetrics = metrics
 	}
-	
+
 	return health, nil
 }
 
@@ -214,13 +217,13 @@ func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since tim
 		ORDER BY timestamp DESC
 		LIMIT ?
 	`
-	
+
 	rows, err := m.db.Query(query, appID, since, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var metrics []Metrics
 	for rows.Next() {
 		var metric Metrics
@@ -238,7 +241,7 @@ func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since tim
 		}
 		metrics = append(metrics, metric)
 	}
-	
+
 	return metrics, nil
 }
 
@@ -246,10 +249,10 @@ func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since tim
 func (m *Monitor) runHealthChecker(checker *HealthChecker) {
 	ticker := time.NewTicker(checker.Interval)
 	defer ticker.Stop()
-	
+
 	// Run immediately on start
 	m.runCheck(checker)
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -266,13 +269,13 @@ func (m *Monitor) runHealthChecker(checker *HealthChecker) {
 func (m *Monitor) runCheck(checker *HealthChecker) {
 	ctx, cancel := context.WithTimeout(context.Background(), checker.Timeout)
 	defer cancel()
-	
+
 	// Run all checks
 	var composite *CompositeCheck
 	if len(checker.Checks) > 1 {
 		composite = NewCompositeCheck(checker.Checks...)
 	}
-	
+
 	var result CheckResult
 	if composite != nil {
 		result = composite.Run(ctx)
@@ -285,11 +288,11 @@ func (m *Monitor) runCheck(checker *HealthChecker) {
 			Timestamp: time.Now(),
 		}
 	}
-	
+
 	// Update checker state
 	checker.mu.Lock()
 	checker.lastCheck = &result
-	
+
 	switch result.Status {
 	case HealthStatusHealthy:
 		checker.consecutiveSuccesses++
@@ -310,13 +313,13 @@ func (m *Monitor) runCheck(checker *HealthChecker) {
 			checker.currentStatus = result.Status
 		}
 	}
-	
+
 	currentStatus := checker.currentStatus
 	checker.mu.Unlock()
-	
+
 	// Save to database
 	m.saveHealthCheck(checker.AppID, &result)
-	
+
 	// Update app's health status in database
 	m.updateAppHealth(checker.AppID, currentStatus)
 }
@@ -351,13 +354,13 @@ func (m *Monitor) getRecentChecks(ctx context.Context, appID string, limit int) 
 		ORDER BY checked_at DESC
 		LIMIT ?
 	`
-	
+
 	rows, err := m.db.Query(query, appID, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var results []CheckResult
 	for rows.Next() {
 		var r CheckResult
@@ -369,17 +372,17 @@ func (m *Monitor) getRecentChecks(ctx context.Context, appID string, limit int) 
 		r.Status = HealthStatus(status)
 		results = append(results, r)
 	}
-	
+
 	return results, nil
 }
 
 // collectMetricsLoop periodically collects metrics for all apps
 func (m *Monitor) collectMetricsLoop() {
 	defer m.wg.Done()
-	
+
 	ticker := time.NewTicker(m.metricsInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -398,16 +401,16 @@ func (m *Monitor) collectAllMetrics() {
 		appIDs = append(appIDs, appID)
 	}
 	m.checkersMu.RUnlock()
-	
+
 	ctx := context.Background()
-	
+
 	for _, appID := range appIDs {
 		metrics, err := m.metricsCollector.CollectAppMetrics(ctx, appID)
 		if err != nil {
 			log.Printf("Failed to collect metrics for %s: %v", appID, err)
 			continue
 		}
-		
+
 		// Save to database
 		m.saveMetrics(metrics)
 	}
@@ -436,19 +439,19 @@ func (m *Monitor) saveMetrics(metrics *Metrics) {
 // CleanupOldData removes old health checks and metrics
 func (m *Monitor) CleanupOldData(retention time.Duration) error {
 	cutoff := time.Now().Add(-retention)
-	
+
 	// Delete old health checks
 	_, err := m.db.Exec("DELETE FROM health_checks WHERE checked_at < ?", cutoff)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup health checks: %w", err)
 	}
-	
+
 	// Delete old metrics
 	_, err = m.db.Exec("DELETE FROM metrics WHERE timestamp < ?", cutoff)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup metrics: %w", err)
 	}
-	
+
 	return nil
 }
 

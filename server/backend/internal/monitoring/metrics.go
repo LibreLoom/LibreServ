@@ -25,6 +25,9 @@ func NewMetricsCollector(dockerClient *client.Client) *MetricsCollector {
 
 // CollectContainerMetrics collects metrics for a specific container
 func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containerID string) (*Metrics, error) {
+	if m.dockerClient == nil {
+		return nil, fmt.Errorf("docker client not available")
+	}
 	stats, err := m.dockerClient.ContainerStats(ctx, containerID, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container stats: %w", err)
@@ -41,6 +44,9 @@ func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containe
 
 // CollectAppMetrics collects metrics for all containers belonging to an app
 func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) (*Metrics, error) {
+	if m.dockerClient == nil {
+		return nil, fmt.Errorf("docker client not available")
+	}
 	// Find containers belonging to this app by label
 	containers, err := m.dockerClient.ContainerList(ctx, container.ListOptions{
 		All: false, // Only running containers

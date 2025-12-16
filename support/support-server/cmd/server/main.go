@@ -73,33 +73,21 @@ func main() {
 	}))
 
 	mux.Handle("/api/cases/", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/api/cases/")
-		if id == "" {
-			http.Error(w, "case id required", http.StatusBadRequest)
-			return
-		}
-		switch {
-		case r.Method == http.MethodGet:
-			s.getCase(w, r, id)
-		case r.Method == http.MethodPost && strings.HasSuffix(id, "/messages"):
-			// unreachable due to path parse; keep for clarity
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}))
-
-	mux.Handle("/api/cases/", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/cases/")
 		if path == "" {
 			http.Error(w, "case id required", http.StatusBadRequest)
 			return
 		}
 		parts := strings.Split(path, "/")
-		if len(parts) < 2 {
-			http.Error(w, "invalid path", http.StatusBadRequest)
+		id := parts[0]
+		if len(parts) == 1 {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			s.getCase(w, r, id)
 			return
 		}
-		id := parts[0]
 		action := parts[1]
 		switch action {
 		case "messages":

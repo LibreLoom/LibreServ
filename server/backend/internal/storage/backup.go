@@ -20,10 +20,10 @@ import (
 
 // BackupService handles backup and restore operations
 type BackupService struct {
-	db           *database.DB
-	docker       *docker.Client
-	basePath     string // Base path for storing backups
-	appDataPath  string // Base path where app data is stored
+	db          *database.DB
+	docker      *docker.Client
+	basePath    string // Base path for storing backups
+	appDataPath string // Base path where app data is stored
 }
 
 // NewBackupService creates a new backup service
@@ -73,7 +73,7 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 	// Generate backup ID and filename
 	backupID := uuid.New().String()
 	timestamp := time.Now().Format("20060102-150405")
-	
+
 	var backupPath string
 	if opts.Compress {
 		backupPath = filepath.Join(backupDir, fmt.Sprintf("%s-%s.tar.gz", appID, timestamp))
@@ -100,10 +100,10 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 	}
 
 	_, err = s.db.Exec(`
-		INSERT INTO backups (id, app_id, type, path, size, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, backup.ID, backup.AppID, string(backup.Type), backup.Path, backup.Size, backup.CreatedAt)
-	
+		INSERT INTO backups (id, app_id, type, path, size, created_at, checksum)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, backup.ID, backup.AppID, string(backup.Type), backup.Path, backup.Size, backup.CreatedAt, backup.Checksum)
+
 	if err != nil {
 		// Clean up the backup file
 		os.Remove(backupPath)
@@ -113,9 +113,9 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 
 	result.Backup = backup
 	result.Duration = time.Since(startTime)
-	
+
 	log.Printf("Backup created for %s: %s (%d bytes) in %v", appID, backupPath, size, result.Duration)
-	
+
 	return result, nil
 }
 
@@ -215,10 +215,10 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 	var args []interface{}
 
 	if appID != "" {
-		query = `SELECT id, app_id, type, path, size, created_at FROM backups WHERE app_id = ? ORDER BY created_at DESC`
+		query = `SELECT id, app_id, type, path, size, created_at, checksum FROM backups WHERE app_id = ? ORDER BY created_at DESC`
 		args = []interface{}{appID}
 	} else {
-		query = `SELECT id, app_id, type, path, size, created_at FROM backups ORDER BY created_at DESC`
+		query = `SELECT id, app_id, type, path, size, created_at, checksum FROM backups ORDER BY created_at DESC`
 	}
 
 	rows, err := s.db.Query(query, args...)
@@ -231,7 +231,7 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 	for rows.Next() {
 		var b Backup
 		var backupType string
-		if err := rows.Scan(&b.ID, &b.AppID, &backupType, &b.Path, &b.Size, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.AppID, &backupType, &b.Path, &b.Size, &b.CreatedAt, &b.Checksum); err != nil {
 			continue
 		}
 		b.Type = BackupType(backupType)
@@ -245,16 +245,16 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 func (s *BackupService) GetBackup(ctx context.Context, backupID string) (*Backup, error) {
 	var b Backup
 	var backupType string
-	
+
 	err := s.db.QueryRow(`
-		SELECT id, app_id, type, path, size, created_at 
+		SELECT id, app_id, type, path, size, created_at, checksum
 		FROM backups WHERE id = ?
-	`, backupID).Scan(&b.ID, &b.AppID, &backupType, &b.Path, &b.Size, &b.CreatedAt)
-	
+	`, backupID).Scan(&b.ID, &b.AppID, &backupType, &b.Path, &b.Size, &b.CreatedAt, &b.Checksum)
+
 	if err != nil {
 		return nil, fmt.Errorf("backup not found: %w", err)
 	}
-	
+
 	b.Type = BackupType(backupType)
 	return &b, nil
 }

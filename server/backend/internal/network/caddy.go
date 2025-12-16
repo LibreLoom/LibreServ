@@ -73,6 +73,9 @@ func (cm *CaddyManager) Config() CaddyConfig {
 
 // Initialize loads existing routes and validates Caddy configuration
 func (cm *CaddyManager) Initialize(ctx context.Context) error {
+	if cm.config.ConfigPath == "" {
+		return fmt.Errorf("caddy config path is required")
+	}
 	// Load routes from database
 	if err := cm.loadRoutes(ctx); err != nil {
 		return fmt.Errorf("failed to load routes: %w", err)
@@ -381,10 +384,12 @@ func (cm *CaddyManager) GetStatus(ctx context.Context) (*CaddyStatus, error) {
 			status.Running = resp.StatusCode == 200
 		}
 	} else {
-		// Check if caddy process is running
-		cmd := exec.Command("pgrep", "-x", "caddy")
-		if err := cmd.Run(); err == nil {
-			status.Running = true
+		// No admin API configured; only check process existence if binary available.
+		if _, err := exec.LookPath("caddy"); err == nil {
+			cmd := exec.Command("pgrep", "-x", "caddy")
+			if err := cmd.Run(); err == nil {
+				status.Running = true
+			}
 		}
 	}
 
@@ -453,7 +458,7 @@ func (cm *CaddyManager) generateCaddyfile() (string, error) {
 	
 	# Logging
 	log {
-		output file /var/log/caddy/{{.Subdomain}}.log
+		output stdout
 	}
 }
 {{end}}
@@ -502,7 +507,11 @@ func (cm *CaddyManager) validateConfig() error {
 	}
 	tmpFile.Close()
 
-	// Validate with caddy
+	// Validate with caddy if available; otherwise skip with warning
+	if _, err := exec.LookPath("caddy"); err != nil {
+		return nil
+	}
+
 	cmd := exec.Command("caddy", "validate", "--config", tmpFile.Name())
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -539,7 +548,10 @@ func (cm *CaddyManager) reloadCaddy() error {
 		// Fall through to CLI method
 	}
 
-	// Use CLI reload
+	// Use CLI reload if available
+	if _, err := exec.LookPath("caddy"); err != nil {
+		return fmt.Errorf("caddy binary not found and admin API not configured")
+	}
 	cmd := exec.Command("caddy", "reload", "--config", cm.config.ConfigPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

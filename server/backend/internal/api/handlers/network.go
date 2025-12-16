@@ -181,16 +181,24 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally trigger ACME auto-issuance if available
+	// Optionally trigger ACME auto-issuance if available and email configured
 	if h.acmeHandler != nil && h.acmeHandler.manager != nil {
+		email := ""
+		if h.caddyManager != nil {
+			email = h.caddyManager.Config().Email
+		}
+		if email == "" {
+			goto respond
+		}
 		go func(domain string) {
 			_ = h.acmeHandler.manager.Issue(r.Context(), network.ACMERequest{
 				Domain: domain,
-				Email:  "",
+				Email:  email,
 			})
 		}(route.FullDomain())
 	}
 
+respond:
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(route)
