@@ -1,7 +1,8 @@
 import { Grid2X2, Home, Settings, Users, LifeBuoy } from 'lucide-react';
+import { NavLink } from 'react-router-dom';
 
 const navButtonClasses = "flex items-center gap-2 transition-colors px-3 py-1.5 rounded-pill " + 
-                         "hover:bg-secondary hover:text-primary"; // Hover Inversion Effect
+                         "hover:bg-secondary hover:text-primary aria-[current=page]:bg-secondary aria-[current=page]:text-primary hover:aria-[current=page]:text-secondary hover:aria-[current=page]:bg-primary hover:aria-[current=page]:outline-2 hover:aria-[current=page]:outline-secondary hover:aria-[current=page]:outline-solid"; // Hover Inversion Effect & Page Select Effect]"; // Hover Inversion Effect & Page Select Effect
 
 const dividerClasses = "text-accent text-lg";
 
@@ -11,38 +12,38 @@ export default function Navbar() {
             <div className="bg-primary text-secondary border-2 border-accent rounded-pill px-6 py-3">
                 <div className="flex items-center gap-6 text-sm font-sans justify-center">
 
-                    <button className={navButtonClasses}>
+                    <NavLink to="/" className={navButtonClasses}>
                         <Home size={18} />
                         <span>Dashboard</span>
-                    </button>
+                    </NavLink>
 
                     <span className={dividerClasses}>|</span>
 
-                    <button className={navButtonClasses}>
+                    <NavLink to="/apps" className={navButtonClasses}>
                         <Grid2X2 size={18} />
                         <span>Apps</span>
-                    </button>
+                    </NavLink>
 
                     <span className={dividerClasses}>|</span>
 
-                    <button className={navButtonClasses}>
+                    <NavLink to="/users" className={navButtonClasses}>
                         <Users size={18} />
                         <span>Users</span>
-                    </button>
+                    </NavLink>
 
                     <span className={dividerClasses}>|</span>
 
-                    <button className={navButtonClasses}>
+                   <NavLink to="/settings" className={navButtonClasses}>
                         <Settings size={18} />
                         <span>Settings</span>
-                    </button>
+                    </NavLink>
 
                     <span className={dividerClasses}>|</span>
 
-                    <button className={navButtonClasses}>
+                    <NavLink to="/help" className={navButtonClasses}>
                         <LifeBuoy size={18} />
                         <span>Help</span>
-                    </button>
+                    </NavLink>
 
                 </div>
             </div>
