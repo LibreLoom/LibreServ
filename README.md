@@ -8,13 +8,16 @@ Self-hosting platform that aims to make running your own server “plug it in an
 - In active development (MVP target: April 30, 2026)
 - Backend is Go; Frontend is React/Vite. Reverse proxy is Caddy. Database is SQLite. Apps run via Docker.
 
+## Goals
+- 95% of users shouldn’t need a terminal; actions should be reversible and plain-language.
+- Ship opinionated defaults for Caddy/HTTPS, monitoring, backups, and a small curated app set (quality over quantity).
+
 ## What’s here
 - **Backend** (`server/backend`): API server, app installer/manager, monitoring, backups, support session tooling.
 - **Frontend** (`server/frontend`): Vite/React source (not built by default). Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
 - **Built-in apps**: Nextcloud AIO, SearXNG, Ollama, ConvertX compose templates live under `server/backend/apps/builtin/`.
-- **CI**: `.github/workflows/backend-test.yml` runs `go test ./...` for the backend.
+- **CI**: `.github/workflows/ci.yml` runs backend vet/tests and frontend lint/build on pushes/PRs.
 - **TODO**: `CODEX_BACKEND_TODO.md` tracks hardening work (Caddy/ACME, SSO, app catalog pins, etc.).
- - **CI**: `.github/workflows/ci.yml` runs backend vet/tests and frontend lint/build on pushes/PRs.
 
 ## Quick start (backend)
 ```bash
@@ -38,6 +41,10 @@ Then restart the backend to serve the new assets.
 - Caddy must be installed/configured if you want automatic HTTPS; otherwise set the network config appropriately.
 - Secrets (JWT/CSRF) are auto-generated and persisted to the config file on first run; ensure the config path is writable or provide secrets via env.
 - ThePlan.md contains a longer product/architecture brain dump.
+
+## Contribute / Support
+- Issues and PRs welcome. CI runs Go vet/tests and frontend lint/build.
+- Donate: https://ko-fi.com/libreloom
 
 ## License
 AGPL 3.0. See LICENSE.
