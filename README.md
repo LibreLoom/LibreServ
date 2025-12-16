@@ -1,6 +1,6 @@
 # LibreServ
 
-[![CI](https://gt.plainskill.net/api/v1/repos/LibreLoom/LibreServ/actions/workflows/ci.yml/badge)](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml)
+[![CI](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml?branch=main)](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml?branch=main)
 
 Self-hosting platform that aims to make running your own server “plug it in and it works”.
 
