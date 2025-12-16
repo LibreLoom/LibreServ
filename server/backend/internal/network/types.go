@@ -6,16 +6,16 @@ import (
 
 // Route represents a reverse proxy route
 type Route struct {
-	ID          string    `json:"id"`
-	Subdomain   string    `json:"subdomain"`     // e.g., "nextcloud"
-	Domain      string    `json:"domain"`        // e.g., "example.com"
-	Backend     string    `json:"backend"`       // e.g., "http://localhost:8080"
-	AppID       string    `json:"app_id"`        // Reference to the app
-	SSL         bool      `json:"ssl"`           // Enable HTTPS
-	Enabled     bool      `json:"enabled"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	Comment     string    `json:"comment,omitempty"`
+	ID        string    `json:"id"`
+	Subdomain string    `json:"subdomain"` // e.g., "nextcloud"
+	Domain    string    `json:"domain"`    // e.g., "example.com"
+	Backend   string    `json:"backend"`   // e.g., "http://localhost:8080"
+	AppID     string    `json:"app_id"`    // Reference to the app
+	SSL       bool      `json:"ssl"`       // Enable HTTPS
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Comment   string    `json:"comment,omitempty"`
 }
 
 // FullDomain returns the complete domain name
@@ -52,10 +52,10 @@ type CaddyStatus struct {
 
 // CertificateInfo represents SSL certificate information
 type CertificateInfo struct {
-	Domain     string    `json:"domain"`
-	Issuer     string    `json:"issuer"`
-	NotBefore  time.Time `json:"not_before"`
-	NotAfter   time.Time `json:"not_after"`
-	DaysLeft   int       `json:"days_left"`
-	AutoRenew  bool      `json:"auto_renew"`
+	Domain    string    `json:"domain"`
+	Issuer    string    `json:"issuer"`
+	NotBefore time.Time `json:"not_before"`
+	NotAfter  time.Time `json:"not_after"`
+	DaysLeft  int       `json:"days_left"`
+	AutoRenew bool      `json:"auto_renew"`
 }

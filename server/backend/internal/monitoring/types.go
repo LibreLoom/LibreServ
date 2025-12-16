@@ -98,10 +98,10 @@ type HealthCheckRecord struct {
 
 // AppHealth provides a summary of an app's health
 type AppHealth struct {
-	AppID          string         `json:"app_id"`
-	Status         HealthStatus   `json:"status"`
-	LastCheck      *time.Time     `json:"last_check,omitempty"`
-	RecentChecks   []CheckResult  `json:"recent_checks,omitempty"`
-	CurrentMetrics *Metrics       `json:"current_metrics,omitempty"`
-	Message        string         `json:"message,omitempty"`
+	AppID          string        `json:"app_id"`
+	Status         HealthStatus  `json:"status"`
+	LastCheck      *time.Time    `json:"last_check,omitempty"`
+	RecentChecks   []CheckResult `json:"recent_checks,omitempty"`
+	CurrentMetrics *Metrics      `json:"current_metrics,omitempty"`
+	Message        string        `json:"message,omitempty"`
 }

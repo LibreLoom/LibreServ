@@ -65,7 +65,7 @@ func (j *JWTManager) GenerateTokenPair(userID, username, role string) (*TokenPai
 // generateToken creates a single JWT token
 func (j *JWTManager) generateToken(userID, username, role string, expiry time.Duration) (string, int64, error) {
 	expiresAt := time.Now().Add(expiry)
-	
+
 	claims := &Claims{
 		UserID:   userID,
 		Username: username,

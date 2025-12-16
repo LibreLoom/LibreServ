@@ -47,4 +47,3 @@ deployment:
 		t.Fatalf("Refresh: %v", err)
 	}
 }
-

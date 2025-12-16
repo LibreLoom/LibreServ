@@ -31,16 +31,16 @@ type CatalogListResponse struct {
 func (h *CatalogHandler) ListApps(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters for filters
 	query := r.URL.Query()
-	
+
 	filters := apps.CatalogFilters{
 		Search:   query.Get("search"),
 		Featured: query.Get("featured") == "true",
 	}
-	
+
 	if category := query.Get("category"); category != "" {
 		filters.Category = apps.AppCategory(category)
 	}
-	
+
 	if appType := query.Get("type"); appType != "" {
 		filters.Type = apps.AppType(appType)
 	}

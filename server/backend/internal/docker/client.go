@@ -44,9 +44,9 @@ func autoDetectConnection() (*Client, error) {
 
 	// 2. Try common socket paths
 	socketPaths := []string{
-		"/var/run/docker.sock",                    // Linux standard
+		"/var/run/docker.sock", // Linux standard
 		fmt.Sprintf("/Users/%s/.docker/run/docker.sock", os.Getenv("USER")), // Mac standard
-		"//./pipe/docker_engine",                  // Windows standard
+		"//./pipe/docker_engine", // Windows standard
 	}
 
 	for _, path := range socketPaths {
@@ -64,7 +64,7 @@ func connectViaSocket(socketPath string) (*Client, error) {
 	if !strings.HasPrefix(socketPath, "unix://") && !strings.HasPrefix(socketPath, "npipe://") {
 		socketPath = "unix://" + socketPath
 	}
-	
+
 	cli, err := client.NewClientWithOpts(
 		client.WithHost(socketPath),
 		client.WithAPIVersionNegotiation(),
@@ -97,7 +97,7 @@ func connectViaTCP(cfg config.TCPConfig) (*Client, error) {
 func connectViaSSH(cfg config.SSHConfig) (*Client, error) {
 	host := fmt.Sprintf("ssh://%s@%s", cfg.User, cfg.Host)
 	// SSH auth usually handled by system ssh-agent or ~/.ssh/id_rsa if not explicit
-	
+
 	cli, err := client.NewClientWithOpts(
 		client.WithHost(host),
 		client.WithAPIVersionNegotiation(),

@@ -104,11 +104,11 @@ func (t *TCPCheck) Run(ctx context.Context) CheckResult {
 	}
 
 	address := fmt.Sprintf("%s:%d", t.Config.Host, t.Config.Port)
-	
+
 	dialer := &net.Dialer{
 		Timeout: t.Timeout,
 	}
-	
+
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		result.Status = HealthStatusUnhealthy
@@ -257,7 +257,7 @@ func (c *CompositeCheck) Run(ctx context.Context) CheckResult {
 	for _, check := range c.Checks {
 		r := check.Run(ctx)
 		messages = append(messages, fmt.Sprintf("%s: %s", check.Type(), r.Message))
-		
+
 		switch r.Status {
 		case HealthStatusHealthy:
 			healthy++

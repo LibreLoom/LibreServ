@@ -15,4 +15,3 @@ func TestListContainersByLabel_NoDaemon(t *testing.T) {
 		t.Log("ListContainersByLabel returned without error (daemon likely available in env)")
 	}
 }
-

@@ -38,11 +38,11 @@ func (cm *ComposeManager) getComposeArgs(composePath string) (composeFile string
 // Implements Recommendation #7: Custom App Security (Sandboxing) via RunCustomAppSafely wrapper (future)
 func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
-	
+
 	cmd := exec.CommandContext(ctx, "docker", "compose",
 		"-f", composeFile,
 		"up", "-d", "--remove-orphans")
-	
+
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -61,11 +61,11 @@ func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
 
 func (cm *ComposeManager) Down(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
-	
+
 	cmd := exec.CommandContext(ctx, "docker", "compose",
 		"-f", composeFile,
 		"down")
-	
+
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -76,11 +76,11 @@ func (cm *ComposeManager) Down(ctx context.Context, composePath string) error {
 
 func (cm *ComposeManager) Pull(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
-	
+
 	cmd := exec.CommandContext(ctx, "docker", "compose",
 		"-f", composeFile,
 		"pull")
-	
+
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -92,11 +92,11 @@ func (cm *ComposeManager) Pull(ctx context.Context, composePath string) error {
 // Stop stops containers without removing them
 func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
-	
+
 	cmd := exec.CommandContext(ctx, "docker", "compose",
 		"-f", composeFile,
 		"stop")
-	
+
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -109,7 +109,7 @@ func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
 // Implements Recommendation #7
 func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath string) error {
 	composePath := filepath.Join(projectPath, "docker-compose.yml")
-	
+
 	data, err := os.ReadFile(composePath)
 	if err != nil {
 		return err
@@ -126,10 +126,10 @@ func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath st
 			if s, ok := svc.(map[string]interface{}); ok {
 				// Drop all capabilities
 				s["cap_drop"] = []string{"ALL"}
-				
+
 				// Read-only filesystem
 				s["read_only"] = true
-				
+
 				// No new privileges
 				if secOpts, ok := s["security_opt"].([]interface{}); ok {
 					s["security_opt"] = append(secOpts, "no-new-privileges:true")
@@ -145,7 +145,7 @@ func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath st
 	if err != nil {
 		return err
 	}
-	
+
 	if err := os.WriteFile(composePath, hardenedData, 0644); err != nil {
 		return err
 	}

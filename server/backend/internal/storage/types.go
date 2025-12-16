@@ -48,16 +48,16 @@ type RestoreOptions struct {
 
 // BackupSchedule defines when automatic backups run
 type BackupSchedule struct {
-	ID          string        `json:"id"`
-	AppID       string        `json:"app_id,omitempty"` // Empty for system backups
-	Type        BackupType    `json:"type"`
-	CronExpr    string        `json:"cron_expr"` // Cron expression (e.g., "0 2 * * *" for 2 AM daily)
-	Enabled     bool          `json:"enabled"`
-	Options     BackupOptions `json:"options"`
-	Retention   int           `json:"retention"` // Number of backups to keep
-	LastRun     *time.Time    `json:"last_run,omitempty"`
-	NextRun     *time.Time    `json:"next_run,omitempty"`
-	CreatedAt   time.Time     `json:"created_at"`
+	ID        string        `json:"id"`
+	AppID     string        `json:"app_id,omitempty"` // Empty for system backups
+	Type      BackupType    `json:"type"`
+	CronExpr  string        `json:"cron_expr"` // Cron expression (e.g., "0 2 * * *" for 2 AM daily)
+	Enabled   bool          `json:"enabled"`
+	Options   BackupOptions `json:"options"`
+	Retention int           `json:"retention"` // Number of backups to keep
+	LastRun   *time.Time    `json:"last_run,omitempty"`
+	NextRun   *time.Time    `json:"next_run,omitempty"`
+	CreatedAt time.Time     `json:"created_at"`
 }
 
 // DatabaseBackup represents a database backup record
