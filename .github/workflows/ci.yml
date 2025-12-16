@@ -44,6 +44,9 @@ jobs:
     defaults:
       run:
         working-directory: server/frontend
+    env:
+      CI: true
+      npm_config_unsafe_perm: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
