@@ -47,6 +47,7 @@ jobs:
     env:
       CI: true
       npm_config_unsafe_perm: "true"
+      NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-cache
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,8 +56,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: server/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
