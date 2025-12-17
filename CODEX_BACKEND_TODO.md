@@ -13,3 +13,4 @@
   - Ollama GPU settings: ensure compose works without swarm; consider `runtime: nvidia`/device requests.
   - Tighten CORS defaults (Ollama/ConvertX) from `*` unless explicitly set.
 - Project goals: add SSO/IdP integration and feature-matrix endpoints; cloud backup/relay/AI helper wiring.
+- Added manually by @plainskill: Let's create the missing backend tests as well!
