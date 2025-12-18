@@ -1,9 +1,10 @@
 package network
 
 import (
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,21 +14,8 @@ import (
 func TestCaddyManagerReloadAdminAPIRetriesThenSucceeds(t *testing.T) {
 	t.Parallel()
 
-	var calls int
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/load" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		calls++
-		if calls <= 2 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte("temporarily unavailable"))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
+	rt := &recordingRoundTripper{}
+	client := &http.Client{Transport: rt}
 
 	tmp, err := os.CreateTemp("", "caddyfile-*")
 	if err != nil {
@@ -54,7 +42,7 @@ func TestCaddyManagerReloadAdminAPIRetriesThenSucceeds(t *testing.T) {
 
 	cm := NewCaddyManager(db, CaddyConfig{
 		Mode:       "enabled",
-		AdminAPI:   srv.URL,
+		AdminAPI:   "http://caddy.test",
 		ConfigPath: tmp.Name(),
 		Reload: CaddyReloadConfig{
 			Retries:        3,
@@ -64,12 +52,13 @@ func TestCaddyManagerReloadAdminAPIRetriesThenSucceeds(t *testing.T) {
 			AttemptTimeout: 500 * time.Millisecond,
 		},
 	})
+	cm.httpClient = client
 
 	if err := cm.reloadCaddy(); err != nil {
 		t.Fatalf("reloadCaddy() error = %v", err)
 	}
-	if calls != 3 {
-		t.Fatalf("expected 3 /load calls, got %d", calls)
+	if rt.calls != 3 {
+		t.Fatalf("expected 3 /load calls, got %d", rt.calls)
 	}
 }
 
@@ -92,4 +81,28 @@ func TestCaddyManagerReloadNoopModeNoError(t *testing.T) {
 	if err := cm.reloadCaddy(); err != nil {
 		t.Fatalf("noop reloadCaddy() error = %v", err)
 	}
+}
+
+type recordingRoundTripper struct {
+	calls int
+}
+
+// RoundTrip emulates Caddy admin /load behavior: two failures then success.
+func (rt *recordingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	rt.calls++
+
+	status := http.StatusOK
+	body := ""
+	if req.URL.Path != "/load" {
+		status = http.StatusNotFound
+	} else if rt.calls <= 2 {
+		status = http.StatusServiceUnavailable
+		body = "temporarily unavailable"
+	}
+
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}, nil
 }
