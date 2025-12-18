@@ -2,6 +2,50 @@ name: CI
 
 on:
   push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go test (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - server/backend
+          - support/support-relay
+          - support/support-server
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache: true
+          cache-dependency-path: |
+            ${{ matrix.module }}/go.mod
+            ${{ matrix.module }}/go.sum
+
+      - name: Test
+        run: go test ./...
+
+      - name: Lint (placeholder)
+        run: echo "TODO: add golangci-lint (or equivalent) here"
+
+name: CI
+
+on:
+  push:
     branches: [main, master]
   pull_request:
     branches: [main, master]

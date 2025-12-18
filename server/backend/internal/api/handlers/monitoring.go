@@ -37,13 +37,13 @@ func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, dockerC
 func (h *MonitoringHandlers) GetAppHealth(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		http.Error(w, "app ID required", http.StatusBadRequest)
+		JSONError(w, http.StatusBadRequest, "app ID required")
 		return
 	}
 
 	health, err := h.monitor.GetAppHealth(r.Context(), appID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -56,13 +56,21 @@ func (h *MonitoringHandlers) GetAppHealth(w http.ResponseWriter, r *http.Request
 func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		http.Error(w, "app ID required", http.StatusBadRequest)
+		JSONError(w, http.StatusBadRequest, "app ID required")
 		return
 	}
 
 	metrics, err := h.monitor.GetAppMetrics(r.Context(), appID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if monitoring.IsDockerUnavailable(err) {
+			JSONError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		if monitoring.IsNoContainers(err) {
+			JSONError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -75,7 +83,7 @@ func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Reques
 func (h *MonitoringHandlers) GetMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		http.Error(w, "app ID required", http.StatusBadRequest)
+		JSONError(w, http.StatusBadRequest, "app ID required")
 		return
 	}
 
@@ -99,7 +107,7 @@ func (h *MonitoringHandlers) GetMetricsHistory(w http.ResponseWriter, r *http.Re
 
 	metrics, err := h.monitor.GetMetricsHistory(r.Context(), appID, since, limit)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -129,13 +137,13 @@ type RegisterHealthCheckRequest struct {
 func (h *MonitoringHandlers) RegisterHealthCheck(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		http.Error(w, "app ID required", http.StatusBadRequest)
+		JSONError(w, http.StatusBadRequest, "app ID required")
 		return
 	}
 
 	var req RegisterHealthCheckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -150,7 +158,11 @@ func (h *MonitoringHandlers) RegisterHealthCheck(w http.ResponseWriter, r *http.
 	}
 
 	if err := h.monitor.RegisterApp(appID, config); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if monitoring.IsDockerUnavailable(err) {
+			JSONError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

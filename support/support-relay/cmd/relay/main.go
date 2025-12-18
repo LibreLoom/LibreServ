@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -11,11 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"crypto/hmac"
-	"crypto/sha256"
 	"github.com/gorilla/websocket"
-	"golang.org/x/crypto/hkdf"
-	"io"
 )
 
 const (
@@ -24,6 +24,7 @@ const (
 	pingInterval  = 20 * time.Second
 	writeWait     = 15 * time.Second
 	readLimit     = 1 << 20 // 1MB per message
+	tsSkew        = 5 * time.Minute
 )
 
 type relayServer struct {

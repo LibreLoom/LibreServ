@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
 
@@ -16,15 +20,17 @@ type ACMEHandler struct {
 	routeIndex   map[string]string // domain -> routeID
 	appBackends  map[string]string // appID -> backend
 	appManager   *apps.Manager
+	db           *database.DB
 }
 
-func NewACMEHandler(manager *network.ACMEManager, caddyManager *network.CaddyManager, appManager *apps.Manager) *ACMEHandler {
+func NewACMEHandler(db *database.DB, manager *network.ACMEManager, caddyManager *network.CaddyManager, appManager *apps.Manager) *ACMEHandler {
 	return &ACMEHandler{
 		manager:      manager,
 		caddyManager: caddyManager,
 		routeIndex:   make(map[string]string),
 		appBackends:  make(map[string]string),
 		appManager:   appManager,
+		db:           db,
 	}
 }
 
@@ -69,48 +75,140 @@ func (h *ACMEHandler) ProbePorts(w http.ResponseWriter, r *http.Request) {
 // Currently a stub that validates input and returns accepted; replace with real Caddy Admin API call.
 func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 	var body network.ACMERequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Domain == "" || body.Email == "" {
-		JSONError(w, http.StatusBadRequest, "domain and email required")
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Domain == "" {
+		JSONError(w, http.StatusBadRequest, "domain required")
 		return
 	}
 	if h.manager == nil {
 		JSONError(w, http.StatusInternalServerError, "acme manager not configured")
 		return
 	}
+	// Allow email to be omitted for external issuance when a default is configured.
+	if body.Email == "" && h.manager.ExternalEnabled() {
+		if h.caddyManager != nil && h.caddyManager.Config().Email != "" {
+			body.Email = h.caddyManager.Config().Email
+		}
+	}
+	if body.Email == "" {
+		JSONError(w, http.StatusBadRequest, "email required")
+		return
+	}
+	if h.db == nil {
+		JSONError(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
 	backend := h.resolveBackend(body)
+	routeID := ""
 	if h.caddyManager != nil {
-		// Avoid duplicate routes for the same domain
-		if existingID, ok := h.routeIndex[body.Domain]; ok {
-			_ = h.caddyManager.RemoveRoute(r.Context(), existingID)
-			delete(h.routeIndex, body.Domain)
+		// Ensure a route exists for this domain (idempotent).
+		route, err := h.caddyManager.AddDomainRoute(r.Context(), body.Domain, backend, "acme-auto")
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, "failed to add route for domain: "+err.Error())
+			return
 		}
-		// Reuse existing domain route if present
-		if _, ok := h.caddyManager.FindRouteByDomain(body.Domain); !ok {
-			route, err := h.caddyManager.AddDomainRoute(r.Context(), body.Domain, backend, "acme-auto")
-			if err != nil {
-				JSONError(w, http.StatusInternalServerError, "failed to add route for domain: "+err.Error())
-				return
-			}
-			h.routeIndex[body.Domain] = route.ID
-		}
+		routeID = route.ID
 		// Ensure config applied after route addition
 		if err := h.caddyManager.ApplyConfig(); err != nil {
-			if id, ok := h.routeIndex[body.Domain]; ok {
-				_ = h.caddyManager.RemoveRoute(r.Context(), id)
-				delete(h.routeIndex, body.Domain)
-			}
 			JSONError(w, http.StatusInternalServerError, "failed to apply caddy config: "+err.Error())
 			return
 		}
 	}
-	if err := h.manager.Issue(r.Context(), body); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+
+	job, err := network.CreateACMEJob(r.Context(), h.db, body.Domain, body.Email, routeID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to create acme job: "+err.Error())
 		return
 	}
+
+	// Process issuance asynchronously and persist outcome.
+	go func(jobID string, req network.ACMERequest) {
+		_ = network.UpdateACMEJobRunning(context.Background(), h.db, jobID)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := h.manager.Issue(ctx, req); err != nil {
+			_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, false, err.Error())
+			return
+		}
+		// If certs were issued externally, regenerate and reload so Caddy picks up manual tls paths.
+		if h.caddyManager != nil {
+			_ = h.caddyManager.ApplyConfig()
+		}
+		_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, true, "")
+	}(job.ID, body)
+
 	JSON(w, http.StatusAccepted, map[string]any{
-		"message":  "ACME request accepted (stub; replace with Caddy Admin integration)",
+		"message":  "ACME request accepted",
+		"job_id":   job.ID,
 		"domain":   body.Domain,
-		"route_id": h.routeIndex[body.Domain],
+		"route_id": routeID,
 		"backend":  backend,
+		"status":   job.Status,
 	})
+}
+
+// EnqueueIssue creates an ACME job and runs issuance asynchronously.
+// This is safe to call from other handlers (e.g., auto-issuance after route creation).
+func (h *ACMEHandler) EnqueueIssue(ctx context.Context, domain, email string) (string, error) {
+	if h.manager == nil {
+		return "", fmt.Errorf("acme manager not configured")
+	}
+	if h.db == nil {
+		return "", fmt.Errorf("database not configured")
+	}
+	job, err := network.CreateACMEJob(ctx, h.db, domain, email, "")
+	if err != nil {
+		return "", err
+	}
+	go func(jobID string, req network.ACMERequest) {
+		_ = network.UpdateACMEJobRunning(context.Background(), h.db, jobID)
+		issueCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := h.manager.Issue(issueCtx, req); err != nil {
+			_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, false, err.Error())
+			return
+		}
+		if h.caddyManager != nil {
+			_ = h.caddyManager.ApplyConfig()
+		}
+		_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, true, "")
+	}(job.ID, network.ACMERequest{Domain: domain, Email: email})
+	return job.ID, nil
+}
+
+// GetJob handles GET /api/v1/network/acme/jobs/{jobID}
+func (h *ACMEHandler) GetJob(w http.ResponseWriter, r *http.Request) {
+	if h.db == nil {
+		JSONError(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
+	id := chi.URLParam(r, "jobID")
+	if id == "" {
+		JSONError(w, http.StatusBadRequest, "job id required")
+		return
+	}
+	job, err := network.GetACMEJobByID(r.Context(), h.db, id)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, job)
+}
+
+// GetStatus handles GET /api/v1/network/acme/status?domain=example.com
+func (h *ACMEHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
+	if h.db == nil {
+		JSONError(w, http.StatusInternalServerError, "database not configured")
+		return
+	}
+	domain := r.URL.Query().Get("domain")
+	if domain == "" {
+		JSONError(w, http.StatusBadRequest, "domain required")
+		return
+	}
+	job, err := network.LatestACMEJobForDomain(r.Context(), h.db, domain)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, job)
 }

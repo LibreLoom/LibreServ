@@ -63,6 +63,10 @@ func NewMonitor(db *database.DB, dockerClient *client.Client) *Monitor {
 
 // Start begins background monitoring tasks
 func (m *Monitor) Start() {
+	if m.dockerClient == nil {
+		// Docker-backed metrics are disabled; health checks may still run for HTTP/TCP.
+		return
+	}
 	m.wg.Add(1)
 	go m.collectMetricsLoop()
 }
@@ -83,9 +87,6 @@ func (m *Monitor) Stop() {
 
 // RegisterApp registers an app for health monitoring
 func (m *Monitor) RegisterApp(appID string, config HealthCheckConfig) error {
-	if m.dockerClient == nil {
-		return fmt.Errorf("docker client not available for monitoring")
-	}
 	m.checkersMu.Lock()
 	defer m.checkersMu.Unlock()
 
@@ -106,11 +107,17 @@ func (m *Monitor) RegisterApp(appID string, config HealthCheckConfig) error {
 	}
 
 	if config.Container != nil {
+		if m.dockerClient == nil {
+			return fmt.Errorf("%w: container checks require docker", ErrDockerUnavailable)
+		}
 		checks = append(checks, NewContainerCheck(*config.Container, m.dockerClient))
 	}
 
 	// If no specific checks configured, add a default container check
 	if len(checks) == 0 {
+		if m.dockerClient == nil {
+			return fmt.Errorf("%w: no checks configured and docker is unavailable", ErrDockerUnavailable)
+		}
 		checks = append(checks, NewContainerCheck(ContainerCheckConfig{
 			ContainerName: appID,
 		}, m.dockerClient))

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -200,5 +201,39 @@ func (h *BackupHandlers) ListDatabaseBackups(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"backups": backups,
 		"count":   len(backups),
+	})
+}
+
+// RestoreDatabaseBackupRequest is the request body for restoring a database backup.
+type RestoreDatabaseBackupRequest struct {
+	VerifyChecksum bool `json:"verify_checksum"`
+}
+
+// RestoreDatabaseBackup restores the LibreServ database from a database backup.
+// POST /api/v1/backups/database/{backupID}/restore
+func (h *BackupHandlers) RestoreDatabaseBackup(w http.ResponseWriter, r *http.Request) {
+	backupID := chi.URLParam(r, "backupID")
+	if backupID == "" {
+		JSONError(w, http.StatusBadRequest, "backup ID required")
+		return
+	}
+
+	req := RestoreDatabaseBackupRequest{VerifyChecksum: true}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	opts := storage.DatabaseRestoreOptions{VerifyChecksum: req.VerifyChecksum}
+
+	if err := h.backupService.RestoreDatabase(r.Context(), backupID, opts); err != nil {
+		JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"backup_id": backupID,
+		"status":    "restored",
 	})
 }
