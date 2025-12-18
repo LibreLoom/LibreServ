@@ -24,9 +24,6 @@ yarn-debug.log*
 pnpm-debug.log*
 coverage.out
 node_modules/
-package-lock.json
-node_modules/
-package-lock.json
 # Generated frontend build artifacts
 server/backend/OS/dist/
 # Local Go build/test caches
