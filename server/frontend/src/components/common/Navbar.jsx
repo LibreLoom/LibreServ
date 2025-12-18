@@ -17,6 +17,7 @@ const navButtonClasses =
 const dividerClasses = "text-accent text-lg";
 
 export default function Navbar() {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   return (
     <>
       <div className="hidden xl:flex">
@@ -59,9 +60,16 @@ export default function Navbar() {
           </div>
         </nav>
       </div>
-      <div className="xl:hidden">
-        <Menu size={24} />
-      </div>
+      <button
+        className="fixed bottom-6 right-6 z-1000 xl:hidden bg-primary text-secondary border-2 border-accent rounded-pill"
+        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+      >
+        {isMobileMenuOpen ? (
+          <X className="p-2.5" size={48} />
+        ) : (
+          <Menu className="p-2.5" size={48} />
+        )}
+      </button>
     </>
   );
 }
