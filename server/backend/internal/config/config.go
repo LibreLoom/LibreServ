@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -104,15 +106,54 @@ type Notifications struct {
 // NetworkConfig holds reverse proxy settings (Caddy)
 type NetworkConfig struct {
 	Caddy CaddyConfig `mapstructure:"caddy"`
+	ACME  ACMEConfig  `mapstructure:"acme"`
+}
+
+type ACMEConfig struct {
+	External ExternalACMEConfig `mapstructure:"external"`
+}
+
+type ExternalACMEConfig struct {
+	Enabled     bool              `mapstructure:"enabled"`
+	UseDocker   bool              `mapstructure:"use_docker"`
+	DockerImage string            `mapstructure:"docker_image"`
+	DataPath    string            `mapstructure:"data_path"`
+	DNSProvider string            `mapstructure:"dns_provider"`
+	DNSEnv      map[string]string `mapstructure:"dns_env"`
+	Email       string            `mapstructure:"email"`
+	Staging     bool              `mapstructure:"staging"`
+	CADirURL    string            `mapstructure:"ca_dir_url"`
+	KeyType     string            `mapstructure:"key_type"`
+	// CertsPath is where the issued cert/key will be copied for Caddy to use.
+	CertsPath string `mapstructure:"certs_path"`
 }
 
 // CaddyConfig mirrors the network.CaddyConfig but avoids import cycles
 type CaddyConfig struct {
-	AdminAPI      string `mapstructure:"admin_api"`
-	ConfigPath    string `mapstructure:"config_path"`
-	DefaultDomain string `mapstructure:"default_domain"`
-	Email         string `mapstructure:"email"`
-	AutoHTTPS     bool   `mapstructure:"auto_https"`
+	Mode          string         `mapstructure:"mode"`
+	AdminAPI      string         `mapstructure:"admin_api"`
+	ConfigPath    string         `mapstructure:"config_path"`
+	CertsPath     string         `mapstructure:"certs_path"`
+	DefaultDomain string         `mapstructure:"default_domain"`
+	Email         string         `mapstructure:"email"`
+	AutoHTTPS     bool           `mapstructure:"auto_https"`
+	Reload        CaddyReload    `mapstructure:"reload"`
+	Logging       CaddyLogConfig `mapstructure:"logging"`
+}
+
+type CaddyReload struct {
+	Retries        int           `mapstructure:"retries"`
+	BackoffMin     time.Duration `mapstructure:"backoff_min"`
+	BackoffMax     time.Duration `mapstructure:"backoff_max"`
+	JitterFraction float64       `mapstructure:"jitter_fraction"`
+	AttemptTimeout time.Duration `mapstructure:"attempt_timeout"`
+}
+
+type CaddyLogConfig struct {
+	Output string `mapstructure:"output"`
+	File   string `mapstructure:"file"`
+	Format string `mapstructure:"format"`
+	Level  string `mapstructure:"level"`
 }
 
 var globalConfig *Config
@@ -178,8 +219,63 @@ func SaveConfig(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(strings.TrimSuffix(path, "/libreserv.yaml"), 0o755); err != nil {
-		// best effort; ignore if fails
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create config directory %q: %w", dir, err)
+		}
 	}
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write config %q: %w", path, err)
+	}
+	return nil
+}
+
+// IsWritableFilePath reports whether a file path can be written to by the current process.
+// - If the file exists, it checks if it can be opened for writing (without truncation).
+// - If the file doesn't exist, it checks whether the parent directory can be created and written to.
+func IsWritableFilePath(path string) (bool, error) {
+	if path == "" {
+		return false, nil
+	}
+
+	if st, err := os.Stat(path); err == nil {
+		if st.IsDir() {
+			return false, nil
+		}
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+		if err != nil {
+			if errors.Is(err, os.ErrPermission) {
+				return false, nil
+			}
+			return false, err
+		}
+		_ = f.Close()
+		return true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+
+	// File doesn't exist: check the directory is creatable/writable.
+	dir := filepath.Dir(path)
+	if dir == "" || dir == "." {
+		dir = "."
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return false, nil
+		}
+		return false, err
+	}
+	tmp, err := os.CreateTemp(dir, ".libreserv-writecheck-*")
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return false, nil
+		}
+		return false, err
+	}
+	name := tmp.Name()
+	_ = tmp.Close()
+	_ = os.Remove(name)
+	return true, nil
 }

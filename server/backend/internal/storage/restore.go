@@ -185,7 +185,7 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 }
 
 // RestoreDatabase restores the LibreServ database from a backup
-func (s *BackupService) RestoreDatabase(ctx context.Context, backupID string) error {
+func (s *BackupService) RestoreDatabase(ctx context.Context, backupID string, opts DatabaseRestoreOptions) error {
 	// Get backup info
 	var backup DatabaseBackup
 	err := s.db.QueryRow(`
@@ -202,17 +202,65 @@ func (s *BackupService) RestoreDatabase(ctx context.Context, backupID string) er
 		return fmt.Errorf("backup file not found: %s", backup.Path)
 	}
 
-	// This is a complex operation that requires:
-	// 1. Closing all database connections
-	// 2. Decompressing the backup
-	// 3. Replacing the database file
-	// 4. Reopening the database
+	// Verify checksum.
+	if opts.VerifyChecksum && backup.Checksum == "" {
+		return fmt.Errorf("database backup has no checksum recorded; refusing to restore without integrity verification")
+	}
+	if backup.Checksum != "" && (opts.VerifyChecksum || backup.Checksum != "") {
+		checksum, err := fileChecksum(backup.Path)
+		if err != nil {
+			return fmt.Errorf("failed to verify database backup checksum: %w", err)
+		}
+		if checksum != backup.Checksum {
+			return fmt.Errorf("checksum mismatch: database backup may be corrupted")
+		}
+	}
 
-	// For safety, this should be done by a separate process or restart
-	// Here we just prepare the restore file
+	// Decompress into same directory as the live DB to make rename atomic.
+	dbPath := s.db.Path()
+	if dbPath == "" {
+		return fmt.Errorf("database path is unknown")
+	}
+	restoreTmp := fmt.Sprintf("%s.restore-%s.tmp", dbPath, time.Now().Format("20060102-150405"))
 
-	log.Printf("Database restore from %s requested - requires service restart", backup.Path)
-	return fmt.Errorf("database restore requires service restart - backup prepared at %s", backup.Path)
+	if err := decompressGzipFile(backup.Path, restoreTmp, 0600); err != nil {
+		return fmt.Errorf("failed to decompress database backup: %w", err)
+	}
+	// If restore succeeds, ReplaceFile() will move restoreTmp into place; otherwise cleanup best-effort.
+	defer func() { _ = os.Remove(restoreTmp) }()
+
+	log.Printf("Restoring database from backup %s into %s", backupID, dbPath)
+	if err := s.db.ReplaceFile(ctx, restoreTmp); err != nil {
+		return fmt.Errorf("database restore failed: %w", err)
+	}
+
+	return nil
+}
+
+func decompressGzipFile(srcPath, destPath string, perm os.FileMode) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	gzr, err := gzip.NewReader(src)
+	if err != nil {
+		return err
+	}
+	defer gzr.Close()
+
+	// Use O_EXCL to avoid accidentally clobbering an existing file.
+	dst, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, perm)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, gzr); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ListDatabaseBackups returns all database backups

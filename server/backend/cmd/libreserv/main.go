@@ -75,11 +75,26 @@ func main() {
 	backupService := storage.NewBackupService(db, dockerClient, backupBase, cfg.Apps.DataPath)
 
 	caddyManager := network.NewCaddyManager(db, network.CaddyConfig{
+		Mode:          cfg.Network.Caddy.Mode,
 		AdminAPI:      cfg.Network.Caddy.AdminAPI,
 		ConfigPath:    cfg.Network.Caddy.ConfigPath,
+		CertsPath:     cfg.Network.Caddy.CertsPath,
 		DefaultDomain: cfg.Network.Caddy.DefaultDomain,
 		Email:         cfg.Network.Caddy.Email,
 		AutoHTTPS:     cfg.Network.Caddy.AutoHTTPS,
+		Reload: network.CaddyReloadConfig{
+			Retries:        cfg.Network.Caddy.Reload.Retries,
+			BackoffMin:     cfg.Network.Caddy.Reload.BackoffMin,
+			BackoffMax:     cfg.Network.Caddy.Reload.BackoffMax,
+			JitterFraction: cfg.Network.Caddy.Reload.JitterFraction,
+			AttemptTimeout: cfg.Network.Caddy.Reload.AttemptTimeout,
+		},
+		Logging: network.CaddyLoggingConfig{
+			Output: cfg.Network.Caddy.Logging.Output,
+			File:   cfg.Network.Caddy.Logging.File,
+			Format: cfg.Network.Caddy.Logging.Format,
+			Level:  cfg.Network.Caddy.Logging.Level,
+		},
 	})
 	if caddyManager != nil {
 		if err := caddyManager.Initialize(context.Background()); err != nil {
@@ -142,26 +157,52 @@ func main() {
 // ensureSecrets autogenerates JWT/CSRF secrets if missing and persists them.
 func ensureSecrets(cfgPath string) error {
 	cfg := config.Get()
-	updated := false
-
-	if cfg.Auth.JWTSecret == "" {
-		if secret, err := auth.GenerateSecureKey(32); err == nil {
-			cfg.Auth.JWTSecret = secret
-			updated = true
-		}
+	missingJWT := cfg.Auth.JWTSecret == ""
+	missingCSRF := cfg.Auth.CSRFSecret == ""
+	if !missingJWT && !missingCSRF {
+		return nil
 	}
-	if cfg.Auth.CSRFSecret == "" {
-		if secret, err := auth.GenerateSecureKey(32); err == nil {
-			cfg.Auth.CSRFSecret = secret
-			updated = true
+
+	// Policy:
+	// - Secrets may come from env or config (already loaded).
+	// - If secrets are missing at startup, we will generate them and persist to config.
+	// - If the config path is not writable, fail fast with a clear remediation.
+	if cfgPath == "" {
+		return fmt.Errorf(
+			"missing required secrets (auth.jwt_secret and/or auth.csrf_secret) and no config path was provided to persist generated secrets; set env vars LIBRESERV_AUTH_JWT_SECRET and LIBRESERV_AUTH_CSRF_SECRET (recommended for read-only configs) or run with a writable --config path",
+		)
+	}
+	writable, err := config.IsWritableFilePath(cfgPath)
+	if err != nil {
+		return fmt.Errorf("checking config writability for %q: %w", cfgPath, err)
+	}
+	if !writable {
+		return fmt.Errorf(
+			"missing required secrets (auth.jwt_secret and/or auth.csrf_secret) but config file is not writable (%q). Provide secrets via env (LIBRESERV_AUTH_JWT_SECRET and LIBRESERV_AUTH_CSRF_SECRET) or make the config path writable",
+			cfgPath,
+		)
+	}
+
+	updated := false
+	if missingJWT {
+		secret, err := auth.GenerateSecureKey(32)
+		if err != nil {
+			return fmt.Errorf("generate jwt secret: %w", err)
 		}
+		cfg.Auth.JWTSecret = secret
+		updated = true
+	}
+	if missingCSRF {
+		secret, err := auth.GenerateSecureKey(32)
+		if err != nil {
+			return fmt.Errorf("generate csrf secret: %w", err)
+		}
+		cfg.Auth.CSRFSecret = secret
+		updated = true
 	}
 
 	if !updated {
 		return nil
-	}
-	if cfgPath == "" {
-		return fmt.Errorf("config path is empty; cannot persist generated secrets")
 	}
 	if err := config.SaveConfig(cfgPath); err != nil {
 		return fmt.Errorf("persisting generated secrets: %w", err)

@@ -145,6 +145,12 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 		Timestamp: time.Now(),
 	}
 
+	if c.DockerClient == nil {
+		result.Status = HealthStatusDegraded
+		result.Message = "Docker unavailable; container health checks are disabled"
+		return result
+	}
+
 	// List containers to find the one matching our name
 	containers, err := c.DockerClient.ContainerList(ctx, container.ListOptions{All: true})
 	if err != nil {
@@ -153,20 +159,7 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 		return result
 	}
 
-	var targetContainer *types.Container
-	for _, cont := range containers {
-		for _, name := range cont.Names {
-			// Container names are prefixed with /
-			cleanName := strings.TrimPrefix(name, "/")
-			if cleanName == c.Config.ContainerName || strings.Contains(cleanName, c.Config.ContainerName) {
-				targetContainer = &cont
-				break
-			}
-		}
-		if targetContainer != nil {
-			break
-		}
-	}
+	targetContainer := pickContainer(containers, c.Config.ContainerName)
 
 	if targetContainer == nil {
 		result.Status = HealthStatusUnhealthy
@@ -224,6 +217,79 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 	}
 
 	return result
+}
+
+func pickContainer(containers []types.Container, query string) *types.Container {
+	if query == "" {
+		return nil
+	}
+
+	// Prefer label-based matching (compose projects/services, LibreServ label), and prefer a running container.
+	var bestLabelMatch *types.Container
+	for i := range containers {
+		cont := &containers[i]
+		if !matchesContainerByLabels(*cont, query) {
+			continue
+		}
+		if strings.EqualFold(cont.State, "running") {
+			return cont
+		}
+		if bestLabelMatch == nil {
+			bestLabelMatch = cont
+		}
+	}
+	if bestLabelMatch != nil {
+		return bestLabelMatch
+	}
+
+	// Fallback: match by container name.
+	var bestNameMatch *types.Container
+	for i := range containers {
+		cont := &containers[i]
+		if !matchesContainerByName(*cont, query) {
+			continue
+		}
+		if strings.EqualFold(cont.State, "running") {
+			return cont
+		}
+		if bestNameMatch == nil {
+			bestNameMatch = cont
+		}
+	}
+	return bestNameMatch
+}
+
+func matchesContainerByLabels(cont types.Container, query string) bool {
+	if query == "" {
+		return false
+	}
+	if cont.Labels == nil {
+		return false
+	}
+	if cont.Labels["com.docker.compose.project"] == query {
+		return true
+	}
+	if cont.Labels["com.docker.compose.service"] == query {
+		return true
+	}
+	if cont.Labels["libreserv.app"] == query {
+		return true
+	}
+	return false
+}
+
+func matchesContainerByName(cont types.Container, query string) bool {
+	if query == "" {
+		return false
+	}
+	for _, name := range cont.Names {
+		// Container names are prefixed with /
+		cleanName := strings.TrimPrefix(name, "/")
+		if cleanName == query || strings.Contains(cleanName, query) {
+			return true
+		}
+	}
+	return false
 }
 
 // CompositeCheck runs multiple checks and aggregates results

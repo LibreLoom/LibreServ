@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
@@ -28,6 +30,7 @@ type CaddyManager struct {
 	routesMu     sync.RWMutex
 	httpClient   *http.Client
 	configBackup string
+	rand         *rand.Rand
 }
 
 // NewCaddyManager creates a new Caddy manager
@@ -39,6 +42,7 @@ func NewCaddyManager(db *database.DB, config CaddyConfig) *CaddyManager {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -50,6 +54,18 @@ func (cm *CaddyManager) AdminEndpoint() string {
 // ConfigPath returns the Caddyfile path.
 func (cm *CaddyManager) ConfigPath() string {
 	return cm.config.ConfigPath
+}
+
+func (cm *CaddyManager) mode() string {
+	m := strings.ToLower(strings.TrimSpace(cm.config.Mode))
+	if m == "" {
+		return "enabled"
+	}
+	return m
+}
+
+func (cm *CaddyManager) isEnabled() bool {
+	return cm.mode() == "enabled"
 }
 
 // UpdateDefaults updates domain/email/autohttps defaults and regenerates config.
@@ -123,7 +139,7 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 
 	// Validate the new configuration
 	cm.routes[route.ID] = route
-	if err := cm.validateConfig(); err != nil {
+	if err := cm.validateConfigLocked(); err != nil {
 		delete(cm.routes, route.ID)
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -135,7 +151,7 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 	}
 
 	// Apply the new configuration
-	if err := cm.regenerateCaddyfile(); err != nil {
+	if err := cm.regenerateCaddyfileLocked(); err != nil {
 		// Rollback
 		delete(cm.routes, route.ID)
 		cm.deleteRoute(ctx, route.ID)
@@ -181,7 +197,7 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 		Comment:   comment,
 	}
 	cm.routes[route.ID] = route
-	if err := cm.validateConfig(); err != nil {
+	if err := cm.validateConfigLocked(); err != nil {
 		delete(cm.routes, route.ID)
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -189,7 +205,7 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 		delete(cm.routes, route.ID)
 		return nil, fmt.Errorf("failed to save route: %w", err)
 	}
-	if err := cm.regenerateCaddyfile(); err != nil {
+	if err := cm.regenerateCaddyfileLocked(); err != nil {
 		delete(cm.routes, route.ID)
 		_ = cm.deleteRoute(ctx, route.ID)
 		cm.restoreBackup()
@@ -221,7 +237,7 @@ func (cm *CaddyManager) RemoveRoute(ctx context.Context, routeID string) error {
 	delete(cm.routes, routeID)
 
 	// Regenerate Caddyfile
-	if err := cm.regenerateCaddyfile(); err != nil {
+	if err := cm.regenerateCaddyfileLocked(); err != nil {
 		cm.routes[routeID] = route
 		return fmt.Errorf("failed to regenerate configuration: %w", err)
 	}
@@ -297,7 +313,7 @@ func (cm *CaddyManager) UpdateRoute(ctx context.Context, routeID string, backend
 	route.UpdatedAt = time.Now()
 
 	// Regenerate and reload
-	if err := cm.regenerateCaddyfile(); err != nil {
+	if err := cm.regenerateCaddyfileLocked(); err != nil {
 		route.Backend = oldBackend
 		route.Enabled = oldEnabled
 		return nil, fmt.Errorf("failed to regenerate configuration: %w", err)
@@ -360,6 +376,12 @@ func (cm *CaddyManager) ListRoutes() []*Route {
 	cm.routesMu.RLock()
 	defer cm.routesMu.RUnlock()
 
+	return cm.listRoutesLocked()
+}
+
+// listRoutesLocked returns a snapshot of routes without taking any locks.
+// The caller must hold cm.routesMu (read or write) when calling this method.
+func (cm *CaddyManager) listRoutesLocked() []*Route {
 	routes := make([]*Route, 0, len(cm.routes))
 	for _, route := range cm.routes {
 		routes = append(routes, route)
@@ -371,6 +393,24 @@ func (cm *CaddyManager) ListRoutes() []*Route {
 func (cm *CaddyManager) GetStatus(ctx context.Context) (*CaddyStatus, error) {
 	status := &CaddyStatus{
 		Routes: len(cm.routes),
+		Mode:   cm.mode(),
+	}
+
+	// In noop/disabled mode, avoid probing Caddy and just report configuration state.
+	if !cm.isEnabled() {
+		status.Running = false
+		status.Error = "caddy mode is " + cm.mode()
+		// Get configured domains
+		cm.routesMu.RLock()
+		for _, route := range cm.routes {
+			if route.Enabled {
+				status.Domains = append(status.Domains, route.FullDomain())
+			}
+		}
+		cm.routesMu.RUnlock()
+		// Validate config best-effort
+		status.ConfigValid = cm.validateConfig() == nil
+		return status, nil
 	}
 
 	// Try to ping Caddy admin API
@@ -410,7 +450,15 @@ func (cm *CaddyManager) GetStatus(ctx context.Context) (*CaddyStatus, error) {
 
 // regenerateCaddyfile generates and writes the Caddyfile
 func (cm *CaddyManager) regenerateCaddyfile() error {
-	content, err := cm.generateCaddyfile()
+	cm.routesMu.RLock()
+	defer cm.routesMu.RUnlock()
+	return cm.regenerateCaddyfileLocked()
+}
+
+// regenerateCaddyfileLocked generates and writes the Caddyfile without taking any locks.
+// The caller must hold cm.routesMu (read or write) when calling this method.
+func (cm *CaddyManager) regenerateCaddyfileLocked() error {
+	content, err := cm.generateCaddyfileLocked()
 	if err != nil {
 		return err
 	}
@@ -431,6 +479,14 @@ func (cm *CaddyManager) regenerateCaddyfile() error {
 
 // generateCaddyfile generates the Caddyfile content
 func (cm *CaddyManager) generateCaddyfile() (string, error) {
+	cm.routesMu.RLock()
+	defer cm.routesMu.RUnlock()
+	return cm.generateCaddyfileLocked()
+}
+
+// generateCaddyfileLocked generates the Caddyfile content without taking any locks.
+// The caller must hold cm.routesMu (read or write) when calling this method.
+func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
 	tmpl := `# LibreServ Caddyfile
 # Auto-generated - Do not edit manually
 
@@ -444,9 +500,13 @@ func (cm *CaddyManager) generateCaddyfile() (string, error) {
 {{.FullDomain}} {
 	reverse_proxy {{.Backend}}
 	{{if .SSL}}
+	{{if .TLSCert}}
+	tls {{.TLSCert}} {{.TLSKey}}
+	{{else if $.AutoHTTPS}}
 	tls {
 		on_demand
 	}
+	{{end}}
 	{{end}}
 	
 	# Security headers
@@ -457,9 +517,11 @@ func (cm *CaddyManager) generateCaddyfile() (string, error) {
 	}
 	
 	# Logging
-	log {
-		output stdout
-	}
+	{{if $.LogOutput}}log {
+		output {{$.LogOutput}}
+		{{if $.LogFormat}}format {{$.LogFormat}}{{end}}
+		{{if $.LogLevel}}level {{$.LogLevel}}{{end}}
+	}{{end}}
 }
 {{end}}
 {{end}}
@@ -470,14 +532,49 @@ func (cm *CaddyManager) generateCaddyfile() (string, error) {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
 
+	type routeView struct {
+		ID         string
+		FullDomain string
+		Backend    string
+		SSL        bool
+		Enabled    bool
+		TLSCert    string
+		TLSKey     string
+	}
+
+	routes := cm.listRoutesLocked()
+	views := make([]routeView, 0, len(routes))
+	for _, r := range routes {
+		v := routeView{
+			ID:         r.ID,
+			FullDomain: r.FullDomain(),
+			Backend:    r.Backend,
+			SSL:        r.SSL,
+			Enabled:    r.Enabled,
+		}
+		if r.SSL {
+			if cert, key, ok := cm.manualTLSPaths(r.FullDomain()); ok {
+				v.TLSCert = cert
+				v.TLSKey = key
+			}
+		}
+		views = append(views, v)
+	}
+
 	data := struct {
 		Email     string
 		AutoHTTPS bool
-		Routes    []*Route
+		Routes    []routeView
+		LogOutput string
+		LogFormat string
+		LogLevel  string
 	}{
 		Email:     cm.config.Email,
 		AutoHTTPS: cm.config.AutoHTTPS,
-		Routes:    cm.ListRoutes(),
+		Routes:    views,
+		LogOutput: cm.loggingOutput(),
+		LogFormat: cm.loggingFormat(),
+		LogLevel:  strings.TrimSpace(cm.config.Logging.Level),
 	}
 
 	var buf bytes.Buffer
@@ -488,8 +585,90 @@ func (cm *CaddyManager) generateCaddyfile() (string, error) {
 	return buf.String(), nil
 }
 
+func (cm *CaddyManager) loggingOutput() string {
+	out := strings.ToLower(strings.TrimSpace(cm.config.Logging.Output))
+	switch out {
+	case "stderr":
+		return "stderr"
+	case "file":
+		path := strings.TrimSpace(cm.config.Logging.File)
+		if path == "" {
+			return "stdout"
+		}
+		return "file " + path
+	case "", "stdout":
+		return "stdout"
+	default:
+		return "stdout"
+	}
+}
+
+func (cm *CaddyManager) loggingFormat() string {
+	f := strings.ToLower(strings.TrimSpace(cm.config.Logging.Format))
+	switch f {
+	case "json":
+		return "json"
+	case "console", "":
+		return ""
+	default:
+		return ""
+	}
+}
+
+func (cm *CaddyManager) manualTLSPaths(domain string) (certPath, keyPath string, ok bool) {
+	base := strings.TrimSpace(cm.config.CertsPath)
+	if base == "" {
+		return "", "", false
+	}
+	dir := filepath.Join(base, safeDomainDir(domain))
+	cert := filepath.Join(dir, "fullchain.pem")
+	key := filepath.Join(dir, "privkey.pem")
+	if fileExists(cert) && fileExists(key) {
+		return cert, key, true
+	}
+	return "", "", false
+}
+
+func safeDomainDir(domain string) string {
+	// Keep it stable and filesystem-safe, even for odd inputs.
+	d := strings.ToLower(strings.TrimSpace(domain))
+	if d == "" {
+		return "_"
+	}
+	var b strings.Builder
+	b.Grow(len(d))
+	for _, r := range d {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '.' || r == '-' || r == '_':
+			b.WriteRune(r)
+		case r == '*':
+			b.WriteString("wildcard")
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
+}
+
+func fileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
+}
+
 // validateConfig validates the Caddyfile
 func (cm *CaddyManager) validateConfig() error {
+	cm.routesMu.RLock()
+	defer cm.routesMu.RUnlock()
+	return cm.validateConfigLocked()
+}
+
+// validateConfigLocked validates the Caddyfile without taking any locks.
+// The caller must hold cm.routesMu (read or write) when calling this method.
+func (cm *CaddyManager) validateConfigLocked() error {
 	// Write to temp file
 	tmpFile, err := os.CreateTemp("", "caddyfile-*.tmp")
 	if err != nil {
@@ -497,7 +676,7 @@ func (cm *CaddyManager) validateConfig() error {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	content, err := cm.generateCaddyfile()
+	content, err := cm.generateCaddyfileLocked()
 	if err != nil {
 		return err
 	}
@@ -523,6 +702,32 @@ func (cm *CaddyManager) validateConfig() error {
 
 // reloadCaddy reloads Caddy configuration
 func (cm *CaddyManager) reloadCaddy() error {
+	// In noop/disabled mode, never attempt to reload.
+	if !cm.isEnabled() {
+		return nil
+	}
+
+	retries := cm.config.Reload.Retries
+	if retries <= 0 {
+		retries = 5
+	}
+	backoffMin := cm.config.Reload.BackoffMin
+	if backoffMin <= 0 {
+		backoffMin = 200 * time.Millisecond
+	}
+	backoffMax := cm.config.Reload.BackoffMax
+	if backoffMax <= 0 {
+		backoffMax = 5 * time.Second
+	}
+	attemptTimeout := cm.config.Reload.AttemptTimeout
+	if attemptTimeout <= 0 {
+		attemptTimeout = 5 * time.Second
+	}
+	jitter := cm.config.Reload.JitterFraction
+	if jitter < 0 {
+		jitter = 0
+	}
+
 	// Try admin API first
 	if cm.config.AdminAPI != "" {
 		content, err := os.ReadFile(cm.config.ConfigPath)
@@ -530,22 +735,43 @@ func (cm *CaddyManager) reloadCaddy() error {
 			return err
 		}
 
-		req, err := http.NewRequest("POST", cm.config.AdminAPI+"/load", bytes.NewReader(content))
-		if err != nil {
-			return err
-		}
-		req.Header.Set("Content-Type", "text/caddyfile")
-
-		resp, err := cm.httpClient.Do(req)
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == 200 {
-				return nil
+		var lastErr error
+		for attempt := 0; attempt <= retries; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+			req, err := http.NewRequestWithContext(ctx, "POST", cm.config.AdminAPI+"/load", bytes.NewReader(content))
+			if err != nil {
+				cancel()
+				return err
 			}
-			body, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("reload failed: %s", string(body))
+			req.Header.Set("Content-Type", "text/caddyfile")
+
+			resp, err := cm.httpClient.Do(req)
+			if err == nil {
+				body, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				cancel()
+				if resp.StatusCode == http.StatusOK {
+					return nil
+				}
+				lastErr = fmt.Errorf("caddy admin reload rejected (status=%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+				if !isRetryableStatus(resp.StatusCode) {
+					break
+				}
+			} else {
+				cancel()
+				lastErr = fmt.Errorf("caddy admin reload failed: %w", err)
+			}
+
+			if attempt == retries {
+				break
+			}
+			time.Sleep(backoffWithJitter(cm.rand, backoffMin, backoffMax, attempt, jitter))
 		}
-		// Fall through to CLI method
+
+		// Fall through to CLI method as a last resort (if available).
+		if lastErr != nil {
+			log.Printf("Caddy admin reload failed after retries; attempting CLI reload: %v", lastErr)
+		}
 	}
 
 	// Use CLI reload if available
@@ -559,6 +785,39 @@ func (cm *CaddyManager) reloadCaddy() error {
 	}
 
 	return nil
+}
+
+func isRetryableStatus(code int) bool {
+	switch code {
+	case http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+func backoffWithJitter(r *rand.Rand, min, max time.Duration, attempt int, jitterFraction float64) time.Duration {
+	if attempt < 0 {
+		attempt = 0
+	}
+	// Exponential backoff: min * 2^attempt, capped at max.
+	base := float64(min) * math.Pow(2, float64(attempt))
+	if base > float64(max) {
+		base = float64(max)
+	}
+	if jitterFraction <= 0 || r == nil {
+		return time.Duration(base)
+	}
+	// Apply +/- jitterFraction.
+	j := (r.Float64()*2 - 1) * jitterFraction // [-jitter, +jitter]
+	val := base * (1 + j)
+	if val < float64(min) {
+		val = float64(min)
+	}
+	if val > float64(max) {
+		val = float64(max)
+	}
+	return time.Duration(val)
 }
 
 // backupCurrentConfig backs up the current Caddyfile

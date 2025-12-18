@@ -21,11 +21,37 @@ logging:
 
 network:
   caddy:
+    mode: "enabled" # enabled|noop|disabled
     admin_api: ""
     config_path: "./dev/caddy/Caddyfile"
+    certs_path: "./dev/caddy/certs"
     default_domain: "localhost"
     email: ""
     auto_https: false
+    reload:
+      retries: 5
+      backoff_min: "200ms"
+      backoff_max: "5s"
+      jitter_fraction: 0.2
+      attempt_timeout: "5s"
+    logging:
+      output: "stdout" # stdout|stderr|file
+      file: ""         # used when output == file
+      format: "console" # console|json
+      level: ""        # optional (e.g. INFO)
+  acme:
+    external:
+      enabled: false
+      use_docker: true
+      docker_image: "goacme/lego:latest"
+      data_path: "./dev/acme"
+      dns_provider: "" # e.g. cloudflare, route53, gandi, ...
+      dns_env: {}      # provider-specific env vars (secrets!)
+      email: ""        # defaults to network.caddy.email if empty
+      staging: false
+      ca_dir_url: ""   # optional override of ACME directory URL
+      key_type: "rsa2048"
+      certs_path: "./dev/caddy/certs"
 
 smtp:
   host: ""

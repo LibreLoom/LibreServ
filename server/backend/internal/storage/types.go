@@ -69,6 +69,13 @@ type DatabaseBackup struct {
 	Checksum  string    `json:"checksum,omitempty"`
 }
 
+// DatabaseRestoreOptions configures how a database restore is performed.
+type DatabaseRestoreOptions struct {
+	// VerifyChecksum verifies the backup integrity before restoring.
+	// If true and the backup record has no checksum, restore will fail.
+	VerifyChecksum bool `json:"verify_checksum"`
+}
+
 // BackupResult is the result of a backup operation
 type BackupResult struct {
 	Backup   *Backup       `json:"backup"`

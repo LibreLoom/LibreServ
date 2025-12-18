@@ -2,7 +2,7 @@
 
 [![CI](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml/badge.svg?branch=main)](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml)
 
-Self-hosting platform that aims to make running your own server “plug it in and it works”.
+Self-hosting platform that aims to make running your own server “plug and play”.
 
 ## Status
 - In active development (MVP target: April 30, 2026)
@@ -38,8 +38,15 @@ cp -r dist ../backend/OS/dist
 Then restart the backend to serve the new assets.
 
 ## Notes
-- Caddy must be installed/configured if you want automatic HTTPS; otherwise set the network config appropriately.
-- Secrets (JWT/CSRF) are auto-generated and persisted to the config file on first run; ensure the config path is writable or provide secrets via env.
+- Caddy must be installed/configured if you want automatic HTTPS; otherwise set `network.caddy.mode` to `noop` or `disabled`.
+- Caddy reloads via Admin API use retries/backoff (see `network.caddy.reload.*` in `server/backend/configs/libreserv.yaml`).
+- ACME issuance is tracked via jobs: `POST /api/v1/network/acme/request`, then poll `GET /api/v1/network/acme/status?domain=...` (or `GET /api/v1/network/acme/jobs/{jobID}`).
+- Secrets (JWT/CSRF) policy:
+  - If `auth.jwt_secret` and `auth.csrf_secret` are set (via config file or env), LibreServ uses them as-is.
+  - If either secret is missing at startup, LibreServ will generate secure values and **persist them to the config file**.
+  - If the config file path is **read-only**, startup fails fast with a clear error; in that case set env vars:
+    - `LIBRESERV_AUTH_JWT_SECRET`
+    - `LIBRESERV_AUTH_CSRF_SECRET`
 - ThePlan.md contains a longer product/architecture brain dump.
 
 ## Contribute / Support

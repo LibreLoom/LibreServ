@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,12 +54,92 @@ func Open(dbPath string) (*DB, error) {
 	}, nil
 }
 
+func (d *DB) Path() string {
+	return d.path
+}
+
 func (d *DB) Close() error {
 	return d.db.Close()
 }
 
 func (d *DB) Ping() error {
 	return d.db.Ping()
+}
+
+// ReplaceFile atomically swaps the underlying SQLite database file with the provided replacement file.
+//
+// Requirements/assumptions:
+// - replacementPath must be on the same filesystem as d.Path() for atomic rename (best effort).
+// - This closes and reopens the DB connection; callers should treat this as a maintenance operation.
+func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
+	if d == nil {
+		return errors.New("db is nil")
+	}
+	if replacementPath == "" {
+		return errors.New("replacement path is empty")
+	}
+	if _, err := os.Stat(replacementPath); err != nil {
+		return fmt.Errorf("replacement file not accessible: %w", err)
+	}
+
+	targetPath := d.path
+	if targetPath == "" {
+		return errors.New("db target path is empty")
+	}
+
+	// Close the current DB handle first to release file locks.
+	if d.db != nil {
+		_ = d.db.Close()
+	}
+
+	// Remove WAL/SHM sidecars (best effort) so we don't accidentally mix restored main DB with old WAL state.
+	_ = os.Remove(targetPath + "-wal")
+	_ = os.Remove(targetPath + "-shm")
+
+	// Move the current DB file out of the way (rollback target).
+	rollbackPath := ""
+	if _, err := os.Stat(targetPath); err == nil {
+		rollbackPath = fmt.Sprintf("%s.pre-restore-%s", targetPath, time.Now().Format("20060102-150405"))
+		if err := os.Rename(targetPath, rollbackPath); err != nil {
+			return fmt.Errorf("failed to move current db for rollback: %w", err)
+		}
+	}
+
+	// Place replacement at target path.
+	if err := os.Rename(replacementPath, targetPath); err != nil {
+		// Roll back if we moved the original.
+		if rollbackPath != "" {
+			_ = os.Rename(rollbackPath, targetPath)
+		}
+		return fmt.Errorf("failed to replace db file: %w", err)
+	}
+
+	// Re-open DB (and reapply pragmas).
+	newDB, err := Open(targetPath)
+	if err != nil {
+		// Restore rollback DB if possible.
+		if rollbackPath != "" {
+			_ = os.Remove(targetPath)
+			_ = os.Rename(rollbackPath, targetPath)
+			if rb, rbErr := Open(targetPath); rbErr == nil {
+				d.db = rb.db
+			}
+		}
+		return fmt.Errorf("failed to reopen database after restore: %w", err)
+	}
+	d.db = newDB.db
+
+	// Ensure schema is compatible with current binary and verify integrity.
+	if err := d.Migrate(); err != nil {
+		return err
+	}
+	if err := d.HealthCheck(); err != nil {
+		return err
+	}
+
+	// If everything succeeded, we can optionally keep rollbackPath as a safety net.
+	_ = ctx // reserved for future timeouts/cancellation during restore pipeline
+	return nil
 }
 
 // HealthCheck performs a quick self-diagnostic

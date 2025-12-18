@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -181,7 +182,8 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionally trigger ACME auto-issuance if available and email configured
+	// Optionally enqueue ACME auto-issuance (persisted as a job) if email is configured.
+	// This avoids "fire-and-forget" issuance where errors are silently lost.
 	if h.acmeHandler != nil && h.acmeHandler.manager != nil {
 		email := ""
 		if h.caddyManager != nil {
@@ -190,11 +192,11 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		if email == "" {
 			goto respond
 		}
+		// Best-effort: request a certificate job for the new domain.
 		go func(domain string) {
-			_ = h.acmeHandler.manager.Issue(r.Context(), network.ACMERequest{
-				Domain: domain,
-				Email:  email,
-			})
+			// NOTE: We intentionally do not block route creation on issuance.
+			// Admins can query /api/v1/network/acme/status?domain=... for results.
+			_, _ = h.acmeHandler.EnqueueIssue(context.Background(), domain, email)
 		}(route.FullDomain())
 	}
 

@@ -26,11 +26,11 @@ func NewMetricsCollector(dockerClient *client.Client) *MetricsCollector {
 // CollectContainerMetrics collects metrics for a specific container
 func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containerID string) (*Metrics, error) {
 	if m.dockerClient == nil {
-		return nil, fmt.Errorf("docker client not available")
+		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
 	}
 	stats, err := m.dockerClient.ContainerStats(ctx, containerID, false)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get container stats: %w", err)
+		return nil, fmt.Errorf("%w: failed to get container stats: %v", ErrDockerUnavailable, err)
 	}
 	defer stats.Body.Close()
 
@@ -45,14 +45,14 @@ func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containe
 // CollectAppMetrics collects metrics for all containers belonging to an app
 func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) (*Metrics, error) {
 	if m.dockerClient == nil {
-		return nil, fmt.Errorf("docker client not available")
+		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
 	}
 	// Find containers belonging to this app by label
 	containers, err := m.dockerClient.ContainerList(ctx, container.ListOptions{
 		All: false, // Only running containers
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list containers: %w", err)
+		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrDockerUnavailable, err)
 	}
 
 	aggregated := &Metrics{
@@ -81,7 +81,7 @@ func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) 
 	}
 
 	if !found {
-		return nil, fmt.Errorf("no containers found for app: %s", appID)
+		return nil, fmt.Errorf("%w for app: %s", ErrNoContainers, appID)
 	}
 
 	return aggregated, nil

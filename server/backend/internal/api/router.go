@@ -35,8 +35,30 @@ func (s *Server) setupRoutes() {
 		adminAPI = s.caddyManager.AdminEndpoint()
 		configPath = s.caddyManager.ConfigPath()
 	}
-	acmeManager := network.NewACMEManager(adminAPI, configPath).WithAuto(true)
-	acmeHandler := handlers.NewACMEHandler(acmeManager, s.caddyManager, s.appManager)
+	ext := config.Get().Network.ACME.External
+	extCfg := network.ExternalACMEConfig{
+		Enabled:     ext.Enabled,
+		UseDocker:   ext.UseDocker,
+		DockerImage: ext.DockerImage,
+		DataPath:    ext.DataPath,
+		DNSProvider: ext.DNSProvider,
+		DNSEnv:      ext.DNSEnv,
+		Email:       ext.Email,
+		Staging:     ext.Staging,
+		CADirURL:    ext.CADirURL,
+		KeyType:     ext.KeyType,
+		CertsPath:   ext.CertsPath,
+	}
+	// Default cert destination to Caddy's configured cert dir if unset.
+	if extCfg.CertsPath == "" && s.caddyManager != nil {
+		extCfg.CertsPath = s.caddyManager.Config().CertsPath
+	}
+	// Default email to Caddy email if unset.
+	if extCfg.Email == "" && s.caddyManager != nil {
+		extCfg.Email = s.caddyManager.Config().Email
+	}
+	acmeManager := network.NewACMEManager(adminAPI, configPath).WithAuto(true).WithExternal(extCfg)
+	acmeHandler := handlers.NewACMEHandler(s.db, acmeManager, s.caddyManager, s.appManager)
 	acmeCleanup := handlers.NewACMECleanupHandler(s.caddyManager)
 	var networkHandler *handlers.NetworkHandlers
 	if s.caddyManager != nil {
@@ -159,6 +181,7 @@ func (s *Server) setupRoutes() {
 				// Database backups
 				r.Get("/database", backupHandler.ListDatabaseBackups)
 				r.Post("/database", backupHandler.CreateDatabaseBackup)
+				r.Post("/database/{backupID}/restore", backupHandler.RestoreDatabaseBackup)
 			})
 
 			// Network / Caddy
@@ -185,6 +208,8 @@ func (s *Server) setupRoutes() {
 				r.Post("/probe-dns", acmeHandler.ProbeDNS)
 				r.Post("/probe-ports", acmeHandler.ProbePorts)
 				r.Post("/request", acmeHandler.RequestCert)
+				r.Get("/jobs/{jobID}", acmeHandler.GetJob)
+				r.Get("/status", acmeHandler.GetStatus)
 				r.Delete("/routes/{routeID}", acmeCleanup.DeleteRoute)
 			})
 
