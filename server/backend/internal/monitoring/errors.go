@@ -16,5 +16,3 @@ func IsDockerUnavailable(err error) bool {
 func IsNoContainers(err error) bool {
 	return errors.Is(err, ErrNoContainers)
 }
-
-

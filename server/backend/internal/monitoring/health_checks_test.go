@@ -62,5 +62,3 @@ func TestContainerCheck_Run_WithNilDockerClient_Degrades(t *testing.T) {
 		t.Fatalf("expected a message")
 	}
 }
-
-

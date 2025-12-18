@@ -76,5 +76,3 @@ func TestIsWritableFilePath_NewFileInWritableDir(t *testing.T) {
 		t.Fatalf("expected path to be writable")
 	}
 }
-
-

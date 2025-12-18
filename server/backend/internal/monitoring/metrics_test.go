@@ -28,5 +28,3 @@ func TestMetricsCollector_CollectContainerMetrics_DockerUnavailable(t *testing.T
 		t.Fatalf("expected docker unavailable error, got: %v", err)
 	}
 }
-
-
