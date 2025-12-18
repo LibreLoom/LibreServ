@@ -1,12 +1,12 @@
 module gt.plainskill.net/LibreLoom/LibreServ
 
-go 1.22
+go 1.24.0
 
 replace (
 	golang.org/x/crypto => golang.org/x/crypto v0.21.0
 	golang.org/x/net => golang.org/x/net v0.23.0
-	golang.org/x/sys => golang.org/x/sys v0.17.0
-	golang.org/x/term => golang.org/x/term v0.17.0
+	golang.org/x/sys => golang.org/x/sys v0.31.0
+	golang.org/x/term => golang.org/x/term v0.26.0
 )
 
 require (
@@ -17,7 +17,7 @@ require (
 	github.com/spf13/viper v1.21.0
 	golang.org/x/crypto v0.21.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.40.1
+	modernc.org/sqlite v1.28.0
 )
 
 require (
@@ -57,7 +57,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b // indirect
-	golang.org/x/sys v0.17.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
