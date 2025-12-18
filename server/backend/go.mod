@@ -1,6 +1,6 @@
 module gt.plainskill.net/LibreLoom/LibreServ
 
-go 1.24.0
+go 1.22
 
 replace (
 	golang.org/x/crypto => golang.org/x/crypto v0.21.0

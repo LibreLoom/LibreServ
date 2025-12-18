@@ -243,6 +243,10 @@ func IsWritableFilePath(path string) (bool, error) {
 		if st.IsDir() {
 			return false, nil
 		}
+		// Fast path: if owner write bit is missing, treat as non-writable without touching the file.
+		if st.Mode().Perm()&0o200 == 0 {
+			return false, nil
+		}
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
 		if err != nil {
 			if errors.Is(err, os.ErrPermission) {
