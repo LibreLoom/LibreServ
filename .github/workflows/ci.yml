@@ -2,14 +2,16 @@ name: CI
 
 on:
   push:
+    branches: [main, master]
   pull_request:
+    branches: [main, master]
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: Go test (${{ matrix.module }})
+  go:
+    name: Go (${{ matrix.module }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -18,44 +20,9 @@ jobs:
           - server/backend
           - support/support-relay
           - support/support-server
-
     defaults:
       run:
         working-directory: ${{ matrix.module }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: ${{ matrix.module }}/go.mod
-          cache: true
-          cache-dependency-path: |
-            ${{ matrix.module }}/go.mod
-            ${{ matrix.module }}/go.sum
-
-      - name: Test
-        run: go test ./...
-
-      - name: Lint (placeholder)
-        run: echo "TODO: add golangci-lint (or equivalent) here"
-
-name: CI
-
-on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
-
-jobs:
-  backend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server/backend
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -63,8 +30,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: server/backend/go.mod
+          go-version-file: ${{ matrix.module }}/go.mod
           cache: true
+          cache-dependency-path: |
+            ${{ matrix.module }}/go.mod
+            ${{ matrix.module }}/go.sum
 
       - name: Format check
         run: |
@@ -84,6 +54,7 @@ jobs:
         run: go test ./...
 
   frontend:
+    name: Frontend
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -102,7 +73,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install --no-fund
+        run: npm ci --no-fund
 
       - name: Lint
         run: npm run lint
