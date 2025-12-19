@@ -61,17 +61,17 @@ export default function Navbar() {
         </nav>
       </div>
       <button
-        className="fixed h-12 w-12 bottom-6 right-6 z-1000 xl:hidden bg-primary text-secondary border-2 border-accent rounded-pill"
+        className="fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-primary text-secondary border-2 border-accent rounded-pill"
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
       >
-        <div className="relative top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+        <div className="relative w-full h-full items-center justify-center flex">
           <X
-            className={`transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
-            size={48}
+            className={`absolute transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
+            size={36}
           />
           <Menu
-            className={`transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
-            size={48}
+            className={`absolute transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
+            size={36}
           />
         </div>
       </button>
