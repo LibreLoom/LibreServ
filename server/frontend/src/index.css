@@ -2,7 +2,7 @@
 
 @theme {
     /* Setup Fonts */
-    --font-mono: "FreeMono","Courier New", monospace;
+    --font-mono: "FreeMono", "Courier New", monospace;
     --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
 
     /* Setup Colors */
@@ -12,11 +12,12 @@
 
     /* Setup Pill Shape */
     --radius-pill: 9999px;
+    --radius-large-element: 16px;
 }
 
 :root {
     /* Initial Color Setup */
-    --palette-light: #FFFFFF;
+    --palette-light: #ffffff;
     --palette-dark: #000000;
     --palette-accent: #767676;
 
@@ -24,7 +25,6 @@
     --color-primary: var(--palette-light);
     --color-secondary: var(--palette-dark);
     --color-accent: var(--palette-accent);
-
 }
 
 .dark {
@@ -43,6 +43,6 @@ body {
     font-family: var(--font-sans);
 
     /* Transitions */
-    transition-property: color, background-color;
+    transition-property: all;
     transition-duration: 200ms;
 }

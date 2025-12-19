@@ -7,14 +7,45 @@ import {
   Menu,
   X,
 } from "lucide-react";
+import { PiLineVerticalLight } from "react-icons/pi";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
 
 const navButtonClasses =
-  "flex items-center gap-2 transition-all px-3 py-1.5 rounded-pill " +
-  "hover:bg-primary hover:text-secondary aria-[current=page]:bg-primary aria-[current=page]:text-secondary hover:aria-[current=page]:text-primary hover:aria-[current=page]:bg-secondary hover:aria-[current=page]:outline-2 hover:aria-[current=page]:outline-primary hover:aria-[current=page]:outline-solid"; // Hover Inversion Effect & Page Select Effect]"; // Hover Inversion Effect & Page Select Effect
-
-const dividerClasses = "text-accent text-lg";
+  // Layout
+  "flex " +
+  // Alignment
+  "items-center " +
+  // Spacing between elements
+  "gap-2 " +
+  // Transition effects
+  "transition-all " +
+  // Horizontal padding
+  "px-3 " +
+  // Vertical padding
+  "py-1.5 " +
+  // Rounded corners
+  "rounded-pill " +
+  // Hover background
+  "hover:bg-primary " +
+  // Hover text color
+  "hover:text-secondary " +
+  // Active page background
+  "aria-[current=page]:bg-primary " +
+  // Active page text color
+  "aria-[current=page]:text-secondary " +
+  // Hover + active text inversion
+  "hover:aria-[current=page]:text-primary " +
+  // Hover + active background inversion
+  "hover:aria-[current=page]:bg-secondary " +
+  // Hover + active outline width
+  "hover:aria-[current=page]:outline-2 " +
+  // Hover + active outline color
+  "hover:aria-[current=page]:outline-primary " +
+  // Hover + active outline style
+  "hover:aria-[current=page]:outline-solid";
+// Divider line between nav links; leading-none keeps it vertically centered next to padded buttons
+const dividerClasses = "text-accent";
 
 export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -29,28 +60,28 @@ export default function Navbar() {
                 <span>Dashboard</span>
               </NavLink>
 
-              <span className={dividerClasses}>|</span>
+              <PiLineVerticalLight className={dividerClasses} size={36} />
 
               <NavLink to="/apps" className={navButtonClasses}>
                 <Grid2X2 size={18} />
                 <span>Apps</span>
               </NavLink>
 
-              <span className={dividerClasses}>|</span>
+              <PiLineVerticalLight className={dividerClasses} size={36} />
 
               <NavLink to="/users" className={navButtonClasses}>
                 <Users size={18} />
                 <span>Users</span>
               </NavLink>
 
-              <span className={dividerClasses}>|</span>
+              <PiLineVerticalLight className={dividerClasses} size={36} />
 
               <NavLink to="/settings" className={navButtonClasses}>
                 <Settings size={18} />
                 <span>Settings</span>
               </NavLink>
 
-              <span className={dividerClasses}>|</span>
+              <PiLineVerticalLight className={dividerClasses} size={36} />
 
               <NavLink to="/help" className={navButtonClasses}>
                 <LifeBuoy size={18} />
@@ -75,6 +106,16 @@ export default function Navbar() {
           />
         </div>
       </button>
+      <div
+        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 ${isMobileMenuOpen ? "" : "hidden"}`}
+      >
+        <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element">
+          <NavLink to="/apps" className={navButtonClasses}>
+            <Grid2X2 size={18} />
+            <span>Apps</span>
+          </NavLink>
+        </nav>
+      </div>
     </>
   );
 }
