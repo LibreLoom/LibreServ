@@ -44,7 +44,7 @@ const navButtonClasses =
   "hover:aria-[current=page]:outline-primary " +
   // Hover + active outline style
   "hover:aria-[current=page]:outline-solid";
-// Divider line between nav links; leading-none keeps it vertically centered next to padded buttons
+// Divider line between nav links
 const dividerClasses = "text-accent";
 
 export default function Navbar() {
@@ -109,11 +109,33 @@ export default function Navbar() {
       <div
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 ${isMobileMenuOpen ? "" : "hidden"}`}
       >
-        <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element">
-          <NavLink to="/apps" className={navButtonClasses}>
-            <Grid2X2 size={18} />
-            <span>Apps</span>
-          </NavLink>
+        <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-center">
+          <div className="p-2.5">
+            <NavLink to="/" className={navButtonClasses}>
+              <Home size={18} />
+              <span>Home</span>
+            </NavLink>
+            <div className="mx-auto h-px my-2" />
+            <NavLink to="/apps" className={navButtonClasses}>
+              <Grid2X2 size={18} />
+              <span>Apps</span>
+            </NavLink>
+            <div className="mx-auto h-px my-2" />
+            <NavLink to="/users" className={navButtonClasses}>
+              <Users size={18} />
+              <span>Users</span>
+            </NavLink>
+            <div className="mx-auto h-px my-2" />
+            <NavLink to="/settings" className={navButtonClasses}>
+              <Settings size={18} />
+              <span>Settings</span>
+            </NavLink>
+            <div className="mx-auto h-px my-2" />
+            <NavLink to="/help" className={navButtonClasses}>
+              <LifeBuoy size={18} />
+              <span>Help</span>
+            </NavLink>
+          </div>
         </nav>
       </div>
     </>
