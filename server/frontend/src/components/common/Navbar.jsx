@@ -66,11 +66,11 @@ export default function Navbar() {
       >
         <div className="relative top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
           <X
-            className={`transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-1 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
+            className={`transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
             size={48}
           />
           <Menu
-            className={`transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-1 rotate-0 scale-100"}`}
+            className={`transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
             size={48}
           />
         </div>
