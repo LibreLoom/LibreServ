@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { PiLineVerticalLight } from "react-icons/pi";
 import { NavLink } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const navButtonClasses =
   // Layout
@@ -49,6 +49,18 @@ const dividerClasses = "text-accent";
 
 export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const handleResize = () => {
+      if (window.innerWidth > 1280) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [isMobileMenuOpen]);
   return (
     <>
       <div className="hidden xl:flex">
@@ -107,30 +119,26 @@ export default function Navbar() {
         </div>
       </button>
       <div
-        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 ${isMobileMenuOpen ? "" : "hidden"}`}
+        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 ${isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
       >
         <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-center">
-          <div className="p-2.5">
+          <div className="p-2.5 flex flex-col">
             <NavLink to="/" className={navButtonClasses}>
               <Home size={18} />
               <span>Home</span>
             </NavLink>
-            <div className="mx-auto h-px my-2" />
             <NavLink to="/apps" className={navButtonClasses}>
               <Grid2X2 size={18} />
               <span>Apps</span>
             </NavLink>
-            <div className="mx-auto h-px my-2" />
             <NavLink to="/users" className={navButtonClasses}>
               <Users size={18} />
               <span>Users</span>
             </NavLink>
-            <div className="mx-auto h-px my-2" />
             <NavLink to="/settings" className={navButtonClasses}>
               <Settings size={18} />
               <span>Settings</span>
             </NavLink>
-            <div className="mx-auto h-px my-2" />
             <NavLink to="/help" className={navButtonClasses}>
               <LifeBuoy size={18} />
               <span>Help</span>
