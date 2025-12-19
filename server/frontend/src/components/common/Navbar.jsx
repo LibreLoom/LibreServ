@@ -47,6 +47,14 @@ const navButtonClasses =
 // Divider line between nav links
 const dividerClasses = "text-accent";
 
+const navButtons = [
+  { to: "/", icon: Home, label: "Dashboard" },
+  { to: "/apps", icon: Grid2X2, label: "Apps" },
+  { to: "/users", icon: Users, label: "Users" },
+  { to: "/settings", icon: Settings, label: "Settings" },
+  { to: "/help", icon: LifeBuoy, label: "Help" },
+];
+
 export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   useEffect(() => {
@@ -119,27 +127,42 @@ export default function Navbar() {
         </div>
       </button>
       <div
-        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 ${isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 transition-all ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
       >
         <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-center">
           <div className="p-2.5 flex flex-col">
-            <NavLink to="/" className={navButtonClasses}>
+            <NavLink
+              to="/"
+              className={`border-2 border-secondary ${navButtonClasses}`}
+            >
               <Home size={18} />
               <span>Home</span>
             </NavLink>
-            <NavLink to="/apps" className={navButtonClasses}>
+            <NavLink
+              to="/apps"
+              className={`border-2 border-secondary ${navButtonClasses}`}
+            >
               <Grid2X2 size={18} />
               <span>Apps</span>
             </NavLink>
-            <NavLink to="/users" className={navButtonClasses}>
+            <NavLink
+              to="/users"
+              className={`border-2 border-secondary ${navButtonClasses}`}
+            >
               <Users size={18} />
               <span>Users</span>
             </NavLink>
-            <NavLink to="/settings" className={navButtonClasses}>
+            <NavLink
+              to="/settings"
+              className={`border-2 border-secondary ${navButtonClasses}`}
+            >
               <Settings size={18} />
               <span>Settings</span>
             </NavLink>
-            <NavLink to="/help" className={navButtonClasses}>
+            <NavLink
+              to="/help"
+              className={`border-2 border-secondary ${navButtonClasses}`}
+            >
               <LifeBuoy size={18} />
               <span>Help</span>
             </NavLink>
