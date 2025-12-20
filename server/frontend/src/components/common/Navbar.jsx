@@ -19,7 +19,7 @@ const navButtonClasses =
   // Spacing between elements
   "gap-2 " +
   // Transition effects
-  "transition-all " +
+  "motion-safe:transition-all " +
   // Horizontal padding
   "px-3 " +
   // Vertical padding
@@ -62,9 +62,11 @@ export default function Navbar() {
   useEffect(() => {
     if (!isMobileMenuOpen) {
       menuButtonRef.current?.focus();
+      document.body.style.overflow = "";
       return;
     }
     firstNavLinkRef.current?.focus();
+    document.body.style.overflow = "hidden";
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         setIsMobileMenuOpen(false);
@@ -104,20 +106,21 @@ export default function Navbar() {
       >
         <div className="relative w-full h-full items-center justify-center flex">
           <X
-            className={`absolute transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
+            className={`absolute motion-safe:transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
             size={36}
           />
           <Menu
-            className={`absolute transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
+            className={`absolute motion-safe:transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
             size={36}
           />
         </div>
       </button>
       <div
-        className={`fixed inset-0 transition-all duration-200 bg-secondary z-999 pointer-events-none ${isMobileMenuOpen ? "opacity-10" : "opacity-0"}`}
+        className={`fixed inset-0 motion-safe:transition-all duration-200 bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
+        onClick={() => setIsMobileMenuOpen(false)}
       ></div>
       <div
-        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 transition-all z-2000 xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
+        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all z-2000 xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
         role="dialog"
         aria-modal="true"
       >
