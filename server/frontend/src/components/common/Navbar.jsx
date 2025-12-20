@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { PiLineVerticalLight } from "react-icons/pi";
 import { NavLink } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 const navButtonClasses =
   // Layout
