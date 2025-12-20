@@ -125,6 +125,7 @@ export default function Navbar() {
                     to={item.to}
                     className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
                     onClick={() => setIsMobileMenuOpen(false)}
+                    ref={index === 0 ? "firstNavLinkRef" : "null"}
                   >
                     <item.icon size={18} />
                     <span>{item.label}</span>
