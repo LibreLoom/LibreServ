@@ -56,6 +56,7 @@ const navButtons = [
 ];
 
 export default function Navbar() {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   return (
     <>
       <div className="hidden xl:flex">
