@@ -95,7 +95,7 @@ export default function Navbar() {
       <div
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 transition-all xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
       >
-        <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-center">
+        <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start max-h-[75vh] overflow-y-auto">
           <div className="p-2.5 gap-1 flex flex-col">
             {navButtons.map((item) => {
               return (
