@@ -61,7 +61,6 @@ export default function Navbar() {
   const firstNavLinkRef = useRef(null);
   useEffect(() => {
     if (!isMobileMenuOpen) {
-      menuButtonRef.current?.focus();
       document.body.style.overflow = "";
       return;
     }
@@ -70,6 +69,7 @@ export default function Navbar() {
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         setIsMobileMenuOpen(false);
+        menuButtonRef.current?.focus();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -132,7 +132,10 @@ export default function Navbar() {
                   <NavLink
                     to={item.to}
                     className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
-                    onClick={() => setIsMobileMenuOpen(false)}
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      menuButtonRef.current?.focus();
+                    }}
                     ref={index === 0 ? firstNavLinkRef : null}
                   >
                     <item.icon size={18} />
