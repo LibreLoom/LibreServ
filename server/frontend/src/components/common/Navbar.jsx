@@ -45,7 +45,7 @@ const navButtonClasses =
   // Hover + active outline style
   "hover:aria-[current=page]:outline-solid";
 // Divider line between nav links
-const dividerClasses = "text-accent";
+// const dividerClasses = "text-accent";
 
 const navButtons = [
   { to: "/", icon: Home, label: "Dashboard" },
