@@ -63,12 +63,12 @@ export default function Navbar() {
         <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6">
           <div className="bg-secondary text-primary rounded-pill px-6 py-3">
             <div className="flex items-center gap-6 text-sm font-sans justify-center">
-              {navButtons.map(({ to, icon: Icon, label }) => {
+              {navButtons.map((item) => {
                 return (
-                  <React.Fragment key={`desktopNav-${to}`}>
-                    <NavLink to={to} className={navButtonClasses}>
+                  <React.Fragment key={`desktopNav-${item.to}`}>
+                    <NavLink to={item.to} className={navButtonClasses}>
                       <Icon size={18} />
-                      <span>{label}</span>
+                      <span>{item.label}</span>
                     </NavLink>
                   </React.Fragment>
                 );
@@ -97,15 +97,15 @@ export default function Navbar() {
       >
         <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-center">
           <div className="p-2.5 gap-1 flex flex-col">
-            {navButtons.map(({ to, icon: Icon, label }) => {
+            {navButtons.map((item) => {
               return (
-                <React.Fragment key={`mobileNav-${to}`}>
+                <React.Fragment key={`mobileNav-${item.to}`}>
                   <NavLink
-                    to={to}
+                    to={item.to}
                     className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
                   >
                     <Icon size={18} />
-                    <span>{label}</span>
+                    <span>{item.label}</span>
                   </NavLink>
                 </React.Fragment>
               );
