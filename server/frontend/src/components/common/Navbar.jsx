@@ -67,7 +67,7 @@ export default function Navbar() {
                 return (
                   <React.Fragment key={`desktopNav-${item.to}`}>
                     <NavLink to={item.to} className={navButtonClasses}>
-                      <Icon size={18} />
+                      <item.icon size={18} />
                       <span>{item.label}</span>
                     </NavLink>
                   </React.Fragment>
@@ -104,7 +104,7 @@ export default function Navbar() {
                     to={item.to}
                     className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
                   >
-                    <Icon size={18} />
+                    <item.icon size={18} />
                     <span>{item.label}</span>
                   </NavLink>
                 </React.Fragment>
