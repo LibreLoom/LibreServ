@@ -7,9 +7,9 @@ import {
   Menu,
   X,
 } from "lucide-react";
-import { PiLineVerticalLight } from "react-icons/pi";
 import { NavLink } from "react-router-dom";
 import { useState } from "react";
+import React from "react";
 
 const navButtonClasses =
   // Layout
@@ -63,38 +63,16 @@ export default function Navbar() {
         <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6">
           <div className="bg-secondary text-primary rounded-pill px-6 py-3">
             <div className="flex items-center gap-6 text-sm font-sans justify-center">
-              <NavLink to="/" className={navButtonClasses}>
-                <Home size={18} />
-                <span>Dashboard</span>
-              </NavLink>
-
-              <PiLineVerticalLight className={dividerClasses} size={36} />
-
-              <NavLink to="/apps" className={navButtonClasses}>
-                <Grid2X2 size={18} />
-                <span>Apps</span>
-              </NavLink>
-
-              <PiLineVerticalLight className={dividerClasses} size={36} />
-
-              <NavLink to="/users" className={navButtonClasses}>
-                <Users size={18} />
-                <span>Users</span>
-              </NavLink>
-
-              <PiLineVerticalLight className={dividerClasses} size={36} />
-
-              <NavLink to="/settings" className={navButtonClasses}>
-                <Settings size={18} />
-                <span>Settings</span>
-              </NavLink>
-
-              <PiLineVerticalLight className={dividerClasses} size={36} />
-
-              <NavLink to="/help" className={navButtonClasses}>
-                <LifeBuoy size={18} />
-                <span>Help</span>
-              </NavLink>
+              {navButtons.map(({ to, icon: Icon, label }) => {
+                return (
+                  <React.Fragment key={`desktopNav-${to}`}>
+                    <NavLink to={to} className={navButtonClasses}>
+                      <Icon size={18} />
+                      <span>{label}</span>
+                    </NavLink>
+                  </React.Fragment>
+                );
+              })}
             </div>
           </div>
         </nav>
@@ -105,11 +83,11 @@ export default function Navbar() {
       >
         <div className="relative w-full h-full items-center justify-center flex">
           <X
-            className={`absolute transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
+            className={`absolute transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
             size={36}
           />
           <Menu
-            className={`absolute transition-all duration-300 ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
+            className={`absolute transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
             size={36}
           />
         </div>
@@ -118,42 +96,20 @@ export default function Navbar() {
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 transition-all xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
       >
         <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-center">
-          <div className="p-2.5 flex flex-col">
-            <NavLink
-              to="/"
-              className={`border-2 border-secondary ${navButtonClasses}`}
-            >
-              <Home size={18} />
-              <span>Home</span>
-            </NavLink>
-            <NavLink
-              to="/apps"
-              className={`border-2 border-secondary ${navButtonClasses}`}
-            >
-              <Grid2X2 size={18} />
-              <span>Apps</span>
-            </NavLink>
-            <NavLink
-              to="/users"
-              className={`border-2 border-secondary ${navButtonClasses}`}
-            >
-              <Users size={18} />
-              <span>Users</span>
-            </NavLink>
-            <NavLink
-              to="/settings"
-              className={`border-2 border-secondary ${navButtonClasses}`}
-            >
-              <Settings size={18} />
-              <span>Settings</span>
-            </NavLink>
-            <NavLink
-              to="/help"
-              className={`border-2 border-secondary ${navButtonClasses}`}
-            >
-              <LifeBuoy size={18} />
-              <span>Help</span>
-            </NavLink>
+          <div className="p-2.5 gap-1 flex flex-col">
+            {navButtons.map(({ to, icon: Icon, label }) => {
+              return (
+                <React.Fragment key={`mobileNav-${to}`}>
+                  <NavLink
+                    to={to}
+                    className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
+                  >
+                    <Icon size={18} />
+                    <span>{label}</span>
+                  </NavLink>
+                </React.Fragment>
+              );
+            })}
           </div>
         </nav>
       </div>
