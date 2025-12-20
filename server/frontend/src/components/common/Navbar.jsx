@@ -58,8 +58,10 @@ const navButtons = [
 export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
+  const firstNavLinkRef = useRef(null);
   useEffect(() => {
     if (!isMobileMenuOpen) return;
+    firstNavLinkRef.current.focus();
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         setIsMobileMenuOpen(false);
@@ -125,7 +127,7 @@ export default function Navbar() {
                     to={item.to}
                     className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    ref={index === 0 ? "firstNavLinkRef" : "null"}
+                    ref={index === 0 ? firstNavLinkRef : null}
                   >
                     <item.icon size={18} />
                     <span>{item.label}</span>
