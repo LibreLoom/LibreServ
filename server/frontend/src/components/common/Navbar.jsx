@@ -8,7 +8,7 @@ import {
   X,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import React from "react";
 
 const navButtonClasses =
@@ -57,6 +57,19 @@ const navButtons = [
 
 export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const menuButtonRef = useRef(null);
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isMobileMenuOpen]);
   return (
     <>
       <div className="hidden xl:flex">
@@ -78,8 +91,11 @@ export default function Navbar() {
         </nav>
       </div>
       <button
-        className="fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill"
+        className={`fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill`}
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        aria-label={isMobileMenuOpen ? "Close Navigation" : "Open Navigation"}
+        aria-expanded={isMobileMenuOpen}
+        ref={menuButtonRef}
       >
         <div className="relative w-full h-full items-center justify-center flex">
           <X
@@ -93,16 +109,22 @@ export default function Navbar() {
         </div>
       </button>
       <div
-        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 transition-all xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
+        className={`fixed inset-0 transition-all duration-200 bg-secondary z-999 pointer-events-none ${isMobileMenuOpen ? "opacity-10" : "opacity-0"}`}
+      ></div>
+      <div
+        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 transition-all z-2000 xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
+        role="dialog"
+        aria-modal="true"
       >
         <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start max-h-[75vh] overflow-y-auto">
           <div className="p-2.5 gap-1 flex flex-col">
-            {navButtons.map((item) => {
+            {navButtons.map((item, index) => {
               return (
                 <React.Fragment key={`mobileNav-${item.to}`}>
                   <NavLink
                     to={item.to}
                     className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
+                    onClick={() => setIsMobileMenuOpen(false)}
                   >
                     <item.icon size={18} />
                     <span>{item.label}</span>
