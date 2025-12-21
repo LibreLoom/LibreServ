@@ -1,5 +1,3 @@
-export default function SupportPage() {
-    return (
-        <h1>HelpPage --- Placeholder!</h1>
-    )
+export default function HelpPage() {
+  return <h1>HelpPage --- Placeholder!</h1>;
 }
