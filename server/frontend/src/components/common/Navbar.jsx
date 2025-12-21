@@ -118,10 +118,9 @@ export default function Navbar() {
         className={`fixed inset-0 motion-safe:transition-all duration-200 bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
         onClick={() => setIsMobileMenuOpen(false)}
       ></div>
-      <div
+      <dialog
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all z-2000 xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
-        role="dialog"
-        aria-modal="true"
+        open={isMobileMenuOpen}
       >
         <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start max-h-[75vh] overflow-y-auto">
           <div className="p-2.5 gap-1 flex flex-col">
@@ -145,7 +144,7 @@ export default function Navbar() {
             })}
           </div>
         </nav>
-      </div>
+      </dialog>
     </>
   );
 }
