@@ -72,7 +72,7 @@ Git
 # Recommended tools
 Zed
 cURL or similar API testing tool
-Docker
+Docker Desktop
 ```
 
 ### Hardware for Development
