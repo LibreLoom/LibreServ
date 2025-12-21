@@ -70,9 +70,9 @@ Docker Engine 24+
 Git
 
 # Recommended tools
-VSCode with Go and React extensions
-Postman or similar API testing tool
-Docker Desktop (for Mac/Windows dev)
+Zed
+cURL or similar API testing tool
+Docker
 ```
 
 ### Hardware for Development
