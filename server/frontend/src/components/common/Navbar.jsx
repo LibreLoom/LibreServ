@@ -114,10 +114,12 @@ export default function Navbar() {
           />
         </div>
       </button>
-      <div
+      <button
+        type="button"
         className={`fixed inset-0 motion-safe:transition-all duration-200 bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
         onClick={() => setIsMobileMenuOpen(false)}
-      ></div>
+        aria-label="Close navigation menu"
+      ></button>
       <dialog
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all z-2000 xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
         open={isMobileMenuOpen}
