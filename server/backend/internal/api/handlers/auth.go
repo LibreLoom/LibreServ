@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 )
@@ -46,8 +47,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "login failed")
 		return
 	}
-
-	JSON(w, http.StatusOK, response)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "libreserv_access",
+		Value:    response.Tokens.AccessToken,
+		Path:     "/",
+		Expires:  time.Unix(response.Tokens.ExpiresAt, 0),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil, // false on localhost http, true on https
+	})
+	JSON(w, http.StatusOK, response.User)
 }
 
 // Register handles POST /api/v1/auth/register
