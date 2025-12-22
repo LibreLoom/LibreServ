@@ -3,10 +3,10 @@ package handlers
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
@@ -47,14 +47,23 @@ func TestAuthRegisterLogin(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login status %d", rec.Code)
 	}
-	var resp struct {
-		User   any `json:"user"`
-		Tokens any `json:"tokens"`
+	// Assert access cookie is set
+	res := rec.Result()
+	cookies := res.Cookies()
+	var hasAccessCookie bool
+	for _, c := range cookies {
+		if c.Name == "libreserv_access" && c.Value != "" {
+			hasAccessCookie = true
+			break
+		}
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
+	if !hasAccessCookie {
+		t.Fatalf("expected access cookie to be set")
 	}
-	if resp.Tokens == nil {
-		t.Fatalf("expected tokens")
+
+	// Assert tokens are NOT returned in JSON
+	bodyStr := rec.Body.String()
+	if strings.Contains(bodyStr, "access_token") || strings.Contains(bodyStr, "refresh_token") || strings.Contains(bodyStr, `"tokens"`) {
+		t.Fatalf("did not expect tokens in response body: %s", bodyStr)
 	}
 }

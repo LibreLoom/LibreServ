@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -45,26 +46,11 @@ type LicenseChecker interface {
 func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get Authorization header
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				http.Error(w, `{"error": "Authorization header required"}`, http.StatusUnauthorized)
+			token, err := extractAccessToken(r)
+			if err != nil {
+				http.Error(w, `{"error": "Authentication required"}`, http.StatusUnauthorized)
 				return
 			}
-
-			// Check Bearer token format
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				http.Error(w, `{"error": "Invalid authorization header format"}`, http.StatusUnauthorized)
-				return
-			}
-
-			token := parts[1]
-			if token == "" {
-				http.Error(w, `{"error": "Token required"}`, http.StatusUnauthorized)
-				return
-			}
-
 			var user *User
 
 			// In dev mode, allow "dev-token" for testing
@@ -129,4 +115,22 @@ func RequireRole(role string) func(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+func extractAccessToken(r *http.Request) (string, error) {
+	// 1) Try Authorization header first
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+			return parts[1], nil
+		}
+	}
+
+	// 2) Fallback to HttpOnly cookie
+	cookie, err := r.Cookie("libreserv_access")
+	if err == nil && cookie.Value != "" {
+		return cookie.Value, nil
+	}
+
+	return "", errors.New("no access token found")
 }
