@@ -13,18 +13,24 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobs"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/license"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/logger"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
 )
 
 func main() {
@@ -102,7 +108,7 @@ func main() {
 		}
 	}
 
-	appManager, err := apps.NewManager(cfg.Apps.CatalogPath, cfg.Apps.DataPath, dockerClient, db, monitor)
+	appManager, err := apps.NewManager(cfg.Apps.CatalogPath, cfg.Apps.DataPath, dockerClient, db, monitor, backupService)
 	if err != nil {
 		slog.Error("failed to initialize app manager", "error", err)
 		os.Exit(1)
@@ -111,6 +117,15 @@ func main() {
 	authService := auth.NewService(db, cfg.Auth.JWTSecret)
 	setupService := setup.NewService(db)
 	supportService := support.NewService(db, lic)
+	auditService := audit.NewService(db)
+
+	emailSender, _ := email.NewSender()
+	notifyService := notify.NewService(authService, emailSender)
+
+	sysChecker := system.NewUpdateChecker("libreloom", "libreserv")
+	scheduler := jobs.NewScheduler(appManager, sysChecker, notifyService, handlers.Version)
+	scheduler.Start()
+	defer scheduler.Stop()
 
 	server := api.NewServer(
 		cfg.Server.Host,
@@ -125,6 +140,8 @@ func main() {
 		setupService,
 		supportService,
 		lic,
+		sysChecker,
+		auditService,
 		cfg.Server.Mode == "development",
 	)
 

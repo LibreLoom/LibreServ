@@ -1,79 +1,82 @@
 server:
-  host: "0.0.0.0"
+  host: 0.0.0.0
   port: 8080
   mode: development
-
 database:
-  path: "./dev/data/libreserv.db"
-
+  path: ./dev/data/libreserv.db
+auth:
+  jwt_secret: N3ZcFeFvNrW2kknSgEGc7mSkqUFl_HbTf-ZJfilPN5o=
+  secret_file: ""
+  csrf_secret: WH6U7-l0qzbihVhYTcL8f62ZhOsJcoyGNZ5ZlUlz5KM=
 apps:
-  data_path: "./dev/data/apps"
-  catalog_path: "./apps"
-
+  data_path: ./dev/apps
+  catalog_path: ./apps
 docker:
   method: auto
-  socket_path: "/var/run/docker.sock"
-  timeout: "30s"
-
+  socket_path: ""
+  tcp:
+    host: ""
+    port: 0
+    use_tls: false
+    cert_path: ""
+  ssh:
+    host: ""
+    user: ""
+    key_path: ""
+  timeout: 30s
 logging:
   level: debug
-  path: "./dev/logs"
-
+  path: ./dev/logs
 network:
   caddy:
-    mode: "enabled" # enabled|noop|disabled
-    admin_api: ""
-    config_path: "./dev/caddy/Caddyfile"
-    certs_path: "./dev/caddy/certs"
-    default_domain: "localhost"
+    mode: noop
+    admin_api: http://localhost:2019
+    config_path: ./dev/caddy/Caddyfile
+    certs_path: ""
+    default_domain: ""
     email: ""
     auto_https: false
     reload:
       retries: 5
-      backoff_min: "200ms"
-      backoff_max: "5s"
-      jitter_fraction: 0.2
-      attempt_timeout: "5s"
+      backoff_min: 0s
+      backoff_max: 0s
+      jitter_fraction: 0
+      attempt_timeout: 0s
     logging:
-      output: "stdout" # stdout|stderr|file
-      file: ""         # used when output == file
-      format: "console" # console|json
-      level: ""        # optional (e.g. INFO)
+      output: stdout
+      file: ""
+      format: console
+      level: ""
   acme:
     external:
       enabled: false
-      use_docker: true
-      docker_image: "goacme/lego:latest"
-      data_path: "./dev/acme"
-      dns_provider: "" # e.g. cloudflare, route53, gandi, ...
-      dns_env: {}      # provider-specific env vars (secrets!)
-      email: ""        # defaults to network.caddy.email if empty
+      use_docker: false
+      docker_image: ""
+      data_path: ""
+      dns_provider: ""
+      dns_env: {}
+      email: ""
       staging: false
-      ca_dir_url: ""   # optional override of ACME directory URL
-      key_type: "rsa2048"
-      certs_path: "./dev/caddy/certs"
-
+      ca_dir_url: ""
+      key_type: ""
+      certs_path: ""
+cors:
+  allowed_origins: []
+license:
+  entitlement_file: ""
+  public_key_file: ""
 smtp:
   host: ""
   port: 587
   username: ""
   password: ""
   from: ""
-  use_tls: true
+  use_tls: false
   skip_verify: false
-
 notify:
   enabled: false
   support_recipients: []
-  support_subject: "LibreServ support session created"
-  support_body: |
-    A support session was created.
-
-    Code: {{.Code}}
-    Token: {{.Token}}
-    Expires: {{.Expires}}
-    Scopes: {{.Scopes}}
-    Created By: {{.CreatedBy}}
-  welcome_subject: "Welcome to LibreServ"
-  welcome_body: |
-    Your LibreServ admin account is ready.
+  support_subject: ""
+  support_body: ""
+  welcome_subject: ""
+  welcome_body: ""

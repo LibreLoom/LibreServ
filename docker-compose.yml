@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  libreserv:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+    container_name: libreserv
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+      - ./configs:/app/configs
+      - ./caddy:/etc/caddy
+    environment:
+      - LIBRESERV_DOCKER_METHOD=socket
+      - LIBRESERV_DOCKER_SOCKET_PATH=/var/run/docker.sock
+      - LIBRESERV_NETWORK_CADDY_MODE=enabled
+      - LIBRESERV_NETWORK_CADDY_ADMIN_API=http://caddy:2019
+      - LIBRESERV_NETWORK_CADDY_CONFIG_PATH=/etc/caddy/Caddyfile
+    depends_on:
+      - caddy
+
+  caddy:
+    image: caddy:2.7-alpine
+    container_name: libreserv-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy:/etc/caddy
+      - caddy_data:/data
+      - caddy_config:/config
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+
+volumes:
+  caddy_data:
+  caddy_config:

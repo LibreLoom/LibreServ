@@ -177,6 +177,7 @@ type InstalledApp struct {
 	HealthStatus HealthStatus           `json:"health_status"`
 	Path         string                 `json:"path"` // Installation path
 	Config       map[string]interface{} `json:"config"`
+	PinnedVersion string                `json:"pinned_version,omitempty"` // If set, updates will be ignored unless to this version
 	URL          string                 `json:"url,omitempty"`
 	Backends     []BackendRef           `json:"backends,omitempty"`
 	InstalledAt  time.Time              `json:"installed_at"`
@@ -213,3 +214,27 @@ const (
 	HealthUnhealthy HealthStatus = "unhealthy"
 	HealthDegraded  HealthStatus = "degraded"
 )
+
+// AppUpdate represents an update record in history
+type AppUpdate struct {
+	ID          int64      `json:"id"`
+	AppID       string     `json:"app_id"`
+	Status      string     `json:"status"` // pending, success, failed, rolled_back
+	OldVersion  string     `json:"old_version"`
+	NewVersion  string     `json:"new_version"`
+	StartedAt   time.Time  `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	Error       string     `json:"error,omitempty"`
+	RolledBack  bool       `json:"rolled_back"`
+	BackupID    string     `json:"backup_id,omitempty"`
+}
+
+// AvailableUpdate represents an available update for an installed app
+type AvailableUpdate struct {
+	InstanceID     string `json:"instance_id"`
+	AppID          string `json:"app_id"`
+	AppName        string `json:"app_name"`
+	CurrentVersion string `json:"current_version"`
+	LatestVersion  string `json:"latest_version"`
+	IsUpdate       bool   `json:"is_update"`
+}

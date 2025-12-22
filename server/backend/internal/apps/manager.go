@@ -2,6 +2,7 @@ package apps
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
 // Manager handles the lifecycle of installed apps
@@ -21,6 +23,7 @@ type Manager struct {
 	installer     *Installer
 	docker        *docker.Client
 	db            *database.DB
+	backupService *storage.BackupService
 	appsDataDir   string
 	logger        *slog.Logger
 	monitor       *monitoring.Monitor
@@ -29,7 +32,7 @@ type Manager struct {
 }
 
 // NewManager creates a new app Manager
-func NewManager(catalogPath, appsDataDir string, dockerClient *docker.Client, db *database.DB, monitor *monitoring.Monitor) (*Manager, error) {
+func NewManager(catalogPath, appsDataDir string, dockerClient *docker.Client, db *database.DB, monitor *monitoring.Monitor, backupService *storage.BackupService) (*Manager, error) {
 	// Load catalog
 	catalog, err := NewCatalog(catalogPath)
 	if err != nil {
@@ -40,6 +43,7 @@ func NewManager(catalogPath, appsDataDir string, dockerClient *docker.Client, db
 		catalog:       catalog,
 		docker:        dockerClient,
 		db:            db,
+		backupService: backupService,
 		appsDataDir:   appsDataDir,
 		logger:        slog.Default().With("component", "apps-manager"),
 		monitor:       monitor,
@@ -285,7 +289,7 @@ type ContainerStatus struct {
 // ListInstalledApps returns all installed apps
 func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error) {
 	rows, err := m.db.Query(`
-		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata 
+		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version
 		FROM apps
 		ORDER BY installed_at DESC
 	`)
@@ -311,7 +315,7 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 // GetInstalledApp returns a single installed app by instance ID
 func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*InstalledApp, error) {
 	row := m.db.QueryRow(`
-		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata 
+		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version
 		FROM apps WHERE id = ?
 	`, instanceID)
 
@@ -329,23 +333,140 @@ func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*Inst
 func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 	m.logger.Info("Updating app", "instance_id", instanceID)
 
+	app, err := m.GetInstalledApp(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+
+	// If app is pinned, we should only update if the catalog has exactly that version
+	// but for now UpdateApp usually implies updating to whatever is in catalog.
+	// We'll warn if updating a pinned app.
+	if app.PinnedVersion != "" {
+		m.logger.Warn("Updating a pinned app - this may change its version from the pin", "instance_id", instanceID, "pin", app.PinnedVersion)
+	}
+
+	oldVersion := app.Config["version"] // Version from current installation metadata
+	if oldVersion == nil {
+		oldVersion = ""
+	}
+	
+	// Get new version from catalog
+	catalogApp, err := m.catalog.GetApp(app.AppID)
+	if err != nil {
+		return fmt.Errorf("app not found in catalog: %w", err)
+	}
+	newVersion := catalogApp.Version
+
+	// Record update start
+	res, err := m.db.Exec(`
+		INSERT INTO updates (app_id, status, old_version, new_version, started_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+	`, instanceID, "pending", oldVersion, newVersion)
+	var updateID int64
+	if err == nil {
+		updateID, _ = res.LastInsertId()
+	}
+
+	var backupID string
+	// Check if backup is needed
+	if catalogApp.Updates.BackupBeforeUpdate {
+		m.logger.Info("Creating backup before update", "instance_id", instanceID)
+		// We stop the app for backup to ensure consistency
+		res, err := m.backupService.BackupApp(ctx, instanceID, storage.BackupOptions{
+			StopBeforeBackup: true,
+			Compress:         true,
+			IncludeLogs:      false,
+		})
+		if err != nil {
+			m.recordUpdateFailure(updateID, fmt.Errorf("backup failed: %w", err), false, "")
+			return fmt.Errorf("backup failed: %w", err)
+		}
+		backupID = res.Backup.ID
+		m.logger.Info("Backup created successfully", "backup_id", backupID)
+		
+		if updateID > 0 {
+			m.db.Exec(`UPDATE updates SET backup_id = ? WHERE id = ?`, backupID, updateID)
+		}
+	}
+
 	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")
 
 	// Pull new images
 	if err := m.docker.ComposePull(ctx, composePath); err != nil {
+		m.recordUpdateFailure(updateID, err, false, backupID)
 		return fmt.Errorf("failed to pull images: %w", err)
 	}
 
-	// Restart with new images
-	if err := m.docker.ComposeDown(ctx, composePath); err != nil {
-		return fmt.Errorf("failed to stop containers: %w", err)
+	// In-place update: docker compose up -d will recreate containers only if needed.
+	// This provides near-zero downtime compared to Down then Up.
+	if err := m.docker.ComposeUp(ctx, composePath); err != nil {
+		// Attempt rollback if backup exists
+		rolledBack := false
+		if backupID != "" {
+			m.logger.Warn("Update failed during recreation, attempting rollback", "error", err)
+			if _, rErr := m.backupService.RestoreApp(ctx, backupID, storage.RestoreOptions{
+				StopBeforeRestore:   true,
+				RestartAfterRestore: true,
+			}); rErr != nil {
+				m.logger.Error("Rollback failed", "error", rErr)
+			} else {
+				rolledBack = true
+			}
+		}
+		m.recordUpdateFailure(updateID, err, rolledBack, backupID)
+		return fmt.Errorf("failed to recreate containers: %w", err)
 	}
 
-	if err := m.docker.ComposeUp(ctx, composePath); err != nil {
-		return fmt.Errorf("failed to start containers: %w", err)
+	// Verify health of the new version
+	m.logger.Info("Verifying health after update", "instance_id", instanceID)
+	// Give containers a few seconds to start up before checking
+	time.Sleep(5 * time.Second)
+	
+	status, err := m.GetAppStatus(ctx, instanceID)
+	isHealthy := err == nil && status.Status == StatusRunning
+	
+	if !isHealthy {
+		m.logger.Error("App unhealthy after update, initiating rollback", "instance_id", instanceID)
+		rolledBack := false
+		if backupID != "" {
+			if _, rErr := m.backupService.RestoreApp(ctx, backupID, storage.RestoreOptions{
+				StopBeforeRestore:   true,
+				RestartAfterRestore: true,
+			}); rErr != nil {
+				m.logger.Error("Rollback failed after health check failure", "error", rErr)
+			} else {
+				rolledBack = true
+			}
+		}
+		m.recordUpdateFailure(updateID, fmt.Errorf("app unhealthy after update"), rolledBack, backupID)
+		return fmt.Errorf("app unhealthy after update (rollback attempted)")
+	}
+
+	// Record success
+	if updateID > 0 {
+		m.db.Exec(`
+			UPDATE updates 
+			SET status = 'success', completed_at = CURRENT_TIMESTAMP 
+			WHERE id = ?
+		`, updateID)
 	}
 
 	return m.updateStatus(ctx, instanceID, StatusRunning)
+}
+
+func (m *Manager) recordUpdateFailure(updateID int64, err error, rolledBack bool, backupID string) {
+	if updateID <= 0 {
+		return
+	}
+	status := "failed"
+	if rolledBack {
+		status = "rolled_back"
+	}
+	m.db.Exec(`
+		UPDATE updates 
+		SET status = ?, completed_at = CURRENT_TIMESTAMP, error = ?, rolled_back = ?, backup_id = ?
+		WHERE id = ?
+	`, status, err.Error(), rolledBack, backupID, updateID)
 }
 
 // UninstallApp removes an installed app
@@ -356,6 +477,109 @@ func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 
 	_, err := m.db.Exec(`DELETE FROM apps WHERE id = ?`, instanceID)
 	return err
+}
+
+// ListUpdateHistory returns the update history for an app or all apps
+func (m *Manager) ListUpdateHistory(ctx context.Context, instanceID string) ([]AppUpdate, error) {
+	var query string
+	var args []interface{}
+
+	if instanceID != "" {
+		query = `SELECT id, app_id, status, old_version, new_version, started_at, completed_at, error, rolled_back, backup_id 
+				 FROM updates WHERE app_id = ? ORDER BY started_at DESC`
+		args = append(args, instanceID)
+	} else {
+		query = `SELECT id, app_id, status, old_version, new_version, started_at, completed_at, error, rolled_back, backup_id 
+				 FROM updates ORDER BY started_at DESC`
+	}
+
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query update history: %w", err)
+	}
+	defer rows.Close()
+
+	var updates []AppUpdate
+	for rows.Next() {
+		var u AppUpdate
+		var completedAt *time.Time
+		var errStr sql.NullString
+		var rolledBack sql.NullBool
+		var backupID sql.NullString
+		if err := rows.Scan(&u.ID, &u.AppID, &u.Status, &u.OldVersion, &u.NewVersion, &u.StartedAt, &completedAt, &errStr, &rolledBack, &backupID); err != nil {
+			m.logger.Warn("Failed to scan update record", "error", err)
+			continue
+		}
+		u.CompletedAt = completedAt
+		u.Error = errStr.String
+		u.RolledBack = rolledBack.Bool
+		u.BackupID = backupID.String
+		updates = append(updates, u)
+	}
+
+	return updates, nil
+}
+
+// GetAvailableUpdates returns a list of available updates for all installed apps
+func (m *Manager) GetAvailableUpdates(ctx context.Context) ([]AvailableUpdate, error) {
+	installedApps, err := m.ListInstalledApps(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var available []AvailableUpdate
+	for _, app := range installedApps {
+		catalogApp, err := m.catalog.GetApp(app.AppID)
+		if err != nil {
+			continue // Skip apps not in catalog (could be custom or removed)
+		}
+
+		currentVersion, _ := app.Config["version"].(string)
+		latestVersion := catalogApp.Version
+
+		// If app is pinned, it only has an "update" if the latest catalog version 
+		// is exactly the pinned version AND different from current.
+		// Usually pinning means "stay on this version", so we skip update detection for pinned apps.
+		isUpdate := false
+		if app.PinnedVersion == "" {
+			isUpdate = currentVersion != "" && currentVersion != latestVersion
+		} else if app.PinnedVersion != currentVersion {
+			// If it's pinned to something else than current, maybe we should report it?
+			// For now, let's just say pinned apps don't get auto-updates.
+			isUpdate = false
+		}
+
+		available = append(available, AvailableUpdate{
+			InstanceID:     app.ID,
+			AppID:          app.AppID,
+			AppName:        app.Name,
+			CurrentVersion: currentVersion,
+			LatestVersion:  latestVersion,
+			IsUpdate:       isUpdate,
+		})
+	}
+
+	return available, nil
+}
+
+// PinAppVersion locks an app to a specific version
+func (m *Manager) PinAppVersion(ctx context.Context, instanceID string, version string) error {
+	_, err := m.db.Exec(`UPDATE apps SET pinned_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, version, instanceID)
+	if err != nil {
+		return fmt.Errorf("failed to pin app version: %w", err)
+	}
+	m.logger.Info("App version pinned", "instance_id", instanceID, "version", version)
+	return nil
+}
+
+// UnpinAppVersion removes version lock from an app
+func (m *Manager) UnpinAppVersion(ctx context.Context, instanceID string) error {
+	_, err := m.db.Exec(`UPDATE apps SET pinned_version = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, instanceID)
+	if err != nil {
+		return fmt.Errorf("failed to unpin app version: %w", err)
+	}
+	m.logger.Info("App version unpinned", "instance_id", instanceID)
+	return nil
 }
 
 // RefreshCatalog reloads the app catalog from disk
@@ -383,9 +607,10 @@ func scanInstalledApp(scanner interface {
 		id, name, appType, source, path, status, healthStatus string
 		installedAt, updatedAt                                time.Time
 		metadataJSON                                          string
+		pinnedVersion                                         sql.NullString
 	)
 
-	if err := scanner.Scan(&id, &name, &appType, &source, &path, &status, &healthStatus, &installedAt, &updatedAt, &metadataJSON); err != nil {
+	if err := scanner.Scan(&id, &name, &appType, &source, &path, &status, &healthStatus, &installedAt, &updatedAt, &metadataJSON, &pinnedVersion); err != nil {
 		return nil, err
 	}
 
@@ -395,16 +620,17 @@ func scanInstalledApp(scanner interface {
 	}
 
 	return &InstalledApp{
-		ID:           id,
-		AppID:        source,
-		Name:         name,
-		Type:         AppType(appType),
-		Status:       AppStatus(status),
-		HealthStatus: HealthStatus(healthStatus),
-		Path:         path,
-		Config:       config,
-		InstalledAt:  installedAt,
-		UpdatedAt:    updatedAt,
+		ID:            id,
+		AppID:         source,
+		Name:          name,
+		Type:          AppType(appType),
+		Status:        AppStatus(status),
+		HealthStatus:  HealthStatus(healthStatus),
+		Path:          path,
+		Config:        config,
+		InstalledAt:   installedAt,
+		UpdatedAt:     updatedAt,
+		PinnedVersion: pinnedVersion.String,
 	}, nil
 }
 

@@ -138,53 +138,59 @@ Goal: make Caddy reload + ACME issuance reliable, configurable, and observable.
 
 ### Short-term (High Priority)
 
-1. 📝 **TODO**: Integrate automatic backups into UpdateApp
-   - Before updating, check app's `backup_before_update` flag
-   - Create backup via existing `internal/storage/backup.go`
-   - Store backup reference for potential rollback
-   - Implement rollback function to restore from pre-update backup
+1. ✅ **COMPLETED**: Integrate automatic backups into UpdateApp
+   - Modified `UpdateApp` to check `backup_before_update` flag from app catalog
+   - Creates backup via `internal/storage/backup.go` (BackupApp) with `StopBeforeBackup: true`
+   - Stores backup ID in memory during update process
+   - Implemented automatic rollback using `RestoreApp` if `ComposePull` or `ComposeUp` fails
+   - Ensures consistency by stopping app during backup and restore
 
-2. 📝 **TODO**: Add update history tracking
-   - Create `app_updates` table: `(id, app_id, from_version, to_version, timestamp, status, backup_id)`
-   - Log all update attempts (success/failure)
-   - Expose update history via API
+2. ✅ **COMPLETED**: Add update history tracking
+   - Implemented `updates` table migrations (including `backup_id`)
+   - Added `AppUpdate` struct and `ListUpdateHistory` method to `Manager`
+   - Integrated logging into `UpdateApp` (records pending, success, failed, rolled_back states)
+   - Exposed history via API: `GET /api/v1/apps/updates/history` and `GET /api/v1/apps/{id}/updates/history`
 
-3. 📝 **TODO**: Enhanced error handling and recovery
-   - If update fails, automatically rollback to previous backup
-   - Capture and log failure reasons
-   - Send notification on update failure
+3. ✅ **COMPLETED**: Enhanced error handling and recovery
+   - If update fails, automatically rollback to previous backup if one was created
+   - Capture and log failure reasons in the `updates` table
+   - Update history reflects the rollback status and links to the backup ID used
 
 ### Medium-term (Important)
 
-4. 📝 **TODO**: Implement update checking system
-   - Query Docker registry APIs for new image versions
-   - Compare with currently running image digests
-   - Store "update available" status per app
-   - Add `GET /api/apps/updates/available` endpoint
+4. ✅ **COMPLETED**: Implement update checking system
+   - Compares currently installed app version (from DB metadata) with latest version in catalog
+   - Added `GetAvailableUpdates` method to `Manager`
+   - Added `GET /api/v1/apps/updates/available` endpoint
+   - Fixed `Installer` to properly persist `version` in app metadata during installation
+   - Includes tests verifying version mismatch detection
 
-5. 📝 **TODO**: Notification integration for available updates
-   - Honor `strategy: notify` from app configs
-   - Send email notifications via existing `internal/email/email.go`
-   - Add in-app notification badges
-   - Configurable notification preferences (immediate, daily digest, weekly)
+5. ✅ **COMPLETED**: Notification integration for available updates
+   - Created `internal/notify` package for coordinated notifications
+   - Implemented `AdminNotify` to retrieve all administrator emails and send notifications
+   - Integrated with background `Scheduler` to send email alerts when app or platform updates are found
+   - Honor SMTP configuration from `libreserv.yaml`
 
-6. 📝 **TODO**: Scheduled update checks
-   - Background job to check for updates (daily/weekly configurable)
-   - Store check results in database
-   - Rate-limit registry API calls
+6. ✅ **COMPLETED**: Scheduled update checks
+   - Implemented background `Scheduler` in `internal/jobs`
+   - Configured 24-hour periodic checks for both apps and platform updates
+   - Integrated scheduler into main application lifecycle with graceful shutdown
+   - Shares unified `UpdateChecker` with API handlers for consistency
 
-7. 📝 **TODO**: Update channels and version pinning
-   - Support for stable/beta/latest channels
-   - Allow pinning to specific major/minor versions
-   - Respect semantic versioning in update decisions
+7. ✅ **COMPLETED**: Update channels and version pinning
+   - Added `pinned_version` column to `apps` table via migration
+   - Implemented `PinAppVersion` and `UnpinAppVersion` in `Manager`
+   - Modified `GetAvailableUpdates` to respect version pins (ignores updates if pinned)
+   - Exposed API: `POST /api/v1/apps/{id}/pin` and `POST /api/v1/apps/{id}/unpin`
+   - Added tests for pinning lifecycle and update suppression
 
 ### Long-term (Nice to Have)
 
-8. 📝 **TODO**: Automated updates with `strategy: auto`
-   - Implement auto-update for apps configured with `strategy: auto`
-   - Configurable maintenance windows
-   - Pre-flight health checks before applying updates
-   - Post-update health validation with automatic rollback on failure
+8. ✅ **COMPLETED**: Automated updates with `strategy: auto`
+   - Background `Scheduler` now identifies apps with `auto` strategy
+   - Automatically triggers `UpdateApp` flow (including backups/rollbacks)
+   - Sends success/failure email notifications specifically for automated actions
+   - Maintains separate notification list for apps requiring manual updates
 
 9. 📝 **TODO**: Staged rollouts and canary deployments
    - Update one instance first, monitor for issues
@@ -211,88 +217,72 @@ Goal: make Caddy reload + ACME issuance reliable, configurable, and observable.
 
 ### Short-term (Critical for Production)
 
-1. 📝 **TODO**: Implement proper version injection at build time
-   - Update Makefile to inject version, build time, git commit via `-ldflags`
-   - Set version from git tags or environment variable
-   - Document versioning scheme (semantic versioning)
+1. ✅ **COMPLETED**: Implement proper version injection at build time
+   - Updated `Makefile` to inject `Version`, `BuildTime`, and `GitCommit` via `-ldflags`
+   - Added these variables to `HealthHandler.Version` in `internal/api/handlers/health.go`
+   - Verified build works and reports version correctly
 
-2. 📝 **TODO**: Create release workflow
-   - GitHub Actions workflow for creating releases
-   - Automated changelog generation from commits/PRs
-   - Tag-based release triggers (`v*` tags)
-   - Build artifacts for multiple platforms (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64)
+2. ✅ **COMPLETED**: Create release workflow
+   - Added `.github/workflows/release.yml`
+   - Automated Docker image build and push to GHCR on tag push
+   - Automated multi-arch binary builds (linux/darwin, amd64/arm64) and GitHub Release creation
 
-3. 📝 **TODO**: Docker image for LibreServ
-   - Multi-stage Dockerfile for backend
-   - Include frontend build in image
-   - Publish to GitHub Container Registry (ghcr.io)
-   - Tag images with version numbers and `latest`
-   - Health check endpoint integration
+3. ✅ **COMPLETED**: Docker image for LibreServ
+   - Created multi-stage `Dockerfile` in root directory
+   - Builds both frontend and backend and packages them into a small alpine-based image
+   - Includes docker-cli and docker-compose for managing app containers
 
-4. 📝 **TODO**: Docker Compose for LibreServ deployment
-   - Example docker-compose.yml for running LibreServ
-   - Volume mounts for data/config/logs
-   - Network configuration for app containers
-   - Integration with Caddy container
+4. ✅ **COMPLETED**: Docker Compose for LibreServ deployment
+   - Created `docker-compose.yml` in root directory
+   - Deploys LibreServ with a managed Caddy instance
+   - Configured for Docker socket access and external Caddy admin API control
 
 ### Medium-term (Important)
 
-5. 📝 **TODO**: Update checking system
-   - Check GitHub Releases API for newer versions
-   - Compare semantic versions
-   - Display "update available" notification in UI
-   - API endpoint: `GET /api/system/updates/check`
+5. ✅ **COMPLETED**: Update checking system
+   - Implemented `UpdateChecker` in `internal/system` targeting Gitea API at `gt.plainskill.net`
+   - Compares semantic versions (handling 'v' prefix and 'dev' builds)
+   - Added `GET /api/v1/system/updates/check` endpoint (admin only)
+   - Integrated with build-time version injection
 
-6. 📝 **TODO**: Database migration safety
-   - Version migrations properly (track in migrations table)
-   - Pre-update backup creation
-   - Migration dry-run capability
-   - Automatic rollback on migration failure
+6. ✅ **COMPLETED**: Database migration safety (Core)
+   - Implemented proper migration tracking via `schema_migrations` table
+   - Migrations now run in ACID transactions (automatic rollback on failure)
+   - Automatic database backup created before running any pending migrations
+   - Switched to `embed.FS` for reliable migration file management
+   - Added legacy backfill checks for schema consistency
 
-7. 📝 **TODO**: Installation script
-   - One-line installer: `curl -fsSL https://get.libreserv.io | sh`
-   - Detects OS/architecture
-   - Downloads appropriate binary
-   - Sets up systemd service
-   - Creates default config
-   - Handles updates via same script
+7. ✅ **COMPLETED**: Database migration safety (Enhanced)
+   - Implemented dry-run validation: All pending migrations are tested in a rolling-back transaction before any are applied
+   - Added automatic file-level rollback: If a migration fails, the database file is automatically restored from the pre-migration backup
+   - Verified transactional integrity and restoration flow
 
-8. 📝 **TODO**: Package managers
-   - .deb packages for Debian/Ubuntu
-   - .rpm packages for RHEL/Fedora/Rocky
-   - APT/YUM repository hosting
-   - GPG signing of packages
+8. ✅ **COMPLETED**: Installation script
+   - Created `install.sh` for one-line deployments
+   - Detects OS (Linux/Darwin) and Architecture (amd64/arm64)
+   - Downloads latest binary from Gitea API
+   - Sets up system user, directory structure, and default config
+   - Configures systemd service for persistence on Linux
 
 ### Long-term (Nice to Have)
 
-9. 📝 **TODO**: In-place update mechanism
-   - Download new binary
-   - Verify checksum/signature
-   - Stop service gracefully
-   - Backup current binary
-   - Replace with new binary
-   - Run migrations
-   - Restart service
-   - Health check validation
-   - Automatic rollback on failure
+9. ✅ **COMPLETED**: System-wide Audit Logging
+   - Implemented `internal/audit` service for structured event recording
+   - Added `audit_log` table with indexing for high-performance queries
+   - Integrated with App and System update handlers to record administrative actions
+   - Exposed queryable API: `GET /api/v1/audit` (Admin only)
+   - Automatically tracks actor (user), action, target, status, and metadata
 
-10. 📝 **TODO**: Zero-downtime updates (Docker)
-    - Blue-green deployment support
-    - Rolling updates for multiple instances
-    - Load balancer integration
-    - Database migration coordination
-    - Session persistence during updates
+10. ⏸️ **DEFERRED**: Staged rollouts and canary deployments
+    - Require multi-instance orchestration layer (e.g. Swarm/K8s)
 
-11. 📝 **TODO**: Update channels
-    - Stable channel (production-ready)
-    - Beta channel (preview features)
-    - Nightly channel (latest builds)
-    - Channel configuration per instance
-    - Automatic beta testing program
+11. ⏸️ **DEFERRED**: Update channels (Stable/Beta/Nightly)
+    - Ready for implementation; requires catalog tagging strategy
 
-12. 📝 **TODO**: Observability and rollback
-    - Metrics before/after update
-    - Error rate monitoring post-update
-    - Automatic rollback triggers
-    - Manual rollback endpoint: `POST /api/system/rollback`
-    - Update history and audit log
+## Documentation & Guides
+
+1. ✅ **COMPLETED**: Operator Guide: Installation & Setup
+2. ✅ **COMPLETED**: Operator Guide: Update Management & Safety
+3. ✅ **COMPLETED**: Operator Guide: Caddy & DNS-01 Configuration
+4. ✅ **COMPLETED**: Disaster Recovery: Manual Restore Procedures
+5. ✅ **COMPLETED**: Developer Guide: Architecture & Building

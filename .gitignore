@@ -37,6 +37,8 @@ server/backend/.env.local
 
 # Development
 dev/
+server/backend/dev/
+server/backend/bin/
 *.db
 .env
 .env.local

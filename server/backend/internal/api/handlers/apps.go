@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -10,7 +11,8 @@ import (
 
 // AppsHandler handles installed app management API endpoints
 type AppsHandler struct {
-	manager *apps.Manager
+	manager  *apps.Manager
+	auditLog func(ctx context.Context, action, targetID, targetName, status, message string, metadata map[string]interface{})
 }
 
 // NewAppsHandler creates a new AppsHandler
@@ -18,6 +20,11 @@ func NewAppsHandler(manager *apps.Manager) *AppsHandler {
 	return &AppsHandler{
 		manager: manager,
 	}
+}
+
+// SetAuditLogger sets the audit logging callback
+func (h *AppsHandler) SetAuditLogger(fn func(ctx context.Context, action, targetID, targetName, status, message string, metadata map[string]interface{})) {
+	h.auditLog = fn
 }
 
 // InstallRequest represents an app installation request
@@ -177,8 +184,15 @@ func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.UpdateApp(r.Context(), instanceID); err != nil {
+		if h.auditLog != nil {
+			h.auditLog(r.Context(), "app.update", instanceID, "", "failure", err.Error(), nil)
+		}
 		JSONError(w, http.StatusInternalServerError, "failed to update app: "+err.Error())
 		return
+	}
+
+	if h.auditLog != nil {
+		h.auditLog(r.Context(), "app.update", instanceID, "", "success", "Manual update triggered", nil)
 	}
 
 	JSON(w, http.StatusOK, map[string]string{
@@ -223,4 +237,100 @@ func (h *AppsHandler) GetAppStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, status)
+}
+
+// GetUpdateHistory handles GET /api/apps/updates/history
+// Returns the update history for all apps
+func (h *AppsHandler) GetUpdateHistory(w http.ResponseWriter, r *http.Request) {
+	history, err := h.manager.ListUpdateHistory(r.Context(), "")
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to get update history: "+err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, history)
+}
+
+// GetAppUpdateHistory handles GET /api/apps/{instanceId}/updates/history
+// Returns the update history for a specific app
+func (h *AppsHandler) GetAppUpdateHistory(w http.ResponseWriter, r *http.Request) {
+	instanceID := chi.URLParam(r, "instanceId")
+	if instanceID == "" {
+		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		return
+	}
+
+	history, err := h.manager.ListUpdateHistory(r.Context(), instanceID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to get update history: "+err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, history)
+}
+
+// GetAvailableUpdates handles GET /api/apps/updates/available
+// Returns a list of apps with available updates
+func (h *AppsHandler) GetAvailableUpdates(w http.ResponseWriter, r *http.Request) {
+	updates, err := h.manager.GetAvailableUpdates(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to check for updates: "+err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, updates)
+}
+
+// PinAppVersion handles POST /api/apps/{instanceId}/pin
+// Locks an app to a specific version
+func (h *AppsHandler) PinAppVersion(w http.ResponseWriter, r *http.Request) {
+	instanceID := chi.URLParam(r, "instanceId")
+	if instanceID == "" {
+		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		return
+	}
+
+	var req struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Version == "" {
+		JSONError(w, http.StatusBadRequest, "version is required")
+		return
+	}
+
+	if err := h.manager.PinAppVersion(r.Context(), instanceID, req.Version); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to pin app: "+err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{
+		"message":     "app version pinned",
+		"instance_id": instanceID,
+		"version":     req.Version,
+	})
+}
+
+// UnpinAppVersion handles POST /api/apps/{instanceId}/unpin
+// Removes version lock from an app
+func (h *AppsHandler) UnpinAppVersion(w http.ResponseWriter, r *http.Request) {
+	instanceID := chi.URLParam(r, "instanceId")
+	if instanceID == "" {
+		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		return
+	}
+
+	if err := h.manager.UnpinAppVersion(r.Context(), instanceID); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to unpin app: "+err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{
+		"message":     "app version unpinned",
+		"instance_id": instanceID,
+	})
 }

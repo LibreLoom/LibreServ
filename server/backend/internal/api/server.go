@@ -14,6 +14,7 @@ import (
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
@@ -23,6 +24,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
 )
 
 // Server represents the HTTP API server
@@ -43,10 +45,12 @@ type Server struct {
 	setupService   *setup.Service
 	supportService *support.Service
 	licenseService middleware.LicenseChecker
+	sysChecker     *system.UpdateChecker
+	audit          *audit.Service
 }
 
 // NewServer creates a new API server instance
-func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, backupService *storage.BackupService, dockerClient *docker.Client, caddyManager *network.CaddyManager, setupService *setup.Service, supportService *support.Service, licenseService middleware.LicenseChecker, devMode bool) *Server {
+func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, backupService *storage.BackupService, dockerClient *docker.Client, caddyManager *network.CaddyManager, setupService *setup.Service, supportService *support.Service, licenseService middleware.LicenseChecker, sysChecker *system.UpdateChecker, auditSvc *audit.Service, devMode bool) *Server {
 	addr := fmt.Sprintf("%s:%d", host, port)
 	logger := slog.Default().With("component", "api")
 
@@ -78,6 +82,8 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 		setupService:   setupService,
 		supportService: supportService,
 		licenseService: licenseService,
+		sysChecker:     sysChecker,
+		audit:          auditSvc,
 	}
 
 	// Setup routes
@@ -109,6 +115,31 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // Router returns the chi router (useful for testing)
 func (s *Server) Router() chi.Router {
 	return s.router
+}
+
+// auditLog is a helper to record an audit entry
+func (s *Server) auditLog(ctx context.Context, action, targetID, targetName, status, message string, metadata map[string]interface{}) {
+	// Get current user from context (populated by auth middleware)
+	actorID := ""
+	actorUsername := "system"
+	if user := middleware.GetUser(ctx); user != nil {
+		actorID = user.ID
+		actorUsername = user.Username
+	}
+
+	entry := audit.Entry{
+		ActorID:       actorID,
+		ActorUsername: actorUsername,
+		Action:        action,
+		TargetID:      targetID,
+		TargetName:    targetName,
+		Status:        status,
+		Message:       message,
+		Metadata:      metadata,
+		Timestamp:     time.Now(),
+	}
+
+	s.audit.Record(ctx, entry)
 }
 
 // serveSPA serves static assets from the web/dist directory with index.html fallback for SPA routes

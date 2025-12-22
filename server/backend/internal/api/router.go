@@ -20,6 +20,7 @@ func (s *Server) setupRoutes() {
 	healthHandler := handlers.NewHealthHandler(s.db)
 	catalogHandler := handlers.NewCatalogHandler(s.appManager)
 	appsHandler := handlers.NewAppsHandler(s.appManager)
+	appsHandler.SetAuditLogger(s.auditLog)
 	authHandler := handlers.NewAuthHandler(s.authService)
 	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService)
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient)
@@ -71,6 +72,9 @@ func (s *Server) setupRoutes() {
 	supportCommandHandler := handlers.NewSupportCommandHandler(s.supportService)
 	notifyHandler := handlers.NewNotifyHandler()
 	licenseHandler := handlers.NewLicenseHandler(s.licenseService)
+	systemHandler := handlers.NewSystemHandler(s.sysChecker)
+	systemHandler.SetAuditLogger(s.auditLog)
+	auditHandler := handlers.NewAuditHandler(s.audit)
 
 	// Auth middleware config
 	authConfig := &middleware.AuthConfig{
@@ -133,6 +137,8 @@ func (s *Server) setupRoutes() {
 			r.Route("/apps", func(r chi.Router) {
 				r.Get("/", appsHandler.ListInstalledApps)
 				r.Post("/", appsHandler.InstallApp)
+				r.Get("/updates/history", appsHandler.GetUpdateHistory)
+				r.Get("/updates/available", appsHandler.GetAvailableUpdates)
 				r.Get("/{instanceId}", appsHandler.GetInstalledApp)
 				r.Delete("/{instanceId}", appsHandler.UninstallApp)
 				r.Get("/{instanceId}/status", appsHandler.GetAppStatus)
@@ -140,6 +146,9 @@ func (s *Server) setupRoutes() {
 				r.Post("/{instanceId}/stop", appsHandler.StopApp)
 				r.Post("/{instanceId}/restart", appsHandler.RestartApp)
 				r.Post("/{instanceId}/update", appsHandler.UpdateApp)
+				r.Post("/{instanceId}/pin", appsHandler.PinAppVersion)
+				r.Post("/{instanceId}/unpin", appsHandler.UnpinAppVersion)
+				r.Get("/{instanceId}/updates/history", appsHandler.GetAppUpdateHistory)
 			})
 
 			// Monitoring
@@ -251,6 +260,17 @@ func (s *Server) setupRoutes() {
 			r.Route("/settings", func(r chi.Router) {
 				r.Get("/", settingsHandler.Get)
 				r.Put("/", settingsHandler.Update)
+			})
+
+			r.Route("/system", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/updates/check", systemHandler.CheckUpdates)
+				r.Post("/updates/apply", systemHandler.ApplyUpdate)
+			})
+
+			r.Route("/audit", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/", auditHandler.ListLogs)
 			})
 		})
 	})

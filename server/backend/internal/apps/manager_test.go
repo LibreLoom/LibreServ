@@ -20,18 +20,18 @@ func TestScanInstalledApp(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	now := time.Now()
-	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"inst1", "App One", "builtin", "app1", "/path", "running", "healthy", now, now, `{"k":"v"}`)
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"inst1", "App One", "builtin", "app1", "/path", "running", "healthy", now, now, `{"k":"v"}`, "1.0.0")
 	if err != nil {
 		t.Fatalf("insert app: %v", err)
 	}
 
-	row := db.QueryRow(`SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata FROM apps WHERE id = ?`, "inst1")
+	row := db.QueryRow(`SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version FROM apps WHERE id = ?`, "inst1")
 	app, err := scanInstalledApp(row)
 	if err != nil {
 		t.Fatalf("scan app: %v", err)
 	}
-	if app.ID != "inst1" || app.AppID != "app1" || app.Config["k"] != "v" {
+	if app.ID != "inst1" || app.AppID != "app1" || app.Config["k"] != "v" || app.PinnedVersion != "1.0.0" {
 		t.Fatalf("unexpected app %+v", app)
 	}
 }

@@ -291,6 +291,9 @@ func (i *Installer) processComposeTemplate(appDef *AppDefinition, installPath st
 
 // createMetadataFile creates the .libreserv.yaml metadata file
 func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition, config map[string]interface{}) error {
+	// Ensure version is in config for DB persistence
+	config["version"] = appDef.Version
+
 	metadata := map[string]interface{}{
 		"app_id":       appDef.ID,
 		"app_name":     appDef.Name,
