@@ -1,8 +1,11 @@
 services:
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.5.4
     container_name: "{{.instance_id}}-ollama"
     restart: unless-stopped
+{{- if .enable_gpu }}
+    runtime: nvidia
+{{- end }}
     ports:
       - "{{.api_port}}:11434"
     environment:
@@ -10,17 +13,11 @@ services:
       - "OLLAMA_ORIGINS={{.origins}}"
       - "OLLAMA_NUM_PARALLEL={{.num_parallel}}"
       - "OLLAMA_MAX_LOADED_MODELS={{.max_loaded_models}}"
+{{- if .enable_gpu }}
+      - "NVIDIA_VISIBLE_DEVICES={{ if eq .gpu_count 0 }}all{{ else }}{{.gpu_count}}{{ end }}"
+{{- end }}
     volumes:
       - "{{ dataPath }}/ollama:/root/.ollama"
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.name={{.app_name}}"
-{{- if .enable_gpu }}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: {{ if eq .gpu_count 0 }}all{{ else }}{{.gpu_count}}{{ end }}
-              capabilities: [gpu]
-{{- end }}

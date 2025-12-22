@@ -1,8 +1,39 @@
 package network
 
 import (
+	"errors"
+	"fmt"
 	"time"
 )
+
+// Structured error types for Caddy operations
+var (
+	ErrCaddyDisabled      = errors.New("caddy is disabled")
+	ErrAdminUnreachable   = errors.New("caddy admin API unreachable")
+	ErrReloadRejected     = errors.New("caddy reload rejected")
+	ErrConfigInvalid      = errors.New("caddy config invalid")
+	ErrRouteNotFound      = errors.New("route not found")
+	ErrRouteDuplicate     = errors.New("route already exists")
+	ErrBackendUnreachable = errors.New("backend unreachable")
+)
+
+// CaddyError wraps an error with additional context about Caddy operations
+type CaddyError struct {
+	Op      string // operation that failed (e.g., "reload", "validate", "add_route")
+	Err     error  // underlying error
+	Context string // additional context
+}
+
+func (e *CaddyError) Error() string {
+	if e.Context != "" {
+		return fmt.Sprintf("%s: %v (%s)", e.Op, e.Err, e.Context)
+	}
+	return fmt.Sprintf("%s: %v", e.Op, e.Err)
+}
+
+func (e *CaddyError) Unwrap() error {
+	return e.Err
+}
 
 // Route represents a reverse proxy route
 type Route struct {

@@ -1,7 +1,7 @@
 id: searxng
 name: SearXNG
 description: Privacy-respecting, hackable metasearch engine aggregating results from multiple search engines without tracking
-version: latest
+version: 2024.12.18-b8443118c
 category: search
 icon: https://docs.searxng.org/_static/searxng-wordmark.svg
 website: https://docs.searxng.org
@@ -29,6 +29,12 @@ configuration:
     default: 8080
     required: true
     env_var: SEARXNG_PORT
+  - name: base_url
+    label: Base URL
+    description: Public base URL for SearXNG (leave empty for localhost; set when using reverse proxy)
+    type: string
+    default: ""
+    required: false
   - name: instance_name
     label: Instance Name
     description: Name shown in the SearXNG interface

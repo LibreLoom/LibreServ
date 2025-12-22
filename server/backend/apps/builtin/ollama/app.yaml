@@ -1,7 +1,7 @@
 id: ollama
 name: Ollama
 description: Run large language models locally with a simple API. Supports Llama, Mistral, Code Llama, and many more models
-version: latest
+version: 0.5.4
 category: ai
 icon: https://ollama.ai/public/ollama.png
 website: https://ollama.ai
@@ -66,9 +66,9 @@ configuration:
     env_var: OLLAMA_HOST
   - name: origins
     label: Allowed Origins
-    description: Comma-separated list of allowed CORS origins
+    description: Comma-separated list of allowed CORS origins (use specific origins in production)
     type: string
-    default: "*"
+    default: "http://localhost:*"
     required: false
     env_var: OLLAMA_ORIGINS
 

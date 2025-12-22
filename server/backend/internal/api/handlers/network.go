@@ -344,23 +344,28 @@ func (h *NetworkHandlers) ConfigureDomain(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// TODO: Update Caddy configuration with new domain settings
-	// For now, just return success
+	// Update Caddy manager with new defaults
+	if err := h.caddyManager.UpdateDefaults(req.DefaultDomain, req.SSLEmail, req.AutoHTTPS); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to update domain configuration: "+err.Error())
+		return
+	}
+
 	JSON(w, http.StatusOK, map[string]string{
 		"status":  "configured",
-		"message": "Domain configuration updated",
+		"message": "Domain configuration updated successfully",
 	})
 }
 
 // GetDomainConfig returns the current domain configuration
 // GET /api/v1/network/domain
 func (h *NetworkHandlers) GetDomainConfig(w http.ResponseWriter, r *http.Request) {
-	// TODO: Return actual domain configuration from Caddy config
-	// For now, return default configuration
+	cfg := h.caddyManager.Config()
 	config := map[string]interface{}{
-		"default_domain": "",
-		"ssl_email":      "",
-		"auto_https":     true,
+		"default_domain": cfg.DefaultDomain,
+		"ssl_email":      cfg.Email,
+		"auto_https":     cfg.AutoHTTPS,
+		"mode":           cfg.Mode,
+		"admin_api":      cfg.AdminAPI,
 	}
 
 	JSON(w, http.StatusOK, config)

@@ -68,6 +68,11 @@ func (cm *CaddyManager) isEnabled() bool {
 	return cm.mode() == "enabled"
 }
 
+func (cm *CaddyManager) isDisabled() bool {
+	m := cm.mode()
+	return m == "disabled" || m == "noop"
+}
+
 // UpdateDefaults updates domain/email/autohttps defaults and regenerates config.
 func (cm *CaddyManager) UpdateDefaults(defaultDomain, email string, autoHTTPS bool) error {
 	cm.routesMu.Lock()
@@ -79,7 +84,7 @@ func (cm *CaddyManager) UpdateDefaults(defaultDomain, email string, autoHTTPS bo
 		cm.config.Email = email
 	}
 	cm.config.AutoHTTPS = autoHTTPS
-	return cm.regenerateCaddyfile()
+	return cm.regenerateCaddyfileLocked()
 }
 
 // Config returns the underlying Caddy configuration.
@@ -703,6 +708,16 @@ func (cm *CaddyManager) validateConfigLocked() error {
 // reloadCaddy reloads Caddy configuration
 func (cm *CaddyManager) reloadCaddy() error {
 	// In noop/disabled mode, never attempt to reload.
+	// noop mode: silently succeed (useful for dev/testing)
+	// disabled mode: return error to signal misconfiguration
+	m := cm.mode()
+	if m == "disabled" {
+		return &CaddyError{Op: "reload", Err: ErrCaddyDisabled, Context: "mode=disabled"}
+	}
+	if m == "noop" {
+		// No-op: succeed without actually reloading
+		return nil
+	}
 	if !cm.isEnabled() {
 		return nil
 	}
@@ -894,7 +909,7 @@ func (cm *CaddyManager) createRoutesTable() error {
 func (cm *CaddyManager) ApplyConfig() error {
 	cm.routesMu.Lock()
 	defer cm.routesMu.Unlock()
-	if err := cm.regenerateCaddyfile(); err != nil {
+	if err := cm.regenerateCaddyfileLocked(); err != nil {
 		return err
 	}
 	return cm.reloadCaddy()

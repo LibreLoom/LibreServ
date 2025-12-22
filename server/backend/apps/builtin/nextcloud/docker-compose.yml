@@ -2,9 +2,11 @@ version: "3.8"
 
 # Based on the official Nextcloud AIO installation documentation:
 # https://github.com/nextcloud/all-in-one/blob/main/compose.yml
+# NOTE: Docker socket access is required for AppAPI functionality
+# (allows Nextcloud to manage app containers dynamically)
 services:
   nextcloud-aio-mastercontainer:
-    image: nextcloud/all-in-one:latest
+    image: nextcloud/all-in-one:20241220_081520-latest
     container_name: "{{.instance_id}}-nextcloud-aio-master"
     restart: unless-stopped
     ports:

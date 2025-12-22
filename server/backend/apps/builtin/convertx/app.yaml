@@ -29,9 +29,9 @@ configuration:
     env_var: HTTP_PORT
   - name: http_allowed
     label: Allowed HTTP Origins
-    description: Comma-separated list of allowed origins for CORS (use * for all)
+    description: Comma-separated list of allowed origins for CORS (use specific origins in production)
     type: string
-    default: "*"
+    default: "http://localhost:*"
     required: false
     env_var: HTTP_ALLOWED
   - name: account_registration
