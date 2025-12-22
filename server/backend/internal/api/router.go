@@ -111,7 +111,7 @@ func (s *Server) setupRoutes() {
 			r.Post("/auth/login", authHandler.Login)
 			r.Post("/auth/register", authHandler.Register)
 			r.Post("/auth/refresh", authHandler.RefreshToken)
-			r.Get("/auth/csrf", csrfHandler.GetToken)
+
 		})
 
 		// Protected routes (require authentication)
@@ -124,7 +124,7 @@ func (s *Server) setupRoutes() {
 			// Auth - authenticated user endpoints
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
-
+			r.Get("/auth/csrf", csrfHandler.GetToken)
 			// Catalog - browse available apps
 			r.Route("/catalog", func(r chi.Router) {
 				r.Get("/", catalogHandler.ListApps)
