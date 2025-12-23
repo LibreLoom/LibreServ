@@ -95,7 +95,7 @@ export default function Navbar() {
       {/* Desktop Navigation: Visible only on XL screens and up */}
       <div className="hidden xl:flex">
         <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6">
-          <div className="bg-secondary text-primary rounded-pill px-6 py-3">
+          <div className="bg-secondary text-primary rounded-pill px-6 py-3 outline-2 outline-accent">
             <div className="flex items-center gap-6 text-sm font-sans justify-center">
               {navButtons.map((item) => {
                 return (
@@ -146,7 +146,7 @@ export default function Navbar() {
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all duration-200 ease-out z-2000 xl:hidden bg-transparent ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
         open
       >
-        <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start max-h-[75vh] overflow-y-auto">
+        <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start max-h-[75vh] overflow-y-auto outline-2 outline-accent">
           <div className="p-2.5 gap-1 flex flex-col">
             {navButtons.map((item, index) => {
               return (
