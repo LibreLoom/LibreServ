@@ -10,6 +10,10 @@ import {
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef } from "react";
 
+/**
+ * Shared Tailwind CSS classes for navigation buttons.
+ * Uses aria-[current=page] to style the active link based on React Router's state.
+ */
 const navButtonClasses =
   // Layout
   "flex " +
@@ -43,9 +47,11 @@ const navButtonClasses =
   "hover:aria-[current=page]:outline-primary " +
   // Hover + active outline style
   "hover:aria-[current=page]:outline-solid";
-// Divider line between nav links
-// const dividerClasses = "text-accent";
 
+/**
+ * Configuration for navigation links to maintain a single source of truth
+ * for both desktop and mobile menus.
+ */
 const navButtons = [
   { to: "/", icon: Home, label: "Dashboard" },
   { to: "/apps", icon: Grid2X2, label: "Apps" },
@@ -58,26 +64,35 @@ export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
   const firstNavLinkRef = useRef(null);
+
+  // Handle side effects for the mobile menu (focus trapping, scroll locking, and ESC key)
   useEffect(() => {
     if (!isMobileMenuOpen) {
       document.body.style.overflow = "";
       return;
     }
+
+    // Accessibility: Focus the first link when menu opens
     firstNavLinkRef.current?.focus();
+    // Prevent background scrolling when menu is active
     document.body.style.overflow = "hidden";
+
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         setIsMobileMenuOpen(false);
         menuButtonRef.current?.focus();
       }
     };
+
     globalThis.addEventListener("keydown", handleKeyDown);
     return () => {
       globalThis.removeEventListener("keydown", handleKeyDown);
     };
   }, [isMobileMenuOpen]);
+
   return (
     <>
+      {/* Desktop Navigation: Visible only on XL screens and up */}
       <div className="hidden xl:flex">
         <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6">
           <div className="bg-secondary text-primary rounded-pill px-6 py-3">
@@ -96,6 +111,8 @@ export default function Navbar() {
           </div>
         </nav>
       </div>
+
+      {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
         className={`fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill`}
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -104,6 +121,7 @@ export default function Navbar() {
         ref={menuButtonRef}
       >
         <div className="relative w-full h-full items-center justify-center flex">
+          {/* Animated Icon Switch: X and Menu icons cross-fade and rotate */}
           <X
             className={`absolute motion-safe:transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
             size={36}
@@ -114,12 +132,16 @@ export default function Navbar() {
           />
         </div>
       </button>
+
+      {/* Backdrop Overlay: Closes menu when clicking outside */}
       <button
         type="button"
         className={`fixed inset-0 motion-safe:transition-all duration-200 bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
         onClick={() => setIsMobileMenuOpen(false)}
         aria-label="Close navigation menu"
       ></button>
+
+      {/* Mobile Menu Dialog */}
       <dialog
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all z-2000 xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
         open={isMobileMenuOpen}
@@ -136,6 +158,7 @@ export default function Navbar() {
                       setIsMobileMenuOpen(false);
                       menuButtonRef.current?.focus();
                     }}
+                    // Attach ref to first item for focus management
                     ref={index === 0 ? firstNavLinkRef : null}
                   >
                     <item.icon size={18} />
