@@ -7,7 +7,7 @@ import CardHeader from "../components/common/cards/CardHeader";
 
 export default function Dashboard() {
   return (
-    <main className="min-h-screen bg-primary text-secondary px-0 pt-5 pb-32">
+    <main className="bg-primary text-secondary px-0 pt-5 pb-32">
       {/* Header */}
       <header className="max-w-7xl mx-auto mb-10">
         <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
@@ -50,7 +50,7 @@ export default function Dashboard() {
           <CardHeader title="Recent Activity" action="View all" />
           <ul className="divide-y divide-secondary/10">
             {[
-              "User jayden logged in",
+              "User trafficcone logged in",
               "Backup completed successfully",
               "New app deployed",
               "Settings updated",
