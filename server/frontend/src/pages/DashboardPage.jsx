@@ -1,4 +1,24 @@
 import { Activity, Users, Cpu, HardDrive, ArrowUpRight } from "lucide-react";
+import { useMemo } from "react";
+
+const morningMessages = [
+  "Good day, ",
+  "Welcome Back, ",
+  "Hello, ",
+  "Hi, ",
+  "Greetings, ",
+  "Salutations, ",
+  "Howdy, ",
+  "What's up, ",
+  "What's cooking, ",
+  "Hello there, ",
+  "Welcome, ",
+  "Welcome back to your daily dose of server, ",
+  "Enjoy your day, ",
+  "Hey, ",
+  "Hiay, ",
+  "Happy to see you, ",
+];
 
 import StatCard from "../components/common/cards/StatCard";
 import StatusCol from "../components/common/cards/StatusCol";
@@ -6,14 +26,26 @@ import Card from "../components/common/cards/Card";
 import CardHeader from "../components/common/cards/CardHeader";
 
 export default function Dashboard() {
+  const morningMessage = useMemo(() => {
+    return morningMessages[Math.floor(Math.random() * morningMessages.length)];
+  }, []);
+
   return (
     <main className="bg-primary text-secondary px-0 pt-5 pb-32">
       {/* Header */}
       <header className="max-w-7xl mx-auto mb-10">
-        <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-secondary/70 mt-1">
-          System overview & recent activity
-        </p>
+        <Card>
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">
+                {morningMessage + "Gabe" /*Replace with name */}
+              </h1>
+            </div>
+            <div className="text-right">
+              <p className="font-medium">{/*Stat average*/}</p>
+            </div>
+          </div>
+        </Card>
         <br />
         <div className="h-1 border-t-5 rounded-full mx-auto w-[90%]" />
       </header>
