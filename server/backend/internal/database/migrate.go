@@ -64,16 +64,16 @@ func (d *DB) Migrate() error {
 		if err := d.runMigration(file); err != nil {
 			// Migration failed - rollback the database file to the pre-migration state
 			slog.Error("Migration failed, attempting automatic rollback", "file", file, "error", err)
-			
+
 			// Close current connection to release locks
 			_ = d.db.Close()
-			
+
 			// Restore the backup
 			if rErr := CopyFile(backupPath, d.path); rErr != nil {
 				slog.Error("CRITICAL: Failed to restore database backup after migration failure", "backup", backupPath, "error", rErr)
 				return fmt.Errorf("migration %s failed and rollback failed: %w (backup at %s)", file, rErr, backupPath)
 			}
-			
+
 			// Reopen database
 			newDB, oErr := Open(d.path)
 			if oErr != nil {
@@ -81,7 +81,7 @@ func (d *DB) Migrate() error {
 				return fmt.Errorf("migration %s failed, rolled back, but failed to reopen: %w", file, oErr)
 			}
 			d.db = newDB.db
-			
+
 			return fmt.Errorf("migration %s failed: %w (database rolled back to pre-migration state)", file, err)
 		}
 	}
@@ -162,7 +162,7 @@ func (d *DB) runMigration(filename string) error {
 	}
 	defer tx.Rollback()
 
-	// Split by semicolon for basic multiple statements support if needed, 
+	// Split by semicolon for basic multiple statements support if needed,
 	// but SQLite Exec handles multiple statements fine usually.
 	if _, err := tx.Exec(string(content)); err != nil {
 		return fmt.Errorf("exec migration: %w", err)

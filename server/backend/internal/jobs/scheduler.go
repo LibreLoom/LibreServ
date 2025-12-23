@@ -58,7 +58,7 @@ func (s *Scheduler) Stop() {
 
 func (s *Scheduler) runPeriodic(name string, interval time.Duration, job func()) {
 	defer s.wg.Done()
-	
+
 	// Initial run after short delay
 	select {
 	case <-time.After(1 * time.Minute):

@@ -55,8 +55,8 @@ func TestUpdateHistory(t *testing.T) {
 	}
 
 	// 2. Test recordUpdateFailure
-	m.recordUpdateFailure(1,  context.DeadlineExceeded, true, "backup-123")
-	
+	m.recordUpdateFailure(1, context.DeadlineExceeded, true, "backup-123")
+
 	history, _ = m.ListUpdateHistory(context.Background(), "inst1")
 	if history[0].Status != "rolled_back" || history[0].BackupID != "backup-123" || !history[0].RolledBack {
 		t.Fatalf("unexpected failure record: %+v", history[0])

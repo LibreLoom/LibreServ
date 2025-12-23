@@ -54,8 +54,8 @@ func (s *Service) Record(ctx context.Context, entry Entry) {
 			status, message, metadata, ip_address
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	
-	_, err := s.db.Exec(query, 
+
+	_, err := s.db.Exec(query,
 		entry.ActorID, entry.ActorUsername, entry.Action, entry.TargetID, entry.TargetName,
 		entry.Status, entry.Message, metadataJSON, entry.IPAddress,
 	)
@@ -78,7 +78,7 @@ func (s *Service) List(ctx context.Context, limit int) ([]Entry, error) {
 		ORDER BY timestamp DESC
 		LIMIT ?
 	`
-	
+
 	rows, err := s.db.Query(query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
@@ -97,7 +97,7 @@ func (s *Service) List(ctx context.Context, limit int) ([]Entry, error) {
 			s.logger.Warn("Failed to scan audit entry", "error", err)
 			continue
 		}
-		
+
 		_ = json.Unmarshal([]byte(metadataStr), &e.Metadata)
 		entries = append(entries, e)
 	}

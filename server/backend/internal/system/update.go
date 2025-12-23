@@ -13,12 +13,12 @@ import (
 
 // UpdateInfo represents information about a system update
 type UpdateInfo struct {
-	CurrentVersion string    `json:"current_version"`
-	LatestVersion  string    `json:"latest_version"`
+	CurrentVersion  string    `json:"current_version"`
+	LatestVersion   string    `json:"latest_version"`
 	UpdateAvailable bool      `json:"update_available"`
-	ReleaseNotes   string    `json:"release_notes,omitempty"`
-	PublishedAt    time.Time `json:"published_at,omitempty"`
-	URL            string    `json:"url,omitempty"`
+	ReleaseNotes    string    `json:"release_notes,omitempty"`
+	PublishedAt     time.Time `json:"published_at,omitempty"`
+	URL             string    `json:"url,omitempty"`
 }
 
 // UpdateChecker handles checking for platform updates
@@ -44,7 +44,7 @@ func NewUpdateChecker(owner, name string) *UpdateChecker {
 // CheckForUpdates checks the Gitea API for the latest release
 func (c *UpdateChecker) CheckForUpdates(currentVersion string) (*UpdateInfo, error) {
 	url := fmt.Sprintf("%s/repos/%s/%s/releases?limit=1", c.baseURL, c.repoOwner, c.repoName)
-	
+
 	resp, err := c.client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check Gitea API: %w", err)
@@ -62,8 +62,8 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string) (*UpdateInfo, err
 
 	if len(releases) == 0 {
 		return &UpdateInfo{
-			CurrentVersion: currentVersion,
-			LatestVersion:  currentVersion,
+			CurrentVersion:  currentVersion,
+			LatestVersion:   currentVersion,
 			UpdateAvailable: false,
 		}, nil
 	}
@@ -74,7 +74,7 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string) (*UpdateInfo, err
 	if len(latestTag) > 0 && latestTag[0] == 'v' {
 		latestTag = latestTag[1:]
 	}
-	
+
 	currentTag := currentVersion
 	if len(currentTag) > 0 && currentTag[0] == 'v' {
 		currentTag = currentTag[1:]

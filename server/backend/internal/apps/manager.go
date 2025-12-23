@@ -349,7 +349,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 	if oldVersion == nil {
 		oldVersion = ""
 	}
-	
+
 	// Get new version from catalog
 	catalogApp, err := m.catalog.GetApp(app.AppID)
 	if err != nil {
@@ -383,7 +383,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 		}
 		backupID = res.Backup.ID
 		m.logger.Info("Backup created successfully", "backup_id", backupID)
-		
+
 		if updateID > 0 {
 			m.db.Exec(`UPDATE updates SET backup_id = ? WHERE id = ?`, backupID, updateID)
 		}
@@ -421,10 +421,10 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 	m.logger.Info("Verifying health after update", "instance_id", instanceID)
 	// Give containers a few seconds to start up before checking
 	time.Sleep(5 * time.Second)
-	
+
 	status, err := m.GetAppStatus(ctx, instanceID)
 	isHealthy := err == nil && status.Status == StatusRunning
-	
+
 	if !isHealthy {
 		m.logger.Error("App unhealthy after update, initiating rollback", "instance_id", instanceID)
 		rolledBack := false
@@ -537,7 +537,7 @@ func (m *Manager) GetAvailableUpdates(ctx context.Context) ([]AvailableUpdate, e
 		currentVersion, _ := app.Config["version"].(string)
 		latestVersion := catalogApp.Version
 
-		// If app is pinned, it only has an "update" if the latest catalog version 
+		// If app is pinned, it only has an "update" if the latest catalog version
 		// is exactly the pinned version AND different from current.
 		// Usually pinning means "stay on this version", so we skip update detection for pinned apps.
 		isUpdate := false

@@ -169,21 +169,21 @@ type UpdateConfig struct {
 
 // InstalledApp represents an app instance installed on the system
 type InstalledApp struct {
-	ID           string                 `json:"id"`
-	AppID        string                 `json:"app_id"` // Reference to catalog app
-	Name         string                 `json:"name"`
-	Type         AppType                `json:"type"`
-	Status       AppStatus              `json:"status"`
-	HealthStatus HealthStatus           `json:"health_status"`
-	Path         string                 `json:"path"` // Installation path
-	Config       map[string]interface{} `json:"config"`
-	PinnedVersion string                `json:"pinned_version,omitempty"` // If set, updates will be ignored unless to this version
-	URL          string                 `json:"url,omitempty"`
-	Backends     []BackendRef           `json:"backends,omitempty"`
-	InstalledAt  time.Time              `json:"installed_at"`
-	UpdatedAt    time.Time              `json:"updated_at"`
-	LastHealthAt time.Time              `json:"last_health_at,omitempty"`
-	ContainerIDs []string               `json:"container_ids,omitempty"`
+	ID            string                 `json:"id"`
+	AppID         string                 `json:"app_id"` // Reference to catalog app
+	Name          string                 `json:"name"`
+	Type          AppType                `json:"type"`
+	Status        AppStatus              `json:"status"`
+	HealthStatus  HealthStatus           `json:"health_status"`
+	Path          string                 `json:"path"` // Installation path
+	Config        map[string]interface{} `json:"config"`
+	PinnedVersion string                 `json:"pinned_version,omitempty"` // If set, updates will be ignored unless to this version
+	URL           string                 `json:"url,omitempty"`
+	Backends      []BackendRef           `json:"backends,omitempty"`
+	InstalledAt   time.Time              `json:"installed_at"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+	LastHealthAt  time.Time              `json:"last_health_at,omitempty"`
+	ContainerIDs  []string               `json:"container_ids,omitempty"`
 }
 
 // BackendRef describes a reachable backend for an installed app.
