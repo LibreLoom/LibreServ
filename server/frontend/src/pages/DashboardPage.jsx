@@ -1,19 +1,68 @@
-import { Activity, Users, Cpu, HardDrive, ArrowUpRight } from "lucide-react";
+import {
+  Activity,
+  Users,
+  Cpu,
+  HardDrive,
+  Database,
+  Globe,
+  Shield,
+  Server,
+  Search,
+  Cloud,
+  Code,
+  MessageSquareMore,
+} from "lucide-react";
+import { useMemo } from "react";
+
+const morningMessages = [
+  "Good day, ",
+  "Welcome Back, ",
+  "Hello, ",
+  "Hi, ",
+  "Greetings, ",
+  "Salutations, ",
+  "Howdy, ",
+  "What's up, ",
+  "What's cooking, ",
+  "Hello there, ",
+  "Welcome, ",
+  "Welcome back to your daily dose of server, ",
+  "Enjoy your day, ",
+  "Hey, ",
+  "Hiay, ",
+  "Happy to see you, ",
+];
 
 import StatCard from "../components/common/cards/StatCard";
 import StatusCol from "../components/common/cards/StatusCol";
 import Card from "../components/common/cards/Card";
 import CardHeader from "../components/common/cards/CardHeader";
+import ServiceStatusCard from "../components/common/cards/ServiceStatusCard";
 
 export default function Dashboard() {
+  const greeting = useMemo(() => {
+    const today = new Date();
+    if (today.getMonth() === 11 && today.getDate() === 25) {
+      return "Merry Christmas, ";
+    }
+    return morningMessages[Math.floor(Math.random() * morningMessages.length)];
+  }, []);
   return (
     <main className="bg-primary text-secondary px-0 pt-5 pb-32">
       {/* Header */}
       <header className="max-w-7xl mx-auto mb-10">
-        <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-secondary/70 mt-1">
-          System overview & recent activity
-        </p>
+        <Card>
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold">
+                {greeting + "Gabe" /*Replace with name */}
+              </h1>
+            </div>
+            <div className="text-right">
+              <p className="font-medium">{/*Stat average*/}</p>
+            </div>
+          </div>
+        </Card>
         <br />
         <div className="h-1 border-t-5 rounded-full mx-auto w-[90%]" />
       </header>
@@ -45,22 +94,33 @@ export default function Dashboard() {
 
         <div className="w-1 h-128 bg-secondary my-auto rounded-full shrink-0" />
 
-        {/* Activity feed */}
-        <Card className="flex-1">
-          <CardHeader title="Recent Activity" action="View all" />
-          <ul className="divide-y divide-secondary/10">
-            {[
-              "User trafficcone logged in",
-              "Backup completed successfully",
-              "New app deployed",
-              "Settings updated",
-            ].map((item, i) => (
-              <li key={i} className="py-3 text-sm text-secondary/80">
-                {item}
-              </li>
-            ))}
-          </ul>
-        </Card>
+        {/* Service Status */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 content-start">
+          <ServiceStatusCard
+            icon={Search}
+            name="SearXNG"
+            status="online"
+            detail="135 ms"
+          />
+          <ServiceStatusCard
+            icon={Cloud}
+            name="Nextcloud"
+            status="online"
+            detail="441 ms"
+          />
+          <ServiceStatusCard
+            icon={Code}
+            name="N8N"
+            status="offline"
+            detail="807 ms"
+          />
+          <ServiceStatusCard
+            icon={MessageSquareMore}
+            name="IRC"
+            status="offline"
+            detail="Mumble IRC"
+          />
+        </div>
       </section>
     </main>
   );
