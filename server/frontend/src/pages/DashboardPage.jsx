@@ -15,7 +15,7 @@ export default function Dashboard() {
           System overview & recent activity
         </p>
         <br />
-        <div className="w-5xl h-1 border-t-5 rounded-full mx-auto" />
+        <div className="h-1 border-t-5 rounded-full mx-auto w-[90%]" />
       </header>
 
       {/* Main grid */}
