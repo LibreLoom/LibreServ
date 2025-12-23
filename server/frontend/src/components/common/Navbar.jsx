@@ -143,8 +143,8 @@ export default function Navbar() {
 
       {/* Mobile Menu Dialog */}
       <dialog
-        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all z-2000 xl:hidden ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
-        open={isMobileMenuOpen}
+        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all duration-200 ease-out z-2000 xl:hidden bg-transparent ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
+        open
       >
         <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start max-h-[75vh] overflow-y-auto">
           <div className="p-2.5 gap-1 flex flex-col">
