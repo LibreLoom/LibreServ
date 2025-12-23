@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-export default function DashboardPage() {
-  return (
-    <h1>DashboardPage --- Placeholder!</h1>
-    //code
-=======
 import { Activity, Users, Cpu, HardDrive, ArrowUpRight } from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
