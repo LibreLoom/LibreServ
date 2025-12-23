@@ -63,6 +63,5 @@ export default function Dashboard() {
         </Card>
       </section>
     </main>
->>>>>>> f2c07c6 (Added cards as components; drafted dashboard)
   );
 }
