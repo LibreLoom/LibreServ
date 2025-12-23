@@ -40,10 +40,13 @@ import CardHeader from "../components/common/cards/CardHeader";
 import ServiceStatusCard from "../components/common/cards/ServiceStatusCard";
 
 export default function Dashboard() {
-  const morningMessage = useMemo(() => {
+  const greeting = useMemo(() => {
+    const today = new Date();
+    if (today.getMonth() === 11 && today.getDate() === 25) {
+      return "Merry Christmas, ";
+    }
     return morningMessages[Math.floor(Math.random() * morningMessages.length)];
   }, []);
-
   return (
     <main className="bg-primary text-secondary px-0 pt-5 pb-32">
       {/* Header */}
@@ -52,7 +55,7 @@ export default function Dashboard() {
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold">
-                {morningMessage + "Gabe" /*Replace with name */}
+                {greeting + "Gabe" /*Replace with name */}
               </h1>
             </div>
             <div className="text-right">
