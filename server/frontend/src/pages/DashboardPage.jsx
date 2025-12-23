@@ -1,4 +1,17 @@
-import { Activity, Users, Cpu, HardDrive, ArrowUpRight } from "lucide-react";
+import {
+  Activity,
+  Users,
+  Cpu,
+  HardDrive,
+  Database,
+  Globe,
+  Shield,
+  Server,
+  Search,
+  Cloud,
+  Code,
+  MessageSquareMore,
+} from "lucide-react";
 import { useMemo } from "react";
 
 const morningMessages = [
@@ -24,6 +37,7 @@ import StatCard from "../components/common/cards/StatCard";
 import StatusCol from "../components/common/cards/StatusCol";
 import Card from "../components/common/cards/Card";
 import CardHeader from "../components/common/cards/CardHeader";
+import ServiceStatusCard from "../components/common/cards/ServiceStatusCard";
 
 export default function Dashboard() {
   const morningMessage = useMemo(() => {
@@ -77,22 +91,33 @@ export default function Dashboard() {
 
         <div className="w-1 h-128 bg-secondary my-auto rounded-full shrink-0" />
 
-        {/* Activity feed */}
-        <Card className="flex-1">
-          <CardHeader title="Recent Activity" action="View all" />
-          <ul className="divide-y divide-secondary/10">
-            {[
-              "User trafficcone logged in",
-              "Backup completed successfully",
-              "New app deployed",
-              "Settings updated",
-            ].map((item, i) => (
-              <li key={i} className="py-3 text-sm text-secondary/80">
-                {item}
-              </li>
-            ))}
-          </ul>
-        </Card>
+        {/* Service Status */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 content-start">
+          <ServiceStatusCard
+            icon={Search}
+            name="SearXNG"
+            status="online"
+            detail="135 ms"
+          />
+          <ServiceStatusCard
+            icon={Cloud}
+            name="Nextcloud"
+            status="online"
+            detail="441 ms"
+          />
+          <ServiceStatusCard
+            icon={Code}
+            name="N8N"
+            status="offline"
+            detail="807 ms"
+          />
+          <ServiceStatusCard
+            icon={MessageSquareMore}
+            name="IRC"
+            status="offline"
+            detail="Mumble IRC"
+          />
+        </div>
       </section>
     </main>
   );
