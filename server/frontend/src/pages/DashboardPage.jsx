@@ -51,7 +51,7 @@ const services = [
     icon: Cloud,
   },
   {
-    name: "Mumble IRC",
+    name: "Convertx",
     status: "offline",
     time: "14 days, 3 hours",
     resourceUsage: 3,
@@ -127,7 +127,7 @@ export default function Dashboard() {
       {/* Main grid section containing stats and service status */}
       <section className="flex gap-8 px-8 w-full">
         {/* Stat cards - displays key metrics and system statistics */}
-        <div className="grid grid-cols-1 gap-6 flex-1">
+        <div className="grid grid-cols-1 gap-6 flex-1 content-start">
           <StatCard
             icon={ChevronUp}
             label="Uptime"
@@ -135,7 +135,7 @@ export default function Dashboard() {
             delta=""
           />
           <DropdownCard
-            title="Server Stress Score"
+            title="Server Stress Index"
             value="42%"
             subtitle=""
             breakdownItems={[

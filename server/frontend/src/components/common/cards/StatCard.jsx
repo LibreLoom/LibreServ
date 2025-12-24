@@ -14,7 +14,7 @@ export default function StatCard({ icon: Icon, label, value, delta }) {
           {value}
         </div>
         {delta && (
-          <div className="text-xs opacity-60 flex items-center gap-1">
+          <div className="text-xs text-accent flex items-center gap-1">
             {delta}
             {String(delta).startsWith("+") ? (
               <ArrowUpRight size={12} />

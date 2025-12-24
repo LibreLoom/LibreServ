@@ -3,7 +3,7 @@ import { ChevronDown, Server } from "lucide-react";
 
 function MiniStatCard({ icon: Icon, label, value }) {
   return (
-    <div className="bg-primary text-secondary rounded-pill p-3 flex items-center gap-3">
+    <div className="motion-safe:transition hover:scale-[1.02] bg-primary text-secondary rounded-pill p-3 flex items-center gap-3">
       <div className="h-8 w-8 rounded-pill bg-secondary text-primary flex items-center justify-center">
         <Icon size={16} />
       </div>
@@ -25,7 +25,7 @@ export default function DropdownCard({
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
   return (
-    <div className="bg-secondary text-primary rounded-3xl p-6 motion-safe:transition hover:scale-[1.02] w-full h-fit">
+    <div className="bg-secondary text-primary rounded-3xl p-6 motion-safe:transition hover:scale-[1.02] w-full h-fit self-start">
       <div className="flex items-center gap-5">
         <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
           <Server size={26} />
@@ -51,20 +51,20 @@ export default function DropdownCard({
         <span>{isOpen ? "Hide breakdown" : "Show breakdown"}</span>
       </button>
       <div
-        className={`grid grid-cols-2 gap-2 overflow-hidden motion-safe:transition-all duration-300 ease-out ${
-          isOpen
-            ? "max-h-96 opacity-100 mt-4 pt-4 border-t border-primary"
-            : "max-h-0 opacity-0"
+        className={`overflow-hidden motion-safe:transition-all duration-300 ease-out ${
+          isOpen ? "max-h-96" : "max-h-0"
         }`}
       >
-        {breakdownItems.map((item) => (
-          <MiniStatCard
-            key={item.label}
-            icon={item.icon}
-            label={item.label}
-            value={item.value}
-          />
-        ))}
+        <div className="grid grid-cols-2 gap-2 pt-4">
+          {breakdownItems.map((item) => (
+            <MiniStatCard
+              key={item.label}
+              icon={item.icon}
+              label={item.label}
+              value={item.value}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
