@@ -52,7 +52,7 @@ export default function ServiceStatusCard({
   }
 
   return (
-    <div className="max-w-90 bg-secondary text-primary rounded-large-element p-5 motion-safe:transition hover:scale-[1.02]">
+    <div className="max-w-90 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02]">
       <div className="flex items-center gap-4">
         <div className="h-12 w-12 rounded-pill bg-primary text-secondary flex items-center justify-center">
           <IconComponent size={22} />

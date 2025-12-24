@@ -7,6 +7,10 @@ import {
   Cloud,
   Code,
   MessageSquareMore,
+  ChevronUp,
+  Wifi,
+  Zap,
+  MemoryStick,
 } from "lucide-react";
 import { useMemo } from "react";
 
@@ -72,6 +76,7 @@ function ServiceCards() {
 import StatCard from "../components/common/cards/StatCard";
 import Card from "../components/common/cards/Card";
 import ServiceStatusCard from "../components/common/cards/ServiceStatusCard";
+import DropdownCard from "../components/common/cards/DropdownCard";
 
 export default function Dashboard() {
   // Memoized greeting that selects a message based on holidays or time of day
@@ -124,23 +129,22 @@ export default function Dashboard() {
         {/* Stat cards - displays key metrics and system statistics */}
         <div className="grid grid-cols-1 gap-6 flex-1">
           <StatCard
-            icon={Users}
-            label="Active Users"
-            value="1,284"
-            delta="+4.2%"
+            icon={ChevronUp}
+            label="Uptime"
+            value="41 days 67 hours"
+            delta=""
           />
-          <StatCard icon={Cpu} label="CPU Usage" value="38%" delta="-1.1%" />
-          <StatCard
-            icon={HardDrive}
-            label="Storage Used"
-            value="412 GB"
-            delta="+12 GB"
-          />
-          <StatCard
-            icon={Activity}
-            label="Requests / min"
-            value="9,421"
-            delta="+8.9%"
+          <DropdownCard
+            title="Server Stress Score"
+            value="42%"
+            subtitle=""
+            breakdownItems={[
+              { icon: Cpu, label: "CPU", value: "35%" },
+              { icon: MemoryStick, label: "RAM", value: "60%" },
+              { icon: HardDrive, label: "Disk", value: "25%" },
+              { icon: Wifi, label: "Network", value: "40%" },
+              { icon: Zap, label: "Energy", value: "50%" },
+            ]}
           />
         </div>
 

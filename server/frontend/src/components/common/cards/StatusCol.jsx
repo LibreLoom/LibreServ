@@ -2,7 +2,7 @@ export default function StatusCol({ label, status }) {
   const isOk = status === "Operational";
 
   return (
-    <div className="bg-primary text-secondary rounded-large-element px-4 py-3 flex flex-col items-start gap-1 w-full">
+    <div className="bg-primary text-secondary rounded-3xl px-4 py-3 flex flex-col items-start gap-1 w-full">
       {/* Status indicator */}
       <span
         className={`h-2.5 w-2.5 rounded-full ${
