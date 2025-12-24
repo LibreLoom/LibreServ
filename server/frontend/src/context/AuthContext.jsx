@@ -1,6 +1,6 @@
 // TODO: AuthContext roadmap
 //
-// 1) Logout
+// 1) Logout — DONE!
 // - Add backend endpoint to clear the auth cookie (e.g. POST /auth/logout)
 // - Add frontend logout() function:
 //   - call /auth/logout
@@ -23,7 +23,7 @@
 //   - add refresh-token flow instead of hard logout
 import { useState } from "react";
 import api from "../lib/api";
-import { AuthContext } from "./AuthContext";
+import { AuthContext } from "./AuthContextContext";
 
 export function AuthProvider({ children }) {
   // State to store the current user information
@@ -55,10 +55,15 @@ export function AuthProvider({ children }) {
   }
   async function logout() {
     // Send logout request to the server
-    await api("/auth/logout", { method: "POST" });
-    // Clear user data and CSRF token from state
-    setMe(null);
-    setCsrfToken(null);
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch (error) {
+      console.error("Logout failed:", error);
+    } finally {
+      // Clear user data and CSRF token from state
+      setMe(null);
+      setCsrfToken(null);
+    }
   }
 
   /**
