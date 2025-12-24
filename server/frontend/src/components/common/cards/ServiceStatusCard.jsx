@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ChevronUp,
   ChevronDown,
+  Circle,
 } from "lucide-react";
 import CardButton from "./CardButton";
 
@@ -58,20 +59,24 @@ export default function ServiceStatusCard({
         </div>
         <div className="text-left">
           <div className="font-semibold">{name}</div>
-          <div className={`text-sm ${config.color}`}>Status</div>
-          {statusText && (
-            <div className="flex items-center gap-1 text-sm ml-2.5">
-              <StatusIcon size={14} className={config.color} />
-              <span className={config.color}>{statusText}</span>
-            </div>
-          )}
-          <div className={`text-sm ${config.color}`}>Resource Usage</div>
-          {resourceUsage != null && (
-            <div className="flex items-center gap-1 text-sm ml-2.5">
-              <span className={config.color}>{resourceUsage + "%"}</span>
-            </div>
-          )}
         </div>
+      </div>
+      <div className="h-1 bg-primary rounded-pill mx-1 my-4" />
+      <div className="text-left">
+        <div className={`text-sm ${config.color}`}>Status</div>
+        {statusText && (
+          <div className="flex items-center gap-1 text-sm ml-2.5">
+            <StatusIcon size={14} className={config.color} />
+            <span className={config.color}>{statusText}</span>
+          </div>
+        )}
+        <div className={`text-sm ${config.color}`}>Resource Usage</div>
+        {resourceUsage != null && (
+          <div className="flex items-center gap-1 text-sm ml-2.5">
+            <Circle size={14} className={config.color} />
+            <span className={config.color}>{resourceUsage + "%"}</span>
+          </div>
+        )}
       </div>
       <CardButton action="/apps" actionLabel="Manage" />
     </div>
