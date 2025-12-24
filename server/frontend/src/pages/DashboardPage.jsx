@@ -48,7 +48,6 @@ export default function Dashboard() {
 
     // Holiday greetings
     if (month === 0 && date === 1) return "Happy New Year, ";
-    if (month === 1 && date === 10) return "Happy Lunar New Year, ";
     if (month === 2 && date === 8) return "Happy International Women's Day, ";
     if (month === 2 && date === 21) return "Happy Nowruz, ";
     if (month === 3 && date === 22) return "Happy Earth Day, ";
