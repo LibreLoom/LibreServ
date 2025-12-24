@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { useMemo } from "react";
 
-const morningMessages = [
+const greetingMessages = [
   "Good day, ",
   "Welcome Back, ",
   "Hello, ",
@@ -59,7 +59,7 @@ export default function Dashboard() {
     if (month === 11 && date === 26) return "Happy Kwanzaa, ";
 
     const hoursSinceEpoch = Math.floor(today.getTime() / 43200000);
-    return morningMessages[hoursSinceEpoch % morningMessages.length];
+    return greetingMessages[hoursSinceEpoch % greetingMessages.length];
   }, []);
   return (
     <main className="bg-primary text-secondary px-0 pt-5 pb-32">
