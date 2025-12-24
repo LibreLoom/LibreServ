@@ -38,6 +38,7 @@ export default function ServiceStatusCard({
 }) {
   const config = statusConfig[status] || statusConfig.offline;
   const StatusIcon = config.icon;
+  const IconComponent = Icon;
 
   // Determine what status text to show
   let statusText;
@@ -53,7 +54,7 @@ export default function ServiceStatusCard({
     <div className="bg-secondary text-primary rounded-large-element p-5 motion-safe:transition hover:scale-[1.02]">
       <div className="flex items-center gap-4">
         <div className="h-12 w-12 rounded-pill bg-primary text-secondary flex items-center justify-center">
-          <Icon size={22} />
+          <IconComponent size={22} />
         </div>
         <div className="text-left">
           <div className="font-semibold">{name}</div>

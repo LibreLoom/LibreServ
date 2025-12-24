@@ -916,8 +916,6 @@ func (cm *CaddyManager) loadRoutes(ctx context.Context) error {
 	return nil
 }
 
-
-
 // ApplyConfig regenerates the Caddyfile and reloads Caddy.
 func (cm *CaddyManager) ApplyConfig() error {
 	cm.reloadMu.Lock()

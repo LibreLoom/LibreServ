@@ -14,7 +14,7 @@ type ContainerRuntime interface {
 
 	// Container operations
 	ListContainersByLabel(label string) ([]ContainerInfo, error)
-	
+
 	// Health check
 	HealthCheck() error
 	Close() error

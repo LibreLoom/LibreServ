@@ -420,7 +420,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 
 	// Verify health of the new version
 	m.logger.Info("Verifying health after update", "instance_id", instanceID)
-	
+
 	isHealthy := m.waitForHealthy(ctx, instanceID, 60*time.Second)
 
 	if !isHealthy {
@@ -697,7 +697,7 @@ func (m *Manager) inferBackends(app *InstalledApp) []backendEntry {
 	if app.URL != "" {
 		backends = append(backends, backendEntry{backend: app.URL})
 	}
-	
+
 	// Determine bind host from config
 	host := "127.0.0.1"
 	if cfg := config.Get(); cfg != nil {

@@ -1,10 +1,12 @@
 import { ArrowUpRight, Minus, ArrowDownRight } from "lucide-react";
 
 export default function StatCard({ icon: Icon, label, value, delta }) {
+  const IconComponent = Icon;
+
   return (
     <div className="bg-secondary text-primary rounded-large-element p-6 flex items-center gap-5 motion-safe:transition hover:scale-[1.02] min-w-64">
       <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
-        <Icon size={26} />
+        <IconComponent size={26} />
       </div>
       <div>
         <div className="text-sm opacity-70">{label}</div>
