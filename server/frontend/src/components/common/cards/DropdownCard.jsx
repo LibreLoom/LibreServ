@@ -1,19 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, Server } from "lucide-react";
-
-function MiniStatCard({ icon: Icon, label, value }) {
-  return (
-    <div className="motion-safe:transition hover:scale-[1.02] bg-primary text-secondary rounded-pill p-3 flex items-center gap-3">
-      <div className="h-8 w-8 rounded-pill bg-secondary text-primary flex items-center justify-center">
-        <Icon size={16} />
-      </div>
-      <div>
-        <div className="text-xs text-accent text-left">{label}</div>
-        <div className="text-sm font-semibold text-left">{value}</div>
-      </div>
-    </div>
-  );
-}
+import MiniStatCard from "./MiniStatCard";
 
 export default function DropdownCard({
   title,
@@ -51,11 +38,11 @@ export default function DropdownCard({
         <span>{isOpen ? "Hide breakdown" : "Show breakdown"}</span>
       </button>
       <div
-        className={`overflow-hidden motion-safe:transition-all duration-300 ease-out ${
+        className={`overflow-y-hidden overflow-x-visible motion-safe:transition-all duration-300 ease-out ${
           isOpen ? "max-h-96" : "max-h-0"
         }`}
       >
-        <div className="grid grid-cols-2 gap-2 pt-4">
+        <div className="grid grid-cols-2 gap-2 p-2">
           {breakdownItems.map((item) => (
             <MiniStatCard
               key={item.label}

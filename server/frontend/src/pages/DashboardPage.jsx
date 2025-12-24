@@ -1,18 +1,85 @@
 import {
-  Activity,
-  Users,
   Cpu,
   HardDrive,
   Search,
   Cloud,
-  Code,
-  MessageSquareMore,
-  ChevronUp,
   Wifi,
   Zap,
   MemoryStick,
+  FileSliders,
+  Clock,
 } from "lucide-react";
 import { useMemo } from "react";
+
+function totalResourceUsage({ cpu, ram, disk, net }) {
+  const weights = {
+    cpu: 0.3,
+    ram: 0.25,
+    disk: 0.2,
+    net: 0.15,
+  };
+
+  return (
+    cpu * weights.cpu +
+    ram * weights.ram +
+    disk * weights.disk +
+    net * weights.net
+  );
+}
+
+const resources = {
+  cpu: 0.35,
+  ram: 0.6,
+  disk: 0.25,
+  net: 0.4,
+  energy: 0.5,
+};
+
+const services = [
+  {
+    name: "SearXNG",
+    status: "warning",
+    time: "14 days, 3 hours",
+    warningMessage: "High latency detected",
+    resourceUsage: 10,
+    icon: Search,
+    breakdownItems: [
+      { icon: Cpu, label: "CPU", value: "35%" },
+      { icon: MemoryStick, label: "RAM", value: "60%" },
+      { icon: HardDrive, label: "Disk", value: "25%" },
+      { icon: Wifi, label: "Network", value: "40%" },
+      { icon: Zap, label: "Energy", value: "50%" },
+    ],
+  },
+  {
+    name: "Nextcloud",
+    status: "online",
+    time: "14 days, 3 hours",
+    resourceUsage: 60,
+    icon: Cloud,
+  },
+  {
+    name: "Convertx",
+    status: "offline",
+    time: "14 days, 3 hours",
+    resourceUsage: 3,
+    icon: FileSliders,
+  },
+];
+
+function ServiceCards() {
+  return services.map((service) => (
+    <ServiceStatusCard
+      key={service.name}
+      icon={service.icon}
+      name={service.name}
+      status={service.status}
+      time={service.time}
+      resourceUsage={service.resourceUsage}
+      warningMessage={service.warningMessage}
+    />
+  ));
+}
 
 // Array of casual greeting messages to display on the dashboard
 const greetingMessages = [
@@ -33,45 +100,6 @@ const greetingMessages = [
   "Hiay, ",
   "Happy to see you, ",
 ];
-
-const services = [
-  {
-    name: "SearXNG",
-    status: "warning",
-    time: "14 days, 3 hours",
-    warningMessage: "High latency detected",
-    resourceUsage: 10,
-    icon: Search,
-  },
-  {
-    name: "Nextcloud",
-    status: "online",
-    time: "14 days, 3 hours",
-    resourceUsage: 60,
-    icon: Cloud,
-  },
-  {
-    name: "Convertx",
-    status: "offline",
-    time: "14 days, 3 hours",
-    resourceUsage: 3,
-    icon: MessageSquareMore,
-  },
-];
-
-function ServiceCards() {
-  return services.map((service) => (
-    <ServiceStatusCard
-      key={service.name}
-      icon={service.icon}
-      name={service.name}
-      status={service.status}
-      time={service.time}
-      resourceUsage={service.resourceUsage}
-      warningMessage={service.warningMessage}
-    />
-  ));
-}
 
 import StatCard from "../components/common/cards/StatCard";
 import Card from "../components/common/cards/Card";
@@ -129,21 +157,37 @@ export default function Dashboard() {
         {/* Stat cards - displays key metrics and system statistics */}
         <div className="grid grid-cols-1 gap-6 flex-1 content-start">
           <StatCard
-            icon={ChevronUp}
+            icon={Clock}
             label="Uptime"
             value="41 days 67 hours"
             delta=""
           />
           <DropdownCard
             title="Server Stress Index"
-            value="42%"
+            value={totalResourceUsage(resources) * 100 + "%"}
             subtitle=""
             breakdownItems={[
-              { icon: Cpu, label: "CPU", value: "35%" },
-              { icon: MemoryStick, label: "RAM", value: "60%" },
-              { icon: HardDrive, label: "Disk", value: "25%" },
-              { icon: Wifi, label: "Network", value: "40%" },
-              { icon: Zap, label: "Energy", value: "50%" },
+              { icon: Cpu, label: "CPU", value: resources.cpu * 100 + "%" },
+              {
+                icon: MemoryStick,
+                label: "RAM",
+                value: resources.ram * 100 + "%",
+              },
+              {
+                icon: HardDrive,
+                label: "Disk",
+                value: resources.disk * 100 + "%",
+              },
+              {
+                icon: Wifi,
+                label: "Network",
+                value: resources.net * 100 + "%",
+              },
+              {
+                icon: Zap,
+                label: "Energy",
+                value: resources.energy * 100 + "%",
+              },
             ]}
           />
         </div>
@@ -152,7 +196,7 @@ export default function Dashboard() {
         {/* <div className="w-1 h-128 bg-secondary my-auto rounded-full shrink-0" /> */}
 
         {/* Service Status - displays status of various services and their metrics */}
-        <div className="w-[65%] grid grid-cols-1 lg:grid-cols-3 gap-6 content-start shrink-0">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start">
           {ServiceCards()}
         </div>
       </section>
