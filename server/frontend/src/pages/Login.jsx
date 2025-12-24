@@ -9,8 +9,9 @@ export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
   return (
-    <main>
+    <main className="w-50">
       <form
+        className=""
         onSubmit={async (e) => {
           e.preventDefault();
           setError("");
