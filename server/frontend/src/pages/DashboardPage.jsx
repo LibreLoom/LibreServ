@@ -43,10 +43,24 @@ import ServiceStatusCard from "../components/common/cards/ServiceStatusCard";
 export default function Dashboard() {
   const greeting = useMemo(() => {
     const today = new Date();
-    if (today.getMonth() === 11 && today.getDate() === 25) {
-      return "Merry Christmas, ";
-    }
-    return morningMessages[Math.floor(Math.random() * morningMessages.length)];
+    const month = today.getMonth();
+    const date = today.getDate();
+
+    // Holiday greetings
+    if (month === 0 && date === 1) return "Happy New Year, ";
+    if (month === 1 && date === 10) return "Happy Lunar New Year, ";
+    if (month === 2 && date === 8) return "Happy International Women's Day, ";
+    if (month === 2 && date === 21) return "Happy Nowruz, ";
+    if (month === 3 && date === 22) return "Happy Earth Day, ";
+    if (month === 4 && date === 1) return "Happy Labour Day, ";
+    if (month === 5 && date === 19) return "Happy Juneteenth, ";
+    if (month === 9 && date === 31) return "Happy Halloween, ";
+    if (month === 10 && date === 1) return "Happy Diwali, ";
+    if (month === 11 && date === 25) return "Merry Christmas, ";
+    if (month === 11 && date === 26) return "Happy Kwanzaa, ";
+
+    const hoursSinceEpoch = Math.floor(today.getTime() / 43200000);
+    return morningMessages[hoursSinceEpoch % morningMessages.length];
   }, []);
   return (
     <main className="bg-primary text-secondary px-0 pt-5 pb-32">
