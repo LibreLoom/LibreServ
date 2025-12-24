@@ -47,6 +47,12 @@ server/backend/bin/
 # IDEs
 .vscode/
 .idea/
+.zed/
+.claude/
+.codex/
+.cursor/
+.fleet/
+.vscode-server/
 
 # Temp
 tmp/
