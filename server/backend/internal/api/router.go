@@ -13,10 +13,10 @@ import (
 
 // setupRoutes configures all API routes
 func (s *Server) setupRoutes() {
-	// Rate limiting
+	// Apply rate limiting middleware globally to all routes
 	s.router.Use(middleware.RateLimitDefault())
 
-	// Handlers
+	// Initialize all route handlers with required dependencies
 	healthHandler := handlers.NewHealthHandler(s.db)
 	catalogHandler := handlers.NewCatalogHandler(s.appManager)
 	appsHandler := handlers.NewAppsHandler(s.appManager)
@@ -30,12 +30,16 @@ func (s *Server) setupRoutes() {
 	csrfSecret := config.Get().Auth.CSRFSecret
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
 	networkProbeHandler := handlers.NewNetworkProbeHandler()
+
+	// Get Caddy admin API endpoint and config path if available
 	adminAPI := ""
 	configPath := ""
 	if s.caddyManager != nil {
 		adminAPI = s.caddyManager.AdminEndpoint()
 		configPath = s.caddyManager.ConfigPath()
 	}
+
+	// Configure external ACME settings for certificate management
 	ext := config.Get().Network.ACME.External
 	extCfg := network.ExternalACMEConfig{
 		Enabled:     ext.Enabled,
@@ -58,13 +62,19 @@ func (s *Server) setupRoutes() {
 	if extCfg.Email == "" && s.caddyManager != nil {
 		extCfg.Email = s.caddyManager.Config().Email
 	}
+
+	// Initialize ACME manager for automated certificate management
 	acmeManager := network.NewACMEManager(adminAPI, configPath).WithAuto(true).WithExternal(extCfg)
 	acmeHandler := handlers.NewACMEHandler(s.db, acmeManager, s.caddyManager, s.appManager)
 	acmeCleanup := handlers.NewACMECleanupHandler(s.caddyManager)
+
+	// Initialize network handler if Caddy is available
 	var networkHandler *handlers.NetworkHandlers
 	if s.caddyManager != nil {
 		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager).WithACME(acmeHandler)
 	}
+
+	// Initialize support and system handlers
 	supportHandler := handlers.NewSupportHandler(s.supportService, s.licenseService)
 	supportDiagHandler := handlers.NewSupportDiagnosticsHandler(s.authService, s.dockerClient)
 	supportSessionValidator := handlers.NewSupportSessionValidationHandler(s.supportService)
@@ -76,23 +86,24 @@ func (s *Server) setupRoutes() {
 	systemHandler.SetAuditLogger(s)
 	auditHandler := handlers.NewAuditHandler(s.audit)
 
-	// Auth middleware config
+	// Configure authentication middleware with CSRF protection
 	authConfig := &middleware.AuthConfig{
 		AuthService: s.authService,
 		DevMode:     s.devMode,
 		License:     s.licenseService,
 		CSRFSecret:  csrfSecret,
 	}
+	// Setup guard ensures initial setup is complete before allowing access
 	setupGuard := middleware.RequireSetupComplete(s.setupService)
 
 	// Public routes (no authentication required)
 	s.router.Group(func(r chi.Router) {
-		// Health check endpoints
+		// Health check endpoints for monitoring and orchestration
 		r.Get("/health", healthHandler.HealthCheck)
 		r.Get("/health/ready", healthHandler.ReadinessCheck)
 		r.Get("/health/live", healthHandler.LivenessCheck)
 
-		// API version info
+		// API version info endpoint
 		r.Get("/api/version", healthHandler.Version)
 	})
 
@@ -105,7 +116,7 @@ func (s *Server) setupRoutes() {
 			r.Get("/preflight", setupHandler.Preflight)
 		})
 
-		// Public auth routes
+		// Public auth routes (login, register, refresh)
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
 			r.Post("/auth/login", authHandler.Login)
@@ -118,6 +129,13 @@ func (s *Server) setupRoutes() {
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
 			r.Use(middleware.Auth(authConfig))
+			r.Post("/auth/logout", authHandler.Logout)
+		})
+
+		// CSRF-protected routes (authenticated users with CSRF tokens)
+		r.Group(func(r chi.Router) {
+			r.Use(setupGuard)
+			r.Use(middleware.Auth(authConfig))
 			// CSRF protection on mutating routes
 			r.Use(middleware.CSRF(authConfig.CSRFSecret))
 
@@ -125,6 +143,7 @@ func (s *Server) setupRoutes() {
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
 			r.Get("/auth/csrf", csrfHandler.GetToken)
+
 			// Catalog - browse available apps
 			r.Route("/catalog", func(r chi.Router) {
 				r.Get("/", catalogHandler.ListApps)
@@ -151,13 +170,14 @@ func (s *Server) setupRoutes() {
 				r.Get("/{instanceId}/updates/history", appsHandler.GetAppUpdateHistory)
 			})
 
-			// Monitoring
+			// Monitoring - system health and metrics management
 			r.Route("/monitoring", func(r chi.Router) {
 				r.Get("/system", monitoringHandler.SystemHealth)
 				r.Post("/cleanup", monitoringHandler.CleanupMetrics)
 				r.Post("/email/test", monitoringHandler.SendTestEmail)
 			})
 
+			// Notification configuration (admin only)
 			r.Route("/notify", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/config", notifyHandler.Get)
@@ -165,6 +185,7 @@ func (s *Server) setupRoutes() {
 				r.Post("/preview", notifyHandler.Preview)
 			})
 
+			// License management (admin only)
 			r.Route("/license", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/status", licenseHandler.Status)
@@ -179,7 +200,7 @@ func (s *Server) setupRoutes() {
 			r.Get("/apps/{appID}/metrics", monitoringHandler.GetAppMetrics)
 			r.Get("/apps/{appID}/metrics/history", monitoringHandler.GetMetricsHistory)
 
-			// Backups
+			// Backups - system and database backup management
 			r.Route("/backups", func(r chi.Router) {
 				r.Get("/", backupHandler.ListBackups)
 				r.Post("/", backupHandler.CreateBackup)
@@ -193,7 +214,7 @@ func (s *Server) setupRoutes() {
 				r.Post("/database/{backupID}/restore", backupHandler.RestoreDatabaseBackup)
 			})
 
-			// Network / Caddy
+			// Network / Caddy - reverse proxy and routing management
 			if networkHandler != nil {
 				r.Route("/network", func(r chi.Router) {
 					r.Get("/status", networkHandler.GetCaddyStatus)
@@ -207,11 +228,15 @@ func (s *Server) setupRoutes() {
 					r.Post("/test-backend", networkHandler.TestBackend)
 				})
 			}
+
+			// Network probing - connectivity and DNS testing
 			r.Route("/network/probe", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/dns", networkProbeHandler.DNS)
 				r.Get("/tcp", networkProbeHandler.ProbeTCP)
 			})
+
+			// ACME certificate management
 			r.Route("/network/acme", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Post("/probe-dns", acmeHandler.ProbeDNS)
@@ -222,7 +247,7 @@ func (s *Server) setupRoutes() {
 				r.Delete("/routes/{routeID}", acmeCleanup.DeleteRoute)
 			})
 
-			// Users (admin only)
+			// Users management (admin only)
 			r.Route("/users", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", usersHandler.ListUsers)
@@ -232,7 +257,7 @@ func (s *Server) setupRoutes() {
 				r.Delete("/{userID}", usersHandler.DeleteUser)
 			})
 
-			// Support sessions (admin only)
+			// Support sessions - remote support access management (admin only)
 			r.Route("/support/sessions", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", supportHandler.ListSessions)
@@ -241,13 +266,13 @@ func (s *Server) setupRoutes() {
 				r.Post("/{sessionID}/revoke", supportHandler.RevokeSession)
 			})
 
-			// Support diagnostics (admin only)
+			// Support diagnostics - system diagnostics collection (admin only)
 			r.Route("/support/diagnostics", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", supportDiagHandler.Get)
 			})
 
-			// Support session validation (admin only for now)
+			// Support session validation - file and command execution (admin only)
 			r.Route("/support/session", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Post("/validate", supportSessionValidator.Validate)
@@ -256,18 +281,20 @@ func (s *Server) setupRoutes() {
 				r.Post("/command", supportCommandHandler.Run)
 			})
 
-			// Settings
+			// Settings - application configuration
 			r.Route("/settings", func(r chi.Router) {
 				r.Get("/", settingsHandler.Get)
 				r.Put("/", settingsHandler.Update)
 			})
 
+			// System updates (admin only)
 			r.Route("/system", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/updates/check", systemHandler.CheckUpdates)
 				r.Post("/updates/apply", systemHandler.ApplyUpdate)
 			})
 
+			// Audit logs (admin only)
 			r.Route("/audit", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", auditHandler.ListLogs)

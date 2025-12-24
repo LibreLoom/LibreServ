@@ -22,6 +22,7 @@ func NewAuthHandler(authService *auth.Service) *AuthHandler {
 }
 
 // Login handles POST /api/v1/auth/login
+// Authenticates a user and returns tokens on success
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req auth.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -47,6 +48,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "login failed")
 		return
 	}
+	// Set access token as HTTP-only cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "libreserv_access",
 		Value:    response.Tokens.AccessToken,
@@ -59,7 +61,24 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, response.User)
 }
 
+// Logout handles POST /api/v1/auth/logout
+// Clears the access token cookie and logs the user out
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "libreserv_access",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil, // false on localhost http, true on https
+	})
+	JSON(w, http.StatusOK, map[string]string{"message": "logged out"})
+}
+
 // Register handles POST /api/v1/auth/register
+// Creates a new user account
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req auth.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -97,6 +116,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // RefreshToken handles POST /api/v1/auth/refresh
+// Exchanges a refresh token for a new access token
 func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
@@ -131,6 +151,7 @@ type ChangePasswordRequest struct {
 }
 
 // ChangePassword handles POST /api/v1/auth/change-password
+// Updates the user's password after verifying the current password
 func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Get user from context (set by auth middleware)
 	userID := r.Context().Value("user_id")
@@ -174,6 +195,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // Me handles GET /api/v1/auth/me
+// Returns the current authenticated user's information
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from context (set by auth middleware)
 	userID := r.Context().Value("user_id")

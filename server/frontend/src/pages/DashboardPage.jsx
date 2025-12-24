@@ -121,8 +121,8 @@ export default function Dashboard() {
         </Card>
       </header>
 
-      {/* Decorative divider line */}
-      <div className="h-1 w-[95%] rounded-full mx-auto bg-secondary -mt-8 mb-2" />
+      {/* Decorative divider line (horizontal) */}
+      {/*      <div className="h-1 w-[95%] rounded-full mx-auto bg-secondary -mt-8 mb-2" /> */}
 
       {/* Main grid section containing stats and service status */}
       <section className="flex gap-8 px-8 w-full">
@@ -149,7 +149,7 @@ export default function Dashboard() {
         </div>
 
         {/* Vertical divider line separating stat cards from service status */}
-        <div className="w-1 h-128 bg-secondary my-auto rounded-full shrink-0" />
+        {/* <div className="w-1 h-128 bg-secondary my-auto rounded-full shrink-0" /> */}
 
         {/* Service Status - displays status of various services and their metrics */}
         <div className="w-[65%] grid grid-cols-1 lg:grid-cols-3 gap-6 content-start shrink-0">

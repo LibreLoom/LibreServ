@@ -24,32 +24,62 @@
 import { useState } from "react";
 import api from "../lib/api";
 import { AuthContext } from "./AuthContext";
+
 export function AuthProvider({ children }) {
+  // State to store the current user information
   const [me, setMe] = useState(null);
+  // State to store the CSRF token for write operations
   const [csrfToken, setCsrfToken] = useState(null);
+
+  /**
+   * Logs in the user with the provided credentials
+   * @param {string} username - The user's username
+   * @param {string} password - The user's password
+   */
   async function login(username, password) {
+    // Send login credentials to the server
     await api("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
+    // Fetch the current user data after successful login
     const meResponse = await api("/auth/me");
     const meJSON = await meResponse.json();
+    // Fetch the CSRF token for subsequent write operations
     const csrfResponse = await api("/auth/csrf");
     const csrfJSON = await csrfResponse.json();
+    // Update state with user data and CSRF token
     setMe(meJSON);
     setCsrfToken(csrfJSON.csrf_token);
   }
+  async function logout() {
+    // Send logout request to the server
+    await api("/auth/logout", { method: "POST" });
+    // Clear user data and CSRF token from state
+    setMe(null);
+    setCsrfToken(null);
+  }
+
+  /**
+   * Makes an authenticated API request
+   * @param {string} path - The API endpoint path
+   * @param {Object} options - The fetch options
+   * @returns {Promise<Response>} - The API response
+   */
   async function request(path, options = {}) {
+    // Determine if this is a write operation that requires CSRF protection
     const isWrite =
       options.method === "POST" ||
       options.method === "PUT" ||
       options.method === "DELETE" ||
       options.method === "PATCH";
+    // Include CSRF token in headers for write operations if available
     const headers = {
       ...options.headers,
       ...(isWrite && csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
     };
+    // Make the API request
     const response = await api(path, {
       ...options,
       ...(options.method ? {} : { method: "GET" }),
@@ -57,8 +87,9 @@ export function AuthProvider({ children }) {
     });
     return response;
   }
+
   return (
-    <AuthContext.Provider value={{ me, csrfToken, login, request }}>
+    <AuthContext.Provider value={{ me, csrfToken, login, request, logout }}>
       {children}
     </AuthContext.Provider>
   );
