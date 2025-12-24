@@ -100,25 +100,32 @@ export default function Dashboard() {
             icon={Search}
             name="SearXNG"
             status="online"
-            detail="135 ms"
+            time="14 days, 3 hours"
+            resourceUsage={10}
           />
           <ServiceStatusCard
             icon={Cloud}
             name="Nextcloud"
             status="online"
             detail="441 ms"
+            time="2 hours, 15 minutes"
+            resourceUsage={80}
           />
           <ServiceStatusCard
             icon={Code}
             name="N8N"
-            status="offline"
+            status="warning"
             detail="807 ms"
+            warningMessage="High latency detected"
+            resourceUsage={40}
           />
           <ServiceStatusCard
             icon={MessageSquareMore}
             name="IRC"
             status="offline"
             detail="Mumble IRC"
+            time="1 hour, 30 minutes"
+            resourceUsage={0}
           />
         </div>
       </section>
