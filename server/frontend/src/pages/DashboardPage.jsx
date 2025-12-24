@@ -173,7 +173,7 @@ export default function Dashboard() {
   return (
     <main className="bg-primary text-secondary px-0 pt-5 pb-32">
       {/* Header */}
-      <header className="w-[95%] mx-auto mb-10">
+      <header className="px-8 mb-10">
         <Card>
           <div className="flex justify-between items-center">
             <div>
