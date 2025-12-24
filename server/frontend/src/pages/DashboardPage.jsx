@@ -30,6 +30,45 @@ const greetingMessages = [
   "Happy to see you, ",
 ];
 
+const services = [
+  {
+    name: "SearXNG",
+    status: "warning",
+    time: "14 days, 3 hours",
+    warningMessage: "High latency detected",
+    resourceUsage: 10,
+    icon: Search,
+  },
+  {
+    name: "Nextcloud",
+    status: "online",
+    time: "14 days, 3 hours",
+    resourceUsage: 60,
+    icon: Cloud,
+  },
+  {
+    name: "Mumble IRC",
+    status: "offline",
+    time: "14 days, 3 hours",
+    resourceUsage: 3,
+    icon: MessageSquareMore,
+  },
+];
+
+function ServiceCards() {
+  return services.map((service) => (
+    <ServiceStatusCard
+      key={service.name}
+      icon={service.icon}
+      name={service.name}
+      status={service.status}
+      time={service.time}
+      resourceUsage={service.resourceUsage}
+      warningMessage={service.warningMessage}
+    />
+  ));
+}
+
 import StatCard from "../components/common/cards/StatCard";
 import Card from "../components/common/cards/Card";
 import ServiceStatusCard from "../components/common/cards/ServiceStatusCard";
@@ -110,37 +149,7 @@ export default function Dashboard() {
 
         {/* Service Status - displays status of various services and their metrics */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 content-start">
-          <ServiceStatusCard
-            icon={Search}
-            name="SearXNG"
-            status="online"
-            time="14 days, 3 hours"
-            resourceUsage={10}
-          />
-          <ServiceStatusCard
-            icon={Cloud}
-            name="Nextcloud"
-            status="online"
-            detail="441 ms"
-            time="2 hours, 15 minutes"
-            resourceUsage={80}
-          />
-          <ServiceStatusCard
-            icon={Code}
-            name="N8N"
-            status="warning"
-            detail="807 ms"
-            warningMessage="High latency detected"
-            resourceUsage={40}
-          />
-          <ServiceStatusCard
-            icon={MessageSquareMore}
-            name="IRC"
-            status="offline"
-            detail="Mumble IRC"
-            time="1 hour, 30 minutes"
-            resourceUsage={0}
-          />
+          {ServiceCards()}
         </div>
       </section>
     </main>
