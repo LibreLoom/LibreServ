@@ -1,4 +1,4 @@
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Minus, ArrowDownRight } from "lucide-react";
 
 export default function StatCard({ icon: Icon, label, value, delta }) {
   return (
@@ -13,7 +13,13 @@ export default function StatCard({ icon: Icon, label, value, delta }) {
         </div>
         <div className="text-xs opacity-60 flex items-center gap-1">
           {delta}
-          <ArrowUpRight size={12} />
+          {String(delta).startsWith("+") ? (
+            <ArrowUpRight size={12} />
+          ) : String(delta).startsWith("-") ? (
+            <ArrowDownRight size={12} />
+          ) : (
+            <Minus size={12} />
+          )}
         </div>
       </div>
     </div>

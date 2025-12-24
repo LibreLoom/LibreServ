@@ -5,6 +5,7 @@ import {
   ChevronUp,
   ChevronDown,
 } from "lucide-react";
+import CardButton from "./CardButton";
 
 const statusConfig = {
   online: {
@@ -71,6 +72,7 @@ export default function ServiceStatusCard({
           )}
         </div>
       </div>
+      <CardButton action="/apps" actionLabel="Manage" />
     </div>
   );
 }
