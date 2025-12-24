@@ -10,9 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
@@ -21,7 +22,7 @@ type Manager struct {
 	mu            sync.RWMutex
 	catalog       *Catalog
 	installer     *Installer
-	docker        *docker.Client
+	runtime       runtime.ContainerRuntime
 	db            *database.DB
 	backupService *storage.BackupService
 	appsDataDir   string
@@ -32,7 +33,7 @@ type Manager struct {
 }
 
 // NewManager creates a new app Manager
-func NewManager(catalogPath, appsDataDir string, dockerClient *docker.Client, db *database.DB, monitor *monitoring.Monitor, backupService *storage.BackupService) (*Manager, error) {
+func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntime, db *database.DB, monitor *monitoring.Monitor, backupService *storage.BackupService) (*Manager, error) {
 	// Load catalog
 	catalog, err := NewCatalog(catalogPath)
 	if err != nil {
@@ -41,7 +42,7 @@ func NewManager(catalogPath, appsDataDir string, dockerClient *docker.Client, db
 
 	m := &Manager{
 		catalog:       catalog,
-		docker:        dockerClient,
+		runtime:       runtime,
 		db:            db,
 		backupService: backupService,
 		appsDataDir:   appsDataDir,
@@ -52,7 +53,7 @@ func NewManager(catalogPath, appsDataDir string, dockerClient *docker.Client, db
 	}
 
 	// Create installer
-	m.installer = NewInstaller(catalog, dockerClient, db, appsDataDir, monitor)
+	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor)
 	m.installer.SetBackendRegistrar(func(appID, backend, name string) {
 		if name != "" {
 			m.RegisterNamedBackend(appID, name, backend)
@@ -189,7 +190,7 @@ func (m *Manager) StartApp(ctx context.Context, instanceID string) error {
 	m.logger.Info("Starting app", "instance_id", instanceID)
 
 	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")
-	if err := m.docker.ComposeUp(ctx, composePath); err != nil {
+	if err := m.runtime.ComposeUp(ctx, composePath); err != nil {
 		return err
 	}
 
@@ -201,7 +202,7 @@ func (m *Manager) StopApp(ctx context.Context, instanceID string) error {
 	m.logger.Info("Stopping app", "instance_id", instanceID)
 
 	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")
-	if err := m.docker.ComposeStop(ctx, composePath); err != nil {
+	if err := m.runtime.ComposeStop(ctx, composePath); err != nil {
 		return err
 	}
 
@@ -226,7 +227,7 @@ func (m *Manager) GetAppStatus(ctx context.Context, instanceID string) (*AppStat
 	}
 
 	label := "libreserv.app=" + instanceID
-	containers, err := m.docker.ListContainersByLabel(label)
+	containers, err := m.runtime.ListContainersByLabel(label)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}
@@ -392,14 +393,14 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")
 
 	// Pull new images
-	if err := m.docker.ComposePull(ctx, composePath); err != nil {
+	if err := m.runtime.ComposePull(ctx, composePath); err != nil {
 		m.recordUpdateFailure(updateID, err, false, backupID)
 		return fmt.Errorf("failed to pull images: %w", err)
 	}
 
 	// In-place update: docker compose up -d will recreate containers only if needed.
 	// This provides near-zero downtime compared to Down then Up.
-	if err := m.docker.ComposeUp(ctx, composePath); err != nil {
+	if err := m.runtime.ComposeUp(ctx, composePath); err != nil {
 		// Attempt rollback if backup exists
 		rolledBack := false
 		if backupID != "" {
@@ -696,12 +697,21 @@ func (m *Manager) inferBackends(app *InstalledApp) []backendEntry {
 	if app.URL != "" {
 		backends = append(backends, backendEntry{backend: app.URL})
 	}
+	
+	// Determine bind host from config
+	host := "127.0.0.1"
+	if cfg := config.Get(); cfg != nil {
+		if h := cfg.Server.Host; h != "" && h != "0.0.0.0" {
+			host = h
+		}
+	}
+
 	if m.catalog != nil {
 		if def, err := m.catalog.GetApp(app.AppID); err == nil {
 			for _, p := range def.Deployment.Ports {
 				if p.Host > 0 {
 					backends = append(backends, backendEntry{
-						backend: fmt.Sprintf("http://127.0.0.1:%d", p.Host),
+						backend: fmt.Sprintf("http://%s:%d", host, p.Host),
 						name:    p.Name,
 					})
 				}

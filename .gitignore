@@ -29,6 +29,7 @@ server/backend/OS/dist/
 # Local Go build/test caches
 server/backend/.cache/
 .cache/gocache/
+.gocache/
 .cache/gomodcache/
 .cache/gopath/
 server/backend/.gocache/

@@ -102,20 +102,22 @@ func main() {
 			Level:  cfg.Network.Caddy.Logging.Level,
 		},
 	})
-	if caddyManager != nil {
-		if err := caddyManager.Initialize(context.Background()); err != nil {
-			slog.Warn("caddy initialization failed", "error", err)
+			if caddyManager != nil {
+			if err := caddyManager.Initialize(context.Background()); err != nil {
+				slog.Warn("caddy initialization failed", "error", err)
+			}
 		}
-	}
-
-	appManager, err := apps.NewManager(cfg.Apps.CatalogPath, cfg.Apps.DataPath, dockerClient, db, monitor, backupService)
-	if err != nil {
-		slog.Error("failed to initialize app manager", "error", err)
-		os.Exit(1)
-	}
-
-	authService := auth.NewService(db, cfg.Auth.JWTSecret)
-	setupService := setup.NewService(db)
+	
+		runtimeClient := docker.NewRuntimeAdapter(dockerClient)
+		appManager, err := apps.NewManager(cfg.Apps.CatalogPath, cfg.Apps.DataPath, runtimeClient, db, monitor, backupService)
+		if err != nil {
+			slog.Error("failed to initialize app manager", "error", err)
+			os.Exit(1)
+		}
+	
+			authService := auth.NewService(db, cfg.Auth.JWTSecret)
+	
+			setupService := setup.NewService(db)
 	supportService := support.NewService(db, lic)
 	auditService := audit.NewService(db)
 

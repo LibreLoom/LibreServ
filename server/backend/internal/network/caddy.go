@@ -114,6 +114,9 @@ func (cm *CaddyManager) Initialize(ctx context.Context) error {
 // AddRoute adds a new route for an app (subdomain + domain).
 // If domain is empty, cm.config.DefaultDomain is used.
 func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend, appID string) (*Route, error) {
+	cm.reloadMu.Lock()
+	defer cm.reloadMu.Unlock()
+
 	cm.routesMu.Lock()
 
 	if domain == "" {
@@ -169,10 +172,6 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 	}
 	cm.routesMu.Unlock()
 
-	// Reload Caddy (serialized)
-	cm.reloadMu.Lock()
-	defer cm.reloadMu.Unlock()
-
 	if err := cm.reloadCaddy(); err != nil {
 		// Rollback (requires re-locking)
 		cm.routesMu.Lock()
@@ -189,6 +188,9 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 
 // AddDomainRoute adds a route for a full domain (no default domain prefix).
 func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, comment string) (*Route, error) {
+	cm.reloadMu.Lock()
+	defer cm.reloadMu.Unlock()
+
 	cm.routesMu.Lock()
 
 	if !cm.isAvailable(domain) {
@@ -232,9 +234,6 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 	}
 	cm.routesMu.Unlock()
 
-	cm.reloadMu.Lock()
-	defer cm.reloadMu.Unlock()
-
 	if err := cm.reloadCaddy(); err != nil {
 		cm.routesMu.Lock()
 		delete(cm.routes, route.ID)
@@ -248,6 +247,9 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 
 // RemoveRoute removes a route
 func (cm *CaddyManager) RemoveRoute(ctx context.Context, routeID string) error {
+	cm.reloadMu.Lock()
+	defer cm.reloadMu.Unlock()
+
 	cm.routesMu.Lock()
 
 	route, ok := cm.routes[routeID]
@@ -269,9 +271,6 @@ func (cm *CaddyManager) RemoveRoute(ctx context.Context, routeID string) error {
 		return fmt.Errorf("failed to regenerate configuration: %w", err)
 	}
 	cm.routesMu.Unlock()
-
-	cm.reloadMu.Lock()
-	defer cm.reloadMu.Unlock()
 
 	// Reload Caddy
 	if err := cm.reloadCaddy(); err != nil {
@@ -327,6 +326,9 @@ func (cm *CaddyManager) findByDomain(fullDomain string) (*Route, bool) {
 
 // UpdateRoute updates an existing route
 func (cm *CaddyManager) UpdateRoute(ctx context.Context, routeID string, backend string, enabled bool) (*Route, error) {
+	cm.reloadMu.Lock()
+	defer cm.reloadMu.Unlock()
+
 	cm.routesMu.Lock()
 
 	route, ok := cm.routes[routeID]
@@ -353,9 +355,6 @@ func (cm *CaddyManager) UpdateRoute(ctx context.Context, routeID string, backend
 		return nil, fmt.Errorf("failed to regenerate configuration: %w", err)
 	}
 	cm.routesMu.Unlock()
-
-	cm.reloadMu.Lock()
-	defer cm.reloadMu.Unlock()
 
 	if err := cm.reloadCaddy(); err != nil {
 		cm.routesMu.Lock()
@@ -921,15 +920,15 @@ func (cm *CaddyManager) loadRoutes(ctx context.Context) error {
 
 // ApplyConfig regenerates the Caddyfile and reloads Caddy.
 func (cm *CaddyManager) ApplyConfig() error {
+	cm.reloadMu.Lock()
+	defer cm.reloadMu.Unlock()
+
 	cm.routesMu.Lock()
 	if err := cm.regenerateCaddyfileLocked(); err != nil {
 		cm.routesMu.Unlock()
 		return err
 	}
 	cm.routesMu.Unlock()
-
-	cm.reloadMu.Lock()
-	defer cm.reloadMu.Unlock()
 	return cm.reloadCaddy()
 }
 

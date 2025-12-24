@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 
@@ -12,7 +11,7 @@ import (
 // AppsHandler handles installed app management API endpoints
 type AppsHandler struct {
 	manager  *apps.Manager
-	auditLog func(ctx context.Context, action, targetID, targetName, status, message string, metadata map[string]interface{})
+	auditLog AuditLogger
 }
 
 // NewAppsHandler creates a new AppsHandler
@@ -23,8 +22,8 @@ func NewAppsHandler(manager *apps.Manager) *AppsHandler {
 }
 
 // SetAuditLogger sets the audit logging callback
-func (h *AppsHandler) SetAuditLogger(fn func(ctx context.Context, action, targetID, targetName, status, message string, metadata map[string]interface{})) {
-	h.auditLog = fn
+func (h *AppsHandler) SetAuditLogger(logger AuditLogger) {
+	h.auditLog = logger
 }
 
 // InstallRequest represents an app installation request
@@ -185,14 +184,14 @@ func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.manager.UpdateApp(r.Context(), instanceID); err != nil {
 		if h.auditLog != nil {
-			h.auditLog(r.Context(), "app.update", instanceID, "", "failure", err.Error(), nil)
+			h.auditLog.Log(r.Context(), "app.update", instanceID, "", "failure", err.Error(), nil)
 		}
 		JSONError(w, http.StatusInternalServerError, "failed to update app: "+err.Error())
 		return
 	}
 
 	if h.auditLog != nil {
-		h.auditLog(r.Context(), "app.update", instanceID, "", "success", "Manual update triggered", nil)
+		h.auditLog.Log(r.Context(), "app.update", instanceID, "", "success", "Manual update triggered", nil)
 	}
 
 	JSON(w, http.StatusOK, map[string]string{

@@ -18,14 +18,14 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
 // Installer handles app installation and configuration
 type Installer struct {
 	catalog         *Catalog
-	docker          *docker.Client
+	runtime         runtime.ContainerRuntime
 	db              *database.DB
 	appsDataDir     string
 	logger          *slog.Logger
@@ -34,10 +34,10 @@ type Installer struct {
 }
 
 // NewInstaller creates a new Installer
-func NewInstaller(catalog *Catalog, dockerClient *docker.Client, db *database.DB, appsDataDir string, monitor *monitoring.Monitor) *Installer {
+func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *database.DB, appsDataDir string, monitor *monitoring.Monitor) *Installer {
 	return &Installer{
 		catalog:     catalog,
-		docker:      dockerClient,
+		runtime:     runtime,
 		db:          db,
 		appsDataDir: appsDataDir,
 		logger:      slog.Default().With("component", "installer"),
@@ -135,14 +135,14 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 
 	// Pull images
 	i.logger.Info("Pulling images", "app_id", opts.AppID, "instance_id", instanceID)
-	if err := i.docker.ComposePull(ctx, composePath); err != nil {
+	if err := i.runtime.ComposePull(ctx, composePath); err != nil {
 		i.logger.Error("Failed to pull images", "error", err)
 		// Don't fail on pull error, images might already exist
 	}
 
 	// Start containers
 	i.logger.Info("Starting containers", "app_id", opts.AppID, "instance_id", instanceID)
-	if err := i.docker.ComposeUp(ctx, composePath); err != nil {
+	if err := i.runtime.ComposeUp(ctx, composePath); err != nil {
 		os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to start containers"}, err
 	}
@@ -334,7 +334,7 @@ func (i *Installer) Uninstall(ctx context.Context, instanceID string) error {
 	composePath := filepath.Join(installPath, "docker-compose.yml")
 
 	// Stop and remove containers
-	if err := i.docker.ComposeDown(ctx, composePath); err != nil {
+	if err := i.runtime.ComposeDown(ctx, composePath); err != nil {
 		i.logger.Warn("Failed to stop containers", "error", err)
 		// Continue with removal anyway
 	}

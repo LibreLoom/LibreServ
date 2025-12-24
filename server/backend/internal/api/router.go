@@ -20,7 +20,7 @@ func (s *Server) setupRoutes() {
 	healthHandler := handlers.NewHealthHandler(s.db)
 	catalogHandler := handlers.NewCatalogHandler(s.appManager)
 	appsHandler := handlers.NewAppsHandler(s.appManager)
-	appsHandler.SetAuditLogger(s.auditLog)
+	appsHandler.SetAuditLogger(s)
 	authHandler := handlers.NewAuthHandler(s.authService)
 	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService)
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient)
@@ -73,7 +73,7 @@ func (s *Server) setupRoutes() {
 	notifyHandler := handlers.NewNotifyHandler()
 	licenseHandler := handlers.NewLicenseHandler(s.licenseService)
 	systemHandler := handlers.NewSystemHandler(s.sysChecker)
-	systemHandler.SetAuditLogger(s.auditLog)
+	systemHandler.SetAuditLogger(s)
 	auditHandler := handlers.NewAuditHandler(s.audit)
 
 	// Auth middleware config

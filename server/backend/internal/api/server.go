@@ -117,8 +117,16 @@ func (s *Server) Router() chi.Router {
 	return s.router
 }
 
+// Log implements handlers.AuditLogger
+func (s *Server) Log(ctx context.Context, action, targetID, targetName, status, message string, metadata map[string]interface{}) {
+	s.auditLog(ctx, action, targetID, targetName, status, message, metadata)
+}
+
 // auditLog is a helper to record an audit entry
 func (s *Server) auditLog(ctx context.Context, action, targetID, targetName, status, message string, metadata map[string]interface{}) {
+	if s.audit == nil {
+		return
+	}
 	// Get current user from context (populated by auth middleware)
 	actorID := ""
 	actorUsername := "system"
