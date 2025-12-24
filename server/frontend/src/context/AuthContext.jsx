@@ -1,7 +1,6 @@
-// TODO: Implement AuthContext
 import { useState } from "react";
 import api from "../lib/api";
-import { AuthContext } from "./authContext";
+import { AuthContext } from "./AuthContext";
 export function AuthProvider({ children }) {
   const [me, setMe] = useState(null);
   const [csrfToken, setCsrfToken] = useState(null);
@@ -18,8 +17,25 @@ export function AuthProvider({ children }) {
     setMe(meJSON);
     setCsrfToken(csrfJSON.csrf_token);
   }
+  async function request(path, options = {}) {
+    const isWrite =
+      options.method === "POST" ||
+      options.method === "PUT" ||
+      options.method === "DELETE" ||
+      options.method === "PATCH";
+    const headers = {
+      ...options.headers,
+      ...(isWrite && csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+    };
+    const response = await api(path, {
+      ...options,
+      ...(options.method ? {} : { method: "GET" }),
+      headers,
+    });
+    return response;
+  }
   return (
-    <AuthContext.Provider value={{ me, csrfToken, login }}>
+    <AuthContext.Provider value={{ me, csrfToken, login, request }}>
       {children}
     </AuthContext.Provider>
   );
