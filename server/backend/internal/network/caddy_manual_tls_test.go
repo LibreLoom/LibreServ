@@ -19,6 +19,9 @@ func TestCaddyfileUsesManualTLSWhenCertExists(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
 
 	configPath := filepath.Join(t.TempDir(), "Caddyfile")
 	certsPath := filepath.Join(t.TempDir(), "certs")

@@ -419,11 +419,8 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 
 	// Verify health of the new version
 	m.logger.Info("Verifying health after update", "instance_id", instanceID)
-	// Give containers a few seconds to start up before checking
-	time.Sleep(5 * time.Second)
-
-	status, err := m.GetAppStatus(ctx, instanceID)
-	isHealthy := err == nil && status.Status == StatusRunning
+	
+	isHealthy := m.waitForHealthy(ctx, instanceID, 60*time.Second)
 
 	if !isHealthy {
 		m.logger.Error("App unhealthy after update, initiating rollback", "instance_id", instanceID)
@@ -452,6 +449,27 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 	}
 
 	return m.updateStatus(ctx, instanceID, StatusRunning)
+}
+
+// waitForHealthy polls the app status until it becomes running or timeout expires.
+func (m *Manager) waitForHealthy(ctx context.Context, instanceID string, timeout time.Duration) bool {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+			status, err := m.GetAppStatus(ctx, instanceID)
+			if err == nil && status.Status == StatusRunning {
+				return true
+			}
+		}
+	}
 }
 
 func (m *Manager) recordUpdateFailure(updateID int64, err error, rolledBack bool, backupID string) {
@@ -616,7 +634,9 @@ func scanInstalledApp(scanner interface {
 
 	config := make(map[string]interface{})
 	if metadataJSON != "" {
-		_ = json.Unmarshal([]byte(metadataJSON), &config)
+		if err := json.Unmarshal([]byte(metadataJSON), &config); err != nil {
+			slog.Warn("Failed to unmarshal app metadata", "id", id, "error", err)
+		}
 	}
 
 	return &InstalledApp{
