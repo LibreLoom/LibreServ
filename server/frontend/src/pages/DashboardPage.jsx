@@ -3,18 +3,14 @@ import {
   Users,
   Cpu,
   HardDrive,
-  Database,
-  Globe,
-  Shield,
-  Server,
   Search,
   Cloud,
   Code,
   MessageSquareMore,
-  Link,
 } from "lucide-react";
 import { useMemo } from "react";
 
+// Array of casual greeting messages to display on the dashboard
 const greetingMessages = [
   "Good day, ",
   "Welcome Back, ",
@@ -35,18 +31,17 @@ const greetingMessages = [
 ];
 
 import StatCard from "../components/common/cards/StatCard";
-import StatusCol from "../components/common/cards/StatusCol";
 import Card from "../components/common/cards/Card";
-import CardButton from "../components/common/cards/CardButton";
 import ServiceStatusCard from "../components/common/cards/ServiceStatusCard";
 
 export default function Dashboard() {
+  // Memoized greeting that selects a message based on holidays or time of day
   const greeting = useMemo(() => {
     const today = new Date();
     const month = today.getMonth();
     const date = today.getDate();
 
-    // Holiday greetings
+    // Holiday greetings - checks for specific dates
     if (month === 0 && date === 1) return "Happy New Year, ";
     if (month === 2 && date === 8) return "Happy International Women's Day, ";
     if (month === 2 && date === 21) return "Happy Nowruz, ";
@@ -58,12 +53,15 @@ export default function Dashboard() {
     if (month === 11 && date === 25) return "Merry Christmas, ";
     if (month === 11 && date === 26) return "Happy Kwanzaa, ";
 
+    // Calculate hours since epoch for rotating greeting selection
+    // 43200000 ms = 12 hours, so greeting changes every 12 hours
     const hoursSinceEpoch = Math.floor(today.getTime() / 43200000);
     return greetingMessages[hoursSinceEpoch % greetingMessages.length];
   }, []);
+
   return (
     <main className="bg-primary text-secondary px-0 pt-5 pb-32">
-      {/* Header */}
+      {/* Header section containing the greeting and user information */}
       <header className="max-w-7xl mx-auto mb-10">
         <Card>
           <div className="flex justify-between items-center">
@@ -78,12 +76,13 @@ export default function Dashboard() {
           </div>
         </Card>
         <br />
+        {/* Decorative divider line */}
         <div className="h-1 border-t-5 rounded-full mx-auto w-[90%]" />
       </header>
 
-      {/* Main grid */}
+      {/* Main grid section containing stats and service status */}
       <section className="flex gap-6 pl-6">
-        {/* Stat cards */}
+        {/* Stat cards - displays key metrics and system statistics */}
         <div className="grid grid-cols-1 gap-6 shrink-0">
           <StatCard
             icon={Users}
@@ -106,9 +105,10 @@ export default function Dashboard() {
           />
         </div>
 
+        {/* Vertical divider line separating stat cards from service status */}
         <div className="w-1 h-128 bg-secondary my-auto rounded-full shrink-0" />
 
-        {/* Service Status */}
+        {/* Service Status - displays status of various services and their metrics */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 content-start">
           <ServiceStatusCard
             icon={Search}
