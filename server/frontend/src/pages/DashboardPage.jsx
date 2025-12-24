@@ -101,7 +101,7 @@ export default function Dashboard() {
   return (
     <main className="bg-primary text-secondary px-0 pt-5 pb-32">
       {/* Header section containing the greeting and user information */}
-      <header className="max-w-7xl mx-auto mb-10">
+      <header className="w-[95%] mx-auto mb-10">
         <Card>
           <div className="flex justify-between items-center">
             <div>
@@ -114,15 +114,15 @@ export default function Dashboard() {
             </div>
           </div>
         </Card>
-        <br />
-        {/* Decorative divider line */}
-        <div className="h-1 border-t-5 rounded-full mx-auto w-[90%]" />
       </header>
 
+      {/* Decorative divider line */}
+      <div className="h-1 w-[95%] rounded-full mx-auto bg-secondary -mt-8 mb-2" />
+
       {/* Main grid section containing stats and service status */}
-      <section className="flex gap-6 pl-6">
+      <section className="flex gap-8 px-8 w-full">
         {/* Stat cards - displays key metrics and system statistics */}
-        <div className="grid grid-cols-1 gap-6 shrink-0">
+        <div className="grid grid-cols-1 gap-6 flex-1">
           <StatCard
             icon={Users}
             label="Active Users"
@@ -148,7 +148,7 @@ export default function Dashboard() {
         <div className="w-1 h-128 bg-secondary my-auto rounded-full shrink-0" />
 
         {/* Service Status - displays status of various services and their metrics */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 content-start">
+        <div className="w-[65%] grid grid-cols-1 lg:grid-cols-3 gap-6 content-start shrink-0">
           {ServiceCards()}
         </div>
       </section>
