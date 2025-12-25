@@ -116,7 +116,7 @@ export default function ServiceStatusCard({
           ))}
         </div>
       </div>
-      <CardButton action="/apps" actionLabel="Manage" />
+      <CardButton action={"/apps/" + name} actionLabel="Manage" />
     </div>
   );
 }
