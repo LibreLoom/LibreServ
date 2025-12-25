@@ -9,9 +9,9 @@ export default function Login() {
   const navigate = useNavigate();
   const { login } = useAuth();
   return (
-    <main className="w-50">
+    <main className="fixed inset-0 grid place-items-center">
       <form
-        className=""
+        className="flex flex-col"
         onSubmit={async (e) => {
           e.preventDefault();
           setError("");
@@ -40,7 +40,7 @@ export default function Login() {
             required
           />
           <button type="submit">Login</button>
-          {error ? <p>{error}</p> : null}
+          {error ? <p className="text-secondary">{error}</p> : null}
         </div>
       </form>
     </main>
