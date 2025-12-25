@@ -48,6 +48,7 @@ function getGreeting() {
   if (month === 10 && date === 1) return "Happy Diwali, ";
   if (month === 11 && date === 25) return "Merry Christmas, ";
   if (month === 11 && date === 26) return "Happy Kwanzaa, ";
+  if (month === 7 && date === 4) return "Happy Independence Day, ";
 
   // Rotating greeting (changes every 12 hours)
   const hoursSinceEpoch = Math.floor(today.getTime() / 43200000);
