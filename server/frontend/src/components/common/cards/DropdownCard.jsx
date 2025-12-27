@@ -8,6 +8,7 @@ export default function DropdownCard({
   value,
   breakdownItems = [],
   defaultOpen = false,
+  Icon = Server,
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
@@ -15,7 +16,7 @@ export default function DropdownCard({
     <div className="bg-secondary text-primary rounded-3xl p-6 motion-safe:transition hover:scale-[1.02] w-full h-fit self-start">
       <div className="flex items-center gap-5">
         <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
-          <Server size={26} />
+          <Icon size={26} />
         </div>
         <div>
           <div className="text-sm font-bold text-accent text-left">{title}</div>

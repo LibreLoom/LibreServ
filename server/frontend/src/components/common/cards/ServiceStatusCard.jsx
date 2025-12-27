@@ -3,6 +3,7 @@ import { CheckCircle, XCircle, AlertCircle, ChevronDown } from "lucide-react";
 import CardButton from "./CardButton";
 import MiniStatCard from "./MiniStatCard";
 
+// Status configuration mapping for different service states
 const statusConfig = {
   online: {
     icon: CheckCircle,
@@ -24,6 +25,10 @@ const statusConfig = {
   },
 };
 
+/**
+ * ServiceStatusCard - Displays a service's status, uptime/downtime, and resource usage
+ * Cards grow to fill available space (flex-1) with 5px margin for consistent spacing
+ */
 export default function ServiceStatusCard({
   icon: Icon,
   name,
@@ -36,9 +41,8 @@ export default function ServiceStatusCard({
   const [isOpen, setIsOpen] = useState(false);
   const config = statusConfig[status] || statusConfig.offline;
   const StatusIcon = config.icon;
-  const IconComponent = Icon;
 
-  // Determine what status text to show
+  // Determine status text based on current state
   let statusText;
   if (status === "online" && time) {
     statusText = `Uptime: ${time}`;
@@ -49,16 +53,22 @@ export default function ServiceStatusCard({
   }
 
   return (
-    <div className="max-w-90 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start">
+    // flex-1: grow to fill space, m-[5px]: 5px margin on all sides
+    <div className="flex-1 m-[5px] bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start">
+      {/* Header with service icon and name */}
       <div className="flex items-center gap-4">
         <div className="h-12 w-12 rounded-pill bg-primary text-secondary flex items-center justify-center">
-          <IconComponent size={22} />
+          <Icon size={22} />
         </div>
         <div className="text-left">
           <div className="font-semibold">{name}</div>
         </div>
       </div>
+
+      {/* Divider */}
       <div className="h-1 bg-primary rounded-pill mx-1 my-4" />
+
+      {/* Status and resource usage info */}
       <div className="text-left">
         <div className={`text-sm ${config.color}`}>Status</div>
         {statusText && (
@@ -70,6 +80,7 @@ export default function ServiceStatusCard({
         <div className={`text-sm ${config.color}`}>Resource Usage</div>
         {resourceUsage != null && (
           <div className="flex items-center gap-1 text-sm ml-2.5">
+            {/* Circle indicator with fill opacity based on usage percentage */}
             <svg
               width="14"
               height="14"
@@ -86,20 +97,24 @@ export default function ServiceStatusCard({
                 strokeWidth="1.5"
               />
             </svg>
-            <span className={config.color}>{resourceUsage + "%"}</span>
+            <span className={config.color}>{resourceUsage}%</span>
           </div>
         )}
       </div>
+
+      {/* Expandable breakdown section */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-1 text-sm text-accent hover:text-primary mt-3 cursor-pointer"
       >
         <ChevronDown
           size={16}
-          className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : "rotate-0"}`}
+          className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
         />
         <span>{isOpen ? "Hide breakdown" : "Show breakdown"}</span>
       </button>
+
+      {/* Collapsible breakdown content */}
       <div
         className={`overflow-y-hidden overflow-x-visible motion-safe:transition-all duration-300 ease-out ${
           isOpen ? "max-h-96" : "max-h-0"
@@ -116,6 +131,7 @@ export default function ServiceStatusCard({
           ))}
         </div>
       </div>
+
       <CardButton action={"/apps/" + name} actionLabel="Manage" />
     </div>
   );

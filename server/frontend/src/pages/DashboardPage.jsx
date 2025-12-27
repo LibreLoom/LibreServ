@@ -1,13 +1,12 @@
 import { useMemo } from "react";
-import { Clock } from "lucide-react";
+import { Clock, Server } from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
 import Card from "../components/common/cards/Card";
-import ServiceStatusCard from "../components/common/cards/ServiceStatusCard";
+import ServiceCards from "../components/common/cards/ServiceCards";
 import DropdownCard from "../components/common/cards/DropdownCard";
 
 import {
-  services,
   resources,
   getBreakdownItems,
   totalResourceUsage,
@@ -55,21 +54,6 @@ function getGreeting() {
   return greetingMessages[hoursSinceEpoch % greetingMessages.length];
 }
 
-function ServiceCards() {
-  return services.map((service) => (
-    <ServiceStatusCard
-      key={service.name}
-      icon={service.icon}
-      name={service.name}
-      status={service.status}
-      time={service.time}
-      resourceUsage={service.resourceUsage}
-      warningMessage={service.warningMessage}
-      breakdownItems={getBreakdownItems(service.resources)}
-    />
-  ));
-}
-
 export default function Dashboard() {
   const greeting = useMemo(() => getGreeting(), []);
 
@@ -106,10 +90,11 @@ export default function Dashboard() {
             value={Math.round(totalResourceUsage(resources) * 100) + "%"}
             subtitle=""
             breakdownItems={getBreakdownItems(resources)}
+            Icon={Server}
           />
         </div>
 
-        {/* Services column */}
+        {/* Services */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start">
           {ServiceCards()}
         </div>
