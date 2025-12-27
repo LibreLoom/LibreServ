@@ -6,13 +6,26 @@ import UsersPage from "./pages/UsersPage";
 import SettingsPage from "./pages/SettingsPage";
 import HelpPage from "./pages/HelpPage";
 import Login from "./pages/Login";
+import LoadingFast from "./pages/LoadingFast";
 import { Routes, Route } from "react-router-dom";
+import { useAuth } from "./hooks/useAuth";
+
+function RequireAuth({ children }) {
+  const { me, initialized } = useAuth();
+  if (!initialized) return <LoadingFast label="Checking session..." />;
+  return me ? children : <Login />;
+}
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route element={<MainLayout />}>
+      <Route
+        element={
+          <RequireAuth>
+            <MainLayout />
+          </RequireAuth>
+        }
+      >
         <Route path="/" element={<DashboardPage />} />
         <Route path="/apps" element={<AppsPage />} />
         <Route path="/users" element={<UsersPage />} />

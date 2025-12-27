@@ -24,13 +24,34 @@
 import { useState } from "react";
 import api from "../lib/api";
 import { AuthContext } from "./AuthContextContext";
+import { useEffect } from "react";
 
 export function AuthProvider({ children }) {
   // State to store the current user information
   const [me, setMe] = useState(null);
   // State to store the CSRF token for write operations
   const [csrfToken, setCsrfToken] = useState(null);
-
+  const [initialized, setInitialized] = useState(false);
+  useEffect(() => {
+    async function initAuth() {
+      try {
+        const meResponse = await api("/auth/me");
+        const meJSON = await meResponse.json();
+        setMe(meJSON);
+      } catch {
+        setMe(null);
+      }
+      try {
+        const csrfResponse = await api("/auth/csrf");
+        const csrfJSON = await csrfResponse.json();
+        setCsrfToken(csrfJSON.csrf_token);
+      } catch {
+        setCsrfToken(null);
+      }
+      setInitialized(true);
+    }
+    initAuth();
+  }, []);
   /**
    * Logs in the user with the provided credentials
    * @param {string} username - The user's username
@@ -74,11 +95,8 @@ export function AuthProvider({ children }) {
    */
   async function request(path, options = {}) {
     // Determine if this is a write operation that requires CSRF protection
-    const isWrite =
-      options.method === "POST" ||
-      options.method === "PUT" ||
-      options.method === "DELETE" ||
-      options.method === "PATCH";
+    const method = options.method?.toUpperCase() ?? "GET";
+    const isWrite = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
     // Include CSRF token in headers for write operations if available
     const headers = {
       ...options.headers,
@@ -87,14 +105,16 @@ export function AuthProvider({ children }) {
     // Make the API request
     const response = await api(path, {
       ...options,
-      ...(options.method ? {} : { method: "GET" }),
+      method,
       headers,
     });
     return response;
   }
 
   return (
-    <AuthContext.Provider value={{ me, csrfToken, login, request, logout }}>
+    <AuthContext.Provider
+      value={{ me, csrfToken, login, request, logout, initialized }}
+    >
       {children}
     </AuthContext.Provider>
   );

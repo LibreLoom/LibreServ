@@ -9,7 +9,12 @@ export default async function api(path, options = {}) {
     headers,
   });
   if (!res.ok) {
-    throw new Error(`Request failed with status: ${res.status}`);
+    throw new Error(`Request failed with status: ${res.status}`, {
+      cause: {
+        status: res.status,
+        response: res,
+      },
+    });
   }
   return res;
 }

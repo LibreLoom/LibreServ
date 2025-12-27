@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../context/useAuth";
+import { useAuth } from "../hooks/useAuth";
 
 export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const navigate = useNavigate();
+  const [error, setError] = useState(null);
+  const [errorStatus, setErrorStatus] = useState(null);
   const { login } = useAuth();
   return (
     <main className="fixed inset-0 grid place-items-center">
@@ -16,11 +15,21 @@ export default function Login() {
           e.preventDefault();
           setError("");
           try {
+            setErrorStatus(null);
+            setError(null);
             await login(username, password);
-            navigate("/");
+            window.location.reload();
           } catch (err) {
             console.error("Login failed:", err);
-            setError("Login failed. Check your username and password.");
+            if (err.cause?.status === 401) {
+              setError("Login failed. Check your username and password.");
+            } else if (err.cause?.status === 429) {
+              setError(
+                "Login failed. Please wait a bit prior to trying again!",
+              );
+            } else {
+              setErrorStatus(err.cause?.status);
+            }
           }
         }}
       >
@@ -40,7 +49,19 @@ export default function Login() {
             required
           />
           <button type="submit">Login</button>
-          {error ? <p className="text-secondary">{error}</p> : null}
+          {error ? <p className="text-secondary">{error}</p> : null}{" "}
+          {errorStatus ? (
+            <p className="text-secondary">
+              See{" "}
+              <a
+                className="underline text-accent"
+                href={`https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/${errorStatus}`}
+              >
+                this page
+              </a>{" "}
+              for details that'll probably be helpful.
+            </p>
+          ) : null}
         </div>
       </form>
     </main>

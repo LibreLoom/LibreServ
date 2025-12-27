@@ -30,8 +30,8 @@ type limiter struct {
 // RateLimitDefault applies conservative limits on setup/auth endpoints.
 func RateLimitDefault() func(http.Handler) http.Handler {
 	rules := []RateRule{
-		{Prefix: "/api/v1/setup", Limit: 10, Window: time.Minute},
-		{Prefix: "/api/v1/auth", Limit: 30, Window: time.Minute},
+		{Prefix: "/api/v1/setup", Limit: 30, Window: time.Minute},
+		{Prefix: "/api/v1/auth", Limit: 120, Window: time.Minute},
 	}
 	return RateLimit(rules)
 }
