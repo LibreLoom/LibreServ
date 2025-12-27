@@ -2,6 +2,9 @@ import { useParams } from "react-router-dom";
 import Card from "../components/common/cards/Card";
 import { services } from "../data/services";
 import NotFoundPage from "./NotFoundPage";
+import DetailedStatCard from "../components/common/cards/DetailedStatCard";
+
+import { Server } from "lucide-react";
 
 export default function AppDetailPage() {
   const { appName } = useParams();
@@ -15,9 +18,9 @@ export default function AppDetailPage() {
   }
 
   return (
-    <main className="bg-primary text-secondary px-0 pt-5 pb-32">
+    <main className="bg-primary text-secondary px-8 pt-5 pb-32">
       {/* Header */}
-      <header className="px-8 mb-10">
+      <header className="px-0 mb-10">
         <Card>
           <div className="flex justify-between items-center">
             <div>
@@ -26,6 +29,13 @@ export default function AppDetailPage() {
           </div>
         </Card>
       </header>
+      <DetailedStatCard
+        icon={Server}
+        name={service.name}
+        status={service.status}
+        time={service.time}
+        resources={service.resources}
+      />
     </main>
   );
 }

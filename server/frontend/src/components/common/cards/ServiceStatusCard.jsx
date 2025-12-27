@@ -116,8 +116,8 @@ export default function ServiceStatusCard({
 
       {/* Collapsible breakdown content */}
       <div
-        className={`overflow-y-hidden overflow-x-visible motion-safe:transition-all duration-300 ease-out ${
-          isOpen ? "max-h-96" : "max-h-0"
+        className={`motion-safe:transition-all duration-300 ease-out ${
+          isOpen ? "max-h-96 overflow-visible" : "max-h-0 overflow-hidden"
         }`}
       >
         <div className="grid grid-cols-2 gap-2 pt-4">
