@@ -66,7 +66,7 @@ export default function Dashboard() {
       {/* Header */}
       <header className="px-8 mb-10">
         <Card>
-          <div className="flex justify-between items-center pop-in">
+          <div className="flex justify-between items-center">
             <div>
               <h1 id="dashboard-title" className="text-2xl font-bold">
                 {greeting + "Gabe" /* TODO: Replace with user name */}

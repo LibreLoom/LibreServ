@@ -18,7 +18,7 @@ export default function DropdownCard({
     .replace(/[^a-z0-9-_]/g, "")}`;
 
   return (
-    <div className="bg-secondary text-primary rounded-3xl p-6 motion-safe:transition hover:scale-[1.02] w-full h-fit self-start">
+    <div className="pop-in bg-secondary text-primary rounded-3xl p-6 motion-safe:transition hover:scale-[1.02] w-full h-fit self-start">
       <div className="flex items-center gap-5">
         <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
           <Icon size={26} aria-hidden="true" />

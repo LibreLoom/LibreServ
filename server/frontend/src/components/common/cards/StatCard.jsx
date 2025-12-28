@@ -4,7 +4,7 @@ export default function StatCard({ icon: Icon, label, value, delta }) {
   const IconComponent = Icon;
 
   return (
-    <div className="bg-secondary text-primary rounded-3xl p-6 flex items-center gap-5 motion-safe:transition hover:scale-[1.02] w-full h-fit">
+    <div className="pop-in bg-secondary text-primary rounded-3xl p-6 flex items-center gap-5 motion-safe:transition hover:scale-[1.02] w-full h-fit">
       <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
         <IconComponent size={26} aria-hidden="true" />
       </div>

@@ -90,7 +90,7 @@ export default function DetailedStatCard({
   }
 
   return (
-    <div className="flex-1 m-1.25 bg-secondary text-primary rounded-3xl p-6 motion-safe:transition hover:scale-[1.01] self-start">
+    <div className="pop-in flex-1 m-1.25 bg-secondary text-primary rounded-3xl p-6 motion-safe:transition hover:scale-[1.01] self-start">
       {/* Header with service icon and name */}
       <div className="flex items-center gap-4 mb-4">
         <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center">
