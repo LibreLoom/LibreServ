@@ -9,22 +9,26 @@ import { Server } from "lucide-react";
 export default function AppDetailPage() {
   const { appName } = useParams();
 
+  // Match the route parameter to the service list used by the cards.
   const service = services.find(
     (s) => s.name.toLowerCase() === appName.toLowerCase(),
   );
 
   if (!service) {
+    // Unknown app slug falls back to the generic 404 page.
     return <NotFoundPage />;
   }
 
   return (
-    <main className="bg-primary text-secondary px-8 pt-5 pb-32">
+    <main className="bg-primary text-secondary px-8 pt-5 pb-32" aria-labelledby="app-detail-title">
       {/* Header */}
       <header className="px-0 mb-10">
         <Card>
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-center text-2xl font-bold">{service.name}</h1>
+              <h1 id="app-detail-title" className="text-center text-2xl font-bold">
+                {service.name}
+              </h1>
             </div>
           </div>
         </Card>

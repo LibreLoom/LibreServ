@@ -39,6 +39,10 @@ export default function ServiceStatusCard({
   breakdownItems = [],
 }) {
   const [isOpen, setIsOpen] = useState(false);
+  const breakdownId = `service-breakdown-${String(name)
+    .toLowerCase()
+    .replace(/\\s+/g, "-")
+    .replace(/[^a-z0-9-_]/g, "")}`;
   const config = statusConfig[status] || statusConfig.offline;
   const StatusIcon = config.icon;
 
@@ -58,7 +62,7 @@ export default function ServiceStatusCard({
       {/* Header with service icon and name */}
       <div className="flex items-center gap-4">
         <div className="h-12 w-12 rounded-pill bg-primary text-secondary flex items-center justify-center">
-          <Icon size={22} />
+          <Icon size={22} aria-hidden="true" />
         </div>
         <div className="text-left">
           <div className="font-semibold">{name}</div>
@@ -73,7 +77,7 @@ export default function ServiceStatusCard({
         <div className={`text-sm ${config.color}`}>Status</div>
         {statusText && (
           <div className="flex items-center gap-1 text-sm ml-2.5">
-            <StatusIcon size={14} className={config.color} />
+            <StatusIcon size={14} className={config.color} aria-hidden="true" />
             <span className={config.color}>{statusText}</span>
           </div>
         )}
@@ -86,6 +90,7 @@ export default function ServiceStatusCard({
               height="14"
               viewBox="0 0 14 14"
               className={config.color}
+              aria-hidden="true"
             >
               <circle
                 cx="7"
@@ -105,17 +110,22 @@ export default function ServiceStatusCard({
       {/* Expandable breakdown section */}
       <button
         onClick={() => setIsOpen(!isOpen)}
+        type="button"
         className="flex items-center gap-1 text-sm text-accent hover:text-primary mt-3 cursor-pointer"
+        aria-expanded={isOpen}
+        aria-controls={breakdownId}
       >
         <ChevronDown
           size={16}
           className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          aria-hidden="true"
         />
         <span>{isOpen ? "Hide breakdown" : "Show breakdown"}</span>
       </button>
 
       {/* Collapsible breakdown content */}
       <div
+        id={breakdownId}
         className={`motion-safe:transition-all duration-300 ease-out ${
           isOpen ? "max-h-96 overflow-visible" : "max-h-0 overflow-hidden"
         }`}

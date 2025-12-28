@@ -34,6 +34,7 @@ export function AuthProvider({ children }) {
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
     async function initAuth() {
+      // Bootstrap from existing cookies so refreshes preserve the session.
       try {
         const meResponse = await api("/auth/me");
         const meJSON = await meResponse.json();
@@ -48,6 +49,7 @@ export function AuthProvider({ children }) {
       } catch {
         setCsrfToken(null);
       }
+      // Signal to the rest of the app that auth checks are complete.
       setInitialized(true);
     }
     initAuth();
@@ -102,7 +104,7 @@ export function AuthProvider({ children }) {
       ...options.headers,
       ...(isWrite && csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
     };
-    // Make the API request
+    // Delegate to the shared API helper to apply base URL and credentials.
     const response = await api(path, {
       ...options,
       method,

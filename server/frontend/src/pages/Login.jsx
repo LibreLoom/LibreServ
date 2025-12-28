@@ -8,7 +8,7 @@ export default function Login() {
   const [errorStatus, setErrorStatus] = useState(null);
   const { login } = useAuth();
   return (
-    <main className="fixed inset-0 grid place-items-center">
+    <main className="fixed inset-0 grid place-items-center" aria-labelledby="login-title">
       <form
         className="flex flex-col"
         onSubmit={async (e) => {
@@ -18,6 +18,7 @@ export default function Login() {
             setErrorStatus(null);
             setError(null);
             await login(username, password);
+            // Reload to re-run auth bootstrap and load the protected shell.
             window.location.reload();
           } catch (err) {
             console.error("Login failed:", err);
@@ -34,24 +35,41 @@ export default function Login() {
         }}
       >
         <div>
+          <h1 id="login-title" className="sr-only">
+            Log in to LibreServ
+          </h1>
+          <label htmlFor="login-username" className="sr-only">
+            Username
+          </label>
           <input
+            id="login-username"
             type="text"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="Username"
+            autoComplete="username"
             required
           />
+          <label htmlFor="login-password" className="sr-only">
+            Password
+          </label>
           <input
+            id="login-password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
+            autoComplete="current-password"
             required
           />
           <button type="submit">Login</button>
-          {error ? <p className="text-secondary">{error}</p> : null}{" "}
+          {error ? (
+            <p className="text-secondary" role="alert">
+              {error}
+            </p>
+          ) : null}{" "}
           {errorStatus ? (
-            <p className="text-secondary">
+            <p className="text-secondary" role="status">
               See{" "}
               <a
                 className="underline text-accent"

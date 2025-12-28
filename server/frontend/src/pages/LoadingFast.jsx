@@ -1,22 +1,33 @@
-export default function LoadingFast({ label = "Loading..." }) {
+import { Heading } from "lucide-react";
+
+export default function LoadingFast({
+  label = "Loading...",
+  heading = "Warming up",
+}) {
   return (
-    <div className="fixed inset-0 overflow-hidden bg-primary text-secondary">
+    <div
+      className="fixed inset-0 overflow-hidden bg-primary text-secondary"
+      aria-live="polite"
+      aria-busy="true"
+    >
       <div className="relative z-10 flex h-full w-full items-center justify-center px-6">
         <div
           className="w-full max-w-md text-left"
           role="status"
           aria-live="polite"
         >
+          {/* Card container gives a branded, centered loading state. */}
           <div className="rounded-[28px] border border-accent/20 bg-accent/10 p-6 sm:p-8 load-card">
             <div className="text-xs uppercase tracking-[0.35em] text-secondary/60">
-              LibreLoom
+              LibreServ
             </div>
             <h1 className="mt-3 text-3xl font-semibold sm:text-4xl">
-              Warming up LibreServ
+              {heading}
             </h1>
             <p className="mt-3 text-sm text-secondary/70 sm:text-base">
               {label}
             </p>
+            {/* Inline bar uses keyframes to read as quick, lightweight progress. */}
             <div className="mt-6 h-2 w-full overflow-hidden rounded-full bg-secondary/10">
               <div
                 className="h-full rounded-full"
@@ -31,6 +42,7 @@ export default function LoadingFast({ label = "Loading..." }) {
           </div>
         </div>
       </div>
+      {/* Component-scoped animations keep this self-contained. */}
       <style>{`
         .load-card {
           animation: card-in 260ms ease-out both;

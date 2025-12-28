@@ -64,6 +64,7 @@ export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
   const firstNavLinkRef = useRef(null);
+  const mobileMenuId = "mobile-nav-menu";
 
   // Handle side effects for the mobile menu (focus trapping, scroll locking, and ESC key)
   useEffect(() => {
@@ -94,7 +95,10 @@ export default function Navbar() {
     <>
       {/* Desktop Navigation: Visible only on XL screens and up */}
       <div className="hidden xl:flex">
-        <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6">
+        <nav
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
+          aria-label="Primary"
+        >
           <div className="bg-secondary text-primary rounded-pill px-6 py-3 outline-2 outline-accent">
             <div className="flex items-center gap-6 text-sm font-sans justify-center">
               {navButtons.map((item) => {
@@ -118,15 +122,18 @@ export default function Navbar() {
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         aria-label={isMobileMenuOpen ? "Close Navigation" : "Open Navigation"}
         aria-expanded={isMobileMenuOpen}
+        aria-controls={mobileMenuId}
         ref={menuButtonRef}
       >
         <div className="relative w-full h-full items-center justify-center flex">
           {/* Animated Icon Switch: X and Menu icons cross-fade and rotate */}
           <X
+            aria-hidden="true"
             className={`absolute motion-safe:transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
             size={36}
           />
           <Menu
+            aria-hidden="true"
             className={`absolute motion-safe:transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
             size={36}
           />
@@ -139,14 +146,21 @@ export default function Navbar() {
         className={`fixed inset-0 motion-safe:transition-all duration-200 bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
         onClick={() => setIsMobileMenuOpen(false)}
         aria-label="Close navigation menu"
+        aria-hidden={!isMobileMenuOpen}
       ></button>
 
       {/* Mobile Menu Dialog */}
       <dialog
+        id={mobileMenuId}
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all duration-200 ease-out z-2000 xl:hidden bg-transparent ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
         open
+        aria-modal="true"
+        role="dialog"
       >
-        <nav className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-3xl justify-start max-h-[75vh] overflow-y-auto outline-2 outline-accent">
+        <nav
+          className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-3xl justify-start max-h-[75vh] overflow-y-auto outline-2 outline-accent"
+          aria-label="Primary"
+        >
           <div className="p-2.5 gap-1 flex flex-col">
             {navButtons.map((item, index) => {
               return (

@@ -13,7 +13,10 @@ import { useAuth } from "./hooks/useAuth";
 
 function RequireAuth({ children }) {
   const { me, initialized } = useAuth();
-  if (!initialized) return <LoadingFast label="Checking session..." />;
+  // Block route rendering until we know whether a session exists.
+  if (!initialized)
+    return <LoadingFast label="Checking session..." heading="Authenticating" />;
+  // If no user is loaded, keep the user on the login screen.
   return me ? children : <Login />;
 }
 

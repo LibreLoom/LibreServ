@@ -55,16 +55,20 @@ function getGreeting() {
 }
 
 export default function Dashboard() {
+  // Memoize so the greeting doesn't change on re-renders.
   const greeting = useMemo(() => getGreeting(), []);
 
   return (
-    <main className="bg-primary text-secondary px-0 pt-5 pb-32">
+    <main
+      className="bg-primary text-secondary px-0 pt-5 pb-32"
+      aria-labelledby="dashboard-title"
+    >
       {/* Header */}
       <header className="px-8 mb-10">
         <Card>
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center pop-in">
             <div>
-              <h1 className="text-2xl font-bold">
+              <h1 id="dashboard-title" className="text-2xl font-bold">
                 {greeting + "Gabe" /* TODO: Replace with user name */}
               </h1>
             </div>

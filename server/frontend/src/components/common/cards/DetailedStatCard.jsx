@@ -31,7 +31,7 @@ function UsageBar({ percentage, totalBars = 10 }) {
   const filledBars = Math.round((percentage / 100) * totalBars);
 
   return (
-    <span className="text-primary tracking-tight">
+    <span className="text-primary tracking-tight" aria-hidden="true">
       {Array.from({ length: totalBars }, (_, i) => (
         <span key={i} className={i < filledBars ? "opacity-100" : "opacity-25"}>
           |
@@ -94,13 +94,13 @@ export default function DetailedStatCard({
       {/* Header with service icon and name */}
       <div className="flex items-center gap-4 mb-4">
         <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center">
-          <Icon size={28} />
+          <Icon size={28} aria-hidden="true" />
         </div>
         <div className="text-left">
           <div className="text-xl font-semibold">{name}</div>
           {statusText && (
             <div className="flex items-center gap-2 text-sm mt-1">
-              <StatusIcon size={16} className={config.color} />
+              <StatusIcon size={16} className={config.color} aria-hidden="true" />
               <span className={config.color}>{statusText}</span>
             </div>
           )}
@@ -121,7 +121,7 @@ export default function DetailedStatCard({
             className="flex items-center gap-3 font-mono text-sm"
           >
             <UsageBar percentage={resource.value} />
-            <span className="text-primary w-12 text-right">
+            <span className="text-primary w-12 text-right" aria-label={`${resource.value}%`}>
               {resource.value}%
             </span>
             <span className="text-accent">{resource.label}</span>

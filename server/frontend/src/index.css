@@ -47,3 +47,17 @@ body {
     transition-property: all;
     transition-duration: 200ms;
 }
+@keyframes pop-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.pop-in {
+    animation: pop-in 200ms ease-out both;
+}

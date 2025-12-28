@@ -2,6 +2,7 @@ import ServiceStatusCard from "./ServiceStatusCard";
 import { services, getBreakdownItems } from "../../../data/services";
 
 export default function ServiceCards() {
+  // Render a card per service so the list stays data-driven.
   return services.map((service) => (
     <ServiceStatusCard
       key={service.name}

@@ -1,6 +1,10 @@
 export default function HelpPage() {
   return (
-    <h1>HelpPage --- Placeholder!</h1>
-    //code
+    <main className="bg-primary text-secondary px-8 pt-5 pb-32" aria-labelledby="help-title">
+      <h1 id="help-title" className="text-2xl font-bold">
+        Help
+      </h1>
+      <p className="text-accent mt-2">Help content is coming soon.</p>
+    </main>
   );
 }

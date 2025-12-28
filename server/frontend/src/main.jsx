@@ -7,6 +7,7 @@ import { AuthProvider } from "./context/AuthContext";
 
 createRoot(document.getElementById("root")).render(
   <StrictMode>
+    {/* Router at the top so layout and auth flows can use route-aware components. */}
     <BrowserRouter>
       <AuthProvider>
         <App />
