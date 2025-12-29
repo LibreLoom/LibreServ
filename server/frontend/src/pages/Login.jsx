@@ -1,87 +1,180 @@
+{
+  /*
+========================================
+LOGIN PAGE — PRODUCTION READINESS CHECKLIST
+========================================
+
+🟥 MUST-FIX (before shipping)
+[ ] Convert floating labels to real <label> elements
+    - Labels always exist
+    - Bound to inputs (htmlFor / id)
+    - Animated via state, not conditional rendering
+
+[ ] Choose explicit success behavior
+    - Hard reload OR client-side redirect
+    - Must happen immediately on successful login
+
+[ ] Ensure success path terminates control flow
+    - No late error rendering after success
+    - No state updates after redirect/reload
+
+[ ] Remove all credential logging
+    - No usernames
+    - No passwords
+    - No debug leftovers
+
+
+🟧 STRONGLY RECOMMENDED (UX & accessibility)
+[ ] Errors are announced semantically
+    - Error container marked as important
+    - Screen readers notice login failure
+
+[ ] Loading state is communicated non-visually
+    - Not just button text
+    - Form indicates “busy”
+
+[ ] Only submit is locked during loading
+    - Inputs remain editable
+    - Button disabled while request is in flight
+
+[ ] Retry is frictionless
+    - Immediate retry after failure
+    - No forced resets
+    - No surprise cooldowns (except 429)
+
+
+🟨 NICE-TO-HAVE POLISH
+[ ] Refine error copy
+    - Calm, human language
+    - No protocol jargon unless helpful
+
+[ ] Gate MDN / status-code link
+    - Show only for unknown or 5xx errors
+    - Hide for common auth failures (401)
+
+[ ] Normalize field metadata
+    - name="username"
+    - name="password"
+    - Consistent casing for password managers
+
+[ ] Optional UI helpers
+    - <FormError />
+    - <SubmitButton />
+
+
+🟩 OPTIONAL HARDENING (advanced)
+[ ] Handle offline / network failure gracefully
+[ ] Cooldown logic after 429
+[ ] Focus error message on failure
+[ ] Subtle success transition
+
+
+🚦 SHIP CHECK (all must be true)
+[ ] One submit = one login attempt
+[ ] Inputs editable during request
+[ ] Button locked during request
+[ ] Errors clear on retry
+[ ] Success path is explicit
+[ ] Labels work with keyboard & screen readers
+
+========================================
+*/
+}
 import { useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 
 export default function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
+  const [error, setError] = useState(null);
+
   const { login } = useAuth();
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!username || !password || loading) return;
+    setLoading(true);
+    setError(null);
+    setErrorStatus(null);
+    try {
+      await login(username, password);
+    } catch (error) {
+      if (error.cause?.status === 401) {
+        setError("Login failed: Invalid username or password.");
+      } else if (error.cause?.status === 429) {
+        setError("Login failed: Please wait a bit before trying again.");
+      } else {
+        setErrorStatus(error.cause?.status);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
   return (
-    <main className="fixed inset-0 grid place-items-center" aria-labelledby="login-title">
-      <form
-        className="flex flex-col"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setError("");
-          try {
-            setErrorStatus(null);
-            setError(null);
-            await login(username, password);
-            // Reload to re-run auth bootstrap and load the protected shell.
-            window.location.reload();
-          } catch (err) {
-            console.error("Login failed:", err);
-            if (err.cause?.status === 401) {
-              setError("Login failed. Check your username and password.");
-            } else if (err.cause?.status === 429) {
-              setError(
-                "Login failed. Please wait a bit prior to trying again!",
-              );
-            } else {
-              setErrorStatus(err.cause?.status);
-            }
-          }
-        }}
-      >
-        <div>
-          <h1 id="login-title" className="sr-only">
-            Log in to LibreServ
-          </h1>
-          <label htmlFor="login-username" className="sr-only">
-            Username
-          </label>
+    <main className="fixed inset-0 grid place-items-center bg-primary">
+      <div className="relative w-full max-w-lg overflow-scroll bg-secondary text-primary rounded-large-element outline-2 outline-accent pop-in p-8">
+        <span className="text-primary font-mono text-2xl">LibreServ</span>
+        <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
+        <span className="text-primary font-mono text-xl font-weight-400">
+          Hey there! Log in to continue.
+        </span>
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col mt-6 rounded-large-element border-2 border-accent p-4 bg-primary text-secondary"
+        >
+          {username && (
+            <span className="text-accent font-sans text-sm text-left translate-x-5 pop-in pop-out mb-1">
+              Username
+            </span>
+          )}
           <input
-            id="login-username"
-            type="text"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
             placeholder="Username"
+            onChange={(e) => setUsername(e.target.value)}
+            className="placeholder:text-accent border-2 border-secondary rounded-pill p-2 mb-4"
+            name="Username"
             autoComplete="username"
-            required
-          />
-          <label htmlFor="login-password" className="sr-only">
-            Password
-          </label>
+          ></input>
+          {password && (
+            <span className="text-accent font-sans text-sm text-left translate-x-5 pop-in pop-out mb-1">
+              Password
+            </span>
+          )}
           <input
-            id="login-password"
-            type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
             placeholder="Password"
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            className="placeholder:text-accent border-2 border-secondary rounded-pill p-2"
+            name="Password"
             autoComplete="current-password"
-            required
-          />
-          <button type="submit">Login</button>
-          {error ? (
-            <p className="text-secondary" role="alert">
-              {error}
-            </p>
-          ) : null}{" "}
-          {errorStatus ? (
-            <p className="text-secondary" role="status">
-              See{" "}
+          ></input>
+          <button
+            className={`bg-secondary text-primary rounded-pill p-2 ${loading ? "opacity-50" : ""} mt-6`}
+            disabled={loading}
+          >
+            {loading ? "Loading..." : "Login"}
+          </button>
+          {errorStatus && (
+            <p className="text-accent mt-4">
+              Login failed. Something might be misconfigured. See
               <a
-                className="underline text-accent"
-                href={`https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/${errorStatus}`}
+                href={
+                  "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/" +
+                  errorStatus
+                }
+                className="underline"
               >
-                this page
-              </a>{" "}
-              for details that'll probably be helpful.
+                {" this page "}
+              </a>
+              for info that might be helpful.
             </p>
-          ) : null}
-        </div>
-      </form>
+          )}
+          {error && <p className="text-accent mt-4">{error}</p>}
+        </form>
+      </div>
     </main>
   );
 }

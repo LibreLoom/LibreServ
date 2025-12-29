@@ -17,36 +17,38 @@
 }
 
 :root {
-    /* Initial Color Setup */
+    /* Initial Color Setup - Base palette values */
     --palette-light: #ffffff;
     --palette-dark: #000000;
     --palette-accent: #767676;
 
-    /* Default Mapping (Light Mode) */
+    /* Default Mapping (Light Mode) - Assign palette values to semantic color variables */
     --color-primary: var(--palette-light);
     --color-secondary: var(--palette-dark);
     --color-accent: var(--palette-accent);
 }
 
 .dark {
-    /* Dark Mode Mapping (Color Swapping Logic) */
+    /* Dark Mode Mapping (Color Swapping Logic) - Invert primary and secondary colors */
     --color-primary: var(--palette-dark);
     --color-secondary: var(--palette-light);
 }
 
 body {
     /* Setup colors, fonts, and other styles for the body */
-    /* Colors */
+    /* Colors - Use semantic color variables for background and text */
     background-color: var(--color-primary);
     color: var(--color-secondary);
 
-    /* Fonts */
+    /* Fonts - Apply sans-serif font family */
     font-family: var(--font-sans);
 
-    /* Transitions */
+    /* Transitions - Smooth transitions for all properties */
     transition-property: all;
     transition-duration: 200ms;
 }
+
+/* Pop-in animation for modal/dialog appearances */
 @keyframes pop-in {
     from {
         opacity: 0;
@@ -60,4 +62,73 @@ body {
 
 .pop-in {
     animation: pop-in 200ms ease-out both;
+}
+
+/* Material Design 3 Indeterminate Linear Progress Animations */
+@keyframes mdi-indeterminate-bar-1 {
+    0% {
+        transform: translateX(-35%) scaleX(0.35);
+    }
+    60%,
+    100% {
+        transform: translateX(100%) scaleX(0.9);
+    }
+}
+
+@keyframes mdi-indeterminate-bar-2 {
+    0% {
+        transform: translateX(-200%) scaleX(2);
+    }
+    60%,
+    100% {
+        transform: translateX(107%) scaleX(0.01);
+    }
+}
+
+/* Fade in up animation for smooth entry of elements */
+@keyframes fade-in-up {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Animation utility classes */
+.animate-mdi-bar-1 {
+    width: 100%;
+    will-change: transform;
+    animation: mdi-indeterminate-bar-1 2.1s
+        cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite both;
+}
+
+.animate-mdi-bar-2 {
+    width: 100%;
+    will-change: transform;
+    animation: mdi-indeterminate-bar-2 2.1s cubic-bezier(0.165, 0.84, 0.44, 1)
+        infinite both;
+    animation-delay: 1.15s;
+}
+
+.animate-fade-in-up {
+    animation: fade-in-up 0.5s cubic-bezier(0.05, 0.7, 0.1, 1) forwards;
+}
+
+/* Reduced motion accessibility - WCAG 2.1 Level AA */
+@media (prefers-reduced-motion: reduce) {
+    .animate-mdi-bar-1,
+    .animate-mdi-bar-2 {
+        animation: none;
+        transform: translateX(0) scaleX(0.6);
+        opacity: 0.5;
+    }
+
+    .animate-fade-in-up {
+        animation: none;
+        opacity: 1;
+        transform: translateY(0);
+    }
 }

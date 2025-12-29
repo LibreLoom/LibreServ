@@ -1,63 +1,52 @@
-import { Heading } from "lucide-react";
+import React from "react";
 
-export default function LoadingFast({
+export default React.memo(function LoadingFast({
   label = "Loading...",
   heading = "Warming up",
+  disableAnimation = false,
+  className = "",
+  testId = "loading-fast",
 }) {
   return (
     <div
-      className="fixed inset-0 overflow-hidden bg-primary text-secondary"
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-primary text-secondary transition-colors duration-200 ${className}`}
       aria-live="polite"
       aria-busy="true"
+      data-testid={testId}
     >
-      <div className="relative z-10 flex h-full w-full items-center justify-center px-6">
+      <div className="w-full max-w-xs px-6 sm:max-w-sm">
+        {/* Typography & Branding */}
         <div
-          className="w-full max-w-md text-left"
-          role="status"
-          aria-live="polite"
+          className={`mb-10 text-center ${!disableAnimation ? "animate-fade-in-up" : ""}`}
         >
-          {/* Card container gives a branded, centered loading state. */}
-          <div className="rounded-[28px] border border-accent/20 bg-accent/10 p-6 sm:p-8 load-card">
-            <div className="text-xs uppercase tracking-[0.35em] text-secondary/60">
-              LibreServ
-            </div>
-            <h1 className="mt-3 text-3xl font-semibold sm:text-4xl">
-              {heading}
-            </h1>
-            <p className="mt-3 text-sm text-secondary/70 sm:text-base">
-              {label}
-            </p>
-            {/* Inline bar uses keyframes to read as quick, lightweight progress. */}
-            <div className="mt-6 h-2 w-full overflow-hidden rounded-full bg-secondary/10">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: "55%",
-                  background:
-                    "linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--color-accent) 85%, transparent) 45%, color-mix(in srgb, var(--color-accent) 25%, transparent) 100%)",
-                  animation: "loadbar 1.5s ease-in-out infinite",
-                }}
-              />
-            </div>
+          <div className="mb-3 text-[0.65rem] font-bold uppercase tracking-[0.3em] text-accent opacity-90">
+            LibreServ
           </div>
+          <h1 className="mb-2 text-3xl font-medium tracking-tight text-secondary sm:text-4xl">
+            {heading}
+          </h1>
+          <p className="font-mono text-sm text-secondary opacity-60">{label}</p>
+        </div>
+
+        {/* Material Design 3 Linear Progress Indicator */}
+        <div
+          className="relative h-1 w-full overflow-hidden rounded-full bg-secondary/10"
+          role="progressbar"
+          aria-label="Loading progress"
+          aria-valuenow="50"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          {/* Primary Bar */}
+          <div
+            className={`absolute bottom-0 top-0 h-full bg-accent origin-left ${!disableAnimation ? "animate-mdi-bar-1" : "opacity-50"}`}
+          ></div>
+          {/* Secondary Bar */}
+          <div
+            className={`absolute bottom-0 top-0 h-full bg-accent origin-left ${!disableAnimation ? "animate-mdi-bar-2" : "opacity-50"}`}
+          ></div>
         </div>
       </div>
-      {/* Component-scoped animations keep this self-contained. */}
-      <style>{`
-        .load-card {
-          animation: card-in 260ms ease-out both;
-          transform-origin: center;
-        }
-        @keyframes loadbar {
-          0% { transform: translateX(-65%); opacity: 0.4; }
-          50% { transform: translateX(10%); opacity: 0.9; }
-          100% { transform: translateX(65%); opacity: 0.4; }
-        }
-        @keyframes card-in {
-          0% { transform: scale(0.96); opacity: 0; }
-          100% { transform: scale(1); opacity: 1; }
-        }
-      `}</style>
     </div>
   );
-}
+});

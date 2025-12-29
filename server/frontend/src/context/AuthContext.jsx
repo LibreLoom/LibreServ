@@ -7,7 +7,7 @@
 //   - set me = null
 //   - set csrfToken = null
 //
-// 2) Session restore on page refresh (bootstrap)
+// 2) Session restore on page refresh (bootstrap) — Practically done! See TODO in pages/login.jsx.
 // - On AuthProvider mount, attempt to restore session from cookie:
 //   - GET /auth/me → if OK, set me
 //   - GET /auth/csrf → set csrfToken

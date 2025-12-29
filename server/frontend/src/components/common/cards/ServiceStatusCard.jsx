@@ -57,8 +57,8 @@ export default function ServiceStatusCard({
   }
 
   return (
-    // flex-1: grow to fill space, m-[5px]: 5px margin on all sides
-    <div className="pop-in flex-1 m-[5px] bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start">
+    // flex-1: grow to fill space, m-1.25: 5px margin on all sides
+    <div className="pop-in flex-1 m-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start">
       {/* Header with service icon and name */}
       <div className="flex items-center gap-4">
         <div className="h-12 w-12 rounded-pill bg-primary text-secondary flex items-center justify-center">
