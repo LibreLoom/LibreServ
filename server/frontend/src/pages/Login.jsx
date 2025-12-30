@@ -5,20 +5,20 @@ LOGIN PAGE — PRODUCTION READINESS CHECKLIST
 ========================================
 
 🟥 MUST-FIX (before shipping)
-[ ] Convert floating labels to real <label> elements
+[X] Convert floating labels to real <label> elements
     - Labels always exist
     - Bound to inputs (htmlFor / id)
     - Animated via state, not conditional rendering
 
-[ ] Choose explicit success behavior
+[X] Choose explicit success behavior
     - Hard reload OR client-side redirect
     - Must happen immediately on successful login
 
-[ ] Ensure success path terminates control flow
+[X] Ensure success path terminates control flow
     - No late error rendering after success
     - No state updates after redirect/reload
 
-[ ] Remove all credential logging
+[X] Remove all credential logging
     - No usernames
     - No passwords
     - No debug leftovers
@@ -100,6 +100,7 @@ export default function Login() {
     setErrorStatus(null);
     try {
       await login(username, password);
+      window.location.reload();
     } catch (error) {
       if (error.cause?.status === 401) {
         setError("Login failed: Invalid username or password.");
@@ -108,7 +109,6 @@ export default function Login() {
       } else {
         setErrorStatus(error.cause?.status);
       }
-    } finally {
       setLoading(false);
     }
   }
@@ -124,27 +124,31 @@ export default function Login() {
           onSubmit={handleSubmit}
           className="flex flex-col mt-6 rounded-large-element border-2 border-accent p-4 bg-primary text-secondary"
         >
-          {username && (
-            <span className="text-accent font-sans text-sm text-left translate-x-5 pop-in pop-out mb-1">
-              Username
-            </span>
-          )}
+          <label
+            htmlFor="username"
+            className={`text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1`}
+          >
+            Username
+          </label>
           <input
             value={username}
-            placeholder="Username"
+            placeholder="e.g. admin"
+            id="username"
             onChange={(e) => setUsername(e.target.value)}
             className="placeholder:text-accent border-2 border-secondary rounded-pill p-2 mb-4"
             name="Username"
             autoComplete="username"
           ></input>
-          {password && (
-            <span className="text-accent font-sans text-sm text-left translate-x-5 pop-in pop-out mb-1">
-              Password
-            </span>
-          )}
+          <label
+            htmlFor="password"
+            className={`text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1`}
+          >
+            Password
+          </label>
           <input
             value={password}
-            placeholder="Password"
+            placeholder="e.g. hunter2"
+            id="password"
             onChange={(e) => setPassword(e.target.value)}
             type="password"
             className="placeholder:text-accent border-2 border-secondary rounded-pill p-2"
