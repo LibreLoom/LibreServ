@@ -24,10 +24,12 @@ type AuditLogger struct {
 	db *database.DB
 }
 
+// NewAuditLogger creates a logger for support audit entries.
 func NewAuditLogger(db *database.DB) *AuditLogger {
 	return &AuditLogger{db: db}
 }
 
+// Log writes a support audit entry to the database.
 func (a *AuditLogger) Log(ctx context.Context, entry *AuditEntry) error {
 	if entry == nil {
 		return nil

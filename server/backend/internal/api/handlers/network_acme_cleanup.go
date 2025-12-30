@@ -7,16 +7,17 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
 
-// ACME Post-issuance cleanup: remove acme-auto routes.
+// ACMECleanupHandler handles post-issuance cleanup for ACME routes.
 type ACMECleanupHandler struct {
 	caddy *network.CaddyManager
 }
 
+// NewACMECleanupHandler creates a cleanup handler backed by Caddy.
 func NewACMECleanupHandler(caddy *network.CaddyManager) *ACMECleanupHandler {
 	return &ACMECleanupHandler{caddy: caddy}
 }
 
-// DELETE /api/v1/network/acme/routes/{routeID}
+// DeleteRoute removes an ACME auto-issued route by ID.
 func (h *ACMECleanupHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	if h.caddy == nil {
 		JSONError(w, http.StatusInternalServerError, "caddy manager not configured")

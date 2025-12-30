@@ -12,14 +12,17 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 )
 
+// Status represents a support session state.
 type Status string
 
+// Status values for support sessions.
 const (
 	StatusActive  Status = "active"
 	StatusRevoked Status = "revoked"
 	StatusExpired Status = "expired"
 )
 
+// Session represents a support session record.
 type Session struct {
 	ID           string     `json:"id"`
 	Code         string     `json:"code"`
@@ -35,12 +38,14 @@ type Session struct {
 	LicenseID    string     `json:"license_id,omitempty"`
 }
 
+// Service manages support session lifecycle and audit logging.
 type Service struct {
 	db      *database.DB
 	license LicenseChecker
 	audit   *AuditLogger
 }
 
+// LicenseChecker reports license state for support access.
 type LicenseChecker interface {
 	Valid() bool
 	SupportLevel() string
@@ -48,16 +53,19 @@ type LicenseChecker interface {
 	Reason() string
 }
 
+// NewService creates a support service.
 func NewService(db *database.DB, lic LicenseChecker) *Service {
 	return &Service{db: db, license: lic, audit: NewAuditLogger(db)}
 }
 
+// CreateRequest defines parameters for a new support session.
 type CreateRequest struct {
 	Scopes    []string
 	TTL       time.Duration
 	CreatedBy string
 }
 
+// CreateSession creates a new support session record.
 func (s *Service) CreateSession(ctx context.Context, req CreateRequest) (*Session, error) {
 	if s.license != nil && !s.license.Valid() {
 		return nil, fmt.Errorf("support license invalid: %s", s.license.Reason())
@@ -95,6 +103,7 @@ func (s *Service) CreateSession(ctx context.Context, req CreateRequest) (*Sessio
 	}, nil
 }
 
+// ListSessions returns recent support sessions.
 func (s *Service) ListSessions(ctx context.Context, limit int) ([]*Session, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
@@ -204,6 +213,7 @@ func (s *Service) LogAudit(ctx context.Context, entry *AuditEntry) {
 	_ = s.audit.Log(ctx, entry)
 }
 
+// RevokeSession marks a support session as revoked.
 func (s *Service) RevokeSession(ctx context.Context, id, by string) error {
 	now := time.Now()
 	_, err := s.db.Exec(`

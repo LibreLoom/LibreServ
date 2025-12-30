@@ -19,6 +19,7 @@ type HTTPCheck struct {
 	httpClient *http.Client
 }
 
+// NewHTTPCheck creates an HTTP health check with a timeout.
 func NewHTTPCheck(cfg HTTPCheckConfig, timeout time.Duration) *HTTPCheck {
 	return &HTTPCheck{
 		Config: cfg,
@@ -28,10 +29,12 @@ func NewHTTPCheck(cfg HTTPCheckConfig, timeout time.Duration) *HTTPCheck {
 	}
 }
 
+// Type returns the check type.
 func (h *HTTPCheck) Type() string {
 	return "http"
 }
 
+// Run executes the HTTP check.
 func (h *HTTPCheck) Run(ctx context.Context) CheckResult {
 	result := CheckResult{
 		CheckType: h.Type(),
@@ -86,6 +89,7 @@ type TCPCheck struct {
 	Timeout time.Duration
 }
 
+// NewTCPCheck creates a TCP health check with a timeout.
 func NewTCPCheck(cfg TCPCheckConfig, timeout time.Duration) *TCPCheck {
 	return &TCPCheck{
 		Config:  cfg,
@@ -93,10 +97,12 @@ func NewTCPCheck(cfg TCPCheckConfig, timeout time.Duration) *TCPCheck {
 	}
 }
 
+// Type returns the check type.
 func (t *TCPCheck) Type() string {
 	return "tcp"
 }
 
+// Run executes the TCP check.
 func (t *TCPCheck) Run(ctx context.Context) CheckResult {
 	result := CheckResult{
 		CheckType: t.Type(),
@@ -128,6 +134,7 @@ type ContainerCheck struct {
 	DockerClient *client.Client
 }
 
+// NewContainerCheck creates a container health check.
 func NewContainerCheck(cfg ContainerCheckConfig, dockerClient *client.Client) *ContainerCheck {
 	return &ContainerCheck{
 		Config:       cfg,
@@ -135,10 +142,12 @@ func NewContainerCheck(cfg ContainerCheckConfig, dockerClient *client.Client) *C
 	}
 }
 
+// Type returns the check type.
 func (c *ContainerCheck) Type() string {
 	return "container"
 }
 
+// Run executes the container health check.
 func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 	result := CheckResult{
 		CheckType: c.Type(),
@@ -297,14 +306,17 @@ type CompositeCheck struct {
 	Checks []Check
 }
 
+// NewCompositeCheck builds a composite health check.
 func NewCompositeCheck(checks ...Check) *CompositeCheck {
 	return &CompositeCheck{Checks: checks}
 }
 
+// Type returns the check type.
 func (c *CompositeCheck) Type() string {
 	return "composite"
 }
 
+// Run executes all checks and aggregates results.
 func (c *CompositeCheck) Run(ctx context.Context) CheckResult {
 	result := CheckResult{
 		CheckType: c.Type(),

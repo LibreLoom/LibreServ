@@ -16,6 +16,7 @@ type SupportDiagnosticsHandler struct {
 	docker *docker.Client
 }
 
+// NewSupportDiagnosticsHandler creates a handler for diagnostics checks.
 func NewSupportDiagnosticsHandler(authService *auth.Service, dockerClient *docker.Client) *SupportDiagnosticsHandler {
 	return &SupportDiagnosticsHandler{
 		auth:   authService,
@@ -23,6 +24,7 @@ func NewSupportDiagnosticsHandler(authService *auth.Service, dockerClient *docke
 	}
 }
 
+// Get returns basic health checks for support diagnostics.
 func (h *SupportDiagnosticsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
 	results := map[string]interface{}{}

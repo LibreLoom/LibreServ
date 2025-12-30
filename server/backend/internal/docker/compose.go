@@ -11,10 +11,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// ComposeManager manages docker compose operations.
 type ComposeManager struct {
 	client *Client
 }
 
+// NewComposeManager creates a compose manager for a Docker client.
 func NewComposeManager(client *Client) *ComposeManager {
 	return &ComposeManager{client: client}
 }
@@ -59,6 +61,7 @@ func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
 	return nil
 }
 
+// Down runs `docker compose down`.
 func (cm *ComposeManager) Down(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
 
@@ -74,6 +77,7 @@ func (cm *ComposeManager) Down(ctx context.Context, composePath string) error {
 	return nil
 }
 
+// Pull runs `docker compose pull`.
 func (cm *ComposeManager) Pull(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
 

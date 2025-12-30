@@ -13,6 +13,7 @@ import (
 )
 
 var (
+	// ErrSetupAlreadyComplete indicates setup is already done.
 	ErrSetupAlreadyComplete = errors.New("setup has already been completed")
 )
 

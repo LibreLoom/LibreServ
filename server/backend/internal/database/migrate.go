@@ -12,6 +12,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
+// Migrate applies pending database migrations.
 func (d *DB) Migrate() error {
 	// 1. Ensure schema_migrations table exists
 	if err := d.ensureMigrationTable(); err != nil {

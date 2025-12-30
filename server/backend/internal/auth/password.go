@@ -9,7 +9,9 @@ import (
 )
 
 var (
+	// ErrPasswordTooShort indicates a password doesn't meet minimum length.
 	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
+	// ErrPasswordMismatch indicates a hash mismatch for a supplied password.
 	ErrPasswordMismatch = errors.New("password does not match")
 )
 

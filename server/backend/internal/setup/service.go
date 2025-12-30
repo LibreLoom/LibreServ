@@ -13,6 +13,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 )
 
+// Setup status values.
 const (
 	StatusPending    = "pending"
 	StatusInProgress = "in_progress"
@@ -33,6 +34,7 @@ type Service struct {
 	mu sync.Mutex
 }
 
+// NewService creates a setup service.
 func NewService(db *database.DB) *Service {
 	return &Service{db: db}
 }

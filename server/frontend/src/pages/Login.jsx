@@ -25,7 +25,7 @@ LOGIN PAGE — PRODUCTION READINESS CHECKLIST
 
 
 🟧 STRONGLY RECOMMENDED (UX & accessibility)
-[ ] Errors are announced semantically
+[X] Errors are announced semantically
     - Error container marked as important
     - Screen readers notice login failure
 
@@ -91,7 +91,27 @@ export default function Login() {
   const [error, setError] = useState(null);
 
   const { login } = useAuth();
-
+  function calculateErrorHTML() {
+    if (error) {
+      return error;
+    } else if (errorStatus) {
+      return (
+        <p>
+          Login failed. Something might be misconfigured. See
+          <a
+            href={
+              "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/" +
+              errorStatus
+            }
+            className="underline"
+          >
+            {" this page "}
+          </a>
+          for info that might be helpful.
+        </p>
+      );
+    }
+  }
   async function handleSubmit(e) {
     e.preventDefault();
     if (!username || !password || loading) return;
@@ -161,22 +181,13 @@ export default function Login() {
           >
             {loading ? "Loading..." : "Login"}
           </button>
-          {errorStatus && (
-            <p className="text-accent mt-4">
-              Login failed. Something might be misconfigured. See
-              <a
-                href={
-                  "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/" +
-                  errorStatus
-                }
-                className="underline"
-              >
-                {" this page "}
-              </a>
-              for info that might be helpful.
-            </p>
-          )}
-          {error && <p className="text-accent mt-4">{error}</p>}
+          <div
+            className={`text-accent ${errorStatus || error ? "mt-4" : ""}`}
+            role="alert"
+            aria-live="assertive"
+          >
+            {(error || errorStatus) && calculateErrorHTML()}
+          </div>
         </form>
       </div>
     </main>

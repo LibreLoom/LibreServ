@@ -11,6 +11,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 )
 
+// Client wraps the Docker API client and context.
 type Client struct {
 	cli *client.Client
 	ctx context.Context
@@ -120,6 +121,7 @@ func (c *Client) HealthCheck() error {
 	return nil
 }
 
+// Close releases the underlying Docker client.
 func (c *Client) Close() error {
 	return c.cli.Close()
 }

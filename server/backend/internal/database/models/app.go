@@ -2,6 +2,7 @@ package models
 
 import "time"
 
+// App represents an app record stored in the database.
 type App struct {
 	ID           string                 `json:"id"`
 	Name         string                 `json:"name"`
@@ -15,6 +16,7 @@ type App struct {
 	Metadata     map[string]interface{} `json:"metadata"`
 }
 
+// AppRepository defines database operations for apps.
 type AppRepository interface {
 	Create(app *App) error
 	GetByID(id string) (*App, error)

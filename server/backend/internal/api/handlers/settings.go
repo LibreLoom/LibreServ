@@ -11,6 +11,7 @@ import (
 // SettingsHandler manages simple runtime settings operations
 type SettingsHandler struct{}
 
+// NewSettingsHandler creates a handler for settings endpoints.
 func NewSettingsHandler() *SettingsHandler { return &SettingsHandler{} }
 
 // Get returns a subset of current settings

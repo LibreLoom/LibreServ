@@ -11,6 +11,7 @@ import (
 // NotifyHandler exposes notification configuration (minus secrets) for UI hydration.
 type NotifyHandler struct{}
 
+// NewNotifyHandler creates a handler for notification configuration endpoints.
 func NewNotifyHandler() *NotifyHandler {
 	return &NotifyHandler{}
 }

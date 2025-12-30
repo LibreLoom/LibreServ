@@ -17,6 +17,7 @@ const (
 // AppCategory represents the category of an app
 type AppCategory string
 
+// App categories used for catalog grouping.
 const (
 	CategoryProductivity AppCategory = "productivity"
 	CategoryMedia        AppCategory = "media"
@@ -195,6 +196,7 @@ type BackendRef struct {
 // AppStatus represents the current status of an installed app
 type AppStatus string
 
+// AppStatus values for installed app state.
 const (
 	StatusPending    AppStatus = "pending"
 	StatusInstalling AppStatus = "installing"
@@ -208,6 +210,7 @@ const (
 // HealthStatus represents the health status of an app
 type HealthStatus string
 
+// HealthStatus values for health checks.
 const (
 	HealthUnknown   HealthStatus = "unknown"
 	HealthHealthy   HealthStatus = "healthy"

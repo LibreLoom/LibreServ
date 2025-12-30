@@ -7,6 +7,7 @@ import (
 // BackupType represents the type of backup
 type BackupType string
 
+// BackupType values for storage backups.
 const (
 	BackupTypeApp      BackupType = "app"
 	BackupTypeSystem   BackupType = "system"

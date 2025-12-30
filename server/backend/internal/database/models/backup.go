@@ -2,6 +2,7 @@ package models
 
 import "time"
 
+// Backup represents an app or system backup record.
 type Backup struct {
 	ID        string    `json:"id"`
 	AppID     string    `json:"app_id,omitempty"`
@@ -11,6 +12,7 @@ type Backup struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// DatabaseBackup represents a stored database backup.
 type DatabaseBackup struct {
 	ID        string    `json:"id"`
 	Path      string    `json:"path"`
@@ -19,6 +21,7 @@ type DatabaseBackup struct {
 	Checksum  string    `json:"checksum"`
 }
 
+// BackupRepository defines database operations for backups.
 type BackupRepository interface {
 	Create(backup *Backup) error
 	GetByID(id string) (*Backup, error)

@@ -8,7 +8,9 @@ import (
 )
 
 var (
+	// ErrInvalidToken indicates token validation failed.
 	ErrInvalidToken = errors.New("invalid token")
+	// ErrExpiredToken indicates the token has expired.
 	ErrExpiredToken = errors.New("token has expired")
 )
 

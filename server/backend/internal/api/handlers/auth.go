@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 )
 
 // AuthHandler handles authentication-related API endpoints
@@ -154,8 +155,8 @@ type ChangePasswordRequest struct {
 // Updates the user's password after verifying the current password
 func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Get user from context (set by auth middleware)
-	userID := r.Context().Value("user_id")
-	if userID == nil {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
 		JSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -175,7 +176,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.authService.ChangePassword(r.Context(), userID.(string), req.OldPassword, req.NewPassword)
+	err := h.authService.ChangePassword(r.Context(), userID, req.OldPassword, req.NewPassword)
 	if err != nil {
 		if err == auth.ErrInvalidCredentials {
 			JSONError(w, http.StatusUnauthorized, "current password is incorrect")
@@ -198,13 +199,13 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 // Returns the current authenticated user's information
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from context (set by auth middleware)
-	userID := r.Context().Value("user_id")
-	if userID == nil {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
 		JSONError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
 
-	user, err := h.authService.GetUserByID(r.Context(), userID.(string))
+	user, err := h.authService.GetUserByID(r.Context(), userID)
 	if err != nil {
 		JSONError(w, http.StatusNotFound, "user not found")
 		return

@@ -21,6 +21,7 @@ type SupportHandler struct {
 	mailer  func() (*email.Sender, error)
 }
 
+// NewSupportHandler creates a handler for support session APIs.
 func NewSupportHandler(svc *support.Service, lic middleware.LicenseChecker) *SupportHandler {
 	return &SupportHandler{svc: svc, license: lic, mailer: email.NewSender}
 }
@@ -30,6 +31,7 @@ type createSessionRequest struct {
 	TTL    string   `json:"ttl"` // e.g., "1h", "30m"
 }
 
+// CreateSession creates a new support session.
 func (h *SupportHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	if h.license != nil && !h.license.Valid() {
 		JSONError(w, http.StatusForbidden, "support requires a valid license: "+h.license.Reason())
@@ -69,6 +71,7 @@ func (h *SupportHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, sess)
 }
 
+// ListSessions returns recent support sessions.
 func (h *SupportHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -102,6 +105,7 @@ func (h *SupportHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, sess)
 }
 
+// RevokeSession revokes a support session by ID.
 func (h *SupportHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "sessionID")
 	if id == "" {

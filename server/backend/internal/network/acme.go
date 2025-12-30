@@ -35,6 +35,7 @@ type ACMEManager struct {
 	external   ExternalACMEConfig
 }
 
+// NewACMEManager creates a new ACME manager.
 func NewACMEManager(adminAPI, configPath string) *ACMEManager {
 	return &ACMEManager{
 		adminAPI:   adminAPI,
@@ -45,6 +46,7 @@ func NewACMEManager(adminAPI, configPath string) *ACMEManager {
 	}
 }
 
+// ExternalACMEConfig configures external ACME issuance (lego).
 type ExternalACMEConfig struct {
 	Enabled     bool              `json:"enabled"`
 	UseDocker   bool              `json:"use_docker"`
@@ -65,11 +67,13 @@ func (a *ACMEManager) WithAuto(enable bool) *ACMEManager {
 	return a
 }
 
+// WithExternal sets external ACME config for DNS-01 issuance.
 func (a *ACMEManager) WithExternal(cfg ExternalACMEConfig) *ACMEManager {
 	a.external = cfg
 	return a
 }
 
+// ExternalEnabled reports whether external ACME is enabled.
 func (a *ACMEManager) ExternalEnabled() bool {
 	return a.external.Enabled
 }

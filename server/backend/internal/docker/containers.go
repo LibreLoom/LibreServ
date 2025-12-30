@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 )
 
+// ContainerStats summarizes container resource usage.
 type ContainerStats struct {
 	CPUPercent  float64 `json:"cpu_percent"`
 	MemoryUsage uint64  `json:"memory_usage"`
@@ -17,6 +18,7 @@ type ContainerStats struct {
 	NetworkTx   uint64  `json:"network_tx"`
 }
 
+// ListContainersByLabel returns containers matching a label filter.
 func (c *Client) ListContainersByLabel(label string) ([]types.Container, error) {
 	if c == nil || c.cli == nil {
 		return nil, errors.New("docker client not initialized")

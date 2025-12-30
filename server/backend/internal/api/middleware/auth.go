@@ -82,7 +82,6 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 			// Add user to context
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			ctx = context.WithValue(ctx, UserIDContextKey, user.ID)
-			ctx = context.WithValue(ctx, "user_id", user.ID) // Also as plain string key for handlers
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -95,6 +94,12 @@ func GetUser(ctx context.Context) *User {
 		return nil
 	}
 	return user
+}
+
+// GetUserID retrieves the authenticated user ID from context.
+func GetUserID(ctx context.Context) (string, bool) {
+	userID, ok := ctx.Value(UserIDContextKey).(string)
+	return userID, ok
 }
 
 // RequireRole returns a middleware that requires a specific role

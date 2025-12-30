@@ -13,11 +13,13 @@ import (
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
 
+// DB wraps the SQLite connection and metadata.
 type DB struct {
 	db   *sql.DB
 	path string
 }
 
+// Open opens or creates the SQLite database at dbPath.
 func Open(dbPath string) (*DB, error) {
 	// Ensure directory exists
 	dir := filepath.Dir(dbPath)
@@ -55,14 +57,17 @@ func Open(dbPath string) (*DB, error) {
 	}, nil
 }
 
+// Path returns the database file path.
 func (d *DB) Path() string {
 	return d.path
 }
 
+// Close closes the underlying database connection.
 func (d *DB) Close() error {
 	return d.db.Close()
 }
 
+// Ping checks database connectivity.
 func (d *DB) Ping() error {
 	return d.db.Ping()
 }

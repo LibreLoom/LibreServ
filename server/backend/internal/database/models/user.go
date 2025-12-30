@@ -2,6 +2,7 @@ package models
 
 import "time"
 
+// User represents an application user record.
 type User struct {
 	ID           string    `json:"id"`
 	Username     string    `json:"username"`
@@ -12,6 +13,7 @@ type User struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// UserRepository defines database operations for users.
 type UserRepository interface {
 	Create(user *User) error
 	GetByID(id string) (*User, error)

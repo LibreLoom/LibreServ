@@ -12,6 +12,7 @@ import (
 // ACMEJobStatus is a coarse-grained state machine for issuance attempts.
 type ACMEJobStatus string
 
+// ACMEJobStatus values for issuance lifecycle.
 const (
 	ACMEJobQueued    ACMEJobStatus = "queued"
 	ACMEJobRunning   ACMEJobStatus = "running"
@@ -49,6 +50,7 @@ func ensureACMEJobsTable(db *database.DB) error {
 	return err
 }
 
+// CreateACMEJob inserts a new ACME issuance job.
 func CreateACMEJob(ctx context.Context, db *database.DB, domain, email, routeID string) (*ACMEJob, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db is nil")
@@ -76,6 +78,7 @@ func CreateACMEJob(ctx context.Context, db *database.DB, domain, email, routeID 
 	return job, nil
 }
 
+// UpdateACMEJobRunning marks an ACME job as running.
 func UpdateACMEJobRunning(ctx context.Context, db *database.DB, id string) error {
 	if db == nil {
 		return fmt.Errorf("db is nil")
@@ -85,6 +88,7 @@ func UpdateACMEJobRunning(ctx context.Context, db *database.DB, id string) error
 	return err
 }
 
+// UpdateACMEJobFinished marks an ACME job as finished.
 func UpdateACMEJobFinished(ctx context.Context, db *database.DB, id string, success bool, errMsg string) error {
 	if db == nil {
 		return fmt.Errorf("db is nil")
@@ -98,6 +102,7 @@ func UpdateACMEJobFinished(ctx context.Context, db *database.DB, id string, succ
 	return err
 }
 
+// GetACMEJobByID fetches an ACME job by ID.
 func GetACMEJobByID(ctx context.Context, db *database.DB, id string) (*ACMEJob, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db is nil")
@@ -133,6 +138,7 @@ func GetACMEJobByID(ctx context.Context, db *database.DB, id string) (*ACMEJob, 
 	return &job, nil
 }
 
+// LatestACMEJobForDomain returns the newest job for a domain.
 func LatestACMEJobForDomain(ctx context.Context, db *database.DB, domain string) (*ACMEJob, error) {
 	if db == nil {
 		return nil, fmt.Errorf("db is nil")

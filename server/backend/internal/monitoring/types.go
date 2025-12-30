@@ -8,6 +8,7 @@ import (
 // HealthStatus represents the health state of an app
 type HealthStatus string
 
+// HealthStatus values used by monitoring checks.
 const (
 	HealthStatusHealthy   HealthStatus = "healthy"
 	HealthStatusUnhealthy HealthStatus = "unhealthy"

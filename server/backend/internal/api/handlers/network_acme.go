@@ -23,6 +23,7 @@ type ACMEHandler struct {
 	db           *database.DB
 }
 
+// NewACMEHandler wires ACME-related API handlers.
 func NewACMEHandler(db *database.DB, manager *network.ACMEManager, caddyManager *network.CaddyManager, appManager *apps.Manager) *ACMEHandler {
 	return &ACMEHandler{
 		manager:      manager,

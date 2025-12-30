@@ -11,6 +11,7 @@ import (
 // NetworkProbeHandler exposes DNS and TCP probes.
 type NetworkProbeHandler struct{}
 
+// NewNetworkProbeHandler creates a handler for network probe endpoints.
 func NewNetworkProbeHandler() *NetworkProbeHandler { return &NetworkProbeHandler{} }
 
 // DNS handles GET /api/v1/network/dns?host=example.com

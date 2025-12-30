@@ -39,7 +39,7 @@ func (l *LeakyBucket) Allow() bool {
 	l.lastRef = now
 
 	if l.tokens >= 1 {
-		l.tokens -= 1
+		l.tokens--
 		return true
 	}
 	return false

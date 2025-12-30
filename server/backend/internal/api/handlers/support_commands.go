@@ -18,6 +18,7 @@ type SupportCommandHandler struct {
 	svc *support.Service
 }
 
+// NewSupportCommandHandler creates a handler for support command execution.
 func NewSupportCommandHandler(svc *support.Service) *SupportCommandHandler {
 	return &SupportCommandHandler{svc: svc}
 }
@@ -41,6 +42,7 @@ var allowedCommands = map[string]bool{
 	"top":        false, // disallow by default
 }
 
+// Run executes an allowlisted command for a support session.
 func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 	var req commandRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

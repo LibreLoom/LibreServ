@@ -11,10 +11,12 @@ type CSRFHandler struct {
 	secret string
 }
 
+// NewCSRFHandler creates a CSRF handler with the given secret.
 func NewCSRFHandler(secret string) *CSRFHandler {
 	return &CSRFHandler{secret: secret}
 }
 
+// GetToken returns a CSRF token for the authenticated user.
 func (h *CSRFHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
 	if user == nil {

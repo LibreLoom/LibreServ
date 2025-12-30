@@ -56,6 +56,7 @@ func (m multiHandler) WithGroup(name string) slog.Handler {
 	return multiHandler{hs: next}
 }
 
+// Init configures the global logger based on config.
 func Init(cfg config.LoggingConfig) {
 	var level slog.Level
 	switch cfg.Level {

@@ -14,6 +14,7 @@ type SupportSessionValidationHandler struct {
 	svc *support.Service
 }
 
+// NewSupportSessionValidationHandler creates a handler for support session validation.
 func NewSupportSessionValidationHandler(svc *support.Service) *SupportSessionValidationHandler {
 	return &SupportSessionValidationHandler{svc: svc}
 }
@@ -23,6 +24,7 @@ type validateReq struct {
 	Token string `json:"token"`
 }
 
+// Validate checks a support session code/token pair and returns session info.
 func (h *SupportSessionValidationHandler) Validate(w http.ResponseWriter, r *http.Request) {
 	var req validateReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

@@ -99,6 +99,7 @@ func signingString(ent Entitlement) string {
 // Valid returns whether entitlement is valid.
 func (s *Service) Valid() bool { return s != nil && s.valid }
 
+// Reason returns a human-readable license failure reason.
 func (s *Service) Reason() string {
 	if s == nil {
 		return "license service not initialized"
@@ -114,6 +115,7 @@ func (s *Service) SupportLevel() string {
 	return s.entitlement.SupportLevel
 }
 
+// LicenseID returns the current license ID if available.
 func (s *Service) LicenseID() string {
 	if s == nil || s.entitlement == nil {
 		return ""

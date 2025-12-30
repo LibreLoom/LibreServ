@@ -11,6 +11,7 @@ type LicenseHandler struct {
 	lic middleware.LicenseChecker
 }
 
+// NewLicenseHandler creates a handler for license status endpoints.
 func NewLicenseHandler(lic middleware.LicenseChecker) *LicenseHandler {
 	return &LicenseHandler{lic: lic}
 }

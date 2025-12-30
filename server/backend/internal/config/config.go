@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Config holds application configuration values.
 type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
@@ -26,27 +27,32 @@ type Config struct {
 	Notify   Notifications  `mapstructure:"notify"`
 }
 
+// AuthConfig holds auth-related settings.
 type AuthConfig struct {
 	JWTSecret  string `mapstructure:"jwt_secret"` // Auto-generated if empty
 	SecretFile string `mapstructure:"secret_file"`
 	CSRFSecret string `mapstructure:"csrf_secret"`
 }
 
+// ServerConfig defines HTTP server settings.
 type ServerConfig struct {
 	Host string `mapstructure:"host"`
 	Port int    `mapstructure:"port"`
 	Mode string `mapstructure:"mode"`
 }
 
+// DatabaseConfig defines database settings.
 type DatabaseConfig struct {
 	Path string `mapstructure:"path"`
 }
 
+// AppsConfig defines app catalog and data paths.
 type AppsConfig struct {
 	DataPath    string `mapstructure:"data_path"`
 	CatalogPath string `mapstructure:"catalog_path"`
 }
 
+// DockerConfig defines Docker connection settings.
 type DockerConfig struct {
 	Method     string        `mapstructure:"method"` // auto, socket, tcp, ssh
 	SocketPath string        `mapstructure:"socket_path"`
@@ -55,6 +61,7 @@ type DockerConfig struct {
 	Timeout    time.Duration `mapstructure:"timeout"`
 }
 
+// TCPConfig defines TCP Docker connection settings.
 type TCPConfig struct {
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
@@ -62,21 +69,25 @@ type TCPConfig struct {
 	CertPath string `mapstructure:"cert_path"`
 }
 
+// SSHConfig defines SSH Docker connection settings.
 type SSHConfig struct {
 	Host    string `mapstructure:"host"`
 	User    string `mapstructure:"user"`
 	KeyPath string `mapstructure:"key_path"`
 }
 
+// LoggingConfig defines logging settings.
 type LoggingConfig struct {
 	Level string `mapstructure:"level"`
 	Path  string `mapstructure:"path"`
 }
 
+// CORSConfig defines CORS settings.
 type CORSConfig struct {
 	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
+// LicenseConfig defines license validation settings.
 type LicenseConfig struct {
 	EntitlementFile string `mapstructure:"entitlement_file"`
 	PublicKeyFile   string `mapstructure:"public_key_file"`
@@ -109,10 +120,12 @@ type NetworkConfig struct {
 	ACME  ACMEConfig  `mapstructure:"acme"`
 }
 
+// ACMEConfig defines ACME-related settings.
 type ACMEConfig struct {
 	External ExternalACMEConfig `mapstructure:"external"`
 }
 
+// ExternalACMEConfig holds external ACME issuer settings.
 type ExternalACMEConfig struct {
 	Enabled     bool              `mapstructure:"enabled"`
 	UseDocker   bool              `mapstructure:"use_docker"`
@@ -129,6 +142,7 @@ type ExternalACMEConfig struct {
 }
 
 // CaddyConfig mirrors the network.CaddyConfig but avoids import cycles
+// CaddyConfig defines Caddy reverse proxy settings.
 type CaddyConfig struct {
 	Mode          string         `mapstructure:"mode"`
 	AdminAPI      string         `mapstructure:"admin_api"`
@@ -141,6 +155,7 @@ type CaddyConfig struct {
 	Logging       CaddyLogConfig `mapstructure:"logging"`
 }
 
+// CaddyReload defines retry settings for Caddy reloads.
 type CaddyReload struct {
 	Retries        int           `mapstructure:"retries"`
 	BackoffMin     time.Duration `mapstructure:"backoff_min"`
@@ -149,6 +164,7 @@ type CaddyReload struct {
 	AttemptTimeout time.Duration `mapstructure:"attempt_timeout"`
 }
 
+// CaddyLogConfig defines Caddy logging settings.
 type CaddyLogConfig struct {
 	Output string `mapstructure:"output"`
 	File   string `mapstructure:"file"`
@@ -159,6 +175,7 @@ type CaddyLogConfig struct {
 var globalConfig *Config
 var configFilePath string
 
+// LoadConfig loads configuration from disk and environment.
 func LoadConfig(path string) error {
 	v := viper.New()
 
@@ -195,12 +212,13 @@ func LoadConfig(path string) error {
 	return nil
 }
 
+// Get returns the currently loaded config.
 func Get() *Config {
 	return globalConfig
 }
 
-// ConfigPath returns the last-loaded config path, if known.
-func ConfigPath() string {
+// Path returns the last-loaded config path, if known.
+func Path() string {
 	return configFilePath
 }
 

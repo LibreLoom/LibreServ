@@ -14,10 +14,12 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
 )
 
+// SupportFileHandler serves file read/write endpoints for support sessions.
 type SupportFileHandler struct {
 	svc *support.Service
 }
 
+// NewSupportFileHandler creates a handler for support file operations.
 func NewSupportFileHandler(svc *support.Service) *SupportFileHandler {
 	return &SupportFileHandler{svc: svc}
 }

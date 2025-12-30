@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Exclude .go-build-cache for all those overlooked coding agents :(((((((
+.go-build-cache
