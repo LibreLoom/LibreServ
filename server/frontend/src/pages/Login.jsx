@@ -10,11 +10,13 @@ export default function Login() {
   const { login } = useAuth();
   useEffect(() => {
     if (errorStatus && errorRef.current) {
+      // Move focus to the error copy for screen readers/keyboard users.
       errorRef.current.focus();
     }
   }, [errorStatus]);
 
   function calculateErrorHTML() {
+    // Translate backend status codes into friendly guidance.
     if (errorStatus === 401) {
       return (
         <p>
@@ -88,6 +90,7 @@ export default function Login() {
     setErrorStatus(null);
     try {
       await login(username, password);
+      // Reload to re-run auth bootstrap and reset any stale state.
       window.location.reload();
     } catch (errorStatus) {
       if (!errorStatus.cause?.status) {

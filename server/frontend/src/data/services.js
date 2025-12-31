@@ -11,6 +11,7 @@ import {
 
 // TODO: Replace with API calls
 // Resource values are normalized (0..1) so cards can format and combine them.
+// Mock service list used by cards and detail views until live data is wired in.
 export const services = [
   {
     name: "SearXNG",
@@ -96,5 +97,10 @@ export function getBreakdownItems(resources) {
 export function totalResourceUsage({ cpu, ram, disk, net }) {
   // Weighted aggregate keeps the "stress index" stable across categories.
   const weights = { cpu: 0.3, ram: 0.25, disk: 0.2, net: 0.15 };
-  return cpu * weights.cpu + ram * weights.ram + disk * weights.disk + net * weights.net;
+  return (
+    cpu * weights.cpu +
+    ram * weights.ram +
+    disk * weights.disk +
+    net * weights.net
+  );
 }

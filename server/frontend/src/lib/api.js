@@ -20,6 +20,7 @@ export default async function api(path, options = {}, retried = false) {
     !retried &&
     !noRetry
   ) {
+    // Attempt a silent refresh once before surfacing an auth error.
     const refreshResponse = await fetch("/api/v1/auth/refresh", {
       credentials: "include",
       method: "POST",
@@ -29,6 +30,7 @@ export default async function api(path, options = {}, retried = false) {
     }
   }
   if (!res.ok) {
+    // Attach status and response for downstream error handling (login, retries).
     throw new Error(`Request failed with status: ${res.status}`, {
       cause: {
         status: res.status,

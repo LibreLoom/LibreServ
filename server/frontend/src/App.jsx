@@ -23,6 +23,7 @@ function RequireAuth({ children }) {
 export default function App() {
   return (
     <Routes>
+      {/* Wrap app routes so auth and layout are applied consistently. */}
       <Route
         element={
           <RequireAuth>
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/help" element={<HelpPage />} />
       </Route>
+      {/* Fallback for unknown routes. */}
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
