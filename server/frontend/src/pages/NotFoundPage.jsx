@@ -233,7 +233,7 @@ export default function NotFoundPage({ includeMain = true }) {
                         <li key={page.to}>
                           <Link
                             to={page.to}
-                            className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                            className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
                           >
                             {page.label}
                           </Link>
@@ -257,7 +257,7 @@ export default function NotFoundPage({ includeMain = true }) {
               <button
                 type="button"
                 onClick={() => navigate(-1)}
-                className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
               >
                 <ArrowLeft size={18} aria-hidden="true" />
                 Go back
@@ -265,7 +265,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
               <Link
                 to="/"
-                className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
               >
                 <Home size={18} aria-hidden="true" />
                 Home
@@ -273,7 +273,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
               <Link
                 to="/help"
-                className="inline-flex items-center gap-2 rounded-pill bg-transparent text-primary px-4 py-2 text-sm font-medium outline-2 outline-accent motion-safe:transition hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                className="inline-flex items-center gap-2 rounded-pill bg-transparent text-primary px-4 py-2 text-sm font-medium outline-2 outline-accent motion-safe:transition-all hover:bg-primary hover:text-secondary hover:outline-0 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
               >
                 <LifeBuoy size={18} aria-hidden="true" />
                 Help
