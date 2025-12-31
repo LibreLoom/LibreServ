@@ -101,9 +101,11 @@ export default function Login() {
   return (
     <main className="fixed inset-0 grid place-items-center bg-primary">
       <div className="relative w-full max-w-lg overflow-scroll bg-secondary text-primary rounded-large-element outline-2 outline-accent pop-in p-8">
-        <span className="text-primary font-mono text-2xl">LibreServ</span>
+        <span className="text-primary font-mono text-2xl block text-center">
+          LibreServ
+        </span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
-        <span className="text-primary font-mono text-xl font-weight-400">
+        <span className="text-primary font-sans text-xl font-bold block text-center">
           Hey there! Log in to continue.
         </span>
         <form

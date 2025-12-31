@@ -21,7 +21,6 @@
 //   - redirect to login
 // - Later:
 //   - add refresh-token flow instead of hard logout
-//   - ensure password hashing prior to being sent to backend (also ensure that the backend is properly configured to handle hashed passwords)
 import { useState } from "react";
 import api from "../lib/api";
 import { AuthContext } from "./AuthContextContext";
