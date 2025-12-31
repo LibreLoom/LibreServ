@@ -1,4 +1,3 @@
-import "./App.css";
 import MainLayout from "./layout/MainLayout";
 import DashboardPage from "./pages/DashboardPage";
 import AppsPage from "./pages/AppsPage";

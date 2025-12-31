@@ -312,7 +312,7 @@ export default function NotFoundPage({ includeMain = true }) {
               <div
                 id={investigationId}
                 aria-hidden={!isInvestigationOpen}
-                className={`overflow-hidden px-4 ${isInvestigationOpen ? "max-h-[32rem] pb-4 opacity-100" : "max-h-0 pb-0 opacity-0"} motion-safe:transition-all motion-safe:duration-300 ease-out`}
+                className={`overflow-hidden px-4 ${isInvestigationOpen ? "max-h-128 pb-4 opacity-100" : "max-h-0 pb-0 opacity-0"} motion-safe:transition-all motion-safe:duration-300 ease-out`}
               >
                 <div className="pt-2 text-accent">
                   {bestMatch ? (
