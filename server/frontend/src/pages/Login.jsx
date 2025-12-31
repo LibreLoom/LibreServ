@@ -1,86 +1,4 @@
-{
-  /*
-========================================
-LOGIN PAGE — PRODUCTION READINESS CHECKLIST
-========================================
-
-🟥 MUST-FIX (before shipping)
-[X] Convert floating labels to real <label> elements
-    - Labels always exist
-    - Bound to inputs (htmlFor / id)
-    - Animated via state, not conditional rendering
-
-[X] Choose explicit success behavior
-    - Hard reload OR client-side redirect
-    - Must happen immediately on successful login
-
-[X] Ensure success path terminates control flow
-    - No late error rendering after success
-    - No state updates after redirect/reload
-
-[X] Remove all credential logging
-    - No usernames
-    - No passwords
-    - No debug leftovers
-
-
-🟧 STRONGLY RECOMMENDED (UX & accessibility)
-[X] Errors are announced semantically
-    - Error container marked as important
-    - Screen readers notice login failure
-
-[ ] Loading state is communicated non-visually
-    - Not just button text
-    - Form indicates “busy”
-
-[ ] Only submit is locked during loading
-    - Inputs remain editable
-    - Button disabled while request is in flight
-
-[ ] Retry is frictionless
-    - Immediate retry after failure
-    - No forced resets
-    - No surprise cooldowns (except 429)
-
-
-🟨 NICE-TO-HAVE POLISH
-[ ] Refine error copy
-    - Calm, human language
-    - No protocol jargon unless helpful
-
-[ ] Gate MDN / status-code link
-    - Show only for unknown or 5xx errors
-    - Hide for common auth failures (401)
-
-[ ] Normalize field metadata
-    - name="username"
-    - name="password"
-    - Consistent casing for password managers
-
-[ ] Optional UI helpers
-    - <FormError />
-    - <SubmitButton />
-
-
-🟩 OPTIONAL HARDENING (advanced)
-[ ] Handle offline / network failure gracefully
-[ ] Cooldown logic after 429
-[ ] Focus error message on failure
-[ ] Subtle success transition
-
-
-🚦 SHIP CHECK (all must be true)
-[ ] One submit = one login attempt
-[ ] Inputs editable during request
-[ ] Button locked during request
-[ ] Errors clear on retry
-[ ] Success path is explicit
-[ ] Labels work with keyboard & screen readers
-
-========================================
-*/
-}
-import { useState } from "react";
+import { useRef, useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 
 export default function Login() {
@@ -88,16 +6,67 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
-  const [error, setError] = useState(null);
-
+  const errorRef = useRef(null);
   const { login } = useAuth();
+  useEffect(() => {
+    if (errorStatus && errorRef.current) {
+      errorRef.current.focus();
+    }
+  }, [errorStatus]);
+
   function calculateErrorHTML() {
-    if (error) {
-      return error;
+    if (errorStatus === 401) {
+      return (
+        <p>
+          It seems that your username or password might be incorrect.
+          Double-check to make sure they're right!
+        </p>
+      );
+    } else if (errorStatus === 429) {
+      return (
+        <p>
+          Please wait a bit before trying again. If you can't remember your
+          password, feel free to contact support!
+        </p>
+      );
+    } else if (errorStatus === 500) {
+      return (
+        <p>
+          Wait up! If you just rebooted, updated, or simply turned on your
+          LibreServ, it may still be starting up. <br />
+          <br />
+          If this issue has been happening repeatedly, try rebooting your
+          LibreServ (it's not super intuitive for this error, but trust us, it
+          can help). <br />
+          <br /> If you've rebooted your LibreServ and continue encountering
+          this issue, try contacting support for assistance.
+        </p>
+      );
+    } else if (errorStatus == "NetworkError") {
+      return (
+        <p>
+          Check your device's connection to the internet. (Not your LibreServ's,
+          but this device's!) <br />
+          <br />
+          If you're absolutely sure that you are connected to the internet,
+          please try rebooting your LibreServ. <br />
+          <br />
+          If you've both rebooted your LibreServ and have ensured that your
+          device is connected to the internet, please reach out to support for
+          assistance.{" "}
+        </p>
+      );
     } else if (errorStatus) {
       return (
         <p>
-          Login failed. Something might be misconfigured. See
+          We've encountered an unidentified error while trying to log in.
+          <br />
+          <br />
+          If you're having this issue repeatedly, start by rebooting your
+          LibreServ. If that fails, feel free to contact support to help resolve
+          this issue, we're always happy to help! <br />
+          <br />
+          See
           <a
             href={
               "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/" +
@@ -116,18 +85,15 @@ export default function Login() {
     e.preventDefault();
     if (!username || !password || loading) return;
     setLoading(true);
-    setError(null);
     setErrorStatus(null);
     try {
       await login(username, password);
       window.location.reload();
-    } catch (error) {
-      if (error.cause?.status === 401) {
-        setError("Login failed: Invalid username or password.");
-      } else if (error.cause?.status === 429) {
-        setError("Login failed: Please wait a bit before trying again.");
+    } catch (errorStatus) {
+      if (!errorStatus.cause?.status) {
+        setErrorStatus("NetworkError");
       } else {
-        setErrorStatus(error.cause?.status);
+        setErrorStatus(errorStatus.cause?.status);
       }
       setLoading(false);
     }
@@ -142,6 +108,7 @@ export default function Login() {
         </span>
         <form
           onSubmit={handleSubmit}
+          aria-busy={loading}
           className="flex flex-col mt-6 rounded-large-element border-2 border-accent p-4 bg-primary text-secondary"
         >
           <label
@@ -156,7 +123,7 @@ export default function Login() {
             id="username"
             onChange={(e) => setUsername(e.target.value)}
             className="placeholder:text-accent border-2 border-secondary rounded-pill p-2 mb-4"
-            name="Username"
+            name="username"
             autoComplete="username"
           ></input>
           <label
@@ -172,7 +139,7 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             type="password"
             className="placeholder:text-accent border-2 border-secondary rounded-pill p-2"
-            name="Password"
+            name="password"
             autoComplete="current-password"
           ></input>
           <button
@@ -182,11 +149,13 @@ export default function Login() {
             {loading ? "Loading..." : "Login"}
           </button>
           <div
-            className={`text-accent ${errorStatus || error ? "mt-4" : ""}`}
+            className={`text-accent ${errorStatus ? "mt-4" : ""}`}
             role="alert"
             aria-live="assertive"
+            ref={errorRef}
+            tabIndex={-1}
           >
-            {(error || errorStatus) && calculateErrorHTML()}
+            {errorStatus && calculateErrorHTML()}
           </div>
         </form>
       </div>
