@@ -119,6 +119,10 @@ body {
 
 /* Reduced motion accessibility - WCAG 2.1 Level AA */
 @media (prefers-reduced-motion: reduce) {
+    .pop-in {
+        animation: none !important;
+    }
+
     .animate-mdi-bar-1,
     .animate-mdi-bar-2 {
         animation: none;

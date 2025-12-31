@@ -8,6 +8,7 @@ import HelpPage from "./pages/HelpPage";
 import AppDetailPage from "./pages/AppDetailPage";
 import Login from "./pages/Login";
 import LoadingFast from "./pages/LoadingFast";
+import NotFoundPage from "./pages/NotFoundPage";
 import { Routes, Route } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/help" element={<HelpPage />} />
       </Route>
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }

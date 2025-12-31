@@ -16,17 +16,23 @@ export default function AppDetailPage() {
 
   if (!service) {
     // Unknown app slug falls back to the generic 404 page.
-    return <NotFoundPage />;
+    return <NotFoundPage includeMain={false} />;
   }
 
   return (
-    <main className="bg-primary text-secondary px-8 pt-5 pb-32" aria-labelledby="app-detail-title">
+    <main
+      className="bg-primary text-secondary px-8 pt-5 pb-32"
+      aria-labelledby="app-detail-title"
+    >
       {/* Header */}
       <header className="px-0 mb-10">
         <Card>
           <div className="flex justify-between items-center">
             <div>
-              <h1 id="app-detail-title" className="text-center text-2xl font-bold">
+              <h1
+                id="app-detail-title"
+                className="text-center text-2xl font-bold"
+              >
                 {service.name}
               </h1>
             </div>
