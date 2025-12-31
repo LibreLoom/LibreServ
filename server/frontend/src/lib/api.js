@@ -1,14 +1,33 @@
-export default async function api(path, options = {}) {
+export default async function api(path, options = {}, retried = false) {
   // Keep API versioning in one place and always send cookies for session auth.
+  const { noRetry, ...fetchOptions } = options;
   const url = `/api/v1${path}`;
   const headers = {
-    ...options.headers,
+    ...fetchOptions.headers,
   };
   const res = await fetch(url, {
     credentials: "include",
-    ...options,
+    ...fetchOptions,
     headers,
   });
+  if (
+    res.status === 401 &&
+    !(
+      path === "/auth/refresh" ||
+      path === "/auth/login" ||
+      path === "/auth/logout"
+    ) &&
+    !retried &&
+    !noRetry
+  ) {
+    const refreshResponse = await fetch("/api/v1/auth/refresh", {
+      credentials: "include",
+      method: "POST",
+    });
+    if (refreshResponse.ok) {
+      return await api(path, options, true);
+    }
+  }
   if (!res.ok) {
     throw new Error(`Request failed with status: ${res.status}`, {
       cause: {

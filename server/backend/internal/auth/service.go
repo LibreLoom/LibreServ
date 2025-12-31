@@ -102,6 +102,18 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse,
 	}, nil
 }
 
+// TokenExpiry returns the expiry time from a token's claims.
+func (s *Service) TokenExpiry(token string) (time.Time, error) {
+	claims, err := s.jwtManager.ValidateToken(token)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if claims.ExpiresAt == nil {
+		return time.Time{}, ErrInvalidToken
+	}
+	return claims.ExpiresAt.Time, nil
+}
+
 // ValidatePassword enforces password policy.
 func (s *Service) ValidatePassword(pw string) error {
 	if len(pw) < 12 {
@@ -207,6 +219,16 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*models.U
 // ValidateToken validates a JWT token and returns the claims
 func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
 	return s.jwtManager.ValidateToken(tokenString)
+}
+
+// ValidateAccessToken validates an access token.
+func (s *Service) ValidateAccessToken(tokenString string) (*Claims, error) {
+	return s.jwtManager.ValidateAccessToken(tokenString)
+}
+
+// ValidateRefreshToken validates a refresh token.
+func (s *Service) ValidateRefreshToken(tokenString string) (*Claims, error) {
+	return s.jwtManager.ValidateRefreshToken(tokenString)
 }
 
 // RefreshTokens refreshes tokens using a refresh token

@@ -11,7 +11,7 @@ func TestJWTGenerateValidate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate tokens: %v", err)
 	}
-	claims, err := j.ValidateToken(tokens.AccessToken)
+	claims, err := j.ValidateAccessToken(tokens.AccessToken)
 	if err != nil {
 		t.Fatalf("validate token: %v", err)
 	}

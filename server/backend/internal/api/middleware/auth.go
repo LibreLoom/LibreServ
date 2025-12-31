@@ -62,7 +62,7 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 				}
 			} else {
 				// Validate JWT token
-				claims, err := cfg.AuthService.ValidateToken(token)
+				claims, err := cfg.AuthService.ValidateAccessToken(token)
 				if err != nil {
 					if err == auth.ErrExpiredToken {
 						http.Error(w, `{"error": "Token has expired"}`, http.StatusUnauthorized)

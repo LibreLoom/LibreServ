@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +11,42 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 )
+
+const (
+	accessCookieName  = "libreserv_access"
+	refreshCookieName = "libreserv_refresh"
+)
+
+func isSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
+	secure := isSecureRequest(r)
+	http.SetCookie(w, &http.Cookie{
+		Name:     accessCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+	})
+}
 
 // AuthHandler handles authentication-related API endpoints
 type AuthHandler struct {
@@ -50,14 +88,29 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Set access token as HTTP-only cookie
+	refreshExpiresAt, err := h.authService.TokenExpiry(response.Tokens.RefreshToken)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to set refresh token")
+		return
+	}
+	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
-		Name:     "libreserv_access",
+		Name:     accessCookieName,
 		Value:    response.Tokens.AccessToken,
 		Path:     "/",
 		Expires:  time.Unix(response.Tokens.ExpiresAt, 0),
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil, // false on localhost http, true on https
+		Secure:   secure,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    response.Tokens.RefreshToken,
+		Path:     "/",
+		Expires:  refreshExpiresAt,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
 	})
 	JSON(w, http.StatusOK, response.User)
 }
@@ -65,16 +118,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 // Logout handles POST /api/v1/auth/logout
 // Clears the access token cookie and logs the user out
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "libreserv_access",
-		Value:    "",
-		Path:     "/",
-		Expires:  time.Unix(0, 0),
-		MaxAge:   -1,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   r.TLS != nil, // false on localhost http, true on https
-	})
+	clearAuthCookies(w, r)
 	JSON(w, http.StatusOK, map[string]string{"message": "logged out"})
 }
 
@@ -122,19 +166,25 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.RefreshToken == "" {
-		JSONError(w, http.StatusBadRequest, "refresh_token is required")
-		return
+		if cookie, err := r.Cookie(refreshCookieName); err == nil {
+			req.RefreshToken = cookie.Value
+		}
+		if req.RefreshToken == "" {
+			JSONError(w, http.StatusBadRequest, "refresh_token is required")
+			return
+		}
 	}
 
 	tokens, err := h.authService.RefreshTokens(req.RefreshToken)
 	if err != nil {
 		if err == auth.ErrInvalidToken || err == auth.ErrExpiredToken {
+			clearAuthCookies(w, r)
 			JSONError(w, http.StatusUnauthorized, "invalid or expired refresh token")
 			return
 		}
@@ -142,7 +192,31 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	JSON(w, http.StatusOK, tokens)
+	refreshExpiresAt, err := h.authService.TokenExpiry(tokens.RefreshToken)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to set refresh token")
+		return
+	}
+	secure := isSecureRequest(r)
+	http.SetCookie(w, &http.Cookie{
+		Name:     accessCookieName,
+		Value:    tokens.AccessToken,
+		Path:     "/",
+		Expires:  time.Unix(tokens.ExpiresAt, 0),
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     refreshCookieName,
+		Value:    tokens.RefreshToken,
+		Path:     "/",
+		Expires:  refreshExpiresAt,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   secure,
+	})
+	JSON(w, http.StatusOK, map[string]string{"message": "refreshed"})
 }
 
 // ChangePasswordRequest represents a password change request
