@@ -294,7 +294,7 @@ Appears rarely, demands documentation, leaves quietly.
 **Role:** Morale  
 Shared resource, symbol of trust and fairness.
 
-`       ___`  
+`       ___       `  
 `______/ o \______`  
 `|               |`  
 `|    THE END    |`  
