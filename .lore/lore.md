@@ -294,10 +294,10 @@ Appears rarely, demands documentation, leaves quietly.
 **Role:** Morale  
 Shared resource, symbol of trust and fairness.
 
-`       ___`
-`______/ o \______`
-`|               |`
-`|    THE END    |`
-`|    OF THE     |`
-`|   BEGINNING   |`
+`       ___`  
+`______/ o \______`  
+`|               |`  
+`|    THE END    |`  
+`|    OF THE     |`  
+`|   BEGINNING   |`  
 `|_______________|`
