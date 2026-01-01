@@ -6,6 +6,7 @@ import Card from "../components/common/cards/Card";
 
 const quips = [
   "The pigeon checked the map. Then checked it again. This page is not on it.",
+  "The mouse ran out of snacks halfway though building this page. The mouse intern is still waiting for their snacks.",
   "The page is missing. The pigeon filed the paperwork immediately.",
   "We asked the pigeon. The pigeon asked the mouse intern. The intern shrugged.",
   "The pigeon opened this door carefully. There was nothing behind it.",
@@ -291,13 +292,15 @@ export default function NotFoundPage({ includeMain = true }) {
           </Card>
 
           <Card className="p-8 outline-2 outline-accent text-left motion-reduce:animate-none">
-            <h2 className="text-xl font-bold">Quick ways out</h2>
-            <p className="mt-2 text-accent max-w-prose">
+            <h2 className="text-xl font-bold block text-center">
+              Quick ways out
+            </h2>
+            <p className="mt-2 text-accent max-w-prose block text-center">
               Pick a safe page. No judgment. We’ve all clicked the wrong thing,
               blinked twice, and pretended it didn’t happen.
             </p>
 
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="mt-6 flex flex-wrap gap-3 justify-center">
               <button
                 type="button"
                 onClick={() => navigate(-1)}
