@@ -1,6 +1,9 @@
 export default function SettingsPage() {
   return (
-    <main className="bg-primary text-secondary px-8 pt-5 pb-32" aria-labelledby="settings-title">
+    <main
+      className="bg-primary text-secondary px-8 pt-5 pb-32 text-center"
+      aria-labelledby="settings-title"
+    >
       <h1 id="settings-title" className="text-2xl font-bold">
         Settings
       </h1>
