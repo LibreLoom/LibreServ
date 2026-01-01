@@ -1,5 +1,67 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
 import { useAuth } from "../hooks/useAuth";
+
+const loginQuips = [
+  "The pigeon checks the clipboard. You’re on the list.",
+  "The pigeon adjusts the badge reader and nods approvingly.",
+  "The mouse intern holds the door and whispers ‘they’re cool’.",
+  "The pigeon says credentials first, then vibes.",
+  "The seagull tried to sneak in earlier. The pigeon remains undefeated.",
+  "The turtle from HR reminds everyone there’s no rush.",
+  "The pigeon cleared this login space just for you.",
+  "The clipboard says ‘expected’. The pigeon agrees.",
+  "The mouse intern is watching respectfully.",
+  "The pigeon believes this will go smoothly.",
+
+  "The pigeon double-checks the door. It opens politely.",
+  "The raccoon accountant confirms access is approved.",
+  "The pigeon offers a calm, professional nod.",
+  "The mouse intern practiced this moment.",
+  "The pigeon says this is the right entrance.",
+  "The seagull is not allowed past this point.",
+  "The turtle from HR suggests a steady pace.",
+  "The pigeon flips the sign from ‘closed’ to ‘welcoming’.",
+  "The clipboard is ready when you are.",
+  "The pigeon has prepared a dignified silence.",
+
+  "The pigeon recognizes you immediately.",
+  "The mouse intern beams. This is exciting.",
+  "The pigeon checks once. Then once more. All good.",
+  "The raccoon accountant approves the numbers involved.",
+  "The pigeon says you’re right on time.",
+  "The turtle from HR nods slowly but meaningfully.",
+  "The pigeon straightens the entry sign.",
+  "The mouse intern whispers encouragement professionally.",
+  "The pigeon considers this a routine success.",
+  "The clipboard has no objections today.",
+
+  "The pigeon gently gestures toward the login fields.",
+  "The mouse intern labels this ‘a big moment’.",
+  "The pigeon confirms this is the correct doorway.",
+  "The seagull is watching from outside. Jealous.",
+  "The turtle from HR says everyone belongs here calmly.",
+  "The pigeon checks credentials with care and trust.",
+  "The raccoon accountant notes this as ‘authorized’.",
+  "The pigeon says access looks good from here.",
+  "The mouse intern adjusts their tiny badge.",
+  "The pigeon opens the door metaphorically.",
+
+  "The pigeon is pleased to see you return.",
+  "The clipboard says this is familiar territory.",
+  "The mouse intern waves, then remembers professionalism.",
+  "The pigeon verifies calmly, without judgment.",
+  "The turtle from HR approves the tone of this moment.",
+  "The pigeon marks this as a safe entry point.",
+  "The raccoon accountant says everything checks out.",
+  "The pigeon believes you belong on the other side of this door.",
+  "The mouse intern learned about logins yesterday.",
+  "The pigeon is ready when you are.",
+];
+
+function getLoginQuip() {
+  const hoursSinceEpoch = Math.floor(Date.now() / 43200000);
+  return loginQuips[hoursSinceEpoch % loginQuips.length];
+}
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -8,6 +70,7 @@ export default function Login() {
   const [errorStatus, setErrorStatus] = useState(null);
   const errorRef = useRef(null);
   const { login } = useAuth();
+  const loginQuip = useMemo(() => getLoginQuip(), []);
   useEffect(() => {
     if (errorStatus && errorRef.current) {
       // Move focus to the error copy for screen readers/keyboard users.
@@ -111,6 +174,7 @@ export default function Login() {
         <span className="text-primary font-sans text-xl font-bold block text-center">
           Hey there! Log in to continue.
         </span>
+        <p className="text-accent text-sm text-center mt-2">{loginQuip}</p>
         <form
           onSubmit={handleSubmit}
           aria-busy={loading}
