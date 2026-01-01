@@ -63,9 +63,9 @@ export default function Dashboard() {
       </header>
 
       {/* Main content */}
-      <section className="flex gap-8 px-8 w-full">
+      <section className="flex flex-col md:flex-row gap-8 px-8 w-full">
         {/* Stats column */}
-        <div className="grid grid-cols-1 gap-6 flex-1 content-start">
+        <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-none">
           <StatCard
             icon={Clock}
             label="Uptime"
@@ -82,7 +82,7 @@ export default function Dashboard() {
         </div>
 
         {/* Services */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start order-2 md:order-none">
           {ServiceCards()}
         </div>
       </section>
