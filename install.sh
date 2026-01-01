@@ -29,6 +29,127 @@ fi
 
 echo ">> Installing LibreServ for ${OS}/${ARCH}..."
 
+# Check and install Go if needed
+if ! command -v go >/dev/null 2>&1; then
+    echo ">> Go not found. Installing Go..."
+
+    if [ "$OS" == "linux" ]; then
+        # Detect Linux distribution
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            DISTRO=$ID
+        else
+            echo "Error: Cannot detect Linux distribution"
+            exit 1
+        fi
+
+        case "$DISTRO" in
+            ubuntu|debian)
+                echo ">> Installing Go on Debian/Ubuntu..."
+                apt-get update
+                apt-get install -y golang-go
+                ;;
+            fedora|rhel|centos)
+                echo ">> Installing Go on Fedora/RHEL/CentOS..."
+                dnf install -y golang
+                ;;
+            arch)
+                echo ">> Installing Go on Arch Linux..."
+                pacman -Sy --noconfirm go
+                ;;
+            *)
+                echo ">> Installing Go from official source..."
+                GO_VERSION="1.23.4"
+                GO_TARBALL="go${GO_VERSION}.${OS}-${ARCH}.tar.gz"
+                curl -L "https://go.dev/dl/${GO_TARBALL}" -o "/tmp/${GO_TARBALL}"
+                rm -rf /usr/local/go
+                tar -C /usr/local -xzf "/tmp/${GO_TARBALL}"
+                rm "/tmp/${GO_TARBALL}"
+                echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+                export PATH=$PATH:/usr/local/go/bin
+                ;;
+        esac
+    elif [ "$OS" == "darwin" ]; then
+        if command -v brew >/dev/null 2>&1; then
+            echo ">> Installing Go on macOS via Homebrew..."
+            brew install go
+        else
+            echo ">> Installing Go from official source..."
+            GO_VERSION="1.23.4"
+            GO_TARBALL="go${GO_VERSION}.${OS}-${ARCH}.tar.gz"
+            curl -L "https://go.dev/dl/${GO_TARBALL}" -o "/tmp/${GO_TARBALL}"
+            rm -rf /usr/local/go
+            tar -C /usr/local -xzf "/tmp/${GO_TARBALL}"
+            rm "/tmp/${GO_TARBALL}"
+            echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.zshrc
+            export PATH=$PATH:/usr/local/go/bin
+        fi
+    fi
+
+    echo ">> Go installed successfully."
+else
+    echo ">> Go is already installed."
+fi
+
+# Check and install Docker if needed
+if ! command -v docker >/dev/null 2>&1; then
+    echo ">> Docker not found. Installing Docker..."
+
+    if [ "$OS" == "linux" ]; then
+        # Detect Linux distribution
+        if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            DISTRO=$ID
+        else
+            echo "Error: Cannot detect Linux distribution"
+            exit 1
+        fi
+
+        case "$DISTRO" in
+            ubuntu|debian)
+                echo ">> Installing Docker on Debian/Ubuntu..."
+                apt-get update
+                apt-get install -y ca-certificates curl gnupg
+                install -m 0755 -d /etc/apt/keyrings
+                curl -fsSL https://download.docker.com/linux/${DISTRO}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+                chmod a+r /etc/apt/keyrings/docker.gpg
+                echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${DISTRO} $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+                apt-get update
+                apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                systemctl enable docker
+                systemctl start docker
+                ;;
+            fedora|rhel|centos)
+                echo ">> Installing Docker on Fedora/RHEL/CentOS..."
+                dnf -y install dnf-plugins-core
+                dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+                dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                systemctl enable docker
+                systemctl start docker
+                ;;
+            arch)
+                echo ">> Installing Docker on Arch Linux..."
+                pacman -Sy --noconfirm docker
+                systemctl enable docker
+                systemctl start docker
+                ;;
+            *)
+                echo "Error: Unsupported Linux distribution: $DISTRO"
+                echo "Please install Docker manually: https://docs.docker.com/engine/install/"
+                exit 1
+                ;;
+        esac
+    elif [ "$OS" == "darwin" ]; then
+        echo "Error: Docker not found on macOS."
+        echo "Please install Docker Desktop from: https://docs.docker.com/desktop/install/mac-install/"
+        exit 1
+    fi
+
+    echo ">> Docker installed successfully."
+else
+    echo ">> Docker is already installed."
+fi
+
 # Create user if not exists
 if ! id "$USER" >/dev/null 2>&1; then
     echo ">> Creating system user: ${USER}"
