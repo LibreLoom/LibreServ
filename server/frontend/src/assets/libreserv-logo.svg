@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <!-- Outer ellipse: Libre family container -->
+  <ellipse cx="256" cy="256" rx="200" ry="200" fill="currentColor"/>
+
+  <!-- Mini-PC chassis -->
+  <rect x="146" y="168" width="220" height="176" rx="20" fill="#fff"/>
+
+  <!-- Top bevel -->
+  <rect x="162" y="154" width="188" height="20" rx="10" fill="#fff" opacity="0.55"/>
+
+  <defs>
+    <!-- Clip: keep everything inside faceplate -->
+    <clipPath id="faceplate">
+      <rect x="174" y="196" width="164" height="112" rx="14"/>
+    </clipPath>
+
+    <!-- Clip: only the area ABOVE the faceplate, but NOT reaching the chassis top -->
+    <!-- faceplate top: y=196, chassis top: y=168 -->
+    <!-- we start at y=174 to leave a little air above the escaping threads -->
+    <clipPath id="aboveFaceplate">
+      <rect x="174" y="174" width="164" height="22" rx="10"/>
+    </clipPath>
+
+    <!-- Over/under masks (plain weave):
+         Row 1 goes OVER odd warps; Row 2 goes OVER even warps -->
+    <mask id="weftOverOdd" x="174" y="196" width="164" height="112" maskUnits="userSpaceOnUse">
+      <rect x="174" y="196" width="164" height="112" fill="black"/>
+      <!-- reveal stripes aligned to warp 1,3,5,7 (wider = clearer weave read) -->
+      <rect x="186" y="196" width="16" height="112" fill="white"/>
+      <rect x="222" y="196" width="16" height="112" fill="white"/>
+      <rect x="258" y="196" width="16" height="112" fill="white"/>
+      <rect x="294" y="196" width="16" height="112" fill="white"/>
+    </mask>
+
+    <mask id="weftOverEven" x="174" y="196" width="164" height="112" maskUnits="userSpaceOnUse">
+      <rect x="174" y="196" width="164" height="112" fill="black"/>
+      <!-- reveal stripes aligned to warp 2,4,6,8 -->
+      <rect x="204" y="196" width="16" height="112" fill="white"/>
+      <rect x="240" y="196" width="16" height="112" fill="white"/>
+      <rect x="276" y="196" width="16" height="112" fill="white"/>
+      <rect x="312" y="196" width="16" height="112" fill="white"/>
+    </mask>
+  </defs>
+
+  <!-- Warp extensions (poke out above the "window", but stop before chassis top) -->
+  <g clip-path="url(#aboveFaceplate)" fill="currentColor" opacity="0.30">
+    <rect x="190" y="174" width="8" height="22" rx="3"/>
+    <rect x="208" y="174" width="8" height="22" rx="3"/>
+    <rect x="226" y="174" width="8" height="22" rx="3"/>
+    <rect x="244" y="174" width="8" height="22" rx="3"/>
+    <rect x="262" y="174" width="8" height="22" rx="3"/>
+    <rect x="280" y="174" width="8" height="22" rx="3"/>
+    <rect x="298" y="174" width="8" height="22" rx="3"/>
+    <rect x="316" y="174" width="8" height="22" rx="3"/>
+  </g>
+
+  <!-- Faceplate frame -->
+  <rect x="174" y="196" width="164" height="112" rx="14" stroke="currentColor" stroke-width="6"/>
+
+  <!-- Right-side vent slits (aligned to the WINDOW vertical region, not chassis) -->
+  <!-- Window is y=196..308 (height 112). Four slits: 18h with 6 gap => 90 total, centered => start y=207 -->
+  <g fill="currentColor" opacity="0.16">
+    <rect x="352" y="207" width="6" height="18" rx="3"/>
+    <rect x="352" y="231" width="6" height="18" rx="3"/>
+    <rect x="352" y="255" width="6" height="18" rx="3"/>
+    <rect x="352" y="279" width="6" height="18" rx="3"/>
+  </g>
+
+  <!-- Loom beams (rollers that give tension/structure) -->
+  <g clip-path="url(#faceplate)" opacity="0.30">
+    <rect x="182" y="204" width="148" height="14" rx="7" stroke="currentColor" stroke-width="5"/>
+    <rect x="182" y="290" width="148" height="14" rx="7" stroke="currentColor" stroke-width="5"/>
+  </g>
+
+  <!-- Under-weft (straight passes, behind warp) -->
+  <g clip-path="url(#faceplate)">
+    <path d="M 180 238 H 356" stroke="currentColor" stroke-width="8" stroke-linecap="round" opacity="0.22"/>
+    <path d="M 180 270 H 356" stroke="currentColor" stroke-width="8" stroke-linecap="round" opacity="0.20"/>
+  </g>
+
+  <!-- Warp threads (inside window) -->
+  <g clip-path="url(#faceplate)" fill="currentColor" opacity="0.95">
+    <rect x="190" y="218" width="8" height="84" rx="3"/>
+    <rect x="208" y="218" width="8" height="84" rx="3"/>
+    <rect x="226" y="218" width="8" height="84" rx="3"/>
+    <rect x="244" y="218" width="8" height="84" rx="3"/>
+    <rect x="262" y="218" width="8" height="84" rx="3"/>
+    <rect x="280" y="218" width="8" height="84" rx="3"/>
+    <rect x="298" y="218" width="8" height="84" rx="3"/>
+    <rect x="316" y="218" width="8" height="84" rx="3"/>
+  </g>
+
+  <!-- Over-weft (straight passes, alternating odd/even = loom read) -->
+  <g clip-path="url(#faceplate)" mask="url(#weftOverOdd)">
+    <path d="M 180 238 H 356" stroke="currentColor" stroke-width="8" stroke-linecap="round" opacity="0.82"/>
+  </g>
+
+  <g clip-path="url(#faceplate)" mask="url(#weftOverEven)">
+    <path d="M 180 270 H 356" stroke="currentColor" stroke-width="8" stroke-linecap="round" opacity="0.78"/>
+  </g>
+
+  <!-- Bottom I/O strip (ports + corner cluster) -->
+  <g fill="currentColor">
+    <!-- ports -->
+    <rect x="182" y="320" width="30" height="10" rx="3" opacity="0.55"/>
+    <rect x="218" y="320" width="30" height="10" rx="3" opacity="0.55"/>
+
+    <!-- corner cluster -->
+    <circle cx="312" cy="326" r="5" opacity="0.35"/>
+    <circle cx="328" cy="326" r="5" opacity="0.85"/>
+    <circle cx="346" cy="326" r="7" opacity="0.85"/>
+  </g>
+</svg>
