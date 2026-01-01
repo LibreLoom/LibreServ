@@ -2,65 +2,9 @@ import { useEffect, useMemo, useId, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronDown, Ghost, Home, LifeBuoy } from "lucide-react";
 
+import { notfound as quips } from "../assets/greetings";
+
 import Card from "../components/common/cards/Card";
-
-const quips = [
-  "The pigeon checked the map. Then checked it again. This page is not on it.",
-  "The mouse ran out of snacks halfway though building this page. The mouse intern is still waiting for their snacks.",
-  "The page is missing. The pigeon filed the paperwork immediately.",
-  "We asked the pigeon. The pigeon asked the mouse intern. The intern shrugged.",
-  "The pigeon opened this door carefully. There was nothing behind it.",
-  "According to the pigeon, this page was here earlier. Allegedly.",
-  "The pigeon searched high and low. Mostly low. Still no page.",
-  "The page is missing. The raccoon accountant says the numbers don’t add up.",
-  "The pigeon suspects crumbs are involved. The seagull refuses to comment.",
-  "This page took a wrong turn. The pigeon made a note.",
-  "The pigeon left a sign here that says ‘Not this way’. Very official.",
-
-  "The mouse intern swears this page existed. The pigeon remains unconvinced.",
-  "The pigeon checked the snack drawer first. Force of habit.",
-  "This page is absent. The turtle from HR is remaining calm about it.",
-  "The pigeon believes this is a navigation issue, not a personal failure.",
-  "The owl auditor looked once and said nothing. That was worse.",
-  "The pigeon marked this page as ‘missing but polite’.",
-  "We searched everywhere. The seagull searched *enthusiastically*. No page.",
-  "The pigeon adjusted its tiny tie and apologized professionally.",
-  "This page has gone rogue. The pigeon is drafting a policy.",
-  "The raccoon accountant insists the page was never budgeted for.",
-
-  "The pigeon retraced every step. The steps did not lead here.",
-  "This page is currently unavailable due to being completely gone.",
-  "The pigeon believes this page is ‘on a break’.",
-  "We asked nicely. The pigeon asked firmly. The page still didn’t return.",
-  "The mouse intern labeled this incident ‘educational’.",
-  "The pigeon suspects the seagull knows something.",
-  "This page is missing. Snack morale has been affected slightly.",
-  "The pigeon checked behind the couch. Still nothing.",
-  "The turtle from HR says this is ‘one of those things’.",
-  "The pigeon filed this under ‘unexpected but manageable’.",
-
-  "The page is not here. The pigeon would like you to know it tried.",
-  "This link went on an adventure. The pigeon stayed behind.",
-  "The pigeon believes the page took a scenic route and forgot to come back.",
-  "We looked everywhere reasonable. The pigeon looked everywhere unreasonable.",
-  "The pigeon insists this is not anyone’s fault.",
-  "The owl auditor wrote ‘404’ and stared meaningfully.",
-  "The pigeon left breadcrumbs. The page did not follow them.",
-  "This page is missing. The pigeon recommends returning to safety.",
-  "The raccoon accountant says losses are within acceptable limits.",
-  "The pigeon says this happens sometimes and it’s okay.",
-
-  "The page is gone. The pigeon is already reorganizing around it.",
-  "This is an empty room. The pigeon checked twice.",
-  "The pigeon is confident the correct page is nearby.",
-  "We found the problem. The page isn’t here.",
-  "The mouse intern learned a valuable lesson just now.",
-  "The pigeon marked this location ‘non-page’.",
-  "The seagull flew by laughing. The pigeon took notes.",
-  "This page failed to report for duty.",
-  "The pigeon assures you everything else is still in order.",
-  "If this page existed, the pigeon would have organized it already.",
-];
 
 function hashString(value) {
   // djb2-ish hash: small, fast, deterministic.
