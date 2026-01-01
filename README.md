@@ -35,19 +35,19 @@ cd ..
 
 ## To run
 
-```bash
+``` bash
 ./libreserv.sh run frontend ./server/frontend backend ./server/backend
 ```
 
 ## To get status
 
-```bash
+``` bash
 ./libreserv.sh status
 ```
 
 ## To stop
 
-```bash
+``` bash
 ./libreserv.sh stop
 ```
 
