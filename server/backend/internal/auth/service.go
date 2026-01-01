@@ -15,9 +15,9 @@ import (
 
 var (
 	// ErrUserNotFound indicates a user lookup failed.
-	ErrUserNotFound       = errors.New("user not found")
+	ErrUserNotFound = errors.New("user not found")
 	// ErrUserExists indicates a user already exists.
-	ErrUserExists         = errors.New("user already exists")
+	ErrUserExists = errors.New("user already exists")
 	// ErrInvalidCredentials indicates a username/password mismatch.
 	ErrInvalidCredentials = errors.New("invalid username or password")
 )
