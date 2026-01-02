@@ -40,6 +40,7 @@ Commands:
   stop [backend|frontend]          Stop backend and/or frontend
   status [backend|frontend]        Show status of backend and/or frontend
   restart [backend|frontend]       Restart backend and/or frontend
+  setup                            Setup LibreServ
   help                             Show this help message
 
 Notes:
@@ -131,7 +132,7 @@ setup() {
     # ------------------------
     # Frontend
     # ------------------------
-    cd ../frontend || { echo "Frontend directory not found"; return 1; }
+    cd server/frontend || { echo "Frontend directory not found"; return 1; }
     if ! npm install; then
         echo "Frontend setup failed"
         return 1
@@ -196,7 +197,7 @@ stopback() {
         echo "Backend not running (PID file not found)"
         return 1
     fi
-}		
+}
 
 statusback() {
     BACKEND_PID_FILE="$BACKEND_PATH/backend.pid"
