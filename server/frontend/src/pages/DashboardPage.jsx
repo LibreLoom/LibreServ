@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Clock, Server } from "lucide-react";
+import { Clock, Server, EllipsisVertical } from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
 import Card from "../components/common/cards/Card";
@@ -7,6 +7,8 @@ import ServiceCards from "../components/common/cards/ServiceCards";
 import DropdownCard from "../components/common/cards/DropdownCard";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
+
+import { Link } from "react-router-dom";
 
 import {
   resources,
@@ -48,7 +50,7 @@ export default function Dashboard() {
     >
       {/* Header */}
       <header className="px-8 mb-10">
-        <Card>
+        <Card className="group">
           <div className="flex justify-between items-center">
             <div>
               <h1 id="dashboard-title" className="text-2xl font-bold">
@@ -56,7 +58,9 @@ export default function Dashboard() {
               </h1>
             </div>
             <div className="text-right">
-              <p className="font-medium">{/* TODO: Stat average */}</p>
+              <Link to="/lore">
+                <EllipsisVertical className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent" />
+              </Link>
             </div>
           </div>
         </Card>
@@ -65,7 +69,7 @@ export default function Dashboard() {
       {/* Main content */}
       <section className="flex flex-col md:flex-row gap-8 px-8 w-full">
         {/* Stats column */}
-        <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-none">
+        <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-0">
           <StatCard
             icon={Clock}
             label="Uptime"
@@ -82,7 +86,7 @@ export default function Dashboard() {
         </div>
 
         {/* Services */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start order-2 md:order-none">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start order-2 md:order-o">
           {ServiceCards()}
         </div>
       </section>
