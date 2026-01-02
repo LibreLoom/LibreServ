@@ -1,0 +1,117 @@
+import { useParams } from "react-router-dom";
+import { useState, useEffect } from "react";
+import Card from "../components/common/cards/Card";
+import NotFoundPage from "./NotFoundPage";
+import api from "../lib/api";
+import { User, Mail, Shield, Calendar } from "lucide-react";
+
+export default function UserDetailPage() {
+  const { userId } = useParams();
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const response = await api(`/users/${userId}`);
+        const userData = await response.json();
+        setUser(userData);
+        setLoading(false);
+      } catch (err) {
+        setError(err.message);
+        setLoading(false);
+      }
+    };
+    fetchUser();
+  }, [userId]);
+
+  if (loading) {
+    return (
+      <main className="bg-primary text-secondary px-8 pt-5 pb-32">
+        <Card>
+          <p>Loading user...</p>
+        </Card>
+      </main>
+    );
+  }
+
+  if (error || !user) {
+    return <NotFoundPage includeMain={false} />;
+  }
+
+  const formatDate = (dateString) => {
+    if (!dateString) return "Unknown";
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  return (
+    <main
+      className="bg-primary text-secondary px-8 pt-5 pb-32"
+      aria-labelledby="user-detail-title"
+    >
+      {/* Header */}
+      <header className="px-0 mb-10">
+        <Card>
+          <div className="flex items-center gap-4">
+            <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center">
+              <User size={32} aria-hidden="true" />
+            </div>
+            <div className="text-left">
+              <h1 id="user-detail-title" className="text-3xl font-bold">
+                {user.username}
+              </h1>
+              <p className="text-accent text-sm mt-1">
+                {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+              </p>
+            </div>
+          </div>
+        </Card>
+      </header>
+
+      {/* User Details */}
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <Card>
+          <div className="flex items-center gap-3 mb-3">
+            <Mail size={20} className="text-accent" />
+            <h2 className="text-xl font-semibold">Email</h2>
+          </div>
+          <p className="text-lg ml-8">{user.email}</p>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-3 mb-3">
+            <Shield size={20} className="text-accent" />
+            <h2 className="text-xl font-semibold">Role</h2>
+          </div>
+          <p className="text-lg ml-8">
+            {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+          </p>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-3 mb-3">
+            <Calendar size={20} className="text-accent" />
+            <h2 className="text-xl font-semibold">Account Created</h2>
+          </div>
+          <p className="text-lg ml-8">{formatDate(user.created_at)}</p>
+        </Card>
+
+        <Card>
+          <div className="flex items-center gap-3 mb-3">
+            <Calendar size={20} className="text-accent" />
+            <h2 className="text-xl font-semibold">Last Updated</h2>
+          </div>
+          <p className="text-lg ml-8">{formatDate(user.updated_at)}</p>
+        </Card>
+      </section>
+    </main>
+  );
+}

@@ -24,7 +24,12 @@ export default function LorePage() {
       {/* Header */}
       <header className="px-8 mb-10">
         <Card>
-          <h1 className="text-2xl font-bold">Lore</h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold">Lore</h1>
+            <p className="text-lg text-accent font-semibold">
+              You found the lore page!
+            </p>
+          </div>
         </Card>
       </header>
 
@@ -32,7 +37,7 @@ export default function LorePage() {
       <section className="px-8">
         <Card>
           {loading && <p>Loading lore...</p>}
-          {error && <p className="text-red-500">Error: {error}</p>}
+          {error && <p className="text-accent">Error: {error}</p>}
           {!loading && !error && (
             <div className="markdown-content">
               <ReactMarkdown
@@ -72,12 +77,12 @@ export default function LorePage() {
                   code: ({ inline, ...props }) =>
                     inline ? (
                       <code
-                        className="bg-gray-800 px-1 py-0.5 rounded text-sm"
+                        className="bg-secondary px-1 py-0.5 rounded text-sm"
                         {...props}
                       />
                     ) : (
                       <code
-                        className="block bg-gray-800 p-4 rounded mb-4 overflow-x-auto"
+                        className="block bg-accent text-secondary p-4 rounded mb-4 overflow-x-auto"
                         {...props}
                       />
                     ),

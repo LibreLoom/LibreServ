@@ -61,17 +61,13 @@ export default function UserCard({
         {/* Created date */}
         <div className="flex items-center gap-2 text-sm">
           <Calendar size={14} className="text-accent" aria-hidden="true" />
-          <span className="text-accent">
-            Created: {formatDate(createdAt)}
-          </span>
+          <span className="text-accent">Created: {formatDate(createdAt)}</span>
         </div>
       </div>
 
       {/* Action buttons */}
       <div className="mt-4 space-y-2">
-        {onManage && (
-          <CardButton action={() => onManage(id)} actionLabel="Manage" />
-        )}
+        <CardButton action={`/users/${id}`} actionLabel="View Details" />
         {onDelete && (
           <button
             onClick={() => onDelete(id)}

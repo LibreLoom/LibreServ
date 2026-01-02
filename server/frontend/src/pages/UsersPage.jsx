@@ -96,7 +96,6 @@ export default function UsersPage() {
               email={user.email}
               role={user.role}
               createdAt={user.created_at}
-              onManage={(id) => console.log("Manage user:", id)}
               onDelete={() => handleDeleteClick(user.id, user.username)}
             />
           ))}
