@@ -13,20 +13,19 @@ export default function UsersPage() {
 
   // Fetch users from API
   useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const response = await api("/users");
+        const data = await response.json();
+        setUsers(data.users || []);
+        setLoading(false);
+      } catch (err) {
+        setError(err.message);
+        setLoading(false);
+      }
+    };
     fetchUsers();
   }, []);
-
-  const fetchUsers = async () => {
-    try {
-      const response = await api("/users");
-      const data = await response.json();
-      setUsers(data.users || []);
-      setLoading(false);
-    } catch (err) {
-      setError(err.message);
-      setLoading(false);
-    }
-  };
 
   const handleDeleteClick = (userId, username) => {
     setUserToDelete({ id: userId, name: username });
