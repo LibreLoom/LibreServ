@@ -36,6 +36,8 @@ Usage: $0 <command> [backend|frontend] [backend_path] [frontend_path]
 
 Commands:
   adduser <user> <pass> <email>    Create a new admin user
+  deluser <user>                   Delete a user by username or ID
+  lsuser                           List all users
   start [backend|frontend]         Start backend and/or frontend
   stop [backend|frontend]          Stop backend and/or frontend
   status [backend|frontend]        Show status of backend and/or frontend
@@ -63,6 +65,17 @@ EOF
 # ------------------------
 # User setup
 # ------------------------
+
+lsuser() {
+    # List all users in database
+    local usertable=$(sqlite3 $BACKEND_PATH/dev/data/libreserv.db -cmd ".mode table" -cmd ".headers on" "SELECT id, username, email, role FROM users;")
+    if [ -z "$usertable" ]; then
+        echo "No users found"
+    else
+        echo "$usertable"
+    fi
+}
+
 adduser() {
     local username=$1
     local pass=$2
@@ -103,15 +116,24 @@ adduser() {
     pass_escaped=$(echo "$pass" | sed 's/\\/\\\\/g; s/"/\\"/g')
     mail_escaped=$(echo "$mail" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
+    # Clear setup_state
+    sqlite3 /home/trafficcone/projects/libreloom/LibreServ/server/backend/dev/data/libreserv.db "DELETE FROM setup_state;"
+
     if curl -s -f -X POST http://localhost:8080/api/v1/setup/complete \
         -H "Content-Type: application/json" \
         -d "{\"admin_username\": \"$username_escaped\", \"admin_password\": \"$pass_escaped\", \"admin_email\": \"$mail_escaped\"}" > /dev/null; then
         echo "User setup completed successfully."
         return 0
     else
-        echo "Error: Failed to complete user setup. Check backend logs."
+        echo "Error: Failed to complete user setup. Check backend logs (Likely at /server/backend/dev/logs/libreserv.log)"
         return 1
     fi
+}
+
+deluser() {
+    # Delete a user from database
+    local username=$1
+    sqlite3 $BACKEND_PATH/dev/data/libreserv.db "DELETE FROM users WHERE username='$username';" || sqlite3 $BACKEND_PATH/dev/data/libreserv.db "DELETE FROM users WHERE id='$username';"
 }
 
 # ------------------------
@@ -329,6 +351,12 @@ if [ "$command" = "adduser" ]; then
     ADDUSER_EMAIL="$3"
 fi
 
+# Save deluser argument
+if [ "$command" = "deluser" ]; then
+    DELUSER_TARGET="$1"
+fi
+
+
 TARGET_BACKEND=0
 TARGET_FRONTEND=0
 
@@ -354,7 +382,7 @@ while [ $# -gt 0 ]; do
             fi
             ;;
         *)
-            if [ "$command" = "adduser" ]; then
+            if [ "$command" = "adduser" ] || [ "$command" = "deluser" ]; then
                 break
             fi
             echo "Unknown argument: $1"
@@ -374,6 +402,16 @@ fi
 case "$command" in
     adduser)
         adduser "$ADDUSER_USERNAME" "$ADDUSER_PASS" "$ADDUSER_EMAIL"
+        lsuser
+        exit $?
+        ;;
+    deluser)
+        deluser "$DELUSER_TARGET"
+        lsuser
+        exit $?
+        ;;
+    lsuser)
+        lsuser
         exit $?
         ;;
     start)
