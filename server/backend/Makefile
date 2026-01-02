@@ -2,19 +2,23 @@ APP_NAME := libreserv
 BIN_DIR := bin
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILD_TIME ?=
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
+BUILD_TAGS ?=
 
-LDFLAGS := -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$(VERSION) \
-                     -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$(BUILD_TIME) \
-                     -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$(GIT_COMMIT)"
+LDVARS := -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$(VERSION) \
+          -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$(GIT_COMMIT)
+ifneq ($(strip $(BUILD_TIME)),)
+LDVARS += -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$(BUILD_TIME)
+endif
+LDFLAGS := -ldflags "$(LDVARS)"
 
 default: build
 
 build:
 	@echo ">> Building backend $(VERSION)"
 	@mkdir -p $(BIN_DIR)
-	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags "$(BUILD_TAGS)" $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
 
 run: build
 	@echo ">> Running $(APP_NAME)"
@@ -22,10 +26,13 @@ run: build
 
 frontend:
 	@echo ">> Installing frontend deps"
-	@cd web && npm install
+	@cd ../frontend && npm ci
 
 frontend-build: frontend
 	@echo ">> Building frontend"
-	@cd web && npm run build
+	@cd ../frontend && npm run build
+	@rm -rf OS/dist
+	@mkdir -p OS/dist
+	@cp -R ../frontend/dist/. OS/dist/
 
 .PHONY: default build run frontend frontend-build

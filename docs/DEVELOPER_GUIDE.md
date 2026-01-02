@@ -21,7 +21,7 @@ This guide covers building, testing, and extending the LibreServ backend.
 ### Prerequisites
 - Go 1.23+
 - Node.js 20+
-- Docker & Docker Compose
+- Docker & Docker Compose (v2 plugin: `docker compose`)
 
 ### Commands
 Use the provided `Makefile` in `server/backend`:
@@ -32,6 +32,9 @@ make build
 
 # Build frontend
 make frontend-build
+
+# Build embedded binary (requires frontend build output)
+BUILD_TAGS=embedfront make build
 ```
 
 ## Database Migrations

@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
@@ -303,7 +302,7 @@ func (s *Server) setupRoutes() {
 	})
 
 	// Serve static frontend (SPA) for all other routes
-	s.router.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(s.staticDir, "assets")))))
+	s.router.Handle("/assets/*", s.assetsHandler)
 	s.router.Handle("/", http.HandlerFunc(s.serveSPA))
 	s.router.Handle("/*", http.HandlerFunc(s.serveSPA))
 	s.router.NotFound(http.HandlerFunc(s.serveSPA))

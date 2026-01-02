@@ -1,11 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -39,7 +43,9 @@ type Server struct {
 	backupService  *storage.BackupService
 	devMode        bool
 	logger         *slog.Logger
-	staticDir      string
+	staticFS       fs.FS
+	assetsHandler  http.Handler
+	staticSource   string
 	dockerClient   *docker.Client
 	caddyManager   *network.CaddyManager
 	setupService   *setup.Service
@@ -76,7 +82,6 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 		backupService:  backupService,
 		devMode:        devMode,
 		logger:         logger,
-		staticDir:      resolveStaticDir(),
 		dockerClient:   dockerClient,
 		caddyManager:   caddyManager,
 		setupService:   setupService,
@@ -84,6 +89,33 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 		licenseService: licenseService,
 		sysChecker:     sysChecker,
 		audit:          auditSvc,
+	}
+
+	staticFS, staticSource, err := loadStaticFS()
+	if err != nil {
+		logger.Warn("Static asset source unavailable", "source", staticSource, "error", err)
+	}
+	if staticFS == nil {
+		staticFS = os.DirFS(".")
+		staticSource = "fallback"
+	}
+	server.staticFS = staticFS
+	server.staticSource = staticSource
+	server.assetsHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assetPath := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if !strings.HasPrefix(assetPath, "assets/") {
+			http.NotFound(w, r)
+			return
+		}
+		assetPath = strings.TrimPrefix(assetPath, "assets/")
+		if assetPath == "" || assetPath == "." || assetPath == "/" {
+			http.NotFound(w, r)
+			return
+		}
+		server.serveStaticPath(w, r, path.Join("assets", assetPath))
+	})
+	if _, err := fs.Sub(staticFS, "assets"); err != nil {
+		logger.Warn("Static assets directory missing", "source", staticSource, "error", err)
 	}
 
 	// Setup routes
@@ -152,22 +184,19 @@ func (s *Server) auditLog(ctx context.Context, action, targetID, targetName, sta
 
 // serveSPA serves static assets from the web/dist directory with index.html fallback for SPA routes
 func (s *Server) serveSPA(w http.ResponseWriter, r *http.Request) {
-	s.logger.Debug("SPA handler", "path", r.URL.Path, "static_dir", s.staticDir)
+	s.logger.Debug("SPA handler", "path", r.URL.Path, "static_source", s.staticSource)
 	// Prevent directory traversal
-	path := strings.TrimPrefix(filepath.Clean(r.URL.Path), "/")
+	path := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 	if path == "" || path == "." {
 		path = "index.html"
 	}
 
-	staticPath := filepath.Join(s.staticDir, path)
-
-	// If the file does not exist, serve index.html for client-side routing
-	if _, err := os.Stat(staticPath); err != nil {
-		http.ServeFile(w, r, filepath.Join(s.staticDir, "index.html"))
-		return
+	// If the file does not exist, serve index.html for client-side routing.
+	if _, err := fs.Stat(s.staticFS, path); err != nil {
+		path = "index.html"
 	}
 
-	http.ServeFile(w, r, staticPath)
+	s.serveStaticPath(w, r, path)
 }
 
 // resolveStaticDir returns an absolute path to the built frontend assets
@@ -177,4 +206,57 @@ func resolveStaticDir() string {
 		return "./OS/dist"
 	}
 	return abs
+}
+
+func (s *Server) serveStaticPath(w http.ResponseWriter, r *http.Request, path string) {
+	if acceptsGzip(r) {
+		gzPath := path + ".gz"
+		if _, err := fs.Stat(s.staticFS, gzPath); err == nil {
+			addVaryHeader(w.Header(), "Accept-Encoding")
+			w.Header().Set("Content-Encoding", "gzip")
+			s.serveFSPath(w, r, gzPath, path)
+			return
+		}
+	}
+
+	s.serveFSPath(w, r, path, path)
+}
+
+func (s *Server) serveFSPath(w http.ResponseWriter, r *http.Request, fsPath, name string) {
+	file, err := s.staticFS.Open(fsPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	reader, ok := file.(io.ReadSeeker)
+	if !ok {
+		data, err := io.ReadAll(file)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		reader = bytes.NewReader(data)
+	}
+
+	http.ServeContent(w, r, name, info.ModTime(), reader)
+}
+
+func acceptsGzip(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
+}
+
+func addVaryHeader(header http.Header, value string) {
+	if existing := header.Get("Vary"); existing != "" {
+		header.Set("Vary", existing+", "+value)
+		return
+	}
+	header.Set("Vary", value)
 }

@@ -48,15 +48,7 @@ func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		// Implements Recommendation #1: Better Error Messages
-		outStr := string(output)
-		if strings.Contains(outStr, "Cannot connect to Docker daemon") {
-			return fmt.Errorf("docker daemon not running or not accessible")
-		}
-		if strings.Contains(outStr, "permission denied") {
-			return fmt.Errorf("permission denied accessing docker socket")
-		}
-		return fmt.Errorf("compose up failed: %s: %w", outStr, err)
+		return composeError("up", output, err)
 	}
 	return nil
 }
@@ -72,7 +64,7 @@ func (cm *ComposeManager) Down(ctx context.Context, composePath string) error {
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("compose down failed: %s: %w", string(output), err)
+		return composeError("down", output, err)
 	}
 	return nil
 }
@@ -88,7 +80,7 @@ func (cm *ComposeManager) Pull(ctx context.Context, composePath string) error {
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("compose pull failed: %s: %w", string(output), err)
+		return composeError("pull", output, err)
 	}
 	return nil
 }
@@ -104,7 +96,7 @@ func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("compose stop failed: %s: %w", string(output), err)
+		return composeError("stop", output, err)
 	}
 	return nil
 }
@@ -155,4 +147,18 @@ func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath st
 	}
 
 	return cm.Up(ctx, projectPath)
+}
+
+func composeError(action string, output []byte, err error) error {
+	outStr := string(output)
+	if strings.Contains(outStr, "Cannot connect to Docker daemon") {
+		return fmt.Errorf("docker daemon not running or not accessible")
+	}
+	if strings.Contains(outStr, "permission denied") {
+		return fmt.Errorf("permission denied accessing docker socket")
+	}
+	if strings.Contains(outStr, "is not a docker command") || strings.Contains(outStr, "unknown command \"compose\"") {
+		return fmt.Errorf("docker compose v2 is required (install Docker Compose plugin)")
+	}
+	return fmt.Errorf("compose %s failed: %s: %w", action, outStr, err)
 }

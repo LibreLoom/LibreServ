@@ -8,6 +8,10 @@ This guide is intended for system administrators managing a LibreServ instance.
 
 LibreServ can be installed on any modern Linux or Darwin system.
 
+Prerequisites for app installs:
+- Docker Engine with the Compose v2 plugin (`docker compose`)
+- Caddy if you want automatic HTTPS and domain routing
+
 ### One-Line Installation
 The easiest way to install LibreServ is using the official installer script:
 

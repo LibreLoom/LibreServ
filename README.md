@@ -36,11 +36,19 @@ npm run build
 cp -r dist ../backend/OS/dist
 ```
 Then restart the backend to serve the new assets.
+If `.gz` assets exist alongside files in `OS/dist`, LibreServ will serve them when clients send `Accept-Encoding: gzip`.
+For embedded release binaries, build with:
+```bash
+cd server/backend
+make frontend-build
+BUILD_TAGS=embedfront make build
+```
 
 ## Notes
 - Caddy must be installed/configured if you want automatic HTTPS; otherwise set `network.caddy.mode` to `noop` or `disabled`.
 - Caddy reloads via Admin API use retries/backoff (see `network.caddy.reload.*` in `server/backend/configs/libreserv.yaml`).
 - ACME issuance is tracked via jobs: `POST /api/v1/network/acme/request`, then poll `GET /api/v1/network/acme/status?domain=...` (or `GET /api/v1/network/acme/jobs/{jobID}`).
+- Docker must be installed with the Compose v2 plugin (`docker compose`).
 - Secrets (JWT/CSRF) policy:
   - If `auth.jwt_secret` and `auth.csrf_secret` are set (via config file or env), LibreServ uses them as-is.
   - If either secret is missing at startup, LibreServ will generate secure values and **persist them to the config file**.

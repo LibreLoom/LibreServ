@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/go-chi/chi/v5"
 )
 
 func TestServeSPAFallsBackToIndex(t *testing.T) {
@@ -19,9 +17,9 @@ func TestServeSPAFallsBackToIndex(t *testing.T) {
 	}
 
 	s := &Server{
-		router:    chi.NewRouter(),
-		logger:    slog.Default(),
-		staticDir: dir,
+		logger:       slog.Default(),
+		staticFS:     os.DirFS(dir),
+		staticSource: "test",
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/missing/route", nil)
@@ -52,9 +50,9 @@ func TestServeSPAServesExistingFile(t *testing.T) {
 	}
 
 	s := &Server{
-		router:    chi.NewRouter(),
-		logger:    slog.Default(),
-		staticDir: dir,
+		logger:       slog.Default(),
+		staticFS:     os.DirFS(dir),
+		staticSource: "test",
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/assets/file.txt", nil)

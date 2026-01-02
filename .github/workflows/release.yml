@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write
@@ -63,13 +63,30 @@ jobs:
         with:
           go-version-file: server/backend/go.mod
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build frontend assets
+        working-directory: server/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Stage frontend assets
+        run: |
+          rm -rf server/backend/OS/dist
+          mkdir -p server/backend/OS/dist
+          cp -R server/frontend/dist/. server/backend/OS/dist/
+
       - name: Build
         working-directory: server/backend
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          VERSION=${{ github.ref_name }} make build
+          VERSION=${{ github.ref_name }} BUILD_TAGS=embedfront make build
           mv bin/libreserv bin/libreserv-${{ matrix.goos }}-${{ matrix.goarch }}
 
       - name: Upload artifacts
