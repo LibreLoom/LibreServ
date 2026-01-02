@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Clock, Server, EllipsisVertical } from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
@@ -9,6 +9,7 @@ import DropdownCard from "../components/common/cards/DropdownCard";
 import { dashboard as greetingMessages } from "../assets/greetings";
 
 import { Link } from "react-router-dom";
+import api from "../lib/api";
 
 import {
   resources,
@@ -42,6 +43,20 @@ function getGreeting() {
 export default function Dashboard() {
   // Memoize so the greeting doesn't change on re-renders.
   const greeting = useMemo(() => getGreeting(), []);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const response = await api("/auth/me");
+        const userData = await response.json();
+        setUser(userData);
+      } catch (err) {
+        console.error("Failed to fetch user:", err);
+      }
+    };
+    fetchUser();
+  }, []);
 
   return (
     <main
@@ -54,7 +69,7 @@ export default function Dashboard() {
           <div className="flex justify-between items-center">
             <div>
               <h1 id="dashboard-title" className="text-2xl font-bold">
-                {greeting + "Gabe" /* TODO: Replace with user name */}
+                {greeting + (user?.username || "User")}
               </h1>
             </div>
             <div className="text-right">
