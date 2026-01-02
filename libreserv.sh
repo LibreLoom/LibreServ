@@ -11,8 +11,8 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 # Defaults if not already set
-BACKEND_PATH=${BACKEND_PATH:-$(pwd)}
-FRONTEND_PATH=${FRONTEND_PATH:-$(pwd)/frontend}
+BACKEND_PATH=${BACKEND_PATH:-$./server/backend}
+FRONTEND_PATH=${FRONTEND_PATH:-$./server/frontend}
 BACKEND_PID_FILE="$BACKEND_PATH/backend.pid"
 
 # ------------------------
