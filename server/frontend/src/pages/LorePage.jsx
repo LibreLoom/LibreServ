@@ -37,41 +37,39 @@ export default function LorePage() {
             <div className="markdown-content">
               <ReactMarkdown
                 components={{
-                  h1: ({ node, ...props }) => (
+                  h1: (props) => (
                     <h1 className="text-3xl font-bold mb-4 mt-6" {...props} />
                   ),
-                  h2: ({ node, ...props }) => (
+                  h2: (props) => (
                     <h2 className="text-2xl font-bold mb-3 mt-5" {...props} />
                   ),
-                  h3: ({ node, ...props }) => (
+                  h3: (props) => (
                     <h3 className="text-xl font-bold mb-2 mt-4" {...props} />
                   ),
-                  h4: ({ node, ...props }) => (
+                  h4: (props) => (
                     <h4 className="text-lg font-bold mb-2 mt-3" {...props} />
                   ),
-                  h5: ({ node, ...props }) => (
+                  h5: (props) => (
                     <h5 className="text-base font-bold mb-2 mt-3" {...props} />
                   ),
-                  h6: ({ node, ...props }) => (
+                  h6: (props) => (
                     <h6 className="text-sm font-bold mb-2 mt-2" {...props} />
                   ),
-                  p: ({ node, ...props }) => <p className="mb-4" {...props} />,
-                  ul: ({ node, ...props }) => (
+                  p: (props) => <p className="mb-4" {...props} />,
+                  ul: (props) => (
                     <ul
                       className="list-disc list-inside mb-4 ml-4"
                       {...props}
                     />
                   ),
-                  ol: ({ node, ...props }) => (
+                  ol: (props) => (
                     <ol
                       className="list-decimal list-inside mb-4 ml-4"
                       {...props}
                     />
                   ),
-                  li: ({ node, ...props }) => (
-                    <li className="mb-1" {...props} />
-                  ),
-                  code: ({ node, inline, ...props }) =>
+                  li: (props) => <li className="mb-1" {...props} />,
+                  code: ({ inline, ...props }) =>
                     inline ? (
                       <code
                         className="bg-gray-800 px-1 py-0.5 rounded text-sm"
@@ -83,10 +81,10 @@ export default function LorePage() {
                         {...props}
                       />
                     ),
-                  hr: ({ node, ...props }) => (
+                  hr: (props) => (
                     <hr className="my-6 border-accent" {...props} />
                   ),
-                  a: ({ node, ...props }) => (
+                  a: (props) => (
                     <a
                       className="text-accent underline hover:no-underline"
                       {...props}
