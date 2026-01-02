@@ -19,23 +19,16 @@ Self-hosting platform that aims to make running your own server “plug and play
 - **CI**: `.github/workflows/ci.yml` runs backend vet/tests and frontend lint/build on pushes/PRs.
 - **TODO**: `CODEX_BACKEND_TODO.md` tracks hardening work (Caddy/ACME, SSO, app catalog pins, etc.).
 
-## Quick start (backend)
-```bash
-cd server/backend
-go test ./...              # run unit tests
-go build ./cmd/libreserv   # build binary
-./libreserv serve --config ./configs/libreserv.yaml  # run (adjust config path)
-```
-
-## Frontend build
-The backend serves static assets from `server/backend/OS/dist/` (ignored in git). To build the current frontend:
+## Quick start
 ```bash
 cd server/frontend
 npm install
-npm run build
-cp -r dist ../backend/OS/dist
+cd ..
+./libreserv.sh setup
 ```
-Then restart the backend to serve the new assets.
+
+## Frontend build
+Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
 If `.gz` assets exist alongside files in `OS/dist`, LibreServ will serve them when clients send `Accept-Encoding: gzip`.
 For embedded release binaries, build with:
 ```bash
@@ -43,6 +36,28 @@ cd server/backend
 make frontend-build
 BUILD_TAGS=embedfront make build
 ```
+
+## To setup login
+```bash
+./libreserv.sh adduser "username" "password" "email@example.com"
+```
+
+## To run
+```bash
+./libreserv.sh run frontend ./server/frontend backend ./server/backend
+```
+
+## To get status
+```bash
+./libreserv.sh status
+```
+
+## To stop
+```bash
+./libreserv.sh stop
+```
+
+`./libreserv.sh help` for more.
 
 ## Notes
 - Caddy must be installed/configured if you want automatic HTTPS; otherwise set `network.caddy.mode` to `noop` or `disabled`.
