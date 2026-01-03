@@ -408,7 +408,7 @@ export default function Navbar() {
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
           aria-label="Primary"
         >
-          <div className="bg-secondary text-primary rounded-pill px-6 py-3 outline-2 outline-accent flex items-center gap-6">
+          <div className="bg-secondary text-primary rounded-pill px-3 py-3 outline-2 outline-accent flex items-center gap-6">
             <div className="group flex items-center gap-2 relative">
               <LibreServLogo className="w-8 h-8" />
               <span className="absolute left-10 overflow-hidden max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 transition-all duration-500 ease-out whitespace-nowrap font-semibold">

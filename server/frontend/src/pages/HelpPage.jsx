@@ -8,6 +8,7 @@ export default function HelpPage() {
       id="main-content"
       tabIndex={-1}
     >
+      {/* Simple placeholder until help content is wired to real docs. */}
       <HeaderCard id="help-title" title="Help" />
       <p className="text-accent mt-2">Help content is coming soon.</p>
     </main>

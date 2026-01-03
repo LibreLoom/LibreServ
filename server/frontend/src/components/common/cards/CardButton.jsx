@@ -15,6 +15,7 @@ export default function CardButton({
   variant = "default",
   className = "",
 }) {
+  // Map visual intent to a Tailwind class bundle.
   const variantClasses = variants[variant] || variants.default;
 
   return (

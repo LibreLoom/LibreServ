@@ -5,9 +5,11 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
+  // Skip linting build output to keep runs fast.
   globalIgnores(["dist"]),
   {
     files: ["**/*.{js,jsx}"],
+    // Base + React rules for the app bundle.
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
@@ -23,6 +25,7 @@ export default defineConfig([
       },
     },
     rules: {
+      // Allow _unused patterns for deliberate unused values.
       "no-unused-vars": [
         "error",
         { argsIgnorePattern: "^[A-Z_]", varsIgnorePattern: "^[A-Z_]" },
@@ -30,6 +33,7 @@ export default defineConfig([
     },
   },
   {
+    // Script utilities run in Node, not the browser.
     files: ["scripts/**/*.js"],
     languageOptions: {
       globals: globals.node,

@@ -7,6 +7,7 @@ import VerificationCard from "../components/common/cards/VerificationCard";
 import api from "../lib/api";
 
 export default function UsersPage() {
+  // Track server results + UI state for loading and destructive actions.
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
@@ -38,6 +39,7 @@ export default function UsersPage() {
   }, []);
 
   const handleDeleteClick = (userId, username) => {
+    // Store selection so the confirmation modal can be explicit.
     setUserToDelete({ id: userId, name: username });
     setShowVerification(true);
   };
@@ -77,6 +79,7 @@ export default function UsersPage() {
       </header>
 
       {loading && showLoading && (
+        // Delayed loader avoids flicker on fast responses.
         <div className="fixed inset-0 flex items-center justify-center">
           <Card className="w-[70vw] sm:w-[20vw]">
             <div className="my-5 text-center" role="status" aria-live="polite">
@@ -87,6 +90,7 @@ export default function UsersPage() {
       )}
 
       {error && (
+        // Full-screen error so it can't be missed.
         <div className="fixed inset-0 flex items-center justify-center">
           <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
             <div className="my-5 text-center" role="status" aria-live="polite">

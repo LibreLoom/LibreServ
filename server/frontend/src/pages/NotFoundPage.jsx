@@ -17,6 +17,7 @@ function hashString(value) {
 }
 
 function normalizePathname(pathname) {
+  // Collapse empty and trailing slash variations to a consistent form.
   const value = String(pathname ?? "").trim();
   if (!value) return "/";
   const withoutTrailingSlashes = value.replace(/\/+$/, "");
@@ -94,11 +95,13 @@ export default function NotFoundPage({ includeMain = true }) {
   const primarySegment = getPrimarySegment(pathnameForMatch);
 
   const quip = useMemo(() => {
+    // Use a stable hash so the same bad URL keeps the same quip.
     const index = hashString(attemptedPath) % quips.length;
     return quips[index];
   }, [attemptedPath]);
 
   const matches = useMemo(() => {
+    // Score known routes for "close enough" suggestions.
     const minCharsForGuess = 2;
     const typedIsShort = primarySegment.length < minCharsForGuess;
 
@@ -153,6 +156,7 @@ export default function NotFoundPage({ includeMain = true }) {
   }, [pathnameForMatch, primarySegment]);
 
   const suggestedPages = useMemo(() => {
+    // Keep suggestions short to avoid overwhelming the user.
     const closeMatches = matches.filter((match) => match.isClose);
     if (closeMatches.length === 0) return [];
 
