@@ -111,7 +111,10 @@ export default function DetailedStatCard({
       </div>
 
       {/* Divider */}
-      <div className="h-1 bg-primary rounded-pill mx-1 my-4" />
+      <div
+        className="h-1 bg-primary rounded-pill mx-1 my-4"
+        aria-hidden="true"
+      />
 
       {/* Resource usage with vertical bar indicators */}
       <div className="space-y-3">

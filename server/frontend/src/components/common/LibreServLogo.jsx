@@ -5,6 +5,8 @@ export default function LibreServLogo({ className = "w-8 h-8" }) {
       viewBox="56 56 400 400"
       fill="none"
       className={className}
+      role="img"
+      aria-label="LibreServ Logo"
     >
       {/* Outer ellipse: Libre family container */}
       <ellipse cx="256" cy="256" rx="200" ry="200" className="fill-primary" />

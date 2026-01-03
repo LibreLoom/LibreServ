@@ -39,7 +39,10 @@ export default function UserCard({
       </div>
 
       {/* Divider */}
-      <div className="h-1 bg-primary rounded-pill mx-1 my-4" />
+      <div
+        className="h-1 bg-primary rounded-pill mx-1 my-4"
+        aria-hidden="true"
+      />
 
       {/* User details */}
       <div className="text-left space-y-2">

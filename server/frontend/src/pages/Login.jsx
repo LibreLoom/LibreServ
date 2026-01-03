@@ -145,7 +145,7 @@ export default function Login() {
             placeholder="e.g. admin"
             id="username"
             onChange={(e) => setUsername(e.target.value)}
-            className="placeholder:text-accent border-2 border-secondary rounded-pill p-2 mb-4"
+            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:outline-2 focus:outline-accent focus:outline-offset-2"
             name="username"
             autoComplete="username"
             aria-invalid={Boolean(errorStatus)}
@@ -163,7 +163,7 @@ export default function Login() {
             id="password"
             onChange={(e) => setPassword(e.target.value)}
             type="password"
-            className="placeholder:text-accent border-2 border-secondary rounded-pill p-2"
+            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:outline-2 focus:outline-accent focus:outline-offset-2"
             name="password"
             autoComplete="current-password"
             aria-invalid={Boolean(errorStatus)}
