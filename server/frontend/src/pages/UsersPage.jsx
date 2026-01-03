@@ -71,8 +71,12 @@ export default function UsersPage() {
       </header>
 
       {loading && (
-        <div className="mt-5 text-center" role="status" aria-live="polite">
-          <p>Loading users...</p>
+        <div className="fixed inset-0 flex items-center justify-center">
+          <Card className="w-[70vw] sm:w-[20vw]">
+            <div className="my-5 text-center" role="status" aria-live="polite">
+              <p>Loading users...</p>
+            </div>
+          </Card>
         </div>
       )}
 

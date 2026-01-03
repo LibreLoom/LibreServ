@@ -141,7 +141,7 @@ export default function Navbar() {
       {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
         type="button"
-        className={`fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill`}
+        className={`fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent`}
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         aria-label={isMobileMenuOpen ? "Close Navigation" : "Open Navigation"}
         aria-expanded={isMobileMenuOpen}
