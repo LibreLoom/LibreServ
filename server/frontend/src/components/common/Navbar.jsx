@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef } from "react";
+import LibreServLogo from "./LibreServLogo";
 
 /**
  * Shared Tailwind CSS classes for navigation buttons.
@@ -66,10 +67,27 @@ const navButtons = [
 
 export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [user, setUser] = useState(null);
   const menuButtonRef = useRef(null);
   const firstNavLinkRef = useRef(null);
   const dialogRef = useRef(null);
   const mobileMenuId = "mobile-nav-menu";
+
+  // Fetch user data
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const response = await fetch("/api/v1/auth/me", {
+          credentials: "include",
+        });
+        const userData = await response.json();
+        setUser(userData);
+      } catch (err) {
+        console.error("Failed to fetch user:", err);
+      }
+    };
+    fetchUser();
+  }, []);
 
   // Handle side effects for the mobile menu (focus trapping, scroll locking, and ESC key)
   useEffect(() => {
@@ -121,8 +139,14 @@ export default function Navbar() {
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
           aria-label="Primary"
         >
-          <div className="bg-secondary text-primary rounded-pill px-6 py-3 outline-2 outline-accent">
-            <div className="flex items-center gap-6 text-sm font-sans justify-center">
+          <div className="bg-secondary text-primary rounded-pill px-6 py-3 outline-2 outline-accent flex items-center gap-6">
+            <div className="group flex items-center gap-2 relative">
+              <LibreServLogo className="w-8 h-8" />
+              <span className="absolute left-10 overflow-hidden max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 transition-all duration-500 ease-out whitespace-nowrap font-semibold">
+                LibreServ
+              </span>
+            </div>
+            <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtons.map((item) => {
                 return (
                   <React.Fragment key={`desktopNav-${item.to}`}>
@@ -133,6 +157,53 @@ export default function Navbar() {
                   </React.Fragment>
                 );
               })}
+            </div>
+            <div className="group flex items-center gap-2 relative">
+              <span className="font-semibold text-sm">
+                {user?.username || "User"}
+              </span>
+              <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center font-semibold text-sm">
+                {user?.username?.[0]?.toUpperCase() || "U"}
+              </div>
+
+              {/* User Controls Popup */}
+              <div className="absolute bottom-0 right-0 pb-12 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 ease-out">
+                <div className="bg-secondary rounded-2xl outline-2 outline-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 transition-all duration-200 ease-out">
+                  <NavLink
+                    to="/users"
+                    className="flex items-center gap-2 px-3 py-2 rounded-pill hover:bg-primary hover:text-secondary transition-all"
+                  >
+                    <Users size={16} />
+                    <span className="text-sm font-semibold">Manage Users</span>
+                  </NavLink>
+                  <NavLink
+                    to={`/users/${user?.id || ""}`}
+                    className="flex items-center gap-2 px-3 py-2 rounded-pill hover:bg-primary hover:text-secondary transition-all"
+                  >
+                    <Settings size={16} />
+                    <span className="text-sm font-semibold">
+                      Manage Profile
+                    </span>
+                  </NavLink>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await fetch("/api/v1/auth/logout", {
+                          method: "POST",
+                          credentials: "include",
+                        });
+                        window.location.href = "/";
+                      } catch (err) {
+                        console.error("Logout failed:", err);
+                      }
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-pill hover:bg-accent hover:text-primary transition-all text-left"
+                  >
+                    <X size={16} />
+                    <span className="text-sm font-semibold">Sign Out</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </nav>
