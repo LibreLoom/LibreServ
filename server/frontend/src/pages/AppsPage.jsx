@@ -1,4 +1,4 @@
-import Card from "../components/common/cards/Card";
+import HeaderCard from "../components/common/cards/HeaderCard";
 import ServiceCards from "../components/common/cards/ServiceCards";
 
 export default function AppsPage() {
@@ -9,11 +9,7 @@ export default function AppsPage() {
       id="main-content"
       tabIndex={-1}
     >
-      <Card>
-        <h1 id="apps-title" className="text-2xl font-bold text-left">
-          Apps
-        </h1>
-      </Card>
+      <HeaderCard id="apps-title" title="Apps" />
       {/* Reuse the service cards grid so list stays consistent with Dashboard. */}
       <div className="mt-5 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start">
         {ServiceCards()}

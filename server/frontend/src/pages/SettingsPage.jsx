@@ -1,3 +1,5 @@
+import HeaderCard from "../components/common/cards/HeaderCard";
+
 export default function SettingsPage() {
   return (
     <main
@@ -6,9 +8,7 @@ export default function SettingsPage() {
       id="main-content"
       tabIndex={-1}
     >
-      <h1 id="settings-title" className="text-2xl font-bold">
-        Settings
-      </h1>
+      <HeaderCard id="settings-title" title="Settings" />
       <p className="text-accent mt-2">Settings are coming soon.</p>
     </main>
   );

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import Card from "../components/common/cards/Card";
+import HeaderCard from "../components/common/cards/HeaderCard";
 import UserCard from "../components/common/cards/UserCard";
 import VerificationCard from "../components/common/cards/VerificationCard";
 import api from "../lib/api";
@@ -7,24 +8,32 @@ import api from "../lib/api";
 export default function UsersPage() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showLoading, setShowLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showVerification, setShowVerification] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
 
   // Fetch users from API
   useEffect(() => {
+    let delayTimer;
     const fetchUsers = async () => {
       try {
+        delayTimer = setTimeout(() => {
+          setShowLoading(true);
+        }, 500);
         const response = await api("/users");
         const data = await response.json();
         setUsers(data.users || []);
-        setLoading(false);
       } catch (err) {
         setError(err.message);
+      } finally {
+        clearTimeout(delayTimer);
+        setShowLoading(false);
         setLoading(false);
       }
     };
     fetchUsers();
+    return () => clearTimeout(delayTimer);
   }, []);
 
   const handleDeleteClick = (userId, username) => {
@@ -63,14 +72,10 @@ export default function UsersPage() {
       tabIndex={-1}
     >
       <header>
-        <Card>
-          <h1 id="users-title" className="text-2xl font-bold text-left">
-            Users
-          </h1>
-        </Card>
+        <HeaderCard id="users-title" title="Users" />
       </header>
 
-      {loading && (
+      {loading && showLoading && (
         <div className="fixed inset-0 flex items-center justify-center">
           <Card className="w-[70vw] sm:w-[20vw]">
             <div className="my-5 text-center" role="status" aria-live="polite">

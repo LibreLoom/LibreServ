@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import Card from "../components/common/cards/Card";
+import HeaderCard from "../components/common/cards/HeaderCard";
 
 export default function LorePage() {
   const [loreContent, setLoreContent] = useState("");
@@ -27,14 +28,11 @@ export default function LorePage() {
     >
       {/* Header */}
       <header className="px-8 mb-10">
-        <Card>
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold">Lore</h1>
-            <p className="text-lg text-accent font-semibold">
-              You found the lore page!
-            </p>
-          </div>
-        </Card>
+        <HeaderCard title="Lore">
+          <p className="text-lg text-accent font-semibold">
+            You found the lore page!
+          </p>
+        </HeaderCard>
       </header>
 
       {/* Content */}

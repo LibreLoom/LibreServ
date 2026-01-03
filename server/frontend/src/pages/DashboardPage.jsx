@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { Clock, Server, EllipsisVertical } from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
-import Card from "../components/common/cards/Card";
+import HeaderCard from "../components/common/cards/HeaderCard";
 import ServiceCards from "../components/common/cards/ServiceCards";
 import DropdownCard from "../components/common/cards/DropdownCard";
 
@@ -44,6 +44,7 @@ export default function Dashboard() {
   // Memoize so the greeting doesn't change on re-renders.
   const greeting = useMemo(() => getGreeting(), []);
   const [user, setUser] = useState(null);
+  const [userLoaded, setUserLoaded] = useState(false);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -53,10 +54,30 @@ export default function Dashboard() {
         setUser(userData);
       } catch (err) {
         console.error("Failed to fetch user:", err);
+      } finally {
+        setUserLoaded(true);
       }
     };
     fetchUser();
   }, []);
+
+  const greetingBase = greeting.endsWith(", ")
+    ? greeting.slice(0, -2)
+    : greeting;
+  const showUsername = userLoaded && user?.username;
+  const greetingTitle = (
+    <span className="inline-flex flex-wrap items-center justify-center gap-2">
+      <span>{showUsername ? `${greetingBase},` : greetingBase}</span>
+      <span
+        className={`transition-all duration-300 ease-out ${
+          showUsername ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
+        } motion-reduce:transition-none`}
+        aria-hidden={!showUsername}
+      >
+        {showUsername ? user.username : ""}
+      </span>
+    </span>
+  );
 
   return (
     <main
@@ -67,23 +88,18 @@ export default function Dashboard() {
     >
       {/* Header */}
       <header className="px-8 mb-10">
-        <Card className="group">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 id="dashboard-title" className="text-2xl font-bold">
-                {greeting + (user?.username || "User")}
-              </h1>
-            </div>
-            <div className="text-right">
-              <Link to="/lore" aria-label="Open lore page">
-                <EllipsisVertical
-                  className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent"
-                  aria-hidden="true"
-                />
-              </Link>
-            </div>
-          </div>
-        </Card>
+        <HeaderCard
+          id="dashboard-title"
+          title={greetingTitle}
+          className="group"
+        >
+          <Link to="/lore" aria-label="Open lore page">
+            <EllipsisVertical
+              className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent"
+              aria-hidden="true"
+            />
+          </Link>
+        </HeaderCard>
       </header>
 
       {/* Main content */}

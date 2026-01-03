@@ -2,6 +2,7 @@ import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Card from "../components/common/cards/Card";
 import CardButton from "../components/common/cards/CardButton";
+import HeaderCard from "../components/common/cards/HeaderCard";
 import NotFoundPage from "./NotFoundPage";
 import api from "../lib/api";
 import { User, Mail, Shield, Calendar } from "lucide-react";
@@ -65,22 +66,8 @@ export default function UserDetailPage() {
       tabIndex={-1}
     >
       {/* Header */}
-      <header className="px-0 mb-10">
-        <Card>
-          <div className="flex items-center gap-4 justify-between">
-            <div className="flex items-center gap-4">
-              <div className="h-10 w-10 rounded-pill bg-primary text-secondary flex items-center justify-center">
-                <User size={30} aria-hidden="true" />
-              </div>
-              <h1 id="user-detail-title" className="text-2xl font-bold">
-                {user.username}
-              </h1>
-            </div>
-            <p className="text-lg text-accent font-semibold">
-              {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-            </p>
-          </div>
-        </Card>
+      <header className="mb-10">
+        <HeaderCard id="user-detail-title" title="Users" />
       </header>
 
       {/* User Details */}
@@ -131,22 +118,22 @@ export default function UserDetailPage() {
             <CardButton
               action="#"
               actionLabel="Reset Password"
-              className="bg-secondary! text-primary! mt-0"
+              className="bg-secondary! text-primary! mt-0!"
             />
             <CardButton
               action="#"
               actionLabel="Change Role"
-              className="bg-secondary! text-primary! mt-0"
+              className="bg-secondary! text-primary! mt-0!"
             />
             <CardButton
               action="#"
               actionLabel="Edit User"
-              className="bg-secondary! text-primary! mt-0"
+              className="bg-secondary! text-primary! mt-0!"
             />
             <CardButton
               action="#"
               actionLabel="Delete User"
-              className="bg-accent! mt-0"
+              className="bg-accent! mt-0!"
             />
           </div>
         </Card>

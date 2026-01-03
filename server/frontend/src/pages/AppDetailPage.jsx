@@ -1,8 +1,8 @@
 import { useParams } from "react-router-dom";
-import Card from "../components/common/cards/Card";
 import { services } from "../data/services";
 import NotFoundPage from "./NotFoundPage";
 import DetailedStatCard from "../components/common/cards/DetailedStatCard";
+import HeaderCard from "../components/common/cards/HeaderCard";
 
 import { Server } from "lucide-react";
 
@@ -28,18 +28,7 @@ export default function AppDetailPage() {
     >
       {/* Header */}
       <header className="px-0 mb-10">
-        <Card>
-          <div className="flex justify-between items-center">
-            <div>
-              <h1
-                id="app-detail-title"
-                className="text-center text-2xl font-bold"
-              >
-                {service.name}
-              </h1>
-            </div>
-          </div>
-        </Card>
+        <HeaderCard id="app-detail-title" title={service.name} />
       </header>
       <DetailedStatCard
         icon={Server}

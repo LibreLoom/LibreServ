@@ -1,3 +1,5 @@
+import HeaderCard from "../components/common/cards/HeaderCard";
+
 export default function HelpPage() {
   return (
     <main
@@ -6,9 +8,7 @@ export default function HelpPage() {
       id="main-content"
       tabIndex={-1}
     >
-      <h1 id="help-title" className="text-2xl font-bold">
-        Help
-      </h1>
+      <HeaderCard id="help-title" title="Help" />
       <p className="text-accent mt-2">Help content is coming soon.</p>
     </main>
   );

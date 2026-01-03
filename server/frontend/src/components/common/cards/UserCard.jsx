@@ -71,7 +71,7 @@ export default function UserCard({
           <button
             type="button"
             onClick={() => onDelete(id)}
-            className="w-full px-4 py-2 bg-primary text-secondary rounded-pill hover:opacity-80 motion-safe:transition-all text-sm font-medium"
+            className="w-full px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all text-sm font-medium border-2 border-accent hover:bg-accent hover:text-primary hover:border-primary"
             aria-label={`Delete ${username}`}
           >
             Delete
