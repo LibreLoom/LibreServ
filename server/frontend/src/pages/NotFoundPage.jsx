@@ -193,12 +193,12 @@ export default function NotFoundPage({ includeMain = true }) {
               </div>
 
               <div className="min-w-0">
-                <p className="font-mono text-sm font-semibold uppercase tracking-widest text-accent">
+                <p className="font-mono text-sm font-normal uppercase tracking-widest text-accent">
                   Error 404
                 </p>
                 <h1
                   id={titleId}
-                  className="mt-2 text-3xl font-bold tracking-tight"
+                  className="mt-2 text-3xl font-mono font-normal tracking-tight"
                 >
                   Page not found
                 </h1>
@@ -215,7 +215,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
                 {suggestedPages.length > 0 && (
                   <div className="mt-6 rounded-large-element bg-primary/10 p-6">
-                    <h2 className="font-bold">Did you mean…</h2>
+                    <h2 className="font-mono font-normal">Did you mean…</h2>
                     <p className="mt-2 text-sm text-accent max-w-prose">
                       We found a close match.
                     </p>
@@ -238,7 +238,7 @@ export default function NotFoundPage({ includeMain = true }) {
           </Card>
 
           <Card className="p-8 outline-2 outline-accent text-left motion-reduce:animate-none">
-            <h2 className="text-xl font-bold block text-center">
+            <h2 className="text-xl font-mono font-normal block text-center">
               Quick ways out
             </h2>
             <p className="mt-2 text-accent max-w-prose block text-center">
@@ -274,7 +274,7 @@ export default function NotFoundPage({ includeMain = true }) {
             </div>
 
             <div className="mt-8 rounded-large-element bg-primary/10 p-6">
-              <h3 className="font-bold">
+              <h3 className="font-mono font-normal">
                 If this surprised you (valid reaction)
               </h3>
               <ul className="mt-3 list-disc pl-5 text-accent space-y-2">

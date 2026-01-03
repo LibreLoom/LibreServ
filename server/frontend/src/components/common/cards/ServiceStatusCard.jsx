@@ -65,7 +65,7 @@ export default function ServiceStatusCard({
           <Icon size={22} aria-hidden="true" />
         </div>
         <div className="text-left">
-          <div className="font-semibold">{name}</div>
+          <div className="font-mono font-normal">{name}</div>
         </div>
       </div>
 

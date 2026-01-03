@@ -103,27 +103,25 @@ export default function Dashboard() {
   const showUsername = userLoaded && user?.username;
   const StatusIcon = systemStatus.icon;
   const greetingTitle = (
-    <span className="flex flex-col items-center gap-2">
-      <span className="inline-flex flex-wrap items-center justify-center gap-2">
-        <span>{showUsername ? `${greetingBase},` : greetingBase}</span>
-        <span
-          className={`transition-all duration-300 ease-out ${
-            showUsername
-              ? "opacity-100 translate-y-0"
-              : "opacity-0 translate-y-1"
-          } motion-reduce:transition-none`}
-          aria-hidden={!showUsername}
-        >
-          {showUsername ? user.username : ""}
-        </span>
+    <span className="inline-flex flex-wrap items-center justify-center gap-2">
+      <span>{showUsername ? `${greetingBase},` : greetingBase}</span>
+      <span
+        className={`transition-all duration-300 ease-out ${
+          showUsername ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
+        } motion-reduce:transition-none`}
+        aria-hidden={!showUsername}
+      >
+        {showUsername ? user.username : ""}
       </span>
-      <span className="inline-flex items-center gap-2 text-xs md:text-sm font-semibold">
-        <StatusIcon
-          className={`w-4 h-4 md:w-5 md:h-5 ${systemStatus.className}`}
-          aria-hidden="true"
-        />
-        <span>{systemStatus.text}</span>
-      </span>
+    </span>
+  );
+  const statusBadge = (
+    <span className="inline-flex items-center gap-2 text-xs md:text-sm font-semibold">
+      <StatusIcon
+        className={`w-4 h-4 md:w-5 md:h-5 ${systemStatus.className}`}
+        aria-hidden="true"
+      />
+      <span>{systemStatus.text}</span>
     </span>
   );
 
@@ -140,6 +138,7 @@ export default function Dashboard() {
           id="dashboard-title"
           title={greetingTitle}
           className="group"
+          rightContent={statusBadge}
         >
           <Link to="/lore" aria-label="Open lore page">
             <EllipsisVertical

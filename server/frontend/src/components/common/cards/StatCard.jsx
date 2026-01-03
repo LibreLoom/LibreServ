@@ -10,7 +10,7 @@ export default function StatCard({ icon: Icon, label, value, delta }) {
       </div>
       <div>
         <div className="text-sm font-bold text-accent text-left">{label}</div>
-        <div className="text-xl font-semibold leading-tight text-left">
+        <div className="text-xl font-mono font-normal leading-tight text-left">
           {value}
         </div>
         {delta && (

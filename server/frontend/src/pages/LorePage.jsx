@@ -45,22 +45,40 @@ export default function LorePage() {
               <ReactMarkdown
                 components={{
                   h1: (props) => (
-                    <h1 className="text-3xl font-bold mb-4 mt-6" {...props} />
+                    <h1
+                      className="text-3xl font-mono font-normal mb-4 mt-6"
+                      {...props}
+                    />
                   ),
                   h2: (props) => (
-                    <h2 className="text-2xl font-bold mb-3 mt-5" {...props} />
+                    <h2
+                      className="text-2xl font-mono font-normal mb-3 mt-5"
+                      {...props}
+                    />
                   ),
                   h3: (props) => (
-                    <h3 className="text-xl font-bold mb-2 mt-4" {...props} />
+                    <h3
+                      className="text-xl font-mono font-normal mb-2 mt-4"
+                      {...props}
+                    />
                   ),
                   h4: (props) => (
-                    <h4 className="text-lg font-bold mb-2 mt-3" {...props} />
+                    <h4
+                      className="text-lg font-mono font-normal mb-2 mt-3"
+                      {...props}
+                    />
                   ),
                   h5: (props) => (
-                    <h5 className="text-base font-bold mb-2 mt-3" {...props} />
+                    <h5
+                      className="text-base font-mono font-normal mb-2 mt-3"
+                      {...props}
+                    />
                   ),
                   h6: (props) => (
-                    <h6 className="text-sm font-bold mb-2 mt-2" {...props} />
+                    <h6
+                      className="text-sm font-mono font-normal mb-2 mt-2"
+                      {...props}
+                    />
                   ),
                   p: (props) => <p className="mb-4" {...props} />,
                   ul: (props) => (

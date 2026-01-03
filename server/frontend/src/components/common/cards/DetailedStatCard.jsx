@@ -96,10 +96,14 @@ export default function DetailedStatCard({
           <Icon size={28} aria-hidden="true" />
         </div>
         <div className="text-left">
-          <div className="text-xl font-semibold">{name}</div>
+          <div className="text-xl font-mono font-normal">{name}</div>
           {statusText && (
             <div className="flex items-center gap-2 text-sm mt-1">
-              <StatusIcon size={16} className={config.color} aria-hidden="true" />
+              <StatusIcon
+                size={16}
+                className={config.color}
+                aria-hidden="true"
+              />
               <span className={config.color}>{statusText}</span>
             </div>
           )}
@@ -120,7 +124,10 @@ export default function DetailedStatCard({
             className="flex items-center gap-3 font-mono text-sm"
           >
             <UsageBar percentage={resource.value} />
-            <span className="text-primary w-12 text-right" aria-label={`${resource.value}%`}>
+            <span
+              className="text-primary w-12 text-right"
+              aria-label={`${resource.value}%`}
+            >
               {resource.value}%
             </span>
             <span className="text-accent">{resource.label}</span>
