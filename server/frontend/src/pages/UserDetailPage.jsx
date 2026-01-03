@@ -118,22 +118,22 @@ export default function UserDetailPage() {
             <CardButton
               action="#"
               actionLabel="Reset Password"
-              className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0 py-4!"
+              className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0! py-4!"
             />
             <CardButton
               action="#"
               actionLabel="Change Role"
-              className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0 py-4!"
+              className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0! py-4!"
             />
             <CardButton
               action="#"
               actionLabel="Edit User"
-              className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0 py-4!"
+              className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0! py-4!"
             />
             <CardButton
               action="#"
               actionLabel="Delete User"
-              className="bg-accent! text-primary! hover:bg-primary! hover:text-accent! hover:outline-accent! mt-0 py-4!"
+              className="bg-accent! text-primary! hover:bg-primary! hover:text-accent! hover:outline-accent! mt-0! py-4!"
             />
           </div>
         </Card>
