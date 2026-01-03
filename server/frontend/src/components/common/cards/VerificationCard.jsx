@@ -1,4 +1,5 @@
 import { AlertTriangle, X } from "lucide-react";
+import { useState } from "react";
 import Card from "./Card";
 
 /**
@@ -13,12 +14,30 @@ export default function VerificationCard({
   onCancel,
   variant = "danger", // "danger" or "warning"
 }) {
+  const [isClosing, setIsClosing] = useState(false);
+
+  const handleClose = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      onCancel();
+    }, 300); // Match animation duration
+  };
+
+  const handleConfirm = () => {
+    setIsClosing(true);
+    setTimeout(() => {
+      onConfirm();
+    }, 300); // Match animation duration
+  };
+
   return (
     <div className="fixed inset-0 bg-primary flex items-center justify-center z-50 p-4">
-      <Card className="max-w-md w-full relative">
+      <Card
+        className={`max-w-md w-full relative ${isClosing ? "pop-out" : ""}`}
+      >
         {/* Close button */}
         <button
-          onClick={onCancel}
+          onClick={handleClose}
           className="absolute top-4 right-4 text-accent mode-safe:transition hover:bg-secondary hover:text-primary"
           aria-label="Close"
         >
@@ -48,13 +67,13 @@ export default function VerificationCard({
         {/* Action buttons */}
         <div className="flex gap-3">
           <button
-            onClick={onCancel}
+            onClick={handleClose}
             className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid font-medium"
           >
             {cancelLabel}
           </button>
           <button
-            onClick={onConfirm}
+            onClick={handleConfirm}
             className={`flex-1 px-4 py-2 rounded-pill text-primary font-medium motion-safe:transition-all hover:opacity-80 ${
               variant === "danger" ? "bg-accent" : "bg-secondary"
             }`}
