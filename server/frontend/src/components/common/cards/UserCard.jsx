@@ -10,7 +10,6 @@ export default function UserCard({
   email,
   role,
   createdAt,
-  onManage,
   onDelete,
 }) {
   // Format the creation date
@@ -67,7 +66,7 @@ export default function UserCard({
 
       {/* Action buttons */}
       <div className="mt-4 space-y-2">
-        <CardButton action={`/users/${id}`} actionLabel="View Details" />
+        <CardButton action={`/users/${id}`} actionLabel="Manage" />
         {onDelete && (
           <button
             onClick={() => onDelete(id)}
