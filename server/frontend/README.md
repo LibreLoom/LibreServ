@@ -22,6 +22,13 @@ Then restart the backend.
 - `npm run build` – production build
 - `npm run preview` – serve the built assets locally
 - `npm run lint` – ESLint checks
+- `npm run scan:colors` – scan for hardcoded colors (CI enforced)
+
+### Color scan suppressions
+Use only with a clear reason; CI treats missing reasons as errors.
+- `// color-scan: ignore-next-line <reason>`
+- `// color-scan: ignore-line <reason>`
+- `// color-scan: ignore-file <reason>`
 
 ## Prereqs
 - Node.js 18+ and npm

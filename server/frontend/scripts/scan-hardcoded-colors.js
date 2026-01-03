@@ -245,6 +245,22 @@ const svgAttrRe =
 const cssVarAssignRe = /--[a-zA-Z0-9-_]+\s*:\s*([^;]+);?/g;
 const configColorKeyRe =
   /\b(?:color|colors|bg|background|border|text|fill|stroke|outline|accent|primary|secondary|error|danger|warning|success)\b\s*[:=]\s*([^,}\n]+)/gi;
+const classAttrMultilineRe = /\bclass(?:Name)?\s*=\s*"([\s\S]*?)"/g;
+const classNameTemplateRe = /\bclassName\s*=\s*\{\s*`([\s\S]*?)`\s*\}/g;
+const twAttrMultilineRe = /\btw\s*=\s*"([\s\S]*?)"/g;
+const twAttrTemplateRe = /\btw\s*=\s*\{\s*`([\s\S]*?)`\s*\}/g;
+const applyMultilineRe = /@apply\s+([\s\S]*?);/g;
+const styleAttrMultilineRe = /\bstyle\s*=\s*"([\s\S]*?)"/g;
+const svgStyleBlockRe = /<style[^>]*>([\s\S]*?)<\/style>/gi;
+const jsColorKeyRe =
+  /\b(?:color|colors|bg|background|border|text|fill|stroke|outline|accent|primary|secondary|error|danger|warning|success)\b\s*:\s*([`'"][^`'"]+[`'"])/gi;
+const cssPropertyRe =
+  /\b(?:color|background|background-color|border-color|outline-color|fill|stroke|caret-color|accent-color|text-decoration-color)\s*:\s*([^;]+);/gi;
+const cssAtPropertyRe = /@property\s+--[a-zA-Z0-9-_]+/gi;
+const cssAtPropertyInitialValueRe = /\binitial-value\s*:\s*([^;]+);/gi;
+const filterColorRe = /\b(?:filter|drop-shadow)\s*:\s*([^;]+);/gi;
+const directiveRe =
+  /color-scan:\s*(ignore-next-line|ignore-line|ignore-file)(?:\s+(.+))?/i;
 
 // Regex for detecting comments
 const cssCommentRe = /\/\*[\s\S]*?\*\//g;
@@ -303,6 +319,113 @@ function shouldIgnoreFile(filePath) {
   return false;
 }
 
+function getLineInfoFromIndex(lineStarts, index) {
+  let low = 0;
+  let high = lineStarts.length - 1;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const lineStart = lineStarts[mid];
+    const nextLineStart =
+      mid + 1 < lineStarts.length
+        ? lineStarts[mid + 1]
+        : Number.POSITIVE_INFINITY;
+
+    if (index >= lineStart && index < nextLineStart) {
+      return { line: mid + 1, column: index - lineStart + 1 };
+    }
+
+    if (index < lineStart) {
+      high = mid - 1;
+    } else {
+      low = mid + 1;
+    }
+  }
+
+  return { line: 1, column: 1 };
+}
+
+function extractTailwindColorClasses(value) {
+  if (!value) return [];
+  const matches = [];
+  const utilityRe = new RegExp(tailwindUtilityRe.source, "g");
+  const arbitraryRe = new RegExp(tailwindArbitraryRe.source, "g");
+  let match;
+
+  while ((match = utilityRe.exec(value)) !== null) {
+    const colorName = match[1]?.toLowerCase();
+    const shade = match[2];
+    if (!TAILWIND_COLOR_NAMES.has(colorName)) {
+      continue;
+    }
+    if (!shade && !TAILWIND_NO_SHADE.has(colorName)) {
+      continue;
+    }
+    matches.push(match[0]);
+  }
+
+  while ((match = arbitraryRe.exec(value)) !== null) {
+    const arbitraryValue = match[1] ?? "";
+    if (!hasHardcodedColorValue(arbitraryValue)) {
+      continue;
+    }
+    matches.push(match[0]);
+  }
+
+  return matches;
+}
+
+function scanTextForColors({
+  text,
+  filePath,
+  lines,
+  lineStarts,
+  suppressedLines,
+}) {
+  const results = [];
+  const textHexRe = new RegExp(hexRe.source, "g");
+  const textRgbRe = new RegExp(rgbRe.source, "g");
+  const textHslRe = new RegExp(hslRe.source, "g");
+  const textColorFnRe = new RegExp(colorFnRe.source, "g");
+  const textKeywordRe = new RegExp(keywordRe.source, "gi");
+
+  const scanRegex = (re, getMatchValue) => {
+    let match;
+    while ((match = re.exec(text)) !== null) {
+      const matchValue = getMatchValue(match);
+      if (!matchValue) continue;
+      const { line, column } = getLineInfoFromIndex(lineStarts, match.index);
+      if (suppressedLines.has(line)) {
+        continue;
+      }
+      results.push({
+        file: filePath,
+        line,
+        column,
+        match: matchValue,
+        lineText: lines[line - 1]?.trim() || "",
+        isWarning: false,
+        contextBefore: line > 1 ? lines[line - 2]?.trim() || null : null,
+        contextAfter: lines[line] ? lines[line]?.trim() || null : null,
+      });
+    }
+  };
+
+  scanRegex(textHexRe, (match) => match[0]);
+  scanRegex(textRgbRe, (match) => match[0]);
+  scanRegex(textHslRe, (match) => match[0]);
+  scanRegex(textColorFnRe, (match) => match[0]);
+  scanRegex(textKeywordRe, (match) => {
+    const keyword = match[1]?.toLowerCase();
+    if (!keyword || ALLOWED_KEYWORDS.has(keyword)) {
+      return null;
+    }
+    return match[1];
+  });
+
+  return results;
+}
+
 function recordMatch(
   results,
   filePath,
@@ -351,6 +474,26 @@ function stripComments(lineText, ext) {
   return result;
 }
 
+function stripAllComments(text, ext) {
+  let result = text;
+  if ([".css", ".scss", ".sass", ".less", ".styl"].includes(ext)) {
+    result = result.replace(cssCommentRe, "");
+  }
+  if ([".js", ".jsx", ".ts", ".tsx"].includes(ext)) {
+    result = result.replace(cssCommentRe, "");
+    result = result.replace(jsCommentRe, "");
+  }
+  return result;
+}
+
+function parseDirective(lineText) {
+  const match = lineText.match(directiveRe);
+  if (!match) return null;
+  const directive = match[1]?.toLowerCase() || "";
+  const reason = match[2]?.trim() || "";
+  return { directive, reason };
+}
+
 function shouldIgnoreLine(filePath, lineText) {
   const ext = path.extname(filePath).toLowerCase();
   if (
@@ -375,7 +518,17 @@ function shouldIgnoreLine(filePath, lineText) {
   return false;
 }
 
-function scanLine(results, filePath, lineNumber, lineText, allLines) {
+function scanLine(
+  results,
+  filePath,
+  lineNumber,
+  lineText,
+  allLines,
+  suppressedLines,
+) {
+  if (suppressedLines?.has(lineNumber)) {
+    return;
+  }
   if (shouldIgnoreLine(filePath, lineText)) {
     return;
   }
@@ -404,6 +557,11 @@ function scanLine(results, filePath, lineNumber, lineText, allLines) {
   svgAttrRe.lastIndex = 0;
   cssVarAssignRe.lastIndex = 0;
   configColorKeyRe.lastIndex = 0;
+  jsColorKeyRe.lastIndex = 0;
+  cssPropertyRe.lastIndex = 0;
+  cssAtPropertyRe.lastIndex = 0;
+  cssAtPropertyInitialValueRe.lastIndex = 0;
+  filterColorRe.lastIndex = 0;
 
   // Check for black/white with alpha (warning only)
   const warningMatches = new Set();
@@ -602,11 +760,92 @@ function scanLine(results, filePath, lineNumber, lineText, allLines) {
         allLines,
       );
     }
+    while ((match = cssPropertyRe.exec(strippedLine)) !== null) {
+      const value = match[1] ?? "";
+      if (!hasHardcodedColorValue(value)) {
+        continue;
+      }
+      recordMatch(
+        results,
+        filePath,
+        lineNumber,
+        match.index + 1,
+        match[0],
+        lineText,
+        false,
+        allLines,
+      );
+    }
+    while ((match = cssAtPropertyInitialValueRe.exec(strippedLine)) !== null) {
+      const value = match[1] ?? "";
+      if (!hasHardcodedColorValue(value)) {
+        continue;
+      }
+      recordMatch(
+        results,
+        filePath,
+        lineNumber,
+        match.index + 1,
+        match[0],
+        lineText,
+        false,
+        allLines,
+      );
+    }
+    if (cssAtPropertyRe.test(strippedLine)) {
+      if (hasHardcodedColorValue(strippedLine)) {
+        recordMatch(
+          results,
+          filePath,
+          lineNumber,
+          strippedLine.indexOf("@property") + 1,
+          "@property",
+          lineText,
+          false,
+          allLines,
+        );
+      }
+    }
+    while ((match = filterColorRe.exec(strippedLine)) !== null) {
+      const value = match[1] ?? "";
+      if (!hasHardcodedColorValue(value)) {
+        continue;
+      }
+      recordMatch(
+        results,
+        filePath,
+        lineNumber,
+        match.index + 1,
+        match[0],
+        lineText,
+        false,
+        allLines,
+      );
+    }
   }
   if ([".json", ".yml", ".yaml"].includes(ext)) {
     while ((match = configColorKeyRe.exec(strippedLine)) !== null) {
       const value = match[1] ?? "";
       if (!hasHardcodedColorValue(value)) {
+        continue;
+      }
+      recordMatch(
+        results,
+        filePath,
+        lineNumber,
+        match.index + 1,
+        match[0],
+        lineText,
+        false,
+        allLines,
+      );
+    }
+  }
+  if ([".js", ".jsx", ".ts", ".tsx"].includes(ext)) {
+    while ((match = jsColorKeyRe.exec(strippedLine)) !== null) {
+      const rawValue = match[1] ?? "";
+      const cleanedValue = rawValue.replace(/^['"`]|['"`]$/g, "");
+      if (!hasHardcodedColorValue(cleanedValue)) {
         continue;
       }
       recordMatch(
@@ -671,6 +910,8 @@ async function scanFile(filePath) {
 
   const results = [];
   const lines = [];
+  const suppressedLines = new Set();
+  let ignoreFile = false;
 
   // Stream file line by line to avoid loading entire file into memory
   const fileStream = createReadStream(filePath, { encoding: "utf8" });
@@ -683,9 +924,159 @@ async function scanFile(filePath) {
     lines.push(line);
   }
 
+  // Process suppression directives before scanning.
+  for (let i = 0; i < lines.length; i += 1) {
+    const directiveInfo = parseDirective(lines[i]);
+    if (!directiveInfo) {
+      continue;
+    }
+    const { directive, reason } = directiveInfo;
+    const directiveIndex = lines[i].toLowerCase().indexOf("color-scan");
+    const column = directiveIndex >= 0 ? directiveIndex + 1 : 1;
+
+    if (!reason) {
+      recordMatch(
+        results,
+        filePath,
+        i + 1,
+        column,
+        "color-scan: missing reason",
+        lines[i],
+        false,
+        lines,
+      );
+      continue;
+    }
+
+    if (directive === "ignore-file") {
+      ignoreFile = true;
+      continue;
+    }
+    if (directive === "ignore-line") {
+      suppressedLines.add(i + 1);
+      continue;
+    }
+    if (directive === "ignore-next-line") {
+      suppressedLines.add(i + 2);
+    }
+  }
+
+  if (ignoreFile) {
+    return results;
+  }
+
   // Now scan all lines with full context
   for (let i = 0; i < lines.length; i += 1) {
-    scanLine(results, filePath, i + 1, lines[i], lines);
+    scanLine(results, filePath, i + 1, lines[i], lines, suppressedLines);
+  }
+
+  const fullText = lines.join("\n");
+  const lineStarts = [];
+  let offset = 0;
+  for (const line of lines) {
+    lineStarts.push(offset);
+    offset += line.length + 1;
+  }
+
+  const baseName = path.basename(filePath).toLowerCase();
+  if (
+    baseName.startsWith("tailwind.config.") ||
+    baseName === "postcss.config.js"
+  ) {
+    const ext = path.extname(filePath).toLowerCase();
+    const strippedFullText = stripAllComments(fullText, ext);
+    results.push(
+      ...scanTextForColors({
+        text: strippedFullText,
+        filePath,
+        lines,
+        lineStarts,
+        suppressedLines,
+      }),
+    );
+  }
+
+  const multilinePatterns = [
+    { re: classAttrMultilineRe, label: "class" },
+    { re: classNameTemplateRe, label: "className" },
+    { re: twAttrMultilineRe, label: "tw" },
+    { re: twAttrTemplateRe, label: "tw" },
+    { re: applyMultilineRe, label: "@apply" },
+  ];
+
+  for (const { re } of multilinePatterns) {
+    re.lastIndex = 0;
+    let match;
+    while ((match = re.exec(fullText)) !== null) {
+      const value = match[1] ?? "";
+      const classes = extractTailwindColorClasses(value);
+      if (classes.length === 0) {
+        continue;
+      }
+      const { line, column } = getLineInfoFromIndex(lineStarts, match.index);
+      if (suppressedLines.has(line)) {
+        continue;
+      }
+      recordMatch(
+        results,
+        filePath,
+        line,
+        column,
+        classes[0],
+        lines[line - 1] || "",
+        false,
+        lines,
+      );
+    }
+  }
+
+  styleAttrMultilineRe.lastIndex = 0;
+  let styleMatch;
+  while ((styleMatch = styleAttrMultilineRe.exec(fullText)) !== null) {
+    const styleValue = styleMatch[1] ?? "";
+    if (!hasHardcodedColorValue(styleValue)) {
+      continue;
+    }
+    const { line, column } = getLineInfoFromIndex(lineStarts, styleMatch.index);
+    if (suppressedLines.has(line)) {
+      continue;
+    }
+    recordMatch(
+      results,
+      filePath,
+      line,
+      column,
+      "style",
+      lines[line - 1] || "",
+      false,
+      lines,
+    );
+  }
+
+  svgStyleBlockRe.lastIndex = 0;
+  let svgStyleMatch;
+  while ((svgStyleMatch = svgStyleBlockRe.exec(fullText)) !== null) {
+    const styleBlock = svgStyleMatch[1] ?? "";
+    if (!hasHardcodedColorValue(styleBlock)) {
+      continue;
+    }
+    const { line, column } = getLineInfoFromIndex(
+      lineStarts,
+      svgStyleMatch.index,
+    );
+    if (suppressedLines.has(line)) {
+      continue;
+    }
+    recordMatch(
+      results,
+      filePath,
+      line,
+      column,
+      "<style>",
+      lines[line - 1] || "",
+      false,
+      lines,
+    );
   }
 
   return results;
