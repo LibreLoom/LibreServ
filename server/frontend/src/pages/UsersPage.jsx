@@ -81,8 +81,12 @@ export default function UsersPage() {
       )}
 
       {error && (
-        <div className="mt-5 text-center text-accent" role="alert">
-          <p>Error: {error}</p>
+        <div className="fixed inset-0 flex items-center justify-center">
+          <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
+            <div className="my-5 text-center" role="status" aria-live="polite">
+              <p>Error: {error}</p>
+            </div>
+          </Card>
         </div>
       )}
 
