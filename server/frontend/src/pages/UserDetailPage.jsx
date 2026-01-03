@@ -11,6 +11,7 @@ import { User, Mail, Shield, Calendar } from "lucide-react";
 export default function UserDetailPage() {
   const { userId } = useParams();
   const navigate = useNavigate();
+  // Keep local state so we can render skeletons and show errors.
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
@@ -41,6 +42,7 @@ export default function UserDetailPage() {
 
   const handleDeleteUser = async () => {
     try {
+      // CSRF must be fetched before destructive operations.
       const csrfResponse = await api("/auth/csrf");
       const csrfData = await csrfResponse.json();
 
@@ -59,6 +61,7 @@ export default function UserDetailPage() {
   };
 
   const formatDate = (dateString) => {
+    // Format for readability rather than raw ISO strings.
     if (!dateString) return "Unknown";
     const date = new Date(dateString);
     return date.toLocaleDateString("en-US", {
@@ -86,6 +89,7 @@ export default function UserDetailPage() {
   );
 
   if (!loading && !error && !user) {
+    // If the API returns nothing for an existing route, show a 404 panel.
     return <NotFoundPage includeMain={false} />;
   }
 
@@ -136,6 +140,7 @@ export default function UserDetailPage() {
             className="grid grid-cols-1 md:grid-cols-2 gap-6"
             aria-label="User details"
           >
+            {/* Summary cards show key profile data at a glance. */}
             <Card className="motion-safe:transition hover:scale-[1.02]">
               <div className="flex items-center gap-3 mb-3">
                 <Mail size={20} className="text-accent" aria-hidden="true" />

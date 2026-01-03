@@ -1,3 +1,4 @@
+// Rotating friendly copy to make idle/loading states feel less sterile.
 export const dashboard = [
   "Welcome back. The pigeon is managing operations and snacks, ",
   "Hi there. The mouse intern arrived early and looks determined, ",
@@ -110,6 +111,7 @@ export const dashboard = [
   "Welcome back. The pigeon-verse is stable, ",
 ];
 
+// 404 quips used by the NotFoundPage; keep tone playful but clear.
 export const notfound = [
   "The pigeon checked the map. Then checked it again. This page is not on it.",
   "The mouse ran out of snacks halfway though building this page. The mouse intern is still waiting for their snacks.",
@@ -168,6 +170,7 @@ export const notfound = [
   "If this page existed, the pigeon would have organized it already.",
 ];
 
+// Login quips rotate on the login screen to add personality.
 export const login = [
   "The pigeon checks the clipboard. You’re on the list.",
   "The pigeon adjusts the badge reader and nods approvingly.",

@@ -408,9 +408,12 @@ export default function Navbar() {
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
           aria-label="Primary"
         >
-          <div className="bg-secondary text-primary rounded-pill px-6 py-3 outline-2 outline-accent flex items-center gap-6">
-            <div className="flex items-center">
-              <LibreServLogo className="w-8 h-8 hover:scale-110 transition-transform duration-200" />
+          <div className="bg-secondary text-primary rounded-pill px-3 py-3 outline-2 outline-accent flex items-center gap-6">
+            <div className="group flex items-center gap-2 relative">
+              <LibreServLogo className="w-8 h-8" />
+              <span className="absolute left-10 overflow-hidden max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 transition-all duration-500 ease-out whitespace-nowrap font-semibold">
+                LibreServ
+              </span>
             </div>
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtons.map((item) => {
@@ -425,8 +428,11 @@ export default function Navbar() {
               })}
             </div>
             <div className="group flex items-center gap-2 relative">
-              <span className="font-semibold text-sm">
-                {user?.username || "User"}
+              <span
+                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate motion-safe:transition-all duration-300 ease-out ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"} translate-y-[-0.5px]`}
+                title={user?.username || ""}
+              >
+                {user?.username || ""}
               </span>
               <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center">
                 <User size={16} aria-hidden="true" />
@@ -478,7 +484,7 @@ export default function Navbar() {
       {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
         type="button"
-        className={`fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? "transition-all duration-300 ease-out" : ""} ${isMobileMenuOpen ? "opacity-0 scale-75 pointer-events-none" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
+        className={`motion-safe:transition-all fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? "transition-all duration-300 ease-out" : ""} ${isMobileMenuOpen ? "" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
         style={
           fabPosition.x !== null
             ? { left: fabPosition.x, top: fabPosition.y }

@@ -4,6 +4,7 @@ import path from "node:path";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 
+// Keywords that are safe to leave as-is (not "hardcoded colors").
 const ALLOWED_KEYWORDS = new Set([
   "currentcolor",
   "transparent",
@@ -13,6 +14,7 @@ const ALLOWED_KEYWORDS = new Set([
   "none",
 ]);
 
+// Named colors that might appear in CSS or SVG attributes.
 const COLOR_KEYWORDS = [
   "aliceblue",
   "antiquewhite",
@@ -191,8 +193,10 @@ const TAILWIND_COLOR_NAMES = new Set([
   "white",
 ]);
 
+// Tailwind colors that don't use numeric shades.
 const TAILWIND_NO_SHADE = new Set(["black", "white"]);
 
+// File types we scan for hardcoded color values.
 const EXTENSIONS = new Set([
   ".css",
   ".scss",

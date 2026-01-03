@@ -9,6 +9,7 @@ export default function LorePage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Load markdown content lazily so the main bundle stays lean.
     import("../../../../.lore/lore.md?raw")
       .then((module) => {
         setLoreContent(module.default);
@@ -42,6 +43,7 @@ export default function LorePage() {
           {error && <p className="text-accent">Error: {error}</p>}
           {!loading && !error && (
             <div className="markdown-content">
+              {/* Map markdown elements to app typography + spacing. */}
               <ReactMarkdown
                 components={{
                   h1: (props) => (

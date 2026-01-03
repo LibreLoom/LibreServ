@@ -7,6 +7,7 @@ import VerificationCard from "../components/common/cards/VerificationCard";
 import api from "../lib/api";
 
 export default function UsersPage() {
+  // Track server results + UI state for loading and destructive actions.
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
@@ -38,6 +39,7 @@ export default function UsersPage() {
   }, []);
 
   const handleDeleteClick = (userId, username) => {
+    // Store selection so the confirmation modal can be explicit.
     setUserToDelete({ id: userId, name: username });
     setShowVerification(true);
   };
@@ -77,6 +79,7 @@ export default function UsersPage() {
       </header>
 
       {loading && showLoading && (
+        // Delayed loader avoids flicker on fast responses.
         <div className="fixed inset-0 flex items-center justify-center">
           <Card className="w-[70vw] sm:w-[20vw]">
             <div className="my-5 text-center" role="status" aria-live="polite">
@@ -87,6 +90,7 @@ export default function UsersPage() {
       )}
 
       {error && (
+        // Full-screen error so it can't be missed.
         <div className="fixed inset-0 flex items-center justify-center">
           <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
             <div className="my-5 text-center" role="status" aria-live="polite">
@@ -105,7 +109,7 @@ export default function UsersPage() {
       {!loading && !error && users.length > 0 && (
         <section className="mt-5" aria-label="User list">
           {/* Mobile: Card list */}
-          <div className="flex flex-col gap-3 sm:hidden">
+          <div className="flex flex-col gap-3 lg:hidden">
             {users.map((user) => (
               <Card key={user.id} className="p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -150,7 +154,7 @@ export default function UsersPage() {
           </div>
 
           {/* Desktop: Table */}
-          <Card className="overflow-hidden p-0 hidden sm:block">
+          <Card className="overflow-hidden p-0 hidden lg:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-primary/20 text-left text-sm text-primary/60">

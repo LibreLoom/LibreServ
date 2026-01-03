@@ -19,6 +19,7 @@ export default function HeaderCard({
   bottomContentClassName = "",
   children,
 }) {
+  // Compute layout once to avoid repeated conditionals in JSX.
   const hasBottomContent =
     bottomContent != null &&
     (typeof bottomContent !== "string" || bottomContent.trim().length > 0);
@@ -37,7 +38,8 @@ export default function HeaderCard({
   if (hasExtras) {
     return (
       <>
-        <div className="flex flex-col gap-3 sm:hidden">
+        {/* Mobile stacks sections for readability; desktop uses a single header row. */}
+        <div className="flex flex-col gap-3 xl:hidden">
           <Card className={titleCardClass}>
             <div className="flex items-center justify-center">
               <h1
@@ -73,7 +75,7 @@ export default function HeaderCard({
             </Card>
           ) : null}
         </div>
-        <div className="hidden sm:block">
+        <div className="hidden xl:block">
           <Card className={titleCardClass}>
             <div className={contentLayout}>
               {hasLeft ? (

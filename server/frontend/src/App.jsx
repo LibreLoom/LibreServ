@@ -25,6 +25,7 @@ function RequireAuth({ children }) {
 export default function App() {
   return (
     <Routes>
+      {/* App shell routes: gated by auth to keep public access minimal. */}
       {/* Wrap app routes so auth and layout are applied consistently. */}
       <Route
         element={

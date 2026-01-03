@@ -4,11 +4,13 @@ import { useAuth } from "../hooks/useAuth";
 import { login as loginQuips } from "../assets/greetings";
 
 function getLoginQuip() {
+  // Rotate copy every 12 hours to keep the screen feeling fresh.
   const hoursSinceEpoch = Math.floor(Date.now() / 43200000);
   return loginQuips[hoursSinceEpoch % loginQuips.length];
 }
 
 export default function Login() {
+  // Form state for controlled inputs + async status.
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -93,6 +95,7 @@ export default function Login() {
   }
   async function handleSubmit(e) {
     e.preventDefault();
+    // Guard against empty fields and double-submits.
     if (!username || !password || loading) return;
     setLoading(true);
     setErrorStatus(null);
@@ -101,6 +104,7 @@ export default function Login() {
       // Reload to re-run auth bootstrap and reset any stale state.
       window.location.reload();
     } catch (errorStatus) {
+      // Normalize errors so the UI can render a targeted message.
       if (!errorStatus.cause?.status) {
         setErrorStatus("NetworkError");
       } else {
@@ -115,6 +119,7 @@ export default function Login() {
       id="main-content"
       tabIndex={-1}
     >
+      {/* Centered login card for quick access from any state. */}
       <div className="relative w-full max-w-lg overflow-scroll bg-secondary text-primary rounded-large-element outline-2 outline-accent pop-in p-8">
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
