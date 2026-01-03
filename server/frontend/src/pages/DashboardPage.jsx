@@ -105,20 +105,27 @@ export default function Dashboard() {
       {/* Header */}
       <header className="px-8 mb-10">
         <Card className="group">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 id="dashboard-title" className="text-2xl font-bold">
+          <div className="flex justify-between">
+            <div className="flex flex-col gap-2">
+              <h1
+                id="dashboard-title"
+                className="text-xl md:text-2xl font-bold"
+              >
                 {greeting + (user?.username || "User")}
               </h1>
+              <div className="flex items-center gap-2">
+                <systemStatus.icon
+                  className={`w-5 h-5 md:w-6 md:h-6 ${systemStatus.className}`}
+                />
+                <span className="text-xs md:text-sm font-semibold">
+                  {systemStatus.text}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-4">
-              <systemStatus.icon
-                className={`w-6 h-6 -mr-3 ${systemStatus.className}`}
-              />
-              <span className="text-sm font-semibold">{systemStatus.text}</span>
+            <div className="flex items-start">
               <Link to="/lore" aria-label="Open lore page">
                 <EllipsisVertical
-                  className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent"
+                  className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent w-5 h-5 md:w-6 md:h-6"
                   aria-hidden="true"
                 />
               </Link>
