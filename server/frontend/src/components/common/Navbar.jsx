@@ -429,7 +429,7 @@ export default function Navbar() {
             </div>
             <div className="group flex items-center gap-2 relative">
               <span
-                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate motion-safe:transition-all duration-300 ease-out ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"}`}
+                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate motion-safe:transition-all duration-300 ease-out ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"} translate-y-[-0.5px]`}
                 title={user?.username || ""}
               >
                 {user?.username || ""}
