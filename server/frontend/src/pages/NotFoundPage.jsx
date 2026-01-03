@@ -5,6 +5,7 @@ import { ArrowLeft, ChevronDown, Ghost, Home, LifeBuoy } from "lucide-react";
 import { notfound as quips } from "../assets/greetings";
 
 import Card from "../components/common/cards/Card";
+import HeaderCard from "../components/common/cards/HeaderCard";
 
 function hashString(value) {
   // djb2-ish hash: small, fast, deterministic.
@@ -186,27 +187,29 @@ export default function NotFoundPage({ includeMain = true }) {
     >
       <div className="mx-auto w-full max-w-5xl">
         <div className="grid gap-8 items-start lg:grid-cols-2">
-          <Card className="p-8 outline-2 outline-accent text-left motion-reduce:animate-none">
-            <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+          <HeaderCard
+            id={titleId}
+            title="Page not found"
+            align="center"
+            className="p-8 outline-2 outline-accent text-center motion-reduce:animate-none"
+            leftContent={
               <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center shrink-0">
                 <Ghost size={30} aria-hidden="true" />
               </div>
+            }
+            bottomContentClassName="text-left"
+            bottomContent={
+              <div className="flex flex-col gap-6">
+                <div>
+                  <p className="font-mono text-sm font-normal uppercase tracking-widest text-accent">
+                    Error 404
+                  </p>
+                  <p id={detailsId} className="mt-3 text-accent max-w-prose">
+                    {quip}
+                  </p>
+                </div>
 
-              <div className="min-w-0">
-                <p className="font-mono text-sm font-normal uppercase tracking-widest text-accent">
-                  Error 404
-                </p>
-                <h1
-                  id={titleId}
-                  className="mt-2 text-3xl font-mono font-normal tracking-tight"
-                >
-                  Page not found
-                </h1>
-                <p id={detailsId} className="mt-3 text-accent max-w-prose">
-                  {quip}
-                </p>
-
-                <div className="mt-6">
+                <div>
                   <p className="text-sm text-accent">You tried to visit</p>
                   <code className="mt-2 block w-full overflow-x-auto rounded-large-element bg-primary/10 p-4 font-mono text-sm text-primary">
                     {attemptedPath || "/"}
@@ -214,7 +217,7 @@ export default function NotFoundPage({ includeMain = true }) {
                 </div>
 
                 {suggestedPages.length > 0 && (
-                  <div className="mt-6 rounded-large-element bg-primary/10 p-6">
+                  <div className="rounded-large-element bg-primary/10 p-6">
                     <h2 className="font-mono font-normal">Did you mean…</h2>
                     <p className="mt-2 text-sm text-accent max-w-prose">
                       We found a close match.
@@ -234,8 +237,8 @@ export default function NotFoundPage({ includeMain = true }) {
                   </div>
                 )}
               </div>
-            </div>
-          </Card>
+            }
+          />
 
           <Card className="p-8 outline-2 outline-accent text-left motion-reduce:animate-none">
             <h2 className="text-xl font-mono font-normal block text-center">

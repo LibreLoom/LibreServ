@@ -19,12 +19,15 @@ export default function HeaderCard({
   bottomContentClassName = "",
   children,
 }) {
+  const hasBottomContent =
+    bottomContent != null &&
+    (typeof bottomContent !== "string" || bottomContent.trim().length > 0);
   const alignmentClass = alignmentClasses[align] || alignmentClasses.center;
   const responsiveAlignmentClass = alignmentClass.replace("text-", "sm:text-");
   const hasLeft = Boolean(leftContent);
   const hasRight = Boolean(rightContent) || Boolean(children);
   const needsGrid = hasLeft || hasRight;
-  const hasExtras = hasLeft || hasRight || Boolean(bottomContent);
+  const hasExtras = hasLeft || hasRight || hasBottomContent;
   const contentLayout = needsGrid
     ? "flex flex-col items-center gap-3 sm:grid sm:grid-cols-[auto_1fr_auto] sm:items-center sm:gap-4"
     : "flex flex-col items-center gap-2 sm:flex sm:flex-row sm:items-center sm:justify-center";
@@ -64,7 +67,7 @@ export default function HeaderCard({
               </div>
             </Card>
           ) : null}
-          {bottomContent ? (
+          {hasBottomContent ? (
             <Card className={baseCardClass}>
               <div className={bottomContentClassName}>{bottomContent}</div>
             </Card>
@@ -97,11 +100,16 @@ export default function HeaderCard({
                 </div>
               ) : null}
             </div>
-            <div className="mt-3 h-px w-full bg-accent/60" aria-hidden="true" />
-            {bottomContent ? (
-              <div className={`mt-3 ${bottomContentClassName}`}>
-                {bottomContent}
-              </div>
+            {hasBottomContent ? (
+              <>
+                <div
+                  className="mt-3 h-px w-full bg-accent/60"
+                  aria-hidden="true"
+                />
+                <div className={`mt-3 ${bottomContentClassName}`}>
+                  {bottomContent}
+                </div>
+              </>
             ) : null}
           </Card>
         </div>
