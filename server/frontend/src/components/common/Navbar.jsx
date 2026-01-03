@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import LibreServLogo from "./LibreServLogo";
 
 /**
  * Shared Tailwind CSS classes for navigation buttons.
@@ -409,12 +408,9 @@ export default function Navbar() {
           aria-label="Primary"
         >
           <div className="bg-secondary text-primary rounded-pill px-3 py-3 outline-2 outline-accent flex items-center gap-6">
-            <div className="group flex items-center gap-2 relative">
-              <LibreServLogo className="w-8 h-8" />
-              <span className="absolute left-10 overflow-hidden max-w-0 opacity-0 group-hover:max-w-xs group-hover:opacity-100 transition-all duration-500 ease-out whitespace-nowrap font-semibold">
-                LibreServ
-              </span>
-            </div>
+            <span className="font-semibold px-3 py-1.5 flex items-center">
+              LibreServ
+            </span>
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtons.map((item) => {
                 return (
