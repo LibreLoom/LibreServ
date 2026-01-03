@@ -61,3 +61,6 @@ bin/
 *.tar.gz
 libreserv
 *.pid
+server/backend/backend.pid
+server/frontend/frontend.pid
+libreserv.sh
