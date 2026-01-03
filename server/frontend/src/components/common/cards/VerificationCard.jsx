@@ -118,7 +118,7 @@ export default function VerificationCard({
             >
               <AlertTriangle size={24} aria-hidden="true" />
             </div>
-            <h2 id={titleId} className="text-xl font-bold">
+            <h2 id={titleId} className="text-xl font-mono font-normal">
               {title}
             </h2>
           </div>

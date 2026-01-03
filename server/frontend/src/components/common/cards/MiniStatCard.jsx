@@ -6,7 +6,7 @@ export default function MiniStatCard({ icon: Icon, label, value }) {
       </div>
       <div>
         <div className="text-xs text-accent text-left">{label}</div>
-        <div className="text-sm font-semibold text-left">{value}</div>
+        <div className="text-sm font-mono font-normal text-left">{value}</div>
       </div>
     </div>
   );

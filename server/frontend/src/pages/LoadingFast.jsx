@@ -19,13 +19,13 @@ export default React.memo(function LoadingFast({
         <div
           className={`mb-10 text-center ${!disableAnimation ? "animate-fade-in-up" : ""}`}
         >
-          <div className="mb-3 text-[0.65rem] font-bold uppercase tracking-[0.3em] text-accent opacity-90">
+          <div className="mb-3 text-[0.65rem] font-sans font-semibold uppercase tracking-[0.3em] text-accent opacity-90">
             LibreServ
           </div>
-          <h1 className="mb-2 text-3xl font-medium tracking-tight text-secondary sm:text-4xl">
+          <h1 className="mb-2 text-3xl font-mono font-normal tracking-tight text-secondary sm:text-4xl">
             {heading}
           </h1>
-          <p className="font-mono text-sm text-secondary opacity-60">{label}</p>
+          <p className="font-sans text-sm text-accent">{label}</p>
         </div>
 
         {/* Material Design 3 Linear Progress Indicator */}

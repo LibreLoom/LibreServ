@@ -12,29 +12,50 @@ export default function HeaderCard({
   align = "center",
   className = "",
   titleClassName = "",
+  leftContent,
+  rightContent,
+  rightContentClassName = "",
+  bottomContent,
+  bottomContentClassName = "",
   children,
 }) {
   const alignmentClass = alignmentClasses[align] || alignmentClasses.center;
-  const hasActions = Boolean(children);
-  const contentLayout = hasActions
-    ? "grid grid-cols-[1fr_auto_1fr] items-center gap-4"
+  const hasLeft = Boolean(leftContent);
+  const hasRight = Boolean(rightContent) || Boolean(children);
+  const needsGrid = hasLeft || hasRight;
+  const contentLayout = needsGrid
+    ? "grid grid-cols-[auto_1fr_auto] items-center gap-4"
     : "flex items-center justify-center";
 
   return (
     <Card className={`border border-secondary/30 ${className}`}>
       <div className={contentLayout}>
-        {hasActions ? <div aria-hidden="true" /> : null}
+        {hasLeft ? (
+          <div className="flex items-center">{leftContent}</div>
+        ) : hasRight ? (
+          <div aria-hidden="true" />
+        ) : null}
         <h1
           id={id}
           className={`font-mono text-2xl font-normal tracking-tight ${alignmentClass} ${titleClassName}`}
         >
           {title}
         </h1>
-        {hasActions ? (
-          <div className="flex items-center justify-end gap-3">{children}</div>
+        {hasRight ? (
+          <div
+            className={`flex items-center justify-end gap-3 ${rightContentClassName}`}
+          >
+            {rightContent ? (
+              <div className="flex items-center">{rightContent}</div>
+            ) : null}
+            {children}
+          </div>
         ) : null}
       </div>
       <div className="mt-3 h-px w-full bg-accent/60" aria-hidden="true" />
+      {bottomContent ? (
+        <div className={`mt-3 ${bottomContentClassName}`}>{bottomContent}</div>
+      ) : null}
     </Card>
   );
 }

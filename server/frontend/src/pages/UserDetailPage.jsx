@@ -78,7 +78,7 @@ export default function UserDetailPage() {
         <Card className="motion-safe:transition hover:scale-[1.02]">
           <div className="flex items-center gap-3 mb-3">
             <Mail size={20} className="text-accent" aria-hidden="true" />
-            <h2 className="text-xl font-semibold">Email</h2>
+            <h2 className="text-xl font-mono font-normal">Email</h2>
           </div>
           <p className="text-lg ml-8">{user.email}</p>
         </Card>
@@ -86,7 +86,7 @@ export default function UserDetailPage() {
         <Card className="motion-safe:transition hover:scale-[1.02]">
           <div className="flex items-center gap-3 mb-3">
             <Shield size={20} className="text-accent" aria-hidden="true" />
-            <h2 className="text-xl font-semibold">Role</h2>
+            <h2 className="text-xl font-mono font-normal">Role</h2>
           </div>
           <p className="text-lg ml-8">
             {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
@@ -96,7 +96,7 @@ export default function UserDetailPage() {
         <Card className="motion-safe:transition hover:scale-[1.02]">
           <div className="flex items-center gap-3 mb-3">
             <Calendar size={20} className="text-accent" aria-hidden="true" />
-            <h2 className="text-xl font-semibold">Account Created</h2>
+            <h2 className="text-xl font-mono font-normal">Account Created</h2>
           </div>
           <p className="text-lg ml-8">{formatDate(user.created_at)}</p>
         </Card>
@@ -104,7 +104,7 @@ export default function UserDetailPage() {
         <Card className="motion-safe:transition hover:scale-[1.02]">
           <div className="flex items-center gap-3 mb-3">
             <Calendar size={20} className="text-accent" aria-hidden="true" />
-            <h2 className="text-xl font-semibold">Last Updated</h2>
+            <h2 className="text-xl font-mono font-normal">Last Updated</h2>
           </div>
           <p className="text-lg ml-8">{formatDate(user.updated_at)}</p>
         </Card>
@@ -112,7 +112,7 @@ export default function UserDetailPage() {
       </section>
       <section className="mt-6">
         <Card className="bg-primary! text-secondary! border-2 border-secondary">
-          <h2 className="text-2xl font-bold mb-6">User Tools</h2>
+          <h2 className="text-2xl font-mono font-normal mb-6">User Tools</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <CardButton

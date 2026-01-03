@@ -120,7 +120,7 @@ export default function Login() {
           LibreServ
         </span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
-        <span className="text-primary font-sans text-xl font-bold block text-center">
+        <span className="text-primary font-mono text-xl font-normal block text-center">
           Hey there! Log in to continue.
         </span>
         <p className="text-accent text-sm text-center mt-2">{loginQuip}</p>
