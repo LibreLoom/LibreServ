@@ -156,7 +156,7 @@ export default function Dashboard() {
         </div>
 
         {/* Services */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start order-2 md:order-1">
+        <div className="flex-1 grid grid-cols-1 xl:grid-cols-3 gap-6 content-start order-2 md:order-1">
           {ServiceCards()}
         </div>
       </section>
