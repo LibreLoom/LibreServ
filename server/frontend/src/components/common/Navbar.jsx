@@ -126,7 +126,19 @@ export default function Navbar() {
   const mobileMenuId = "mobile-nav-menu";
 
   // FAB dragging state
-  const [fabPosition, setFabPosition] = useState({ x: null, y: null });
+  const [fabPosition, setFabPosition] = useState(() => {
+    // Load saved position from localStorage
+    try {
+      const saved = localStorage.getItem("fabPosition");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.x === "number" && typeof parsed.y === "number") {
+          return parsed;
+        }
+      }
+    } catch {}
+    return { x: null, y: null };
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
   const dragStartRef = useRef({ x: 0, y: 0, fabX: 0, fabY: 0 });
@@ -142,8 +154,19 @@ export default function Navbar() {
         x: window.innerWidth - FAB_SIZE - EDGE_PADDING,
         y: window.innerHeight - FAB_SIZE - EDGE_PADDING,
       });
+    } else {
+      // Validate saved position is still within bounds
+      const snap = getSnapPosition(
+        fabPosition.x,
+        fabPosition.y,
+        window.innerWidth,
+        window.innerHeight,
+      );
+      if (snap.x !== fabPosition.x || snap.y !== fabPosition.y) {
+        setFabPosition(snap);
+      }
     }
-  }, [fabPosition.x]);
+  }, []);
 
   // Handle window resize
   useEffect(() => {
@@ -262,6 +285,10 @@ export default function Navbar() {
         );
         setIsAnimating(true);
         setFabPosition(snap);
+        // Save to localStorage
+        try {
+          localStorage.setItem("fabPosition", JSON.stringify(snap));
+        } catch {}
         setTimeout(() => setIsAnimating(false), 300);
         return;
       }
