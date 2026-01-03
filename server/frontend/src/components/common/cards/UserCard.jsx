@@ -10,7 +10,6 @@ export default function UserCard({
   email,
   role,
   createdAt,
-  onManage,
   onDelete,
 }) {
   // Format the creation date
