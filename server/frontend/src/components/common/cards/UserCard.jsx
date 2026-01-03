@@ -70,7 +70,7 @@ export default function UserCard({
         {onDelete && (
           <button
             onClick={() => onDelete(id)}
-            className="w-full px-4 py-2 bg-primary text-secondary rounded-pill hover:opacity-80 transition-opacity text-sm font-medium"
+            className="w-full px-4 py-2 bg-primary text-secondary rounded-pill hover:opacity-80 motion-safe:transition-all text-sm font-medium"
           >
             Delete
           </button>
