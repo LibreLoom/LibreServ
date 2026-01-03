@@ -127,17 +127,40 @@ export default function Navbar() {
 
   // FAB dragging state
   const [fabPosition, setFabPosition] = useState(() => {
-    // Load saved position from localStorage
+    // Default position
+    const defaultPos = {
+      x:
+        typeof window !== "undefined"
+          ? window.innerWidth - FAB_SIZE - EDGE_PADDING
+          : 0,
+      y:
+        typeof window !== "undefined"
+          ? window.innerHeight - FAB_SIZE - EDGE_PADDING
+          : 0,
+    };
+
+    // Try to load saved position from localStorage
     try {
       const saved = localStorage.getItem("fabPosition");
       if (saved) {
         const parsed = JSON.parse(saved);
         if (typeof parsed.x === "number" && typeof parsed.y === "number") {
+          // Validate saved position is still within bounds
+          if (typeof window !== "undefined") {
+            return getSnapPosition(
+              parsed.x,
+              parsed.y,
+              window.innerWidth,
+              window.innerHeight,
+            );
+          }
           return parsed;
         }
       }
-    } catch {}
-    return { x: null, y: null };
+    } catch {
+      // Ignore localStorage errors
+    }
+    return defaultPos;
   });
   const [isDragging, setIsDragging] = useState(false);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -146,27 +169,6 @@ export default function Navbar() {
   const lastPosRef = useRef({ x: 0, y: 0, time: 0 });
   const animationRef = useRef(null);
   const hasDraggedRef = useRef(false);
-
-  // Initialize FAB position
-  useEffect(() => {
-    if (fabPosition.x === null) {
-      setFabPosition({
-        x: window.innerWidth - FAB_SIZE - EDGE_PADDING,
-        y: window.innerHeight - FAB_SIZE - EDGE_PADDING,
-      });
-    } else {
-      // Validate saved position is still within bounds
-      const snap = getSnapPosition(
-        fabPosition.x,
-        fabPosition.y,
-        window.innerWidth,
-        window.innerHeight,
-      );
-      if (snap.x !== fabPosition.x || snap.y !== fabPosition.y) {
-        setFabPosition(snap);
-      }
-    }
-  }, []);
 
   // Handle window resize
   useEffect(() => {
@@ -288,7 +290,9 @@ export default function Navbar() {
         // Save to localStorage
         try {
           localStorage.setItem("fabPosition", JSON.stringify(snap));
-        } catch {}
+        } catch {
+          // Ignore localStorage errors
+        }
         setTimeout(() => setIsAnimating(false), 300);
         return;
       }
