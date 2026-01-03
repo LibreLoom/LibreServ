@@ -1,5 +1,12 @@
 import { useMemo, useState, useEffect } from "react";
-import { Clock, Server, EllipsisVertical } from "lucide-react";
+import {
+  Clock,
+  Server,
+  EllipsisVertical,
+  Circle,
+  X,
+  AlertTriangle,
+} from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
 import HeaderCard from "../components/common/cards/HeaderCard";
@@ -15,6 +22,7 @@ import {
   resources,
   getBreakdownItems,
   totalResourceUsage,
+  services,
 } from "../data/services";
 
 function getGreeting() {
@@ -61,20 +69,60 @@ export default function Dashboard() {
     fetchUser();
   }, []);
 
+  // Calculate overall system status
+  const systemStatus = useMemo(() => {
+    const hasOffline = services.some((s) => s.status === "offline");
+    const hasWarning = services.some((s) => s.status === "warning");
+
+    if (hasOffline) {
+      return {
+        status: "offline",
+        text: "Some Services Offline",
+        icon: X,
+        className: "text-accent",
+      };
+    } else if (hasWarning) {
+      return {
+        status: "warning",
+        text: "Some Services Have Warnings",
+        icon: AlertTriangle,
+        className: "text-accent",
+      };
+    } else {
+      return {
+        status: "online",
+        text: "All Systems Operational",
+        icon: Circle,
+        className: "fill-accent text-accent",
+      };
+    }
+  }, []);
   const greetingBase = greeting.endsWith(", ")
     ? greeting.slice(0, -2)
     : greeting;
   const showUsername = userLoaded && user?.username;
+  const StatusIcon = systemStatus.icon;
   const greetingTitle = (
-    <span className="inline-flex flex-wrap items-center justify-center gap-2">
-      <span>{showUsername ? `${greetingBase},` : greetingBase}</span>
-      <span
-        className={`transition-all duration-300 ease-out ${
-          showUsername ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
-        } motion-reduce:transition-none`}
-        aria-hidden={!showUsername}
-      >
-        {showUsername ? user.username : ""}
+    <span className="flex flex-col items-center gap-2">
+      <span className="inline-flex flex-wrap items-center justify-center gap-2">
+        <span>{showUsername ? `${greetingBase},` : greetingBase}</span>
+        <span
+          className={`transition-all duration-300 ease-out ${
+            showUsername
+              ? "opacity-100 translate-y-0"
+              : "opacity-0 translate-y-1"
+          } motion-reduce:transition-none`}
+          aria-hidden={!showUsername}
+        >
+          {showUsername ? user.username : ""}
+        </span>
+      </span>
+      <span className="inline-flex items-center gap-2 text-xs md:text-sm font-semibold">
+        <StatusIcon
+          className={`w-4 h-4 md:w-5 md:h-5 ${systemStatus.className}`}
+          aria-hidden="true"
+        />
+        <span>{systemStatus.text}</span>
       </span>
     </span>
   );
