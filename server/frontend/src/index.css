@@ -48,6 +48,28 @@ body {
     transition-duration: 200ms;
 }
 
+:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+.skip-link {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    z-index: 1000;
+    padding: 0.5rem 0.75rem;
+    border-radius: 9999px;
+    background: var(--color-secondary);
+    color: var(--color-primary);
+    transform: translateY(-200%);
+    transition: transform 150ms ease-out;
+}
+
+.skip-link:focus-visible {
+    transform: translateY(0);
+}
+
 /* Pop-in animation for modal/dialog appearances */
 @keyframes pop-in {
     from {

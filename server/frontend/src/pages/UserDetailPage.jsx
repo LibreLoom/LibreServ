@@ -28,7 +28,11 @@ export default function UserDetailPage() {
 
   if (loading) {
     return (
-      <main className="bg-primary text-secondary px-8 pt-5 pb-32">
+      <main
+        className="bg-primary text-secondary px-8 pt-5 pb-32"
+        id="main-content"
+        tabIndex={-1}
+      >
         <Card>
           <p>Loading user...</p>
         </Card>
@@ -56,6 +60,8 @@ export default function UserDetailPage() {
     <main
       className="bg-primary text-secondary px-8 pt-5 pb-32"
       aria-labelledby="user-detail-title"
+      id="main-content"
+      tabIndex={-1}
     >
       {/* Header */}
       <header className="px-0 mb-10">
@@ -77,10 +83,13 @@ export default function UserDetailPage() {
       </header>
 
       {/* User Details */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <section
+        className="grid grid-cols-1 md:grid-cols-2 gap-6"
+        aria-label="User details"
+      >
         <Card>
           <div className="flex items-center gap-3 mb-3">
-            <Mail size={20} className="text-accent" />
+            <Mail size={20} className="text-accent" aria-hidden="true" />
             <h2 className="text-xl font-semibold">Email</h2>
           </div>
           <p className="text-lg ml-8">{user.email}</p>
@@ -88,7 +97,7 @@ export default function UserDetailPage() {
 
         <Card>
           <div className="flex items-center gap-3 mb-3">
-            <Shield size={20} className="text-accent" />
+            <Shield size={20} className="text-accent" aria-hidden="true" />
             <h2 className="text-xl font-semibold">Role</h2>
           </div>
           <p className="text-lg ml-8">
@@ -98,7 +107,7 @@ export default function UserDetailPage() {
 
         <Card>
           <div className="flex items-center gap-3 mb-3">
-            <Calendar size={20} className="text-accent" />
+            <Calendar size={20} className="text-accent" aria-hidden="true" />
             <h2 className="text-xl font-semibold">Account Created</h2>
           </div>
           <p className="text-lg ml-8">{formatDate(user.created_at)}</p>
@@ -106,7 +115,7 @@ export default function UserDetailPage() {
 
         <Card>
           <div className="flex items-center gap-3 mb-3">
-            <Calendar size={20} className="text-accent" />
+            <Calendar size={20} className="text-accent" aria-hidden="true" />
             <h2 className="text-xl font-semibold">Last Updated</h2>
           </div>
           <p className="text-lg ml-8">{formatDate(user.updated_at)}</p>

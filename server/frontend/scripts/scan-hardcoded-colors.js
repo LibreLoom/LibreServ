@@ -161,6 +161,35 @@ const COLOR_KEYWORDS = [
   "yellowgreen",
 ];
 
+const TAILWIND_COLOR_NAMES = new Set([
+  "slate",
+  "gray",
+  "zinc",
+  "neutral",
+  "stone",
+  "red",
+  "orange",
+  "amber",
+  "yellow",
+  "lime",
+  "green",
+  "emerald",
+  "teal",
+  "cyan",
+  "sky",
+  "blue",
+  "indigo",
+  "violet",
+  "purple",
+  "fuchsia",
+  "pink",
+  "rose",
+  "black",
+  "white",
+]);
+
+const TAILWIND_NO_SHADE = new Set(["black", "white"]);
+
 const EXTENSIONS = new Set([
   ".css",
   ".scss",
@@ -181,10 +210,30 @@ const DEFAULT_IGNORED_SVG_DIRS = new Set(["assets", "public"]);
 const hexRe = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/g;
 const rgbRe = /\brgba?\(\s*[^)]*\)/g;
 const hslRe = /\bhsla?\(\s*[^)]*\)/g;
+const colorFnRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(\s*[^)]*\)/g;
 const keywordRe = new RegExp(
   `(?:^|[^a-zA-Z-])(${COLOR_KEYWORDS.join("|")})(?=$|[^a-zA-Z-])`,
   "gi",
 );
+const tailwindUtilityRe =
+  /\b(?:bg|text|border|outline|ring|ring-offset|divide|fill|stroke|from|via|to|accent|caret|placeholder|decoration|shadow)-([a-z]+)(?:-([0-9]{2,3}))?(?:\/[0-9]{1,3})?\b/g;
+const tailwindArbitraryRe =
+  /\b(?:bg|text|border|outline|ring|ring-offset|divide|fill|stroke|from|via|to|accent|caret|placeholder|decoration|shadow)-\[(.+?)\]\b/g;
+
+const hexTestRe = /#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/i;
+const rgbTestRe = /\brgba?\(\s*[^)]*\)/i;
+const hslTestRe = /\bhsla?\(\s*[^)]*\)/i;
+const colorFnTestRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(\s*[^)]*\)/i;
+const keywordTestRe = new RegExp(
+  `(?:^|[^a-zA-Z-])(${COLOR_KEYWORDS.join("|")})(?=$|[^a-zA-Z-])`,
+  "i",
+);
+const tailwindThemeTestRe = /\btheme\(\s*[^)]*\)/i;
+const tailwindThemeRe = /\btheme\(\s*[^)]*\)/g;
+const cssVarTestRe = /\bvar\(\s*--/i;
+const applyRe = /@apply\s+([^;]+);?/g;
+const jsxStyleRe = /\bstyle=\{\{([^}]+)\}\}/g;
+const htmlStyleRe = /\bstyle\s*=\s*"([^"]+)"/g;
 
 const wantsJson = process.argv.includes("--json");
 const inputPaths = process.argv.slice(2).filter((arg) => arg !== "--json");
@@ -308,6 +357,110 @@ function scanLine(results, filePath, lineNumber, lineText) {
       lineText,
     );
   }
+  while ((match = colorFnRe.exec(lineText)) !== null) {
+    recordMatch(
+      results,
+      filePath,
+      lineNumber,
+      match.index + 1,
+      match[0],
+      lineText,
+    );
+  }
+  while ((match = tailwindThemeRe.exec(lineText)) !== null) {
+    recordMatch(
+      results,
+      filePath,
+      lineNumber,
+      match.index + 1,
+      match[0],
+      lineText,
+    );
+  }
+  while ((match = applyRe.exec(lineText)) !== null) {
+    const classes = match[1] ?? "";
+    const classMatches = classes.match(tailwindUtilityRe);
+    if (classMatches && classMatches.length > 0) {
+      recordMatch(
+        results,
+        filePath,
+        lineNumber,
+        match.index + 1,
+        match[0],
+        lineText,
+      );
+    }
+    if (tailwindArbitraryRe.test(classes)) {
+      recordMatch(
+        results,
+        filePath,
+        lineNumber,
+        match.index + 1,
+        match[0],
+        lineText,
+      );
+    }
+  }
+  while ((match = jsxStyleRe.exec(lineText)) !== null) {
+    const styleBody = match[1] ?? "";
+    if (!hasHardcodedColorValue(styleBody)) {
+      continue;
+    }
+    recordMatch(
+      results,
+      filePath,
+      lineNumber,
+      match.index + 1,
+      match[0],
+      lineText,
+    );
+  }
+  while ((match = htmlStyleRe.exec(lineText)) !== null) {
+    const styleBody = match[1] ?? "";
+    if (!hasHardcodedColorValue(styleBody)) {
+      continue;
+    }
+    recordMatch(
+      results,
+      filePath,
+      lineNumber,
+      match.index + 1,
+      match[0],
+      lineText,
+    );
+  }
+  while ((match = tailwindUtilityRe.exec(lineText)) !== null) {
+    const colorName = match[1]?.toLowerCase();
+    const shade = match[2];
+    if (!TAILWIND_COLOR_NAMES.has(colorName)) {
+      continue;
+    }
+    if (!shade && !TAILWIND_NO_SHADE.has(colorName)) {
+      continue;
+    }
+    recordMatch(
+      results,
+      filePath,
+      lineNumber,
+      match.index + 1,
+      match[0],
+      lineText,
+    );
+  }
+  while ((match = tailwindArbitraryRe.exec(lineText)) !== null) {
+    const value = match[1] ?? "";
+    if (!hasHardcodedColorValue(value)) {
+      continue;
+    }
+    recordMatch(
+      results,
+      filePath,
+      lineNumber,
+      match.index + 1,
+      match[0],
+      lineText,
+    );
+  }
   while ((match = keywordRe.exec(lineText)) !== null) {
     const keyword = match[1].toLowerCase();
     if (ALLOWED_KEYWORDS.has(keyword)) {
@@ -323,6 +476,30 @@ function scanLine(results, filePath, lineNumber, lineText) {
       lineText,
     );
   }
+}
+
+function hasHardcodedColorValue(value) {
+  if (!value) return false;
+
+  if (hexTestRe.test(value)) return true;
+  if (rgbTestRe.test(value)) return true;
+  if (hslTestRe.test(value)) return true;
+  if (colorFnTestRe.test(value)) return true;
+  if (tailwindThemeTestRe.test(value)) return true;
+
+  if (cssVarTestRe.test(value)) {
+    return false;
+  }
+
+  const keywordMatch = value.match(keywordTestRe);
+  if (keywordMatch) {
+    const keyword = keywordMatch[1].toLowerCase();
+    if (!ALLOWED_KEYWORDS.has(keyword)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function scanFile(filePath) {

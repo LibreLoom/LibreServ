@@ -20,7 +20,11 @@ export default function LorePage() {
   }, []);
 
   return (
-    <main className="bg-primary text-secondary px-0 pt-5 pb-32">
+    <main
+      className="bg-primary text-secondary px-0 pt-5 pb-32"
+      id="main-content"
+      tabIndex={-1}
+    >
       {/* Header */}
       <header className="px-8 mb-10">
         <Card>
@@ -34,7 +38,7 @@ export default function LorePage() {
       </header>
 
       {/* Content */}
-      <section className="px-8">
+      <section className="px-8" aria-label="Lore content">
         <Card>
           {loading && <p>Loading lore...</p>}
           {error && <p className="text-accent">Error: {error}</p>}

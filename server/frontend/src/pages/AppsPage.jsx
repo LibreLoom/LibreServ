@@ -3,7 +3,12 @@ import ServiceCards from "../components/common/cards/ServiceCards";
 
 export default function AppsPage() {
   return (
-    <main className="bg-primary text-secondary px-8 pt-5 pb-32" aria-labelledby="apps-title">
+    <main
+      className="bg-primary text-secondary px-8 pt-5 pb-32"
+      aria-labelledby="apps-title"
+      id="main-content"
+      tabIndex={-1}
+    >
       <Card>
         <h1 id="apps-title" className="text-2xl font-bold text-left">
           Apps

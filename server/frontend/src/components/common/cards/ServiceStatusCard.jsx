@@ -129,6 +129,7 @@ export default function ServiceStatusCard({
         className={`motion-safe:transition-all duration-300 ease-out ${
           isOpen ? "max-h-96 overflow-visible" : "max-h-0 overflow-hidden"
         }`}
+        aria-hidden={!isOpen}
       >
         <div className="grid grid-cols-2 gap-2 pt-4">
           {breakdownItems.map((item) => (

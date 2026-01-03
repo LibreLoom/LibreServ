@@ -62,6 +62,8 @@ export default function Dashboard() {
     <main
       className="bg-primary text-secondary px-0 pt-5 pb-32"
       aria-labelledby="dashboard-title"
+      id="main-content"
+      tabIndex={-1}
     >
       {/* Header */}
       <header className="px-8 mb-10">
@@ -73,8 +75,11 @@ export default function Dashboard() {
               </h1>
             </div>
             <div className="text-right">
-              <Link to="/lore">
-                <EllipsisVertical className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent" />
+              <Link to="/lore" aria-label="Open lore page">
+                <EllipsisVertical
+                  className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent"
+                  aria-hidden="true"
+                />
               </Link>
             </div>
           </div>
@@ -82,7 +87,10 @@ export default function Dashboard() {
       </header>
 
       {/* Main content */}
-      <section className="flex flex-col md:flex-row gap-8 px-8 w-full">
+      <section
+        className="flex flex-col md:flex-row gap-8 px-8 w-full"
+        aria-label="Dashboard metrics"
+      >
         {/* Stats column */}
         <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-0">
           <StatCard

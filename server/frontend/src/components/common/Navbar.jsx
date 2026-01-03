@@ -46,7 +46,11 @@ const navButtonClasses =
   // Hover + active outline color
   "hover:aria-[current=page]:outline-primary " +
   // Hover + active outline style
-  "hover:aria-[current=page]:outline-solid";
+  "hover:aria-[current=page]:outline-solid " +
+  // Keyboard focus styles
+  "focus-visible:outline-2 " +
+  "focus-visible:outline-accent " +
+  "focus-visible:outline-offset-2";
 
 /**
  * Configuration for navigation links to maintain a single source of truth
@@ -64,6 +68,7 @@ export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
   const firstNavLinkRef = useRef(null);
+  const dialogRef = useRef(null);
   const mobileMenuId = "mobile-nav-menu";
 
   // Handle side effects for the mobile menu (focus trapping, scroll locking, and ESC key)
@@ -82,6 +87,23 @@ export default function Navbar() {
       if (event.key === "Escape") {
         setIsMobileMenuOpen(false);
         menuButtonRef.current?.focus();
+      }
+
+      if (event.key === "Tab") {
+        const focusableElements = dialogRef.current?.querySelectorAll(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusableElements || focusableElements.length === 0) return;
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (event.shiftKey && document.activeElement === firstElement) {
+          event.preventDefault();
+          lastElement.focus();
+        } else if (!event.shiftKey && document.activeElement === lastElement) {
+          event.preventDefault();
+          firstElement.focus();
+        }
       }
     };
 
@@ -105,7 +127,7 @@ export default function Navbar() {
                 return (
                   <React.Fragment key={`desktopNav-${item.to}`}>
                     <NavLink to={item.to} className={navButtonClasses}>
-                      <item.icon size={18} />
+                      <item.icon size={18} aria-hidden="true" />
                       <span>{item.label}</span>
                     </NavLink>
                   </React.Fragment>
@@ -118,6 +140,7 @@ export default function Navbar() {
 
       {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
+        type="button"
         className={`fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill`}
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         aria-label={isMobileMenuOpen ? "Close Navigation" : "Open Navigation"}
@@ -144,18 +167,24 @@ export default function Navbar() {
       <button
         type="button"
         className={`fixed inset-0 motion-safe:transition-all duration-200 bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
-        onClick={() => setIsMobileMenuOpen(false)}
+        onClick={() => {
+          setIsMobileMenuOpen(false);
+          menuButtonRef.current?.focus();
+        }}
         aria-label="Close navigation menu"
         aria-hidden={!isMobileMenuOpen}
+        tabIndex={isMobileMenuOpen ? 0 : -1}
       ></button>
 
       {/* Mobile Menu Dialog */}
       <dialog
         id={mobileMenuId}
+        ref={dialogRef}
         className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all duration-200 ease-out z-2000 xl:hidden bg-transparent ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
-        open
+        open={isMobileMenuOpen}
         aria-modal="true"
         role="dialog"
+        aria-label="Primary navigation"
       >
         <nav
           className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-3xl justify-start max-h-[75vh] overflow-y-auto outline-2 outline-accent"
@@ -175,7 +204,7 @@ export default function Navbar() {
                     // Attach ref to first item for focus management
                     ref={index === 0 ? firstNavLinkRef : null}
                   >
-                    <item.icon size={18} />
+                    <item.icon size={18} aria-hidden="true" />
                     <span>{item.label}</span>
                   </NavLink>
                 </React.Fragment>

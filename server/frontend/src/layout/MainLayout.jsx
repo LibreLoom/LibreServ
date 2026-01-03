@@ -4,10 +4,13 @@ import Navbar from "../components/common/Navbar";
 export default function MainLayout() {
   return (
     <div className="relative flex flex-col">
+      <a href="#main-content" className="skip-link">
+        Skip to content
+      </a>
       {/* Routed page content renders here; navbar stays persistent. */}
-      <main className="grow w-full">
+      <div className="grow w-full">
         <Outlet />
-      </main>
+      </div>
       <Navbar />
     </div>
   );

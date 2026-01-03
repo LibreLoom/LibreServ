@@ -181,6 +181,8 @@ export default function NotFoundPage({ includeMain = true }) {
       className="bg-primary text-secondary px-8 pt-10 pb-32"
       aria-labelledby={titleId}
       aria-describedby={detailsId}
+      id="main-content"
+      tabIndex={-1}
     >
       <div className="mx-auto w-full max-w-5xl">
         <div className="grid gap-8 items-start lg:grid-cols-2">

@@ -23,6 +23,8 @@ export default function AppDetailPage() {
     <main
       className="bg-primary text-secondary px-8 pt-5 pb-32"
       aria-labelledby="app-detail-title"
+      id="main-content"
+      tabIndex={-1}
     >
       {/* Header */}
       <header className="px-0 mb-10">

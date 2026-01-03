@@ -59,6 +59,8 @@ export default function UsersPage() {
     <main
       className="bg-primary text-secondary px-8 pt-5 pb-32"
       aria-labelledby="users-title"
+      id="main-content"
+      tabIndex={-1}
     >
       <header>
         <Card>
@@ -69,13 +71,13 @@ export default function UsersPage() {
       </header>
 
       {loading && (
-        <div className="mt-5 text-center">
+        <div className="mt-5 text-center" role="status" aria-live="polite">
           <p>Loading users...</p>
         </div>
       )}
 
       {error && (
-        <div className="mt-5 text-center text-red-500">
+        <div className="mt-5 text-center text-red-500" role="alert">
           <p>Error: {error}</p>
         </div>
       )}
@@ -87,7 +89,10 @@ export default function UsersPage() {
       )}
 
       {!loading && !error && users.length > 0 && (
-        <section className="mt-5 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start">
+        <section
+          className="mt-5 flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start"
+          aria-label="User list"
+        >
           {users.map((user) => (
             <UserCard
               key={user.id}

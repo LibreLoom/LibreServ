@@ -110,7 +110,11 @@ export default function Login() {
     }
   }
   return (
-    <main className="fixed inset-0 grid place-items-center bg-primary">
+    <main
+      className="fixed inset-0 grid place-items-center bg-primary"
+      id="main-content"
+      tabIndex={-1}
+    >
       <div className="relative w-full max-w-lg overflow-scroll bg-secondary text-primary rounded-large-element outline-2 outline-accent pop-in p-8">
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
@@ -139,6 +143,8 @@ export default function Login() {
             className="placeholder:text-accent border-2 border-secondary rounded-pill p-2 mb-4"
             name="username"
             autoComplete="username"
+            aria-invalid={Boolean(errorStatus)}
+            aria-describedby={errorStatus ? "login-error" : undefined}
           ></input>
           <label
             htmlFor="password"
@@ -155,8 +161,11 @@ export default function Login() {
             className="placeholder:text-accent border-2 border-secondary rounded-pill p-2"
             name="password"
             autoComplete="current-password"
+            aria-invalid={Boolean(errorStatus)}
+            aria-describedby={errorStatus ? "login-error" : undefined}
           ></input>
           <button
+            type="submit"
             className={`bg-secondary text-primary rounded-pill p-2 ${loading ? "opacity-50" : ""} mt-6`}
             disabled={loading}
           >
@@ -168,6 +177,7 @@ export default function Login() {
             aria-live="assertive"
             ref={errorRef}
             tabIndex={-1}
+            id="login-error"
           >
             {errorStatus && calculateErrorHTML()}
           </div>

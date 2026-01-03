@@ -69,8 +69,10 @@ export default function UserCard({
         <CardButton action={`/users/${id}`} actionLabel="View Details" />
         {onDelete && (
           <button
+            type="button"
             onClick={() => onDelete(id)}
             className="w-full px-4 py-2 bg-primary text-secondary rounded-pill hover:opacity-80 transition-opacity text-sm font-medium"
+            aria-label={`Delete ${username}`}
           >
             Delete
           </button>

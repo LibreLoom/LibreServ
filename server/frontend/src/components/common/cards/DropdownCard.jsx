@@ -52,6 +52,7 @@ export default function DropdownCard({
         className={`overflow-y-hidden overflow-x-visible motion-safe:transition-all duration-300 ease-out ${
           isOpen ? "max-h-96" : "max-h-0"
         }`}
+        aria-hidden={!isOpen}
       >
         {/* Breakdown tiles are optional; empty arrays render a collapsed list. */}
         <div className="grid grid-cols-2 gap-2 p-2">
