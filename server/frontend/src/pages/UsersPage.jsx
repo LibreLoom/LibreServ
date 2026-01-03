@@ -105,7 +105,7 @@ export default function UsersPage() {
       {!loading && !error && users.length > 0 && (
         <section className="mt-5" aria-label="User list">
           {/* Mobile: Card list */}
-          <div className="flex flex-col gap-3 sm:hidden">
+          <div className="flex flex-col gap-3 lg:hidden">
             {users.map((user) => (
               <Card key={user.id} className="p-4">
                 <div className="flex items-center justify-between gap-3">
@@ -150,7 +150,7 @@ export default function UsersPage() {
           </div>
 
           {/* Desktop: Table */}
-          <Card className="overflow-hidden p-0 hidden sm:block">
+          <Card className="overflow-hidden p-0 hidden lg:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-primary/20 text-left text-sm text-primary/60">

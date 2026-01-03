@@ -428,8 +428,11 @@ export default function Navbar() {
               })}
             </div>
             <div className="group flex items-center gap-2 relative">
-              <span className="font-semibold text-sm">
-                {user?.username || "User"}
+              <span
+                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate motion-safe:transition-all duration-300 ease-out ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"}`}
+                title={user?.username || ""}
+              >
+                {user?.username || ""}
               </span>
               <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center">
                 <User size={16} aria-hidden="true" />
@@ -481,7 +484,7 @@ export default function Navbar() {
       {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
         type="button"
-        className={`fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? "transition-all duration-300 ease-out" : ""} ${isMobileMenuOpen ? "opacity-0 scale-75 pointer-events-none" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
+        className={`motion-safe:transition-all fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? "transition-all duration-300 ease-out" : ""} ${isMobileMenuOpen ? "" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
         style={
           fabPosition.x !== null
             ? { left: fabPosition.x, top: fabPosition.y }
