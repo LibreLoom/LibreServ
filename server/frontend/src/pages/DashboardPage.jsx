@@ -1,5 +1,12 @@
 import { useMemo, useState, useEffect } from "react";
-import { Clock, Server, EllipsisVertical } from "lucide-react";
+import {
+  Clock,
+  Server,
+  EllipsisVertical,
+  Circle,
+  X,
+  AlertTriangle,
+} from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
 import Card from "../components/common/cards/Card";
@@ -15,6 +22,7 @@ import {
   resources,
   getBreakdownItems,
   totalResourceUsage,
+  services,
 } from "../data/services";
 
 function getGreeting() {
@@ -58,6 +66,35 @@ export default function Dashboard() {
     fetchUser();
   }, []);
 
+  // Calculate overall system status
+  const systemStatus = useMemo(() => {
+    const hasOffline = services.some((s) => s.status === "offline");
+    const hasWarning = services.some((s) => s.status === "warning");
+
+    if (hasOffline) {
+      return {
+        status: "offline",
+        text: "Some Services Offline",
+        icon: X,
+        className: "text-accent",
+      };
+    } else if (hasWarning) {
+      return {
+        status: "warning",
+        text: "Some Services Have Warnings",
+        icon: AlertTriangle,
+        className: "text-accent",
+      };
+    } else {
+      return {
+        status: "online",
+        text: "All Systems Operational",
+        icon: Circle,
+        className: "fill-accent text-accent",
+      };
+    }
+  }, []);
+
   return (
     <main
       className="bg-primary text-secondary px-0 pt-5 pb-32"
@@ -74,7 +111,11 @@ export default function Dashboard() {
                 {greeting + (user?.username || "User")}
               </h1>
             </div>
-            <div className="text-right">
+            <div className="flex items-center gap-4">
+              <systemStatus.icon
+                className={`w-6 h-6 -mr-3 ${systemStatus.className}`}
+              />
+              <span className="text-sm font-semibold">{systemStatus.text}</span>
               <Link to="/lore" aria-label="Open lore page">
                 <EllipsisVertical
                   className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent"
