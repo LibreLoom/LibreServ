@@ -6,6 +6,7 @@ import {
   LifeBuoy,
   Menu,
   X,
+  User,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef } from "react";
@@ -162,12 +163,12 @@ export default function Navbar() {
               <span className="font-semibold text-sm">
                 {user?.username || "User"}
               </span>
-              <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center font-semibold text-sm">
-                {user?.username?.[0]?.toUpperCase() || "U"}
+              <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center">
+                <User size={16} aria-hidden="true" />
               </div>
 
               {/* User Controls Popup */}
-              <div className="absolute bottom-0 right-0 pb-12 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 ease-out">
+              <div className="absolute bottom-0 right-0 pb-16 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 ease-out">
                 <div className="bg-secondary rounded-2xl outline-2 outline-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 transition-all duration-200 ease-out">
                   <NavLink
                     to="/users"
@@ -212,7 +213,7 @@ export default function Navbar() {
       {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
         type="button"
-        className={`fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent`}
+        className={`fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent motion-safe:transition-all duration-200 ease-out ${isMobileMenuOpen ? "opacity-0 scale-75 pointer-events-none" : "opacity-100 scale-100"}`}
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         aria-label={isMobileMenuOpen ? "Close Navigation" : "Open Navigation"}
         aria-expanded={isMobileMenuOpen}
@@ -251,14 +252,14 @@ export default function Navbar() {
       <dialog
         id={mobileMenuId}
         ref={dialogRef}
-        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 motion-safe:transition-all duration-200 ease-out z-2000 xl:hidden bg-transparent ${isMobileMenuOpen ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none"}`}
-        open={isMobileMenuOpen}
+        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 z-2000 xl:hidden bg-transparent motion-safe:transition-all duration-200 ease-out ${isMobileMenuOpen ? "opacity-100 visible scale-100" : "opacity-0 invisible scale-95"}`}
+        open
         aria-modal="true"
         role="dialog"
         aria-label="Primary navigation"
       >
         <nav
-          className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-3xl justify-start max-h-[75vh] overflow-y-auto outline-2 outline-accent"
+          className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-3xl justify-start outline-2 outline-accent"
           aria-label="Primary"
         >
           <div className="p-2.5 gap-1 flex flex-col">
@@ -281,6 +282,27 @@ export default function Navbar() {
                 </React.Fragment>
               );
             })}
+          </div>
+          <div className="h-px bg-primary/20 mx-4" aria-hidden="true" />
+          <div className="p-2.5">
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await fetch("/api/v1/auth/logout", {
+                    method: "POST",
+                    credentials: "include",
+                  });
+                  window.location.href = "/";
+                } catch (err) {
+                  console.error("Logout failed:", err);
+                }
+              }}
+              className={`w-full justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
+            >
+              <X size={18} aria-hidden="true" />
+              <span>Sign Out</span>
+            </button>
           </div>
         </nav>
       </dialog>

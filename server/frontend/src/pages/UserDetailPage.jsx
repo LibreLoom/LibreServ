@@ -1,18 +1,21 @@
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Card from "../components/common/cards/Card";
 import CardButton from "../components/common/cards/CardButton";
 import HeaderCard from "../components/common/cards/HeaderCard";
+import VerificationCard from "../components/common/cards/VerificationCard";
 import NotFoundPage from "./NotFoundPage";
 import api from "../lib/api";
 import { User, Mail, Shield, Calendar } from "lucide-react";
 
 export default function UserDetailPage() {
   const { userId } = useParams();
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     let delayTimer;
@@ -35,6 +38,25 @@ export default function UserDetailPage() {
     fetchUser();
     return () => clearTimeout(delayTimer);
   }, [userId]);
+
+  const handleDeleteUser = async () => {
+    try {
+      const csrfResponse = await api("/auth/csrf");
+      const csrfData = await csrfResponse.json();
+
+      await api(`/users/${userId}`, {
+        method: "DELETE",
+        headers: {
+          "X-CSRF-Token": csrfData.csrf_token,
+        },
+      });
+
+      navigate("/users");
+    } catch (err) {
+      console.error("Error deleting user:", err);
+      alert("Failed to delete user: " + err.message);
+    }
+  };
 
   const formatDate = (dateString) => {
     if (!dateString) return "Unknown";
@@ -160,7 +182,7 @@ export default function UserDetailPage() {
             {/* Ideas for more cards? */}
           </section>
           <section className="mt-6">
-            <Card className="bg-primary! text-secondary! border-2 border-secondary">
+            <Card className="bg-primary! text-secondary! border-2! border-secondary!">
               <h2 className="text-2xl font-mono font-normal mb-6">
                 User Tools
               </h2>
@@ -169,27 +191,41 @@ export default function UserDetailPage() {
                 <CardButton
                   action="#"
                   actionLabel="Reset Password"
-                  className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0! py-4!"
+                  variant="inverted"
                 />
                 <CardButton
                   action="#"
                   actionLabel="Change Role"
-                  className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0! py-4!"
+                  variant="inverted"
                 />
                 <CardButton
                   action="#"
                   actionLabel="Edit User"
-                  className="bg-secondary! text-primary! hover:bg-primary! hover:text-secondary! hover:outline-secondary! mt-0! py-4!"
+                  variant="inverted"
                 />
-                <CardButton
-                  action="#"
-                  actionLabel="Delete User"
-                  className="bg-accent! text-primary! hover:bg-primary! hover:text-accent! hover:outline-accent! mt-0! py-4!"
-                />
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center justify-center rounded-pill p-2 motion-safe:transition-all hover:outline-2 hover:outline-solid cursor-pointer bg-accent text-primary hover:bg-primary hover:text-accent hover:outline-accent mt-0 py-4"
+                >
+                  <span className="text-sm font-medium">Delete User</span>
+                </button>
               </div>
             </Card>
           </section>
         </>
+      )}
+
+      {showDeleteConfirm && user && (
+        <VerificationCard
+          title="Delete User"
+          message={`Are you sure you want to delete user "${user.username}"? This action cannot be undone.`}
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          variant="danger"
+          onConfirm={handleDeleteUser}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
       )}
     </main>
   );

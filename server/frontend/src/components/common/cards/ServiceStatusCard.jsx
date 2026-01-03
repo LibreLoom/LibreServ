@@ -41,7 +41,7 @@ export default function ServiceStatusCard({
   const [isOpen, setIsOpen] = useState(false);
   const breakdownId = `service-breakdown-${String(name)
     .toLowerCase()
-    .replace(/\\s+/g, "-")
+    .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-_]/g, "")}`;
   const config = statusConfig[status] || statusConfig.offline;
   const StatusIcon = config.icon;
@@ -117,7 +117,7 @@ export default function ServiceStatusCard({
       >
         <ChevronDown
           size={16}
-          className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
+          className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : "rotate-0"}`}
           aria-hidden="true"
         />
         <span>{isOpen ? "Hide breakdown" : "Show breakdown"}</span>

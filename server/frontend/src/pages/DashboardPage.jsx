@@ -1,12 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import {
-  Clock,
-  Server,
-  EllipsisVertical,
-  Circle,
-  X,
-  AlertTriangle,
-} from "lucide-react";
+import { Clock, Server, Circle, X, AlertTriangle } from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
 import HeaderCard from "../components/common/cards/HeaderCard";
@@ -14,8 +7,6 @@ import ServiceCards from "../components/common/cards/ServiceCards";
 import DropdownCard from "../components/common/cards/DropdownCard";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
-
-import { Link } from "react-router-dom";
 import api from "../lib/api";
 
 import {
@@ -165,7 +156,7 @@ export default function Dashboard() {
         </div>
 
         {/* Services */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start order-2 md:order-o">
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 content-start order-2 md:order-1">
           {ServiceCards()}
         </div>
       </section>

@@ -14,7 +14,7 @@ export default function DropdownCard({
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const breakdownId = `dropdown-breakdown-${String(title)
     .toLowerCase()
-    .replace(/\\s+/g, "-")
+    .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-_]/g, "")}`;
 
   return (
