@@ -9,7 +9,7 @@ import {
   User,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import LibreServLogo from "./LibreServLogo";
 
 /**
@@ -66,6 +66,57 @@ const navButtons = [
   { to: "/help", icon: LifeBuoy, label: "Help" },
 ];
 
+// FAB snap positions
+const FAB_SIZE = 64; // 16 * 4 = 64px (h-16 w-16)
+const EDGE_PADDING = 24; // 6 * 4 = 24px (bottom-6 right-6)
+const SNAP_THRESHOLD = 80; // Distance to snap to corner vs edge center
+
+function getSnapPosition(x, y, windowWidth, windowHeight) {
+  const centerX = windowWidth / 2 - FAB_SIZE / 2;
+  const centerY = windowHeight / 2 - FAB_SIZE / 2;
+  const minX = EDGE_PADDING;
+  const maxX = windowWidth - FAB_SIZE - EDGE_PADDING;
+  const minY = EDGE_PADDING;
+  const maxY = windowHeight - FAB_SIZE - EDGE_PADDING;
+
+  // Determine which edge is closest
+  const distToLeft = x;
+  const distToRight = windowWidth - x - FAB_SIZE;
+  const distToTop = y;
+  const distToBottom = windowHeight - y - FAB_SIZE;
+
+  const minHorizontal = Math.min(distToLeft, distToRight);
+  const minVertical = Math.min(distToTop, distToBottom);
+
+  let targetX, targetY;
+
+  if (minHorizontal < minVertical) {
+    // Snap to left or right edge
+    targetX = distToLeft < distToRight ? minX : maxX;
+    // Check if close to corner or center
+    if (y < SNAP_THRESHOLD + minY) {
+      targetY = minY;
+    } else if (y > maxY - SNAP_THRESHOLD) {
+      targetY = maxY;
+    } else {
+      targetY = centerY;
+    }
+  } else {
+    // Snap to top or bottom edge
+    targetY = distToTop < distToBottom ? minY : maxY;
+    // Check if close to corner or center
+    if (x < SNAP_THRESHOLD + minX) {
+      targetX = minX;
+    } else if (x > maxX - SNAP_THRESHOLD) {
+      targetX = maxX;
+    } else {
+      targetX = centerX;
+    }
+  }
+
+  return { x: targetX, y: targetY };
+}
+
 export default function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [user, setUser] = useState(null);
@@ -73,6 +124,192 @@ export default function Navbar() {
   const firstNavLinkRef = useRef(null);
   const dialogRef = useRef(null);
   const mobileMenuId = "mobile-nav-menu";
+
+  // FAB dragging state
+  const [fabPosition, setFabPosition] = useState({ x: null, y: null });
+  const [isDragging, setIsDragging] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, fabX: 0, fabY: 0 });
+  const velocityRef = useRef({ x: 0, y: 0 });
+  const lastPosRef = useRef({ x: 0, y: 0, time: 0 });
+  const animationRef = useRef(null);
+  const hasDraggedRef = useRef(false);
+
+  // Initialize FAB position
+  useEffect(() => {
+    if (fabPosition.x === null) {
+      setFabPosition({
+        x: window.innerWidth - FAB_SIZE - EDGE_PADDING,
+        y: window.innerHeight - FAB_SIZE - EDGE_PADDING,
+      });
+    }
+  }, [fabPosition.x]);
+
+  // Handle window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setFabPosition((prev) => {
+        if (prev.x === null) return prev;
+        const snap = getSnapPosition(
+          prev.x,
+          prev.y,
+          window.innerWidth,
+          window.innerHeight,
+        );
+        return snap;
+      });
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const handleDragStart = useCallback(
+    (clientX, clientY) => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+      setIsDragging(true);
+      setIsAnimating(false);
+      dragStartRef.current = {
+        x: clientX,
+        y: clientY,
+        fabX: fabPosition.x,
+        fabY: fabPosition.y,
+      };
+      lastPosRef.current = { x: clientX, y: clientY, time: Date.now() };
+      velocityRef.current = { x: 0, y: 0 };
+      hasDraggedRef.current = false;
+    },
+    [fabPosition],
+  );
+
+  const handleDragMove = useCallback(
+    (clientX, clientY) => {
+      if (!isDragging) return;
+
+      const now = Date.now();
+      const dt = now - lastPosRef.current.time;
+      if (dt > 0) {
+        velocityRef.current = {
+          x: ((clientX - lastPosRef.current.x) / dt) * 16,
+          y: ((clientY - lastPosRef.current.y) / dt) * 16,
+        };
+      }
+      lastPosRef.current = { x: clientX, y: clientY, time: now };
+
+      const deltaX = clientX - dragStartRef.current.x;
+      const deltaY = clientY - dragStartRef.current.y;
+
+      // Mark as dragged if moved more than 5px
+      if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+        hasDraggedRef.current = true;
+      }
+
+      let newX = dragStartRef.current.fabX + deltaX;
+      let newY = dragStartRef.current.fabY + deltaY;
+
+      // Clamp to screen bounds
+      newX = Math.max(
+        EDGE_PADDING,
+        Math.min(newX, window.innerWidth - FAB_SIZE - EDGE_PADDING),
+      );
+      newY = Math.max(
+        EDGE_PADDING,
+        Math.min(newY, window.innerHeight - FAB_SIZE - EDGE_PADDING),
+      );
+
+      setFabPosition({ x: newX, y: newY });
+    },
+    [isDragging],
+  );
+
+  const handleDragEnd = useCallback(() => {
+    if (!isDragging) return;
+    setIsDragging(false);
+
+    // Apply momentum
+    let currentX = fabPosition.x;
+    let currentY = fabPosition.y;
+    let velX = velocityRef.current.x;
+    let velY = velocityRef.current.y;
+
+    const animate = () => {
+      const friction = 0.92;
+      velX *= friction;
+      velY *= friction;
+
+      currentX += velX;
+      currentY += velY;
+
+      // Clamp to bounds
+      currentX = Math.max(
+        EDGE_PADDING,
+        Math.min(currentX, window.innerWidth - FAB_SIZE - EDGE_PADDING),
+      );
+      currentY = Math.max(
+        EDGE_PADDING,
+        Math.min(currentY, window.innerHeight - FAB_SIZE - EDGE_PADDING),
+      );
+
+      // Stop if velocity is low enough
+      if (Math.abs(velX) < 0.5 && Math.abs(velY) < 0.5) {
+        // Snap to position
+        const snap = getSnapPosition(
+          currentX,
+          currentY,
+          window.innerWidth,
+          window.innerHeight,
+        );
+        setIsAnimating(true);
+        setFabPosition(snap);
+        setTimeout(() => setIsAnimating(false), 300);
+        return;
+      }
+
+      setFabPosition({ x: currentX, y: currentY });
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+  }, [isDragging, fabPosition]);
+
+  // Mouse events
+  useEffect(() => {
+    const handleMouseMove = (e) => handleDragMove(e.clientX, e.clientY);
+    const handleMouseUp = () => handleDragEnd();
+
+    if (isDragging) {
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDragging, handleDragMove, handleDragEnd]);
+
+  // Touch events
+  useEffect(() => {
+    const handleTouchMove = (e) => {
+      if (e.touches.length === 1) {
+        handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    };
+    const handleTouchEnd = () => handleDragEnd();
+
+    if (isDragging) {
+      window.addEventListener("touchmove", handleTouchMove, { passive: true });
+      window.addEventListener("touchend", handleTouchEnd);
+      window.addEventListener("touchcancel", handleTouchEnd);
+    }
+
+    return () => {
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("touchend", handleTouchEnd);
+      window.removeEventListener("touchcancel", handleTouchEnd);
+    };
+  }, [isDragging, handleDragMove, handleDragEnd]);
 
   // Fetch user data
   useEffect(() => {
@@ -213,8 +450,27 @@ export default function Navbar() {
       {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
         type="button"
-        className={`fixed h-16 w-16 bottom-6 right-6 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent motion-safe:transition-all duration-200 ease-out ${isMobileMenuOpen ? "opacity-0 scale-75 pointer-events-none" : "opacity-100 scale-100"}`}
-        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        className={`fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? "transition-all duration-300 ease-out" : ""} ${isMobileMenuOpen ? "opacity-0 scale-75 pointer-events-none" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
+        style={
+          fabPosition.x !== null
+            ? { left: fabPosition.x, top: fabPosition.y }
+            : { bottom: EDGE_PADDING, right: EDGE_PADDING }
+        }
+        onClick={() => {
+          // Only open menu if user didn't drag
+          if (!hasDraggedRef.current) {
+            setIsMobileMenuOpen(!isMobileMenuOpen);
+          }
+        }}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          handleDragStart(e.clientX, e.clientY);
+        }}
+        onTouchStart={(e) => {
+          if (e.touches.length === 1) {
+            handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
+          }
+        }}
         aria-label={isMobileMenuOpen ? "Close Navigation" : "Open Navigation"}
         aria-expanded={isMobileMenuOpen}
         aria-controls={mobileMenuId}
