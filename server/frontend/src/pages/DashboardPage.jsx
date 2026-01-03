@@ -139,14 +139,7 @@ export default function Dashboard() {
           title={greetingTitle}
           className="group"
           rightContent={statusBadge}
-        >
-          <Link to="/lore" aria-label="Open lore page">
-            <EllipsisVertical
-              className="cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity duration-500 text-accent"
-              aria-hidden="true"
-            />
-          </Link>
-        </HeaderCard>
+        ></HeaderCard>
       </header>
 
       {/* Main content */}
