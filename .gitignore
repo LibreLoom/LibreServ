@@ -60,3 +60,4 @@ tmp/
 bin/
 *.tar.gz
 libreserv
+*.pid

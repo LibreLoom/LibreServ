@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import Card from "./Card";
 
@@ -14,11 +14,41 @@ export default function VerificationCard({
   onCancel,
   variant = "danger", // "danger" or "warning"
 }) {
+  const [isClosing, setIsClosing] = useState(false);
   const titleId = useId();
   const messageId = useId();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const previousFocusRef = useRef(null);
+  const onCancelRef = useRef(onCancel);
+  const onConfirmRef = useRef(onConfirm);
+  const isClosingRef = useRef(false);
+
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  }, [onCancel]);
+
+  useEffect(() => {
+    onConfirmRef.current = onConfirm;
+  }, [onConfirm]);
+
+  const handleClose = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    setIsClosing(true);
+    setTimeout(() => {
+      onCancelRef.current?.();
+    }, 300);
+  }, []);
+
+  const handleConfirm = useCallback(() => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    setIsClosing(true);
+    setTimeout(() => {
+      onConfirmRef.current?.();
+    }, 300);
+  }, []);
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -27,7 +57,8 @@ export default function VerificationCard({
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
-        onCancel?.();
+        event.preventDefault();
+        handleClose();
       }
 
       if (event.key === "Tab") {
@@ -54,7 +85,7 @@ export default function VerificationCard({
       document.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus?.();
     };
-  }, [onCancel]);
+  }, [handleClose]);
 
   return (
     <div className="fixed inset-0 bg-primary flex items-center justify-center z-50 p-4">
@@ -66,11 +97,11 @@ export default function VerificationCard({
         aria-describedby={messageId}
         className="max-w-md w-full"
       >
-        <Card className="relative">
+        <Card className={`relative ${isClosing ? "pop-out" : ""}`}>
           {/* Close button */}
           <button
             type="button"
-            onClick={onCancel}
+            onClick={handleClose}
             className="absolute top-4 right-4 text-accent motion-safe:transition hover:bg-secondary hover:text-primary"
             aria-label="Close"
             ref={closeButtonRef}
@@ -106,14 +137,14 @@ export default function VerificationCard({
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={onCancel}
+              onClick={handleClose}
               className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid font-medium"
             >
               {cancelLabel}
             </button>
             <button
               type="button"
-              onClick={onConfirm}
+              onClick={handleConfirm}
               className={`flex-1 px-4 py-2 rounded-pill text-primary font-medium motion-safe:transition-all hover:opacity-80 ${
                 variant === "danger" ? "bg-accent" : "bg-secondary"
               }`}

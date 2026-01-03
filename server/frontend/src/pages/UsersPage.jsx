@@ -77,7 +77,7 @@ export default function UsersPage() {
       )}
 
       {error && (
-        <div className="mt-5 text-center text-red-500" role="alert">
+        <div className="mt-5 text-center text-accent" role="alert">
           <p>Error: {error}</p>
         </div>
       )}

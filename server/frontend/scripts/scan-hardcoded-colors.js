@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
 
 const ALLOWED_KEYWORDS = new Set([
   "currentcolor",
@@ -8,6 +10,7 @@ const ALLOWED_KEYWORDS = new Set([
   "inherit",
   "initial",
   "unset",
+  "none",
 ]);
 
 const COLOR_KEYWORDS = [
@@ -202,6 +205,9 @@ const EXTENSIONS = new Set([
   ".tsx",
   ".html",
   ".svg",
+  ".json",
+  ".yml",
+  ".yaml",
 ]);
 
 const IGNORE_DIRS = new Set(["node_modules", "dist", "build", ".git"]);
@@ -234,6 +240,19 @@ const cssVarTestRe = /\bvar\(\s*--/i;
 const applyRe = /@apply\s+([^;]+);?/g;
 const jsxStyleRe = /\bstyle=\{\{([^}]+)\}\}/g;
 const htmlStyleRe = /\bstyle\s*=\s*"([^"]+)"/g;
+const svgAttrRe =
+  /\b(?:fill|stroke|stop-color|flood-color|lighting-color)\s*=\s*["']([^"']+)["']/g;
+const cssVarAssignRe = /--[a-zA-Z0-9-_]+\s*:\s*([^;]+);?/g;
+const configColorKeyRe =
+  /\b(?:color|colors|bg|background|border|text|fill|stroke|outline|accent|primary|secondary|error|danger|warning|success)\b\s*[:=]\s*([^,}\n]+)/gi;
+
+// Regex for detecting comments
+const cssCommentRe = /\/\*[\s\S]*?\*\//g;
+const jsCommentRe = /\/\/.*$/gm;
+
+// Regex for detecting black/white with alpha (warnings only)
+const blackWhiteAlphaRe =
+  /\brgba?\(\s*(?:0\s*,\s*0\s*,\s*0|255\s*,\s*255\s*,\s*255)\s*,\s*[\d.]+\s*\)/gi;
 
 const wantsJson = process.argv.includes("--json");
 const inputPaths = process.argv.slice(2).filter((arg) => arg !== "--json");
@@ -284,14 +303,52 @@ function shouldIgnoreFile(filePath) {
   return false;
 }
 
-function recordMatch(results, filePath, lineNumber, column, match, lineText) {
+function recordMatch(
+  results,
+  filePath,
+  lineNumber,
+  column,
+  match,
+  lineText,
+  isWarning = false,
+  allLines = [],
+) {
+  // Get context lines (1 before, 1 after)
+  const contextBefore =
+    lineNumber > 1 && allLines[lineNumber - 2]
+      ? allLines[lineNumber - 2].trim()
+      : null;
+  const contextAfter = allLines[lineNumber]
+    ? allLines[lineNumber].trim()
+    : null;
+
   results.push({
     file: filePath,
     line: lineNumber,
     column,
     match,
     lineText: lineText.trim(),
+    isWarning,
+    contextBefore,
+    contextAfter,
   });
+}
+
+function stripComments(lineText, ext) {
+  let result = lineText;
+
+  // Strip CSS-style comments
+  if ([".css", ".scss", ".sass", ".less", ".styl"].includes(ext)) {
+    result = result.replace(cssCommentRe, "");
+  }
+
+  // Strip JS-style comments
+  if ([".js", ".jsx", ".ts", ".tsx"].includes(ext)) {
+    result = result.replace(cssCommentRe, ""); // Block comments
+    result = result.replace(jsCommentRe, ""); // Line comments
+  }
+
+  return result;
 }
 
 function shouldIgnoreLine(filePath, lineText) {
@@ -318,16 +375,44 @@ function shouldIgnoreLine(filePath, lineText) {
   return false;
 }
 
-function scanLine(results, filePath, lineNumber, lineText) {
+function scanLine(results, filePath, lineNumber, lineText, allLines) {
   if (shouldIgnoreLine(filePath, lineText)) {
     return;
   }
+
+  const ext = path.extname(filePath).toLowerCase();
+  const strippedLine = stripComments(lineText, ext);
+
+  // If the entire line was a comment, skip it
+  if (strippedLine.trim().length === 0 && lineText.trim().length > 0) {
+    return;
+  }
+
   let match;
   hexRe.lastIndex = 0;
   rgbRe.lastIndex = 0;
   hslRe.lastIndex = 0;
+  colorFnRe.lastIndex = 0;
   keywordRe.lastIndex = 0;
-  while ((match = hexRe.exec(lineText)) !== null) {
+  blackWhiteAlphaRe.lastIndex = 0;
+  tailwindThemeRe.lastIndex = 0;
+  applyRe.lastIndex = 0;
+  tailwindUtilityRe.lastIndex = 0;
+  tailwindArbitraryRe.lastIndex = 0;
+  jsxStyleRe.lastIndex = 0;
+  htmlStyleRe.lastIndex = 0;
+  svgAttrRe.lastIndex = 0;
+  cssVarAssignRe.lastIndex = 0;
+  configColorKeyRe.lastIndex = 0;
+
+  // Check for black/white with alpha (warning only)
+  const warningMatches = new Set();
+  while ((match = blackWhiteAlphaRe.exec(strippedLine)) !== null) {
+    warningMatches.add(match.index);
+  }
+
+  blackWhiteAlphaRe.lastIndex = 0;
+  while ((match = hexRe.exec(strippedLine)) !== null) {
     recordMatch(
       results,
       filePath,
@@ -335,9 +420,12 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      false,
+      allLines,
     );
   }
-  while ((match = rgbRe.exec(lineText)) !== null) {
+  while ((match = rgbRe.exec(strippedLine)) !== null) {
+    const isWarning = warningMatches.has(match.index);
     recordMatch(
       results,
       filePath,
@@ -345,9 +433,11 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      isWarning,
+      allLines,
     );
   }
-  while ((match = hslRe.exec(lineText)) !== null) {
+  while ((match = hslRe.exec(strippedLine)) !== null) {
     recordMatch(
       results,
       filePath,
@@ -355,9 +445,11 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      false,
+      allLines,
     );
   }
-  while ((match = colorFnRe.exec(lineText)) !== null) {
+  while ((match = colorFnRe.exec(strippedLine)) !== null) {
     recordMatch(
       results,
       filePath,
@@ -365,9 +457,11 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      false,
+      allLines,
     );
   }
-  while ((match = tailwindThemeRe.exec(lineText)) !== null) {
+  while ((match = tailwindThemeRe.exec(strippedLine)) !== null) {
     recordMatch(
       results,
       filePath,
@@ -375,9 +469,11 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      false,
+      allLines,
     );
   }
-  while ((match = applyRe.exec(lineText)) !== null) {
+  while ((match = applyRe.exec(strippedLine)) !== null) {
     const classes = match[1] ?? "";
     const classMatches = classes.match(tailwindUtilityRe);
     if (classMatches && classMatches.length > 0) {
@@ -388,6 +484,8 @@ function scanLine(results, filePath, lineNumber, lineText) {
         match.index + 1,
         match[0],
         lineText,
+        false,
+        allLines,
       );
     }
     if (tailwindArbitraryRe.test(classes)) {
@@ -398,10 +496,12 @@ function scanLine(results, filePath, lineNumber, lineText) {
         match.index + 1,
         match[0],
         lineText,
+        false,
+        allLines,
       );
     }
   }
-  while ((match = jsxStyleRe.exec(lineText)) !== null) {
+  while ((match = jsxStyleRe.exec(strippedLine)) !== null) {
     const styleBody = match[1] ?? "";
     if (!hasHardcodedColorValue(styleBody)) {
       continue;
@@ -413,9 +513,11 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      false,
+      allLines,
     );
   }
-  while ((match = htmlStyleRe.exec(lineText)) !== null) {
+  while ((match = htmlStyleRe.exec(strippedLine)) !== null) {
     const styleBody = match[1] ?? "";
     if (!hasHardcodedColorValue(styleBody)) {
       continue;
@@ -427,9 +529,11 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      false,
+      allLines,
     );
   }
-  while ((match = tailwindUtilityRe.exec(lineText)) !== null) {
+  while ((match = tailwindUtilityRe.exec(strippedLine)) !== null) {
     const colorName = match[1]?.toLowerCase();
     const shade = match[2];
     if (!TAILWIND_COLOR_NAMES.has(colorName)) {
@@ -445,9 +549,11 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      false,
+      allLines,
     );
   }
-  while ((match = tailwindArbitraryRe.exec(lineText)) !== null) {
+  while ((match = tailwindArbitraryRe.exec(strippedLine)) !== null) {
     const value = match[1] ?? "";
     if (!hasHardcodedColorValue(value)) {
       continue;
@@ -459,9 +565,63 @@ function scanLine(results, filePath, lineNumber, lineText) {
       match.index + 1,
       match[0],
       lineText,
+      false,
+      allLines,
     );
   }
-  while ((match = keywordRe.exec(lineText)) !== null) {
+  while ((match = svgAttrRe.exec(strippedLine)) !== null) {
+    const value = match[1] ?? "";
+    if (!hasHardcodedColorValue(value)) {
+      continue;
+    }
+    recordMatch(
+      results,
+      filePath,
+      lineNumber,
+      match.index + 1,
+      match[0],
+      lineText,
+      false,
+      allLines,
+    );
+  }
+  if ([".css", ".scss", ".sass", ".less", ".styl"].includes(ext)) {
+    while ((match = cssVarAssignRe.exec(strippedLine)) !== null) {
+      const value = match[1] ?? "";
+      if (!hasHardcodedColorValue(value)) {
+        continue;
+      }
+      recordMatch(
+        results,
+        filePath,
+        lineNumber,
+        match.index + 1,
+        match[0],
+        lineText,
+        false,
+        allLines,
+      );
+    }
+  }
+  if ([".json", ".yml", ".yaml"].includes(ext)) {
+    while ((match = configColorKeyRe.exec(strippedLine)) !== null) {
+      const value = match[1] ?? "";
+      if (!hasHardcodedColorValue(value)) {
+        continue;
+      }
+      recordMatch(
+        results,
+        filePath,
+        lineNumber,
+        match.index + 1,
+        match[0],
+        lineText,
+        false,
+        allLines,
+      );
+    }
+  }
+  while ((match = keywordRe.exec(strippedLine)) !== null) {
     const keyword = match[1].toLowerCase();
     if (ALLOWED_KEYWORDS.has(keyword)) {
       continue;
@@ -474,6 +634,8 @@ function scanLine(results, filePath, lineNumber, lineText) {
       keywordIndex + 1,
       match[1],
       lineText,
+      false,
+      allLines,
     );
   }
 }
@@ -502,16 +664,30 @@ function hasHardcodedColorValue(value) {
   return false;
 }
 
-function scanFile(filePath) {
+async function scanFile(filePath) {
   if (shouldIgnoreFile(filePath)) {
     return [];
   }
-  const contents = fs.readFileSync(filePath, "utf8");
-  const lines = contents.split(/\r?\n/);
+
   const results = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    scanLine(results, filePath, i + 1, lines[i]);
+  const lines = [];
+
+  // Stream file line by line to avoid loading entire file into memory
+  const fileStream = createReadStream(filePath, { encoding: "utf8" });
+  const rl = createInterface({
+    input: fileStream,
+    crlfDelay: Infinity,
+  });
+
+  for await (const line of rl) {
+    lines.push(line);
   }
+
+  // Now scan all lines with full context
+  for (let i = 0; i < lines.length; i += 1) {
+    scanLine(results, filePath, i + 1, lines[i], lines);
+  }
+
   return results;
 }
 
@@ -519,27 +695,72 @@ function formatResults(results) {
   if (wantsJson) {
     return JSON.stringify(results, null, 2);
   }
+
+  const errors = results.filter((r) => !r.isWarning);
+  const warnings = results.filter((r) => r.isWarning);
+
   if (results.length === 0) {
     return "No hardcoded colors found.";
   }
-  return results
-    .map((item) => {
-      return `${item.file}:${item.line}:${item.column} ${item.match} ${item.lineText}`;
-    })
-    .join("\n");
+
+  const output = [];
+
+  if (errors.length > 0) {
+    output.push("ERRORS:");
+    errors.forEach((item) => {
+      output.push(`${item.file}:${item.line}:${item.column}`);
+      if (item.contextBefore) {
+        output.push(`  ${item.line - 1} | ${item.contextBefore}`);
+      }
+      output.push(`> ${item.line} | ${item.lineText}`);
+      output.push(
+        `  ${" ".repeat(String(item.line).length)} | ${" ".repeat(item.column - 1)}^ ${item.match}`,
+      );
+      if (item.contextAfter) {
+        output.push(`  ${item.line + 1} | ${item.contextAfter}`);
+      }
+      output.push("");
+    });
+  }
+
+  if (warnings.length > 0) {
+    output.push(
+      "WARNINGS (black/white with alpha - consider using semantic colors):",
+    );
+    warnings.forEach((item) => {
+      output.push(`${item.file}:${item.line}:${item.column}`);
+      if (item.contextBefore) {
+        output.push(`  ${item.line - 1} | ${item.contextBefore}`);
+      }
+      output.push(`> ${item.line} | ${item.lineText}`);
+      output.push(
+        `  ${" ".repeat(String(item.line).length)} | ${" ".repeat(item.column - 1)}^ ${item.match}`,
+      );
+      if (item.contextAfter) {
+        output.push(`  ${item.line + 1} | ${item.contextAfter}`);
+      }
+      output.push("");
+    });
+  }
+
+  return output.join("\n");
 }
 
-function main() {
+async function main() {
   const files = [];
   for (const root of roots) {
     walkDir(path.resolve(root), files);
   }
   const results = [];
   for (const filePath of files) {
-    results.push(...scanFile(filePath));
+    const fileResults = await scanFile(filePath);
+    results.push(...fileResults);
   }
   console.log(formatResults(results));
-  process.exit(results.length === 0 ? 0 : 1);
+
+  // Exit with error only if there are actual errors (not warnings)
+  const hasErrors = results.some((r) => !r.isWarning);
+  process.exit(hasErrors ? 1 : 0);
 }
 
 main();
