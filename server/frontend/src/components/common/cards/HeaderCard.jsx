@@ -34,7 +34,6 @@ export default function HeaderCard({
           <div className="flex items-center justify-end gap-3">{children}</div>
         ) : null}
       </div>
-      <div className="mt-3 h-px w-full bg-accent/60" aria-hidden="true" />
     </Card>
   );
 }
