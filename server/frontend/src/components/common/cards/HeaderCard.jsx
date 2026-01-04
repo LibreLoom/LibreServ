@@ -133,7 +133,7 @@ export default function HeaderCard({
             Single cohesive header card
             -------------------------------------------------------------- */}
         <div className="hidden xl:block">
-          <Card className={titleCardClass}>
+          <Card className={`${titleCardClass} rounded-pill`}>
             <div className={contentLayout}>
               {hasLeft ? (
                 <div className="flex items-center justify-center text-center sm:justify-start sm:text-left">
