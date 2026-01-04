@@ -1,10 +1,10 @@
 import { useParams } from "react-router-dom";
 import { services } from "../data/services";
-import NotFoundPage from "./NotFoundPage";
+import ObjectNotFound from "./ObjectNotFound";
 import DetailedStatCard from "../components/common/cards/DetailedStatCard";
 import HeaderCard from "../components/common/cards/HeaderCard";
 
-import { Server } from "lucide-react";
+import { Grid2X2, Server } from "lucide-react";
 
 export default function AppDetailPage() {
   const { appName } = useParams();
@@ -15,8 +15,16 @@ export default function AppDetailPage() {
   );
 
   if (!service) {
-    // Unknown app slug falls back to the generic 404 page.
-    return <NotFoundPage includeMain={false} />;
+    // Unknown app slug falls back to the object-specific 404 page.
+    return (
+      <ObjectNotFound
+        objectLabel="app"
+        objectName={appName}
+        backTo="/apps"
+        backLabel="Apps"
+        backIcon={Grid2X2}
+      />
+    );
   }
 
   return (

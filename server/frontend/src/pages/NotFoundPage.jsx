@@ -89,9 +89,9 @@ const knownPages = [
 ];
 
 const fallbackQuips = [
-  "This page has left the building.",
-  "404. Nothing but polite emptiness.",
-  "The link went on an adventure and forgot to come back.",
+  "This page has left the building. The snacks followed.",
+  "404. The seagull stole must have stolen the page.",
+  "The link went on an adventure and forgot to come back. Maybe it was looking for snacks?",
 ];
 
 // Resolve once; avoids modulo-by-zero and avoids hook dependency noise.
@@ -273,13 +273,13 @@ export default function NotFoundPage({ includeMain = true }) {
     >
       {/* Reliable region label (does not depend on HeaderCard internals). */}
       <span id={regionTitleId} className="sr-only">
-        Page not found
+        Page Not Found
       </span>
 
       <div className="mx-auto w-full max-w-5xl">
         <div className="grid gap-8 items-start lg:grid-cols-2">
           <HeaderCard
-            title="Page not found"
+            title="Page Not Found"
             align="center"
             className="p-8 outline-2 outline-accent text-center motion-reduce:animate-none"
             leftContent={
@@ -329,11 +329,10 @@ export default function NotFoundPage({ includeMain = true }) {
 
           <Card className="p-8 outline-2 outline-accent text-left motion-reduce:animate-none">
             <h2 className="text-xl font-mono font-normal block text-center">
-              Quick ways out
+              Quick Ways Out
             </h2>
             <p className="mt-2 text-accent max-w-prose block text-center">
-              Pick a safe page. No judgment. We’ve all clicked the wrong thing,
-              blinked twice, and pretended it didn’t happen.
+              Try a safe page. We won't judge! Well, the owl might...
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3 justify-center">
@@ -359,7 +358,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
             <div className="mt-8 rounded-large-element bg-primary/10 p-6">
               <h3 className="font-mono font-normal">
-                If this surprised you (valid reaction)
+                If This Surprised You (Valid Reaction)
               </h3>
               <ul className="mt-3 list-disc pl-5 text-accent space-y-2">
                 <li>Check for a small typo (they’re sneaky).</li>
@@ -381,7 +380,7 @@ export default function NotFoundPage({ includeMain = true }) {
                   "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
                 }
               >
-                <span>Highly scientific investigation (optional)</span>
+                <span>Highly Scientific Investigation (Optional)</span>
                 <ChevronDown
                   size={20}
                   aria-hidden="true"

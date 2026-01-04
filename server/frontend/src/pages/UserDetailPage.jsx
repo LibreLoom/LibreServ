@@ -4,7 +4,7 @@ import Card from "../components/common/cards/Card";
 import CardButton from "../components/common/cards/CardButton";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import VerificationCard from "../components/common/cards/VerificationCard";
-import NotFoundPage from "./NotFoundPage";
+import ObjectNotFound from "./ObjectNotFound";
 import api from "../lib/api";
 import { User, Mail, Shield, Calendar } from "lucide-react";
 
@@ -16,6 +16,7 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [notFound, setNotFound] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
@@ -25,10 +26,18 @@ export default function UserDetailPage() {
         delayTimer = setTimeout(() => {
           setShowLoading(true);
         }, 500);
+        setError(null);
+        setNotFound(false);
         const response = await api(`/users/${userId}`);
         const userData = await response.json();
         setUser(userData);
       } catch (err) {
+        const status = err?.cause?.status;
+        if (status === 404) {
+          setUser(null);
+          setNotFound(true);
+          return;
+        }
         setError(err.message);
       } finally {
         clearTimeout(delayTimer);
@@ -88,9 +97,17 @@ export default function UserDetailPage() {
     </span>
   );
 
-  if (!loading && !error && !user) {
-    // If the API returns nothing for an existing route, show a 404 panel.
-    return <NotFoundPage includeMain={false} />;
+  if (!loading && (notFound || (!error && !user))) {
+    // If the API returns nothing or 404 for an existing route, show a 404 panel.
+    return (
+      <ObjectNotFound
+        objectLabel="user"
+        objectName={userId}
+        backTo="/users"
+        backLabel="Users"
+        backIcon={User}
+      />
+    );
   }
 
   return (

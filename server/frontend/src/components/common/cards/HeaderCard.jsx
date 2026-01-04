@@ -161,10 +161,10 @@ export default function HeaderCard({
             {hasBottomContent && (
               <>
                 <div
-                  className="mt-3 h-px w-full bg-accent/60"
+                  className="my-6 h-px w-full bg-accent/60"
                   aria-hidden="true"
                 />
-                <div className={`mt-3 ${bottomContentClassName}`}>
+                <div className={`${bottomContentClassName}`}>
                   {bottomContent}
                 </div>
               </>
