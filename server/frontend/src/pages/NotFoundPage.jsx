@@ -7,6 +7,10 @@ import { notfound as quips } from "../assets/greetings";
 import Card from "../components/common/cards/Card";
 import HeaderCard from "../components/common/cards/HeaderCard";
 
+/* ======================================================================
+   Helpers
+   ====================================================================== */
+
 function hashString(value) {
   // djb2-ish hash: small, fast, deterministic.
   let hash = 5381;
@@ -73,6 +77,10 @@ function levenshteinDistance(firstInput, secondInput) {
   return previous[aLength];
 }
 
+/* ======================================================================
+   Known pages + safe quips
+   ====================================================================== */
+
 const knownPages = [
   { to: "/apps", label: "Apps" },
   { to: "/users", label: "Users" },
@@ -80,24 +88,42 @@ const knownPages = [
   { to: "/help", label: "Help" },
 ];
 
+const fallbackQuips = [
+  "This page has left the building.",
+  "404. Nothing but polite emptiness.",
+  "The link went on an adventure and forgot to come back.",
+];
+
+// Resolve once; avoids modulo-by-zero and avoids hook dependency noise.
+const SAFE_QUIPS =
+  Array.isArray(quips) && quips.length > 0 ? quips : fallbackQuips;
+
+/* ======================================================================
+   Component
+   ====================================================================== */
+
 export default function NotFoundPage({ includeMain = true }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [isInvestigationOpen, setIsInvestigationOpen] = useState(false);
 
-  const titleId = useId();
+  // Region labeling should not rely on HeaderCard IDs (HeaderCard duplicates IDs across breakpoints).
+  const regionTitleId = useId();
   const detailsId = useId();
   const investigationId = useId();
 
   const pathname = normalizePathname(location.pathname);
-  const attemptedPath = `${pathname}${location.search}${location.hash}`;
+  const search = String(location.search ?? "");
+  const hash = String(location.hash ?? "");
+  const attemptedPath = `${pathname}${search}${hash}`;
+
   const pathnameForMatch = pathname.toLowerCase();
   const primarySegment = getPrimarySegment(pathnameForMatch);
 
   const quip = useMemo(() => {
-    // Use a stable hash so the same bad URL keeps the same quip.
-    const index = hashString(attemptedPath) % quips.length;
-    return quips[index];
+    // Stable quip for a given attempted URL.
+    const index = hashString(attemptedPath) % SAFE_QUIPS.length;
+    return SAFE_QUIPS[index];
   }, [attemptedPath]);
 
   const matches = useMemo(() => {
@@ -112,8 +138,10 @@ export default function NotFoundPage({ includeMain = true }) {
       const isPathPrefix =
         pathnameForMatch === candidatePath ||
         pathnameForMatch.startsWith(`${candidatePath}/`);
+
       const isTypedPrefixOfCandidate =
         !typedIsShort && candidateSegment.startsWith(primarySegment);
+
       const isCandidatePrefixOfTyped =
         primarySegment.startsWith(candidateSegment) &&
         candidateSegment.length >= minCharsForGuess;
@@ -121,6 +149,7 @@ export default function NotFoundPage({ includeMain = true }) {
       const lettersOff = typedIsShort
         ? Number.POSITIVE_INFINITY
         : levenshteinDistance(primarySegment, candidateSegment);
+
       const score =
         isPathPrefix || isTypedPrefixOfCandidate || isCandidatePrefixOfTyped
           ? 0
@@ -128,6 +157,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
       const maxLen = Math.max(primarySegment.length, candidateSegment.length);
       const maxTypos = maxLen <= 4 ? 2 : maxLen <= 8 ? 3 : 4;
+
       const isClose =
         isPathPrefix ||
         isTypedPrefixOfCandidate ||
@@ -151,7 +181,21 @@ export default function NotFoundPage({ includeMain = true }) {
       };
     });
 
-    scored.sort((a, b) => a.score - b.score);
+    // Deterministic order avoids “random” suggestions for tied scores.
+    scored.sort((a, b) => {
+      if (a.score !== b.score) return a.score - b.score;
+
+      const aLetters = Number.isFinite(a.lettersOff) ? a.lettersOff : Infinity;
+      const bLetters = Number.isFinite(b.lettersOff) ? b.lettersOff : Infinity;
+      if (aLetters !== bLetters) return aLetters - bLetters;
+
+      if (a.candidatePath.length !== b.candidatePath.length) {
+        return a.candidatePath.length - b.candidatePath.length;
+      }
+
+      return a.label.localeCompare(b.label);
+    });
+
     return scored;
   }, [pathnameForMatch, primarySegment]);
 
@@ -179,20 +223,62 @@ export default function NotFoundPage({ includeMain = true }) {
     };
   }, []);
 
+  // Focus the main region when landing on 404 (good for a11y + keyboard users).
+  // Remove the “mystery grey line” by disabling default focus outline on the wrapper (see Wrapper classes below).
+  useEffect(() => {
+    const main = document.getElementById("main-content");
+    if (main && typeof main.focus === "function") main.focus();
+  }, [attemptedPath]);
+
+  function handleGoBack() {
+    // If there's history, go back. Otherwise, go home.
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/", { replace: true });
+    }
+  }
+
   const Wrapper = includeMain ? "main" : "section";
+
+  // Accordion a11y safety: when closed, keep it out of pointer interactions.
+  // (No interactive elements inside today, but this prevents future foot-guns.)
+  const panelA11yProps = isInvestigationOpen
+    ? {}
+    : {
+        "aria-hidden": true,
+        inert: "",
+      };
+
+  // Shared button/link base class:
+  // IMPORTANT: `focus:outline-none` removes the browser default :focus outline (the “weird grey line”).
+  // We still keep `focus-visible:*` for keyboard users.
+  const solidPill =
+    "inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium " +
+    "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid " +
+    "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+
+  const ghostPill =
+    "inline-flex items-center gap-2 rounded-pill bg-transparent text-primary px-4 py-2 text-sm font-medium outline-2 outline-accent " +
+    "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:outline-0 " +
+    "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
 
   return (
     <Wrapper
-      className="bg-primary text-secondary px-8 pt-10 pb-32"
-      aria-labelledby={titleId}
+      className="bg-primary text-secondary px-8 pt-10 pb-32 focus:outline-none!"
+      aria-labelledby={regionTitleId}
       aria-describedby={detailsId}
       id="main-content"
       tabIndex={-1}
     >
+      {/* Reliable region label (does not depend on HeaderCard internals). */}
+      <span id={regionTitleId} className="sr-only">
+        Page not found
+      </span>
+
       <div className="mx-auto w-full max-w-5xl">
         <div className="grid gap-8 items-start lg:grid-cols-2">
           <HeaderCard
-            id={titleId}
             title="Page not found"
             align="center"
             className="p-8 outline-2 outline-accent text-center motion-reduce:animate-none"
@@ -229,10 +315,7 @@ export default function NotFoundPage({ includeMain = true }) {
                     <ul className="mt-4 flex flex-wrap gap-3">
                       {suggestedPages.map((page) => (
                         <li key={page.to}>
-                          <Link
-                            to={page.to}
-                            className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-                          >
+                          <Link to={page.to} className={solidPill}>
                             {page.label}
                           </Link>
                         </li>
@@ -256,25 +339,19 @@ export default function NotFoundPage({ includeMain = true }) {
             <div className="mt-6 flex flex-wrap gap-3 justify-center">
               <button
                 type="button"
-                onClick={() => navigate(-1)}
-                className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                onClick={handleGoBack}
+                className={solidPill}
               >
                 <ArrowLeft size={18} aria-hidden="true" />
                 Go back
               </button>
 
-              <Link
-                to="/"
-                className="inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-              >
+              <Link to="/" className={solidPill}>
                 <Home size={18} aria-hidden="true" />
                 Home
               </Link>
 
-              <Link
-                to="/help"
-                className="inline-flex items-center gap-2 rounded-pill bg-transparent text-primary px-4 py-2 text-sm font-medium outline-2 outline-accent motion-safe:transition-all hover:bg-primary hover:text-secondary hover:outline-0 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-              >
+              <Link to="/help" className={ghostPill}>
                 <LifeBuoy size={18} aria-hidden="true" />
                 Help
               </Link>
@@ -299,25 +376,34 @@ export default function NotFoundPage({ includeMain = true }) {
                 onClick={() => setIsInvestigationOpen((open) => !open)}
                 aria-expanded={isInvestigationOpen}
                 aria-controls={investigationId}
-                className="w-full flex items-center justify-between gap-3 rounded-large-element px-4 py-3 font-bold text-left focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                className={
+                  "w-full flex items-center justify-between gap-3 rounded-large-element px-4 py-3 font-bold text-left " +
+                  "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                }
               >
                 <span>Highly scientific investigation (optional)</span>
                 <ChevronDown
                   size={20}
                   aria-hidden="true"
-                  className={`shrink-0 motion-safe:transition-transform duration-200 ${isInvestigationOpen ? "rotate-180" : "rotate-0"}`}
+                  className={`shrink-0 motion-safe:transition-transform duration-200 ${
+                    isInvestigationOpen ? "rotate-180" : "rotate-0"
+                  }`}
                 />
               </button>
 
               <div
                 id={investigationId}
-                aria-hidden={!isInvestigationOpen}
-                className={`overflow-hidden px-4 ${isInvestigationOpen ? "max-h-128 pb-4 opacity-100" : "max-h-0 pb-0 opacity-0"} motion-safe:transition-all motion-safe:duration-300 ease-out`}
+                {...panelA11yProps}
+                className={`overflow-hidden px-4 ${
+                  isInvestigationOpen
+                    ? "max-h-128 pb-4 opacity-100"
+                    : "max-h-0 pb-0 opacity-0 pointer-events-none select-none"
+                } motion-safe:transition-all motion-safe:duration-300 ease-out`}
               >
                 <div className="pt-2 text-accent">
                   {bestMatch ? (
                     <p className="text-sm">
-                      Close‑Enough‑O‑Meter:{" "}
+                      Close-Enough-O-Meter:{" "}
                       <span className="font-bold text-primary">
                         {bestMatchIsClose ? "pretty close" : "not close"}
                       </span>
@@ -376,7 +462,7 @@ export default function NotFoundPage({ includeMain = true }) {
                         ? "try the suggestion we found."
                         : "head home and try again."}
                     </li>
-                    <li>Bonus theory: it wandered off to find snacks.</li>
+                    <li>Bonus theory: it wandered off to find the snacks.</li>
                   </ul>
                 </div>
               </div>

@@ -408,7 +408,7 @@ export default function Navbar() {
           aria-label="Primary"
         >
           <div className="bg-secondary text-primary rounded-pill px-3 py-3 outline-2 outline-accent flex items-center gap-6">
-            <span className="font-semibold px-3 py-1.5 flex items-center">
+            <span className="font-mono px-3 py-1.5 flex items-center">
               LibreServ
             </span>
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
