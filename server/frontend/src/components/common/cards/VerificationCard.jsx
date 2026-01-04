@@ -102,20 +102,16 @@ export default function VerificationCard({
           <button
             type="button"
             onClick={handleClose}
-            className="absolute top-4 right-4 text-accent motion-safe:transition hover:bg-secondary hover:text-primary"
+            className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
             aria-label="Close"
             ref={closeButtonRef}
           >
-            <X size={24} aria-hidden="true" />
+            <X size={20} aria-hidden="true" />
           </button>
 
           {/* Warning icon and title */}
           <div className="flex items-center gap-4 mb-4">
-            <div
-              className={`h-12 w-12 rounded-pill ${
-                variant === "danger" ? "bg-accent" : "bg-secondary"
-              } text-primary flex items-center justify-center`}
-            >
+            <div className="h-12 w-12 rounded-pill bg-primary text-secondary flex items-center justify-center">
               <AlertTriangle size={24} aria-hidden="true" />
             </div>
             <h2 id={titleId} className="text-xl font-mono font-normal">
@@ -131,7 +127,7 @@ export default function VerificationCard({
 
           {/* Message */}
           <div className="mb-6 text-left">
-            <p id={messageId} className="text-sm">
+            <p id={messageId} className="text-sm text-primary/80">
               {message}
             </p>
           </div>
@@ -141,15 +137,17 @@ export default function VerificationCard({
             <button
               type="button"
               onClick={handleClose}
-              className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid font-medium"
+              className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid font-medium text-sm focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
             >
               {cancelLabel}
             </button>
             <button
               type="button"
               onClick={handleConfirm}
-              className={`flex-1 px-4 py-2 rounded-pill text-primary font-medium motion-safe:transition-all hover:opacity-80 ${
-                variant === "danger" ? "bg-accent" : "bg-secondary"
+              className={`flex-1 px-4 py-2 rounded-pill font-medium text-sm motion-safe:transition-all hover:outline-2 hover:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                variant === "danger"
+                  ? "bg-accent text-primary hover:bg-primary hover:text-accent hover:outline-accent focus-visible:outline-primary"
+                  : "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:outline-primary focus-visible:outline-accent"
               }`}
             >
               {confirmLabel}

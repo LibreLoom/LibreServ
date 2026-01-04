@@ -68,167 +68,183 @@ export default function UsersPage() {
   };
 
   return (
-    <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
-      aria-labelledby="users-title"
-      id="main-content"
-      tabIndex={-1}
-    >
-      <header>
-        <HeaderCard id="users-title" title="Users" />
-      </header>
+    <>
+      <main
+        className={`bg-primary text-secondary px-8 pt-5 pb-32 ${showVerification ? "pop-out" : "pop-in"}`}
+        aria-labelledby="users-title"
+        id="main-content"
+        tabIndex={-1}
+      >
+        <header>
+          <HeaderCard id="users-title" title="Users" />
+        </header>
 
-      {loading && showLoading && (
-        // Delayed loader avoids flicker on fast responses.
-        <div className="fixed inset-0 flex items-center justify-center">
-          <Card className="w-[70vw] sm:w-[20vw]">
-            <div className="my-5 text-center" role="status" aria-live="polite">
-              <p>Loading users...</p>
-            </div>
-          </Card>
-        </div>
-      )}
+        {loading && showLoading && (
+          // Delayed loader avoids flicker on fast responses.
+          <div className="fixed inset-0 flex items-center justify-center">
+            <Card className="w-[70vw] sm:w-[20vw]">
+              <div
+                className="my-5 text-center"
+                role="status"
+                aria-live="polite"
+              >
+                <p>Loading users...</p>
+              </div>
+            </Card>
+          </div>
+        )}
 
-      {error && (
-        // Full-screen error so it can't be missed.
-        <div className="fixed inset-0 flex items-center justify-center">
-          <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
-            <div className="my-5 text-center" role="status" aria-live="polite">
-              <p>Error: {error}</p>
-            </div>
-          </Card>
-        </div>
-      )}
+        {error && (
+          // Full-screen error so it can't be missed.
+          <div className="fixed inset-0 flex items-center justify-center">
+            <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
+              <div
+                className="my-5 text-center"
+                role="status"
+                aria-live="polite"
+              >
+                <p>Error: {error}</p>
+              </div>
+            </Card>
+          </div>
+        )}
 
-      {!loading && !error && users.length === 0 && (
-        <div className="mt-5 text-center">
-          <p>No users found</p>
-        </div>
-      )}
+        {!loading && !error && users.length === 0 && (
+          <div className="mt-5 text-center">
+            <p>No users found</p>
+          </div>
+        )}
 
-      {!loading && !error && users.length > 0 && (
-        <section className="mt-5" aria-label="User list">
-          {/* Mobile: Card list */}
-          <div className="flex flex-col gap-3 lg:hidden">
-            {users.map((user) => (
-              <Card key={user.id} className="p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <Link
-                    to={`/users/${user.id}`}
-                    className="flex items-center gap-3 flex-1 min-w-0"
-                  >
-                    <div className="h-10 w-10 shrink-0 rounded-full bg-primary text-secondary flex items-center justify-center">
-                      <User size={18} aria-hidden="true" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="font-semibold truncate">
-                        {user.username}
-                      </div>
-                      <div
-                        className={`text-sm ${user.role === "admin" ? "text-accent" : "text-primary/60"}`}
-                      >
-                        {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                      </div>
-                    </div>
-                  </Link>
-                  <div className="flex items-center gap-1 shrink-0">
+        {!loading && !error && users.length > 0 && (
+          <section className="mt-5" aria-label="User list">
+            {/* Mobile: Card list */}
+            <div className="flex flex-col gap-3 lg:hidden">
+              {users.map((user) => (
+                <Card key={user.id} className="p-4">
+                  <div className="flex items-center justify-between gap-3">
                     <Link
                       to={`/users/${user.id}`}
-                      className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
-                      aria-label={`Manage ${user.username}`}
+                      className="flex items-center gap-3 flex-1 min-w-0"
                     >
-                      <Settings size={18} />
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteClick(user.id, user.username)}
-                      className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-                      aria-label={`Delete ${user.username}`}
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-
-          {/* Desktop: Table */}
-          <Card className="overflow-hidden p-0 hidden lg:block">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-primary/20 text-left text-sm text-primary/60">
-                  <th className="px-4 py-3 font-medium">User</th>
-                  <th className="px-4 py-3 font-medium">Email</th>
-                  <th className="px-4 py-3 font-medium">Role</th>
-                  <th className="px-4 py-3 font-medium w-12">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-primary/20">
-                {users.map((user) => (
-                  <tr
-                    key={user.id}
-                    className="hover:bg-primary/5 motion-safe:transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <Link
-                        to={`/users/${user.id}`}
-                        className="flex items-center gap-3"
-                      >
-                        <div className="h-8 w-8 shrink-0 rounded-full bg-primary text-secondary flex items-center justify-center">
-                          <User size={16} aria-hidden="true" />
-                        </div>
-                        <span className="font-semibold truncate">
+                      <div className="h-10 w-10 shrink-0 rounded-full bg-primary text-secondary flex items-center justify-center">
+                        <User size={18} aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-semibold truncate">
                           {user.username}
-                        </span>
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-primary/60">
-                      <Link to={`/users/${user.id}`} className="truncate block">
-                        {user.email}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 text-sm ${user.role === "admin" ? "text-accent" : "text-primary/60"}`}
-                      >
-                        <Shield size={14} aria-hidden="true" />
-                        <span>
+                        </div>
+                        <div
+                          className={`text-sm ${user.role === "admin" ? "text-accent" : "text-primary/60"}`}
+                        >
                           {user.role.charAt(0).toUpperCase() +
                             user.role.slice(1)}
-                        </span>
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
+                        </div>
+                      </div>
+                    </Link>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Link
+                        to={`/users/${user.id}`}
+                        className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                        aria-label={`Manage ${user.username}`}
+                      >
+                        <Settings size={18} />
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDeleteClick(user.id, user.username)
+                        }
+                        className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                        aria-label={`Delete ${user.username}`}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Desktop: Table */}
+            <Card className="overflow-hidden p-0 hidden lg:block">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-primary/20 text-left text-sm text-primary/60">
+                    <th className="px-4 py-3 font-medium">User</th>
+                    <th className="px-4 py-3 font-medium">Email</th>
+                    <th className="px-4 py-3 font-medium">Role</th>
+                    <th className="px-4 py-3 font-medium w-12">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-primary/20">
+                  {users.map((user) => (
+                    <tr
+                      key={user.id}
+                      className="hover:bg-primary/5 motion-safe:transition-colors"
+                    >
+                      <td className="px-4 py-3">
                         <Link
                           to={`/users/${user.id}`}
-                          className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
-                          aria-label={`Manage ${user.username}`}
+                          className="flex items-center gap-3"
                         >
-                          <Settings size={18} />
+                          <div className="h-8 w-8 shrink-0 rounded-full bg-primary text-secondary flex items-center justify-center">
+                            <User size={16} aria-hidden="true" />
+                          </div>
+                          <span className="font-semibold truncate">
+                            {user.username}
+                          </span>
                         </Link>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleDeleteClick(user.id, user.username)
-                          }
-                          className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-                          aria-label={`Delete ${user.username}`}
+                      </td>
+                      <td className="px-4 py-3 text-primary/60">
+                        <Link
+                          to={`/users/${user.id}`}
+                          className="truncate block"
                         >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        </section>
-      )}
+                          {user.email}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center gap-1.5 text-sm ${user.role === "admin" ? "text-accent" : "text-primary/60"}`}
+                        >
+                          <Shield size={14} aria-hidden="true" />
+                          <span>
+                            {user.role.charAt(0).toUpperCase() +
+                              user.role.slice(1)}
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1">
+                          <Link
+                            to={`/users/${user.id}`}
+                            className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                            aria-label={`Manage ${user.username}`}
+                          >
+                            <Settings size={18} />
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleDeleteClick(user.id, user.username)
+                            }
+                            className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+                            aria-label={`Delete ${user.username}`}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          </section>
+        )}
+      </main>
 
       {showVerification && userToDelete && (
         <VerificationCard
@@ -241,6 +257,6 @@ export default function UsersPage() {
           onCancel={() => setShowVerification(false)}
         />
       )}
-    </main>
+    </>
   );
 }
