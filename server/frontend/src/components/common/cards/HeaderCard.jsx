@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import Card from "./Card";
 
 /* ======================================================================
@@ -29,6 +30,30 @@ export default function HeaderCard({
   bottomContentClassName = "",
   children,
 }) {
+  /* ------------------------------------------------------------------
+     Multiline detection for rounded-pill styling
+     ------------------------------------------------------------------ */
+
+  const titleRef = useRef(null);
+  const [isMultiline, setIsMultiline] = useState(false);
+
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+
+    const checkMultiline = () => {
+      // Compare scrollHeight to clientHeight to detect text wrapping
+      setIsMultiline(el.scrollHeight > el.clientHeight + 4);
+    };
+
+    checkMultiline();
+
+    const observer = new ResizeObserver(checkMultiline);
+    observer.observe(el);
+
+    return () => observer.disconnect();
+  }, [title]);
+
   /* ------------------------------------------------------------------
      Content presence checks
      These determine layout structure, not rendering correctness.
@@ -77,6 +102,7 @@ export default function HeaderCard({
 
   const Title = (
     <h1
+      ref={titleRef}
       id={id}
       className={`font-mono text-2xl font-normal tracking-tight text-center ${responsiveAlignmentClass} ${titleClassName}`}
     >
@@ -133,7 +159,9 @@ export default function HeaderCard({
             Single cohesive header card
             -------------------------------------------------------------- */}
         <div className="hidden xl:block">
-          <Card className={`${titleCardClass} rounded-pill`}>
+          <Card
+            className={`${titleCardClass} ${isMultiline ? "rounded-pill" : ""}`}
+          >
             <div className={contentLayout}>
               {hasLeft ? (
                 <div className="flex items-center justify-center text-center sm:justify-start sm:text-left">
