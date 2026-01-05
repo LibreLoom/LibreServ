@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Card from "./Card";
 
 /* ======================================================================
@@ -28,31 +28,56 @@ export default function HeaderCard({
   rightContentClassName = "",
   bottomContent,
   bottomContentClassName = "",
+  dynamicRounding = true,
   children,
 }) {
   /* ------------------------------------------------------------------
      Multiline detection for rounded-pill styling
+     Stores refs to both mobile and desktop titles, measures whichever is visible
      ------------------------------------------------------------------ */
 
-  const titleRef = useRef(null);
   const [isMultiline, setIsMultiline] = useState(false);
+  const [titleElements, setTitleElements] = useState([]);
+
+  const addTitleRef = useCallback(
+    (el) => {
+      if (el && !titleElements.includes(el)) {
+        setTitleElements((prev) => [...prev, el]);
+      }
+    },
+    [titleElements],
+  );
 
   useEffect(() => {
-    const el = titleRef.current;
-    if (!el) return;
+    if (titleElements.length === 0) return;
 
     const checkMultiline = () => {
-      // Compare scrollHeight to clientHeight to detect text wrapping
-      setIsMultiline(el.scrollHeight > el.clientHeight + 4);
+      // Find the visible element (has dimensions)
+      for (const el of titleElements) {
+        if (el.offsetHeight > 0) {
+          const style = window.getComputedStyle(el);
+          const lineHeight = parseFloat(style.lineHeight);
+          const actualHeight = el.offsetHeight;
+          setIsMultiline(actualHeight > lineHeight * 1.4);
+          return;
+        }
+      }
     };
 
-    checkMultiline();
+    // Delay initial check to ensure layout is complete
+    const timeoutId = setTimeout(checkMultiline, 50);
 
     const observer = new ResizeObserver(checkMultiline);
-    observer.observe(el);
+    titleElements.forEach((el) => observer.observe(el));
 
-    return () => observer.disconnect();
-  }, [title]);
+    window.addEventListener("resize", checkMultiline);
+
+    return () => {
+      clearTimeout(timeoutId);
+      observer.disconnect();
+      window.removeEventListener("resize", checkMultiline);
+    };
+  }, [titleElements, title]);
 
   /* ------------------------------------------------------------------
      Content presence checks
@@ -95,20 +120,9 @@ export default function HeaderCard({
 
   /* ------------------------------------------------------------------
      Title element
-     IMPORTANT:
-     - Rendered ONCE for semantics
-     - Cloned visually for responsive layout
      ------------------------------------------------------------------ */
 
-  const Title = (
-    <h1
-      ref={titleRef}
-      id={id}
-      className={`font-mono text-2xl font-normal tracking-tight text-center ${responsiveAlignmentClass} ${titleClassName}`}
-    >
-      {title}
-    </h1>
-  );
+  const titleClasses = `font-mono text-2xl font-normal tracking-tight text-center ${responsiveAlignmentClass} ${titleClassName}`;
 
   /* ==================================================================
      Layout with extras (left/right/bottom content)
@@ -122,8 +136,14 @@ export default function HeaderCard({
             Stacked cards for readability
             -------------------------------------------------------------- */}
         <div className="flex flex-col gap-3 xl:hidden">
-          <Card className={titleCardClass}>
-            <div className="flex items-center justify-center">{Title}</div>
+          <Card
+            className={`${titleCardClass} ${dynamicRounding && !isMultiline ? "rounded-pill" : ""}`}
+          >
+            <div className="flex items-center justify-center">
+              <h1 ref={addTitleRef} id={id} className={titleClasses}>
+                {title}
+              </h1>
+            </div>
           </Card>
 
           {hasLeft && (
@@ -160,7 +180,7 @@ export default function HeaderCard({
             -------------------------------------------------------------- */}
         <div className="hidden xl:block">
           <Card
-            className={`${titleCardClass} ${isMultiline ? "rounded-pill" : ""}`}
+            className={`${titleCardClass} ${dynamicRounding && !isMultiline ? "rounded-pill" : ""}`}
           >
             <div className={contentLayout}>
               {hasLeft ? (
@@ -172,7 +192,9 @@ export default function HeaderCard({
                 <div aria-hidden="true" className="hidden sm:block" />
               ) : null}
 
-              {Title}
+              <h1 ref={addTitleRef} id={id} className={titleClasses}>
+                {title}
+              </h1>
 
               {hasRight && (
                 <div
@@ -208,8 +230,14 @@ export default function HeaderCard({
      ================================================================== */
 
   return (
-    <Card className={titleCardClass}>
-      <div className={contentLayout}>{Title}</div>
+    <Card
+      className={`${titleCardClass} ${dynamicRounding && !isMultiline ? "rounded-pill" : ""}`}
+    >
+      <div className={contentLayout}>
+        <h1 ref={addTitleRef} id={id} className={titleClasses}>
+          {title}
+        </h1>
+      </div>
     </Card>
   );
 }
