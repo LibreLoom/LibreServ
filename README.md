@@ -2,7 +2,7 @@
 
 [![CI](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml/badge.svg?branch=main)](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml)
 
-Self-hosting platform that aims to make running your own server “plug and play”.
+Self hosting platform that aims to make running your own server “plug and play”.
 
 ## Status
 - In active development (MVP target: April 30, 2026)
