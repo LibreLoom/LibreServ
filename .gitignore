@@ -61,6 +61,8 @@ bin/
 *.tar.gz
 libreserv
 *.pid
+
+# @trafficcone's gosh darned stuffs :) 
 server/backend/backend.pid
 server/frontend/frontend.pid
 libreserv.sh
