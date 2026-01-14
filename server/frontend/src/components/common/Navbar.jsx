@@ -12,6 +12,16 @@ import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 
 /**
+ * Shared transition configuration for consistent animations across the navbar.
+ */
+const TRANSITION = {
+  duration: "duration-200",
+  ease: "ease-out",
+  base: "motion-safe:transition-all duration-300",
+  full: "motion-safe:transition-all duration-300 ease-out",
+};
+
+/**
  * Shared Tailwind CSS classes for navigation buttons.
  * Uses aria-[current=page] to style the active link based on React Router's state.
  */
@@ -23,7 +33,7 @@ const navButtonClasses =
   // Spacing between elements
   "gap-2 " +
   // Transition effects
-  "motion-safe:transition-all " +
+  `${TRANSITION.base} ` +
   // Horizontal padding
   "px-3 " +
   // Vertical padding
@@ -52,6 +62,11 @@ const navButtonClasses =
   "focus-visible:outline-2 " +
   "focus-visible:outline-accent " +
   "focus-visible:outline-offset-2";
+
+/**
+ * Shared classes for popup menu items with hover states.
+ */
+const menuItemClasses = `flex items-center gap-2 px-3 py-2 rounded-pill ${TRANSITION.base}`;
 
 /**
  * Configuration for navigation links to maintain a single source of truth
@@ -425,7 +440,7 @@ export default function Navbar() {
             </div>
             <div className="group flex items-center gap-2 relative">
               <span
-                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate motion-safe:transition-all duration-300 ease-out ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"} translate-y-[-0.5px]`}
+                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate ${TRANSITION.full} ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"} translate-y-[-0.5px]`}
                 title={user?.username || ""}
               >
                 {user?.username || ""}
@@ -435,18 +450,22 @@ export default function Navbar() {
               </div>
 
               {/* User Controls Popup */}
-              <div className="absolute bottom-0 right-0 pb-16 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 ease-out">
-                <div className="bg-secondary rounded-2xl outline-2 outline-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 transition-all duration-200 ease-out">
+              <div
+                className={`absolute bottom-0 right-0 pb-16 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto ${TRANSITION.full}`}
+              >
+                <div
+                  className={`bg-secondary rounded-2xl outline-2 outline-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 ${TRANSITION.full}`}
+                >
                   <NavLink
                     to="/users"
-                    className="flex items-center gap-2 px-3 py-2 rounded-pill hover:bg-primary hover:text-secondary transition-all"
+                    className={`${menuItemClasses} hover:bg-primary hover:text-secondary`}
                   >
                     <Users size={16} />
                     <span className="text-sm font-semibold">Manage Users</span>
                   </NavLink>
                   <NavLink
                     to={`/users/${user?.id || ""}`}
-                    className="flex items-center gap-2 px-3 py-2 rounded-pill hover:bg-primary hover:text-secondary transition-all"
+                    className={`${menuItemClasses} hover:bg-primary hover:text-secondary`}
                   >
                     <Settings size={16} />
                     <span className="text-sm font-semibold">
@@ -465,7 +484,7 @@ export default function Navbar() {
                         console.error("Logout failed:", err);
                       }
                     }}
-                    className="flex items-center gap-2 px-3 py-2 rounded-pill hover:bg-accent hover:text-primary transition-all text-left"
+                    className={`${menuItemClasses} hover:bg-accent hover:text-primary text-left`}
                   >
                     <X size={16} />
                     <span className="text-sm font-semibold">Sign Out</span>
@@ -480,7 +499,7 @@ export default function Navbar() {
       {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
         type="button"
-        className={`motion-safe:transition-all fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? "transition-all duration-300 ease-out" : ""} ${isMobileMenuOpen ? "" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
+        className={`${TRANSITION.base} fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? TRANSITION.full : ""} ${isMobileMenuOpen ? "" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
         style={
           fabPosition.x !== null
             ? { left: fabPosition.x, top: fabPosition.y }
@@ -510,12 +529,12 @@ export default function Navbar() {
           {/* Animated Icon Switch: X and Menu icons cross-fade and rotate */}
           <X
             aria-hidden="true"
-            className={`absolute motion-safe:transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
+            className={`absolute ${TRANSITION.base} ease-[cubic-bezier(0.2,0,0,1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
             size={36}
           />
           <Menu
             aria-hidden="true"
-            className={`absolute motion-safe:transition-all ease-[cubic-bezier(0.2, 0, 0, 1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
+            className={`absolute ${TRANSITION.base} ease-[cubic-bezier(0.2,0,0,1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
             size={36}
           />
         </div>
@@ -524,7 +543,7 @@ export default function Navbar() {
       {/* Backdrop Overlay: Closes menu when clicking outside */}
       <button
         type="button"
-        className={`fixed inset-0 motion-safe:transition-all duration-200 bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
+        className={`fixed inset-0 ${TRANSITION.base} bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
         onClick={() => {
           setIsMobileMenuOpen(false);
           menuButtonRef.current?.focus();
@@ -538,7 +557,7 @@ export default function Navbar() {
       <dialog
         id={mobileMenuId}
         ref={dialogRef}
-        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 z-2000 xl:hidden bg-transparent motion-safe:transition-all duration-200 ease-out ${isMobileMenuOpen ? "opacity-100 visible scale-100" : "opacity-0 invisible scale-95"}`}
+        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 z-2000 xl:hidden bg-transparent ${TRANSITION.full} ${isMobileMenuOpen ? "opacity-100 visible scale-100" : "opacity-0 invisible scale-95"}`}
         open
         aria-modal="true"
         role="dialog"
