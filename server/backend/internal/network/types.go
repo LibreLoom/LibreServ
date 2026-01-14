@@ -15,6 +15,8 @@ var (
 	ErrRouteNotFound      = errors.New("route not found")
 	ErrRouteDuplicate     = errors.New("route already exists")
 	ErrBackendUnreachable = errors.New("backend unreachable")
+	ErrInvalidDomain      = errors.New("invalid domain name")
+	ErrInvalidBackend     = errors.New("invalid backend URL")
 )
 
 // CaddyError wraps an error with additional context about Caddy operations

@@ -114,14 +114,24 @@ func (cm *CaddyManager) Initialize(ctx context.Context) error {
 // AddRoute adds a new route for an app (subdomain + domain).
 // If domain is empty, cm.config.DefaultDomain is used.
 func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend, appID string) (*Route, error) {
+	// Validate inputs before acquiring locks
+	if err := ValidateSubdomain(subdomain); err != nil {
+		return nil, err
+	}
+	if domain == "" {
+		domain = cm.config.DefaultDomain
+	}
+	if err := ValidateDomain(domain); err != nil {
+		return nil, err
+	}
+	if err := ValidateBackend(backend); err != nil {
+		return nil, err
+	}
+
 	cm.reloadMu.Lock()
 	defer cm.reloadMu.Unlock()
 
 	cm.routesMu.Lock()
-
-	if domain == "" {
-		domain = cm.config.DefaultDomain
-	}
 
 	// Check if route already exists
 	fullDomain := subdomain + "." + domain
@@ -188,6 +198,14 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 
 // AddDomainRoute adds a route for a full domain (no default domain prefix).
 func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, comment string) (*Route, error) {
+	// Validate inputs before acquiring locks
+	if err := ValidateDomain(domain); err != nil {
+		return nil, err
+	}
+	if err := ValidateBackend(backend); err != nil {
+		return nil, err
+	}
+
 	cm.reloadMu.Lock()
 	defer cm.reloadMu.Unlock()
 
@@ -326,6 +344,11 @@ func (cm *CaddyManager) findByDomain(fullDomain string) (*Route, bool) {
 
 // UpdateRoute updates an existing route
 func (cm *CaddyManager) UpdateRoute(ctx context.Context, routeID string, backend string, enabled bool) (*Route, error) {
+	// Validate backend before acquiring locks
+	if err := ValidateBackend(backend); err != nil {
+		return nil, err
+	}
+
 	cm.reloadMu.Lock()
 	defer cm.reloadMu.Unlock()
 
@@ -547,14 +570,14 @@ func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
 	}
 	{{end}}
 	{{end}}
-	
+
 	# Security headers
 	header {
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
 	}
-	
+
 	# Logging
 	{{if $.LogOutput}}log {
 		output {{$.LogOutput}}
