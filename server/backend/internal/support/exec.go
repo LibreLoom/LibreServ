@@ -32,16 +32,44 @@ func ValidateDockerArgs(args []string) error {
 		return fmt.Errorf("docker subcommand not allowed: %s", sub)
 	}
 	for _, a := range args[1:] {
-		la := strings.ToLower(a)
-		switch {
-		case strings.HasPrefix(la, "-v"), strings.HasPrefix(la, "--volume"),
-			strings.HasPrefix(la, "--mount"), strings.HasPrefix(la, "--privileged"),
-			strings.HasPrefix(la, "--cap-add"), strings.HasPrefix(la, "--device"),
-			strings.HasPrefix(la, "--publish"), strings.HasPrefix(la, "-p"),
-			strings.HasPrefix(la, "--network"), strings.HasPrefix(la, "--net"),
-			strings.HasPrefix(la, "--pid"), strings.HasPrefix(la, "--ipc"):
+		if isDangerousDockerFlag(a) {
 			return fmt.Errorf("docker flag not allowed: %s", a)
 		}
 	}
 	return nil
+}
+
+// isDangerousDockerFlag checks if an argument is a dangerous docker flag.
+// Handles various flag formats: -v, --volume, --volume=path, -v=path
+func isDangerousDockerFlag(arg string) bool {
+	la := strings.ToLower(arg)
+
+	// Strip leading dashes and extract flag name (before any '=')
+	flagPart := strings.TrimLeft(la, "-")
+	if idx := strings.Index(flagPart, "="); idx != -1 {
+		flagPart = flagPart[:idx]
+	}
+
+	// Dangerous flags that could allow container escape or privilege escalation
+	dangerousFlags := map[string]bool{
+		"v":            true,
+		"volume":       true,
+		"mount":        true,
+		"privileged":   true,
+		"cap-add":      true,
+		"device":       true,
+		"publish":      true,
+		"p":            true,
+		"network":      true,
+		"net":          true,
+		"pid":          true,
+		"ipc":          true,
+		"uts":          true,
+		"userns":       true,
+		"cgroupns":     true,
+		"security-opt": true,
+		"add-host":     true,
+	}
+
+	return dangerousFlags[flagPart]
 }
