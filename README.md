@@ -4,6 +4,10 @@
 
 Self-hosting platform that aims to make running your own server “plug and play”.
 
+## Target Audience
+
+General users. No person who isn't completely uninitiated in terms of tech shouldn't be able to use LibreServ.
+
 ## Status
 - In active development (MVP target: April 30, 2026)
 - Backend is Go; Frontend is React/Vite. Reverse proxy is Caddy. Database is SQLite. Apps run via Docker.
