@@ -2,7 +2,7 @@
 
 [![CI](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml/badge.svg?branch=main)](https://gt.plainskill.net/LibreLoom/LibreServ/actions/workflows/ci.yml)
 
-Self-hosting platform that aims to make running your own server “plug and play”.
+Bringing control of the web into users' hands: run alternatives to everyday cloud services (Google Drive, Google Search, Microsoft 365, etc.) right in your home. No subscription. No paywall. Just you in control.
 
 ## Target Audience
 
