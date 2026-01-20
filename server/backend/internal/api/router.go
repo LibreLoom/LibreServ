@@ -151,6 +151,8 @@ func (s *Server) setupRoutes() {
 				r.Get("/{appId}", catalogHandler.GetApp)
 			})
 
+			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
+
 			// Apps management - installed apps
 			r.Route("/apps", func(r chi.Router) {
 				r.Get("/", appsHandler.ListInstalledApps)
@@ -167,6 +169,10 @@ func (s *Server) setupRoutes() {
 				r.Post("/{instanceId}/pin", appsHandler.PinAppVersion)
 				r.Post("/{instanceId}/unpin", appsHandler.UnpinAppVersion)
 				r.Get("/{instanceId}/updates/history", appsHandler.GetAppUpdateHistory)
+				r.Get("/{instanceId}/actions", scriptsHandler.ListActions)
+				r.Get("/{instanceId}/actions/{actionName}", scriptsHandler.GetAction)
+				r.Post("/{instanceId}/actions/{actionName}/execute", scriptsHandler.ExecuteAction)
+				r.Get("/{instanceId}/actions/{actionName}/stream", scriptsHandler.StreamAction)
 			})
 
 			// Monitoring - system health and metrics management

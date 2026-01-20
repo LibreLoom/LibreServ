@@ -1,0 +1,8 @@
+// TO-DO: Implement ConvertX restore logic
+// This script should restore from backups:
+// - Import user preferences
+// - Restore conversion templates
+// - Validate restored data
+
+echo ">> [ConvertX] Restore functionality not yet implemented"
+exit 0

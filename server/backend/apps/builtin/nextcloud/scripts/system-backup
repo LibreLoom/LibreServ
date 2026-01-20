@@ -1,0 +1,6 @@
+// TO-DO: Implement Nextcloud AIO backup logic
+// Nextcloud AIO has built-in backup functionality
+// This script could trigger AIO backups via API
+
+echo ">> [Nextcloud AIO] Backup functionality not yet implemented"
+exit 0

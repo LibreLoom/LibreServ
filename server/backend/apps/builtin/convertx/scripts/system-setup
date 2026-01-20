@@ -1,0 +1,32 @@
+#!/bin/bash
+# system-setup - ConvertX initial setup script
+# Runs once after the app container is confirmed fully started
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+# Parse config using jq
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTALL_PATH=$(jq -r '.install_path' "$CONFIG_FILE")
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+
+echo ">> [ConvertX] Starting initial setup..."
+echo ">> Instance ID: $INSTANCE_ID"
+echo ">> Data path: $APP_DATA_PATH"
+
+# Create data directories
+echo ">> Creating data directories..."
+mkdir -p "$APP_DATA_PATH/convertx"
+mkdir -p "$APP_DATA_PATH/logs"
+mkdir -p "$APP_DATA_PATH/backups"
+
+# Set proper permissions
+chmod -R 755 "$APP_DATA_PATH"
+
+echo ">> [ConvertX] Setup completed successfully"
+exit 0

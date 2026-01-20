@@ -27,6 +27,9 @@ type Monitor struct {
 	// Control
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+
+	// Repair callback (set by apps.Manager)
+	RepairCallback func(appID string)
 }
 
 // HealthChecker manages health checks for a single app
@@ -312,6 +315,8 @@ func (m *Monitor) runCheck(checker *HealthChecker) {
 		checker.consecutiveSuccesses = 0
 		if checker.consecutiveFailures >= checker.FailureThreshold {
 			checker.currentStatus = HealthStatusUnhealthy
+			// Trigger auto-repair
+			m.triggerRepair(checker.AppID)
 		}
 	case HealthStatusDegraded:
 		checker.currentStatus = HealthStatusDegraded
@@ -329,6 +334,13 @@ func (m *Monitor) runCheck(checker *HealthChecker) {
 
 	// Update app's health status in database
 	m.updateAppHealth(checker.AppID, currentStatus)
+}
+
+// triggerRepair calls the repair callback if set
+func (m *Monitor) triggerRepair(appID string) {
+	if m.RepairCallback != nil {
+		m.RepairCallback(appID)
+	}
 }
 
 // saveHealthCheck saves a health check result to the database

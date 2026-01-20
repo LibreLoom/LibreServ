@@ -1,0 +1,7 @@
+// TO-DO: Implement Ollama restore logic
+// This script should restore:
+// - Downloaded models
+// - Model tags
+
+echo ">> [Ollama] Restore functionality not yet implemented"
+exit 0

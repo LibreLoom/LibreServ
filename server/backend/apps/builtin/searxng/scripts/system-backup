@@ -1,0 +1,7 @@
+// TO-DO: Implement SearXNG backup logic
+// This script should backup:
+// - Configuration files
+// - Redis data
+
+echo ">> [SearXNG] Backup functionality not yet implemented"
+exit 0

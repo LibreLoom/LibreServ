@@ -1,0 +1,7 @@
+// TO-DO: Implement Ollama backup logic
+// This script should backup:
+// - List of downloaded models
+// - Model manifests
+
+echo ">> [Ollama] Backup functionality not yet implemented"
+exit 0

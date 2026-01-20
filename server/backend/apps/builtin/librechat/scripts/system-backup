@@ -1,0 +1,8 @@
+// TO-DO: Implement LibreChat backup logic
+// This script should:
+// - Dump MongoDB database
+// - Export Meilisearch data if enabled
+// - Package configuration
+
+echo ">> [LibreChat] Backup functionality not yet implemented"
+exit 0

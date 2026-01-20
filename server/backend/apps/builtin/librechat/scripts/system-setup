@@ -1,0 +1,48 @@
+#!/bin/bash
+# system-setup - LibreChat initial setup script
+# Runs once after the app container is confirmed fully started
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTALL_PATH=$(jq -r '.install_path' "$CONFIG_FILE")
+CONFIG_PATH=$(jq -r '.config_path' "$CONFIG_FILE")
+
+echo ">> [LibreChat] Starting initial setup..."
+
+# Create data directories
+echo ">> Creating data directories..."
+mkdir -p "$APP_DATA_PATH/librechat/images"
+mkdir -p "$APP_DATA_PATH/librechat/uploads"
+mkdir -p "$APP_DATA_PATH/librechat/logs"
+mkdir -p "$APP_DATA_PATH/mongodb"
+mkdir -p "$APP_DATA_PATH/meilisearch"  # Only if meilisearch is enabled
+mkdir -p "$APP_DATA_PATH/backups"
+mkdir -p "$CONFIG_PATH/librechat"
+
+# Generate secrets if not present
+echo ">> Generating secrets if needed..."
+
+# JWT secrets
+if [[ ! -f "$CONFIG_PATH/librechat/secrets.env" ]]; then
+    cat > "$CONFIG_PATH/librechat/secrets.env" <<EOF
+JWT_SECRET=$(openssl rand -hex 32)
+JWT_REFRESH_SECRET=$(openssl rand -hex 32)
+CREDS_KEY=$(openssl rand -hex 32)
+CREDS_IV=$(openssl rand -hex 16)
+EOF
+    chmod 600 "$CONFIG_PATH/librechat/secrets.env"
+fi
+
+# Set proper permissions
+chmod -R 755 "$APP_DATA_PATH"
+chmod -R 755 "$CONFIG_PATH"
+
+echo ">> [LibreChat] Setup completed successfully"
+exit 0

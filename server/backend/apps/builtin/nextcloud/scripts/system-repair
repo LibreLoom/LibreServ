@@ -1,0 +1,7 @@
+// TO-DO: Implement Nextcloud AIO repair logic
+// This script should handle common issues:
+// - Container restart via AIO API
+// - Docker socket cleanup
+
+echo ">> [Nextcloud AIO] Repair functionality not yet implemented"
+exit 0

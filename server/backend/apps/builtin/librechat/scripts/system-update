@@ -1,0 +1,9 @@
+// TO-DO: Implement LibreChat update logic
+// This script should handle:
+// - MongoDB backup before update
+// - Meilisearch data migration if needed
+// - Pulling new Docker images
+// - Restarting containers with new version
+
+echo ">> [LibreChat] Update functionality not yet implemented"
+exit 0

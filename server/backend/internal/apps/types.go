@@ -58,6 +58,9 @@ type AppDefinition struct {
 	// Update configuration
 	Updates UpdateConfig `yaml:"updates" json:"updates"`
 
+	// Script configuration
+	Scripts ScriptConfig `yaml:"scripts,omitempty" json:"scripts,omitempty"`
+
 	// Internal metadata (not from YAML)
 	Type        AppType `yaml:"-" json:"type"`
 	CatalogPath string  `yaml:"-" json:"-"`
@@ -240,4 +243,97 @@ type AvailableUpdate struct {
 	CurrentVersion string `json:"current_version"`
 	LatestVersion  string `json:"latest_version"`
 	IsUpdate       bool   `json:"is_update"`
+}
+
+type ScriptConfig struct {
+	System  SystemScripts  `yaml:"system,omitempty" json:"system,omitempty"`
+	Actions []ScriptAction `yaml:"actions,omitempty" json:"actions,omitempty"`
+}
+
+type SystemScripts struct {
+	Setup             string `yaml:"setup,omitempty" json:"setup,omitempty"`
+	Update            string `yaml:"update,omitempty" json:"update,omitempty"`
+	Repair            string `yaml:"repair,omitempty" json:"repair,omitempty"`
+	DestructiveRepair string `yaml:"destructive_repair,omitempty" json:"destructive_repair,omitempty"`
+	Backup            string `yaml:"backup,omitempty" json:"backup,omitempty"`
+	Restore           string `yaml:"restore,omitempty" json:"restore,omitempty"`
+}
+
+type ScriptAction struct {
+	Name        string          `yaml:"name" json:"name"`
+	Label       string          `yaml:"label" json:"label"`
+	Description string          `yaml:"description,omitempty" json:"description,omitempty"`
+	Script      string          `yaml:"script" json:"script"`
+	Icon        string          `yaml:"icon,omitempty" json:"icon,omitempty"`
+	Confirm     ActionConfirm   `yaml:"confirm,omitempty" json:"confirm,omitempty"`
+	Options     []ScriptOption  `yaml:"options,omitempty" json:"options,omitempty"`
+	Execution   ScriptExecution `yaml:"execution,omitempty" json:"execution,omitempty"`
+}
+
+type ActionConfirm struct {
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	Message  string `yaml:"message,omitempty" json:"message,omitempty"`
+	Typename string `yaml:"type,omitempty" json:"type,omitempty"`
+}
+
+type ScriptOption struct {
+	Name        string        `yaml:"name" json:"name"`
+	Label       string        `yaml:"label" json:"label"`
+	Description string        `yaml:"description,omitempty" json:"description,omitempty"`
+	Type        string        `yaml:"type" json:"type"`
+	Default     interface{}   `yaml:"default,omitempty" json:"default,omitempty"`
+	Required    bool          `yaml:"required" json:"required"`
+	Options     []OptionValue `yaml:"options,omitempty" json:"options,omitempty"`
+	Validation  string        `yaml:"validation,omitempty" json:"validation,omitempty"`
+	Min         interface{}   `yaml:"min,omitempty" json:"min,omitempty"`
+	Max         interface{}   `yaml:"max,omitempty" json:"max,omitempty"`
+	Secret      bool          `yaml:"secret,omitempty" json:"secret,omitempty"`
+}
+
+type OptionValue struct {
+	Value string `yaml:"value" json:"value"`
+	Label string `yaml:"label,omitempty" json:"label,omitempty"`
+}
+
+type ScriptExecution struct {
+	Timeout      int    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	WorkingDir   string `yaml:"working_dir,omitempty" json:"working_dir,omitempty"`
+	User         string `yaml:"user,omitempty" json:"user,omitempty"`
+	StreamOutput bool   `yaml:"stream_output,omitempty" json:"stream_output,omitempty"`
+}
+
+type ScriptResult struct {
+	Success  bool                   `json:"success"`
+	ExitCode int                    `json:"exit_code"`
+	Output   string                 `json:"output,omitempty"`
+	Error    string                 `json:"error,omitempty"`
+	Duration time.Duration          `json:"duration"`
+	Data     map[string]interface{} `json:"data,omitempty"`
+}
+
+type ScriptExecutionRequest struct {
+	InstanceID string                 `json:"instance_id"`
+	Script     string                 `json:"script"`
+	Options    map[string]interface{} `json:"options,omitempty"`
+}
+
+type ScriptExecutionResponse struct {
+	ExecutionID string        `json:"execution_id"`
+	Result      *ScriptResult `json:"result,omitempty"`
+	StreamURL   string        `json:"stream_url,omitempty"`
+}
+
+type ScriptExecutionConfig struct {
+	InstanceID  string                 `json:"instance_id"`
+	AppID       string                 `json:"app_id"`
+	InstallPath string                 `json:"install_path"`
+	AppDataPath string                 `json:"app_data_path"`
+	ConfigPath  string                 `json:"config_path"`
+	Runtime     RuntimeInfo            `json:"runtime"`
+	Options     map[string]interface{} `json:"options"`
+}
+
+type RuntimeInfo struct {
+	ComposeFile string `json:"compose_file"`
+	ProjectName string `json:"project_name"`
 }

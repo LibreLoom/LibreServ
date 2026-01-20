@@ -1,0 +1,8 @@
+// TO-DO: Implement ConvertX backup logic
+// This script should create app-specific backups:
+// - Export user preferences
+// - Package custom conversion templates
+// - Output JSON with backup metadata
+
+echo ">> [ConvertX] Backup functionality not yet implemented"
+exit 0

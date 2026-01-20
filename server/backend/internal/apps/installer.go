@@ -187,6 +187,11 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		}
 	}
 
+	// Run system-setup if present
+	if err := i.RunSystemSetup(ctx, appDef, instanceID, config); err != nil {
+		i.logger.Warn("system-setup failed", "error", err)
+	}
+
 	i.logger.Info("App installed successfully", "app_id", opts.AppID, "instance_id", instanceID)
 
 	return &InstallResult{
@@ -539,4 +544,34 @@ func (i *Installer) registerHealth(appDef *AppDefinition, instanceID string, cfg
 	}
 
 	return i.monitor.RegisterApp(instanceID, mcfg)
+}
+
+func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, instanceID string, config map[string]interface{}) error {
+	setupScript := appDef.Scripts.System.Setup
+	if setupScript == "" {
+		return nil
+	}
+
+	scriptPath := filepath.Join(appDef.CatalogPath, setupScript)
+	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
+		i.logger.Debug("system-setup script not found, skipping", "script", setupScript)
+		return nil
+	}
+
+	i.logger.Info("Running system-setup", "app_id", appDef.ID, "instance_id", instanceID)
+
+	executor := NewScriptExecutor(i.logger, nil, i.appsDataDir)
+	result, err := executor.Execute(ctx, instanceID, scriptPath, config)
+	if err != nil {
+		i.logger.Warn("system-setup failed", "app_id", appDef.ID, "error", err)
+		return nil
+	}
+
+	if !result.Success {
+		i.logger.Warn("system-setup returned non-zero exit code", "app_id", appDef.ID, "exit_code", result.ExitCode)
+	} else {
+		i.logger.Info("system-setup completed successfully", "app_id", appDef.ID)
+	}
+
+	return nil
 }

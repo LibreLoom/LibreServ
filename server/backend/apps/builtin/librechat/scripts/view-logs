@@ -1,0 +1,45 @@
+#!/bin/bash
+# view-logs - View LibreChat application logs
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+LINES=$(jq -r '.options.lines // 100' "$CONFIG_FILE")
+FILTER=$(jq -r '.options.filter // ""' "$CONFIG_FILE")
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+SERVICE=$(jq -r '.options.service // "all"' "$CONFIG_FILE")
+
+show_logs() {
+    local svc="$1"
+    local log_path="$APP_DATA_PATH/librechat/logs"
+
+    if [[ "$svc" == "all" ]]; then
+        echo "=== LibreChat API Logs ==="
+        if [[ -f "$log_path/api.log" ]]; then
+            tail -n "$LINES" "$log_path/api.log"
+        else
+            echo "No API log found"
+        fi
+    elif [[ "$svc" == "api" ]]; then
+        if [[ -f "$log_path/api.log" ]]; then
+            tail -n "$LINES" "$log_path/api.log"
+        else
+            docker logs --tail "$LINES" "${INSTANCE_ID}-librechat" 2>&1
+        fi
+    elif [[ "$svc" == "mongodb" ]]; then
+        docker logs --tail "$LINES" "${INSTANCE_ID}-mongodb" 2>&1
+    fi
+}
+
+if [[ -n "$FILTER" ]]; then
+    show_logs "$SERVICE" | grep "$FILTER" || echo "No matching lines found"
+else
+    show_logs "$SERVICE"
+fi
+
+exit 0

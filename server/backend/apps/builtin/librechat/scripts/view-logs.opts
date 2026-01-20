@@ -1,0 +1,34 @@
+name: view-logs
+label: "View Logs"
+description: "View LibreChat logs (API, MongoDB)"
+
+options:
+  - name: service
+    type: select
+    label: "Service"
+    description: "Which service logs to view"
+    default: "all"
+    options:
+      - value: "all"
+        label: "All Services"
+      - value: "api"
+        label: "API"
+      - value: "mongodb"
+        label: "MongoDB"
+
+  - name: lines
+    type: number
+    label: "Number of lines"
+    default: 100
+    min: 10
+    max: 1000
+    required: false
+
+  - name: filter
+    type: string
+    label: "Filter pattern"
+    required: false
+
+execution:
+  timeout: 60
+  stream_output: true

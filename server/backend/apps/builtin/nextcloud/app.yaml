@@ -73,3 +73,12 @@ updates:
   strategy: notify
   backup_before_update: true
   allow_downgrade: false
+
+scripts:
+  system:
+    setup: scripts/system-setup
+    update: scripts/system-update
+    repair: scripts/system-repair
+    backup: scripts/system-backup
+    restore: scripts/system-restore
+

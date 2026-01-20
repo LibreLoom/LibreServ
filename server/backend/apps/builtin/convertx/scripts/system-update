@@ -1,0 +1,9 @@
+// TO-DO: Implement ConvertX update logic
+// This script should handle:
+// - Pulling new Docker images
+// - Backing up user data
+// - Migrating any database/schema changes
+// - Restarting containers with new version
+
+echo ">> [ConvertX] Update functionality not yet implemented"
+exit 0

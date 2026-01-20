@@ -19,17 +19,18 @@ import (
 
 // Manager handles the lifecycle of installed apps
 type Manager struct {
-	mu            sync.RWMutex
-	catalog       *Catalog
-	installer     *Installer
-	runtime       runtime.ContainerRuntime
-	db            *database.DB
-	backupService *storage.BackupService
-	appsDataDir   string
-	logger        *slog.Logger
-	monitor       *monitoring.Monitor
-	backendMap    map[string][]string            // appID -> backend URLs (primary first)
-	backendByName map[string]map[string][]string // appID -> name -> backends
+	mu             sync.RWMutex
+	catalog        *Catalog
+	installer      *Installer
+	runtime        runtime.ContainerRuntime
+	db             *database.DB
+	backupService  *storage.BackupService
+	appsDataDir    string
+	logger         *slog.Logger
+	monitor        *monitoring.Monitor
+	backendMap     map[string][]string            // appID -> backend URLs (primary first)
+	backendByName  map[string]map[string][]string // appID -> name -> backends
+	scriptExecutor *ScriptExecutor
 }
 
 // NewManager creates a new app Manager
@@ -41,15 +42,21 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 	}
 
 	m := &Manager{
-		catalog:       catalog,
-		runtime:       runtime,
-		db:            db,
-		backupService: backupService,
-		appsDataDir:   appsDataDir,
-		logger:        slog.Default().With("component", "apps-manager"),
-		monitor:       monitor,
-		backendMap:    make(map[string][]string),
-		backendByName: make(map[string]map[string][]string),
+		catalog:        catalog,
+		runtime:        runtime,
+		db:             db,
+		backupService:  backupService,
+		appsDataDir:    appsDataDir,
+		logger:         slog.Default().With("component", "apps-manager"),
+		monitor:        monitor,
+		backendMap:     make(map[string][]string),
+		backendByName:  make(map[string]map[string][]string),
+		scriptExecutor: NewScriptExecutor(slog.Default().With("component", "script-executor"), nil, appsDataDir),
+	}
+
+	// Set up repair callback if monitor is available
+	if monitor != nil {
+		monitor.RepairCallback = m.handleRepair
 	}
 
 	// Create installer
@@ -183,6 +190,42 @@ func (m *Manager) RebuildBackends(ctx context.Context) {
 // GetInstaller returns the installer
 func (m *Manager) GetInstaller() *Installer {
 	return m.installer
+}
+
+// GetScriptExecutor returns the script executor
+func (m *Manager) GetScriptExecutor() *ScriptExecutor {
+	return m.scriptExecutor
+}
+
+// handleRepair is called by the monitor when an app fails health checks
+func (m *Manager) handleRepair(instanceID string) {
+	m.logger.Info("Auto-repair triggered", "instance_id", instanceID)
+
+	app, err := m.GetInstalledApp(context.Background(), instanceID)
+	if err != nil {
+		m.logger.Warn("Repair failed: app not found", "instance_id", instanceID)
+		return
+	}
+
+	catalogApp, err := m.catalog.GetApp(app.AppID)
+	if err != nil {
+		m.logger.Warn("Repair failed: app not in catalog", "app_id", app.AppID)
+		return
+	}
+
+	repairScript := m.scriptExecutor.GetSystemScriptPath(catalogApp.CatalogPath, "repair")
+	if repairScript == "" {
+		m.logger.Debug("No repair script found", "app_id", app.AppID)
+		return
+	}
+
+	result, err := m.scriptExecutor.Execute(context.Background(), instanceID, repairScript, app.Config)
+	if err != nil || !result.Success {
+		m.logger.Warn("Repair script failed", "app_id", app.AppID, "error", err, "output", result.Error)
+		return
+	}
+
+	m.logger.Info("Repair completed successfully", "instance_id", instanceID)
 }
 
 // StartApp starts a stopped app
@@ -372,22 +415,50 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 	// Check if backup is needed
 	if catalogApp.Updates.BackupBeforeUpdate {
 		m.logger.Info("Creating backup before update", "instance_id", instanceID)
-		// We stop the app for backup to ensure consistency
-		res, err := m.backupService.BackupApp(ctx, instanceID, storage.BackupOptions{
-			StopBeforeBackup: true,
-			Compress:         true,
-			IncludeLogs:      false,
-		})
-		if err != nil {
-			m.recordUpdateFailure(updateID, fmt.Errorf("backup failed: %w", err), false, "")
-			return fmt.Errorf("backup failed: %w", err)
+
+		backupScriptPath := m.scriptExecutor.GetSystemScriptPath(catalogApp.CatalogPath, "backup")
+		if backupScriptPath != "" {
+			result, err := m.scriptExecutor.Execute(ctx, instanceID, backupScriptPath, app.Config)
+			if err != nil || !result.Success {
+				m.recordUpdateFailure(updateID, fmt.Errorf("backup script failed: %v, %s", err, result.Error), false, "")
+				return fmt.Errorf("backup script failed: %w", err)
+			}
+			if result.Data != nil {
+				if id, ok := result.Data["backup_id"].(string); ok {
+					backupID = id
+				}
+			}
+			m.logger.Info("Backup created via script", "backup_id", backupID)
+		} else {
+			// Fall back to existing backup service
+			res, err := m.backupService.BackupApp(ctx, instanceID, storage.BackupOptions{
+				StopBeforeBackup: true,
+				Compress:         true,
+				IncludeLogs:      false,
+			})
+			if err != nil {
+				m.recordUpdateFailure(updateID, fmt.Errorf("backup failed: %w", err), false, "")
+				return fmt.Errorf("backup failed: %w", err)
+			}
+			backupID = res.Backup.ID
+			m.logger.Info("Backup created successfully", "backup_id", backupID)
 		}
-		backupID = res.Backup.ID
-		m.logger.Info("Backup created successfully", "backup_id", backupID)
 
 		if updateID > 0 {
 			m.db.Exec(`UPDATE updates SET backup_id = ? WHERE id = ?`, backupID, updateID)
 		}
+	}
+
+	// Run pre-update script if present
+	updateScriptPath := m.scriptExecutor.GetSystemScriptPath(catalogApp.CatalogPath, "update")
+	if updateScriptPath != "" {
+		m.logger.Info("Running system-update script", "instance_id", instanceID)
+		result, err := m.scriptExecutor.Execute(ctx, instanceID, updateScriptPath, app.Config)
+		if err != nil || !result.Success {
+			m.recordUpdateFailure(updateID, fmt.Errorf("system-update script failed: %v, %s", err, result.Error), false, backupID)
+			return fmt.Errorf("system-update script failed: %w", err)
+		}
+		m.logger.Info("system-update script completed", "instance_id", instanceID)
 	}
 
 	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")

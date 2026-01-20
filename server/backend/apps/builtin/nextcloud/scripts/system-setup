@@ -1,0 +1,26 @@
+#!/bin/bash
+# system-setup - Nextcloud AIO initial setup script
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+
+echo ">> [Nextcloud AIO] Starting initial setup..."
+
+# Create data directories
+mkdir -p "$APP_DATA_PATH/aio-config"
+mkdir -p "$APP_DATA_PATH/ncdata"
+mkdir -p "$APP_DATA_PATH/backups"
+
+# Set proper permissions
+chmod -R 755 "$APP_DATA_PATH"
+
+echo ">> [Nextcloud AIO] Setup completed successfully"
+echo ">> NOTE: Nextcloud AIO is self-managing via its admin interface"
+exit 0

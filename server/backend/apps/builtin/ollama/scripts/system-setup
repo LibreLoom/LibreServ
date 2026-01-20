@@ -1,0 +1,29 @@
+#!/bin/bash
+# system-setup - Ollama initial setup script
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+ENABLE_GPU=$(jq -r '.options.enable_gpu // false' "$CONFIG_FILE")
+
+echo ">> [Ollama] Starting initial setup..."
+
+# Create data directories
+mkdir -p "$APP_DATA_PATH/ollama"
+mkdir -p "$APP_DATA_PATH/backups"
+
+# Set proper permissions
+chmod -R 755 "$APP_DATA_PATH"
+
+if [[ "$ENABLE_GPU" == "true" ]]; then
+    echo ">> GPU support enabled - ensure nvidia-container-toolkit is installed"
+fi
+
+echo ">> [Ollama] Setup completed successfully"
+exit 0

@@ -1,0 +1,8 @@
+// TO-DO: Implement SearXNG repair logic
+// This script should handle:
+// - Container restart
+// - Redis cache clearing
+// - Settings reset
+
+echo ">> [SearXNG] Repair functionality not yet implemented"
+exit 0

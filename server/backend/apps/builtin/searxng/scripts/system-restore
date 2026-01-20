@@ -1,0 +1,7 @@
+// TO-DO: Implement SearXNG restore logic
+// This script should restore:
+// - Configuration files
+// - Redis data
+
+echo ">> [SearXNG] Restore functionality not yet implemented"
+exit 0

@@ -1,0 +1,34 @@
+#!/bin/bash
+# system-setup - SearXNG initial setup script
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+CONFIG_PATH=$(jq -r '.config_path' "$CONFIG_FILE")
+
+echo ">> [SearXNG] Starting initial setup..."
+
+# Create data directories
+mkdir -p "$CONFIG_PATH/searxng"
+mkdir -p "$APP_DATA_PATH/redis"
+mkdir -p "$APP_DATA_PATH/backups"
+
+# Generate secret key if not present
+if [[ ! -f "$CONFIG_PATH/searxng/secret_key.env" ]]; then
+    echo ">> Generating secret key..."
+    echo "SEARXNG_SECRET=$(openssl rand -hex 32)" > "$CONFIG_PATH/searxng/secret_key.env"
+    chmod 600 "$CONFIG_PATH/searxng/secret_key.env"
+fi
+
+# Set proper permissions
+chmod -R 755 "$APP_DATA_PATH"
+chmod -R 755 "$CONFIG_PATH"
+
+echo ">> [SearXNG] Setup completed successfully"
+exit 0

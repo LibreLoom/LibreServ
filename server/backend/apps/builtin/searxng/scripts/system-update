@@ -1,0 +1,8 @@
+// TO-DO: Implement SearXNG update logic
+// This script should:
+// - Pull new Docker image
+// - Preserve settings
+// - Restart containers
+
+echo ">> [SearXNG] Update functionality not yet implemented"
+exit 0

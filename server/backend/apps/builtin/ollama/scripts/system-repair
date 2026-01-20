@@ -1,0 +1,8 @@
+// TO-DO: Implement Ollama repair logic
+// This script should handle:
+// - Container restart
+// - Model cache cleanup
+// - GPU reset if needed
+
+echo ">> [Ollama] Repair functionality not yet implemented"
+exit 0

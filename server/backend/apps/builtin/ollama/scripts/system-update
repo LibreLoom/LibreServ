@@ -1,0 +1,8 @@
+// TO-DO: Implement Ollama update logic
+// This script should:
+// - Pull new Docker image
+// - Preserve downloaded models
+// - Restart container
+
+echo ">> [Ollama] Update functionality not yet implemented"
+exit 0

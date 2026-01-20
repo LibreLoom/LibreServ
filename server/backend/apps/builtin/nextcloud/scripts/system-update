@@ -1,0 +1,6 @@
+// TO-DO: Implement Nextcloud AIO update logic
+// Nextcloud AIO handles updates via its own master container
+// This script may trigger the AIO update mechanism
+
+echo ">> [Nextcloud AIO] Update functionality not yet implemented"
+exit 0

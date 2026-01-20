@@ -1,0 +1,5 @@
+// TO-DO: Implement Nextcloud AIO restore logic
+// Nextcloud AIO has built-in restore functionality
+
+echo ">> [Nextcloud AIO] Restore functionality not yet implemented"
+exit 0
