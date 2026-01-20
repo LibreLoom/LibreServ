@@ -155,6 +155,23 @@ body {
     animation: fade-in-up 0.5s cubic-bezier(0.05, 0.7, 0.1, 1) forwards;
 }
 
+/* GPU acceleration hints for transform animations */
+.pop-in,
+.pop-out {
+    will-change: transform, opacity;
+}
+
+/* Smooth transitions for interactive elements */
+.motion-safe\:transition,
+.motion-safe\:transition-all {
+    will-change: transform, opacity, color, background-color;
+}
+
+/* Navbar FAB animations */
+.fixed.h-16.w-16.z-1000 {
+    will-change: transform, left, top;
+}
+
 /* Reduced motion accessibility - WCAG 2.1 Level AA */
 @media (prefers-reduced-motion: reduce) {
     .pop-in,

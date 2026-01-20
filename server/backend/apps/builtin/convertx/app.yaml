@@ -75,5 +75,4 @@ scripts:
       label: "View Logs"
       description: "View ConvertX application logs"
       script: scripts/view-logs
-      confirm: false
 

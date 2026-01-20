@@ -69,6 +69,12 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.CORS(config.Get().CORS.AllowedOrigins))
 
+	if devMode {
+		r.Use(middleware.DevSecurityHeaders())
+	} else {
+		r.Use(middleware.SecurityHeaders())
+	}
+
 	// Set request timeout
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 

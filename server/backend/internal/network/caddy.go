@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"text/template"
@@ -32,6 +33,16 @@ type CaddyManager struct {
 	httpClient   *http.Client
 	configBackup string
 	rand         *rand.Rand
+}
+
+type routeView struct {
+	ID         string
+	FullDomain string
+	Backend    string
+	SSL        bool
+	Enabled    bool
+	TLSCert    string
+	TLSKey     string
 }
 
 // NewCaddyManager creates a new Caddy manager
@@ -546,6 +557,22 @@ func (cm *CaddyManager) generateCaddyfile() (string, error) {
 	return cm.generateCaddyfileLocked()
 }
 
+var ipRegex = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$`)
+
+func hasRealDomain(routes []routeView) bool {
+	for _, r := range routes {
+		domain := strings.ToLower(r.FullDomain)
+		if domain == "localhost" || domain == "127.0.0.1" || domain == "::1" {
+			continue
+		}
+		if ipRegex.MatchString(domain) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // generateCaddyfileLocked generates the Caddyfile content without taking any locks.
 // The caller must hold cm.routesMu (read or write) when calling this method.
 func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
@@ -556,6 +583,13 @@ func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
 	{{if .Email}}email {{.Email}}{{end}}
 	{{if not .AutoHTTPS}}auto_https off{{end}}
 }
+
+{{if and .AutoHTTPS .HasRealDomains}}
+# HTTP to HTTPS redirect for all domains
+http:// {
+	redir https://{host}{uri} 308
+}
+{{end}}
 
 {{range .Routes}}
 {{if .Enabled}}
@@ -594,16 +628,6 @@ func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
 
-	type routeView struct {
-		ID         string
-		FullDomain string
-		Backend    string
-		SSL        bool
-		Enabled    bool
-		TLSCert    string
-		TLSKey     string
-	}
-
 	routes := cm.listRoutesLocked()
 	views := make([]routeView, 0, len(routes))
 	for _, r := range routes {
@@ -624,19 +648,21 @@ func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
 	}
 
 	data := struct {
-		Email     string
-		AutoHTTPS bool
-		Routes    []routeView
-		LogOutput string
-		LogFormat string
-		LogLevel  string
+		Email          string
+		AutoHTTPS      bool
+		HasRealDomains bool
+		Routes         []routeView
+		LogOutput      string
+		LogFormat      string
+		LogLevel       string
 	}{
-		Email:     cm.config.Email,
-		AutoHTTPS: cm.config.AutoHTTPS,
-		Routes:    views,
-		LogOutput: cm.loggingOutput(),
-		LogFormat: cm.loggingFormat(),
-		LogLevel:  strings.TrimSpace(cm.config.Logging.Level),
+		Email:          cm.config.Email,
+		AutoHTTPS:      cm.config.AutoHTTPS,
+		HasRealDomains: hasRealDomain(views),
+		Routes:         views,
+		LogOutput:      cm.loggingOutput(),
+		LogFormat:      cm.loggingFormat(),
+		LogLevel:       strings.TrimSpace(cm.config.Logging.Level),
 	}
 
 	var buf bytes.Buffer
@@ -1010,4 +1036,18 @@ func (cm *CaddyManager) TestBackend(backend string) error {
 type CaddyAPIResponse struct {
 	Config json.RawMessage `json:"config,omitempty"`
 	Error  string          `json:"error,omitempty"`
+}
+
+func hasRealDomains(routes []routeView) bool {
+	for _, r := range routes {
+		domain := strings.ToLower(r.FullDomain)
+		if domain == "localhost" || domain == "127.0.0.1" || domain == "::1" {
+			continue
+		}
+		if ipRegex.MatchString(domain) {
+			continue
+		}
+		return true
+	}
+	return false
 }

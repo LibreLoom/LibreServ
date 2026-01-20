@@ -1,30 +1,31 @@
-import MainLayout from "./layout/MainLayout";
-import DashboardPage from "./pages/DashboardPage";
-import AppsPage from "./pages/AppsPage";
-import UsersPage from "./pages/UsersPage";
-import UserDetailPage from "./pages/UserDetailPage";
-import SettingsPage from "./pages/SettingsPage";
-import HelpPage from "./pages/HelpPage";
-import AppDetailPage from "./pages/AppDetailPage";
-import Login from "./pages/Login";
-import LoadingFast from "./pages/LoadingFast";
-import NotFoundPage from "./pages/NotFoundPage";
-import LorePage from "./pages/LorePage";
+import { lazy, Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
+import LoadingFast from "./pages/LoadingFast";
+
+const MainLayout = lazy(() => import("./layout/MainLayout"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const AppsPage = lazy(() => import("./pages/AppsPage"));
+const UsersPage = lazy(() => import("./pages/UsersPage"));
+const UserDetailPage = lazy(() => import("./pages/UserDetailPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const HelpPage = lazy(() => import("./pages/HelpPage"));
+const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
+const Login = lazy(() => import("./pages/Login"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
+const LorePage = lazy(() => import("./pages/LorePage"));
 
 function RequireAuth({ children }) {
   const { me, initialized } = useAuth();
-  // Block route rendering until we know whether a session exists.
   if (!initialized)
     return <LoadingFast label="Checking session..." heading="Authenticating" />;
-  // If no user is loaded, keep the user on the login screen.
   return me ? children : <Login />;
 }
 
 export default function App() {
   return (
-    <Routes>
+    <Suspense fallback={<LoadingFast label="Loading..." heading="LibreServ" />}>
+      <Routes>
       {/* App shell routes: gated by auth to keep public access minimal. */}
       {/* Wrap app routes so auth and layout are applied consistently. */}
       <Route
@@ -46,5 +47,6 @@ export default function App() {
       {/* Fallback for unknown routes. */}
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
+    </Suspense>
   );
 }

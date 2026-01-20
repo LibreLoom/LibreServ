@@ -22,21 +22,35 @@ const statusConfig = {
 };
 
 /**
- * Renders a bar of vertical lines to indicate usage percentage
+ * Renders a donut chart to indicate usage percentage
  * @param {number} percentage - Usage percentage (0-100)
- * @param {number} totalBars - Total number of bars to display
  */
-function UsageBar({ percentage, totalBars = 10 }) {
-  const filledBars = Math.round((percentage / 100) * totalBars);
+function UsageBar({ percentage }) {
+  const circumference = 31.4;
 
   return (
-    <span className="text-primary tracking-tight" aria-hidden="true">
-      {Array.from({ length: totalBars }, (_, i) => (
-        <span key={i} className={i < filledBars ? "opacity-100" : "opacity-25"}>
-          |
-        </span>
-      ))}
-    </span>
+    <svg width="14" height="14" viewBox="0 0 14 14" className="text-primary" aria-hidden="true">
+      <circle
+        cx="7"
+        cy="7"
+        r="5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeOpacity="0.3"
+      />
+      <circle
+        cx="7"
+        cy="7"
+        r="5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        transform="rotate(-90 7 7)"
+        strokeDasharray={`${(percentage / 100) * circumference} ${circumference}`}
+      />
+    </svg>
   );
 }
 

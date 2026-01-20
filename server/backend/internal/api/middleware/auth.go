@@ -4,37 +4,32 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 )
 
-// ContextKey type for context values
 type ContextKey string
 
 const (
-	// UserContextKey is the context key for the authenticated user
-	UserContextKey ContextKey = "user"
-	// UserIDContextKey is used for simpler user_id access
+	UserContextKey   ContextKey = "user"
 	UserIDContextKey ContextKey = "user_id"
 )
 
-// User represents the authenticated user stored in context
 type User struct {
 	ID       string
 	Username string
 	Role     string
 }
 
-// AuthConfig holds configuration for the auth middleware
 type AuthConfig struct {
 	AuthService *auth.Service
-	DevMode     bool // If true, allows "dev-token" for testing
+	DevMode     bool
 	License     LicenseChecker
 	CSRFSecret  string
 }
 
-// LicenseChecker minimal interface for license validity checks.
 type LicenseChecker interface {
 	Valid() bool
 	Reason() string
@@ -42,7 +37,10 @@ type LicenseChecker interface {
 	LicenseID() string
 }
 
-// Auth returns a middleware that validates JWT tokens
+func IsDevTokenEnabled() bool {
+	return os.Getenv("LIBRESERV_DEV_TOKEN_ENABLED") == "true"
+}
+
 func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,15 +51,13 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 			}
 			var user *User
 
-			// In dev mode, allow "dev-token" for testing
-			if cfg.DevMode && token == "dev-token" {
+			if cfg.DevMode && IsDevTokenEnabled() && token == "dev-token" {
 				user = &User{
 					ID:       "dev-user",
 					Username: "admin",
 					Role:     "admin",
 				}
 			} else {
-				// Validate JWT token
 				claims, err := cfg.AuthService.ValidateAccessToken(token)
 				if err != nil {
 					if err == auth.ErrExpiredToken {
@@ -79,7 +75,6 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 				}
 			}
 
-			// Add user to context
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			ctx = context.WithValue(ctx, UserIDContextKey, user.ID)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -87,7 +82,6 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 	}
 }
 
-// GetUser retrieves the authenticated user from context
 func GetUser(ctx context.Context) *User {
 	user, ok := ctx.Value(UserContextKey).(*User)
 	if !ok {
@@ -96,13 +90,11 @@ func GetUser(ctx context.Context) *User {
 	return user
 }
 
-// GetUserID retrieves the authenticated user ID from context.
 func GetUserID(ctx context.Context) (string, bool) {
 	userID, ok := ctx.Value(UserIDContextKey).(string)
 	return userID, ok
 }
 
-// RequireRole returns a middleware that requires a specific role
 func RequireRole(role string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,8 +113,8 @@ func RequireRole(role string) func(next http.Handler) http.Handler {
 		})
 	}
 }
+
 func extractAccessToken(r *http.Request) (string, error) {
-	// 1) Try Authorization header first
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
 		parts := strings.SplitN(authHeader, " ", 2)
@@ -131,7 +123,6 @@ func extractAccessToken(r *http.Request) (string, error) {
 		}
 	}
 
-	// 2) Fallback to HttpOnly cookie
 	cookie, err := r.Cookie("libreserv_access")
 	if err == nil && cookie.Value != "" {
 		return cookie.Value, nil

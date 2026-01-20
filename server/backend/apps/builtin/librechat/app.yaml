@@ -148,5 +148,4 @@ scripts:
       label: "View Logs"
       description: "View LibreChat logs (API, MongoDB)"
       script: scripts/view-logs
-      confirm: false
 

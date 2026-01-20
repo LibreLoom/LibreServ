@@ -209,7 +209,7 @@ export default function UserDetailPage() {
                 User Tools
               </h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
                 <CardButton
                   action="#"
                   actionLabel="Reset Password"
@@ -225,13 +225,13 @@ export default function UserDetailPage() {
                   actionLabel="Edit User"
                   variant="inverted"
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center justify-center rounded-pill p-2 motion-safe:transition-all hover:outline-2 hover:outline-solid cursor-pointer bg-accent text-primary hover:bg-primary hover:text-accent hover:outline-accent mt-0 py-4"
-                >
-                  <span className="text-sm font-medium">Delete User</span>
-                </button>
+                <div onClick={() => setShowDeleteConfirm(true)}>
+                  <CardButton
+                    action="#"
+                    actionLabel="Delete User"
+                    variant="danger"
+                  />
+                </div>
               </div>
             </Card>
           </section>

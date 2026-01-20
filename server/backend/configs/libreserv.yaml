@@ -29,13 +29,13 @@ logging:
   path: ./dev/logs
 network:
   caddy:
-    mode: noop
+    mode: enabled
     admin_api: http://localhost:2019
     config_path: ./dev/caddy/Caddyfile
     certs_path: ""
     default_domain: ""
     email: ""
-    auto_https: false
+    auto_https: true
     reload:
       retries: 5
       backoff_min: 0s

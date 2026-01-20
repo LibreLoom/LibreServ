@@ -9,11 +9,8 @@ import {
   User,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 
-/**
- * Shared transition configuration for consistent animations across the navbar.
- */
 const TRANSITION = {
   duration: "duration-200",
   ease: "ease-out",
@@ -21,57 +18,29 @@ const TRANSITION = {
   full: "motion-safe:transition-all duration-300 ease-out",
 };
 
-/**
- * Shared Tailwind CSS classes for navigation buttons.
- * Uses aria-[current=page] to style the active link based on React Router's state.
- */
 const navButtonClasses =
-  // Layout
   "flex " +
-  // Alignment
   "items-center " +
-  // Spacing between elements
   "gap-2 " +
-  // Transition effects
   `${TRANSITION.base} ` +
-  // Horizontal padding
   "px-3 " +
-  // Vertical padding
   "py-1.5 " +
-  // Rounded corners
   "rounded-pill " +
-  // Hover background
   "hover:bg-primary " +
-  // Hover text color
   "hover:text-secondary " +
-  // Active page background
   "aria-[current=page]:bg-primary " +
-  // Active page text color
   "aria-[current=page]:text-secondary " +
-  // Hover + active text inversion
   "hover:aria-[current=page]:text-primary " +
-  // Hover + active background inversion
   "hover:aria-[current=page]:bg-secondary " +
-  // Hover + active outline width
   "hover:aria-[current=page]:outline-2 " +
-  // Hover + active outline color
   "hover:aria-[current=page]:outline-primary " +
-  // Hover + active outline style
   "hover:aria-[current=page]:outline-solid " +
-  // Keyboard focus styles
   "focus-visible:outline-2 " +
   "focus-visible:outline-accent " +
   "focus-visible:outline-offset-2";
 
-/**
- * Shared classes for popup menu items with hover states.
- */
 const menuItemClasses = `flex items-center gap-2 px-3 py-2 rounded-pill ${TRANSITION.base}`;
 
-/**
- * Configuration for navigation links to maintain a single source of truth
- * for both desktop and mobile menus.
- */
 const navButtons = [
   { to: "/", icon: Home, label: "Dashboard" },
   { to: "/apps", icon: Grid2X2, label: "Apps" },
@@ -80,10 +49,9 @@ const navButtons = [
   { to: "/help", icon: LifeBuoy, label: "Help" },
 ];
 
-// FAB snap positions
-const FAB_SIZE = 64; // 16 * 4 = 64px (h-16 w-16)
-const EDGE_PADDING = 24; // 6 * 4 = 24px (bottom-6 right-6)
-const SNAP_THRESHOLD = 80; // Distance to snap to corner vs edge center
+const FAB_SIZE = 64;
+const EDGE_PADDING = 24;
+const SNAP_THRESHOLD = 80;
 
 function getSnapPosition(x, y, windowWidth, windowHeight) {
   const centerX = windowWidth / 2 - FAB_SIZE / 2;
@@ -93,7 +61,6 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
   const minY = EDGE_PADDING;
   const maxY = windowHeight - FAB_SIZE - EDGE_PADDING;
 
-  // Determine which edge is closest
   const distToLeft = x;
   const distToRight = windowWidth - x - FAB_SIZE;
   const distToTop = y;
@@ -105,9 +72,7 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
   let targetX, targetY;
 
   if (minHorizontal < minVertical) {
-    // Snap to left or right edge
     targetX = distToLeft < distToRight ? minX : maxX;
-    // Check if close to corner or center
     if (y < SNAP_THRESHOLD + minY) {
       targetY = minY;
     } else if (y > maxY - SNAP_THRESHOLD) {
@@ -116,9 +81,7 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
       targetY = centerY;
     }
   } else {
-    // Snap to top or bottom edge
     targetY = distToTop < distToBottom ? minY : maxY;
-    // Check if close to corner or center
     if (x < SNAP_THRESHOLD + minX) {
       targetX = minX;
     } else if (x > maxX - SNAP_THRESHOLD) {
@@ -139,9 +102,7 @@ export default function Navbar() {
   const dialogRef = useRef(null);
   const mobileMenuId = "mobile-nav-menu";
 
-  // FAB dragging state
   const [fabPosition, setFabPosition] = useState(() => {
-    // Default position
     const defaultPos = {
       x:
         typeof window !== "undefined"
@@ -153,13 +114,11 @@ export default function Navbar() {
           : 0,
     };
 
-    // Try to load saved position from localStorage
     try {
       const saved = localStorage.getItem("fabPosition");
       if (saved) {
         const parsed = JSON.parse(saved);
         if (typeof parsed.x === "number" && typeof parsed.y === "number") {
-          // Validate saved position is still within bounds
           if (typeof window !== "undefined") {
             return getSnapPosition(
               parsed.x,
@@ -183,8 +142,12 @@ export default function Navbar() {
   const lastPosRef = useRef({ x: 0, y: 0, time: 0 });
   const animationRef = useRef(null);
   const hasDraggedRef = useRef(false);
+  const fabPositionRef = useRef(fabPosition);
 
-  // Handle window resize
+  useEffect(() => {
+    fabPositionRef.current = fabPosition;
+  }, [fabPosition]);
+
   useEffect(() => {
     const handleResize = () => {
       setFabPosition((prev) => {
@@ -202,30 +165,25 @@ export default function Navbar() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const handleDragStart = useCallback(
-    (clientX, clientY) => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-      setIsDragging(true);
-      setIsAnimating(false);
-      dragStartRef.current = {
-        x: clientX,
-        y: clientY,
-        fabX: fabPosition.x,
-        fabY: fabPosition.y,
-      };
-      lastPosRef.current = { x: clientX, y: clientY, time: Date.now() };
-      velocityRef.current = { x: 0, y: 0 };
-      hasDraggedRef.current = false;
-    },
-    [fabPosition],
-  );
+  const handleDragStart = useCallback((clientX, clientY) => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+    setIsDragging(true);
+    setIsAnimating(false);
+    dragStartRef.current = {
+      x: clientX,
+      y: clientY,
+      fabX: fabPositionRef.current.x,
+      fabY: fabPositionRef.current.y,
+    };
+    lastPosRef.current = { x: clientX, y: clientY, time: Date.now() };
+    velocityRef.current = { x: 0, y: 0 };
+    hasDraggedRef.current = false;
+  }, []);
 
-  const handleDragMove = useCallback(
-    (clientX, clientY) => {
-      if (!isDragging) return;
-
+  const handleDragMove = useCallback((clientX, clientY) => {
+    setFabPosition(() => {
       const now = Date.now();
       const dt = now - lastPosRef.current.time;
       if (dt > 0) {
@@ -239,7 +197,6 @@ export default function Navbar() {
       const deltaX = clientX - dragStartRef.current.x;
       const deltaY = clientY - dragStartRef.current.y;
 
-      // Mark as dragged if moved more than 5px
       if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
         hasDraggedRef.current = true;
       }
@@ -247,7 +204,6 @@ export default function Navbar() {
       let newX = dragStartRef.current.fabX + deltaX;
       let newY = dragStartRef.current.fabY + deltaY;
 
-      // Clamp to screen bounds
       newX = Math.max(
         EDGE_PADDING,
         Math.min(newX, window.innerWidth - FAB_SIZE - EDGE_PADDING),
@@ -257,18 +213,15 @@ export default function Navbar() {
         Math.min(newY, window.innerHeight - FAB_SIZE - EDGE_PADDING),
       );
 
-      setFabPosition({ x: newX, y: newY });
-    },
-    [isDragging],
-  );
+      return { x: newX, y: newY };
+    });
+  }, []);
 
   const handleDragEnd = useCallback(() => {
-    if (!isDragging) return;
     setIsDragging(false);
 
-    // Apply momentum
-    let currentX = fabPosition.x;
-    let currentY = fabPosition.y;
+    let currentX = fabPositionRef.current.x;
+    let currentY = fabPositionRef.current.y;
     let velX = velocityRef.current.x;
     let velY = velocityRef.current.y;
 
@@ -280,7 +233,6 @@ export default function Navbar() {
       currentX += velX;
       currentY += velY;
 
-      // Clamp to bounds
       currentX = Math.max(
         EDGE_PADDING,
         Math.min(currentX, window.innerWidth - FAB_SIZE - EDGE_PADDING),
@@ -290,9 +242,7 @@ export default function Navbar() {
         Math.min(currentY, window.innerHeight - FAB_SIZE - EDGE_PADDING),
       );
 
-      // Stop if velocity is low enough
       if (Math.abs(velX) < 0.5 && Math.abs(velY) < 0.5) {
-        // Snap to position
         const snap = getSnapPosition(
           currentX,
           currentY,
@@ -301,7 +251,6 @@ export default function Navbar() {
         );
         setIsAnimating(true);
         setFabPosition(snap);
-        // Save to localStorage
         try {
           localStorage.setItem("fabPosition", JSON.stringify(snap));
         } catch {
@@ -316,9 +265,8 @@ export default function Navbar() {
     };
 
     animationRef.current = requestAnimationFrame(animate);
-  }, [isDragging, fabPosition]);
+  }, []);
 
-  // Mouse events
   useEffect(() => {
     const handleMouseMove = (e) => handleDragMove(e.clientX, e.clientY);
     const handleMouseUp = () => handleDragEnd();
@@ -334,7 +282,6 @@ export default function Navbar() {
     };
   }, [isDragging, handleDragMove, handleDragEnd]);
 
-  // Touch events
   useEffect(() => {
     const handleTouchMove = (e) => {
       if (e.touches.length === 1) {
@@ -356,7 +303,6 @@ export default function Navbar() {
     };
   }, [isDragging, handleDragMove, handleDragEnd]);
 
-  // Fetch user data
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -372,16 +318,13 @@ export default function Navbar() {
     fetchUser();
   }, []);
 
-  // Handle side effects for the mobile menu (focus trapping, scroll locking, and ESC key)
   useEffect(() => {
     if (!isMobileMenuOpen) {
       document.body.style.overflow = "";
       return;
     }
 
-    // Accessibility: Focus the first link when menu opens
     firstNavLinkRef.current?.focus();
-    // Prevent background scrolling when menu is active
     document.body.style.overflow = "hidden";
 
     const handleKeyDown = (event) => {
@@ -414,9 +357,21 @@ export default function Navbar() {
     };
   }, [isMobileMenuOpen]);
 
+  const navButtonsElements = useMemo(
+    () =>
+      navButtons.map((item) => (
+        <React.Fragment key={`desktopNav-${item.to}`}>
+          <NavLink to={item.to} className={navButtonClasses}>
+            <item.icon size={18} aria-hidden="true" />
+            <span>{item.label}</span>
+          </NavLink>
+        </React.Fragment>
+      )),
+    [],
+  );
+
   return (
     <>
-      {/* Desktop Navigation: Visible only on XL screens and up */}
       <div className="hidden xl:flex">
         <nav
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
@@ -427,16 +382,7 @@ export default function Navbar() {
               LibreServ
             </span>
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
-              {navButtons.map((item) => {
-                return (
-                  <React.Fragment key={`desktopNav-${item.to}`}>
-                    <NavLink to={item.to} className={navButtonClasses}>
-                      <item.icon size={18} aria-hidden="true" />
-                      <span>{item.label}</span>
-                    </NavLink>
-                  </React.Fragment>
-                );
-              })}
+              {navButtonsElements}
             </div>
             <div className="group flex items-center gap-2 relative">
               <span
@@ -449,7 +395,6 @@ export default function Navbar() {
                 <User size={16} aria-hidden="true" />
               </div>
 
-              {/* User Controls Popup */}
               <div
                 className={`absolute bottom-0 right-0 pb-16 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto ${TRANSITION.full}`}
               >
@@ -496,7 +441,6 @@ export default function Navbar() {
         </nav>
       </div>
 
-      {/* Mobile Floating Action Button (FAB): Toggles the menu */}
       <button
         type="button"
         className={`${TRANSITION.base} fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? TRANSITION.full : ""} ${isMobileMenuOpen ? "" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
@@ -506,7 +450,6 @@ export default function Navbar() {
             : { bottom: EDGE_PADDING, right: EDGE_PADDING }
         }
         onClick={() => {
-          // Only open menu if user didn't drag
           if (!hasDraggedRef.current) {
             setIsMobileMenuOpen(!isMobileMenuOpen);
           }
@@ -526,7 +469,6 @@ export default function Navbar() {
         ref={menuButtonRef}
       >
         <div className="relative w-full h-full items-center justify-center flex">
-          {/* Animated Icon Switch: X and Menu icons cross-fade and rotate */}
           <X
             aria-hidden="true"
             className={`absolute ${TRANSITION.base} ease-[cubic-bezier(0.2,0,0,1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
@@ -540,7 +482,6 @@ export default function Navbar() {
         </div>
       </button>
 
-      {/* Backdrop Overlay: Closes menu when clicking outside */}
       <button
         type="button"
         className={`fixed inset-0 ${TRANSITION.base} bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
@@ -553,7 +494,6 @@ export default function Navbar() {
         tabIndex={isMobileMenuOpen ? 0 : -1}
       ></button>
 
-      {/* Mobile Menu Dialog */}
       <dialog
         id={mobileMenuId}
         ref={dialogRef}
@@ -568,25 +508,22 @@ export default function Navbar() {
           aria-label="Primary"
         >
           <div className="p-2.5 gap-1 flex flex-col">
-            {navButtons.map((item, index) => {
-              return (
-                <React.Fragment key={`mobileNav-${item.to}`}>
-                  <NavLink
-                    to={item.to}
-                    className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
-                    onClick={() => {
-                      setIsMobileMenuOpen(false);
-                      menuButtonRef.current?.focus();
-                    }}
-                    // Attach ref to first item for focus management
-                    ref={index === 0 ? firstNavLinkRef : null}
-                  >
-                    <item.icon size={18} aria-hidden="true" />
-                    <span>{item.label}</span>
-                  </NavLink>
-                </React.Fragment>
-              );
-            })}
+            {navButtons.map((item, index) => (
+              <React.Fragment key={`mobileNav-${item.to}`}>
+                <NavLink
+                  to={item.to}
+                  className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    menuButtonRef.current?.focus();
+                  }}
+                  ref={index === 0 ? firstNavLinkRef : null}
+                >
+                  <item.icon size={18} aria-hidden="true" />
+                  <span>{item.label}</span>
+                </NavLink>
+              </React.Fragment>
+            ))}
           </div>
           <div className="h-px bg-primary/20 mx-4" aria-hidden="true" />
           <div className="p-2.5">

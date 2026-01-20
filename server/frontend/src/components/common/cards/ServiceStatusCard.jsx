@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { CheckCircle, XCircle, AlertCircle, ChevronDown } from "lucide-react";
 import CardButton from "./CardButton";
 import MiniStatCard from "./MiniStatCard";
 
-// Status configuration mapping for different service states
 const statusConfig = {
   online: {
     icon: CheckCircle,
@@ -25,11 +24,7 @@ const statusConfig = {
   },
 };
 
-/**
- * ServiceStatusCard - Displays a service's status, uptime/downtime, and resource usage
- * Cards grow to fill available space (flex-1) with 5px margin for consistent spacing
- */
-export default function ServiceStatusCard({
+function ServiceStatusCardInner({
   icon: Icon,
   name,
   status,
@@ -46,7 +41,6 @@ export default function ServiceStatusCard({
   const config = statusConfig[status] || statusConfig.offline;
   const StatusIcon = config.icon;
 
-  // Determine status text based on current state
   let statusText;
   if (status === "online" && time) {
     statusText = `Uptime: ${time}`;
@@ -57,9 +51,7 @@ export default function ServiceStatusCard({
   }
 
   return (
-    // flex-1: grow to fill space, mx-1.25: 5px margin on horizontal axis
     <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start">
-      {/* Header with service icon and name */}
       <div className="flex items-center gap-4">
         <div className="h-12 w-12 rounded-pill bg-primary text-secondary flex items-center justify-center">
           <Icon size={22} aria-hidden="true" />
@@ -69,13 +61,11 @@ export default function ServiceStatusCard({
         </div>
       </div>
 
-      {/* Divider */}
       <div
         className="h-1 bg-primary rounded-pill mx-1 my-4"
         aria-hidden="true"
       />
 
-      {/* Status and resource usage info */}
       <div className="text-left">
         <div className={`text-sm ${config.color}`}>Status</div>
         {statusText && (
@@ -87,7 +77,6 @@ export default function ServiceStatusCard({
         <div className={`text-sm ${config.color}`}>Resource Usage</div>
         {resourceUsage != null && (
           <div className="flex items-center gap-1 text-sm ml-2.5">
-            {/* Circle indicator with fill opacity based on usage percentage */}
             <svg
               width="14"
               height="14"
@@ -98,11 +87,22 @@ export default function ServiceStatusCard({
               <circle
                 cx="7"
                 cy="7"
-                r="6"
-                fill="currentColor"
-                fillOpacity={resourceUsage / 100}
+                r="5"
+                fill="none"
                 stroke="currentColor"
-                strokeWidth="1.5"
+                strokeWidth="3"
+                strokeOpacity="0.3"
+              />
+              <circle
+                cx="7"
+                cy="7"
+                r="5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                transform="rotate(-90 7 7)"
+                strokeDasharray={`${(resourceUsage / 100) * 31.4} 31.4`}
               />
             </svg>
             <span className={config.color}>{resourceUsage}%</span>
@@ -110,7 +110,6 @@ export default function ServiceStatusCard({
         )}
       </div>
 
-      {/* Expandable breakdown section */}
       <button
         onClick={() => setIsOpen(!isOpen)}
         type="button"
@@ -126,7 +125,6 @@ export default function ServiceStatusCard({
         <span>{isOpen ? "Hide breakdown" : "Show breakdown"}</span>
       </button>
 
-      {/* Collapsible breakdown content */}
       <div
         id={breakdownId}
         className={`motion-safe:transition-all duration-300 ease-out ${
@@ -150,3 +148,5 @@ export default function ServiceStatusCard({
     </div>
   );
 }
+
+export default memo(ServiceStatusCardInner);

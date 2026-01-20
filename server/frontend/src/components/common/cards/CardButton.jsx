@@ -22,7 +22,7 @@ export default function CardButton({
     <Link
       to={action}
       aria-label={actionLabel}
-      className={`flex items-center justify-center rounded-pill p-2 motion-safe:transition-all hover:outline-2 hover:outline-solid cursor-pointer ${variantClasses} ${className}`}
+      className={`flex items-center justify-center rounded-pill p-2 motion-safe:transition-all hover:outline-2 hover:outline-solid cursor-pointer ${variantClasses} ${className} h-full w-full`}
     >
       <span className="text-sm font-medium">{actionLabel}</span>
     </Link>

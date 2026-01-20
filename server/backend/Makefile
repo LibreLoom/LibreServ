@@ -22,7 +22,7 @@ build:
 
 run: build
 	@echo ">> Running $(APP_NAME)"
-	@./$(BIN_DIR)/$(APP_NAME) serve --config ./configs/libreserv.yaml
+	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) serve --config ./configs/libreserv.yaml
 
 frontend:
 	@echo ">> Installing frontend deps"
