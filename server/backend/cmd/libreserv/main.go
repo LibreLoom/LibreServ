@@ -27,6 +27,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
@@ -41,6 +42,12 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 	cfg := config.Get()
+
+	if err := security.ValidateProductionReadiness(); err != nil {
+		slog.Error("security validation failed", "error", err)
+		fmt.Fprintf(os.Stderr, "\nFor local development, run with: LIBRESERV_INSECURE_DEV=true ./bin/libreserv serve --config ./configs/libreserv.yaml\n")
+		os.Exit(1)
+	}
 
 	logger.Init(cfg.Logging)
 	defer logger.Close()
