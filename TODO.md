@@ -286,3 +286,51 @@ Goal: make Caddy reload + ACME issuance reliable, configurable, and observable.
 3. ✅ **COMPLETED**: Operator Guide: Caddy & DNS-01 Configuration
 4. ✅ **COMPLETED**: Disaster Recovery: Manual Restore Procedures
 5. ✅ **COMPLETED**: Developer Guide: Architecture & Building
+
+---
+
+## Security Hardening - Future Enhancements
+
+From Gitea Issue #11 (IMPROVEMENT items - deferred for future)
+
+### Long-term Security Enhancements
+
+1. 📝 **SAST Integration** (Static Application Security Testing)
+   - Add CI/CD pipeline for static code analysis
+   - Integrate tools like gosec, staticcheck, or golangci-lint
+   - Block commits with high-severity findings
+
+2. 📝 **Vulnerability Scanning**
+   - Automated CVE scanning for dependencies
+   - Container image scanning (Trivy, Grype)
+   - Weekly scan with alerts to maintainers
+
+3. 📝 **Fuzz Testing**
+   - Implement go-fuzz or similar for input validation testing
+   - Focus on parsing, template execution, and network handlers
+   - Integrate with CI for continuous fuzzing
+
+4. 📝 **Security Documentation**
+   - Document security architecture and design decisions
+   - Incident response procedures
+   - Security hardening guide for production deployments
+
+5. 📝 **Threat Modeling**
+   - Conduct threat modeling sessions for new features
+   - Document attack surfaces and mitigations
+   - STRIDE-based analysis for major components
+
+6. 📝 **Security Monitoring**
+   - Enhanced logging for security events
+   - Anomaly detection patterns
+   - Integration with SIEM or monitoring systems
+
+7. 📝 **Docker Security Documentation**
+   - Best practices for container security
+   - Non-root user configuration
+   - Resource limits and seccomp/AppArmor profiles
+
+### Notes
+- These are long-term enhancements, not immediate requirements
+- Prioritize based on production deployment needs
+- Many require significant CI/CD infrastructure investment
