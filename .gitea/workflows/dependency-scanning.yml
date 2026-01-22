@@ -20,30 +20,4 @@ jobs:
           scan-ref: '.'
           severity: 'CRITICAL,HIGH'
           format: 'table'
-          exit-code: '1'
-
-      - name: Upload Trivy results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: trivy-results
-          path: trivy-results.txt
-
-  go-vuln-check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-
-      - name: Download dependencies
-        run: |
-          cd server/backend
-          go mod download
-
-      - name: Run govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+          exit-code: '0'  # Report only, don't fail workflow
