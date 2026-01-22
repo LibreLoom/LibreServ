@@ -32,7 +32,7 @@ func TestRegisterLoginChangePassword(t *testing.T) {
 	// register
 	user, err := svc.Register(ctx, &RegisterRequest{
 		Username: "alice",
-		Password: "supersecret",
+		Password: "SuperSecret123",
 		Email:    "alice@example.com",
 	})
 	if err != nil {
@@ -45,7 +45,7 @@ func TestRegisterLoginChangePassword(t *testing.T) {
 	// duplicate register
 	if _, err := svc.Register(ctx, &RegisterRequest{
 		Username: "alice",
-		Password: "anothersecret",
+		Password: "AnotherSecret456",
 	}); err != ErrUserExists {
 		t.Fatalf("expected ErrUserExists, got %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRegisterLoginChangePassword(t *testing.T) {
 	// login
 	resp, err := svc.Login(ctx, &LoginRequest{
 		Username: "alice",
-		Password: "supersecret",
+		Password: "SuperSecret123",
 	})
 	if err != nil {
 		t.Fatalf("login failed: %v", err)
@@ -63,14 +63,14 @@ func TestRegisterLoginChangePassword(t *testing.T) {
 	}
 
 	// change password
-	if err := svc.ChangePassword(ctx, user.ID, "supersecret", "newsupersecret"); err != nil {
+	if err := svc.ChangePassword(ctx, user.ID, "SuperSecret123", "NewSuperSecret789"); err != nil {
 		t.Fatalf("change password failed: %v", err)
 	}
 
 	// old password should fail
 	if _, err := svc.Login(ctx, &LoginRequest{
 		Username: "alice",
-		Password: "supersecret",
+		Password: "SuperSecret123",
 	}); err == nil {
 		t.Fatalf("expected old password login to fail")
 	}
@@ -78,7 +78,7 @@ func TestRegisterLoginChangePassword(t *testing.T) {
 	// new password should work
 	if _, err := svc.Login(ctx, &LoginRequest{
 		Username: "alice",
-		Password: "newsupersecret",
+		Password: "NewSuperSecret789",
 	}); err != nil {
 		t.Fatalf("login with new password failed: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestSetupFlow(t *testing.T) {
 
 	admin, err := svc.CompleteSetup(ctx, &SetupRequest{
 		AdminUsername: "admin",
-		AdminPassword: "supersecret",
+		AdminPassword: "AdminPassword123",
 		AdminEmail:    "admin@example.com",
 	})
 	if err != nil {

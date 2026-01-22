@@ -10,22 +10,24 @@ import (
 
 var (
 	// ErrPasswordTooShort indicates a password doesn't meet minimum length.
-	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
+	ErrPasswordTooShort = errors.New("password must be at least 12 characters")
+	// ErrPasswordMissingComplexity indicates a password is missing required character types.
+	ErrPasswordMissingComplexity = errors.New("password must include letters and numbers")
 	// ErrPasswordMismatch indicates a hash mismatch for a supplied password.
 	ErrPasswordMismatch = errors.New("password does not match")
 )
 
 const (
 	// MinPasswordLength is the minimum allowed password length
-	MinPasswordLength = 8
+	MinPasswordLength = 12
 	// BcryptCost is the bcrypt cost factor
 	BcryptCost = 12
 )
 
 // HashPassword hashes a password using bcrypt
 func HashPassword(password string) (string, error) {
-	if len(password) < MinPasswordLength {
-		return "", ErrPasswordTooShort
+	if err := validatePasswordStrength(password); err != nil {
+		return "", err
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), BcryptCost)
@@ -34,6 +36,26 @@ func HashPassword(password string) (string, error) {
 	}
 
 	return string(hash), nil
+}
+
+// validatePasswordStrength checks that a password meets strength requirements
+func validatePasswordStrength(password string) error {
+	if len(password) < MinPasswordLength {
+		return ErrPasswordTooShort
+	}
+	var hasLetter, hasDigit bool
+	for _, r := range password {
+		switch {
+		case 'a' <= r && r <= 'z', 'A' <= r && r <= 'Z':
+			hasLetter = true
+		case '0' <= r && r <= '9':
+			hasDigit = true
+		}
+	}
+	if !hasLetter || !hasDigit {
+		return ErrPasswordMissingComplexity
+	}
+	return nil
 }
 
 // VerifyPassword verifies a password against a hash
