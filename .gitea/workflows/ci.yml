@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [main, master]
 
-permissions:
-  contents: read
-
 jobs:
   go:
     name: Go (${{ matrix.module }})
@@ -48,9 +45,9 @@ jobs:
 
       - name: Go test
         env:
-          GOCACHE: ${{ github.workspace }}/.cache/gocache
-          GOMODCACHE: ${{ github.workspace }}/.cache/gomodcache
-          GOPATH: ${{ github.workspace }}/.cache/gopath
+          GOCACHE: ${{ gitea.workspace }}/.cache/gocache
+          GOMODCACHE: ${{ gitea.workspace }}/.cache/gomodcache
+          GOPATH: ${{ gitea.workspace }}/.cache/gopath
         run: go test ./...
 
   frontend:
