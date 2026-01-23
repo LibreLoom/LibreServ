@@ -7,16 +7,18 @@ on:
     - cron: '0 0 * * 0'  # Weekly scan on Sunday
 
 jobs:
-  trivy-fs:
+  govulncheck:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: https://github.com/actions/checkout@v4
 
-      - name: Run Trivy vulnerability scanner
-        uses: https://github.com/aquasecurity/trivy-action@master
+      - name: Set up Go
+        uses: https://github.com/actions/setup-go@v5
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          severity: 'CRITICAL,HIGH'
-          format: 'table'
+          go-version-file: server/backend/go.mod
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
