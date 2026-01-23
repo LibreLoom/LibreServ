@@ -1,4 +1,3 @@
 module support-server
 
-go 1.22
-
+go 1.23
