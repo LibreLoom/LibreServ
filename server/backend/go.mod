@@ -1,6 +1,6 @@
 module gt.plainskill.net/LibreLoom/LibreServ
 
-go 1.24
+go 1.25
 
 replace (
 	github.com/sagikazarmark/locafero => github.com/sagikazarmark/locafero v0.7.0
