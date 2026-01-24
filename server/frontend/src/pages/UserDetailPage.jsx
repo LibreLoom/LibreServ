@@ -4,20 +4,26 @@ import Card from "../components/common/cards/Card";
 import CardButton from "../components/common/cards/CardButton";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import VerificationCard from "../components/common/cards/VerificationCard";
+import ModalCard from "../components/common/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import api from "../lib/api";
-import { User, Mail, Shield, Calendar } from "lucide-react";
+import { User, Mail, Shield, Calendar, Edit2 } from "lucide-react";
+import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
+import RoleChangeForm from "../components/common/forms/RoleChangeForm";
+import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
 
 export default function UserDetailPage() {
   const { userId } = useParams();
   const navigate = useNavigate();
-  // Keep local state so we can render skeletons and show errors.
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const [error, setError] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
 
   useEffect(() => {
     let delayTimer;
@@ -51,7 +57,6 @@ export default function UserDetailPage() {
 
   const handleDeleteUser = async () => {
     try {
-      // CSRF must be fetched before destructive operations.
       const csrfResponse = await api("/auth/csrf");
       const csrfData = await csrfResponse.json();
 
@@ -67,6 +72,20 @@ export default function UserDetailPage() {
       console.error("Error deleting user:", err);
       alert("Failed to delete user: " + err.message);
     }
+  };
+
+  const handleEditSuccess = (newEmail) => {
+    setUser((prev) => ({ ...prev, email: newEmail }));
+    setShowEditModal(false);
+  };
+
+  const handleRoleChangeSuccess = (newRole) => {
+    setUser((prev) => ({ ...prev, role: newRole }));
+    setShowRoleModal(false);
+  };
+
+  const handleResetPasswordSuccess = () => {
+    setShowResetPasswordModal(false);
   };
 
   const formatDate = (dateString) => {
@@ -210,21 +229,27 @@ export default function UserDetailPage() {
               </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-                <CardButton
-                  action="#"
-                  actionLabel="Reset Password"
-                  variant="inverted"
-                />
-                <CardButton
-                  action="#"
-                  actionLabel="Change Role"
-                  variant="inverted"
-                />
-                <CardButton
-                  action="#"
-                  actionLabel="Edit User"
-                  variant="inverted"
-                />
+                <div onClick={() => setShowEditModal(true)}>
+                  <CardButton
+                    action="#"
+                    actionLabel="Change Email"
+                    variant="inverted"
+                  />
+                </div>
+                <div onClick={() => setShowRoleModal(true)}>
+                  <CardButton
+                    action="#"
+                    actionLabel="Change Role"
+                    variant="inverted"
+                  />
+                </div>
+                <div onClick={() => setShowResetPasswordModal(true)}>
+                  <CardButton
+                    action="#"
+                    actionLabel="Reset Password"
+                    variant="inverted"
+                  />
+                </div>
                 <div onClick={() => setShowDeleteConfirm(true)}>
                   <CardButton
                     action="#"
@@ -248,6 +273,39 @@ export default function UserDetailPage() {
           onConfirm={handleDeleteUser}
           onCancel={() => setShowDeleteConfirm(false)}
         />
+      )}
+
+      {showEditModal && user && (
+        <ModalCard title="Change Email" onClose={() => setShowEditModal(false)}>
+          <ChangeEmailForm
+            user={user}
+            onSuccess={handleEditSuccess}
+            onCancel={() => setShowEditModal(false)}
+          />
+        </ModalCard>
+      )}
+
+      {showRoleModal && user && (
+        <ModalCard title="Change Role" onClose={() => setShowRoleModal(false)}>
+          <RoleChangeForm
+            user={user}
+            onSuccess={handleRoleChangeSuccess}
+            onCancel={() => setShowRoleModal(false)}
+          />
+        </ModalCard>
+      )}
+
+      {showResetPasswordModal && user && (
+        <ModalCard
+          title="Reset Password"
+          onClose={() => setShowResetPasswordModal(false)}
+        >
+          <ResetPasswordForm
+            user={user}
+            onSuccess={handleResetPasswordSuccess}
+            onCancel={() => setShowResetPasswordModal(false)}
+          />
+        </ModalCard>
       )}
     </main>
   );

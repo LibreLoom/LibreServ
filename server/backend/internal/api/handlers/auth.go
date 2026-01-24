@@ -146,10 +146,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusConflict, "username already exists")
 			return
 		}
-		if err == auth.ErrPasswordTooShort {
-			JSONError(w, http.StatusBadRequest, "password must be at least 8 characters")
-			return
-		}
 		JSONError(w, http.StatusInternalServerError, "registration failed")
 		return
 	}
@@ -254,10 +250,6 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == auth.ErrInvalidCredentials {
 			JSONError(w, http.StatusUnauthorized, "current password is incorrect")
-			return
-		}
-		if err == auth.ErrPasswordTooShort {
-			JSONError(w, http.StatusBadRequest, "new password must be at least 8 characters")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "failed to change password")

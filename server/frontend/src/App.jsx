@@ -8,6 +8,7 @@ const DashboardPage = lazy(() => import("./pages/DashboardPage"));
 const AppsPage = lazy(() => import("./pages/AppsPage"));
 const UsersPage = lazy(() => import("./pages/UsersPage"));
 const UserDetailPage = lazy(() => import("./pages/UserDetailPage"));
+const AddUserPage = lazy(() => import("./pages/AddUserPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/apps" element={<AppsPage />} />
         <Route path="/apps/:appName" element={<AppDetailPage />} />
         <Route path="/users" element={<UsersPage />} />
+        <Route path="/users/create" element={<AddUserPage />} />
         <Route path="/users/:userId" element={<UserDetailPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/help" element={<HelpPage />} />

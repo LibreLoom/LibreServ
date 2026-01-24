@@ -57,8 +57,8 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "username and password are required")
 		return
 	}
-	if len(req.Password) < 8 {
-		JSONError(w, http.StatusBadRequest, "password must be at least 8 characters")
+	if len(req.Password) < 12 {
+		JSONError(w, http.StatusBadRequest, "password must be at least 12 characters")
 		return
 	}
 

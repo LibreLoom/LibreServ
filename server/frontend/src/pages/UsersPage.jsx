@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { User, Shield, Trash2, Settings } from "lucide-react";
+import { User, Shield, Trash2, Settings, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import Card from "../components/common/cards/Card";
 import HeaderCard from "../components/common/cards/HeaderCard";
@@ -243,6 +243,16 @@ export default function UsersPage() {
               </table>
             </Card>
           </section>
+        )}
+
+        {!loading && !error && users.length > 0 && (
+          <Link
+            to="/users/create"
+            className="fixed bottom-8 right-8 z-40 bg-secondary text-primary rounded-full p-4 motion-safe:transition-all hover:scale-110 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+            aria-label="Add new user"
+          >
+            <Plus size={32} aria-hidden="true" />
+          </Link>
         )}
       </main>
 

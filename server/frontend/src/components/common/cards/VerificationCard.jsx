@@ -144,10 +144,10 @@ export default function VerificationCard({
             <button
               type="button"
               onClick={handleConfirm}
-              className={`flex-1 px-4 py-2 rounded-pill font-medium text-sm motion-safe:transition-all hover:outline-2 hover:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 ${
+              className={`flex-1 px-4 py-2 rounded-pill font-medium text-sm motion-safe:transition-all hover:ring-2 focus-visible:ring-2 focus-visible:ring-offset-2 ${
                 variant === "danger"
-                  ? "bg-accent text-primary hover:bg-primary hover:text-accent hover:outline-accent focus-visible:outline-primary"
-                  : "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:outline-primary focus-visible:outline-accent"
+                  ? "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent focus-visible:ring-primary"
+                  : "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary focus-visible:ring-accent"
               }`}
             >
               {confirmLabel}
