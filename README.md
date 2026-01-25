@@ -8,12 +8,14 @@ Bringing control of the web into users' hands: run alternatives to everyday clou
 
 General users. No person who isn't completely uninitiated in terms of tech shouldn't be able to use LibreServ.
 
+The primary method of delivery for LibreServ will likely be via hardware with the software pre-installed.
+
 ## Status
 - In active development (MVP target: April 30, 2026)
 - Backend is Go; Frontend is React/Vite. Reverse proxy is Caddy. Database is SQLite. Apps run via Docker.
 
 ## Goals
-- 95% of users shouldn’t need a terminal; actions should be reversible and plain-language.
+- 99% of users shouldn’t need a terminal; actions should be reversible and plain-language.
 - Ship opinionated defaults for Caddy/HTTPS, monitoring, backups, and a small curated app set (quality over quantity).
 
 ## What’s here
