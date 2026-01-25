@@ -116,8 +116,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 // Logout handles POST /api/v1/auth/logout
-// Clears the access token cookie and logs the user out
+// Clears the access token cookie and revokes all tokens for the user (#18)
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	userID, _ := middleware.GetUserID(r.Context())
+
+	if userID != "" {
+		h.authService.RevokeAllTokens(userID, userID, "User logout")
+	}
+
 	clearAuthCookies(w, r)
 	JSON(w, http.StatusOK, map[string]string{"message": "logged out"})
 }
@@ -157,7 +163,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 // RefreshToken handles POST /api/v1/auth/refresh
-// Exchanges a refresh token for a new access token
+// Exchanges a refresh token for a new access token with proper rotation (#19)
 func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
@@ -177,11 +183,16 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	tokens, err := h.authService.RefreshTokens(req.RefreshToken)
+	tokens, err := h.authService.RefreshTokensWithRotation(req.RefreshToken, "user")
 	if err != nil {
 		if err == auth.ErrInvalidToken || err == auth.ErrExpiredToken {
 			clearAuthCookies(w, r)
 			JSONError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+			return
+		}
+		if err == auth.ErrTokenRevoked {
+			clearAuthCookies(w, r)
+			JSONError(w, http.StatusUnauthorized, "token revoked - please log in again")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "failed to refresh token")

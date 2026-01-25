@@ -26,6 +26,7 @@ var (
 type Service struct {
 	db         *database.DB
 	jwtManager *JWTManager
+	tokenStore *TokenStore
 	logger     *slog.Logger
 
 	mu            sync.Mutex
@@ -37,15 +38,17 @@ type Service struct {
 
 // NewService creates a new auth service
 func NewService(db *database.DB, jwtSecret string) *Service {
-	return &Service{
+	svc := &Service{
 		db:            db,
 		jwtManager:    NewJWTManager(jwtSecret, 15*time.Minute, 7*24*time.Hour),
+		tokenStore:    NewTokenStore(db, 15*time.Minute, 7*24*time.Hour),
 		logger:        slog.Default().With("component", "auth"),
 		failed:        make(map[string]*loginAttempts),
 		lockoutAfter:  5,
 		lockoutWindow: 10 * time.Minute,
 		lockoutFor:    15 * time.Minute,
 	}
+	return svc
 }
 
 // LoginRequest represents a login request
@@ -223,7 +226,21 @@ func (s *Service) ValidateToken(tokenString string) (*Claims, error) {
 
 // ValidateAccessToken validates an access token.
 func (s *Service) ValidateAccessToken(tokenString string) (*Claims, error) {
-	return s.jwtManager.ValidateAccessToken(tokenString)
+	claims, err := s.jwtManager.ValidateAccessToken(tokenString)
+	if err != nil {
+		return nil, err
+	}
+
+	jti := GetTokenJTI(claims)
+	revoked, err := s.tokenStore.IsRevoked(jti, "access")
+	if err != nil {
+		return nil, fmt.Errorf("failed to check token revocation: %w", err)
+	}
+	if revoked {
+		return nil, ErrTokenRevoked
+	}
+
+	return claims, nil
 }
 
 // ValidateRefreshToken validates a refresh token.
@@ -297,7 +314,7 @@ func (s *Service) UpdateUser(ctx context.Context, user *models.User) error {
 	return nil
 }
 
-// ChangePassword changes a user's password
+// ChangePassword changes a user's password and revokes all existing tokens.
 func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
 	user, err := s.GetUserByID(ctx, userID)
 	if err != nil {
@@ -320,6 +337,11 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 	_, err = s.db.Exec(query, hash, time.Now(), userID)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
+	}
+
+	// Revoke all tokens for this user (force re-login)
+	if err := s.RevokeAllTokens(userID, userID, "Password changed"); err != nil {
+		s.logger.Error("Failed to revoke tokens after password change", "user_id", userID, "error", err)
 	}
 
 	s.logger.Info("Password changed", "user_id", userID)
@@ -373,4 +395,65 @@ func (s *Service) UserCount(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// RevokeToken revokes a specific token by its JTI.
+func (s *Service) RevokeToken(jti, userID, tokenType, revokedBy, reason string) error {
+	return s.tokenStore.RevokeToken(jti, userID, tokenType, revokedBy, reason)
+}
+
+// IsTokenRevoked checks if a token has been revoked.
+func (s *Service) IsTokenRevoked(jti, tokenType string) (bool, error) {
+	return s.tokenStore.IsRevoked(jti, tokenType)
+}
+
+// RevokeAllTokens revokes all tokens for a user (used on logout or password change).
+func (s *Service) RevokeAllTokens(userID, revokedBy, reason string) error {
+	s.logger.Info("Revoking all tokens for user", "user_id", userID, "revoked_by", revokedBy)
+	return s.tokenStore.RevokeAllTokens(userID, revokedBy, reason)
+}
+
+// RevokeRefreshToken revokes a specific refresh token (part of rotation).
+func (s *Service) RevokeRefreshToken(jti, userID, revokedBy, reason string) error {
+	return s.tokenStore.RevokeToken(jti, userID, "refresh", revokedBy, reason)
+}
+
+// RefreshTokensWithRotation validates a refresh token, revokes it, and returns new tokens.
+// This implements proper JWT token rotation (#19) - each refresh token can only be used once.
+func (s *Service) RefreshTokensWithRotation(refreshToken, revokedBy string) (*TokenPair, error) {
+	claims, err := s.jwtManager.ValidateRefreshToken(refreshToken)
+	if err != nil {
+		return nil, err
+	}
+
+	jti := GetTokenJTI(claims)
+
+	revoked, err := s.tokenStore.IsRevoked(jti, "refresh")
+	if err != nil {
+		return nil, fmt.Errorf("failed to check token revocation: %w", err)
+	}
+	if revoked {
+		s.logger.Warn("Refresh token reuse detected - possible token theft", "user_id", claims.UserID, "jti", jti)
+		s.tokenStore.RevokeAllTokens(claims.UserID, "system", "Suspicious refresh token reuse detected")
+		return nil, ErrTokenRevoked
+	}
+
+	err = s.tokenStore.RevokeToken(jti, claims.UserID, "refresh", revokedBy, "Token rotation - consumed")
+	if err != nil {
+		return nil, fmt.Errorf("failed to revoke old refresh token: %w", err)
+	}
+
+	newTokens, err := s.jwtManager.GenerateTokenPair(claims.UserID, claims.Username, claims.Role)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate new tokens: %w", err)
+	}
+
+	s.logger.Info("Tokens rotated", "user_id", claims.UserID)
+
+	return newTokens, nil
+}
+
+// CleanupExpiredRevocations removes expired revocation records.
+func (s *Service) CleanupExpiredRevocations() (int64, error) {
+	return s.tokenStore.CleanupExpired()
 }

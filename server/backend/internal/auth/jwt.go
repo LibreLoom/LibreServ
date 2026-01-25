@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 var (
@@ -12,6 +13,8 @@ var (
 	ErrInvalidToken = errors.New("invalid token")
 	// ErrExpiredToken indicates the token has expired.
 	ErrExpiredToken = errors.New("token has expired")
+	// ErrTokenRevoked indicates the token has been revoked.
+	ErrTokenRevoked = errors.New("token has been revoked")
 )
 
 // Claims represents the JWT claims
@@ -20,6 +23,7 @@ type Claims struct {
 	Username  string `json:"username"`
 	Role      string `json:"role"`
 	TokenType string `json:"token_type"`
+	JTI       string `json:"jti"` // JWT ID for revocation tracking
 	jwt.RegisteredClaims
 }
 
@@ -74,11 +78,13 @@ func (j *JWTManager) generateToken(userID, username, role, tokenType string, exp
 		Username:  username,
 		Role:      role,
 		TokenType: tokenType,
+		JTI:       uuid.New().String(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "libreserv",
+			ID:        uuid.New().String(),
 		},
 	}
 
