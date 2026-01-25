@@ -252,6 +252,11 @@ func (s *Server) serveFSPath(w http.ResponseWriter, r *http.Request, fsPath, nam
 		reader = bytes.NewReader(data)
 	}
 
+	// Set Content Security Policy headers for XSS protection
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://gt.plainskill.net; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-Frame-Options", "DENY")
+
 	http.ServeContent(w, r, name, info.ModTime(), reader)
 }
 
