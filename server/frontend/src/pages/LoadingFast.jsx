@@ -39,11 +39,11 @@ export default React.memo(function LoadingFast({
         >
           {/* Primary Bar */}
           <div
-            className={`absolute bottom-0 top-0 h-full bg-accent origin-left ${!disableAnimation ? "animate-mdi-bar-1" : "opacity-50"}`}
+            className={`absolute bottom-0 top-0 h-full bg-accent origin-left ${!disableAnimation ? "animate-md-bar-1" : "opacity-50"}`}
           ></div>
           {/* Secondary Bar */}
           <div
-            className={`absolute bottom-0 top-0 h-full bg-accent origin-left ${!disableAnimation ? "animate-mdi-bar-2" : "opacity-50"}`}
+            className={`absolute bottom-0 top-0 h-full bg-accent origin-left ${!disableAnimation ? "animate-md-bar-2" : "opacity-50"}`}
           ></div>
         </div>
       </div>

@@ -103,7 +103,7 @@ body {
 }
 
 /* Material Design 3 Indeterminate Linear Progress Animations */
-@keyframes mdi-indeterminate-bar-1 {
+@keyframes md-indeterminate-bar-1 {
     0% {
         transform: translateX(-35%) scaleX(0.35);
     }
@@ -113,7 +113,7 @@ body {
     }
 }
 
-@keyframes mdi-indeterminate-bar-2 {
+@keyframes md-indeterminate-bar-2 {
     0% {
         transform: translateX(-200%) scaleX(2);
     }
@@ -136,23 +136,37 @@ body {
 }
 
 /* Animation utility classes */
-.animate-mdi-bar-1 {
+.animate-md-bar-1 {
     width: 100%;
     will-change: transform;
-    animation: mdi-indeterminate-bar-1 2.1s
+    animation: md-indeterminate-bar-1 2.1s
         cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite both;
 }
 
-.animate-mdi-bar-2 {
+.animate-md-bar-2 {
     width: 100%;
     will-change: transform;
-    animation: mdi-indeterminate-bar-2 2.1s cubic-bezier(0.165, 0.84, 0.44, 1)
+    animation: md-indeterminate-bar-2 2.1s cubic-bezier(0.165, 0.84, 0.44, 1)
         infinite both;
     animation-delay: 1.15s;
 }
 
 .animate-fade-in-up {
     animation: fade-in-up 0.5s cubic-bezier(0.05, 0.7, 0.1, 1) forwards;
+}
+
+/* Loading bar fade animation */
+.loading-bar {
+    opacity: 0;
+    transform: translateY(100%);
+    transition: opacity 200ms ease-out, transform 200ms ease-out;
+    pointer-events: none;
+    contain: strict;
+}
+
+html.loading-bar-visible .loading-bar {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 /* GPU acceleration hints for transform animations */
@@ -179,8 +193,8 @@ body {
         animation: none !important;
     }
 
-    .animate-mdi-bar-1,
-    .animate-mdi-bar-2 {
+    .animate-md-bar-1,
+    .animate-md-bar-2 {
         animation: none;
         transform: translateX(0) scaleX(0.6);
         opacity: 0.5;
@@ -190,5 +204,9 @@ body {
         animation: none;
         opacity: 1;
         transform: translateY(0);
+    }
+
+    .loading-bar {
+        transition: none;
     }
 }
