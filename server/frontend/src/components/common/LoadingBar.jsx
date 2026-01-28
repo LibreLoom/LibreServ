@@ -1,19 +1,17 @@
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 
 export default function LoadingBar() {
   const location = useLocation();
   const timeoutRef = useRef();
 
-  const handleRouteChange = () => {
+  useEffect(() => {
     clearTimeout(timeoutRef.current);
     document.documentElement.classList.add("loading-bar-visible");
     timeoutRef.current = setTimeout(() => {
       document.documentElement.classList.remove("loading-bar-visible");
     }, 500);
-  };
-
-  handleRouteChange();
+  }, [location]);
 
   return (
     <div className="loading-bar fixed bottom-0 left-0 right-0 z-[9999] h-1 bg-[var(--color-primary)] overflow-hidden">
