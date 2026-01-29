@@ -66,3 +66,4 @@ libreserv
 server/backend/backend.pid
 server/frontend/frontend.pid
 libreserv.sh
+.aider*
