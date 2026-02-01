@@ -54,18 +54,20 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Install Gosec
+        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
       - name: Run Gosec Security Scanner
-        uses: https://github.com/securego/gosec@master
-        with:
-          args: '-no-fail -fmt sarif -out results.sarif -stdout -verbose text ./...'
-          workdir: ${{ matrix.module }}
+        run: |
+          $(go env GOPATH)/bin/gosec -no-fail -fmt sarif -out results.sarif -stdout -verbose text ./...
+        continue-on-error: true
 
       - name: Upload SARIF results
         uses: https://github.com/actions/upload-artifact@v4
         if: always()
         with:
           name: gosec-results-${{ matrix.module }}
-          path: ${{ matrix.module }}/results.sarif
+          path: results.sarif
 
   staticcheck:
     name: Static Analysis (${{ matrix.module }})
@@ -92,9 +94,8 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Install Staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@2024.1.1
+
       - name: Run Staticcheck
-        uses: https://github.com/dominikh/staticcheck-action@v1.3.1
-        with:
-          version: "2024.1.1"
-          install-go: false
-          working-directory: ${{ matrix.module }}
+        run: $(go env GOPATH)/bin/staticcheck ./...
