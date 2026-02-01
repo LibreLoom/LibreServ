@@ -184,21 +184,21 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 
 	// Apply the new configuration
 	if err := cm.regenerateCaddyfileLocked(); err != nil {
-		// Rollback
+		// Rollback - best effort, ignore errors during rollback
 		delete(cm.routes, route.ID)
-		cm.deleteRoute(ctx, route.ID)
-		cm.restoreBackup()
+		_ = cm.deleteRoute(ctx, route.ID)
+		_ = cm.restoreBackup()
 		cm.routesMu.Unlock()
 		return nil, fmt.Errorf("failed to apply configuration: %w", err)
 	}
 	cm.routesMu.Unlock()
 
 	if err := cm.reloadCaddy(); err != nil {
-		// Rollback (requires re-locking)
+		// Rollback (requires re-locking) - best effort, ignore errors during rollback
 		cm.routesMu.Lock()
 		delete(cm.routes, route.ID)
-		cm.deleteRoute(ctx, route.ID)
-		cm.restoreBackup()
+		_ = cm.deleteRoute(ctx, route.ID)
+		_ = cm.restoreBackup()
 		cm.routesMu.Unlock()
 		return nil, fmt.Errorf("failed to reload Caddy: %w", err)
 	}
@@ -257,7 +257,7 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 	if err := cm.regenerateCaddyfileLocked(); err != nil {
 		delete(cm.routes, route.ID)
 		_ = cm.deleteRoute(ctx, route.ID)
-		cm.restoreBackup()
+		_ = cm.restoreBackup()
 		cm.routesMu.Unlock()
 		return nil, fmt.Errorf("failed to apply configuration: %w", err)
 	}
@@ -267,7 +267,7 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 		cm.routesMu.Lock()
 		delete(cm.routes, route.ID)
 		_ = cm.deleteRoute(ctx, route.ID)
-		cm.restoreBackup()
+		_ = cm.restoreBackup()
 		cm.routesMu.Unlock()
 		return nil, fmt.Errorf("failed to reload Caddy: %w", err)
 	}
@@ -305,7 +305,7 @@ func (cm *CaddyManager) RemoveRoute(ctx context.Context, routeID string) error {
 	if err := cm.reloadCaddy(); err != nil {
 		cm.routesMu.Lock()
 		cm.routes[routeID] = route
-		cm.restoreBackup()
+		_ = cm.restoreBackup()
 		cm.routesMu.Unlock()
 		return fmt.Errorf("failed to reload Caddy: %w", err)
 	}
@@ -394,7 +394,7 @@ func (cm *CaddyManager) UpdateRoute(ctx context.Context, routeID string, backend
 		cm.routesMu.Lock()
 		route.Backend = oldBackend
 		route.Enabled = oldEnabled
-		cm.restoreBackup()
+		_ = cm.restoreBackup()
 		cm.routesMu.Unlock()
 		return nil, fmt.Errorf("failed to reload Caddy: %w", err)
 	}
@@ -493,7 +493,7 @@ func (cm *CaddyManager) GetStatus(ctx context.Context) (*CaddyStatus, error) {
 			status.Running = false
 			status.Error = err.Error()
 		} else {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			status.Running = resp.StatusCode == 200
 		}
 	} else {
@@ -762,7 +762,7 @@ func (cm *CaddyManager) validateConfigLocked() error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	content, err := cm.generateCaddyfileLocked()
 	if err != nil {
@@ -772,7 +772,7 @@ func (cm *CaddyManager) validateConfigLocked() error {
 	if _, err := tmpFile.WriteString(content); err != nil {
 		return err
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Validate with caddy if available; otherwise skip with warning
 	if _, err := exec.LookPath("caddy"); err != nil {
@@ -846,7 +846,7 @@ func (cm *CaddyManager) reloadCaddy() error {
 			resp, err := cm.httpClient.Do(req)
 			if err == nil {
 				body, _ := io.ReadAll(resp.Body)
-				resp.Body.Close()
+				_ = resp.Body.Close()
 				cancel()
 				if resp.StatusCode == http.StatusOK {
 					return nil
@@ -948,7 +948,7 @@ func (cm *CaddyManager) loadRoutes(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		var route Route
@@ -1026,7 +1026,7 @@ func (cm *CaddyManager) TestBackend(backend string) error {
 	if err != nil {
 		return fmt.Errorf("backend unreachable: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Any response is considered success (even 404)
 	return nil
@@ -1038,6 +1038,9 @@ type CaddyAPIResponse struct {
 	Error  string          `json:"error,omitempty"`
 }
 
+// hasRealDomains checks if any routes have real (non-localhost) domains
+//
+//lint:ignore U1000 Utility function for future use
 func hasRealDomains(routes []routeView) bool {
 	for _, r := range routes {
 		domain := strings.ToLower(r.FullDomain)

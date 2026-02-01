@@ -70,11 +70,11 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 		defer func() {
 			// Clean up the pre-restore backup if restore succeeded
 			if result.Error == nil {
-				os.RemoveAll(currentBackupPath)
+				_ = os.RemoveAll(currentBackupPath)
 			} else {
 				// Restore failed, rollback
-				os.RemoveAll(appPath)
-				os.Rename(currentBackupPath, appPath)
+				_ = os.RemoveAll(appPath)
+				_ = os.Rename(currentBackupPath, appPath)
 			}
 		}()
 	}
@@ -99,8 +99,8 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 			return result, result.Error
 		}
 
-		// Update app status
-		s.db.Exec("UPDATE apps SET status = 'running', updated_at = ? WHERE id = ?", time.Now(), backup.AppID)
+		// Update app status - best effort, don't fail if this errors
+		_, _ = s.db.Exec("UPDATE apps SET status = 'running', updated_at = ? WHERE id = ?", time.Now(), backup.AppID)
 	}
 
 	result.Duration = time.Since(startTime)
@@ -115,7 +115,7 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var reader io.Reader = file
 
@@ -125,7 +125,7 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 		if err != nil {
 			return fmt.Errorf("failed to create gzip reader: %w", err)
 		}
-		defer gzReader.Close()
+		defer func() { _ = gzReader.Close() }()
 		reader = gzReader
 	}
 
@@ -164,10 +164,10 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 			}
 
 			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
+				_ = outFile.Close()
 				return fmt.Errorf("failed to write file %s: %w", targetPath, err)
 			}
-			outFile.Close()
+			_ = outFile.Close()
 
 		case tar.TypeSymlink, tar.TypeLink:
 			// For safety, disallow link restoration to avoid path escapes.
@@ -242,20 +242,20 @@ func decompressGzipFile(srcPath, destPath string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	gzr, err := gzip.NewReader(src)
 	if err != nil {
 		return err
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }()
 
 	// Use O_EXCL to avoid accidentally clobbering an existing file.
 	dst, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, perm)
 	if err != nil {
 		return err
 	}
-	defer dst.Close()
+	defer func() { _ = dst.Close() }()
 
 	if _, err := io.Copy(dst, gzr); err != nil {
 		return err
@@ -273,7 +273,7 @@ func (s *BackupService) ListDatabaseBackups(ctx context.Context) ([]DatabaseBack
 	if err != nil {
 		return nil, fmt.Errorf("failed to query database backups: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var backups []DatabaseBackup
 	for rows.Next() {
@@ -305,8 +305,8 @@ func (s *BackupService) CleanupOldDatabaseBackups(ctx context.Context, retention
 			log.Printf("Failed to delete old database backup file %s: %v", backups[i].Path, err)
 		}
 
-		// Delete record
-		s.db.Exec("DELETE FROM database_backups WHERE id = ?", backups[i].ID)
+		// Delete record - best effort, don't fail if this errors
+		_, _ = s.db.Exec("DELETE FROM database_backups WHERE id = ?", backups[i].ID)
 	}
 
 	return nil

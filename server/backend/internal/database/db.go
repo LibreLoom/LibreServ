@@ -35,19 +35,19 @@ func Open(dbPath string) (*DB, error) {
 
 	// Optimization: Enable Write-Ahead Logging (WAL) for concurrency and reliability
 	if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		sqlDB.Close()
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
 	// Enable foreign key support
 	if _, err := sqlDB.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		sqlDB.Close()
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
 	// Set busy timeout to prevent locking errors
 	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		sqlDB.Close()
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
 	}
 

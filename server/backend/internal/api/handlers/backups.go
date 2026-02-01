@@ -32,8 +32,7 @@ func (h *BackupHandlers) ListBackups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"backups": backups,
 		"count":   len(backups),
 	})
@@ -54,8 +53,7 @@ func (h *BackupHandlers) GetBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(backup)
+	JSON(w, http.StatusOK, backup)
 }
 
 // CreateBackupRequest is the request body for creating a backup
@@ -99,9 +97,7 @@ func (h *BackupHandlers) CreateBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusCreated, map[string]interface{}{
 		"backup":   result.Backup,
 		"duration": result.Duration.String(),
 	})
@@ -145,8 +141,7 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"backup_id": result.BackupID,
 		"duration":  result.Duration.String(),
 		"status":    "restored",
@@ -167,8 +162,7 @@ func (h *BackupHandlers) DeleteBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "deleted",
 		"message": "Backup deleted successfully",
 	})
@@ -183,9 +177,7 @@ func (h *BackupHandlers) CreateDatabaseBackup(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(backup)
+	JSON(w, http.StatusCreated, backup)
 }
 
 // ListDatabaseBackups returns all database backups
@@ -197,8 +189,7 @@ func (h *BackupHandlers) ListDatabaseBackups(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"backups": backups,
 		"count":   len(backups),
 	})
@@ -231,8 +222,7 @@ func (h *BackupHandlers) RestoreDatabaseBackup(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"backup_id": backupID,
 		"status":    "restored",
 	})

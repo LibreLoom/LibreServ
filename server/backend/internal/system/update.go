@@ -49,10 +49,10 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string) (*UpdateInfo, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to check Gitea API: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Gitea API returned status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("gitea API returned status: %d", resp.StatusCode)
 	}
 
 	var releases []giteaRelease
@@ -116,7 +116,7 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	if err != nil {
 		return fmt.Errorf("failed to download update: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to download update: Gitea returned %d", resp.StatusCode)
@@ -125,7 +125,7 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
 		return fmt.Errorf("failed to save update: %w", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// 3. Make temporary file executable
 	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {

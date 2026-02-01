@@ -103,19 +103,19 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	// Process compose template
 	composePath, err := i.processComposeTemplate(appDef, installPath, config)
 	if err != nil {
-		os.RemoveAll(installPath)
+		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to process compose template"}, err
 	}
 
 	// Create .libreserv.yaml metadata file
 	if err := i.createMetadataFile(installPath, appDef, config); err != nil {
-		os.RemoveAll(installPath)
+		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to create metadata file"}, err
 	}
 
 	// Create any required data directories
 	if err := i.createDataDirectories(installPath, appDef); err != nil {
-		os.RemoveAll(installPath)
+		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to create data directories"}, err
 	}
 
@@ -143,7 +143,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	// Start containers
 	i.logger.Info("Starting containers", "app_id", opts.AppID, "instance_id", instanceID)
 	if err := i.runtime.ComposeUp(ctx, composePath); err != nil {
-		os.RemoveAll(installPath)
+		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to start containers"}, err
 	}
 
@@ -467,14 +467,14 @@ func (i *Installer) saveInstalledApp(app *InstalledApp) error {
 
 func generateInstanceID() string {
 	bytes := make([]byte, 8)
-	rand.Read(bytes)
+	_, _ = rand.Read(bytes)
 	return hex.EncodeToString(bytes)
 }
 
 func generateSecurePassword(length int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
 	bytes := make([]byte, length)
-	rand.Read(bytes)
+	_, _ = rand.Read(bytes)
 	for i, b := range bytes {
 		bytes[i] = chars[int(b)%len(chars)]
 	}

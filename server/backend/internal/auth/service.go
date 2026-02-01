@@ -434,7 +434,7 @@ func (s *Service) RefreshTokensWithRotation(refreshToken, revokedBy string) (*To
 	}
 	if revoked {
 		s.logger.Warn("Refresh token reuse detected - possible token theft", "user_id", claims.UserID, "jti", jti)
-		s.tokenStore.RevokeAllTokens(claims.UserID, "system", "Suspicious refresh token reuse detected")
+		_ = s.tokenStore.RevokeAllTokens(claims.UserID, "system", "Suspicious refresh token reuse detected")
 		return nil, ErrTokenRevoked
 	}
 

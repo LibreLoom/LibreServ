@@ -47,8 +47,7 @@ func (h *MonitoringHandlers) GetAppHealth(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(health)
+	JSON(w, http.StatusOK, health)
 }
 
 // GetAppMetrics returns current metrics for an app
@@ -74,8 +73,7 @@ func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metrics)
+	JSON(w, http.StatusOK, metrics)
 }
 
 // GetMetricsHistory returns historical metrics for an app
@@ -111,8 +109,7 @@ func (h *MonitoringHandlers) GetMetricsHistory(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"app_id":  appID,
 		"since":   since,
 		"limit":   limit,
@@ -166,8 +163,7 @@ func (h *MonitoringHandlers) RegisterHealthCheck(w http.ResponseWriter, r *http.
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "registered",
 		"app_id":  appID,
 		"message": "Health checks registered successfully",
@@ -185,8 +181,7 @@ func (h *MonitoringHandlers) UnregisterHealthCheck(w http.ResponseWriter, r *htt
 
 	h.monitor.UnregisterApp(appID)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "unregistered",
 		"app_id":  appID,
 		"message": "Health checks unregistered",
@@ -232,8 +227,7 @@ func (h *MonitoringHandlers) SystemHealth(w http.ResponseWriter, r *http.Request
 		},
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	JSON(w, http.StatusOK, response)
 }
 
 // CleanupMetrics removes old monitoring data
@@ -254,8 +248,7 @@ func (h *MonitoringHandlers) CleanupMetrics(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"status":         "cleaned",
 		"retention_days": retentionDays,
 		"message":        "Old monitoring data cleaned up",
@@ -292,7 +285,7 @@ func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusInternalServerError, "send failed: "+err.Error())
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"status": "sent",
 		"to":     body.To,
 	})

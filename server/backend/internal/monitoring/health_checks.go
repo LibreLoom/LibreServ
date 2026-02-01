@@ -121,7 +121,7 @@ func (t *TCPCheck) Run(ctx context.Context) CheckResult {
 		result.Message = fmt.Sprintf("TCP connection failed: %v", err)
 		return result
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	result.Status = HealthStatusHealthy
 	result.Message = fmt.Sprintf("TCP check passed (%s)", address)

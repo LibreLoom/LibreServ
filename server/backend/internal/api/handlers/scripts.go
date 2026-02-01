@@ -241,6 +241,6 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 
 	for output := range stream {
 		data, _ := json.Marshal(output)
-		w.Write([]byte("data: " + string(data) + "\n\n"))
+		_, _ = w.Write([]byte("data: " + string(data) + "\n\n"))
 	}
 }

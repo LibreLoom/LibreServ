@@ -41,7 +41,7 @@ func (c *Client) GetContainerStats(containerID string) (*ContainerStats, error) 
 	}
 	defer stats.Body.Close()
 
-	var v types.StatsJSON
+	var v container.StatsResponse
 	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
 		return nil, err
 	}

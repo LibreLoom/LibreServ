@@ -34,7 +34,7 @@ func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containe
 	}
 	defer stats.Body.Close()
 
-	var v types.StatsJSON
+	var v container.StatsResponse
 	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
 		return nil, fmt.Errorf("failed to decode stats: %w", err)
 	}
@@ -112,7 +112,7 @@ func matchesApp(cont types.Container, appID string) bool {
 }
 
 // parseStats converts Docker stats to our Metrics structure
-func (m *MetricsCollector) parseStats(stats *types.StatsJSON) *Metrics {
+func (m *MetricsCollector) parseStats(stats *container.StatsResponse) *Metrics {
 	metrics := &Metrics{
 		Timestamp: time.Now(),
 	}

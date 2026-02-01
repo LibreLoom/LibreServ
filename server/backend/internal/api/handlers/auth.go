@@ -121,7 +121,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.GetUserID(r.Context())
 
 	if userID != "" {
-		h.authService.RevokeAllTokens(userID, userID, "User logout")
+		_ = h.authService.RevokeAllTokens(userID, userID, "User logout")
 	}
 
 	clearAuthCookies(w, r)

@@ -59,7 +59,7 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 		defer func() {
 			// Restart the app
 			log.Printf("Restarting app %s after backup", appID)
-			s.docker.ComposeUp(ctx, appPath)
+			_ = s.docker.ComposeUp(ctx, appPath)
 		}()
 	}
 
@@ -105,8 +105,8 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 	`, backup.ID, backup.AppID, string(backup.Type), backup.Path, backup.Size, backup.CreatedAt, backup.Checksum)
 
 	if err != nil {
-		// Clean up the backup file
-		os.Remove(backupPath)
+		// Clean up the backup file - best effort, ignore error
+		_ = os.Remove(backupPath)
 		result.Error = fmt.Errorf("failed to save backup record: %w", err)
 		return result, result.Error
 	}
@@ -126,7 +126,7 @@ func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptio
 	if err != nil {
 		return "", 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Setup hash writer for checksum
 	hash := sha256.New()
@@ -179,7 +179,7 @@ func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptio
 			if err != nil {
 				return err
 			}
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 
 			if _, err := io.Copy(tarWriter, file); err != nil {
 				return err
@@ -194,9 +194,9 @@ func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptio
 	}
 
 	// Close writers to flush
-	tarWriter.Close()
+	_ = tarWriter.Close()
 	if opts.Compress {
-		writer.Close()
+		_ = writer.Close()
 	}
 
 	// Get file size
@@ -327,10 +327,10 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 
 	// Compress the backup
 	if err := compressFile(tempPath, backupPath); err != nil {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return nil, fmt.Errorf("compression failed: %w", err)
 	}
-	os.Remove(tempPath)
+	_ = os.Remove(tempPath)
 
 	// Get file info
 	fileInfo, err := os.Stat(backupPath)
@@ -359,7 +359,7 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 	`, backup.ID, backup.Path, backup.Size, backup.CreatedAt, backup.Checksum)
 
 	if err != nil {
-		os.Remove(backupPath)
+		_ = os.Remove(backupPath)
 		return nil, fmt.Errorf("failed to save backup record: %w", err)
 	}
 
@@ -374,13 +374,13 @@ func compressFile(srcPath, destPath string) error {
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	dest, err := os.Create(destPath)
 	if err != nil {
 		return err
 	}
-	defer dest.Close()
+	defer func() { _ = dest.Close() }()
 
 	gzWriter := gzip.NewWriter(dest)
 	defer gzWriter.Close()
@@ -394,7 +394,7 @@ func fileChecksum(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {

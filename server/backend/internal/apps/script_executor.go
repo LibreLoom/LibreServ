@@ -149,20 +149,20 @@ func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPa
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		os.Remove(configFile)
+		_ = os.Remove(configFile)
 		return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		os.Remove(configFile)
+		_ = os.Remove(configFile)
 		return nil, fmt.Errorf("failed to get stderr pipe: %w", err)
 	}
 
 	outputCh := make(chan ScriptOutput, 100)
 
 	if err := cmd.Start(); err != nil {
-		os.Remove(configFile)
+		_ = os.Remove(configFile)
 		return nil, fmt.Errorf("failed to start script: %w", err)
 	}
 
@@ -247,6 +247,7 @@ func (e *ScriptExecutor) extractJSON(output string) string {
 	depth := 0
 	inString := false
 
+outer:
 	for i, c := range output {
 		if c == '"' && (i == 0 || output[i-1] != '\\') {
 			inString = !inString
@@ -267,7 +268,7 @@ func (e *ScriptExecutor) extractJSON(output string) string {
 			depth--
 			if depth == 0 && start >= 0 {
 				end = i + 1
-				break
+				break outer
 			}
 		}
 	}

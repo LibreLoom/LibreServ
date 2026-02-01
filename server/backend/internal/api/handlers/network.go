@@ -45,8 +45,7 @@ func (h *NetworkHandlers) GetCaddyStatus(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	JSON(w, http.StatusOK, status)
 }
 
 // ListRoutes returns all configured routes
@@ -54,8 +53,7 @@ func (h *NetworkHandlers) GetCaddyStatus(w http.ResponseWriter, r *http.Request)
 func (h *NetworkHandlers) ListRoutes(w http.ResponseWriter, r *http.Request) {
 	routes := h.caddyManager.ListRoutes()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"routes": routes,
 		"count":  len(routes),
 	})
@@ -86,8 +84,7 @@ func (h *NetworkHandlers) GetRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(route)
+	JSON(w, http.StatusOK, route)
 }
 
 // CheckRouteAvailability checks whether a subdomain+domain is free
@@ -113,7 +110,7 @@ func (h *NetworkHandlers) CheckRouteAvailability(w http.ResponseWriter, r *http.
 		domain = h.caddyManager.Config().DefaultDomain
 	}
 	full := req.Subdomain + "." + domain
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"available":  available,
 		"fullDomain": full,
 	})
@@ -201,9 +198,7 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 respond:
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(route)
+	JSON(w, http.StatusCreated, route)
 }
 
 // UpdateRouteRequest is the request body for updating a route
@@ -233,8 +228,7 @@ func (h *NetworkHandlers) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(route)
+	JSON(w, http.StatusOK, route)
 }
 
 // DeleteRoute removes a route
@@ -251,8 +245,7 @@ func (h *NetworkHandlers) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "deleted",
 		"message": "Route deleted successfully",
 	})
@@ -267,8 +260,7 @@ func (h *NetworkHandlers) GetCaddyfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"content": content,
 	})
 }
@@ -294,16 +286,14 @@ func (h *NetworkHandlers) TestBackend(w http.ResponseWriter, r *http.Request) {
 
 	err := h.caddyManager.TestBackend(req.Backend)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		JSON(w, http.StatusOK, map[string]interface{}{
 			"reachable": false,
 			"error":     err.Error(),
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	JSON(w, http.StatusOK, map[string]interface{}{
 		"reachable": true,
 		"message":   "Backend is reachable",
 	})
@@ -324,8 +314,7 @@ func (h *NetworkHandlers) GetRouteByApp(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(route)
+	JSON(w, http.StatusOK, route)
 }
 
 // ConfigureDomainRequest is the request body for domain configuration

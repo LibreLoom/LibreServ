@@ -73,9 +73,7 @@ func Load(entitlementPath, publicKeyPath string) (*Service, error) {
 
 func parseKey(data []byte) (ed25519.PublicKey, error) {
 	trim := strings.TrimSpace(string(data))
-	if strings.HasPrefix(trim, "0x") {
-		trim = strings.TrimPrefix(trim, "0x")
-	}
+	trim = strings.TrimPrefix(trim, "0x")
 	b, err := hex.DecodeString(trim)
 	if err != nil {
 		return nil, err

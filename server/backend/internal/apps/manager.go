@@ -264,7 +264,7 @@ func (m *Manager) RestartApp(ctx context.Context, instanceID string) error {
 
 // GetAppStatus returns the current status of an app
 func (m *Manager) GetAppStatus(ctx context.Context, instanceID string) (*AppStatusInfo, error) {
-	app, err := m.GetInstalledApp(ctx, instanceID)
+	_, err := m.GetInstalledApp(ctx, instanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +297,7 @@ func (m *Manager) GetAppStatus(ctx context.Context, instanceID string) (*AppStat
 		})
 	}
 
-	overall := app.Status
+	var overall AppStatus
 	if total == 0 {
 		overall = StatusStopped
 	} else if runningCount == total {
@@ -445,7 +445,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 		}
 
 		if updateID > 0 {
-			m.db.Exec(`UPDATE updates SET backup_id = ? WHERE id = ?`, backupID, updateID)
+			_, _ = m.db.Exec(`UPDATE updates SET backup_id = ? WHERE id = ?`, backupID, updateID)
 		}
 	}
 
@@ -513,7 +513,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 
 	// Record success
 	if updateID > 0 {
-		m.db.Exec(`
+		_, _ = m.db.Exec(`
 			UPDATE updates 
 			SET status = 'success', completed_at = CURRENT_TIMESTAMP 
 			WHERE id = ?
@@ -552,7 +552,7 @@ func (m *Manager) recordUpdateFailure(updateID int64, err error, rolledBack bool
 	if rolledBack {
 		status = "rolled_back"
 	}
-	m.db.Exec(`
+	_, _ = m.db.Exec(`
 		UPDATE updates 
 		SET status = ?, completed_at = CURRENT_TIMESTAMP, error = ?, rolled_back = ?, backup_id = ?
 		WHERE id = ?

@@ -31,6 +31,6 @@ func ProbeTCP(host string, port int, timeout time.Duration) *ProbeResult {
 	}
 	res.Reachable = true
 	res.Latency = time.Since(start)
-	conn.Close()
+	_ = conn.Close()
 	return res
 }

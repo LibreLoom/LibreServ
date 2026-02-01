@@ -104,7 +104,7 @@ func (a *ACMEManager) Issue(ctx context.Context, req ACMERequest) error {
 	if err != nil {
 		return fmt.Errorf("caddy admin unreachable: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("caddy admin returned %d", resp.StatusCode)
 	}
@@ -305,7 +305,7 @@ func (a *ACMEManager) pollIssued(ctx context.Context, domain string) error {
 			continue
 		}
 		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode == http.StatusOK && bytes.Contains(body, []byte(domain)) {
 			return nil
 		}
