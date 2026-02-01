@@ -134,9 +134,7 @@ func authHandler(adminToken, deviceToken string, next http.HandlerFunc) http.Han
 			return
 		}
 		token := r.Header.Get("Authorization")
-		if strings.HasPrefix(token, "Bearer ") {
-			token = strings.TrimPrefix(token, "Bearer ")
-		}
+		token = strings.TrimPrefix(token, "Bearer ")
 		switch r.Header.Get("X-Client-Role") {
 		case "admin":
 			if token != adminToken {
