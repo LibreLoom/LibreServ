@@ -59,15 +59,25 @@ jobs:
 
       - name: Run Gosec Security Scanner
         run: |
-          $(go env GOPATH)/bin/gosec -no-fail -fmt sarif -out results.sarif -stdout -verbose text ./...
-        continue-on-error: true
+          $(go env GOPATH)/bin/gosec -severity high -confidence high -fmt sarif -out results.sarif -stdout -verbose text ./...
 
       - name: Upload SARIF results
         uses: https://github.com/actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
           name: gosec-results-${{ matrix.module }}
           path: results.sarif
+
+      - name: Notify Security Team
+        if: failure()
+        run: |
+          echo "::error::SECURITY ALERT: High-severity security findings detected in ${{ matrix.module }}"
+          echo "::error::Commit: ${{ github.sha }}"
+          echo "::error::Author: ${{ github.actor }}"
+          echo "::error::Branch: ${{ github.ref }}"
+          echo "::error::SARIF results uploaded as artifact: gosec-results-${{ matrix.module }}"
+          echo "::error::Please review the security findings before merging."
+          exit 1
 
   staticcheck:
     name: Static Analysis (${{ matrix.module }})

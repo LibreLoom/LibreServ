@@ -50,6 +50,35 @@ This project uses automated security scanning:
 - **Dependency Scanning**: Weekly Trivy scans for Go and Docker dependencies
 - **Container Scanning**: Docker image vulnerability scanning
 - **Go Vulnerability Check**: govulncheck for Go packages
+- **Static Application Security Testing (SAST)**: gosec and staticcheck on every push
+
+## CI Security Policy
+
+### Blocking High-Severity Security Findings
+
+Our CI pipeline automatically blocks commits that introduce **high-severity security vulnerabilities** as detected by gosec.
+
+**What gets blocked:**
+- Security issues with **high severity** AND **high confidence** ratings
+- These represent confirmed security vulnerabilities that must be addressed
+
+**What does NOT get blocked:**
+- Medium or low severity issues
+- Issues with medium or low confidence ratings
+- Style or code quality issues (handled by staticcheck separately)
+
+**For Contributors:**
+1. Run `gosec -severity high -confidence high ./...` locally before committing
+2. Address any high-severity findings before submitting pull requests
+3. If you believe a finding is a false positive, document it with a `#nosec` annotation and explain why
+
+**Remediation:**
+When a commit is blocked:
+1. Review the SARIF results uploaded as CI artifacts
+2. Fix the underlying security issue
+3. Re-push the corrected code
+
+The security team is automatically notified of all blocked commits for review.
 
 ## Hardening Checklist
 

@@ -105,21 +105,21 @@ body {
 /* Material Design 3 Indeterminate Linear Progress Animations */
 @keyframes md-indeterminate-bar-1 {
     0% {
-        transform: translateX(-35%) scaleX(0.35);
+        transform: translate3d(-35%, 0, 0) scaleX(0.35);
     }
     60%,
     100% {
-        transform: translateX(100%) scaleX(0.9);
+        transform: translate3d(100%, 0, 0) scaleX(0.9);
     }
 }
 
 @keyframes md-indeterminate-bar-2 {
     0% {
-        transform: translateX(-200%) scaleX(2);
+        transform: translate3d(-200%, 0, 0) scaleX(2);
     }
     60%,
     100% {
-        transform: translateX(107%) scaleX(0.01);
+        transform: translate3d(107%, 0, 0) scaleX(0.01);
     }
 }
 
@@ -135,38 +135,50 @@ body {
     }
 }
 
-/* Animation utility classes */
-.animate-md-bar-1 {
+/* Animation utility classes - GPU-optimized for smooth 60fps */
+.animate-md-bar-1,
+.animate-md-bar-2 {
     width: 100%;
     will-change: transform;
-    animation: md-indeterminate-bar-1 2.1s
+    backface-visibility: hidden;
+    perspective: 1000px;
+    transform: translateZ(0);
+}
+
+.animate-md-bar-1 {
+    animation: md-indeterminate-bar-1 2s
         cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite both;
 }
 
 .animate-md-bar-2 {
-    width: 100%;
-    will-change: transform;
-    animation: md-indeterminate-bar-2 2.1s cubic-bezier(0.165, 0.84, 0.44, 1)
+    animation: md-indeterminate-bar-2 2s cubic-bezier(0.165, 0.84, 0.44, 1)
         infinite both;
-    animation-delay: 1.15s;
+    animation-delay: 1s;
 }
 
 .animate-fade-in-up {
     animation: fade-in-up 0.5s cubic-bezier(0.05, 0.7, 0.1, 1) forwards;
 }
 
-/* Loading bar fade animation */
+/* Loading bar - conditionally rendered with smooth slide in/out */
 .loading-bar {
-    opacity: 0;
-    transform: translateY(100%);
-    transition: opacity 200ms ease-out, transform 200ms ease-out;
-    pointer-events: none;
     contain: strict;
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    transition: opacity 100ms ease-out, transform 100ms ease-out;
 }
 
-html.loading-bar-visible .loading-bar {
-    opacity: 1;
-    transform: translateY(0);
+/* Slide in animation (enter) - starts hidden, transitions to visible */
+.loading-bar.loading-bar-enter {
+    opacity: 0;
+    transform: translate3d(0, 100%, 0);
+}
+
+/* Slide out animation (exit) - 200ms */
+.loading-bar.loading-bar-exit {
+    opacity: 0;
+    transform: translate3d(0, 100%, 0);
+    transition: opacity 200ms ease-out, transform 200ms ease-out;
 }
 
 /* GPU acceleration hints for transform animations */
@@ -196,7 +208,7 @@ html.loading-bar-visible .loading-bar {
     .animate-md-bar-1,
     .animate-md-bar-2 {
         animation: none;
-        transform: translateX(0) scaleX(0.6);
+        transform: translate3d(0, 0, 0) scaleX(0.6);
         opacity: 0.5;
     }
 
@@ -207,6 +219,8 @@ html.loading-bar-visible .loading-bar {
     }
 
     .loading-bar {
+        opacity: 1;
+        transform: none;
         transition: none;
     }
 }
