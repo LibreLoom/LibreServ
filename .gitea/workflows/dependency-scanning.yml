@@ -95,7 +95,9 @@ jobs:
         run: go mod download
 
       - name: Install Staticcheck
-        run: go install honnef.co/go/tools/cmd/staticcheck@2024.1.1
+        run: |
+          curl -sL "https://github.com/dominikh/go-tools/releases/download/2024.1.1/staticcheck_linux_amd64.tar.gz" | tar -xzf - -C /tmp
+          sudo mv /tmp/staticcheck/staticcheck /usr/local/bin/
 
       - name: Run Staticcheck
-        run: $(go env GOPATH)/bin/staticcheck ./...
+        run: staticcheck ./...
