@@ -22,10 +22,10 @@ jobs:
         working-directory: ${{ matrix.module }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: https://github.com/actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: https://github.com/actions/setup-go@v5
         with:
           go-version-file: ${{ matrix.module }}/go.mod
           cache: true
@@ -62,10 +62,10 @@ jobs:
       NPM_CONFIG_CACHE: ${{ runner.temp }}/npm-cache
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: https://github.com/actions/checkout@v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: https://github.com/actions/setup-node@v4
         with:
           node-version: 20
 

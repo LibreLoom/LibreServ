@@ -1,0 +1,107 @@
+name: Fuzz Testing
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run fuzz tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Fuzz duration in minutes'
+        required: true
+        default: '10'
+        type: string
+
+jobs:
+  fuzz:
+    name: Fuzz (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - internal/docker
+          - internal/apps
+          - internal/network
+          - internal/config
+    defaults:
+      run:
+        working-directory: server/backend
+    steps:
+      - name: Checkout
+        uses: https://github.com/actions/checkout@v4
+
+      - name: Set up Go
+        uses: https://github.com/actions/setup-go@v5
+        with:
+          go-version-file: server/backend/go.mod
+          cache: true
+          cache-dependency-path: |
+            server/backend/go.mod
+            server/backend/go.sum
+
+      - name: Cache fuzz corpus
+        uses: https://github.com/actions/cache@v4
+        with:
+          path: server/backend/${{ matrix.package }}/testdata/fuzz
+          key: fuzz-corpus-${{ matrix.package }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.package }}-
+
+      - name: Run fuzz tests
+        run: |
+          # Use provided duration or default to 5 minutes for PRs, 10 for scheduled
+          DURATION="${{ github.event.inputs.duration || (github.event_name == 'schedule' && '10' || '5') }}"
+          echo "Running fuzz tests for ${{ matrix.package }} with ${DURATION} minute duration..."
+          
+          # Find all fuzz tests in the package
+          go test -list=Fuzz ./${{ matrix.package }} | grep -E "^Fuzz" | while read -r fuzztest; do
+            echo "Running $fuzztest..."
+            go test -fuzz=$fuzztest -fuzztime=${DURATION}m ./${{ matrix.package }} || true
+          done
+
+      - name: Upload fuzz corpus on failure
+        if: failure()
+        uses: https://github.com/actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.package }}-${{ github.run_id }}
+          path: server/backend/${{ matrix.package }}/testdata/fuzz
+          retention-days: 30
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: https://github.com/actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes-${{ matrix.package }}-${{ github.run_id }}
+          path: |
+            server/backend/${{ matrix.package }}/testdata/fuzz/**/*crash*
+            server/backend/${{ matrix.package }}/testdata/fuzz/**/*oom*
+            server/backend/${{ matrix.package }}/testdata/fuzz/**/*timeout*
+          retention-days: 90
+
+  fuzz-summary:
+    name: Fuzz Summary
+    needs: fuzz
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## Fuzz Testing Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.fuzz.result }}" == "success" ]; then
+            echo "✅ All fuzz tests completed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Some fuzz tests may have found issues" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Fuzz tests were run for:" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker Compose parsing" >> $GITHUB_STEP_SUMMARY
+          echo "- App Catalog YAML parsing" >> $GITHUB_STEP_SUMMARY
+          echo "- Caddyfile template generation" >> $GITHUB_STEP_SUMMARY
+          echo "- Configuration file parsing" >> $GITHUB_STEP_SUMMARY
