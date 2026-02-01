@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 )
 
 // ACMERequest holds data for requesting a certificate.
@@ -33,6 +35,7 @@ type ACMEManager struct {
 	client     *http.Client
 	auto       bool
 	external   ExternalACMEConfig
+	metrics    *monitoring.CaddyMetrics
 }
 
 // NewACMEManager creates a new ACME manager.
@@ -73,6 +76,12 @@ func (a *ACMEManager) WithExternal(cfg ExternalACMEConfig) *ACMEManager {
 	return a
 }
 
+// WithMetrics sets the metrics collector for ACME operations
+func (a *ACMEManager) WithMetrics(metrics *monitoring.CaddyMetrics) *ACMEManager {
+	a.metrics = metrics
+	return a
+}
+
 // ExternalEnabled reports whether external ACME is enabled.
 func (a *ACMEManager) ExternalEnabled() bool {
 	return a.external.Enabled
@@ -81,18 +90,35 @@ func (a *ACMEManager) ExternalEnabled() bool {
 // Issue triggers ACME by reloading Caddy config via Admin API using the current Caddyfile.
 // Assumes Caddyfile is already configured for the desired domain/automation.
 func (a *ACMEManager) Issue(ctx context.Context, req ACMERequest) error {
+	start := time.Now()
+	certType := "auto"
+
 	// External DNS-01 issuance via lego (preferred when configured).
 	if a.external.Enabled {
+		certType = "external"
 		if req.Domain == "" {
+			if a.metrics != nil {
+				a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+			}
 			return fmt.Errorf("domain required")
 		}
-		return a.issueExternalDNS01(ctx, req.Domain, req.Email)
+		err := a.issueExternalDNS01(ctx, req.Domain, req.Email)
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(err == nil, certType, time.Since(start))
+		}
+		return err
 	}
 	if req.Domain == "" || req.Email == "" {
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+		}
 		return fmt.Errorf("domain and email required")
 	}
 
 	if a.adminAPI == "" || a.configPath == "" {
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+		}
 		return fmt.Errorf("caddy admin API or config path not configured")
 	}
 
@@ -102,38 +128,63 @@ func (a *ACMEManager) Issue(ctx context.Context, req ACMERequest) error {
 	healthReq, _ := http.NewRequestWithContext(checkCtx, http.MethodGet, a.adminAPI+"/config/", nil)
 	resp, err := a.client.Do(healthReq)
 	if err != nil {
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+		}
 		return fmt.Errorf("caddy admin unreachable: %w", err)
 	}
 	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+		}
 		return fmt.Errorf("caddy admin returned %d", resp.StatusCode)
 	}
 
 	// Reload config to force Caddy to manage certs for configured domains.
 	content, err := os.ReadFile(a.configPath)
 	if err != nil {
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+		}
 		return fmt.Errorf("read caddyfile: %w", err)
 	}
 	loadReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.adminAPI+"/load", bytes.NewReader(content))
 	if err != nil {
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+		}
 		return err
 	}
 	loadReq.Header.Set("Content-Type", "text/caddyfile")
 	loadResp, err := a.client.Do(loadReq)
 	if err != nil {
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+		}
 		return fmt.Errorf("caddy load failed: %w", err)
 	}
 	defer loadResp.Body.Close()
 	if loadResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(loadResp.Body)
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(false, certType, time.Since(start))
+		}
 		return fmt.Errorf("caddy load failed: %s", string(body))
 	}
 
 	log.Printf("ACME request submitted for %s via Caddy Admin API", req.Domain)
 	if !a.auto {
+		if a.metrics != nil {
+			a.metrics.RecordCertIssuance(true, certType, time.Since(start))
+		}
 		return nil
 	}
-	return a.pollIssued(ctx, req.Domain)
+	err = a.pollIssued(ctx, req.Domain)
+	if a.metrics != nil {
+		a.metrics.RecordCertIssuance(err == nil, certType, time.Since(start))
+	}
+	return err
 }
 
 func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email string) error {

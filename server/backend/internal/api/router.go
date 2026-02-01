@@ -7,6 +7,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
 
@@ -64,6 +65,16 @@ func (s *Server) setupRoutes() {
 
 	// Initialize ACME manager for automated certificate management
 	acmeManager := network.NewACMEManager(adminAPI, configPath).WithAuto(true).WithExternal(extCfg)
+
+	// Initialize Caddy metrics collector
+	caddyMetrics := monitoring.NewCaddyMetrics()
+
+	// Wire metrics into Caddy manager if available
+	if s.caddyManager != nil {
+		s.caddyManager.WithMetrics(caddyMetrics)
+	}
+	acmeManager.WithMetrics(caddyMetrics)
+
 	acmeHandler := handlers.NewACMEHandler(s.db, acmeManager, s.caddyManager, s.appManager)
 	acmeCleanup := handlers.NewACMECleanupHandler(s.caddyManager)
 
@@ -101,6 +112,9 @@ func (s *Server) setupRoutes() {
 		r.Get("/health", healthHandler.HealthCheck)
 		r.Get("/health/ready", healthHandler.ReadinessCheck)
 		r.Get("/health/live", healthHandler.LivenessCheck)
+
+		// Prometheus metrics endpoint (public for scraping)
+		r.Get("/metrics", monitoringHandler.PrometheusMetrics)
 
 		// API version info endpoint
 		r.Get("/api/version", healthHandler.Version)

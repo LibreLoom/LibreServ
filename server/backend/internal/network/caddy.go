@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 )
 
 // CaddyManager manages Caddy reverse proxy configuration
@@ -33,6 +34,7 @@ type CaddyManager struct {
 	httpClient   *http.Client
 	configBackup string
 	rand         *rand.Rand
+	metrics      *monitoring.CaddyMetrics
 }
 
 type routeView struct {
@@ -66,6 +68,12 @@ func (cm *CaddyManager) AdminEndpoint() string {
 // ConfigPath returns the Caddyfile path.
 func (cm *CaddyManager) ConfigPath() string {
 	return cm.config.ConfigPath
+}
+
+// WithMetrics sets the metrics collector for Caddy operations
+func (cm *CaddyManager) WithMetrics(metrics *monitoring.CaddyMetrics) *CaddyManager {
+	cm.metrics = metrics
+	return cm
 }
 
 func (cm *CaddyManager) mode() string {
@@ -790,18 +798,30 @@ func (cm *CaddyManager) validateConfigLocked() error {
 
 // reloadCaddy reloads Caddy configuration
 func (cm *CaddyManager) reloadCaddy() error {
+	start := time.Now()
+	var attemptCount int
+
 	// In noop/disabled mode, never attempt to reload.
 	// noop mode: silently succeed (useful for dev/testing)
 	// disabled mode: return error to signal misconfiguration
 	m := cm.mode()
 	if m == "disabled" {
+		if cm.metrics != nil {
+			cm.metrics.RecordReload(false, time.Since(start), 0)
+		}
 		return &CaddyError{Op: "reload", Err: ErrCaddyDisabled, Context: "mode=disabled"}
 	}
 	if m == "noop" {
 		// No-op: succeed without actually reloading
+		if cm.metrics != nil {
+			cm.metrics.RecordReload(true, time.Since(start), 0)
+		}
 		return nil
 	}
 	if !cm.isEnabled() {
+		if cm.metrics != nil {
+			cm.metrics.RecordReload(true, time.Since(start), 0)
+		}
 		return nil
 	}
 
@@ -830,15 +850,22 @@ func (cm *CaddyManager) reloadCaddy() error {
 	if cm.config.AdminAPI != "" {
 		content, err := os.ReadFile(cm.config.ConfigPath)
 		if err != nil {
+			if cm.metrics != nil {
+				cm.metrics.RecordReload(false, time.Since(start), 0)
+			}
 			return err
 		}
 
 		var lastErr error
 		for attempt := 0; attempt <= retries; attempt++ {
+			attemptCount = attempt + 1
 			ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
 			req, err := http.NewRequestWithContext(ctx, "POST", cm.config.AdminAPI+"/load", bytes.NewReader(content))
 			if err != nil {
 				cancel()
+				if cm.metrics != nil {
+					cm.metrics.RecordReload(false, time.Since(start), attemptCount)
+				}
 				return err
 			}
 			req.Header.Set("Content-Type", "text/caddyfile")
@@ -849,6 +876,9 @@ func (cm *CaddyManager) reloadCaddy() error {
 				_ = resp.Body.Close()
 				cancel()
 				if resp.StatusCode == http.StatusOK {
+					if cm.metrics != nil {
+						cm.metrics.RecordReload(true, time.Since(start), attemptCount)
+					}
 					return nil
 				}
 				lastErr = fmt.Errorf("caddy admin reload rejected (status=%d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
@@ -874,14 +904,23 @@ func (cm *CaddyManager) reloadCaddy() error {
 
 	// Use CLI reload if available
 	if _, err := exec.LookPath("caddy"); err != nil {
+		if cm.metrics != nil {
+			cm.metrics.RecordReload(false, time.Since(start), attemptCount)
+		}
 		return fmt.Errorf("caddy binary not found and admin API not configured")
 	}
 	cmd := exec.Command("caddy", "reload", "--config", cm.config.ConfigPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if cm.metrics != nil {
+			cm.metrics.RecordReload(false, time.Since(start), attemptCount)
+		}
 		return fmt.Errorf("reload failed: %s", string(output))
 	}
 
+	if cm.metrics != nil {
+		cm.metrics.RecordReload(true, time.Since(start), attemptCount)
+	}
 	return nil
 }
 

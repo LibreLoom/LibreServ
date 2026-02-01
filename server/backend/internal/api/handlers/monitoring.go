@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
@@ -289,4 +290,10 @@ func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Reques
 		"status": "sent",
 		"to":     body.To,
 	})
+}
+
+// PrometheusMetrics exposes Prometheus metrics for scraping
+// GET /metrics
+func (h *MonitoringHandlers) PrometheusMetrics(w http.ResponseWriter, r *http.Request) {
+	promhttp.Handler().ServeHTTP(w, r)
 }

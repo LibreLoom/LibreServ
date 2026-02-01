@@ -1,0 +1,183 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "LibreServ Caddy Operations",
+    "tags": ["libreserv", "caddy", "acme"],
+    "timezone": "browser",
+    "schemaVersion": 36,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Reload Success Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "rate(caddy_reload_attempts_total{status=\"success\"}[5m]) / rate(caddy_reload_attempts_total[5m])",
+            "legendFormat": "Success Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 0.95},
+                {"color": "green", "value": 0.99}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Reload Duration",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(caddy_reload_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(caddy_reload_duration_seconds_bucket[5m]))",
+            "legendFormat": "p50"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Reload Retry Distribution",
+        "type": "heatmap",
+        "targets": [
+          {
+            "expr": "rate(caddy_reload_retries_bucket[5m])",
+            "format": "heatmap"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "Certificate Issuance Success Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "sum(rate(caddy_cert_issuance_attempts_total{status=\"success\"}[1h])) / sum(rate(caddy_cert_issuance_attempts_total[1h]))",
+            "legendFormat": "Success Rate"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 0.8},
+                {"color": "green", "value": 0.95}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "Certificate Issuance by Type",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(caddy_cert_issuance_attempts_total[5m])",
+            "legendFormat": "{{status}} - {{type}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Certificate Issuance Duration",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(caddy_cert_issuance_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95 {{type}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 7,
+        "title": "Certificate Expiration",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "(caddy_cert_expiry_timestamp - time()) / 86400",
+            "legendFormat": "{{domain}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "d",
+            "min": 0
+          }
+        },
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+      },
+      {
+        "id": 8,
+        "title": "Admin API Request Rate",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(caddy_admin_api_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}} - {{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+      },
+      {
+        "id": 9,
+        "title": "Admin API Response Time",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(caddy_admin_api_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95 {{method}} {{endpoint}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s"
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+      },
+      {
+        "id": 10,
+        "title": "Route Operations",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(caddy_route_operations_total[5m])",
+            "legendFormat": "{{operation}} - {{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32}
+      }
+    ]
+  }
+}
