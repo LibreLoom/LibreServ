@@ -19,7 +19,7 @@
 - Added 35 comprehensive test functions covering critical paths (18 network + 17 apps)
 - Improved Caddy configuration reliability with retry/backoff logic
 - Fixed deadlock in CaddyManager.UpdateDefaults
-- ✅ **SAST Integration**: Added gosec and staticcheck to CI/CD pipeline
+- ✅ **SAST Integration**: Added gosec and staticcheck to CI/CD pipeline (both working with Go 1.25)
 - ✅ **Fixed 140 G104 errors**: All unhandled errors now properly handled
 - ✅ **Fixed 1 real bug**: Ineffective break statement in script_executor.go
 - ✅ **Docker API migration**: Updated from deprecated types.StatsJSON to container.StatsResponse
@@ -305,6 +305,12 @@ From Gitea Issue #11 (IMPROVEMENT items - deferred for future)
    - ✅ Zero staticcheck warnings (one real bug caught and fixed!)
    - 📝 **TODO**: Block commits with high-severity findings (requires policy decision)
 
+   **Note on staticcheck** (2025-01-31):
+   - staticcheck 2025.1 works perfectly with Go 1.25 when compiled from source
+   - Key fix: Use `go install honnef.co/go/tools/cmd/staticcheck@2025.1` instead of pre-built binary
+   - Pre-built binary fails because it was compiled with Go 1.24, not Go 1.25
+   - All three tools (gosec, staticcheck, govulncheck) now active in CI
+
 2. 🔄 **PARTIALLY COMPLETED**: Vulnerability Scanning
    - ✅ Automated CVE scanning for dependencies (govulncheck in CI)
    - ⏸️ **DEFERRED**: Container image scanning (Trivy, Grype) - needs infra setup
@@ -336,13 +342,14 @@ From Gitea Issue #11 (IMPROVEMENT items - deferred for future)
    - Resource limits and seccomp/AppArmor profiles
 
 ### Current Security Status
-- **Code Quality**: All staticcheck warnings resolved
+- **Code Quality**: All staticcheck warnings resolved; gosec analysis active
 - **Error Handling**: 140 unhandled errors now properly handled (G104)
-- **CI/CD Security**: SAST scanning integrated into build pipeline
+- **CI/CD Security**: Full SAST scanning (gosec, staticcheck, govulncheck) integrated into build pipeline
 - **Bug Found**: Ineffective break statement in JSON extraction fixed
 - **Tests**: All 17 test packages passing
 
 ### Notes
-- SAST integration is now active on every push to main/master and weekly schedule
+- SAST integration (gosec + staticcheck + govulncheck) active on every push to main/master and weekly schedule
+- staticcheck 2025.1 successfully running with Go 1.25 via source compilation
 - Remaining 65 Gosec issues are non-G104 (file permissions, path traversal, etc.)
 - These require architectural review and are lower priority than error handling
