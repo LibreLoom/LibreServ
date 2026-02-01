@@ -1,12 +1,12 @@
 # Backend Hardening TODO
 
-**Last Updated**: 2024-12-22
+**Last Updated**: 2025-01-31
 
 ## Summary
 
 **Completion Status**: 🎉 **MAJOR MILESTONE ACHIEVED** - Core hardening completed!
 
-- ✅ **9 of 11** major items completed
+- ✅ **10 of 11** major items completed
 - ⏸️ **2 items** deferred (require architectural work or are lower priority)
 - ✅ **Comprehensive test suite** added and passing
 - ✅ **All critical security and stability improvements** implemented
@@ -19,10 +19,14 @@
 - Added 35 comprehensive test functions covering critical paths (18 network + 17 apps)
 - Improved Caddy configuration reliability with retry/backoff logic
 - Fixed deadlock in CaddyManager.UpdateDefaults
+- ✅ **SAST Integration**: Added gosec and staticcheck to CI/CD pipeline
+- ✅ **Fixed 140 G104 errors**: All unhandled errors now properly handled
+- ✅ **Fixed 1 real bug**: Ineffective break statement in script_executor.go
+- ✅ **Docker API migration**: Updated from deprecated types.StatsJSON to container.StatsResponse
 
 **Remaining Work**:
-- Documentation for operators (how-to guides)
-- Optional enhancements (metrics, audit logging, job persistence)
+- Optional enhancements (metrics, audit logging, job persistence, fuzz testing)
+- Documentation updates for new security scanning
 
 ---
 
@@ -295,42 +299,50 @@ From Gitea Issue #11 (IMPROVEMENT items - deferred for future)
 
 ### Long-term Security Enhancements
 
-1. 📝 **SAST Integration** (Static Application Security Testing)
-   - Add CI/CD pipeline for static code analysis
-   - Integrate tools like gosec, staticcheck, or golangci-lint
-   - Block commits with high-severity findings
+1. ✅ **COMPLETED**: SAST Integration (Static Application Security Testing)
+   - ✅ Added CI/CD pipeline for static code analysis
+   - ✅ Integrated gosec (140 G104 errors fixed) and staticcheck
+   - ✅ Zero staticcheck warnings (one real bug caught and fixed!)
+   - 📝 **TODO**: Block commits with high-severity findings (requires policy decision)
 
-2. 📝 **Vulnerability Scanning**
-   - Automated CVE scanning for dependencies
-   - Container image scanning (Trivy, Grype)
-   - Weekly scan with alerts to maintainers
+2. 🔄 **PARTIALLY COMPLETED**: Vulnerability Scanning
+   - ✅ Automated CVE scanning for dependencies (govulncheck in CI)
+   - ⏸️ **DEFERRED**: Container image scanning (Trivy, Grype) - needs infra setup
+   - ⏸️ **DEFERRED**: Weekly scan with alerts to maintainers - needs notification setup
 
-3. 📝 **Fuzz Testing**
+3. 📝 **TODO**: Fuzz Testing
    - Implement go-fuzz or similar for input validation testing
    - Focus on parsing, template execution, and network handlers
    - Integrate with CI for continuous fuzzing
 
-4. 📝 **Security Documentation**
+4. 📝 **TODO**: Security Documentation
    - Document security architecture and design decisions
    - Incident response procedures
    - Security hardening guide for production deployments
 
-5. 📝 **Threat Modeling**
+5. 📝 **TODO**: Threat Modeling
    - Conduct threat modeling sessions for new features
    - Document attack surfaces and mitigations
    - STRIDE-based analysis for major components
 
-6. 📝 **Security Monitoring**
+6. 📝 **TODO**: Security Monitoring
    - Enhanced logging for security events
    - Anomaly detection patterns
    - Integration with SIEM or monitoring systems
 
-7. 📝 **Docker Security Documentation**
+7. 📝 **TODO**: Docker Security Documentation
    - Best practices for container security
    - Non-root user configuration
    - Resource limits and seccomp/AppArmor profiles
 
+### Current Security Status
+- **Code Quality**: All staticcheck warnings resolved
+- **Error Handling**: 140 unhandled errors now properly handled (G104)
+- **CI/CD Security**: SAST scanning integrated into build pipeline
+- **Bug Found**: Ineffective break statement in JSON extraction fixed
+- **Tests**: All 17 test packages passing
+
 ### Notes
-- These are long-term enhancements, not immediate requirements
-- Prioritize based on production deployment needs
-- Many require significant CI/CD infrastructure investment
+- SAST integration is now active on every push to main/master and weekly schedule
+- Remaining 65 Gosec issues are non-G104 (file permissions, path traversal, etc.)
+- These require architectural review and are lower priority than error handling
