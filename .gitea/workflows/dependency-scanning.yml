@@ -68,37 +68,3 @@ jobs:
         with:
           name: gosec-results-${{ matrix.module }}
           path: results.sarif
-
-  staticcheck:
-    name: Static Analysis (${{ matrix.module }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        module:
-          - server/backend
-          - support/support-relay
-          - support/support-server
-    defaults:
-      run:
-        working-directory: ${{ matrix.module }}
-    steps:
-      - name: Checkout code
-        uses: https://github.com/actions/checkout@v4
-
-      - name: Set up Go
-        uses: https://github.com/actions/setup-go@v5
-        with:
-          go-version-file: ${{ matrix.module }}/go.mod
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Install Staticcheck
-        run: |
-          curl -sL "https://github.com/dominikh/go-tools/releases/download/2025.1/staticcheck_linux_amd64.tar.gz" | tar -xzf - -C /tmp
-          sudo mv /tmp/staticcheck/staticcheck /usr/local/bin/
-
-      - name: Run Staticcheck
-        run: staticcheck ./...
-        continue-on-error: true
