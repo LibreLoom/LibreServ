@@ -19,7 +19,7 @@
 - Added 35 comprehensive test functions covering critical paths (18 network + 17 apps)
 - Improved Caddy configuration reliability with retry/backoff logic
 - Fixed deadlock in CaddyManager.UpdateDefaults
-- ✅ **SAST Integration**: Added gosec and staticcheck to CI/CD pipeline
+- ✅ **SAST Integration**: Added gosec to CI/CD pipeline (staticcheck removed temporarily due to Go 1.25 incompatibility)
 - ✅ **Fixed 140 G104 errors**: All unhandled errors now properly handled
 - ✅ **Fixed 1 real bug**: Ineffective break statement in script_executor.go
 - ✅ **Docker API migration**: Updated from deprecated types.StatsJSON to container.StatsResponse
@@ -301,9 +301,16 @@ From Gitea Issue #11 (IMPROVEMENT items - deferred for future)
 
 1. ✅ **COMPLETED**: SAST Integration (Static Application Security Testing)
    - ✅ Added CI/CD pipeline for static code analysis
-   - ✅ Integrated gosec (140 G104 errors fixed) and staticcheck
-   - ✅ Zero staticcheck warnings (one real bug caught and fixed!)
+   - ✅ Integrated gosec (140 G104 errors fixed)
+   - ⏸️ **REMOVED**: staticcheck - incompatible with Go 1.25 (see note below)
+   - ✅ One real bug caught and fixed (ineffective break statement)
    - 📝 **TODO**: Block commits with high-severity findings (requires policy decision)
+
+   **Note on staticcheck removal** (2025-01-31):
+   - staticcheck 2025.1 doesn't support Go 1.25's export format version 2
+   - Fails with "unsupported version: 2" errors on standard library imports
+   - Will be re-added once staticcheck releases Go 1.25 support OR project downgrades to Go 1.24
+   - gosec and govulncheck remain active in CI
 
 2. 🔄 **PARTIALLY COMPLETED**: Vulnerability Scanning
    - ✅ Automated CVE scanning for dependencies (govulncheck in CI)
@@ -336,13 +343,14 @@ From Gitea Issue #11 (IMPROVEMENT items - deferred for future)
    - Resource limits and seccomp/AppArmor profiles
 
 ### Current Security Status
-- **Code Quality**: All staticcheck warnings resolved
+- **Code Quality**: Code analyzed with gosec; staticcheck temporarily removed
 - **Error Handling**: 140 unhandled errors now properly handled (G104)
-- **CI/CD Security**: SAST scanning integrated into build pipeline
+- **CI/CD Security**: SAST scanning (gosec, govulncheck) integrated into build pipeline
 - **Bug Found**: Ineffective break statement in JSON extraction fixed
 - **Tests**: All 17 test packages passing
 
 ### Notes
-- SAST integration is now active on every push to main/master and weekly schedule
+- SAST integration (gosec + govulncheck) active on every push to main/master and weekly schedule
+- staticcheck removed due to Go 1.25 incompatibility (will be re-added when supported)
 - Remaining 65 Gosec issues are non-G104 (file permissions, path traversal, etc.)
 - These require architectural review and are lower priority than error handling
