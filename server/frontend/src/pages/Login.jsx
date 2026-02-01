@@ -132,7 +132,7 @@ export default function Login() {
         <form
           onSubmit={handleSubmit}
           aria-busy={loading}
-          className="flex flex-col mt-6 rounded-large-element border-2 border-accent p-4 bg-primary text-secondary"
+          className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
         >
           <label
             htmlFor="username"
@@ -171,7 +171,7 @@ export default function Login() {
           ></input>
           <button
             type="submit"
-            className={`bg-secondary text-primary rounded-pill p-2 ${loading ? "opacity-50" : ""} mt-6`}
+            className={`bg-secondary text-primary rounded-pill p-2 ${loading ? "opacity-50" : ""} mt-6 transition-all duration-300 hover:bg-primary hover:text-secondary hover:outline-accent hover:ring-2`}
             disabled={loading}
           >
             {loading ? "Loading..." : "Login"}
