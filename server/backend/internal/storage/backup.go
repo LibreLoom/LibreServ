@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -225,7 +226,11 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 	if err != nil {
 		return nil, fmt.Errorf("failed to query backups: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
 
 	var backups []Backup
 	for rows.Next() {
@@ -320,6 +325,12 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 
 	// Use SQLite VACUUM INTO for a consistent backup
 	tempPath := backupPath + ".tmp"
+
+	// Validate path to prevent SQL injection via single quotes
+	if strings.Contains(tempPath, "'") || strings.Contains(tempPath, "\x00") {
+		return nil, fmt.Errorf("invalid characters in backup path")
+	}
+
 	_, err := s.db.Exec(fmt.Sprintf("VACUUM INTO '%s'", tempPath))
 	if err != nil {
 		return nil, fmt.Errorf("database backup failed: %w", err)

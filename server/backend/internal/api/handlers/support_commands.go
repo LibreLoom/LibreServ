@@ -50,7 +50,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Code == "" || req.Token == "" || req.Command == "" {
-		JSONError(w, http.StatusBadRequest, "code, token, command required")
+		JSONError(w, http.StatusBadRequest, "Support session code, token, and command are all required")
 		return
 	}
 	sess, _, err := h.validateSessionAndPolicy(req.Code, req.Token)
@@ -59,11 +59,12 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !hasScope(sess.Scopes, "shell-lite") && !hasScope(sess.Scopes, "shell-full") {
-		JSONError(w, http.StatusForbidden, "scope shell-lite/full required")
+		JSONError(w, http.StatusForbidden, "This support session doesn't have permission to run commands")
 		return
 	}
-	if !allowedCommands[req.Command] {
-		JSONError(w, http.StatusForbidden, "command not allowed")
+	// Check if command is explicitly allowed
+	if allowed, exists := allowedCommands[req.Command]; !exists || !allowed {
+		JSONError(w, http.StatusForbidden, "This command is not permitted for support sessions")
 		return
 	}
 	if req.Command == "docker" {
@@ -114,11 +115,11 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if ctx.Err() == context.DeadlineExceeded {
-		JSONError(w, http.StatusGatewayTimeout, "command timed out")
+		JSONError(w, http.StatusGatewayTimeout, "The command took too long to complete")
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "command failed: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "Unable to complete the command")
 		return
 	}
 

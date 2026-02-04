@@ -52,7 +52,7 @@ export default function Dashboard() {
         const userData = await response.json();
         setUser(userData);
       } catch (err) {
-        console.error("Failed to fetch user:", err);
+        // Silently handle error - user will be shown as not logged in
       } finally {
         setUserLoaded(true);
       }

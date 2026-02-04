@@ -340,7 +340,11 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to query installed apps: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			m.logger.Warn("failed to close rows", "error", cerr)
+		}
+	}()
 
 	var apps []*InstalledApp
 	for rows.Next() {
@@ -587,7 +591,11 @@ func (m *Manager) ListUpdateHistory(ctx context.Context, instanceID string) ([]A
 	if err != nil {
 		return nil, fmt.Errorf("failed to query update history: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			m.logger.Warn("failed to close rows", "error", cerr)
+		}
+	}()
 
 	var updates []AppUpdate
 	for rows.Next() {

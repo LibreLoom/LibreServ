@@ -12,7 +12,9 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Docker socket - required for container management
+      # SECURITY: Mounted read-only to prevent container escape
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data:/app/data
       - ./configs:/app/configs
       - ./caddy:/etc/caddy
@@ -23,7 +25,32 @@ services:
       - LIBRESERV_NETWORK_CADDY_ADMIN_API=http://caddy:2019
       - LIBRESERV_NETWORK_CADDY_CONFIG_PATH=/etc/caddy/Caddyfile
     depends_on:
-      - caddy
+      caddy:
+        condition: service_healthy
+    # Resource limits for stability and security
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    # Health check to ensure service is running properly
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    # Read-only root filesystem for security
+    read_only: true
+    # Temporary filesystem for writable areas
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
 
   caddy:
     image: caddy:2.7-alpine
@@ -33,10 +60,34 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./caddy:/etc/caddy
+      - ./caddy:/etc/caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    # Health check for Caddy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2019/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    # Read-only root filesystem
+    read_only: true
+    # Temporary filesystem
+    tmpfs:
+      - /tmp:noexec,nosuid,size=50m
 
 volumes:
   caddy_data:

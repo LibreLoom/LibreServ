@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/pagination"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 )
 
@@ -22,13 +23,16 @@ func NewCatalogHandler(manager *apps.Manager) *CatalogHandler {
 // CatalogListResponse represents the catalog list response
 type CatalogListResponse struct {
 	Apps       []*apps.AppDefinition `json:"apps"`
-	Total      int                   `json:"total"`
 	Categories []apps.AppCategory    `json:"categories"`
+	Pagination pagination.Metadata   `json:"pagination"`
 }
 
 // ListApps handles GET /api/catalog
-// Returns all apps in the catalog with optional filters
+// Returns paginated apps in the catalog with optional filters
 func (h *CatalogHandler) ListApps(w http.ResponseWriter, r *http.Request) {
+	// Parse pagination parameters
+	params := pagination.FromRequest(r)
+
 	// Parse query parameters for filters
 	query := r.URL.Query()
 
@@ -46,13 +50,25 @@ func (h *CatalogHandler) ListApps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	catalog := h.manager.GetCatalog()
-	appList := catalog.ListApps(filters)
+	allApps := catalog.ListApps(filters)
 	categories := catalog.GetCategories()
 
+	// Apply pagination
+	totalItems := int64(len(allApps))
+	start := params.Offset
+	end := start + params.Limit
+	if start > len(allApps) {
+		start = len(allApps)
+	}
+	if end > len(allApps) {
+		end = len(allApps)
+	}
+	paginatedApps := allApps[start:end]
+
 	JSON(w, http.StatusOK, CatalogListResponse{
-		Apps:       appList,
-		Total:      len(appList),
+		Apps:       paginatedApps,
 		Categories: categories,
+		Pagination: pagination.CalculateMetadata(totalItems, params),
 	})
 }
 

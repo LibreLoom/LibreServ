@@ -56,7 +56,7 @@ export function AuthProvider({ children }) {
     try {
       await api("/auth/logout", { method: "POST" });
     } catch (error) {
-      console.error("Logout failed:", error);
+      // Continue with cleanup even if logout request fails
     } finally {
       setMe(null);
       setCsrfToken(null);

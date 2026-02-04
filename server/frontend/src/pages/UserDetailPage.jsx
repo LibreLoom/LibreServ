@@ -69,8 +69,7 @@ export default function UserDetailPage() {
 
       navigate("/users");
     } catch (err) {
-      console.error("Error deleting user:", err);
-      alert("Failed to delete user: " + err.message);
+      alert("Unable to delete user. Please try again.");
     }
   };
 

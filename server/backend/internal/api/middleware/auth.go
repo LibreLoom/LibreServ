@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 )
 
@@ -46,7 +47,7 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token, err := extractAccessToken(r)
 			if err != nil {
-				http.Error(w, `{"error": "Authentication required"}`, http.StatusUnauthorized)
+				response.Unauthorized(w, "")
 				return
 			}
 			var user *User
@@ -61,10 +62,10 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 				claims, err := cfg.AuthService.ValidateAccessToken(token)
 				if err != nil {
 					if err == auth.ErrExpiredToken {
-						http.Error(w, `{"error": "Token has expired"}`, http.StatusUnauthorized)
+						response.Unauthorized(w, "Your session has expired. Please log in again.")
 						return
 					}
-					http.Error(w, `{"error": "Invalid token"}`, http.StatusUnauthorized)
+					response.Unauthorized(w, "Invalid authentication token")
 					return
 				}
 
@@ -100,12 +101,12 @@ func RequireRole(role string) func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := GetUser(r.Context())
 			if user == nil {
-				http.Error(w, `{"error": "Authentication required"}`, http.StatusUnauthorized)
+				response.Unauthorized(w, "")
 				return
 			}
 
 			if user.Role != role && user.Role != "admin" {
-				http.Error(w, `{"error": "Insufficient permissions"}`, http.StatusForbidden)
+				response.Forbidden(w, "You don't have permission to perform this action")
 				return
 			}
 

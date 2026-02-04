@@ -5,7 +5,9 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/pagination"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
 )
 
 // UsersHandler manages user CRUD endpoints
@@ -20,7 +22,10 @@ func NewUsersHandler(authService *auth.Service) *UsersHandler {
 
 // ListUsers handles GET /api/v1/users
 func (h *UsersHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	users, err := h.authService.ListUsers(r.Context())
+	// Parse pagination parameters
+	params := pagination.FromRequest(r)
+
+	users, total, err := h.authService.ListUsersPaginated(r.Context(), params.Offset, params.Limit)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to list users: "+err.Error())
 		return
@@ -31,10 +36,7 @@ func (h *UsersHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		u.PasswordHash = ""
 	}
 
-	JSON(w, http.StatusOK, map[string]interface{}{
-		"users": users,
-		"count": len(users),
-	})
+	JSON(w, http.StatusOK, pagination.NewResult(users, total, params))
 }
 
 // CreateUserRequest represents the payload for creating a user
@@ -53,14 +55,24 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Username == "" || req.Password == "" {
-		JSONError(w, http.StatusBadRequest, "username and password are required")
+	// Validate input
+	validator := validation.New().
+		ValidateUsername(req.Username).
+		ValidatePassword(req.Password).
+		ValidateEmail(req.Email)
+
+	if req.Role != "" {
+		validator.ValidateRole(req.Role)
+	}
+
+	if validator.HasErrors() {
+		JSONError(w, http.StatusBadRequest, validator.FirstError().Message)
 		return
 	}
-	if len(req.Password) < 12 {
-		JSONError(w, http.StatusBadRequest, "password must be at least 12 characters")
-		return
-	}
+
+	// Sanitize input
+	req.Username = validation.TrimAndSanitize(req.Username)
+	req.Email = validation.TrimAndSanitize(req.Email)
 
 	// Reuse auth service registration logic
 	user, err := h.authService.Register(r.Context(), &auth.RegisterRequest{
@@ -130,6 +142,20 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate input
+	validator := validation.New()
+	if req.Email != "" {
+		validator.ValidateEmail(req.Email)
+	}
+	if req.Role != "" {
+		validator.ValidateRole(req.Role)
+	}
+
+	if validator.HasErrors() {
+		JSONError(w, http.StatusBadRequest, validator.FirstError().Message)
+		return
+	}
+
 	user, err := h.authService.GetUserByID(r.Context(), userID)
 	if err != nil {
 		JSONError(w, http.StatusNotFound, "user not found")
@@ -137,7 +163,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Email != "" {
-		user.Email = req.Email
+		user.Email = validation.TrimAndSanitize(req.Email)
 	}
 	if req.Role != "" {
 		user.Role = req.Role

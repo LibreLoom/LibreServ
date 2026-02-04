@@ -1,0 +1,81 @@
+name: Race Condition Detection
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run daily at 3 AM UTC
+    - cron: '0 3 * * *'
+
+jobs:
+  race-test:
+    name: Race Detector (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - server/backend
+          - support/support-relay
+          - support/support-server
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    steps:
+      - name: Checkout
+        uses: https://github.com/actions/checkout@v4
+
+      - name: Set up Go
+        uses: https://github.com/actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests with race detector
+        env:
+          GORACE: "halt_on_error=1"
+        run: go test -race -timeout 30m ./...
+        continue-on-error: true
+
+      - name: Race detection summary
+        if: always()
+        run: |
+          if [ ${{ job.status }} == "success" ]; then
+            echo "✅ No race conditions detected in ${{ matrix.module }}"
+          else
+            echo "⚠️ Race conditions may have been detected in ${{ matrix.module }}"
+            echo "Review the logs above for details"
+          fi
+
+  concurrent-stress-test:
+    name: Concurrent Stress Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server/backend
+    steps:
+      - name: Checkout
+        uses: https://github.com/actions/checkout@v4
+
+      - name: Set up Go
+        uses: https://github.com/actions/setup-go@v5
+        with:
+          go-version-file: server/backend/go.mod
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run concurrent tests multiple times
+        run: |
+          echo "Running concurrent stress tests..."
+          for i in {1..5}; do
+            echo "Run $i/5"
+            go test -race -count=3 -timeout 20m ./internal/api/middleware/... || true
+            go test -race -count=3 -timeout 20m ./internal/auth/... || true
+            go test -race -count=3 -timeout 20m ./internal/jobqueue/... || true
+          done

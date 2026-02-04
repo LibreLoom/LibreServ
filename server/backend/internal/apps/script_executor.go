@@ -10,11 +10,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 )
+
+// instanceIDPattern validates that instance IDs contain only safe characters
+var instanceIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 type ScriptExecutor struct {
 	logger       *slog.Logger
@@ -30,15 +35,83 @@ func NewScriptExecutor(logger *slog.Logger, dockerClient *docker.Client, basePat
 	}
 }
 
+// validateInstanceID ensures the instance ID is safe and prevents path traversal
+func (e *ScriptExecutor) validateInstanceID(instanceID string) error {
+	if instanceID == "" {
+		return fmt.Errorf("instance ID cannot be empty")
+	}
+	if len(instanceID) > 64 {
+		return fmt.Errorf("instance ID too long (max 64 characters)")
+	}
+	if !instanceIDPattern.MatchString(instanceID) {
+		return fmt.Errorf("instance ID contains invalid characters (only letters, numbers, hyphens, and underscores allowed)")
+	}
+	// Additional check for path traversal attempts
+	if strings.Contains(instanceID, "..") || strings.Contains(instanceID, "/") || strings.Contains(instanceID, "\\") {
+		return fmt.Errorf("instance ID cannot contain path separators")
+	}
+	return nil
+}
+
+// validateScriptPath checks if a script path is safe to execute
+// It resolves symlinks and verifies the final path is within allowed directory
+func (e *ScriptExecutor) validateScriptPath(scriptPath string) (string, error) {
+	// Resolve any symlinks to prevent TOCTOU attacks
+	resolvedPath, err := filepath.EvalSymlinks(scriptPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve script path: %w", err)
+	}
+
+	// Ensure resolved path is still within expected directory
+	absBasePath, err := filepath.Abs(e.basePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve base path: %w", err)
+	}
+
+	absScriptPath, err := filepath.Abs(resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve script path: %w", err)
+	}
+
+	// Use filepath.Clean to normalize paths before comparison
+	absBasePath = filepath.Clean(absBasePath)
+	absScriptPath = filepath.Clean(absScriptPath)
+
+	if !strings.HasPrefix(absScriptPath, absBasePath+string(filepath.Separator)) {
+		return "", fmt.Errorf("script path outside allowed directory: %s", scriptPath)
+	}
+
+	return resolvedPath, nil
+}
+
 func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath string, options map[string]interface{}) (*ScriptResult, error) {
 	startTime := time.Now()
 
-	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
+	// Validate instance ID to prevent path traversal attacks
+	if err := e.validateInstanceID(instanceID); err != nil {
 		return &ScriptResult{
 			Success:  false,
-			Error:    fmt.Sprintf("script not found: %s", scriptPath),
+			Error:    fmt.Sprintf("Invalid app identifier: %s", err.Error()),
 			Duration: time.Since(startTime),
-		}, fmt.Errorf("script not found: %s", scriptPath)
+		}, fmt.Errorf("invalid instance ID: %w", err)
+	}
+
+	// Validate and resolve script path (prevents symlink attacks)
+	validatedPath, err := e.validateScriptPath(scriptPath)
+	if err != nil {
+		return &ScriptResult{
+			Success:  false,
+			Error:    "Script path validation failed",
+			Duration: time.Since(startTime),
+		}, err
+	}
+
+	if _, err := os.Stat(validatedPath); os.IsNotExist(err) {
+		return &ScriptResult{
+			Success:  false,
+			Error:    "The requested action is not available for this app",
+			Duration: time.Since(startTime),
+		}, fmt.Errorf("script not found: %s", validatedPath)
 	}
 
 	installPath := filepath.Join(e.basePath, "apps", instanceID)
@@ -67,7 +140,7 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 	}
 	defer os.Remove(configFile)
 
-	cmd := exec.CommandContext(ctx, scriptPath, configFile)
+	cmd := exec.CommandContext(ctx, validatedPath, configFile)
 	cmd.Dir = installPath
 
 	var stdout, stderr bytes.Buffer
@@ -75,7 +148,7 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 	cmd.Stderr = &stderr
 
 	e.logger.Debug("executing script",
-		"script", scriptPath,
+		"script", validatedPath,
 		"instance_id", instanceID,
 		"config_file", configFile)
 
@@ -123,6 +196,17 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 }
 
 func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPath string, options map[string]interface{}) (<-chan ScriptOutput, error) {
+	// Validate instance ID to prevent path traversal attacks (same as Execute)
+	if err := e.validateInstanceID(instanceID); err != nil {
+		return nil, fmt.Errorf("invalid instance ID: %w", err)
+	}
+
+	// Validate and resolve script path (prevents symlink attacks)
+	validatedPath, err := e.validateScriptPath(scriptPath)
+	if err != nil {
+		return nil, err
+	}
+
 	installPath := filepath.Join(e.basePath, "apps", instanceID)
 	appDataPath := filepath.Join(installPath, "data")
 	configPath := filepath.Join(installPath, "config.json")
@@ -144,7 +228,7 @@ func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPa
 		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, scriptPath, configFile)
+	cmd := exec.CommandContext(ctx, validatedPath, configFile)
 	cmd.Dir = installPath
 
 	stdout, err := cmd.StdoutPipe()
@@ -173,18 +257,33 @@ func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPa
 
 		buf := make([]byte, 1024)
 		for {
+			select {
+			case <-ctx.Done():
+				// Context cancelled, exit goroutine
+				return
+			default:
+			}
+
 			n, err := stdout.Read(buf)
 			if n > 0 {
-				outputCh <- ScriptOutput{
+				select {
+				case outputCh <- ScriptOutput{
 					Type:    "stdout",
 					Content: string(buf[:n]),
+				}:
+				case <-ctx.Done():
+					return
 				}
 			}
 			if err != nil {
 				if err != io.EOF {
-					outputCh <- ScriptOutput{
+					select {
+					case outputCh <- ScriptOutput{
 						Type:  "error",
 						Error: fmt.Sprintf("stdout read error: %v", err),
+					}:
+					case <-ctx.Done():
+						return
 					}
 				}
 				break
@@ -193,15 +292,22 @@ func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPa
 
 		errBuf, _ := io.ReadAll(stderr)
 		if len(errBuf) > 0 {
-			outputCh <- ScriptOutput{
+			select {
+			case outputCh <- ScriptOutput{
 				Type:    "stderr",
 				Content: string(errBuf),
+			}:
+			case <-ctx.Done():
+				return
 			}
 		}
 
-		outputCh <- ScriptOutput{
+		select {
+		case outputCh <- ScriptOutput{
 			Type:     "complete",
 			ExitCode: cmd.ProcessState.ExitCode(),
+		}:
+		case <-ctx.Done():
 		}
 	}()
 

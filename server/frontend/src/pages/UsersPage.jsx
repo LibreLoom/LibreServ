@@ -62,8 +62,7 @@ export default function UsersPage() {
       setShowVerification(false);
       setUserToDelete(null);
     } catch (err) {
-      console.error("Error deleting user:", err);
-      alert("Failed to delete user: " + err.message);
+      alert("Unable to delete user. Please try again.");
     }
   };
 

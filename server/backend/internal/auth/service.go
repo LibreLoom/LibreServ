@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
 )
@@ -40,13 +41,13 @@ type Service struct {
 func NewService(db *database.DB, jwtSecret string) *Service {
 	svc := &Service{
 		db:            db,
-		jwtManager:    NewJWTManager(jwtSecret, 15*time.Minute, 7*24*time.Hour),
-		tokenStore:    NewTokenStore(db, 15*time.Minute, 7*24*time.Hour),
+		jwtManager:    NewJWTManager(jwtSecret, constants.DefaultJWTAccessTokenExpiry, constants.DefaultJWTRefreshTokenExpiry),
+		tokenStore:    NewTokenStore(db, constants.DefaultJWTAccessTokenExpiry, constants.DefaultJWTRefreshTokenExpiry),
 		logger:        slog.Default().With("component", "auth"),
 		failed:        make(map[string]*loginAttempts),
-		lockoutAfter:  5,
-		lockoutWindow: 10 * time.Minute,
-		lockoutFor:    15 * time.Minute,
+		lockoutAfter:  constants.DefaultAccountLockoutAfter,
+		lockoutWindow: constants.DefaultLockoutWindow,
+		lockoutFor:    constants.DefaultLockoutDuration,
 	}
 	return svc
 }
@@ -80,6 +81,8 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse,
 	if err != nil {
 		s.logger.Warn("Login failed: user not found", "username", req.Username)
 		s.recordFailure(req.Username)
+		// Mitigate timing attacks by performing a dummy hash comparison
+		_ = VerifyPassword("$2a$10$dummy.hash.to.mitigate.timing.attacks.12345678901234567890", req.Password)
 		return nil, ErrInvalidCredentials
 	}
 
@@ -175,6 +178,12 @@ func (s *Service) clearFailures(username string) {
 func (s *Service) isLockedOut(username string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.isLockedOutUnsafe(username)
+}
+
+// isLockedOutUnsafe checks lockout status without acquiring lock.
+// Must be called while holding s.mu.
+func (s *Service) isLockedOutUnsafe(username string) bool {
 	la, ok := s.failed[username]
 	if !ok {
 		return false
@@ -189,6 +198,12 @@ func (s *Service) isLockedOut(username string) bool {
 func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*models.User, error) {
 	// Check if user already exists
 	_, err := s.GetUserByUsername(ctx, req.Username)
+	if err == nil {
+		return nil, ErrUserExists
+	}
+
+	// Check if email already exists
+	_, err = s.GetUserByEmail(ctx, req.Email)
 	if err == nil {
 		return nil, ErrUserExists
 	}
@@ -299,6 +314,20 @@ func (s *Service) GetUserByUsername(ctx context.Context, username string) (*mode
 	return user, nil
 }
 
+// GetUserByEmail retrieves a user by email
+func (s *Service) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	query := `SELECT id, username, password_hash, email, role, created_at, updated_at FROM users WHERE email = ?`
+	row := s.db.QueryRow(query, email)
+
+	user := &models.User{}
+	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		return nil, ErrUserNotFound
+	}
+
+	return user, nil
+}
+
 // UpdateUser updates a user's information
 func (s *Service) UpdateUser(ctx context.Context, user *models.User) error {
 	user.UpdatedAt = time.Now()
@@ -372,7 +401,11 @@ func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			s.logger.Warn("failed to close rows", "error", cerr)
+		}
+	}()
 
 	var users []*models.User
 	for rows.Next() {
@@ -384,7 +417,51 @@ func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
 		users = append(users, user)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate users: %w", err)
+	}
+
 	return users, nil
+}
+
+// ListUsersPaginated returns users with pagination support
+func (s *Service) ListUsersPaginated(ctx context.Context, offset, limit int) ([]*models.User, int64, error) {
+	// Get total count
+	var total int64
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("failed to count users: %w", err)
+	}
+
+	// Get paginated users
+	query := `SELECT id, username, password_hash, email, role, created_at, updated_at 
+		FROM users 
+		ORDER BY created_at DESC 
+		LIMIT ? OFFSET ?`
+	rows, err := s.db.Query(query, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list users: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			s.logger.Warn("failed to close rows", "error", cerr)
+		}
+	}()
+
+	var users []*models.User
+	for rows.Next() {
+		user := &models.User{}
+		err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to scan user: %w", err)
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate users: %w", err)
+	}
+
+	return users, total, nil
 }
 
 // UserCount returns the number of users

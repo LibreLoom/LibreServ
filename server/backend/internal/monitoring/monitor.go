@@ -232,7 +232,11 @@ func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since tim
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
 
 	var metrics []Metrics
 	for rows.Next() {
@@ -378,7 +382,11 @@ func (m *Monitor) getRecentChecks(ctx context.Context, appID string, limit int) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
 
 	var results []CheckResult
 	for rows.Next() {

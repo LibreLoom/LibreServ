@@ -10,8 +10,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
+
+// JobQueue interface for ACME operations
+type JobQueue interface {
+	Enqueue(jobType jobqueue.JobType, domain, email, routeID string, priority jobqueue.JobPriority) (jobqueue.JobInfo, error)
+	GetJob(ctx context.Context, jobID string) (jobqueue.JobInfo, error)
+	GetLatestJob(ctx context.Context, domain string, jobType jobqueue.JobType) (jobqueue.JobInfo, error)
+}
 
 // ACMEHandler handles ACME/DNS probe flows (stub for now).
 type ACMEHandler struct {
@@ -21,6 +29,7 @@ type ACMEHandler struct {
 	appBackends  map[string]string // appID -> backend
 	appManager   *apps.Manager
 	db           *database.DB
+	jobQueue     JobQueue
 }
 
 // NewACMEHandler wires ACME-related API handlers.
@@ -33,6 +42,12 @@ func NewACMEHandler(db *database.DB, manager *network.ACMEManager, caddyManager 
 		appManager:   appManager,
 		db:           db,
 	}
+}
+
+// WithJobQueue sets the job queue for the handler
+func (h *ACMEHandler) WithJobQueue(queue JobQueue) *ACMEHandler {
+	h.jobQueue = queue
+	return h
 }
 
 // ProbeDNS handles POST /api/v1/network/acme/probe-dns { "host": "example.com" }
@@ -115,36 +130,55 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	job, err := network.CreateACMEJob(r.Context(), h.db, body.Domain, body.Email, routeID)
-	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to create acme job: "+err.Error())
-		return
-	}
-
-	// Process issuance asynchronously and persist outcome.
-	go func(jobID string, req network.ACMERequest) {
-		_ = network.UpdateACMEJobRunning(context.Background(), h.db, jobID)
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if err := h.manager.Issue(ctx, req); err != nil {
-			_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, false, err.Error())
+	// Use job queue if available, otherwise fall back to legacy behavior
+	if h.jobQueue != nil {
+		job, err := h.jobQueue.Enqueue(jobqueue.JobTypeIssuance, body.Domain, body.Email, routeID, jobqueue.PriorityNormal)
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, "failed to enqueue acme job: "+err.Error())
 			return
 		}
-		// If certs were issued externally, regenerate and reload so Caddy picks up manual tls paths.
-		if h.caddyManager != nil {
-			_ = h.caddyManager.ApplyConfig()
-		}
-		_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, true, "")
-	}(job.ID, body)
 
-	JSON(w, http.StatusAccepted, map[string]any{
-		"message":  "ACME request accepted",
-		"job_id":   job.ID,
-		"domain":   body.Domain,
-		"route_id": routeID,
-		"backend":  backend,
-		"status":   job.Status,
-	})
+		JSON(w, http.StatusAccepted, map[string]any{
+			"message":  "ACME request accepted",
+			"job_id":   job.GetID(),
+			"domain":   body.Domain,
+			"route_id": routeID,
+			"backend":  backend,
+			"status":   job.GetStatus(),
+		})
+	} else {
+		// Legacy fallback: Create job directly in database
+		job, err := network.CreateACMEJob(r.Context(), h.db, body.Domain, body.Email, routeID)
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, "failed to create acme job: "+err.Error())
+			return
+		}
+
+		// Process issuance asynchronously and persist outcome.
+		go func(jobID string, req network.ACMERequest) {
+			_ = network.UpdateACMEJobRunning(context.Background(), h.db, jobID)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := h.manager.Issue(ctx, req); err != nil {
+				_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, false, err.Error())
+				return
+			}
+			// If certs were issued externally, regenerate and reload so Caddy picks up manual tls paths.
+			if h.caddyManager != nil {
+				_ = h.caddyManager.ApplyConfig()
+			}
+			_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, true, "")
+		}(job.ID, body)
+
+		JSON(w, http.StatusAccepted, map[string]any{
+			"message":  "ACME request accepted",
+			"job_id":   job.ID,
+			"domain":   body.Domain,
+			"route_id": routeID,
+			"backend":  backend,
+			"status":   job.Status,
+		})
+	}
 }
 
 // EnqueueIssue creates an ACME job and runs issuance asynchronously.

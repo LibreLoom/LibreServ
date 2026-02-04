@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 )
 
@@ -15,7 +16,7 @@ func RequireSetupComplete(service *setup.Service) func(http.Handler) http.Handle
 				return
 			}
 			if !service.IsComplete(r.Context()) {
-				http.Error(w, `{"error": "setup required"}`, http.StatusForbidden)
+				response.Forbidden(w, "Initial setup must be completed before accessing this resource")
 				return
 			}
 			next.ServeHTTP(w, r)

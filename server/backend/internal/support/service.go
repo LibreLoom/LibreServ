@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -117,7 +118,11 @@ func (s *Service) ListSessions(ctx context.Context, limit int) ([]*Session, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
 
 	var sessions []*Session
 	for rows.Next() {

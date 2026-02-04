@@ -3,14 +3,17 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 )
 
 func newTestAuthHandler(t *testing.T) (*AuthHandler, context.Context) {
@@ -25,7 +28,13 @@ func newTestAuthHandler(t *testing.T) (*AuthHandler, context.Context) {
 		t.Fatalf("migrate: %v", err)
 	}
 	svc := auth.NewService(db, "secret")
-	return NewAuthHandler(svc), context.Background()
+
+	// Create security service for tests
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	notifier := security.NewEmailNotifier()
+	secSvc := security.NewService(db, logger, notifier)
+
+	return NewAuthHandler(svc, secSvc), context.Background()
 }
 
 func TestAuthRegisterLogin(t *testing.T) {

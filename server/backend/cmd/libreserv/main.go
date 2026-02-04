@@ -21,6 +21,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobs"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/license"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/logger"
@@ -115,6 +116,78 @@ func main() {
 		}
 	}
 
+	// Initialize ACME manager
+	acmeManager := network.NewACMEManager(cfg.Network.Caddy.AdminAPI, cfg.Network.Caddy.ConfigPath).
+		WithAuto(cfg.Network.Caddy.AutoHTTPS)
+	if cfg.Network.ACME.External.Enabled {
+		// Validate external ACME configuration
+		if cfg.Network.ACME.External.Email == "" && cfg.Network.Caddy.Email == "" {
+			slog.Warn("external ACME enabled but no email configured - using Caddy email if available")
+		}
+		if cfg.Network.ACME.External.DataPath == "" {
+			slog.Warn("external ACME enabled but no data_path configured - using default")
+		}
+		if cfg.Network.ACME.External.CertsPath == "" {
+			slog.Warn("external ACME enabled but no certs_path configured")
+		}
+		if cfg.Network.ACME.External.DNSProvider == "" {
+			slog.Warn("external ACME enabled but no DNS provider configured")
+		}
+
+		acmeManager = acmeManager.WithExternal(network.ExternalACMEConfig{
+			Enabled:     cfg.Network.ACME.External.Enabled,
+			UseDocker:   cfg.Network.ACME.External.UseDocker,
+			DockerImage: cfg.Network.ACME.External.DockerImage,
+			DataPath:    cfg.Network.ACME.External.DataPath,
+			DNSProvider: cfg.Network.ACME.External.DNSProvider,
+			DNSEnv:      cfg.Network.ACME.External.DNSEnv,
+			Email:       cfg.Network.ACME.External.Email,
+			Staging:     cfg.Network.ACME.External.Staging,
+			CADirURL:    cfg.Network.ACME.External.CADirURL,
+			KeyType:     cfg.Network.ACME.External.KeyType,
+			CertsPath:   cfg.Network.ACME.External.CertsPath,
+		})
+	}
+
+	// Initialize and start job queue
+	jobQueue := jobqueue.NewQueue(jobqueue.QueueConfig{
+		DB: db,
+	})
+
+	// Register job handlers
+	issuanceHandler := network.NewIssuanceHandler(acmeManager, caddyManager)
+	renewalHandler := network.NewRenewalHandler(acmeManager, caddyManager)
+	validationHandler := network.NewValidationHandler()
+	revocationHandler := network.NewRevocationHandler(acmeManager)
+
+	if err := jobQueue.RegisterHandler(issuanceHandler, jobqueue.HandlerConfig{WorkerCount: 3, QueueSize: 200}); err != nil {
+		slog.Error("failed to register issuance handler", "error", err)
+		os.Exit(1)
+	}
+	if err := jobQueue.RegisterHandler(renewalHandler, jobqueue.HandlerConfig{WorkerCount: 2, QueueSize: 100}); err != nil {
+		slog.Error("failed to register renewal handler", "error", err)
+		os.Exit(1)
+	}
+	if err := jobQueue.RegisterHandler(validationHandler, jobqueue.HandlerConfig{WorkerCount: 2, QueueSize: 50}); err != nil {
+		slog.Error("failed to register validation handler", "error", err)
+		os.Exit(1)
+	}
+	if err := jobQueue.RegisterHandler(revocationHandler, jobqueue.HandlerConfig{WorkerCount: 1, QueueSize: 20}); err != nil {
+		slog.Error("failed to register revocation handler", "error", err)
+		os.Exit(1)
+	}
+
+	if err := jobQueue.Start(); err != nil {
+		slog.Error("failed to start job queue", "error", err)
+		os.Exit(1)
+	}
+	defer jobQueue.Stop()
+
+	// Initialize and start renewal scheduler
+	renewalScheduler := network.NewRenewalScheduler(jobQueue, caddyManager, network.DefaultRenewalSchedulerConfig())
+	renewalScheduler.Start()
+	defer renewalScheduler.Stop()
+
 	runtimeClient := docker.NewRuntimeAdapter(dockerClient)
 	appManager, err := apps.NewManager(cfg.Apps.CatalogPath, cfg.Apps.DataPath, runtimeClient, db, monitor, backupService)
 	if err != nil {
@@ -136,23 +209,23 @@ func main() {
 	scheduler.Start()
 	defer scheduler.Stop()
 
-	server := api.NewServer(
-		cfg.Server.Host,
-		cfg.Server.Port,
-		db,
-		appManager,
-		authService,
-		monitor,
-		backupService,
-		dockerClient,
-		caddyManager,
-		setupService,
-		supportService,
-		lic,
-		sysChecker,
-		auditService,
-		cfg.Server.Mode == "development",
-	)
+	server := api.NewServer(api.ServerConfig{
+		Host:           cfg.Server.Host,
+		Port:           cfg.Server.Port,
+		DevMode:        cfg.Server.Mode == "development",
+		DB:             db,
+		AppManager:     appManager,
+		AuthService:    authService,
+		Monitor:        monitor,
+		BackupService:  backupService,
+		DockerClient:   dockerClient,
+		CaddyManager:   caddyManager,
+		SetupService:   setupService,
+		SupportService: supportService,
+		LicenseService: lic,
+		SysChecker:     sysChecker,
+		AuditService:   auditService,
+	}).WithJobQueue(jobQueue)
 
 	errCh := make(chan error, 1)
 	go func() {

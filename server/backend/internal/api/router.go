@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
@@ -21,7 +22,8 @@ func (s *Server) setupRoutes() {
 	catalogHandler := handlers.NewCatalogHandler(s.appManager)
 	appsHandler := handlers.NewAppsHandler(s.appManager)
 	appsHandler.SetAuditLogger(s)
-	authHandler := handlers.NewAuthHandler(s.authService)
+	authHandler := handlers.NewAuthHandler(s.authService, s.securityService)
+	securityHandler := handlers.NewSecurityHandler(s.securityService)
 	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService)
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient)
 	backupHandler := handlers.NewBackupHandlers(s.backupService)
@@ -76,6 +78,10 @@ func (s *Server) setupRoutes() {
 	acmeManager.WithMetrics(caddyMetrics)
 
 	acmeHandler := handlers.NewACMEHandler(s.db, acmeManager, s.caddyManager, s.appManager)
+	// Wire in job queue if available
+	if s.jobQueue != nil {
+		acmeHandler = acmeHandler.WithJobQueue(s.jobQueue)
+	}
 	acmeCleanup := handlers.NewACMECleanupHandler(s.caddyManager)
 
 	// Initialize network handler if Caddy is available
@@ -138,14 +144,15 @@ func (s *Server) setupRoutes() {
 
 		})
 
-		// Protected routes (require authentication)
+		// Protected routes (require authentication) - read-only operations
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
 			r.Use(middleware.Auth(authConfig))
+			// Add logout here temporarily until frontend sends CSRF tokens
 			r.Post("/auth/logout", authHandler.Logout)
 		})
 
-		// CSRF-protected routes (authenticated users with CSRF tokens)
+		// CSRF-protected routes (authenticated users with CSRF tokens) - state-changing operations
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
 			r.Use(middleware.Auth(authConfig))
@@ -266,6 +273,20 @@ func (s *Server) setupRoutes() {
 				r.Delete("/routes/{routeID}", acmeCleanup.DeleteRoute)
 			})
 
+			// Job Queue management (admin only)
+			if s.jobQueue != nil {
+				jobQueueHandler := handlers.NewJobQueueHandler(s.jobQueue)
+				r.Route("/jobs", func(r chi.Router) {
+					r.Use(middleware.RequireRole("admin"))
+					r.Get("/", jobQueueHandler.ListJobs)
+					r.Get("/stats", jobQueueHandler.GetJobStats)
+					r.Get("/running", jobQueueHandler.GetRunningJobs)
+					r.Get("/status", jobQueueHandler.GetQueueStatus)
+					r.Get("/{id}", jobQueueHandler.GetJob)
+					r.Delete("/{id}", jobQueueHandler.CancelJob)
+				})
+			}
+
 			// Users management (admin only)
 			r.Route("/users", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
@@ -317,6 +338,28 @@ func (s *Server) setupRoutes() {
 			r.Route("/audit", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", auditHandler.ListLogs)
+			})
+
+			// Security monitoring (authenticated users)
+			r.Route("/security", func(r chi.Router) {
+				// Apply rate limiting: 60 requests per minute per user
+				r.Use(middleware.RateLimit([]middleware.RateRule{
+					{Prefix: "/api/v1/security", Limit: 60, Window: time.Minute},
+				}))
+
+				// Settings - available to all authenticated users
+				r.Get("/settings", securityHandler.GetSettings)
+				r.Put("/settings", securityHandler.UpdateSettings)
+				r.Post("/test-notification", securityHandler.TestNotification)
+
+				// Events - users can see their own events, admins see all
+				r.Get("/events", securityHandler.ListEvents)
+
+				// Stats - admin only
+				r.With(middleware.RequireRole("admin")).Get("/stats", securityHandler.GetStats)
+
+				// Health - check security service health and metrics (admin only)
+				r.With(middleware.RequireRole("admin")).Get("/health", securityHandler.GetHealth)
 			})
 		})
 	})

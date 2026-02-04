@@ -35,4 +35,62 @@ frontend-build: frontend
 	@mkdir -p OS/dist
 	@cp -R ../frontend/dist/. OS/dist/
 
-.PHONY: default build run frontend frontend-build
+# Testing targets
+test:
+	@echo ">> Running tests"
+	@go test ./...
+
+test-race:
+	@echo ">> Running tests with race detector"
+	@go test -race -count=3 ./internal/api/middleware/... ./internal/auth/... ./internal/jobqueue/...
+
+test-coverage:
+	@echo ">> Running tests with coverage"
+	@go test -coverprofile=coverage.out -covermode=atomic ./...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
+
+fmt-check:
+	@echo ">> Checking format"
+	@test -z "$(shell gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
+
+vet:
+	@echo ">> Running go vet"
+	@go vet ./...
+
+lint: fmt-check vet
+
+# Security scanning
+govulncheck:
+	@echo ">> Running govulncheck"
+	@govulncheck ./...
+
+gosec:
+	@echo ">> Running gosec"
+	@gosec -severity high ./...
+
+staticcheck:
+	@echo ">> Running staticcheck"
+	@staticcheck ./...
+
+security: govulncheck gosec staticcheck
+
+# CI shortcuts
+ci-local:
+	@echo ">> Running local CI tests"
+	@../../scripts/local-ci.sh go
+
+ci-all:
+	@echo ">> Running all CI tests"
+	@../../scripts/local-ci.sh all
+
+ci-docker:
+	@echo ">> Testing Docker build"
+	@docker build -t libreserv:local-test ../..
+
+# Clean
+clean:
+	@echo ">> Cleaning build artifacts"
+	@rm -rf $(BIN_DIR) coverage.out coverage.html
+
+.PHONY: default build run frontend frontend-build test test-race test-coverage fmt-check vet lint govulncheck gosec staticcheck security ci-local ci-all ci-docker clean

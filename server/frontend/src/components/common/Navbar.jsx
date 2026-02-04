@@ -7,6 +7,7 @@ import {
   Menu,
   X,
   User,
+  Shield,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -45,6 +46,7 @@ const navButtons = [
   { to: "/", icon: Home, label: "Dashboard" },
   { to: "/apps", icon: Grid2X2, label: "Apps" },
   { to: "/users", icon: Users, label: "Users" },
+  { to: "/security", icon: Shield, label: "Security" },
   { to: "/settings", icon: Settings, label: "Settings" },
   { to: "/help", icon: LifeBuoy, label: "Help" },
 ];
@@ -312,7 +314,7 @@ export default function Navbar() {
         const userData = await response.json();
         setUser(userData);
       } catch (err) {
-        console.error("Failed to fetch user:", err);
+        // Silently handle error - user will be shown as not logged in
       }
     };
     fetchUser();
@@ -426,7 +428,7 @@ export default function Navbar() {
                         });
                         window.location.href = "/";
                       } catch (err) {
-                        console.error("Logout failed:", err);
+                        // Error handled by navigation
                       }
                     }}
                     className={`${menuItemClasses} hover:bg-accent hover:text-primary text-left`}
@@ -537,7 +539,7 @@ export default function Navbar() {
                   });
                   window.location.href = "/";
                 } catch (err) {
-                  console.error("Logout failed:", err);
+                  // Error handled by navigation
                 }
               }}
               className={`w-full justify-center border-6 border-secondary py-4 ${navButtonClasses}`}

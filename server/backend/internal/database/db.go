@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
 
@@ -45,8 +46,9 @@ func Open(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
-	// Set busy timeout to prevent locking errors
-	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
+	// Set busy timeout to prevent locking errors (converted from milliseconds)
+	busyTimeoutMs := int(constants.DatabaseBusyTimeout.Milliseconds())
+	if _, err := sqlDB.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", busyTimeoutMs)); err != nil {
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
 	}

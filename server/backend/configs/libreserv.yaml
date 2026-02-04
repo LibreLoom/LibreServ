@@ -5,9 +5,13 @@ server:
 database:
   path: ./dev/data/libreserv.db
 auth:
-  jwt_secret: N3ZcFeFvNrW2kknSgEGc7mSkqUFl_HbTf-ZJfilPN5o=
+  # Secrets are auto-generated on first startup if not provided
+  # You can also set via environment variables:
+  #   LIBRESERV_AUTH_JWT_SECRET
+  #   LIBRESERV_AUTH_CSRF_SECRET
+  jwt_secret: ""
   secret_file: ""
-  csrf_secret: WH6U7-l0qzbihVhYTcL8f62ZhOsJcoyGNZ5ZlUlz5KM=
+  csrf_secret: ""
 apps:
   data_path: ./dev/apps
   catalog_path: ./apps

@@ -3,6 +3,7 @@ package database
 import (
 	"embed"
 	"fmt"
+	"log"
 	"log/slog"
 	"sort"
 	"strings"
@@ -183,7 +184,11 @@ func (d *DB) ensureBackupsChecksum() error {
 	if err != nil {
 		return fmt.Errorf("check backups schema: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
 
 	for rows.Next() {
 		var (
@@ -212,7 +217,11 @@ func (d *DB) ensureUpdatesBackupID() error {
 	if err != nil {
 		return fmt.Errorf("check updates schema: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
 
 	for rows.Next() {
 		var (

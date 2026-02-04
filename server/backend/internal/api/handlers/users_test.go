@@ -33,7 +33,7 @@ func TestUsersCRUD(t *testing.T) {
 	h, ctx := newTestUsersHandler(t)
 
 	// create user
-	body := `{"username":"u1","password":"Password1234","role":"user"}`
+	body := `{"username":"user1","password":"Password1234","role":"user"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBufferString(body))
 	h.CreateUser(rec, req.WithContext(ctx))
@@ -49,16 +49,18 @@ func TestUsersCRUD(t *testing.T) {
 		t.Fatalf("list status %d", rec.Code)
 	}
 	var list struct {
-		Users []map[string]interface{} `json:"users"`
-		Count int                      `json:"count"`
+		Data       []map[string]interface{} `json:"data"`
+		Pagination struct {
+			TotalItems int64 `json:"total_items"`
+		} `json:"pagination"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
 		t.Fatalf("decode list: %v", err)
 	}
-	if list.Count != 1 {
-		t.Fatalf("expected 1 user, got %d", list.Count)
+	if list.Pagination.TotalItems != 1 {
+		t.Fatalf("expected 1 user, got %d", list.Pagination.TotalItems)
 	}
-	id, _ := list.Users[0]["id"].(string)
+	id, _ := list.Data[0]["id"].(string)
 
 	// get user
 	rec = httptest.NewRecorder()

@@ -154,10 +154,28 @@ func (s *Sender) sendTLS(to []string, msg string) error {
 	return w.Close()
 }
 
+// sanitizeHeader removes CR and LF characters to prevent email header injection
+func sanitizeHeader(value string) string {
+	// Remove both \r and \n to prevent header injection attacks
+	value = strings.ReplaceAll(value, "\r", "")
+	value = strings.ReplaceAll(value, "\n", "")
+	return value
+}
+
 func buildMessage(from string, to []string, subject, body string) string {
+	// Sanitize all header values to prevent injection attacks
+	from = sanitizeHeader(from)
+	subject = sanitizeHeader(subject)
+
+	// Sanitize recipient addresses
+	sanitizedTo := make([]string, len(to))
+	for i, addr := range to {
+		sanitizedTo[i] = sanitizeHeader(addr)
+	}
+
 	headers := []string{
 		"From: " + from,
-		"To: " + strings.Join(to, ","),
+		"To: " + strings.Join(sanitizedTo, ","),
 		"Subject: " + subject,
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=\"utf-8\"",

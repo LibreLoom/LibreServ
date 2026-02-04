@@ -83,7 +83,11 @@ func (s *Service) List(ctx context.Context, limit int) ([]Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query audit logs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			s.logger.Warn("failed to close rows", "error", cerr)
+		}
+	}()
 
 	var entries []Entry
 	for rows.Next() {

@@ -23,8 +23,10 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
@@ -33,31 +35,65 @@ import (
 
 // Server represents the HTTP API server
 type Server struct {
-	router         chi.Router
-	httpServer     *http.Server
-	addr           string
-	db             *database.DB
-	appManager     *apps.Manager
-	authService    *auth.Service
-	monitor        *monitoring.Monitor
-	backupService  *storage.BackupService
-	devMode        bool
-	logger         *slog.Logger
-	staticFS       fs.FS
-	assetsHandler  http.Handler
-	staticSource   string
-	dockerClient   *docker.Client
-	caddyManager   *network.CaddyManager
-	setupService   *setup.Service
-	supportService *support.Service
-	licenseService middleware.LicenseChecker
-	sysChecker     *system.UpdateChecker
-	audit          *audit.Service
+	router          chi.Router
+	httpServer      *http.Server
+	addr            string
+	db              *database.DB
+	appManager      *apps.Manager
+	authService     *auth.Service
+	monitor         *monitoring.Monitor
+	backupService   *storage.BackupService
+	devMode         bool
+	logger          *slog.Logger
+	staticFS        fs.FS
+	assetsHandler   http.Handler
+	staticSource    string
+	dockerClient    *docker.Client
+	caddyManager    *network.CaddyManager
+	setupService    *setup.Service
+	supportService  *support.Service
+	licenseService  middleware.LicenseChecker
+	sysChecker      *system.UpdateChecker
+	audit           *audit.Service
+	securityService *security.Service
+	jobQueue        JobQueue
 }
 
-// NewServer creates a new API server instance
-func NewServer(host string, port int, db *database.DB, appManager *apps.Manager, authService *auth.Service, monitor *monitoring.Monitor, backupService *storage.BackupService, dockerClient *docker.Client, caddyManager *network.CaddyManager, setupService *setup.Service, supportService *support.Service, licenseService middleware.LicenseChecker, sysChecker *system.UpdateChecker, auditSvc *audit.Service, devMode bool) *Server {
-	addr := fmt.Sprintf("%s:%d", host, port)
+// ServerConfig holds configuration for creating a new Server
+type ServerConfig struct {
+	Host           string
+	Port           int
+	DevMode        bool
+	DB             *database.DB
+	AppManager     *apps.Manager
+	AuthService    *auth.Service
+	Monitor        *monitoring.Monitor
+	BackupService  *storage.BackupService
+	DockerClient   *docker.Client
+	CaddyManager   *network.CaddyManager
+	SetupService   *setup.Service
+	SupportService *support.Service
+	LicenseService middleware.LicenseChecker
+	SysChecker     *system.UpdateChecker
+	AuditService   *audit.Service
+}
+
+// JobQueue interface for job queue operations
+type JobQueue interface {
+	Enqueue(jobType jobqueue.JobType, domain, email, routeID string, priority jobqueue.JobPriority) (jobqueue.JobInfo, error)
+	GetJob(ctx context.Context, jobID string) (jobqueue.JobInfo, error)
+	GetLatestJob(ctx context.Context, domain string, jobType jobqueue.JobType) (jobqueue.JobInfo, error)
+	GetJobsByStatus(status jobqueue.JobStatus, limit int) ([]*jobqueue.Job, error)
+	GetPendingJobs(limit int) ([]*jobqueue.Job, error)
+	GetRunningJobs() ([]*jobqueue.Job, error)
+	GetQueueStats() (*jobqueue.QueueStats, error)
+	CancelJob(jobID string) error
+	IsRunning() bool
+}
+
+// NewServer creates a new API server instance from config
+func NewServer(cfg ServerConfig) *Server {
+	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 	logger := slog.Default().With("component", "api")
 
 	r := chi.NewRouter()
@@ -69,7 +105,7 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 	r.Use(chimiddleware.Recoverer)
 	r.Use(middleware.CORS(config.Get().CORS.AllowedOrigins))
 
-	if devMode {
+	if cfg.DevMode {
 		r.Use(middleware.DevSecurityHeaders())
 	} else {
 		r.Use(middleware.SecurityHeaders())
@@ -78,23 +114,28 @@ func NewServer(host string, port int, db *database.DB, appManager *apps.Manager,
 	// Set request timeout
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 
+	// Initialize security service with email notifier
+	notifier := security.NewEmailNotifier()
+	securityService := security.NewService(cfg.DB, logger, notifier)
+
 	server := &Server{
-		router:         r,
-		addr:           addr,
-		db:             db,
-		appManager:     appManager,
-		authService:    authService,
-		monitor:        monitor,
-		backupService:  backupService,
-		devMode:        devMode,
-		logger:         logger,
-		dockerClient:   dockerClient,
-		caddyManager:   caddyManager,
-		setupService:   setupService,
-		supportService: supportService,
-		licenseService: licenseService,
-		sysChecker:     sysChecker,
-		audit:          auditSvc,
+		router:          r,
+		addr:            addr,
+		db:              cfg.DB,
+		appManager:      cfg.AppManager,
+		authService:     cfg.AuthService,
+		monitor:         cfg.Monitor,
+		backupService:   cfg.BackupService,
+		devMode:         cfg.DevMode,
+		logger:          logger,
+		dockerClient:    cfg.DockerClient,
+		caddyManager:    cfg.CaddyManager,
+		setupService:    cfg.SetupService,
+		supportService:  cfg.SupportService,
+		licenseService:  cfg.LicenseService,
+		sysChecker:      cfg.SysChecker,
+		audit:           cfg.AuditService,
+		securityService: securityService,
 	}
 
 	staticFS, staticSource, err := loadStaticFS()
@@ -153,6 +194,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // Router returns the chi router (useful for testing)
 func (s *Server) Router() chi.Router {
 	return s.router
+}
+
+// WithJobQueue sets the job queue for the server
+func (s *Server) WithJobQueue(queue JobQueue) *Server {
+	s.jobQueue = queue
+	return s
 }
 
 // Log implements handlers.AuditLogger
@@ -234,7 +281,11 @@ func (s *Server) serveFSPath(w http.ResponseWriter, r *http.Request, fsPath, nam
 		http.NotFound(w, r)
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			s.logger.Warn("failed to close file", "error", cerr)
+		}
+	}()
 
 	info, err := file.Stat()
 	if err != nil {

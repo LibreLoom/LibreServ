@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,8 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
 )
 
 const (
@@ -33,7 +36,7 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -43,20 +46,22 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 }
 
 // AuthHandler handles authentication-related API endpoints
 type AuthHandler struct {
-	authService *auth.Service
+	authService     *auth.Service
+	securityService *security.Service
 }
 
 // NewAuthHandler creates a new AuthHandler
-func NewAuthHandler(authService *auth.Service) *AuthHandler {
+func NewAuthHandler(authService *auth.Service, securityService *security.Service) *AuthHandler {
 	return &AuthHandler{
-		authService: authService,
+		authService:     authService,
+		securityService: securityService,
 	}
 }
 
@@ -65,28 +70,57 @@ func NewAuthHandler(authService *auth.Service) *AuthHandler {
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req auth.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "Please check your information and try again")
 		return
 	}
 
-	if req.Username == "" || req.Password == "" {
-		JSONError(w, http.StatusBadRequest, "username and password are required")
+	// Validate input
+	validator := validation.New().
+		ValidateUsername(req.Username).
+		ValidateNotEmpty("password", req.Password, "Password")
+
+	if validator.HasErrors() {
+		JSONError(w, http.StatusBadRequest, validator.FirstError().Message)
 		return
 	}
+
+	// Sanitize input
+	req.Username = validation.TrimAndSanitize(req.Username)
+
+	clientIP := getClientIP(r)
 
 	response, err := h.authService.Login(r.Context(), &req)
 	if err != nil {
 		if err == auth.ErrInvalidCredentials {
-			JSONError(w, http.StatusUnauthorized, "invalid username or password")
+			// Record failed login attempt
+			_ = h.securityService.RecordFailedLogin(req.Username, clientIP, r.UserAgent(), "invalid credentials")
+			JSONError(w, http.StatusUnauthorized, "The username or password you entered is incorrect")
 			return
 		}
 		if strings.Contains(err.Error(), "locked") {
-			JSONError(w, http.StatusTooManyRequests, "account temporarily locked")
+			// Record failed login attempt for lockout before returning error
+			_ = h.securityService.RecordFailedLogin(req.Username, clientIP, r.UserAgent(), "account locked")
+			JSONError(w, http.StatusTooManyRequests, "Your account is temporarily locked. Please try again later.")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "login failed")
 		return
 	}
+
+	// Record successful login
+	event := security.Event{
+		Timestamp:     time.Now(),
+		EventType:     security.EventLoginSuccess,
+		Severity:      security.SeverityInfo,
+		ActorID:       response.User.ID,
+		ActorUsername: response.User.Username,
+		IPAddress:     clientIP,
+		UserAgent:     r.UserAgent(),
+		Details:       fmt.Sprintf("Successful login for user %s", response.User.Username),
+	}
+	h.securityService.RecordEvent(r.Context(), &event)
+	h.securityService.ClearFailedAttempts(clientIP, response.User.Username)
+
 	// Set access token as HTTP-only cookie
 	refreshExpiresAt, err := h.authService.TokenExpiry(response.Tokens.RefreshToken)
 	if err != nil {
@@ -100,7 +134,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  time.Unix(response.Tokens.ExpiresAt, 0),
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -109,7 +143,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	JSON(w, http.StatusOK, response.User)
@@ -119,9 +153,26 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 // Clears the access token cookie and revokes all tokens for the user (#18)
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	userID, _ := middleware.GetUserID(r.Context())
+	user := middleware.GetUser(r.Context())
+	clientIP := getClientIP(r)
 
 	if userID != "" {
 		_ = h.authService.RevokeAllTokens(userID, userID, "User logout")
+	}
+
+	// Record logout event
+	if user != nil {
+		event := security.Event{
+			Timestamp:     time.Now(),
+			EventType:     security.EventLogout,
+			Severity:      security.SeverityInfo,
+			ActorID:       userID,
+			ActorUsername: user.Username,
+			IPAddress:     clientIP,
+			UserAgent:     r.UserAgent(),
+			Details:       fmt.Sprintf("User %s logged out", user.Username),
+		}
+		h.securityService.RecordEvent(r.Context(), &event)
 	}
 
 	clearAuthCookies(w, r)
@@ -133,18 +184,26 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req auth.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "Please check your information and try again")
 		return
 	}
 
-	if req.Username == "" || req.Password == "" {
-		JSONError(w, http.StatusBadRequest, "username and password are required")
+	// Validate input
+	validator := validation.New().
+		ValidateUsername(req.Username).
+		ValidatePassword(req.Password).
+		ValidateEmail(req.Email)
+
+	if validator.HasErrors() {
+		JSONError(w, http.StatusBadRequest, validator.FirstError().Message)
 		return
 	}
-	if err := h.authService.ValidatePassword(req.Password); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+
+	// Sanitize input
+	req.Username = validation.TrimAndSanitize(req.Username)
+	req.Email = validation.TrimAndSanitize(req.Email)
+
+	clientIP := getClientIP(r)
 
 	user, err := h.authService.Register(r.Context(), &req)
 	if err != nil {
@@ -155,6 +214,23 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "registration failed")
 		return
 	}
+
+	// Record user creation event
+	event := security.Event{
+		Timestamp:     time.Now(),
+		EventType:     security.EventUserCreated,
+		Severity:      security.SeverityInfo,
+		ActorID:       user.ID,
+		ActorUsername: user.Username,
+		IPAddress:     clientIP,
+		UserAgent:     r.UserAgent(),
+		Details:       fmt.Sprintf("New user account created: %s", user.Username),
+		Metadata: map[string]interface{}{
+			"email": user.Email,
+			"role":  user.Role,
+		},
+	}
+	h.securityService.RecordEvent(r.Context(), &event)
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"message": "user registered successfully",
@@ -211,7 +287,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  time.Unix(tokens.ExpiresAt, 0),
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -220,7 +296,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	JSON(w, http.StatusOK, map[string]string{"message": "refreshed"})
@@ -242,6 +318,9 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := middleware.GetUser(r.Context())
+	clientIP := getClientIP(r)
+
 	var req ChangePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		JSONError(w, http.StatusBadRequest, "invalid request body")
@@ -260,11 +339,40 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	err := h.authService.ChangePassword(r.Context(), userID, req.OldPassword, req.NewPassword)
 	if err != nil {
 		if err == auth.ErrInvalidCredentials {
+			// Record failed password change attempt
+			if user != nil {
+				event := security.Event{
+					Timestamp:     time.Now(),
+					EventType:     security.EventSuspiciousActivity,
+					Severity:      security.SeverityWarning,
+					ActorID:       userID,
+					ActorUsername: user.Username,
+					IPAddress:     clientIP,
+					UserAgent:     r.UserAgent(),
+					Details:       "Failed password change attempt - incorrect current password",
+				}
+				h.securityService.RecordEvent(r.Context(), &event)
+			}
 			JSONError(w, http.StatusUnauthorized, "current password is incorrect")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "failed to change password")
 		return
+	}
+
+	// Record password change event
+	if user != nil {
+		event := security.Event{
+			Timestamp:     time.Now(),
+			EventType:     security.EventPasswordChanged,
+			Severity:      security.SeverityWarning,
+			ActorID:       userID,
+			ActorUsername: user.Username,
+			IPAddress:     clientIP,
+			UserAgent:     r.UserAgent(),
+			Details:       fmt.Sprintf("Password changed for user %s", user.Username),
+		}
+		h.securityService.RecordEvent(r.Context(), &event)
 	}
 
 	JSON(w, http.StatusOK, map[string]string{
