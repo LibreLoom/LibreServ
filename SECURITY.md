@@ -11,11 +11,7 @@
 
 **Do not open public issues for security vulnerabilities.**
 
-Email security reports to: `security@plainskill.net`
-
-or
-
-Report via Gitea: https://gt.plainskill.net/LibreLoom/LibreServ/security/advisories/new
+Email security reports to: `trafficcone@onetrue.name`, `max@plainskill.net`, and `w.n.lazypanda5050@gmail.com`
 
 ## Security Measures
 
