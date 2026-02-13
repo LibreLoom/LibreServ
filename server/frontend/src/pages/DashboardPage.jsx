@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Clock, Server, Circle, X, AlertTriangle } from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
@@ -39,12 +39,53 @@ function getGreeting() {
   return greetingMessages[hoursSinceEpoch % greetingMessages.length];
 }
 
+// Format seconds into human-readable uptime string
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  const parts = [];
+  if (days > 0) parts.push(`${days} day${days !== 1 ? "s" : ""}`);
+  if (hours > 0) parts.push(`${hours} hour${hours !== 1 ? "s" : ""}`);
+  if (minutes > 0 && days === 0) parts.push(`${minutes} min${minutes !== 1 ? "s" : ""}`);
+  if (days === 0 && hours === 0 && secs > 0) parts.push(`${secs} sec${secs !== 1 ? "s" : ""}`);
+
+  return parts.join(" ") || "0 secs";
+}
+
+// Refresh interval options
+const REFRESH_INTERVALS = [
+  { label: "1 second", value: 1000 },
+  { label: "5 seconds", value: 5000 },
+  { label: "10 seconds", value: 10000 },
+  { label: "30 seconds", value: 30000 },
+  { label: "1 minute", value: 60000 },
+  { label: "5 minutes", value: 300000 },
+  { label: "15 minutes", value: 900000 },
+  { label: "30 minutes", value: 1800000 },
+  { label: "1 hour", value: 3600000 },
+];
+
 export default function Dashboard() {
   // Memoize so the greeting doesn't change on re-renders.
   const greeting = useMemo(() => getGreeting(), []);
   const [user, setUser] = useState(null);
   const [userLoaded, setUserLoaded] = useState(false);
 
+  // Uptime state
+  const [uptimeSeconds, setUptimeSeconds] = useState(0);
+  const [displayUptime, setDisplayUptime] = useState("Loading...");
+  const uptimeRef = useRef(0);
+  const uptimeIntervalRef = useRef(null);
+
+  // Stress index state
+  const [stressIndex, setStressIndex] = useState(0);
+  const [stressBreakdown, setStressBreakdown] = useState([]);
+  const [refreshInterval, setRefreshInterval] = useState(30000); // Default 30 seconds
+
+  // Fetch user data
   useEffect(() => {
     const fetchUser = async () => {
       try {
@@ -59,6 +100,79 @@ export default function Dashboard() {
     };
     fetchUser();
   }, []);
+
+  // Fetch uptime from health endpoint
+  const fetchUptime = useCallback(async () => {
+    try {
+      const response = await fetch("/health");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.uptime_seconds !== undefined) {
+          uptimeRef.current = data.uptime_seconds;
+          setUptimeSeconds(data.uptime_seconds);
+          setDisplayUptime(formatUptime(data.uptime_seconds));
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch uptime:", err);
+    }
+  }, []);
+
+  // Initial uptime fetch and setup interval
+  useEffect(() => {
+    fetchUptime();
+
+    // Set up uptime counter (increments locally every second)
+    uptimeIntervalRef.current = setInterval(() => {
+      uptimeRef.current += 1;
+      setUptimeSeconds(uptimeRef.current);
+      setDisplayUptime(formatUptime(uptimeRef.current));
+    }, 1000);
+
+    // Refresh from API every minute to stay in sync
+    const apiRefreshInterval = setInterval(() => {
+      fetchUptime();
+    }, 60000);
+
+    return () => {
+      if (uptimeIntervalRef.current) {
+        clearInterval(uptimeIntervalRef.current);
+      }
+      clearInterval(apiRefreshInterval);
+    };
+  }, [fetchUptime]);
+
+  // Fetch stress index data
+  const fetchStressData = useCallback(async () => {
+    try {
+      // For now, use mock data. In the future, this will come from /api/v1/monitoring/system
+      // which should provide CPU, RAM, Disk, Network metrics
+      const mockResources = {
+        cpu: Math.random() * 0.5 + 0.2, // 20-70%
+        ram: Math.random() * 0.4 + 0.3, // 30-70%
+        disk: 0.25 + Math.random() * 0.1, // 25-35%
+        net: Math.random() * 0.3 + 0.2, // 20-50%
+        energy: 0.4 + Math.random() * 0.2, // 40-60%
+      };
+
+      const stress = totalResourceUsage(mockResources);
+      setStressIndex(stress);
+      setStressBreakdown(getBreakdownItems(mockResources));
+    } catch (err) {
+      console.error("Failed to fetch stress data:", err);
+    }
+  }, []);
+
+  // Fetch stress data on mount and when refresh interval changes
+  useEffect(() => {
+    fetchStressData();
+
+    const interval = setInterval(() => {
+      fetchStressData();
+    }, refreshInterval);
+
+    return () => clearInterval(interval);
+  }, [fetchStressData, refreshInterval]);
 
   // Calculate overall system status
   const systemStatus = useMemo(() => {
@@ -143,14 +257,30 @@ export default function Dashboard() {
           <StatCard
             icon={Clock}
             label="Uptime"
-            value="41 days 67 hours"
+            value={displayUptime}
             delta=""
           />
           <DropdownCard
             title="Server Stress Index"
-            value={Math.round(totalResourceUsage(resources) * 100) + "%"}
-            subtitle=""
-            breakdownItems={getBreakdownItems(resources)}
+            value={Math.round(stressIndex * 100) + "%"}
+            subtitle={
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-xs text-accent">Refresh:</span>
+                <select
+                  value={refreshInterval}
+                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                  className="text-xs bg-primary/10 border border-primary/20 rounded px-2 py-1 cursor-pointer hover:bg-primary/20 transition-colors"
+                  aria-label="Stress index refresh interval"
+                >
+                  {REFRESH_INTERVALS.map((interval) => (
+                    <option key={interval.value} value={interval.value}>
+                      {interval.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            }
+            breakdownItems={stressBreakdown}
             Icon={Server}
           />
         </div>

@@ -32,10 +32,11 @@ func NewHealthHandler(db *database.DB) *HealthHandler {
 
 // HealthResponse represents the health check response
 type HealthResponse struct {
-	Status    string            `json:"status"`
-	Timestamp string            `json:"timestamp"`
-	Uptime    string            `json:"uptime"`
-	Checks    map[string]string `json:"checks,omitempty"`
+	Status        string            `json:"status"`
+	Timestamp     string            `json:"timestamp"`
+	Uptime        string            `json:"uptime"`
+	UptimeSeconds int64             `json:"uptime_seconds"`
+	Checks        map[string]string `json:"checks,omitempty"`
 }
 
 // VersionResponse represents the version info response
@@ -61,10 +62,11 @@ func (h *HealthHandler) HealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := HealthResponse{
-		Status:    overallStatus,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Uptime:    time.Since(h.startTime).Round(time.Second).String(),
-		Checks:    checks,
+		Status:        overallStatus,
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Uptime:        time.Since(h.startTime).Round(time.Second).String(),
+		UptimeSeconds: int64(time.Since(h.startTime).Seconds()),
+		Checks:        checks,
 	}
 
 	status := http.StatusOK
@@ -98,9 +100,10 @@ func (h *HealthHandler) ReadinessCheck(w http.ResponseWriter, r *http.Request) {
 // Returns whether the service is alive (simple ping)
 func (h *HealthHandler) LivenessCheck(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, HealthResponse{
-		Status:    "alive",
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Uptime:    time.Since(h.startTime).Round(time.Second).String(),
+		Status:        "alive",
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Uptime:        time.Since(h.startTime).Round(time.Second).String(),
+		UptimeSeconds: int64(time.Since(h.startTime).Seconds()),
 	})
 }
 

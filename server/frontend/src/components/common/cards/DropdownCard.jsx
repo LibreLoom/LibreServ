@@ -23,7 +23,7 @@ export default function DropdownCard({
         <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
           <Icon size={26} aria-hidden="true" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <div className="text-sm font-bold text-accent text-left">{title}</div>
           <div className="text-xl font-mono font-normal leading-tight text-left">
             {value}
