@@ -67,3 +67,8 @@ server/backend/backend.pid
 server/frontend/frontend.pid
 libreserv.sh
 .aider*
+
+# Build artifacts
+Building
+Running
+package-lock.json
