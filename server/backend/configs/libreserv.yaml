@@ -1,86 +1,82 @@
 server:
-  host: 0.0.0.0
-  port: 8080
-  mode: development
+    host: 0.0.0.0
+    port: 8080
+    mode: development
 database:
-  path: ./dev/data/libreserv.db
+    path: ./dev/data/libreserv.db
 auth:
-  # Secrets are auto-generated on first startup if not provided
-  # You can also set via environment variables:
-  #   LIBRESERV_AUTH_JWT_SECRET
-  #   LIBRESERV_AUTH_CSRF_SECRET
-  jwt_secret: ""
-  secret_file: ""
-  csrf_secret: ""
+    jwtsecret: L0AT82XLMFK7B7XnmTN9ulxhfe6kZxsAZhbZRFdExP4=
+    secretfile: ""
+    csrfsecret: lvuM914vfVditrRDSAHLYxN8DETQjjpy7Cz_HwKQhhk=
 apps:
-  data_path: ./dev/apps
-  catalog_path: ./apps
+    data_path: ./dev/apps
+    catalog_path: ./apps/builtin
 docker:
-  method: auto
-  socket_path: ""
-  tcp:
-    host: ""
-    port: 0
-    use_tls: false
-    cert_path: ""
-  ssh:
-    host: ""
-    user: ""
-    key_path: ""
-  timeout: 30s
+    method: auto
+    socketpath: ""
+    tcp:
+        host: ""
+        port: 0
+        usetls: false
+        certpath: ""
+    ssh:
+        host: ""
+        user: ""
+        keypath: ""
+    timeout: 30s
 logging:
-  level: debug
-  path: ./dev/logs
+    level: debug
+    path: ./dev/logs
 network:
-  caddy:
-    mode: enabled
-    admin_api: http://localhost:2019
-    config_path: ./dev/caddy/Caddyfile
-    certs_path: ""
-    default_domain: ""
-    email: ""
-    auto_https: true
-    reload:
-      retries: 5
-      backoff_min: 0s
-      backoff_max: 0s
-      jitter_fraction: 0
-      attempt_timeout: 0s
-    logging:
-      output: stdout
-      file: ""
-      format: console
-      level: ""
-  acme:
-    external:
-      enabled: false
-      use_docker: false
-      docker_image: ""
-      data_path: ""
-      dns_provider: ""
-      dns_env: {}
-      email: ""
-      staging: false
-      ca_dir_url: ""
-      key_type: ""
-      certs_path: ""
+    caddy:
+        mode: enabled
+        adminapi: ""
+        configpath: ""
+        certspath: ""
+        defaultdomain: ""
+        email: ""
+        autohttps: false
+        reload:
+            retries: 5
+            backoffmin: 0s
+            backoffmax: 0s
+            jitterfraction: 0
+            attempttimeout: 0s
+        logging:
+            output: stdout
+            file: ""
+            format: console
+            level: ""
+    acme:
+        external:
+            enabled: false
+            usedocker: false
+            dockerimage: ""
+            datapath: ""
+            dnsprovider: ""
+            dnsenv: {}
+            email: ""
+            staging: false
+            cadirurl: ""
+            keytype: ""
+            certspath: ""
 cors:
-  allowed_origins: []
+    allowedorigins: []
 license:
-  entitlement_file: ""
-  public_key_file: ""
+    entitlementfile: ""
+    publickeyfile: ""
 smtp:
-  host: ""
-  port: 587
-  username: ""
-  password: ""
-  from: ""
-  use_tls: false
-  skip_verify: false
+    host: ""
+    port: 587
+    username: ""
+    password: ""
+    from: ""
+    usetls: false
+    skipverify: false
 notify:
-  enabled: false
-  support_recipients: []
-  support_subject: ""
-  support_body: ""
-  welcome_subject: ""
-  welcome_body: ""
+    enabled: false
+    supportrecipients: []
+    supportsubject: ""
+    supportbody: ""
+    welcomesubject: ""
+    welcomebody: ""

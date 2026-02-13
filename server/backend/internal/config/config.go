@@ -48,8 +48,8 @@ type DatabaseConfig struct {
 
 // AppsConfig defines app catalog and data paths.
 type AppsConfig struct {
-	DataPath    string `mapstructure:"data_path"`
-	CatalogPath string `mapstructure:"catalog_path"`
+	DataPath    string `mapstructure:"data_path" yaml:"data_path"`
+	CatalogPath string `mapstructure:"catalog_path" yaml:"catalog_path"`
 }
 
 // DockerConfig defines Docker connection settings.
