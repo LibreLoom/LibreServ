@@ -44,8 +44,31 @@ BUILD_TAGS=embedfront make build
 ```
 
 ## To setup login
+
+### Option 1: Using libreserv.sh (recommended)
 ```bash
 ./libreserv.sh adduser "username" "password" "email@example.com"
+```
+
+### Option 2: Using setup-admin.sh (for development)
+If running the backend directly without the frontend:
+```bash
+cd server/backend
+./setup-admin.sh
+```
+This will create an admin user with username `admin` and password `hunter2hunter2`.
+
+Or manually via API:
+```bash
+# Complete initial setup
+curl -X POST http://localhost:8080/api/v1/setup/complete \
+  -H "Content-Type: application/json" \
+  -d '{"admin_username":"admin","admin_password":"hunter2hunter2","admin_email":"admin@example.com"}'
+
+# Then login
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"hunter2hunter2"}'
 ```
 
 ## To run
