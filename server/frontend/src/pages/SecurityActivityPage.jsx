@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import PropTypes from "prop-types";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
 import LoadingSpinner from "../components/common/LoadingSpinner";
@@ -72,12 +71,15 @@ export default function SecurityActivityPage() {
       ]);
 
       // Sanitize events to prevent XSS attacks
-      const sanitizedEvents = eventsData.map(event => sanitizeEvent(event));
+      const sanitizedEvents = eventsData.map((event) => sanitizeEvent(event));
       setEvents(sanitizedEvents);
       setStats(statsData);
       setLastUpdated(new Date());
     } catch (err) {
-      const errorMessage = err?.message || err?.response?.data?.message || "Failed to load security activity. Please try again.";
+      const errorMessage =
+        err?.message ||
+        err?.response?.data?.message ||
+        "Failed to load security activity. Please try again.";
       setError(errorMessage);
       console.error("Error loading security data:", err);
     } finally {
@@ -177,10 +179,7 @@ export default function SecurityActivityPage() {
             disabled={loading}
             className="inline-flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
-            <RefreshCw
-              size={18}
-              className={loading ? "animate-spin" : ""}
-            />
+            <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
             Refresh
           </button>
         </div>
@@ -248,7 +247,7 @@ export default function SecurityActivityPage() {
                     <td className="py-3 px-4">
                       <span
                         className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getSeverityColor(
-                          event.severity
+                          event.severity,
                         )}`}
                       >
                         {event.severity}
@@ -266,11 +265,7 @@ export default function SecurityActivityPage() {
       </Card>
 
       {/* Security Tips */}
-      <Card
-        className="mt-6"
-        title="Security Tips"
-        icon={<Shield size={20} />}
-      >
+      <Card className="mt-6" title="Security Tips" icon={<Shield size={20} />}>
         <div className="grid md:grid-cols-2 gap-4">
           <div className="p-4 bg-blue-50 rounded-lg">
             <h4 className="font-medium text-blue-900 mb-2">
