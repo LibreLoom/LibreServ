@@ -87,6 +87,17 @@ type Metrics struct {
 	NetworkTx   uint64    `json:"network_tx"`
 }
 
+// SystemMetrics represents aggregate resource usage across running containers.
+type SystemMetrics struct {
+	Timestamp         time.Time `json:"timestamp"`
+	RunningContainers int       `json:"running_containers"`
+	CPUPercent        float64   `json:"cpu_percent"`
+	MemoryUsage       uint64    `json:"memory_usage"`
+	MemoryLimit       uint64    `json:"memory_limit"`
+	NetworkRx         uint64    `json:"network_rx"`
+	NetworkTx         uint64    `json:"network_tx"`
+}
+
 // HealthCheckRecord is a database record of a health check
 type HealthCheckRecord struct {
 	ID        int64     `json:"id"`

@@ -10,7 +10,6 @@ import { dashboard as greetingMessages } from "../assets/greetings";
 import api from "../lib/api";
 
 import {
-  resources,
   getBreakdownItems,
   totalResourceUsage,
   services,
@@ -67,6 +66,18 @@ const REFRESH_INTERVALS = [
   { label: "30 minutes", value: 1800000 },
   { label: "1 hour", value: 3600000 },
 ];
+const REFRESH_INTERVAL_STORAGE_KEY = "dashboard_stress_refresh_interval_ms";
+
+function isValidRefreshInterval(value) {
+  return REFRESH_INTERVALS.some((interval) => interval.value === value);
+}
+
+function getInitialRefreshInterval() {
+  if (typeof window === "undefined") return 30000;
+  const raw = window.localStorage.getItem(REFRESH_INTERVAL_STORAGE_KEY);
+  const parsed = Number(raw);
+  return isValidRefreshInterval(parsed) ? parsed : 30000;
+}
 
 export default function Dashboard() {
   // Memoize so the greeting doesn't change on re-renders.
@@ -82,8 +93,9 @@ export default function Dashboard() {
 
   // Stress index state
   const [stressIndex, setStressIndex] = useState(0);
+  const [stressLoaded, setStressLoaded] = useState(false);
   const [stressBreakdown, setStressBreakdown] = useState([]);
-  const [refreshInterval, setRefreshInterval] = useState(30000); // Default 30 seconds
+  const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
 
   // Fetch user data
   useEffect(() => {
@@ -145,19 +157,28 @@ export default function Dashboard() {
   // Fetch stress index data
   const fetchStressData = useCallback(async () => {
     try {
-      // For now, use mock data. In the future, this will come from /api/v1/monitoring/system
-      // which should provide CPU, RAM, Disk, Network metrics
-      const mockResources = {
-        cpu: Math.random() * 0.5 + 0.2, // 20-70%
-        ram: Math.random() * 0.4 + 0.3, // 30-70%
-        disk: 0.25 + Math.random() * 0.1, // 25-35%
-        net: Math.random() * 0.3 + 0.2, // 20-50%
-        energy: 0.4 + Math.random() * 0.2, // 40-60%
+      const response = await api("/monitoring/system");
+      const data = await response.json();
+      const source = data?.resources;
+      if (!source) {
+        throw new Error("Missing resources in /monitoring/system response");
+      }
+      const liveResources = {
+        cpu: clamp01(Number(source.cpu)),
+        ram: clamp01(Number(source.ram)),
+        disk: clamp01(Number(source.disk)),
+        net: clamp01(Number(source.net)),
+        energy: clamp01(
+          Number.isFinite(Number(source.energy))
+            ? Number(source.energy)
+            : Number(source.cpu) * 0.5 + Number(source.ram) * 0.3 + Number(source.net) * 0.2,
+        ),
       };
 
-      const stress = totalResourceUsage(mockResources);
+      const stress = totalResourceUsage(liveResources);
       setStressIndex(stress);
-      setStressBreakdown(getBreakdownItems(mockResources));
+      setStressBreakdown(getBreakdownItems(liveResources));
+      setStressLoaded(true);
     } catch (err) {
       console.error("Failed to fetch stress data:", err);
     }
@@ -173,6 +194,20 @@ export default function Dashboard() {
 
     return () => clearInterval(interval);
   }, [fetchStressData, refreshInterval]);
+
+  // Refetch on bfcache restore so stale values don't linger until interval tick.
+  useEffect(() => {
+    const onPageShow = () => {
+      fetchStressData();
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [fetchStressData]);
+
+  // Persist user-selected refresh interval.
+  useEffect(() => {
+    window.localStorage.setItem(REFRESH_INTERVAL_STORAGE_KEY, String(refreshInterval));
+  }, [refreshInterval]);
 
   // Calculate overall system status
   const systemStatus = useMemo(() => {
@@ -262,7 +297,7 @@ export default function Dashboard() {
           />
           <DropdownCard
             title="Server Stress Index"
-            value={Math.round(stressIndex * 100) + "%"}
+            value={stressLoaded ? Math.round(stressIndex * 100) + "%" : "Loading..."}
             subtitle={
               <div className="flex items-center gap-2 mt-1">
                 <span className="text-xs text-accent">Refresh:</span>
@@ -292,4 +327,11 @@ export default function Dashboard() {
       </section>
     </main>
   );
+}
+
+function clamp01(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
 }

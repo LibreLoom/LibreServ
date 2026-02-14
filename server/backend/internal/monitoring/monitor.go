@@ -218,6 +218,11 @@ func (m *Monitor) GetAppMetrics(ctx context.Context, appID string) (*Metrics, er
 	return m.metricsCollector.CollectAppMetrics(ctx, appID)
 }
 
+// GetSystemMetrics returns aggregate metrics across all running containers.
+func (m *Monitor) GetSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
+	return m.metricsCollector.CollectSystemMetrics(ctx)
+}
+
 // GetMetricsHistory returns historical metrics for an app
 func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since time.Time, limit int) ([]Metrics, error) {
 	query := `

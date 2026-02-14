@@ -87,6 +87,39 @@ func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) 
 	return aggregated, nil
 }
 
+// CollectSystemMetrics collects aggregate metrics across all running containers.
+func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
+	if m.dockerClient == nil {
+		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
+	}
+
+	containers, err := m.dockerClient.ContainerList(ctx, container.ListOptions{
+		All: false, // Only running containers
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrDockerUnavailable, err)
+	}
+
+	out := &SystemMetrics{
+		Timestamp:         time.Now(),
+		RunningContainers: len(containers),
+	}
+
+	for _, cont := range containers {
+		stats, err := m.CollectContainerMetrics(ctx, cont.ID)
+		if err != nil {
+			continue
+		}
+		out.CPUPercent += stats.CPUPercent
+		out.MemoryUsage += stats.MemoryUsage
+		out.MemoryLimit += stats.MemoryLimit
+		out.NetworkRx += stats.NetworkRx
+		out.NetworkTx += stats.NetworkTx
+	}
+
+	return out, nil
+}
+
 // matchesApp checks if a container belongs to the given app
 func matchesApp(cont types.Container, appID string) bool {
 	// Check labels first (preferred method)
