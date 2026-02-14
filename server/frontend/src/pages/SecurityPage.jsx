@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import PropTypes from "prop-types";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
@@ -9,14 +10,10 @@ import {
   updateSecuritySettings,
   sendTestNotification,
 } from "../lib/security-api.js";
-import { Bell, Shield, Mail, Check, AlertCircle } from "lucide-react";
+import { Bell, Shield, Mail, Check, AlertCircle, ArrowLeft } from "lucide-react";
 
-/**
- * Security settings page component
- * Manages security notification settings and test notifications
- * @returns {JSX.Element} Security settings page
- */
 export default function SecurityPage() {
+  const navigate = useNavigate();
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -25,14 +22,12 @@ export default function SecurityPage() {
   const [successMessage, setSuccessMessage] = useState(null);
   const [testResult, setTestResult] = useState(null);
 
-  // Refs for timeout cleanup
   const successTimeoutRef = useRef(null);
   const testResultTimeoutRef = useRef(null);
 
   useEffect(() => {
     loadSettings();
 
-    // Cleanup timeouts on unmount
     return () => {
       if (successTimeoutRef.current) {
         clearTimeout(successTimeoutRef.current);
@@ -43,10 +38,6 @@ export default function SecurityPage() {
     };
   }, []);
 
-  /**
-   * Loads security settings from the API
-   * @returns {Promise<void>}
-   */
   const loadSettings = async () => {
     try {
       setLoading(true);
@@ -62,10 +53,6 @@ export default function SecurityPage() {
     }
   };
 
-  /**
-   * Toggles a boolean setting value
-   * @param {string} key - The setting key to toggle
-   */
   const handleToggle = (key) => {
     setSettings((prev) => ({
       ...prev,
@@ -73,10 +60,6 @@ export default function SecurityPage() {
     }));
   };
 
-  /**
-   * Changes the notification frequency setting
-   * @param {string} frequency - The frequency value (instant, normal, digest)
-   */
   const handleFrequencyChange = (frequency) => {
     setSettings((prev) => ({
       ...prev,
@@ -84,12 +67,7 @@ export default function SecurityPage() {
     }));
   };
 
-  /**
-   * Saves security settings to the API
-   * @returns {Promise<void>}
-   */
   const handleSave = async () => {
-    // Clear any existing timeout
     if (successTimeoutRef.current) {
       clearTimeout(successTimeoutRef.current);
     }
@@ -110,12 +88,7 @@ export default function SecurityPage() {
     }
   };
 
-  /**
-   * Sends a test notification
-   * @returns {Promise<void>}
-   */
   const handleTestNotification = async () => {
-    // Clear any existing timeout
     if (testResultTimeoutRef.current) {
       clearTimeout(testResultTimeoutRef.current);
     }
@@ -150,7 +123,21 @@ export default function SecurityPage() {
         id="main-content"
         tabIndex={-1}
       >
-        <HeaderCard id="security-title" title="Security" />
+        <HeaderCard
+          id="security-title"
+          title="Security"
+          leftContent={
+            <button
+              type="button"
+              onClick={() => navigate("/settings")}
+              className="inline-flex items-center gap-2 px-3 py-2 text-sm text-accent hover:text-secondary transition-colors rounded-lg hover:bg-secondary/10"
+              aria-label="Back to settings"
+            >
+              <ArrowLeft size={18} aria-hidden="true" />
+              <span className="hidden sm:inline">Back</span>
+            </button>
+          }
+        />
         <div className="flex justify-center items-center mt-12">
           <LoadingSpinner size="lg" />
         </div>
@@ -169,6 +156,17 @@ export default function SecurityPage() {
         id="security-title"
         title="Security"
         subtitle="Manage your security settings and notifications"
+        leftContent={
+          <button
+            type="button"
+            onClick={() => navigate("/settings")}
+            className="inline-flex items-center gap-2 px-3 py-2 text-sm text-accent hover:text-secondary transition-colors rounded-lg hover:bg-secondary/10"
+            aria-label="Back to settings"
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
+            <span className="hidden sm:inline">Back</span>
+          </button>
+        }
       />
 
       {error && (
@@ -198,7 +196,6 @@ export default function SecurityPage() {
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        {/* Notification Settings */}
         <Card title="Security Notifications" icon={<Bell size={20} />}>
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -252,7 +249,7 @@ export default function SecurityPage() {
                     ].map((option) => (
                       <label
                         key={option.value}
-                        className="flex items-start gap-3 p-3 rounded-lg border cursor-pointer hover:bg-gray-50"
+                        className="flex items-start gap-3 p-3 rounded-lg border border-secondary/20 cursor-pointer hover:bg-secondary/10"
                       >
                         <input
                           type="radio"
@@ -265,7 +262,7 @@ export default function SecurityPage() {
                           className="mt-1"
                         />
                         <div>
-                          <div className="font-medium">{option.label}</div>
+                          <div className="font-medium text-primary">{option.label}</div>
                           <div className="text-sm text-accent">
                             {option.description}
                           </div>
@@ -302,16 +299,16 @@ export default function SecurityPage() {
                     ].map((item) => (
                       <label
                         key={item.key}
-                        className="flex items-start gap-3 cursor-pointer"
+                        className="flex items-start gap-3 p-3 rounded-lg border border-secondary/20 cursor-pointer hover:bg-secondary/10"
                       >
                         <input
                           type="checkbox"
                           checked={settings?.[item.key]}
                           onChange={() => handleToggle(item.key)}
-                          className="mt-1 rounded border-gray-300"
+                          className="mt-1 rounded border-secondary/30"
                         />
                         <div>
-                          <div className="font-medium">{item.label}</div>
+                          <div className="font-medium text-primary">{item.label}</div>
                           <div className="text-sm text-accent">
                             {item.description}
                           </div>
@@ -325,7 +322,6 @@ export default function SecurityPage() {
           </div>
         </Card>
 
-        {/* Account Security */}
         <Card title="Account Security" icon={<Shield size={20} />}>
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -374,7 +370,6 @@ export default function SecurityPage() {
         </Card>
       </div>
 
-      {/* Save Button */}
       <div className="mt-6 flex justify-end">
         <button
           onClick={handleSave}

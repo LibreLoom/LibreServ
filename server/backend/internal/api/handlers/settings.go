@@ -22,8 +22,8 @@ func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	JSON(w, http.StatusOK, map[string]interface{}{
-		"server": map[string]interface{}{
+	response := map[string]interface{}{
+		"backend": map[string]interface{}{
 			"host": cfg.Server.Host,
 			"port": cfg.Server.Port,
 			"mode": cfg.Server.Mode,
@@ -32,7 +32,29 @@ func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 			"level": cfg.Logging.Level,
 			"path":  cfg.Logging.Path,
 		},
-	})
+	}
+
+	if cfg.Network.Caddy.Mode != "" || cfg.Network.Caddy.AdminAPI != "" {
+		proxyInfo := map[string]interface{}{
+			"type": "caddy",
+		}
+		if cfg.Network.Caddy.Mode != "" {
+			proxyInfo["mode"] = cfg.Network.Caddy.Mode
+		}
+		if cfg.Network.Caddy.AdminAPI != "" {
+			proxyInfo["admin_api"] = cfg.Network.Caddy.AdminAPI
+		}
+		if cfg.Network.Caddy.ConfigPath != "" {
+			proxyInfo["config_path"] = cfg.Network.Caddy.ConfigPath
+		}
+		if cfg.Network.Caddy.DefaultDomain != "" {
+			proxyInfo["default_domain"] = cfg.Network.Caddy.DefaultDomain
+		}
+		proxyInfo["auto_https"] = cfg.Network.Caddy.AutoHTTPS
+		response["proxy"] = proxyInfo
+	}
+
+	JSON(w, http.StatusOK, response)
 }
 
 // Update allows changing a small set of runtime settings (logging level only for now)

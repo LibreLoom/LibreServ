@@ -301,3 +301,9 @@ func IsWritableFilePath(path string) (bool, error) {
 	_ = os.Remove(name)
 	return true, nil
 }
+
+// SetTestConfig sets the global config for testing purposes.
+// This should only be used in test files.
+func SetTestConfig(cfg *Config) {
+	globalConfig = cfg
+}

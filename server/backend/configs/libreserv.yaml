@@ -5,24 +5,24 @@ server:
 database:
     path: ./dev/data/libreserv.db
 auth:
-    jwtsecret: QVmE6L0YCUBdn8J1M-tYE1oJ8PZY1gR6sPa-SBIipJQ=
-    secretfile: ""
-    csrfsecret: VhL7-NmIwOJjxVKPP_Lnj2AXBreQSTf-i4rsioSG2P8=
+    jwt_secret: 7s2GaYdYS6AAyJPaM5wA7B0KDfzZiR6DucwNcjuLVyw=
+    secret_file: ""
+    csrf_secret: eioEvRHrlYYFBT0I3XbpABWMTbcYwAnh5dYosPwHeXA=
 apps:
     data_path: ./dev/apps
     catalog_path: ./apps/builtin
 docker:
     method: auto
-    socketpath: ""
+    socket_path: ""
     tcp:
         host: ""
         port: 0
-        usetls: false
-        certpath: ""
+        use_tls: false
+        cert_path: ""
     ssh:
         host: ""
         user: ""
-        keypath: ""
+        key_path: ""
     timeout: 30s
 logging:
     level: debug
@@ -30,18 +30,18 @@ logging:
 network:
     caddy:
         mode: enabled
-        adminapi: ""
-        configpath: ""
-        certspath: ""
-        defaultdomain: ""
+        admin_api: localhost:2019
+        config_path: ./dev/caddy/Caddyfile
+        certs_path: ./dev/caddy/certs
+        default_domain: localhost
         email: ""
-        autohttps: false
+        auto_https: false
         reload:
             retries: 5
-            backoffmin: 0s
-            backoffmax: 0s
-            jitterfraction: 0
-            attempttimeout: 0s
+            backoff_min: 1s
+            backoff_max: 30s
+            jitter_fraction: 0.1
+            attempt_timeout: 10s
         logging:
             output: stdout
             file: ""
@@ -50,33 +50,33 @@ network:
     acme:
         external:
             enabled: false
-            usedocker: false
-            dockerimage: ""
-            datapath: ""
-            dnsprovider: ""
-            dnsenv: {}
+            use_docker: false
+            docker_image: ""
+            data_path: ""
+            dns_provider: ""
+            dns_env: {}
             email: ""
             staging: false
-            cadirurl: ""
-            keytype: ""
-            certspath: ""
+            ca_dir_url: ""
+            key_type: ""
+            certs_path: ""
 cors:
-    allowedorigins: []
+    allowed_origins: []
 license:
-    entitlementfile: ""
-    publickeyfile: ""
+    entitlement_file: ""
+    public_key_file: ""
 smtp:
     host: ""
     port: 587
     username: ""
     password: ""
     from: ""
-    usetls: false
-    skipverify: false
+    use_tls: false
+    skip_verify: false
 notify:
     enabled: false
-    supportrecipients: []
-    supportsubject: ""
-    supportbody: ""
-    welcomesubject: ""
-    welcomebody: ""
+    support_recipients: []
+    support_subject: ""
+    support_body: ""
+    welcome_subject: ""
+    welcome_body: ""
