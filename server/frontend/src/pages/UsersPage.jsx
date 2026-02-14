@@ -25,7 +25,7 @@ export default function UsersPage() {
         }, 500);
         const response = await api("/users");
         const data = await response.json();
-        setUsers(data.users || []);
+        setUsers(data.data || []);
       } catch (err) {
         setError(err.message);
       } finally {
