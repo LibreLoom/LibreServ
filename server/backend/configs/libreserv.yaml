@@ -5,9 +5,9 @@ server:
 database:
     path: ./dev/data/libreserv.db
 auth:
-    jwtsecret: L0AT82XLMFK7B7XnmTN9ulxhfe6kZxsAZhbZRFdExP4=
+    jwtsecret: QVmE6L0YCUBdn8J1M-tYE1oJ8PZY1gR6sPa-SBIipJQ=
     secretfile: ""
-    csrfsecret: lvuM914vfVditrRDSAHLYxN8DETQjjpy7Cz_HwKQhhk=
+    csrfsecret: VhL7-NmIwOJjxVKPP_Lnj2AXBreQSTf-i4rsioSG2P8=
 apps:
     data_path: ./dev/apps
     catalog_path: ./apps/builtin
