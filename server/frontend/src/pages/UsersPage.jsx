@@ -61,7 +61,7 @@ export default function UsersPage() {
       setUsers(users.filter((user) => user.id !== userToDelete.id));
       setShowVerification(false);
       setUserToDelete(null);
-    } catch (err) {
+    } catch {
       alert("Unable to delete user. Please try again.");
     }
   };

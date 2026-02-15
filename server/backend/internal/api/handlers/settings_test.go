@@ -93,7 +93,7 @@ func TestSettingsGet(t *testing.T) {
 		t.Errorf("expected level debug, got %v", logging["level"])
 	}
 
-	t.Log("Settings response:", string(rec.Body.Bytes()))
+	t.Log("Settings response:", rec.Body.String())
 }
 
 func TestSettingsGetNoProxy(t *testing.T) {
@@ -145,5 +145,5 @@ func TestSettingsGetNoProxy(t *testing.T) {
 		t.Error("proxy settings should not exist when caddy is not configured")
 	}
 
-	t.Log("Settings response:", string(rec.Body.Bytes()))
+	t.Log("Settings response:", rec.Body.String())
 }

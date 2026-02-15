@@ -313,7 +313,7 @@ export default function Navbar() {
         });
         const userData = await response.json();
         setUser(userData);
-      } catch (err) {
+      } catch {
         // Silently handle error - user will be shown as not logged in
       }
     };
@@ -427,7 +427,7 @@ export default function Navbar() {
                           credentials: "include",
                         });
                         window.location.href = "/";
-                      } catch (err) {
+                      } catch {
                         // Error handled by navigation
                       }
                     }}
@@ -538,7 +538,7 @@ export default function Navbar() {
                     credentials: "include",
                   });
                   window.location.href = "/";
-                } catch (err) {
+                } catch {
                   // Error handled by navigation
                 }
               }}

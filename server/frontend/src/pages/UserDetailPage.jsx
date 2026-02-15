@@ -68,7 +68,7 @@ export default function UserDetailPage() {
       });
 
       navigate("/users");
-    } catch (err) {
+    } catch {
       alert("Unable to delete user. Please try again.");
     }
   };

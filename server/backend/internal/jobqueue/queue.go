@@ -374,21 +374,6 @@ func (q *Queue) pollPendingJobs() {
 	}
 }
 
-// isInFlight checks if a job is currently being processed
-func (q *Queue) isInFlight(jobID string) bool {
-	q.inFlightMu.RLock()
-	defer q.inFlightMu.RUnlock()
-
-	if submitTime, exists := q.inFlight[jobID]; exists {
-		// Check for stale entries (> 2x job timeout)
-		if time.Since(submitTime) > 2*DefaultJobTimeout {
-			return false // Treat as not in-flight, will be cleaned up
-		}
-		return true
-	}
-	return false
-}
-
 // tryAddInFlight atomically checks if a job is already in-flight and adds it if not
 // Returns true if the job was added (wasn't already in-flight), false otherwise
 func (q *Queue) tryAddInFlight(jobID string) bool {

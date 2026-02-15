@@ -86,7 +86,7 @@ export default function Dashboard() {
   const [userLoaded, setUserLoaded] = useState(false);
 
   // Uptime state
-  const [uptimeSeconds, setUptimeSeconds] = useState(0);
+  const [, setUptimeSeconds] = useState(0);
   const [displayUptime, setDisplayUptime] = useState("Loading...");
   const uptimeRef = useRef(0);
   const uptimeIntervalRef = useRef(null);
@@ -104,7 +104,7 @@ export default function Dashboard() {
         const response = await api("/auth/me");
         const userData = await response.json();
         setUser(userData);
-      } catch (err) {
+      } catch {
         // Silently handle error - user will be shown as not logged in
       } finally {
         setUserLoaded(true);

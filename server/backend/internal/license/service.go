@@ -182,9 +182,12 @@ func signingString(ent Entitlement) string {
 
 // Valid returns whether entitlement is valid.
 func (s *Service) Valid() bool {
+	if s == nil {
+		return false
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s != nil && s.valid && !s.IsExpired()
+	return s.valid && !s.IsExpired()
 }
 
 // Reason returns a human-readable license failure reason.
@@ -199,9 +202,12 @@ func (s *Service) Reason() string {
 
 // SupportLevel returns the support level if valid.
 func (s *Service) SupportLevel() string {
+	if s == nil {
+		return ""
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s == nil || !s.valid || s.entitlement == nil {
+	if !s.valid || s.entitlement == nil {
 		return ""
 	}
 	return s.entitlement.SupportLevel
@@ -209,9 +215,12 @@ func (s *Service) SupportLevel() string {
 
 // LicenseID returns the current license ID if available.
 func (s *Service) LicenseID() string {
+	if s == nil {
+		return ""
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s == nil || s.entitlement == nil {
+	if s.entitlement == nil {
 		return ""
 	}
 	return s.entitlement.LicenseID

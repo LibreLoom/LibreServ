@@ -91,7 +91,7 @@ export function withErrorHandling(WrappedComponent) {
  * @returns {Object} API error handling utilities
  */
 export function useApiErrorHandler() {
-  const { error, isError, setError, clearError, handleError } = useErrorHandler();
+  const { error, isError, setError, clearError } = useErrorHandler();
 
   const handleApiError = useCallback((err) => {
     // Check for specific HTTP status codes

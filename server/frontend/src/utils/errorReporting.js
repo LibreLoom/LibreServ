@@ -25,7 +25,7 @@ export function reportError(error, context = {}) {
     url: window.location.href,
   };
 
-  if (process.env.NODE_ENV === 'development') {
+  if (import.meta.env.DEV) {
     console.group(`🐛 Error Report [${errorId}]`);
     console.error('Error:', error);
     console.log('Context:', enrichedContext);

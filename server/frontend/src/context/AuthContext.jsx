@@ -55,7 +55,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     try {
       await api("/auth/logout", { method: "POST" });
-    } catch (error) {
+    } catch {
       // Continue with cleanup even if logout request fails
     } finally {
       setMe(null);

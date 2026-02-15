@@ -78,7 +78,7 @@ class ErrorBoundary extends Component {
             </div>
 
             {/* Error Details (Development Only) */}
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <div className="bg-surface border border-error/20 rounded-lg p-4 mb-6">
                 <div className="flex items-center gap-2 mb-3 text-error">
                   <Bug className="w-5 h-5" />

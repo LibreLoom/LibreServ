@@ -270,7 +270,7 @@ func (s *Service) RecordEvent(ctx context.Context, event *Event) error {
 
 	var metadataJSON []byte
 	var err error
-	if event.Metadata != nil && len(event.Metadata) > 0 {
+	if len(event.Metadata) > 0 {
 		metadataJSON, err = json.Marshal(event.Metadata)
 		if err != nil {
 			return fmt.Errorf("marshal metadata: %w", err)
@@ -376,7 +376,7 @@ func (s *Service) RecordFailedLogin(username, ipAddress, userAgent, reason strin
 		recentAttempts := s.countRecentAttempts(ipWindow, windowStart)
 		if recentAttempts >= s.config.BruteForceThreshold {
 			ipWindow.lockedUntil = now.Add(s.config.LockoutDuration)
-			s.IncrementAccountsLocked()
+			s.metrics.AccountsLocked++
 			s.logger.Warn("IP address locked due to failed login attempts",
 				"ip", s.anonymizeIP(ipAddress),
 				"attempts", recentAttempts,
@@ -399,7 +399,7 @@ func (s *Service) RecordFailedLogin(username, ipAddress, userAgent, reason strin
 		recentAttempts := s.countRecentAttempts(userWindow, windowStart)
 		if recentAttempts >= s.config.BruteForceThreshold {
 			userWindow.lockedUntil = now.Add(s.config.LockoutDuration)
-			s.IncrementAccountsLocked()
+			s.metrics.AccountsLocked++
 			s.logger.Warn("User account locked due to failed login attempts",
 				"username", username,
 				"attempts", recentAttempts,
@@ -408,7 +408,7 @@ func (s *Service) RecordFailedLogin(username, ipAddress, userAgent, reason strin
 		}
 	}
 
-	s.IncrementFailedLoginsTracked()
+	s.metrics.FailedLoginsTracked++
 
 	return nil
 }
@@ -731,16 +731,6 @@ func (s *Service) shouldSendNotification(event *Event) bool {
 	}
 
 	return false
-}
-
-func (s *Service) getUserEmail(ctx context.Context, userID string) (string, error) {
-	var email string
-	query := `SELECT email FROM users WHERE id = $1`
-	err := s.db.QueryRow(query, userID).Scan(&email)
-	if err != nil {
-		return "", err
-	}
-	return email, nil
 }
 
 func (s *Service) cleanupRoutine() {

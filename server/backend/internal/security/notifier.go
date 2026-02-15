@@ -97,12 +97,12 @@ func buildSecurityEmail(event *Event) string {
 	// Event-specific message
 	switch event.EventType {
 	case EventLoginSuccess:
-		sb.WriteString(fmt.Sprintf("Someone successfully logged in to your LibreServ account.\n\n"))
+		sb.WriteString("Someone successfully logged in to your LibreServ account.\n\n")
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("IP Address: %s\n", anonymizeIPForEmail(event.IPAddress)))
 
 	case EventLoginFailed:
-		sb.WriteString(fmt.Sprintf("Someone tried to log in to your LibreServ account with an incorrect password.\n\n"))
+		sb.WriteString("Someone tried to log in to your LibreServ account with an incorrect password.\n\n")
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("IP Address: %s\n", anonymizeIPForEmail(event.IPAddress)))
 		if event.Details != "" {
@@ -110,7 +110,7 @@ func buildSecurityEmail(event *Event) string {
 		}
 
 	case EventAccountLocked:
-		sb.WriteString(fmt.Sprintf("Your LibreServ account has been temporarily locked due to multiple failed login attempts.\n\n"))
+		sb.WriteString("Your LibreServ account has been temporarily locked due to multiple failed login attempts.\n\n")
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("IP Address: %s\n", anonymizeIPForEmail(event.IPAddress)))
 		sb.WriteString("\nYour account will automatically unlock in 15 minutes.\n")
@@ -128,7 +128,7 @@ func buildSecurityEmail(event *Event) string {
 		sb.WriteString(fmt.Sprintf("Details: %s\n", sanitizeEmailContent(event.Details)))
 
 	default:
-		sb.WriteString(fmt.Sprintf("A security event occurred on your LibreServ server:\n\n"))
+		sb.WriteString("A security event occurred on your LibreServ server:\n\n")
 		sb.WriteString(fmt.Sprintf("Event: %s\n", getEventTitle(event)))
 		sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format("Jan 2, 2006 at 3:04 PM")))
 		sb.WriteString(fmt.Sprintf("Severity: %s\n", strings.ToUpper(string(event.Severity))))
@@ -158,7 +158,7 @@ func BuildDailyDigest(events []Event) (string, string) {
 
 	var sb strings.Builder
 	sb.WriteString("Hello,\n\n")
-	sb.WriteString(fmt.Sprintf("Here's a summary of security events on your LibreServ server in the last 24 hours:\n\n"))
+	sb.WriteString("Here's a summary of security events on your LibreServ server in the last 24 hours:\n\n")
 
 	// Group by type
 	eventsByType := make(map[EventType][]Event)
