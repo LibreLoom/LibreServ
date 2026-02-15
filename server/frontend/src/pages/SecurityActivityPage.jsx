@@ -48,31 +48,57 @@ export default function SecurityActivityPage() {
       setError(null);
 
       // Calculate time filter
-      const since = new Date();
+      let since;
       switch (filter) {
         case "24h":
+          since = new Date();
           since.setHours(since.getHours() - 24);
           break;
         case "7d":
+          since = new Date();
           since.setDate(since.getDate() - 7);
           break;
         case "30d":
+          since = new Date();
           since.setDate(since.getDate() - 30);
           break;
+        case "all":
+          since = null;
+          break;
         default:
+          since = new Date();
           since.setDate(since.getDate() - 7); // Default to 7 days
       }
 
-      const [eventsData, statsData] = await Promise.all([
-        getSecurityEvents({
-          limit: 100,
-          since: since.toISOString(),
-        }),
-        getSecurityStats({ since: since.toISOString() }),
-      ]);
+      const eventFilters = {
+        limit: 100,
+      };
+      if (since) {
+        eventFilters.since = since.toISOString();
+      }
+
+      const eventsData = await getSecurityEvents(eventFilters);
+      const rawEvents = Array.isArray(eventsData)
+        ? eventsData
+        : Array.isArray(eventsData?.events)
+          ? eventsData.events
+          : [];
+
+      // Stats are admin-only; keep activity visible even when stats are unavailable.
+      let statsData = null;
+      try {
+        statsData = await getSecurityStats(
+          since ? { since: since.toISOString() } : {},
+        );
+      } catch (statsErr) {
+        const status = statsErr?.cause?.status;
+        if (status !== 403) {
+          throw statsErr;
+        }
+      }
 
       // Sanitize events to prevent XSS attacks
-      const sanitizedEvents = eventsData.map((event) => sanitizeEvent(event));
+      const sanitizedEvents = rawEvents.map((event) => sanitizeEvent(event));
       setEvents(sanitizedEvents);
       setStats(statsData);
       setLastUpdated(new Date());
@@ -119,7 +145,7 @@ export default function SecurityActivityPage() {
 
       {error && (
         <div className="mt-6">
-          <ErrorDisplay error={error} />
+          <ErrorDisplay message={error} />
         </div>
       )}
 
