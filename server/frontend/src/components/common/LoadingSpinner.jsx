@@ -13,7 +13,7 @@ export default function LoadingSpinner({ size = "md" }) {
   return (
     <div className="flex justify-center items-center">
       <div
-        className={`${sizeClasses[size] || sizeClasses.md} animate-spin rounded-full border-2 border-gray-300 border-t-blue-600`}
+        className={`${sizeClasses[size] || sizeClasses.md} animate-spin rounded-full border-2 border-secondary/30 border-t-accent`}
         role="status"
         aria-label="Loading"
       >

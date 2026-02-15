@@ -131,7 +131,7 @@ export default function SettingsPage() {
       )}
 
       {successMessage && (
-        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700">
+        <div className="mt-6 p-4 bg-secondary/10 border border-secondary/30 rounded-lg flex items-center gap-2 text-secondary">
           <Check size={20} />
           <span>{successMessage}</span>
         </div>
@@ -158,8 +158,8 @@ export default function SettingsPage() {
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                     settings?.backend?.mode === "production"
-                      ? "bg-green-100 text-green-800"
-                      : "bg-yellow-100 text-yellow-800"
+                      ? "bg-secondary/15 text-secondary"
+                      : "bg-warning/15 text-warning"
                   }`}
                 >
                   {settings?.backend?.mode || "N/A"}
@@ -187,8 +187,8 @@ export default function SettingsPage() {
                     <span
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                         settings?.proxy?.mode === "production"
-                          ? "bg-green-100 text-green-800"
-                          : "bg-yellow-100 text-yellow-800"
+                          ? "bg-secondary/15 text-secondary"
+                          : "bg-warning/15 text-warning"
                       }`}
                     >
                       {settings?.proxy?.mode}
@@ -214,8 +214,8 @@ export default function SettingsPage() {
                   <span
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       settings?.proxy?.auto_https
-                        ? "bg-green-100 text-green-800"
-                        : "bg-gray-100 text-gray-800"
+                        ? "bg-secondary/15 text-secondary"
+                        : "bg-accent/20 text-accent"
                     }`}
                   >
                     {settings?.proxy?.auto_https ? "true" : "false"}
@@ -240,7 +240,7 @@ export default function SettingsPage() {
                 id="log-level"
                 value={logLevel}
                 onChange={(e) => handleLogLevelChange(e.target.value)}
-                className="w-full px-3 py-2 border border-secondary/30 rounded-lg bg-primary text-secondary focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-secondary/30 rounded-lg bg-primary text-secondary focus:outline-none focus:ring-2 focus:ring-accent"
                 aria-label="Select log level"
               >
                 <option value="debug">Debug</option>
@@ -273,15 +273,15 @@ export default function SettingsPage() {
             </div>
             <button
               onClick={handleDarkModeToggle}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                darkMode ? "bg-blue-600" : "bg-gray-200"
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 ${
+                darkMode ? "bg-accent" : "bg-secondary/20"
               }`}
               role="switch"
               aria-checked={darkMode}
               aria-label="Toggle dark mode"
             >
               <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                className={`inline-block h-4 w-4 transform rounded-full bg-primary transition-transform ${
                   darkMode ? "translate-x-6" : "translate-x-1"
                 }`}
               />
@@ -319,7 +319,7 @@ export default function SettingsPage() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-secondary text-primary font-medium rounded-lg hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? (
             <>

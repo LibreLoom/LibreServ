@@ -122,11 +122,11 @@ export default function SecurityActivityPage() {
   const getSeverityIcon = (severity) => {
     switch (severity) {
       case "critical":
-        return <AlertTriangle size={18} className="text-red-500" />;
+        return <AlertTriangle size={18} className="text-error" />;
       case "warning":
-        return <AlertTriangle size={18} className="text-yellow-500" />;
+        return <AlertTriangle size={18} className="text-warning" />;
       default:
-        return <CheckCircle size={18} className="text-blue-500" />;
+        return <CheckCircle size={18} className="text-accent" />;
     }
   };
 
@@ -153,25 +153,25 @@ export default function SecurityActivityPage() {
       {!loading && stats && (
         <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card className="text-center">
-            <div className="text-3xl font-bold text-blue-600">
+            <div className="text-3xl font-bold text-accent">
               {stats.total_events}
             </div>
             <div className="text-sm text-accent mt-1">Total Events</div>
           </Card>
           <Card className="text-center">
-            <div className="text-3xl font-bold text-green-600">
+            <div className="text-3xl font-bold text-secondary">
               {stats.successful_logins}
             </div>
             <div className="text-sm text-accent mt-1">Successful Logins</div>
           </Card>
           <Card className="text-center">
-            <div className="text-3xl font-bold text-yellow-600">
+            <div className="text-3xl font-bold text-warning">
               {stats.failed_logins}
             </div>
             <div className="text-sm text-accent mt-1">Failed Attempts</div>
           </Card>
           <Card className="text-center">
-            <div className="text-3xl font-bold text-red-600">
+            <div className="text-3xl font-bold text-error">
               {stats.critical_events}
             </div>
             <div className="text-sm text-accent mt-1">Critical Events</div>
@@ -186,7 +186,7 @@ export default function SecurityActivityPage() {
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="px-3 py-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 border rounded-lg bg-primary focus:outline-none focus:ring-2 focus:ring-accent"
           >
             <option value="24h">Last 24 hours</option>
             <option value="7d">Last 7 days</option>
@@ -204,7 +204,7 @@ export default function SecurityActivityPage() {
           <button
             onClick={loadData}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-secondary/10 disabled:opacity-50 transition-colors"
           >
             <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
             Refresh
@@ -220,7 +220,7 @@ export default function SecurityActivityPage() {
           </div>
         ) : events.length === 0 ? (
           <div className="text-center py-12">
-            <Shield size={48} className="mx-auto text-gray-300 mb-4" />
+            <Shield size={48} className="mx-auto text-secondary/30 mb-4" />
             <h3 className="text-lg font-medium text-secondary">
               No security events found
             </h3>
@@ -255,7 +255,7 @@ export default function SecurityActivityPage() {
                 {events.map((event) => (
                   <tr
                     key={event.id}
-                    className="hover:bg-gray-50 transition-colors"
+                    className="hover:bg-secondary/10 transition-colors"
                   >
                     <td className="py-3 px-4 text-sm whitespace-nowrap">
                       {formatTimestamp(event.timestamp)}
@@ -294,38 +294,38 @@ export default function SecurityActivityPage() {
       {/* Security Tips */}
       <Card className="mt-6" title="Security Tips" icon={<Shield size={20} />}>
         <div className="grid md:grid-cols-2 gap-4">
-          <div className="p-4 bg-blue-50 rounded-lg">
-            <h4 className="font-medium text-blue-900 mb-2">
+          <div className="p-4 bg-secondary/10 rounded-lg">
+            <h4 className="font-medium text-secondary mb-2">
               Use a Strong Password
             </h4>
-            <p className="text-sm text-blue-700">
+            <p className="text-sm text-accent">
               Use a unique, strong password for your LibreServ account. Consider
               using a password manager.
             </p>
           </div>
-          <div className="p-4 bg-green-50 rounded-lg">
-            <h4 className="font-medium text-green-900 mb-2">
+          <div className="p-4 bg-secondary/10 rounded-lg">
+            <h4 className="font-medium text-secondary mb-2">
               Monitor Your Account
             </h4>
-            <p className="text-sm text-green-700">
+            <p className="text-sm text-accent">
               Regularly review your security activity log to ensure there are no
               unauthorized access attempts.
             </p>
           </div>
-          <div className="p-4 bg-yellow-50 rounded-lg">
-            <h4 className="font-medium text-yellow-900 mb-2">
+          <div className="p-4 bg-warning/10 rounded-lg">
+            <h4 className="font-medium text-warning mb-2">
               Enable Notifications
             </h4>
-            <p className="text-sm text-yellow-700">
+            <p className="text-sm text-accent">
               Turn on security notifications to stay informed about important
               account activity.
             </p>
           </div>
-          <div className="p-4 bg-purple-50 rounded-lg">
-            <h4 className="font-medium text-purple-900 mb-2">
+          <div className="p-4 bg-secondary/10 rounded-lg">
+            <h4 className="font-medium text-secondary mb-2">
               Keep Software Updated
             </h4>
-            <p className="text-sm text-purple-700">
+            <p className="text-sm text-accent">
               Ensure your LibreServ and all installed apps are kept up to date
               with the latest security patches.
             </p>

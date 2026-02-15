@@ -133,9 +133,9 @@ export function getEventTypeDisplayName(eventType) {
  */
 export function getSeverityColor(severity) {
   const colors = {
-    info: "text-blue-600 bg-blue-50",
-    warning: "text-yellow-600 bg-yellow-50",
-    critical: "text-red-600 bg-red-50",
+    info: "text-accent bg-secondary/10",
+    warning: "text-warning bg-warning/10",
+    critical: "text-error bg-error/10",
   };
   return colors[severity] || colors.info;
 }

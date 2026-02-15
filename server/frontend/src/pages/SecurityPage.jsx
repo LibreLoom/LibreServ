@@ -176,7 +176,7 @@ export default function SecurityPage() {
       )}
 
       {successMessage && (
-        <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700">
+        <div className="mt-6 p-4 bg-secondary/10 border border-secondary/30 rounded-lg flex items-center gap-2 text-secondary">
           <Check size={20} />
           <span>{successMessage}</span>
         </div>
@@ -186,8 +186,8 @@ export default function SecurityPage() {
         <div
           className={`mt-6 p-4 rounded-lg flex items-center gap-2 ${
             testResult.success
-              ? "bg-green-50 border border-green-200 text-green-700"
-              : "bg-red-50 border border-red-200 text-red-700"
+              ? "bg-secondary/10 border border-secondary/30 text-secondary"
+              : "bg-error/10 border border-error/20 text-error"
           }`}
         >
           {testResult.success ? <Check size={20} /> : <AlertCircle size={20} />}
@@ -207,16 +207,16 @@ export default function SecurityPage() {
               </div>
               <button
                 onClick={() => handleToggle("notifications_enabled")}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 ${
                   settings?.notifications_enabled
-                    ? "bg-blue-600"
-                    : "bg-gray-200"
+                    ? "bg-accent"
+                    : "bg-secondary/20"
                 }`}
                 role="switch"
                 aria-checked={settings?.notifications_enabled}
               >
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  className={`inline-block h-4 w-4 transform rounded-full bg-primary transition-transform ${
                     settings?.notifications_enabled
                       ? "translate-x-6"
                       : "translate-x-1"
@@ -331,7 +331,7 @@ export default function SecurityPage() {
                   Temporarily lock accounts after 5 failed login attempts
                 </p>
               </div>
-              <div className="flex items-center gap-2 text-green-600">
+              <div className="flex items-center gap-2 text-secondary">
                 <Check size={18} />
                 <span className="text-sm font-medium">Enabled</span>
               </div>
@@ -360,7 +360,7 @@ export default function SecurityPage() {
               <button
                 onClick={handleTestNotification}
                 disabled={testing || !settings?.notifications_enabled}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-secondary text-primary rounded-lg hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <Mail size={18} />
                 {testing ? "Sending..." : "Send Test Notification"}
@@ -374,7 +374,7 @@ export default function SecurityPage() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-secondary text-primary font-medium rounded-lg hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? (
             <>
