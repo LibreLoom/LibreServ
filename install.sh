@@ -4,7 +4,7 @@ set -e
 # LibreServ Installation Script
 # Usage: curl -fsSL https://gt.plainskill.net/libreloom/libreserv/raw/branch/main/install.sh | sudo sh
 
-GITHUB_REPO="libreloom/libreserv"
+GITHUB_REPO="LibreLoom/LibreServ"
 GITEA_URL="https://gt.plainskill.net"
 INSTALL_DIR="/opt/libreserv"
 BIN_DIR="/usr/local/bin"
@@ -59,7 +59,7 @@ if ! command -v go >/dev/null 2>&1; then
                 ;;
             *)
                 echo ">> Installing Go from official source..."
-                GO_VERSION="1.23.4"
+                GO_VERSION="1.25.0"
                 GO_TARBALL="go${GO_VERSION}.${OS}-${ARCH}.tar.gz"
                 curl -L "https://go.dev/dl/${GO_TARBALL}" -o "/tmp/${GO_TARBALL}"
                 rm -rf /usr/local/go
@@ -75,7 +75,7 @@ if ! command -v go >/dev/null 2>&1; then
             brew install go
         else
             echo ">> Installing Go from official source..."
-            GO_VERSION="1.23.4"
+            GO_VERSION="1.25.0"
             GO_TARBALL="go${GO_VERSION}.${OS}-${ARCH}.tar.gz"
             curl -L "https://go.dev/dl/${GO_TARBALL}" -o "/tmp/${GO_TARBALL}"
             rm -rf /usr/local/go

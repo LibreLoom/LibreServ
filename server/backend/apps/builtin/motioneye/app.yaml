@@ -1,0 +1,139 @@
+id: motioneye
+name: MotionEye
+description: Simple, web-based frontend for motion detection with easy camera management
+version: "0.43.0"
+category: security
+icon: https://raw.githubusercontent.com/motioneye-project/motioneye/master/motioneye/static/img/motioneye-logo.svg
+website: https://github.com/motioneye-project/motioneye
+repository: https://github.com/motioneye-project/motioneye
+featured: false
+
+deployment:
+  compose_file: docker-compose.yml
+  ports:
+    - host: 8765
+      container: 8765
+      protocol: tcp
+  volumes:
+    - name: config
+      mount_path: /etc/motioneye
+    - name: data
+      mount_path: /var/lib/motioneye
+  restart_policy: unless-stopped
+  privileged: true
+
+configuration:
+  - name: http_port
+    label: Web Interface Port
+    description: Port to access MotionEye web interface
+    type: port
+    default: 8765
+    required: true
+    env_var: MOTIONEYE_HTTP_PORT
+  - name: admin_password
+    label: Admin Password
+    description: Password for the admin user (default is no password)
+    type: password
+    required: false
+    env_var: MOTIONEYE_ADMIN_PASSWORD
+  - name: enable_usb_cameras
+    label: Enable USB Cameras
+    description: Allow access to USB cameras (requires privileged mode)
+    type: boolean
+    default: true
+    required: false
+  - name: enable_network_cameras
+    label: Enable Network Cameras
+    description: Allow adding network/RTSP cameras
+    type: boolean
+    default: true
+    required: false
+  - name: timezone
+    label: Timezone
+    description: Timezone for MotionEye (e.g., America/New_York, Europe/London)
+    type: string
+    default: "UTC"
+    required: false
+    env_var: TZ
+
+health_check:
+  type: http
+  endpoint: /
+  port: 8765
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+requirements:
+  min_ram: "512M"
+  min_cpu: 0.5
+  min_disk: "5G"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: true
+  allow_downgrade: false
+
+features:
+  access_model: shared_account
+  backup: supported
+  update_behavior:
+    automatic: false
+    requires_downtime: true
+    supports_rollback: true
+  sso: false
+  custom_domains: true
+  resource_hints:
+    privileged_required: true
+
+scripts:
+  system:
+    setup: scripts/system-setup
+    update: scripts/system-update
+    repair: scripts/system-repair
+    backup: scripts/system-backup
+    restore: scripts/system-restore
+  actions:
+    - name: view-logs
+      label: "View Logs"
+      description: "View MotionEye application logs"
+      script: scripts/view-logs
+
+documentation:
+  description: |
+    MotionEye is a web-based frontend for motion, making it easy to turn network cameras 
+    or USB cameras into a home surveillance system. All configuration is done through 
+    the web interface - no YAML editing required!
+  
+  getting_started: |
+    1. Access the web interface at http://your-server:8765
+    2. Default login: username "admin", no password (set one in Settings)
+    3. Click the menu (☰) → "Add Camera" to add your first camera
+    4. For network cameras, enter the RTSP URL
+    5. For USB cameras, select from the dropdown
+  
+  important: |
+    - First login uses username "admin" with NO password
+    - Set a password immediately in Settings → General Settings
+    - USB cameras require privileged mode (enabled by default)
+    - Network cameras need RTSP URLs (rtsp://ip:port/path)
+    - Check your camera documentation for the correct RTSP URL format
+  
+  camera_urls: |
+    Common RTSP URL formats:
+    - Hikvision: rtsp://user:pass@ip:554/Streaming/Channels/101
+    - Reolink: rtsp://user:pass@ip:554/h264Preview_01_main
+    - TP-Link: rtsp://user:pass@ip:554/stream1
+    - Amcrest: rtsp://user:pass@ip:554/cam/realmonitor?channel=1&subtype=0
+  
+  authentication: |
+    IMPORTANT: MotionEye does NOT support SSO, LDAP, or multi-user authentication natively.
+    It uses a single "admin" user with a simple password.
+    
+    For enhanced security, use LibreServ's built-in authentication or Caddy reverse proxy
+    to add authentication in front of the MotionEye interface.
+    
+    See: https://github.com/motioneye-project/motioneye/issues/1470

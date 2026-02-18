@@ -1,0 +1,148 @@
+id: frigate
+name: Frigate
+description: Open source NVR with real-time AI object detection for IP cameras
+version: "0.15.0"
+category: security
+icon: https://raw.githubusercontent.com/blakeblackshear/frigate/dev/web/public/images/favicon.svg
+website: https://frigate.video
+repository: https://github.com/blakeblackshear/frigate
+featured: false
+
+deployment:
+  compose_file: docker-compose.yml
+  ports:
+    - host: 8971
+      container: 8971
+      protocol: tcp
+    - host: 8554
+      container: 8554
+      protocol: tcp
+    - host: 8555
+      container: 8555
+      protocol: tcp
+    - host: 8555
+      container: 8555
+      protocol: udp
+  volumes:
+    - name: config
+      mount_path: /config
+    - name: media
+      mount_path: /media/frigate
+    - name: cache
+      mount_path: /tmp/cache
+  restart_policy: unless-stopped
+  shm_size: "512mb"
+
+configuration:
+  - name: http_port
+    label: Web Interface Port
+    description: Port to access Frigate web interface (8971 recommended)
+    type: port
+    default: 8971
+    required: true
+    env_var: FRIGATE_HTTP_PORT
+  - name: rtsp_password
+    label: RTSP Password
+    description: Password for RTSP streams (strongly recommended)
+    type: password
+    required: true
+    env_var: FRIGATE_RTSP_PASSWORD
+  - name: mqtt_host
+    label: MQTT Broker Host
+    description: Hostname of MQTT broker (optional, recommended for Home Assistant)
+    type: string
+    default: ""
+    required: false
+    env_var: MQTT_HOST
+  - name: mqtt_port
+    label: MQTT Broker Port
+    description: Port of MQTT broker
+    type: port
+    default: 1883
+    required: false
+    env_var: MQTT_PORT
+  - name: mqtt_user
+    label: MQTT Username
+    description: Username for MQTT broker authentication (optional)
+    type: string
+    default: ""
+    required: false
+    env_var: MQTT_USER
+  - name: mqtt_password
+    label: MQTT Password
+    description: Password for MQTT broker authentication (optional)
+    type: password
+    required: false
+    env_var: MQTT_PASSWORD
+  - name: shm_size
+    label: Shared Memory Size
+    description: Shared memory size in MB (increase for more/higher resolution cameras)
+    type: string
+    default: "512mb"
+    required: true
+  - name: enable_gpu
+    label: Enable GPU Acceleration
+    description: Enable GPU hardware acceleration for video decoding (requires compatible hardware)
+    type: boolean
+    default: false
+    required: false
+  - name: enable_coral
+    label: Enable Coral TPU
+    description: Enable Google Coral USB TPU for object detection (optional)
+    type: boolean
+    default: false
+    required: false
+
+health_check:
+  type: http
+  endpoint: /api/version
+  port: 8971
+  interval: 30s
+  timeout: 10s
+  retries: 3
+
+requirements:
+  min_ram: "2G"
+  min_cpu: 1.0
+  min_disk: "10G"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: true
+  allow_downgrade: false
+
+scripts:
+  system:
+    setup: scripts/system-setup
+    update: scripts/system-update
+    repair: scripts/system-repair
+    backup: scripts/system-backup
+    restore: scripts/system-restore
+  actions:
+    - name: view-logs
+      label: "View Logs"
+      description: "View Frigate application logs"
+      script: scripts/view-logs
+
+documentation:
+  description: |
+    Frigate is an open source NVR built around real-time AI object detection.
+    All processing is performed locally on your own hardware.
+  
+  important: |
+    Before using Frigate, you must configure your cameras in the config.yml file.
+    The configuration file will be created in your data directory on first run.
+  
+  post_install: |
+    1. Access the web interface at http://your-server:8971
+    2. Edit /config/config.yml to add your cameras
+    3. See https://docs.frigate.video/configuration/ for camera configuration
+  
+  hardware_requirements: |
+    For optimal performance with multiple cameras:
+    - Coral TPU (USB or PCIe) highly recommended
+    - Intel QuickSync or VA-API compatible GPU for hardware acceleration
+    - Sufficient RAM and shared memory (shm_size) for camera resolution

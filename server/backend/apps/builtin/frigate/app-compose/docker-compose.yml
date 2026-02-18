@@ -1,0 +1,45 @@
+services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:0.15.0
+    container_name: "{{.instance_id}}-frigate"
+    privileged: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    shm_size: "{{.shm_size}}"
+    ports:
+      - "{{.http_port}}:8971"
+      - "8554:8554"
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
+    environment:
+      - "FRIGATE_RTSP_PASSWORD={{.rtsp_password}}"
+{{- if .mqtt_host }}
+      - "MQTT_HOST={{.mqtt_host}}"
+      - "MQTT_PORT={{.mqtt_port}}"
+{{- if .mqtt_user }}
+      - "MQTT_USER={{.mqtt_user}}"
+{{- end }}
+{{- if .mqtt_password }}
+      - "MQTT_PASSWORD={{.mqtt_password}}"
+{{- end }}
+{{- end }}
+    volumes:
+      - "{{ configPath }}/frigate:/config"
+      - "{{ dataPath }}/frigate/media:/media/frigate"
+      - /etc/localtime:/etc/localtime:ro
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: 1000000000
+{{- if or .enable_coral .enable_gpu }}
+    devices:
+{{- if .enable_coral }}
+      - /dev/bus/usb:/dev/bus/usb
+{{- end }}
+{{- if .enable_gpu }}
+      - /dev/dri:/dev/dri
+{{- end }}
+{{- end }}
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"

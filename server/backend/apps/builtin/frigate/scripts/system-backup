@@ -1,0 +1,57 @@
+#!/bin/bash
+# system-backup - Frigate backup script
+# Creates backup of Frigate configuration and data
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+# Parse config
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+
+echo ">> [Frigate] Starting backup..."
+echo ">> Instance ID: $INSTANCE_ID"
+echo ">> Data path: $APP_DATA_PATH"
+
+# Create backup directory
+BACKUP_DIR="$APP_DATA_PATH/frigate/backups/backup-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+echo ">> Backing up configuration..."
+if [[ -d "$APP_DATA_PATH/frigate/config" ]]; then
+    cp -r "$APP_DATA_PATH/frigate/config" "$BACKUP_DIR/"
+fi
+
+echo ">> Backing up exports..."
+if [[ -d "$APP_DATA_PATH/frigate/media/exports" ]]; then
+    mkdir -p "$BACKUP_DIR/exports"
+    cp -r "$APP_DATA_PATH/frigate/media/exports" "$BACKUP_DIR/"
+fi
+
+# Create backup metadata
+METADATA_FILE="$BACKUP_DIR/backup-metadata.json"
+cat > "$METADATA_FILE" << EOF
+{
+  "app_id": "frigate",
+  "instance_id": "$INSTANCE_ID",
+  "backup_date": "$(date -Iseconds)",
+  "version": "0.15.0",
+  "backup_type": "full",
+  "contents": [
+    "config",
+    "exports"
+  ]
+}
+EOF
+
+echo ">> [Frigate] Backup completed successfully"
+echo ">> Backup location: $BACKUP_DIR"
+
+# Output metadata for caller
+cat "$METADATA_FILE"
+exit 0

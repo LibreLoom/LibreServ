@@ -54,7 +54,7 @@ export default function Login() {
           this issue, try contacting support for assistance.
         </p>
       );
-    } else if (errorStatus == "NetworkError") {
+    } else if (errorStatus === "NetworkError") {
       return (
         <p>
           Check your device's connection to the internet. (Not your LibreServ's,
@@ -95,21 +95,13 @@ export default function Login() {
   }
   async function handleSubmit(e) {
     e.preventDefault();
-    // Guard against empty fields and double-submits.
     if (!username || !password || loading) return;
     setLoading(true);
-    setErrorStatus(null);
     try {
       await login(username, password);
-      // Reload to re-run auth bootstrap and reset any stale state.
       window.location.reload();
-    } catch (errorStatus) {
-      // Normalize errors so the UI can render a targeted message.
-      if (!errorStatus.cause?.status) {
-        setErrorStatus("NetworkError");
-      } else {
-        setErrorStatus(errorStatus.cause?.status);
-      }
+    } catch (err) {
+      setErrorStatus(err.cause?.status || "NetworkError");
       setLoading(false);
     }
   }
@@ -177,7 +169,7 @@ export default function Login() {
             {loading ? "Loading..." : "Login"}
           </button>
           <div
-            className={`text-accent ${errorStatus ? "mt-4" : ""}`}
+            className={`text-accent overflow-hidden transition-all duration-300 ease-in-out ${errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0"}`}
             role="alert"
             aria-live="assertive"
             ref={errorRef}

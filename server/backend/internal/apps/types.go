@@ -61,9 +61,33 @@ type AppDefinition struct {
 	// Script configuration
 	Scripts ScriptConfig `yaml:"scripts,omitempty" json:"scripts,omitempty"`
 
+	// App features and capabilities (Feature Matrix v2)
+	Features AppFeatures `yaml:"features,omitempty" json:"features,omitempty"`
+
 	// Internal metadata (not from YAML)
 	Type        AppType `yaml:"-" json:"type"`
 	CatalogPath string  `yaml:"-" json:"-"`
+}
+
+type AppFeatures struct {
+	// Basic app flags (backward compatible)
+	ReadOnly      bool     `yaml:"read_only,omitempty" json:"read_only,omitempty"`
+	NoUninstall   bool     `yaml:"no_uninstall,omitempty" json:"no_uninstall,omitempty"`
+	Experimental  bool     `yaml:"experimental,omitempty" json:"experimental,omitempty"`
+	RequiresRoot  bool     `yaml:"requires_root,omitempty" json:"requires_root,omitempty"`
+	RequiresGPU   bool     `yaml:"requires_gpu,omitempty" json:"requires_gpu,omitempty"`
+	SupportedOS   []string `yaml:"supported_os,omitempty" json:"supported_os,omitempty"`
+	UnsupportedOS []string `yaml:"unsupported_os,omitempty" json:"unsupported_os,omitempty"`
+	MinRAM        int      `yaml:"min_ram,omitempty" json:"min_ram,omitempty"`
+	MinCPU        int      `yaml:"min_cpu,omitempty" json:"min_cpu,omitempty"`
+
+	// Feature Matrix (v2 design)
+	AccessModel    AccessModel    `yaml:"access_model,omitempty" json:"access_model,omitempty"`
+	Backup         FeatureSupport `yaml:"backup,omitempty" json:"backup,omitempty"`
+	UpdateBehavior UpdateBehavior `yaml:"update_behavior,omitempty" json:"update_behavior,omitempty"`
+	SSO            bool           `yaml:"sso,omitempty" json:"sso,omitempty"`
+	CustomDomains  bool           `yaml:"custom_domains,omitempty" json:"custom_domains,omitempty"`
+	ResourceHints  ResourceHints  `yaml:"resource_hints,omitempty" json:"resource_hints,omitempty"`
 }
 
 // DeploymentConfig contains Docker deployment settings
@@ -336,4 +360,54 @@ type ScriptExecutionConfig struct {
 type RuntimeInfo struct {
 	ComposeFile string `json:"compose_file"`
 	ProjectName string `json:"project_name"`
+}
+
+// AccessModel defines how users access this app
+type AccessModel string
+
+const (
+	AccessModelSharedAccount   AccessModel = "shared_account"
+	AccessModelIntegratedUsers AccessModel = "integrated_users"
+	AccessModelExternalAuth    AccessModel = "external_auth"
+	AccessModelPublic          AccessModel = "public"
+)
+
+// FeatureSupport indicates whether a feature is supported
+type FeatureSupport string
+
+const (
+	FeatureSupported   FeatureSupport = "supported"
+	FeatureUnsupported FeatureSupport = "not_supported"
+)
+
+// UpdateBehavior describes how updates work for this app
+type UpdateBehavior struct {
+	Automatic        bool `yaml:"automatic" json:"automatic"`
+	RequiresDowntime bool `yaml:"requires_downtime" json:"requires_downtime"`
+	SupportsRollback bool `yaml:"supports_rollback" json:"supports_rollback"`
+}
+
+// ResourceHints provides hints about resource requirements
+type ResourceHints struct {
+	SingleInstance     bool `yaml:"single_instance,omitempty" json:"single_instance,omitempty"`
+	PrivilegedRequired bool `yaml:"privileged_required,omitempty" json:"privileged_required,omitempty"`
+}
+
+// GetDefaultFeatures returns the default feature set for apps that don't declare features
+func GetDefaultFeatures() AppFeatures {
+	return AppFeatures{
+		AccessModel: AccessModelIntegratedUsers,
+		Backup:      FeatureSupported,
+		UpdateBehavior: UpdateBehavior{
+			Automatic:        false,
+			RequiresDowntime: true,
+			SupportsRollback: false,
+		},
+		SSO:           true,
+		CustomDomains: true,
+		ResourceHints: ResourceHints{
+			SingleInstance:     false,
+			PrivilegedRequired: false,
+		},
+	}
 }
