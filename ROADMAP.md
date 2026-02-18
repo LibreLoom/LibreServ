@@ -59,7 +59,7 @@ Installs an app → It works → Creates backup → Done
 
 **User Journey:**
 1. User opens browser to device IP
-2. Seets welcome screen with plain-language intro
+2. Sees welcome screen with plain-language intro
 3. Enters admin username, password, email
 4. Sees preflight checks (Docker OK, Disk OK, etc.)
 5. Clicks "Complete Setup"
