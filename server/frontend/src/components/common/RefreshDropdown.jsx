@@ -13,7 +13,7 @@ const REFRESH_INTERVALS = [
   { label: "1 hour", value: 3600000 },
 ];
 
-export default function RefreshDropdown({ value, onChange }) {
+export default function RefreshDropdown({ value, onChange, onOpenChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
   const containerRef = useRef(null);
@@ -42,11 +42,13 @@ export default function RefreshDropdown({ value, onChange }) {
         return;
       }
       setIsOpen(false);
+      onOpenChange?.(false);
     }
 
     function handleEscape(event) {
       if (event.key === "Escape") {
         setIsOpen(false);
+        onOpenChange?.(false);
         buttonRef.current?.focus();
       }
     }
@@ -70,7 +72,7 @@ export default function RefreshDropdown({ value, onChange }) {
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", handleScroll);
     };
-  }, [isOpen]);
+  }, [isOpen, onOpenChange]);
 
   const handleSelect = (intervalValue) => {
     onChange(intervalValue);
@@ -81,7 +83,9 @@ export default function RefreshDropdown({ value, onChange }) {
     if (!isOpen) {
       updatePosition();
     }
-    setIsOpen(!isOpen);
+    const newState = !isOpen;
+    setIsOpen(newState);
+    onOpenChange?.(newState);
   };
 
   return (
@@ -96,7 +100,7 @@ export default function RefreshDropdown({ value, onChange }) {
         aria-label={`Refresh interval: ${selectedInterval?.label || "select"}`}
       >
         <span className="text-accent">Refresh Interval:</span>
-        <span className="font-mono">{selectedInterval?.label || "Select..."}</span>
+        <span className="font-sans">{selectedInterval?.label || "Select..."}</span>
       </button>
 
       {isOpen && createPortal(
@@ -109,7 +113,7 @@ export default function RefreshDropdown({ value, onChange }) {
             left: position.left,
             width: position.width,
           }}
-          className="bg-primary text-secondary ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
+          className="bg-primary text-secondary ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
           tabIndex={-1}
         >
           {REFRESH_INTERVALS.map((interval) => (

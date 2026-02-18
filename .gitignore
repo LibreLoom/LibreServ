@@ -7,6 +7,11 @@ bin/
 *.out
 go.work
 
+# CI binaries - DON'T ignore these
+!ci-source/bin/
+!ci.exe
+!ci
+
 # Playwright
 /playwright-cli/
 /.playwright-cli/
@@ -61,7 +66,6 @@ server/backend/bin/
 # Temp
 tmp/
 *.swp
-bin/
 *.tar.gz
 libreserv
 *.pid
