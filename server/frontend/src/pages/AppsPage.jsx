@@ -163,10 +163,6 @@ export default function AppsPage() {
     return matchesSearch && matchesCategory;
   });
 
-  if (loading) {
-    return <LoadingFast label="Loading apps..." heading="App Catalog" />;
-  }
-
   if (error) {
     return (
       <main className="bg-primary text-secondary px-8 pt-5 pb-32">
