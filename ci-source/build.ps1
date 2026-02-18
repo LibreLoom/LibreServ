@@ -1,74 +1,60 @@
-# Build CI for all platforms
+# Build CI binaries for all platforms
 $ErrorActionPreference = "Stop"
 
-Write-Host "Building CI for all platforms..."
+Push-Location
+try {
+    Set-Location $PSScriptRoot
 
-# Build main CI binary for all platforms
-Write-Host "  Linux amd64..."
-$env:GOOS = "linux"
-$env:GOARCH = "amd64"
-go build -o bin/ci-linux-amd64 .\cmd\ci
+    Write-Host "Building CI binaries for all platforms..."
 
-Write-Host "  macOS amd64..."
-$env:GOOS = "darwin"
-$env:GOARCH = "amd64"
-go build -o bin/ci-darwin-amd64 .\cmd\ci
+    # Linux
+    Write-Host "  Linux amd64..."
+    $env:GOOS = "linux"; $env:GOARCH = "amd64"
+    go build -o bin/ci-linux-amd64 ./cmd/ci
 
-Write-Host "  macOS arm64..."
-$env:GOOS = "darwin"
-$env:GOARCH = "arm64"
-go build -o bin\ci-darwin-arm64 .\cmd\ci
+    Write-Host "  Linux arm64..."
+    $env:GOOS = "linux"; $env:GOARCH = "arm64"
+    go build -o bin/ci-linux-arm64 ./cmd/ci
 
-Write-Host "  Windows amd64..."
-$env:GOOS = "windows"
-$env:GOARCH = "amd64"
-go build -o bin\ci-windows-amd64.exe .\cmd\ci
+    # macOS
+    Write-Host "  macOS amd64..."
+    $env:GOOS = "darwin"; $env:GOARCH = "amd64"
+    go build -o bin/ci-darwin-amd64 ./cmd/ci
 
-# Build launchers for all platforms
-Write-Host "  Launcher Linux..."
-$env:GOOS = "linux"
-$env:GOARCH = "amd64"
-go build -o bin\launcher-linux-amd64 .\cmd\ci-launcher
+    Write-Host "  macOS arm64..."
+    $env:GOOS = "darwin"; $env:GOARCH = "arm64"
+    go build -o bin/ci-darwin-arm64 ./cmd/ci
 
-Write-Host "  Launcher macOS amd64..."
-$env:GOOS = "darwin"
-$env:GOARCH = "amd64"
-go build -o bin\launcher-darwin-amd64 .\cmd\ci-launcher
+    # FreeBSD
+    Write-Host "  FreeBSD amd64..."
+    $env:GOOS = "freebsd"; $env:GOARCH = "amd64"
+    go build -o bin/ci-freebsd-amd64 ./cmd/ci
 
-Write-Host "  Launcher macOS arm64..."
-$env:GOOS = "darwin"
-$env:GOARCH = "arm64"
-go build -o bin\launcher-darwin-arm64 .\cmd\ci-launcher
+    Write-Host "  FreeBSD arm64..."
+    $env:GOOS = "freebsd"; $env:GOARCH = "arm64"
+    go build -o bin/ci-freebsd-arm64 ./cmd/ci
 
-Write-Host "  Launcher Windows..."
-$env:GOOS = "windows"
-$env:GOARCH = "amd64"
-go build -o bin\launcher-windows-amd64.exe .\cmd\ci-launcher
+    # Windows
+    Write-Host "  Windows amd64..."
+    $env:GOOS = "windows"; $env:GOARCH = "amd64"
+    go build -o bin/ci-windows-amd64.exe ./cmd/ci
 
-# Reset Go env
-$env:GOOS = ""
-$env:GOARCH = ""
+    Write-Host "  Windows arm64..."
+    $env:GOOS = "windows"; $env:GOARCH = "arm64"
+    go build -o bin/ci-windows-arm64.exe ./cmd/ci
 
-# Install to root
-Write-Host "Installing to root..."
+    # Reset environment
+    $env:GOOS = ""; $env:GOARCH = ""
 
-# Determine current platform
-$os = $env:OS
-$arch = $env:PROCESSOR_ARCHITECTURE
+    # Build Windows launcher
+    Write-Host "Building Windows launcher..."
+    Set-Location ..
+    go build -o ci.exe ./ci-source/cmd/ci-launcher
 
-if ($os -eq "Windows_NT") {
-    $platform = "windows-amd64"
-} else {
-    Write-Host "Unknown platform"
-    exit 1
+    Write-Host ""
+    Write-Host "Done! Binaries in ci-source/bin/"
+    Get-ChildItem ci-source/bin
 }
-
-# Copy Windows launcher as ./ci.exe
-Copy-Item "bin\launcher-windows-amd64.exe" "..\ci.exe"
-
-# Copy Unix launcher (for WSL or people who dual-boot)
-Copy-Item "bin\launcher-linux-amd64" "..\ci-unix"
-Set-ItemProperty -Path "..\ci-unix" -Name IsReadOnly -Value $false
-# Actually, for Windows we probably just want ci.exe - let's make ci point to the Unix one for WSL detection
-
-Write-Host "Done! Installed ./ci.exe ($platform)"
+finally {
+    Pop-Location
+}

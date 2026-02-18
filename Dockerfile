@@ -30,6 +30,8 @@ COPY --from=backend-builder /app/backend/bin/libreserv /app/libreserv
 COPY --from=frontend-builder /app/backend/OS/dist /app/OS/dist
 # Copy default configs
 COPY server/backend/configs /app/configs
+# Copy apps catalog
+COPY server/backend/apps /app/apps
 
 EXPOSE 8080
 ENTRYPOINT ["/app/libreserv"]

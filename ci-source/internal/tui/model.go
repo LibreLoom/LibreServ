@@ -202,6 +202,7 @@ func (m *Model) AddOutput(line runner.OutputLine) {
 func (m *Model) StartRun() {
 	m.running = true
 	m.viewMode = ViewRunning
+	m.cursor = 0
 	m.testResults = make(map[string]*tests.TestResult)
 	m.testOutputs = make(map[string][]string)
 	m.currentOutputs = make(map[string][]string)

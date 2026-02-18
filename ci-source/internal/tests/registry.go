@@ -225,7 +225,7 @@ func addE2ETests() {
 			echo "Server image built successfully"
 			
 			# Setup data directories
-			mkdir -p /tmp/libreserv-e2e-data /tmp/libreserv-e2e-configs
+			mkdir -p /tmp/libreserv-e2e-data
 			
 			# Cleanup any existing container from previous runs
 			echo "Cleaning up old container..."
@@ -235,8 +235,8 @@ func addE2ETests() {
 			E2E_PORT=""
 			for port in 8080 8081 8082 8083 8084; do
 				echo "Trying port $port..."
-				if docker run -d --name libreserv-e2e-test -p ${port}:8080 --rm alpine:latest sleep 5 2>/dev/null; then
-					docker stop libreserv-e2e-test 2>/dev/null || true
+				if docker run -d --name libreserv-e2e-port-test -p ${port}:8080 --rm alpine:latest sleep 1 2>/dev/null; then
+					docker stop libreserv-e2e-port-test 2>/dev/null || true
 					E2E_PORT=$port
 					break
 				fi
@@ -249,17 +249,17 @@ func addE2ETests() {
 			
 			echo "Using port $E2E_PORT"
 			
-			# Run server directly with docker run
+			# Run server directly with docker run (use built-in config, don't mount over it)
 			echo "Starting server on port $E2E_PORT..."
 			docker run -d \
 				--name libreserv-e2e \
 				-p ${E2E_PORT}:8080 \
 				-v /var/run/docker.sock:/var/run/docker.sock:ro \
 				-v /tmp/libreserv-e2e-data:/app/data \
-				-v /tmp/libreserv-e2e-configs:/app/configs \
 				-e LIBRESERV_DOCKER_METHOD=socket \
 				-e LIBRESERV_DOCKER_SOCKET_PATH=/var/run/docker.sock \
 				-e LIBRESERV_NETWORK_CADDY_MODE=disabled \
+				-e LIBRESERV_INSECURE_DEV=true \
 				libreserv:e2e-test
 			
 			# Wait for server to be ready

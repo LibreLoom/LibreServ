@@ -85,6 +85,7 @@ export default function Dashboard() {
   const [stressLoaded, setStressLoaded] = useState(false);
   const [stressBreakdown, setStressBreakdown] = useState([]);
   const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   // Fetch user data
   useEffect(() => {
@@ -287,9 +288,10 @@ export default function Dashboard() {
           <DropdownCard
             title="Server Stress Index"
             value={stressLoaded ? Math.round(stressIndex * 100) + "%" : "Loading..."}
-            subtitle={<RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} />}
+            subtitle={<RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} onOpenChange={setIsDropdownOpen} />}
             breakdownItems={stressBreakdown}
             Icon={Server}
+            forceHover={isDropdownOpen}
           />
         </div>
 
