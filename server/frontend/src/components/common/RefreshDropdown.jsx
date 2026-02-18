@@ -100,42 +100,45 @@ export default function RefreshDropdown({ value, onChange, onOpenChange }) {
         aria-label={`Refresh interval: ${selectedInterval?.label || "select"}`}
       >
         <span className="text-accent">Refresh Interval:</span>
-        <span className="font-sans">{selectedInterval?.label || "Select..."}</span>
+        <span className="font-mono">
+          {selectedInterval?.label || "Select..."}
+        </span>
       </button>
 
-      {isOpen && createPortal(
-        <ul
-          ref={portalRef}
-          role="listbox"
-          style={{
-            position: "absolute",
-            top: position.top,
-            left: position.left,
-            width: position.width,
-          }}
-          className="bg-primary text-secondary ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
-          tabIndex={-1}
-        >
-          {REFRESH_INTERVALS.map((interval) => (
-            <li key={interval.value}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={value === interval.value}
-                onClick={() => handleSelect(interval.value)}
-                className={`w-full text-left px-4 py-2 text-xs motion-safe:transition-colors cursor-pointer rounded-none ${
-                  value === interval.value
-                    ? "bg-accent text-primary font-medium"
-                    : "hover:bg-primary/10"
-                }`}
-              >
-                {interval.label}
-              </button>
-            </li>
-          ))}
-        </ul>,
-        document.body
-      )}
+      {isOpen &&
+        createPortal(
+          <ul
+            ref={portalRef}
+            role="listbox"
+            style={{
+              position: "absolute",
+              top: position.top,
+              left: position.left,
+              width: position.width,
+            }}
+            className="bg-primary text-secondary ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
+            tabIndex={-1}
+          >
+            {REFRESH_INTERVALS.map((interval) => (
+              <li key={interval.value}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={value === interval.value}
+                  onClick={() => handleSelect(interval.value)}
+                  className={`w-full text-left px-4 py-2 text-xs motion-safe:transition-colors cursor-pointer rounded-none ${
+                    value === interval.value
+                      ? "bg-accent text-primary font-medium"
+                      : "hover:bg-primary/10"
+                  }`}
+                >
+                  {interval.label}
+                </button>
+              </li>
+            ))}
+          </ul>,
+          document.body,
+        )}
     </div>
   );
 }
