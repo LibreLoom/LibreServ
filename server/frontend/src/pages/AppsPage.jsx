@@ -73,13 +73,23 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
         </div>
       </div>
 
-      {!isInstalled && (
+{!isInstalled && (
         <button
           onClick={() => onInstall(app.id)}
-          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/90 motion-safe:transition-all font-mono text-sm"
+          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono font-medium text-sm"
         >
           <Download size={16} />
           Install
+        </button>
+      )}
+
+      {isInstalled && (
+        <button
+          disabled
+          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-secondary/10 text-secondary/50 font-mono text-sm cursor-not-allowed"
+        >
+          <Check size={16} />
+          Already Installed
         </button>
       )}
 
