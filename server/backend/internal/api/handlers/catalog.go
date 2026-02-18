@@ -116,3 +116,28 @@ func (h *CatalogHandler) RefreshCatalog(w http.ResponseWriter, r *http.Request) 
 		"count":   catalog.Count(),
 	})
 }
+
+// GetAppFeatures handles GET /api/catalog/{appId}/features
+// Returns the feature matrix for a specific app
+func (h *CatalogHandler) GetAppFeatures(w http.ResponseWriter, r *http.Request) {
+	appID := chi.URLParam(r, "appId")
+	if appID == "" {
+		JSONError(w, http.StatusBadRequest, "app ID is required")
+		return
+	}
+
+	catalog := h.manager.GetCatalog()
+	app, err := catalog.GetApp(appID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	// Use app features if defined (check AccessModel), otherwise return defaults
+	features := app.Features
+	if features.AccessModel == "" {
+		features = apps.GetDefaultFeatures()
+	}
+
+	JSON(w, http.StatusOK, features)
+}

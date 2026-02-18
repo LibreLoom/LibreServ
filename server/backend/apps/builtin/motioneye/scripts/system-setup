@@ -1,0 +1,45 @@
+#!/bin/bash
+# system-setup - MotionEye initial setup script
+# Runs once after the app container is confirmed fully started
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+# Parse config using jq
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTALL_PATH=$(jq -r '.install_path' "$CONFIG_FILE")
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+
+echo ">> [MotionEye] Starting initial setup..."
+echo ">> Instance ID: $INSTANCE_ID"
+echo ">> Data path: $APP_DATA_PATH"
+
+# Create data directories
+echo ">> Creating data directories..."
+mkdir -p "$APP_DATA_PATH/motioneye/config"
+mkdir -p "$APP_DATA_PATH/motioneye/data"
+mkdir -p "$APP_DATA_PATH/motioneye/logs"
+mkdir -p "$APP_DATA_PATH/motioneye/backups"
+
+# Set proper permissions
+chmod -R 755 "$APP_DATA_PATH/motioneye"
+
+echo ">> [MotionEye] Setup completed successfully"
+echo ">>"
+echo ">> Next steps:"
+echo ">> 1. Access the web interface at http://your-server:8765"
+echo ">> 2. Login with username 'admin' and NO password"
+echo ">> 3. IMPORTANT: Set a password immediately in Settings → General Settings"
+echo ">> 4. Click the menu (☰) → 'Add Camera' to add your first camera"
+echo ">>"
+echo ">> For network cameras, you'll need the RTSP URL."
+echo ">> Common formats:"
+echo ">>   - Hikvision: rtsp://user:pass@ip:554/Streaming/Channels/101"
+echo ">>   - Reolink: rtsp://user:pass@ip:554/h264Preview_01_main"
+echo ">>   - TP-Link: rtsp://user:pass@ip:554/stream1"
+exit 0

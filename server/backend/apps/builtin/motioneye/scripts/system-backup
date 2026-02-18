@@ -1,0 +1,61 @@
+#!/bin/bash
+# system-backup - MotionEye backup script
+# TODO: Implement app-specific backup logic
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+# Parse config
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+
+echo ">> [MotionEye] Starting backup..."
+echo ">> Instance ID: $INSTANCE_ID"
+echo ">> Data path: $APP_DATA_PATH"
+
+# Create backup directory
+BACKUP_DIR="$APP_DATA_PATH/motioneye/backups/backup-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+echo ">> Backing up configuration..."
+if [[ -d "$APP_DATA_PATH/motioneye/config" ]]; then
+    cp -r "$APP_DATA_PATH/motioneye/config" "$BACKUP_DIR/"
+fi
+
+echo ">> Backing up camera data..."
+if [[ -d "$APP_DATA_PATH/motioneye/data" ]]; then
+    mkdir -p "$BACKUP_DIR/data"
+    # Only backup config files, not video footage (too large)
+    find "$APP_DATA_PATH/motioneye/data" -name "*.conf" -exec cp {} "$BACKUP_DIR/data/" \; 2>/dev/null || true
+fi
+
+# Create backup metadata
+METADATA_FILE="$BACKUP_DIR/backup-metadata.json"
+cat > "$METADATA_FILE" << EOF
+{
+  "app_id": "motioneye",
+  "instance_id": "$INSTANCE_ID",
+  "backup_date": "$(date -Iseconds)",
+  "version": "0.43.0",
+  "backup_type": "full",
+  "contents": [
+    "config",
+    "camera-configs"
+  ],
+  "note": "Video footage is not included in backups due to size. Camera configurations are backed up."
+}
+EOF
+
+echo ">> [MotionEye] Backup completed successfully"
+echo ">> Backup location: $BACKUP_DIR"
+echo ">>"
+echo ">> TODO: Implement video footage backup option (large files)"
+
+# Output metadata for caller
+cat "$METADATA_FILE"
+exit 0

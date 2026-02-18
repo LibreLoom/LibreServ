@@ -4,10 +4,12 @@ WORKDIR /app/frontend
 COPY server/frontend/package*.json ./
 RUN npm install
 COPY server/frontend/ ./
+# Copy .lore to repo root where frontend expects it
+COPY .lore /.lore
 RUN npm run build
 
 # Stage 2: Build Backend
-FROM golang:1.23-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 RUN apk add --no-cache git make
 WORKDIR /app/backend
 COPY server/backend/go.mod server/backend/go.sum ./
@@ -24,8 +26,8 @@ RUN apk add --no-cache ca-certificates docker-cli docker-compose
 WORKDIR /app
 # Copy backend binary
 COPY --from=backend-builder /app/backend/bin/libreserv /app/libreserv
-# Copy frontend assets (backend expects them in OS/dist relative to itself or as configured)
-COPY --from=frontend-builder /app/frontend/dist /app/OS/dist
+# Copy frontend assets (vite outputs to /app/backend/OS/dist due to outDir: "../backend/OS/dist")
+COPY --from=frontend-builder /app/backend/OS/dist /app/OS/dist
 # Copy default configs
 COPY server/backend/configs /app/configs
 

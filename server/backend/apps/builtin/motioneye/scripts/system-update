@@ -1,0 +1,42 @@
+#!/bin/bash
+# system-update - MotionEye update script
+# TODO: Implement proper update logic
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+# Parse config
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+
+echo ">> [MotionEye] Starting update..."
+echo ">> Instance ID: $INSTANCE_ID"
+echo ">> Data path: $APP_DATA_PATH"
+
+# Create backup before update
+echo ">> Creating pre-update backup..."
+BACKUP_DIR="$APP_DATA_PATH/motioneye/backups/pre-update-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# Backup config
+if [[ -d "$APP_DATA_PATH/motioneye/config" ]]; then
+    cp -r "$APP_DATA_PATH/motioneye/config" "$BACKUP_DIR/"
+    echo ">> Config backed up to: $BACKUP_DIR/config"
+fi
+
+# Backup camera configs
+cp "$APP_DATA_PATH/motioneye/config/motion.conf" "$BACKUP_DIR/" 2>/dev/null || true
+cp "$APP_DATA_PATH/motioneye/config/motioneye.conf" "$BACKUP_DIR/" 2>/dev/null || true
+cp "$APP_DATA_PATH/motioneye/config/camera-"*.conf "$BACKUP_DIR/" 2>/dev/null || true
+
+echo ">> [MotionEye] Update preparation complete"
+echo ">> Backup location: $BACKUP_DIR"
+echo ">> The Docker image will be pulled and containers restarted by the app installer"
+echo ">>"
+echo ">> TODO: Implement motion-specific migration logic if needed"
+exit 0

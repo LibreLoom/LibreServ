@@ -5,6 +5,7 @@ import StatCard from "../components/common/cards/StatCard";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import ServiceCards from "../components/common/cards/ServiceCards";
 import DropdownCard from "../components/common/cards/DropdownCard";
+import RefreshDropdown, { REFRESH_INTERVALS } from "../components/common/RefreshDropdown";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
 import api from "../lib/api";
@@ -54,18 +55,6 @@ function formatUptime(seconds) {
   return parts.join(" ") || "0 secs";
 }
 
-// Refresh interval options
-const REFRESH_INTERVALS = [
-  { label: "1 second", value: 1000 },
-  { label: "5 seconds", value: 5000 },
-  { label: "10 seconds", value: 10000 },
-  { label: "30 seconds", value: 30000 },
-  { label: "1 minute", value: 60000 },
-  { label: "5 minutes", value: 300000 },
-  { label: "15 minutes", value: 900000 },
-  { label: "30 minutes", value: 1800000 },
-  { label: "1 hour", value: 3600000 },
-];
 const REFRESH_INTERVAL_STORAGE_KEY = "dashboard_stress_refresh_interval_ms";
 
 function isValidRefreshInterval(value) {
@@ -298,23 +287,7 @@ export default function Dashboard() {
           <DropdownCard
             title="Server Stress Index"
             value={stressLoaded ? Math.round(stressIndex * 100) + "%" : "Loading..."}
-            subtitle={
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-xs text-accent">Refresh:</span>
-                <select
-                  value={refreshInterval}
-                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                  className="text-xs bg-primary/10 border border-primary/20 rounded px-2 py-1 cursor-pointer hover:bg-primary/20 transition-colors"
-                  aria-label="Stress index refresh interval"
-                >
-                  {REFRESH_INTERVALS.map((interval) => (
-                    <option key={interval.value} value={interval.value}>
-                      {interval.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            }
+            subtitle={<RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} />}
             breakdownItems={stressBreakdown}
             Icon={Server}
           />

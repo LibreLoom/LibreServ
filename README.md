@@ -21,9 +21,16 @@ The primary method of delivery for LibreServ will likely be via hardware with th
 ## What’s here
 - **Backend** (`server/backend`): API server, app installer/manager, monitoring, backups, support session tooling.
 - **Frontend** (`server/frontend`): Vite/React source (not built by default). Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
-- **Built-in apps**: Nextcloud AIO, SearXNG, Ollama, ConvertX compose templates live under `server/backend/apps/builtin/`.
+- **Built-in apps**: Nextcloud AIO, SearXNG, Ollama, ConvertX, MotionEye compose templates live under `server/backend/apps/builtin/`.
 - **CI**: `.github/workflows/ci.yml` runs backend vet/tests and frontend lint/build on pushes/PRs.
-- **TODO**: `CODEX_BACKEND_TODO.md` tracks hardening work (Caddy/ACME, SSO, app catalog pins, etc.).
+
+## Contributing
+
+**Developers:** See [ROADMAP.md](ROADMAP.md) for the task list organized by user journey.
+
+Start with [T1.1.1: Setup Wizard Page](ROADMAP.md#t111-create-setup-wizard-page) - the most critical missing piece for MVP.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
 
 ## Quick start
 ```bash
@@ -96,13 +103,14 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 - Secrets (JWT/CSRF) policy:
   - If `auth.jwt_secret` and `auth.csrf_secret` are set (via config file or env), LibreServ uses them as-is.
   - If either secret is missing at startup, LibreServ will generate secure values and **persist them to the config file**.
-  - If the config file path is **read-only**, startup fails fast with a clear error; in that case set env vars:
+- If the config file path is **read-only**, startup fails fast with a clear error; in that case set env vars:
     - `LIBRESERV_AUTH_JWT_SECRET`
     - `LIBRESERV_AUTH_CSRF_SECRET`
-- ThePlan.md contains a longer product/architecture brain dump.
 
 ## Contribute / Support
 - Issues and PRs welcome. CI runs Go vet/tests and frontend lint/build.
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
+- See [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for development setup and testing.
 - Donate: https://ko-fi.com/libreloom
 
 ## License

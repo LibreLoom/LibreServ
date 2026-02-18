@@ -1,0 +1,7 @@
+# Ignore everything by default
+*
+
+# But not these
+!server
+!support
+!.lore

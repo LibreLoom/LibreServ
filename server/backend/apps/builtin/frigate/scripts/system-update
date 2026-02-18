@@ -1,0 +1,41 @@
+#!/bin/bash
+# system-update - Frigate update script
+# Handles updates to newer versions
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+# Parse config
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+
+echo ">> [Frigate] Starting update..."
+echo ">> Instance ID: $INSTANCE_ID"
+echo ">> Data path: $APP_DATA_PATH"
+
+# Create backup before update
+echo ">> Creating pre-update backup..."
+BACKUP_DIR="$APP_DATA_PATH/frigate/backups/pre-update-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+# Backup config
+if [[ -d "$APP_DATA_PATH/frigate/config" ]]; then
+    cp -r "$APP_DATA_PATH/frigate/config" "$BACKUP_DIR/"
+    echo ">> Config backed up to: $BACKUP_DIR/config"
+fi
+
+# Backup database (sqlite)
+if [[ -f "$APP_DATA_PATH/frigate/config/frigate.db" ]]; then
+    cp "$APP_DATA_PATH/frigate/config/frigate.db" "$BACKUP_DIR/"
+    echo ">> Database backed up to: $BACKUP_DIR/frigate.db"
+fi
+
+echo ">> [Frigate] Update preparation complete"
+echo ">> Backup location: $BACKUP_DIR"
+echo ">> The Docker image will be pulled and containers restarted by the app installer"
+exit 0

@@ -1,0 +1,33 @@
+services:
+  motioneye:
+    image: ccrisan/motioneye:master-amd64
+    container_name: "{{.instance_id}}-motioneye"
+    restart: unless-stopped
+    privileged: {{.enable_usb_cameras}}
+    ports:
+      - "{{.http_port}}:8765"
+{{- if .enable_network_cameras }}
+      - "8081:8081"
+      - "8082:8082"
+      - "8083:8083"
+      - "8084:8084"
+      - "8085:8085"
+{{- end }}
+    environment:
+      - "TZ={{.timezone}}"
+{{- if .admin_password }}
+      - "ME_PASSWORD={{.admin_password}}"
+{{- end }}
+    volumes:
+      - "{{ configPath }}/motioneye:/etc/motioneye"
+      - "{{ dataPath }}/motioneye:/var/lib/motioneye"
+{{- if .enable_usb_cameras }}
+    devices:
+      - /dev/video0:/dev/video0
+      - /dev/video1:/dev/video1
+      - /dev/video2:/dev/video2
+      - /dev/video3:/dev/video3
+{{- end }}
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"

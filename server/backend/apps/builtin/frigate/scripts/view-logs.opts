@@ -1,0 +1,12 @@
+{
+  "follow": {
+    "type": "boolean",
+    "default": true,
+    "description": "Follow log output"
+  },
+  "lines": {
+    "type": "number",
+    "default": 100,
+    "description": "Number of lines to show"
+  }
+}

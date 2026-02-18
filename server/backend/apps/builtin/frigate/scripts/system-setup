@@ -1,0 +1,114 @@
+#!/bin/bash
+# system-setup - Frigate initial setup script
+# Runs once after the app container is confirmed fully started
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+# Parse config using jq
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTALL_PATH=$(jq -r '.install_path' "$CONFIG_FILE")
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+
+echo ">> [Frigate] Starting initial setup..."
+echo ">> Instance ID: $INSTANCE_ID"
+echo ">> Data path: $APP_DATA_PATH"
+
+# Create data directories
+echo ">> Creating data directories..."
+mkdir -p "$APP_DATA_PATH/frigate/config"
+mkdir -p "$APP_DATA_PATH/frigate/media/recordings"
+mkdir -p "$APP_DATA_PATH/frigate/media/clips"
+mkdir -p "$APP_DATA_PATH/frigate/media/exports"
+mkdir -p "$APP_DATA_PATH/frigate/cache"
+mkdir -p "$APP_DATA_PATH/frigate/logs"
+mkdir -p "$APP_DATA_PATH/frigate/backups"
+
+# Set proper permissions
+chmod -R 755 "$APP_DATA_PATH/frigate"
+
+# Create default config.yml if it doesn't exist
+CONFIG_YML="$APP_DATA_PATH/frigate/config/config.yml"
+if [[ ! -f "$CONFIG_YML" ]]; then
+    echo ">> Creating default config.yml..."
+    cat > "$CONFIG_YML" << 'EOF'
+# Frigate configuration file
+# Documentation: https://docs.frigate.video/configuration/
+
+mqtt:
+  enabled: false
+  # Uncomment and configure if using MQTT
+  # host: mqtt.example.com
+  # port: 1883
+  # topic_prefix: frigate
+  # user: mqtt_user
+  # password: mqtt_password
+
+detectors:
+  cpu:
+    type: cpu
+    # For better performance, consider adding a Coral TPU:
+    # coral:
+    #   type: edgetpu
+    #   device: usb
+
+cameras:
+  # Add your cameras here
+  # Example:
+  # front_door:
+  #   enabled: true
+  #   ffmpeg:
+  #     inputs:
+  #       - path: rtsp://user:pass@camera-ip:554/stream
+  #         roles:
+  #           - detect
+  #           - record
+  #   detect:
+  #     width: 1280
+  #     height: 720
+  #     fps: 5
+
+detect:
+  enabled: true
+  width: 1280
+  height: 720
+  fps: 5
+
+record:
+  enabled: true
+  retain:
+    days: 7
+    mode: all
+  events:
+    retain:
+      default: 10
+      mode: motion
+
+snapshots:
+  enabled: true
+  retain:
+    default: 10
+
+objects:
+  track:
+    - person
+    - car
+    - pet
+
+version: 0.15
+EOF
+    echo ">> Default config.yml created at: $CONFIG_YML"
+    echo ">> IMPORTANT: Edit this file to configure your cameras!"
+fi
+
+echo ">> [Frigate] Setup completed successfully"
+echo ">> Next steps:"
+echo ">> 1. Edit $CONFIG_YML to add your cameras"
+echo ">> 2. Access the web interface at http://your-server:8971"
+echo ">> 3. See https://docs.frigate.video/configuration/ for documentation"
+exit 0

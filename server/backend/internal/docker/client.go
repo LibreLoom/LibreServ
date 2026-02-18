@@ -84,8 +84,9 @@ func connectViaTCP(cfg config.TCPConfig) (*Client, error) {
 	}
 
 	if cfg.UseTLS {
-		// Load certs (simplified for now, usually requires CACert, Cert, Key)
+		// TODO: Implement TLS client config (requires CACert, Cert, Key)
 		// opts = append(opts, client.WithTLSClientConfig( ... ))
+		_ = opts // silence unused warning
 	}
 
 	cli, err := client.NewClientWithOpts(opts...)

@@ -1,0 +1,67 @@
+#!/bin/bash
+# system-repair - MotionEye repair script
+# TODO: Implement proper repair logic
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+# Parse config
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+
+echo ">> [MotionEye] Starting repair..."
+echo ">> Instance ID: $INSTANCE_ID"
+echo ">> Data path: $APP_DATA_PATH"
+
+# Fix permissions
+echo ">> Fixing permissions..."
+if [[ -d "$APP_DATA_PATH/motioneye" ]]; then
+    chmod -R 755 "$APP_DATA_PATH/motioneye"
+    echo ">> Permissions fixed"
+fi
+
+# Check for config files
+echo ">> Checking configuration..."
+CONFIG_DIR="$APP_DATA_PATH/motioneye/config"
+if [[ ! -d "$CONFIG_DIR" ]]; then
+    echo ">> WARNING: Config directory not found, creating..."
+    mkdir -p "$CONFIG_DIR"
+fi
+
+# Check if motioneye.conf exists
+if [[ ! -f "$CONFIG_DIR/motioneye.conf" ]]; then
+    echo ">> INFO: motioneye.conf not found - will be created on first run"
+fi
+
+# Check directories
+echo ">> Checking data directories..."
+for dir in config data logs backups; do
+    full_path="$APP_DATA_PATH/motioneye/$dir"
+    if [[ ! -d "$full_path" ]]; then
+        echo ">> Creating missing directory: $dir"
+        mkdir -p "$full_path"
+    fi
+done
+
+# Check USB camera devices if privileged mode is enabled
+echo ">> Checking USB camera availability..."
+if [[ -d /dev ]]; then
+    USB_CAMERAS=$(ls /dev/video* 2>/dev/null | wc -l)
+    if [[ $USB_CAMERAS -gt 0 ]]; then
+        echo ">> Found $USB_CAMERAS video device(s):"
+        ls -la /dev/video* 2>/dev/null || true
+    else
+        echo ">> No USB video devices found (this is normal for network-only setups)"
+    fi
+fi
+
+echo ">> [MotionEye] Repair completed successfully"
+echo ">>"
+echo ">> TODO: Add container restart if needed"
+echo ">> TODO: Add camera configuration validation"
+exit 0

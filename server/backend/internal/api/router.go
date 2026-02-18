@@ -170,6 +170,7 @@ func (s *Server) setupRoutes() {
 				r.Get("/categories", catalogHandler.GetCategories)
 				r.Post("/refresh", catalogHandler.RefreshCatalog)
 				r.Get("/{appId}", catalogHandler.GetApp)
+				r.Get("/{appId}/features", catalogHandler.GetAppFeatures)
 			})
 
 			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
