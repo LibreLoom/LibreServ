@@ -5,7 +5,6 @@ import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 export default function SetupPage() {
   const navigate = useNavigate();
   const [step, setStep] = useState("checking"); // checking, setup, creating, complete, error
-  const [setupStatus, setSetupStatus] = useState(null);
   const [error, setError] = useState(null);
   const [formData, setFormData] = useState({
     admin_username: "",
@@ -22,13 +21,11 @@ export default function SetupPage() {
         const data = await response.json();
 
         if (data.setup_state?.status === "complete") {
-          // Setup already complete, redirect to login
           navigate("/");
         } else {
-          setSetupStatus(data);
           setStep("setup");
         }
-      } catch (err) {
+      } catch {
         setError("Failed to check setup status");
         setStep("error");
       }
@@ -125,7 +122,7 @@ export default function SetupPage() {
       <div className="min-h-screen flex items-center justify-center bg-primary">
         <div className="max-w-md w-full mx-4">
           <div className="bg-secondary rounded-3xl p-8 outline outline-2 outline-accent">
-            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+            <AlertCircle className="w-16 h-16 text-accent mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-center mb-2">Setup Error</h1>
             <p className="text-center text-primary/70 mb-4">{error}</p>
             <button
@@ -145,7 +142,7 @@ export default function SetupPage() {
       <div className="min-h-screen flex items-center justify-center bg-primary">
         <div className="max-w-md w-full mx-4">
           <div className="bg-secondary rounded-3xl p-8 outline outline-2 outline-accent text-center">
-            <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto mb-4" />
+            <CheckCircle2 className="w-16 h-16 text-accent mx-auto mb-4" />
             <h1 className="text-2xl font-bold mb-2">Setup Complete!</h1>
             <p className="text-primary/70 mb-4">Redirecting you to login...</p>
             <Loader2 className="w-6 h-6 animate-spin text-accent mx-auto" />
@@ -169,12 +166,12 @@ export default function SetupPage() {
 
           {/* Error message */}
           {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border-2 border-red-500 rounded-2xl">
+            <div className="mb-6 p-4 bg-accent/20 border-2 border-accent rounded-2xl">
               <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-red-500">Setup Failed</p>
-                  <p className="text-sm text-red-500/80">{error}</p>
+                  <p className="font-semibold text-accent">Setup Failed</p>
+                  <p className="text-sm text-secondary/70">{error}</p>
                 </div>
               </div>
             </div>
@@ -263,10 +260,10 @@ export default function SetupPage() {
                         className={`h-2 flex-1 rounded-full transition-colors ${
                           level <= passwordStrength.score
                             ? passwordStrength.score <= 2
-                              ? "bg-red-500"
+                              ? "bg-accent"
                               : passwordStrength.score === 3
-                                ? "bg-yellow-500"
-                                : "bg-green-500"
+                                ? "bg-accent/70"
+                                : "bg-accent"
                             : "bg-primary/20"
                         }`}
                       />
@@ -276,7 +273,7 @@ export default function SetupPage() {
                     <div
                       className={
                         passwordStrength.hasLength
-                          ? "text-green-500"
+                          ? "text-accent"
                           : "text-primary/60"
                       }
                     >
@@ -286,7 +283,7 @@ export default function SetupPage() {
                     <div
                       className={
                         passwordStrength.hasLetter
-                          ? "text-green-500"
+                          ? "text-accent"
                           : "text-primary/60"
                       }
                     >
@@ -295,7 +292,7 @@ export default function SetupPage() {
                     <div
                       className={
                         passwordStrength.hasDigit
-                          ? "text-green-500"
+                          ? "text-accent"
                           : "text-primary/60"
                       }
                     >
@@ -304,7 +301,7 @@ export default function SetupPage() {
                     <div
                       className={
                         passwordStrength.hasSpecial
-                          ? "text-green-500"
+                          ? "text-accent"
                           : "text-primary/60"
                       }
                     >
