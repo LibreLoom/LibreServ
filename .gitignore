@@ -85,3 +85,4 @@ package-lock.json
 .ci.conf
 ./ci-results
 ./test-results
+.cache/
