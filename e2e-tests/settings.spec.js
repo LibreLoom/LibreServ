@@ -1,31 +1,61 @@
 const { test, expect } = require('@playwright/test');
 
-test.describe('LibreServ Settings', () => {
-  test('should show backend API settings with correct values', async ({ request }) => {
-    // Login first to get session
-    const loginResponse = await request.post('http://localhost:8080/api/v1/auth/login', {
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:8080';
+
+async function ensureSetup(request) {
+  const statusResponse = await request.get(`${BASE_URL}/api/v1/setup/status`);
+  const status = await statusResponse.json();
+  
+  if (status.setup_state?.status === 'pending') {
+    const setupResponse = await request.post(`${BASE_URL}/api/v1/setup/complete`, {
       data: {
-        username: 'admin',
-        password: 'hunter2hunter2'
+        admin_username: 'admin',
+        admin_password: 'hunter2hunter2',
+        admin_email: 'admin@example.com'
       }
     });
+    expect(setupResponse.ok()).toBeTruthy();
+  } else if (status.setup_state?.status === 'in_progress') {
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      const checkResponse = await request.get(`${BASE_URL}/api/v1/setup/status`);
+      const checkStatus = await checkResponse.json();
+      if (checkStatus.setup_state?.status === 'complete' || checkStatus.user_status?.setup_complete) {
+        break;
+      }
+    }
+  }
+}
+
+async function login(request) {
+  await ensureSetup(request);
+  
+  const loginResponse = await request.post(`${BASE_URL}/api/v1/auth/login`, {
+    data: {
+      username: 'admin',
+      password: 'hunter2hunter2'
+    }
+  });
+  
+  expect(loginResponse.ok()).toBeTruthy();
+  return loginResponse;
+}
+
+test.describe('LibreServ Settings', () => {
+  test('should show backend API settings with correct values', async ({ request }) => {
+    await login(request);
     
-    expect(loginResponse.ok()).toBeTruthy();
-    
-    // Get settings
-    const settingsResponse = await request.get('http://localhost:8080/api/v1/settings');
+    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`);
     expect(settingsResponse.ok()).toBeTruthy();
     
     const settings = await settingsResponse.json();
     console.log('Settings response:', JSON.stringify(settings, null, 2));
     
-    // Verify backend settings exist and have values
     expect(settings.backend).toBeDefined();
     expect(settings.backend.host).toBeDefined();
     expect(settings.backend.port).toBeDefined();
     expect(settings.backend.mode).toBeDefined();
     
-    // Backend should have actual values, not empty
     expect(settings.backend.host).not.toBe('');
     expect(settings.backend.port).toBeGreaterThan(0);
     expect(settings.backend.mode).not.toBe('');
@@ -34,24 +64,15 @@ test.describe('LibreServ Settings', () => {
   });
 
   test('should show proxy settings when caddy is configured', async ({ request }) => {
-    // Login first
-    await request.post('http://localhost:8080/api/v1/auth/login', {
-      data: {
-        username: 'admin',
-        password: 'hunter2hunter2'
-      }
-    });
+    await login(request);
     
-    // Get settings
-    const settingsResponse = await request.get('http://localhost:8080/api/v1/settings');
+    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`);
     const settings = await settingsResponse.json();
     
-    // Check if proxy settings exist
     if (settings.proxy) {
       expect(settings.proxy.type).toBe('caddy');
       console.log('✓ Proxy settings:', settings.proxy);
       
-      // At minimum, proxy should have type and auto_https
       expect(settings.proxy.type).toBeDefined();
       expect(settings.proxy).toHaveProperty('auto_https');
     } else {
@@ -60,19 +81,11 @@ test.describe('LibreServ Settings', () => {
   });
 
   test('should show logging settings with correct values', async ({ request }) => {
-    // Login first
-    await request.post('http://localhost:8080/api/v1/auth/login', {
-      data: {
-        username: 'admin',
-        password: 'hunter2hunter2'
-      }
-    });
+    await login(request);
     
-    // Get settings
-    const settingsResponse = await request.get('http://localhost:8080/api/v1/settings');
+    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`);
     const settings = await settingsResponse.json();
     
-    // Verify logging settings
     expect(settings.logging).toBeDefined();
     expect(settings.logging.level).toBeDefined();
     expect(settings.logging.level).toMatch(/^(debug|info|warn|error)$/);

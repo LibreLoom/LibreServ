@@ -1,34 +1,41 @@
 const { test, expect } = require('@playwright/test');
 
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:8080';
+
+async function ensureSetup(page) {
+  const statusResponse = await page.request.get(`${BASE_URL}/api/v1/setup/status`);
+  const status = await statusResponse.json();
+  
+  // Only complete setup if pending, otherwise wait for it to be done
+  if (status.setup_state?.status === 'pending') {
+    const setupResponse = await page.request.post(`${BASE_URL}/api/v1/setup/complete`, {
+      data: {
+        admin_username: 'admin',
+        admin_password: 'hunter2hunter2',
+        admin_email: 'admin@example.com'
+      }
+    });
+    expect(setupResponse.ok()).toBeTruthy();
+  } else if (status.setup_state?.status === 'in_progress') {
+    // Wait for setup to complete (another test is doing it)
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 500));
+      const checkResponse = await page.request.get(`${BASE_URL}/api/v1/setup/status`);
+      const checkStatus = await checkResponse.json();
+      if (checkStatus.setup_state?.status === 'complete' || checkStatus.user_status?.setup_complete) {
+        break;
+      }
+    }
+  }
+}
+
 test.describe('LibreServ Login', () => {
   test('should complete setup and login', async ({ page }) => {
-    // First, complete setup if needed
-    await page.goto('http://localhost:8080/api/v1/setup/status');
-    const setupStatus = await page.evaluate(() => document.body.innerText);
+    await ensureSetup(page);
     
-    console.log('Setup status:', setupStatus);
-    
-    // If setup is pending, complete it
-    if (setupStatus.includes('pending')) {
-      console.log('Completing initial setup...');
-      
-      const setupResponse = await page.request.post('http://localhost:8080/api/v1/setup/complete', {
-        data: {
-          admin_username: 'admin',
-          admin_password: 'hunter2hunter2',
-          admin_email: 'admin@example.com'
-        }
-      });
-      
-      const setupResult = await setupResponse.json();
-      console.log('Setup result:', setupResult);
-      
-      expect(setupResult.message).toBe('setup complete');
-    }
-    
-    // Now test login
+    // Test login
     console.log('Testing login...');
-    const loginResponse = await page.request.post('http://localhost:8080/api/v1/auth/login', {
+    const loginResponse = await page.request.post(`${BASE_URL}/api/v1/auth/login`, {
       data: {
         username: 'admin',
         password: 'hunter2hunter2'
@@ -45,7 +52,9 @@ test.describe('LibreServ Login', () => {
   });
   
   test('should fail login with wrong password', async ({ page }) => {
-    const response = await page.request.post('http://localhost:8080/api/v1/auth/login', {
+    await ensureSetup(page);
+    
+    const response = await page.request.post(`${BASE_URL}/api/v1/auth/login`, {
       data: {
         username: 'admin',
         password: 'wrongpassword'

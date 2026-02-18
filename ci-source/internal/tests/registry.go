@@ -227,33 +227,27 @@ func addE2ETests() {
 			# Setup data directories
 			mkdir -p /tmp/libreserv-e2e-data
 			
+			# Create a shared network for E2E tests
+			echo "Creating E2E network..."
+			docker network create libreserv-e2e-net 2>/dev/null || true
+			
+			# Connect this container to the network (so it can reach the server)
+			MY_CONTAINER=$(hostname)
+			if [ -n "$MY_CONTAINER" ]; then
+				echo "Connecting container $MY_CONTAINER to E2E network..."
+				docker network connect libreserv-e2e-net $MY_CONTAINER 2>/dev/null || echo "Note: Could not connect container (may already be connected)"
+				sleep 2
+			fi
+			
 			# Cleanup any existing container from previous runs
 			echo "Cleaning up old container..."
 			docker rm -f libreserv-e2e 2>/dev/null || true
 			
-			# Try ports in sequence until one works
-			E2E_PORT=""
-			for port in 8080 8081 8082 8083 8084; do
-				echo "Trying port $port..."
-				if docker run -d --name libreserv-e2e-port-test -p ${port}:8080 --rm alpine:latest sleep 1 2>/dev/null; then
-					docker stop libreserv-e2e-port-test 2>/dev/null || true
-					E2E_PORT=$port
-					break
-				fi
-			done
-			
-			if [ -z "$E2E_PORT" ]; then
-				echo "ERROR: No available port found (tried 8080-8084)"
-				exit 1
-			fi
-			
-			echo "Using port $E2E_PORT"
-			
-			# Run server directly with docker run (use built-in config, don't mount over it)
-			echo "Starting server on port $E2E_PORT..."
+			# Run server on the shared network (accessible via container name "libreserv-e2e")
+			echo "Starting server..."
 			docker run -d \
 				--name libreserv-e2e \
-				-p ${E2E_PORT}:8080 \
+				--network libreserv-e2e-net \
 				-v /var/run/docker.sock:/var/run/docker.sock:ro \
 				-v /tmp/libreserv-e2e-data:/app/data \
 				-e LIBRESERV_DOCKER_METHOD=socket \
@@ -262,32 +256,38 @@ func addE2ETests() {
 				-e LIBRESERV_INSECURE_DEV=true \
 				libreserv:e2e-test
 			
-			# Wait for server to be ready
+			# Wait for server to be ready (use container name as hostname on shared network)
 			echo "Waiting for server to be ready..."
 			for i in $(seq 1 60); do
-				if curl -s http://localhost:${E2E_PORT}/api/v1/health >/dev/null 2>&1; then
+				if curl -s http://libreserv-e2e:8080/health >/dev/null 2>&1; then
 					echo "Server is ready!"
 					break
 				fi
 				if [ $i -eq 60 ]; then
 					echo "ERROR: Server failed to start"
+					echo "Debug: Trying to reach http://libreserv-e2e:8080/health"
+					curl -v http://libreserv-e2e:8080/health 2>&1 || true
 					docker logs libreserv-e2e || true
 					docker stop libreserv-e2e || true
 					docker rm libreserv-e2e || true
+					docker network rm libreserv-e2e-net || true
 					exit 1
 				fi
 				sleep 1
 			done
 			
-			# Run playwright tests
+			# Run playwright tests (connect to server via container name)
 			echo "Running Playwright tests..."
 			cd /repo/e2e-tests
 			npm ci 2>/dev/null || npm install
-			npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
+			E2E_BASE_URL=http://libreserv-e2e:8080 npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
 			
 			# Cleanup
 			docker stop libreserv-e2e || true
 			docker rm libreserv-e2e || true
+			# Disconnect this container from network before removing
+			docker network disconnect libreserv-e2e-net $(hostname) 2>/dev/null || true
+			docker network rm libreserv-e2e-net || true
 			
 			exit ${TEST_FAILED:-0}
 		`,
