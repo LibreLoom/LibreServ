@@ -37,6 +37,8 @@ Installs an app → It works → Creates backup → Done
 | P0 | App Install Flow | Core value proposition | ⚠️ Backend exists, no wizard UI |
 | P0 | Backup/Restore UI | "Actions should be reversible" | ❌ Backend only |
 | P1 | HTTPS/Domain Setup | Production requirement | ⚠️ Backend exists, no UI |
+| P1 | Domain Provider Integration | Remote access requires domain | ❌ MISSING |
+| P1 | Cloud Backup Integration | Off-site backup for safety | ❌ MISSING |
 | P1 | System Health Display | User confidence | ✅ Dashboard exists |
 
 ---
@@ -364,6 +366,52 @@ User sets "Backup every day at 3 AM" for Nextcloud.
 
 ---
 
+#### T2.2.3. Add Cloud Backup Integration
+
+**Files:** `server/backend/internal/backup/cloud/`, `server/frontend/src/components/backups/CloudBackupConfig.jsx`  
+**Effort:** 4 hours  
+**Dependencies:** T2.2.1  
+**Status:** 🔴  
+**Completed By:**
+
+**Why:** Local backups protect against app failure, but not hardware failure, theft, or disaster. Users need off-site backup for true data safety.
+
+**User Journey:**
+1. User goes to Backups → Cloud Storage
+2. Chooses provider (Backblaze B2, S3-compatible, or "Manual Setup")
+3. Enters credentials or follows setup guide
+4. Tests connection
+5. Enables "Upload backups to cloud after creation"
+6. Sees cloud backup status on each backup entry
+
+**Implementation Options:**
+| Option | Effort | Pros | Cons |
+|--------|--------|------|------|
+| Backblaze B2 API | 3h | Simple, cheap, user-friendly | Single provider |
+| S3-compatible API | 4h | Works with many providers | More complex config |
+| rclone integration | 2h | Supports 40+ providers | External dependency |
+| Manual setup guide | 1h | Zero code | User must use terminal |
+
+**Recommended:** Start with "Manual Setup Guide" (instructions page), then add Backblaze B2 integration.
+
+**Acceptance Criteria:**
+- [ ] Cloud provider selection UI (Backblaze, S3, Manual)
+- [ ] Credential input form with validation
+- [ ] "Test Connection" button
+- [ ] Toggle: "Upload backups to cloud automatically"
+- [ ] Show cloud upload status on backup list
+- [ ] Restore from cloud backup option
+- [ ] Plain-language setup guide for manual option
+
+**Backend API (to add):**
+- `GET /api/v1/backups/cloud/providers` - List supported providers
+- `POST /api/v1/backups/cloud/config` - Save cloud config
+- `POST /api/v1/backups/cloud/test` - Test connection
+- `POST /api/v1/backups/{id}/upload` - Upload to cloud
+- `POST /api/v1/backups/cloud/download` - Download from cloud
+
+---
+
 ### 2.3 App Status & Monitoring
 
 **Current State:** Dashboard exists with health display
@@ -468,6 +516,57 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 - [ ] "Request Certificate" button
 - [ ] Show ACME challenge progress
 - [ ] Renew button for existing certs
+
+---
+
+#### T3.1.3. Add Domain Provider Integration
+
+**Files:** `server/backend/internal/network/dns/`, `server/frontend/src/components/network/DomainProviderConfig.jsx`  
+**Effort:** 4 hours  
+**Dependencies:** T3.1.1  
+**Status:** 🔴  
+**Completed By:**
+
+**Why:** Users need remote access to their server. This requires a domain name pointing to their home IP. Non-technical users cannot manually configure DNS records or dynamic DNS.
+
+**User Journey:**
+1. User goes to Network → Domain Setup
+2. Sees options: "Buy new domain", "Use existing domain", or "Use free subdomain"
+3. For existing domain: enters domain + provider credentials
+4. System configures DNS automatically
+5. System sets up Dynamic DNS (for home connections)
+6. HTTPS certificate requested automatically
+
+**Implementation Options:**
+| Option | Effort | Pros | Cons |
+|--------|--------|------|------|
+| DDNS with libreserv.com subdomain | 4h | Zero config for user | Requires our infrastructure |
+| Namecheap API | 3h | Popular, cheap | Single provider |
+| Cloudflare API | 3h | Free DNS, popular | Single provider |
+| DuckDNS integration | 2h | Free, simple | Limited to duckdns.org |
+| Manual setup guide | 1h | Zero code | User must use terminal |
+
+**Recommended:** Start with "Manual Setup Guide", then add DuckDNS (free) and Namecheap/Cloudflare APIs.
+
+**Acceptance Criteria:**
+- [ ] Domain setup wizard UI
+- [ ] Provider selection (DuckDNS, Namecheap, Cloudflare, Manual)
+- [ ] Credential input form with validation
+- [ ] "Test DNS Configuration" button
+- [ ] Dynamic DNS update service (for changing IPs)
+- [ ] Auto-detect public IP
+- [ ] Show current IP and last update time
+- [ ] Plain-language setup guide for manual option
+
+**Backend API (to add):**
+- `GET /api/v1/network/dns/providers` - List supported providers
+- `POST /api/v1/network/dns/config` - Save DNS config
+- `POST /api/v1/network/dns/test` - Test DNS resolution
+- `POST /api/v1/network/dns/update` - Force DDNS update
+- `GET /api/v1/network/dns/status` - Current IP, last update
+
+**Example Code:**
+- Similar pattern to ACME handler: `server/backend/internal/api/handlers/acme.go`
 
 ---
 
@@ -819,6 +918,8 @@ flowchart TB
         T211[T2.1.1: App Install Wizard]
         T212[T2.1.2: Catalog Page]
         T221[T2.2.1: Backups Page]
+        T222[T2.2.2: Schedule Form]
+        T223[T2.2.3: Cloud Backup]
         T231[T2.3.1: App Detail]
         T232[T2.3.2: Logs Viewer]
     end
@@ -826,6 +927,7 @@ flowchart TB
     subgraph P3["Phase 3: Admin Ops"]
         T311[T3.1.1: Network Routes]
         T312[T3.1.2: Certificates]
+        T313[T3.1.3: Domain Provider]
         T331[T3.3.1: System Updates]
     end
 
@@ -843,7 +945,11 @@ flowchart TB
     T211 --> T212
     T211 --> T232
     
+    T221 --> T222
+    T221 --> T223
+    
     T311 --> T312
+    T311 --> T313
 
     P1 --> P2 --> P3 --> P4
 ```
@@ -855,11 +961,11 @@ flowchart TB
 | Phase | Tasks | Effort | Critical? |
 |-------|-------|--------|-----------|
 | Phase 1: First-Run | 4 | 9h | **YES** |
-| Phase 2: Daily Flows | 7 | 18h | **YES** |
-| Phase 3: Admin Ops | 5 | 11h | YES |
+| Phase 2: Daily Flows | 8 | 22h | **YES** |
+| Phase 3: Admin Ops | 6 | 15h | YES |
 | Phase 4: Production | 14 | 24h | YES |
 | Phase 5: Advanced | 14 | 38h | NO |
-| **Total** | **44** | **~100h** | |
+| **Total** | **46** | **~108h** | |
 
 ---
 
@@ -901,6 +1007,7 @@ curl http://localhost:8080/api/v1/setup/preflight
 
 | Date | Change |
 |------|--------|
+| 2026-02-17 | Added T2.2.3: Cloud Backup Integration, T3.1.3: Domain Provider Integration |
 | 2026-02-17 | Restructured around user journeys, added missing Setup Wizard |
 | 2026-02-17 | Added T2.1.0: App Feature Matrix Schema (from feature request) |
 | 2026-02-17 | T2.1.0: Implemented types.go, motioneye/app.yaml with access_model=shared_account |

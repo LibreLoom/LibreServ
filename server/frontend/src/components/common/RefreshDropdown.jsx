@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { RefreshCw, ChevronDown } from "lucide-react";
 
 const REFRESH_INTERVALS = [
   { label: "1 second", value: 1000 },
@@ -86,24 +85,18 @@ export default function RefreshDropdown({ value, onChange }) {
   };
 
   return (
-    <div className="relative inline-flex items-center gap-2 w-48" ref={containerRef}>
-      <RefreshCw size={14} className="text-accent" aria-hidden="true" />
+    <div className="relative w-full" ref={containerRef}>
       <button
         ref={buttonRef}
         type="button"
         onClick={handleToggle}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-secondary/10 hover:bg-secondary/20 text-secondary rounded-pill text-xs font-medium motion-safe:transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary"
+        className="inline-flex flex-col items-start gap-0 px-0 py-0 bg-transparent text-primary text-xs font-medium motion-safe:transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label={`Refresh interval: ${selectedInterval?.label || "select"}`}
       >
-        <span className="text-accent">Refresh:</span>
-        <span>{selectedInterval?.label || "Select..."}</span>
-        <ChevronDown
-          size={14}
-          className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}
-          aria-hidden="true"
-        />
+        <span className="text-accent">Refresh Interval:</span>
+        <span className="font-mono">{selectedInterval?.label || "Select..."}</span>
       </button>
 
       {isOpen && createPortal(
@@ -116,7 +109,7 @@ export default function RefreshDropdown({ value, onChange }) {
             left: position.left,
             width: position.width,
           }}
-          className="bg-primary text-secondary ring ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
+          className="bg-primary text-secondary ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
           tabIndex={-1}
         >
           {REFRESH_INTERVALS.map((interval) => (
