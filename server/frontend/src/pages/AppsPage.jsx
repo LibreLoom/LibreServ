@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
-import LoadingFast from "./LoadingFast";
 import {
   Search,
   Cloud,
@@ -49,7 +48,7 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-mono text-lg text-secondary truncate">
+            <h3 className="font-mono text-lg text-primary truncate">
               {app.name}
             </h3>
             {isInstalled && (
@@ -60,13 +59,13 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
             )}
           </div>
 
-          <p className="text-sm text-secondary/70 mt-1 line-clamp-2">
+          <p className="text-sm text-primary/70 mt-1 line-clamp-2">
             {app.description}
           </p>
 
           <div className="flex items-center gap-2 mt-3">
             {app.category && (
-              <span className="px-2 py-1 rounded-large-element bg-secondary/10 text-xs font-mono text-secondary/50 capitalize">
+              <span className="px-2 py-1 rounded-large-element bg-secondary/10 text-xs font-mono text-primary/50 capitalize">
                 {app.category}
               </span>
             )}
@@ -104,13 +103,18 @@ export default function AppsPage() {
   const [catalog, setCatalog] = useState([]);
   const [installedApps, setInstalledApps] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showLoading, setShowLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState(null);
 
   useEffect(() => {
+    let delayTimer;
     const fetchData = async () => {
       try {
+        delayTimer = setTimeout(() => {
+          setShowLoading(true);
+        }, 500);
         const [catalogRes, installedRes] = await Promise.all([
           request("/catalog"),
           request("/apps"),
@@ -121,27 +125,31 @@ export default function AppsPage() {
 
         setCatalog(catalogData.apps || []);
         setInstalledApps(installedData.apps || []);
-        setLoading(false);
       } catch (err) {
         console.error("Failed to load data:", err);
         setError("Failed to load app catalog. Please try again.");
+      } finally {
+        clearTimeout(delayTimer);
+        setShowLoading(false);
         setLoading(false);
       }
     };
-
     fetchData();
+    return () => clearTimeout(delayTimer);
   }, [request]);
 
   const handleInstall = useCallback(
     (appId) => {
       navigate(`/apps/install/${appId}`);
     },
-    [navigate]
+    [navigate],
   );
 
   const installedAppIds = new Set(installedApps.map((app) => app.app_id));
 
-  const categories = [...new Set(catalog.map((app) => app.category).filter(Boolean))];
+  const categories = [
+    ...new Set(catalog.map((app) => app.category).filter(Boolean)),
+  ];
 
   const filteredCatalog = catalog.filter((app) => {
     const matchesSearch =
@@ -149,7 +157,8 @@ export default function AppsPage() {
       app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       app.description?.toLowerCase().includes(searchQuery.toLowerCase());
 
-    const matchesCategory = !selectedCategory || app.category === selectedCategory;
+    const matchesCategory =
+      !selectedCategory || app.category === selectedCategory;
 
     return matchesSearch && matchesCategory;
   });
@@ -177,12 +186,26 @@ export default function AppsPage() {
 
   return (
     <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
+      className={`bg-primary text-secondary px-8 pt-5 pb-32 ${showLoading ? "pop-out" : "pop-in"}`}
       aria-labelledby="apps-title"
       id="main-content"
       tabIndex={-1}
     >
       <HeaderCard id="apps-title" title="Apps" />
+
+      {loading && showLoading && (
+        <div className="fixed inset-0 flex items-center justify-center">
+          <Card className="w-[70vw] sm:w-[20vw]">
+            <div
+              className="my-5 text-center"
+              role="status"
+              aria-live="polite"
+            >
+              <p>Loading apps...</p>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="mt-5 flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
@@ -215,7 +238,7 @@ export default function AppsPage() {
         )}
       </div>
 
-      {filteredCatalog.length === 0 ? (
+      {filteredCatalog.length === 0 && !loading && (
         <div className="mt-12 text-center">
           <p className="text-secondary/70">
             {searchQuery || selectedCategory
@@ -223,7 +246,9 @@ export default function AppsPage() {
               : "No apps available."}
           </p>
         </div>
-      ) : (
+      )}
+
+      {filteredCatalog.length > 0 && (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredCatalog.map((app) => (
             <AppCatalogCard
