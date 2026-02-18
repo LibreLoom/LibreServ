@@ -15,6 +15,7 @@ const SecurityPage = lazy(() => import("./pages/SecurityPage"));
 const SecurityActivityPage = lazy(() => import("./pages/SecurityActivityPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
+const AppInstallPage = lazy(() => import("./pages/AppInstallPage"));
 const Login = lazy(() => import("./pages/Login"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
@@ -69,6 +70,14 @@ export default function App() {
               element={
                 <DataPage>
                   <AppDetailPage />
+                </DataPage>
+              }
+            />
+            <Route
+              path="/apps/install/:appId"
+              element={
+                <DataPage>
+                  <AppInstallPage />
                 </DataPage>
               }
             />
