@@ -10,7 +10,7 @@ auth:
     csrf_secret: eioEvRHrlYYFBT0I3XbpABWMTbcYwAnh5dYosPwHeXA=
 apps:
     data_path: ./dev/apps
-    catalog_path: ./apps/builtin
+    catalog_path: ./apps
 docker:
     method: auto
     socket_path: ""
