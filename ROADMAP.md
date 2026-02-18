@@ -182,7 +182,7 @@ Visual display of system checks from `/api/v1/setup/preflight`.
 **Effort:** 3 hours  
 **Dependencies:** None  
 **Status:** ✅ Complete
-**Completed By:** @maxl
+**Completed By:** @plainskill
 
 **Why:** Apps need to declare capabilities so LibreServ can adapt UI and set user expectations.
 
@@ -231,7 +231,7 @@ curl http://localhost:8080/api/v1/catalog/motioneye/features
 **Effort:** 4 hours  
 **Dependencies:** T2.1.0 (Feature Matrix Schema)
 **Status:** ✅ Complete
-**Completed By:** @maxl
+**Completed By:** @plainskill
 
 **User Journey:**
 1. Browse app catalog → Click "Install"
