@@ -230,7 +230,7 @@ curl http://localhost:8080/api/v1/catalog/motioneye/features
 **File:** `server/frontend/src/components/app/InstallWizard.jsx`  
 **Effort:** 4 hours  
 **Dependencies:** T2.1.0 (Feature Matrix Schema)
-**Status:** 🟡 In Progress
+**Status:** ✅ Complete
 **Completed By:** @maxl
 
 **User Journey:**
@@ -248,18 +248,18 @@ curl http://localhost:8080/api/v1/catalog/motioneye/features
 - `GET /api/v1/apps/{id}/status` - Check status
 
 **Acceptance Criteria:**
-- [ ] Multi-step wizard (Select → Configure → Install → Done)
-- [ ] Shows app logo, description in plain language
-- [ ] Form fields generated from app.yaml configuration
-- [ ] **Shows feature warnings based on access_model:**
+- [x] Multi-step wizard (Select → Configure → Install → Done)
+- [x] Shows app logo, description in plain language
+- [x] Form fields generated from app.yaml configuration
+- [x] **Shows feature warnings based on access_model:**
   - `shared_account` → "Shared Account - All users access with same credentials"
   - `external_auth` → "External Auth - App manages its own users"
   - `public` → "Public Access - No login required"
-- [ ] **Shows shared credentials input for shared_account apps**
-- [ ] Shows real-time install progress
-- [ ] Error messages in plain language
-- [ ] "Open App" button on success
-- [ ] Can go back to previous steps
+- [x] **Shows shared credentials input for shared_account apps**
+- [x] Shows real-time install progress
+- [x] Error messages in plain language
+- [x] "Open App" button on success
+- [x] Can go back to previous steps
 
 **Example Code:**
 - App definitions: `server/backend/apps/builtin/*/app.yaml`
@@ -1012,3 +1012,4 @@ curl http://localhost:8080/api/v1/setup/preflight
 | 2026-02-17 | Added T2.1.0: App Feature Matrix Schema (from feature request) |
 | 2026-02-17 | T2.1.0: Implemented types.go, motioneye/app.yaml with access_model=shared_account |
 | 2026-02-18 | T2.1.0: Marked complete; T2.1.1: Started App Install Wizard |
+| 2026-02-18 | T2.1.1: App Install Wizard complete with multi-step flow, feature warnings, dynamic config |
