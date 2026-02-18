@@ -72,15 +72,10 @@ Look for tasks with **no dependencies** or dependencies that are ✅ complete.
 
 3. **Test** your changes:
    ```bash
-   # Backend
-   cd server/backend
-   go test ./...
-   go vet ./...
-   
-   # Frontend
-   cd server/frontend
-   npm test
-   npm run lint
+   # Full Suite
+   ./ci run -profile full
+   # Interactive Mode
+   ./ci
    ```
 
 4. **Update status** in ROADMAP.md:
