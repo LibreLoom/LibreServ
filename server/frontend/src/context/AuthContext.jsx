@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import api from "../lib/api";
 import { AuthContext } from "./AuthContextContext";
 
@@ -6,11 +7,29 @@ export function AuthProvider({ children }) {
   const [me, setMe] = useState(null);
   const [csrfToken, setCsrfToken] = useState(null);
   const [initialized, setInitialized] = useState(false);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     let isMounted = true;
     async function initAuth() {
       try {
+        // Check setup status first
+        const setupResponse = await api("/setup/status");
+        const setupData = await setupResponse.json();
+
+        // If setup is not complete and we're not already on the setup page, redirect
+        if (
+          setupData.setup_state?.status !== "complete" &&
+          location.pathname !== "/setup"
+        ) {
+          if (isMounted) {
+            navigate("/setup");
+            setInitialized(true);
+          }
+          return;
+        }
+
         const [meResponse, csrfResponse] = await Promise.all([
           api("/auth/me"),
           api("/auth/csrf"),
@@ -34,7 +53,7 @@ export function AuthProvider({ children }) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [navigate, location.pathname]);
 
   const login = useCallback(async (username, password) => {
     await api("/auth/login", {
