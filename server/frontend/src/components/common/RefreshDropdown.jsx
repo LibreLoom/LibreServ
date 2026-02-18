@@ -116,7 +116,7 @@ export default function RefreshDropdown({ value, onChange, onOpenChange }) {
               left: position.left,
               width: position.width,
             }}
-            className="bg-primary text-secondary ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
+            className="bg-secondary text-accent ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
             tabIndex={-1}
           >
             {REFRESH_INTERVALS.map((interval) => (
