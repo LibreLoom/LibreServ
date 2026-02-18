@@ -209,7 +209,7 @@ const (
 - [x] Add `Features AppFeatures` field to `AppDefinition` struct
 - [x] Add YAML parsing for `features:` section
 - [x] Implement `GetDefaultFeatures()` for backward compatibility
-- [ ] Add `GET /api/v1/catalog/{app_id}/features` endpoint
+- [x] Add `GET /api/v1/catalog/{app_id}/features` endpoint
 - [x] Update `motioneye/app.yaml` with `access_model: shared_account`
 
 **Implementation Notes:**
