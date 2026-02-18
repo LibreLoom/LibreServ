@@ -181,8 +181,8 @@ Visual display of system checks from `/api/v1/setup/preflight`.
 **File:** `server/backend/internal/apps/types.go`  
 **Effort:** 3 hours  
 **Dependencies:** None  
-**Status:** 🟡 In Progress  
-**Completed By:**
+**Status:** ✅ Complete
+**Completed By:** @maxl
 
 **Why:** Apps need to declare capabilities so LibreServ can adapt UI and set user expectations.
 
@@ -229,9 +229,9 @@ curl http://localhost:8080/api/v1/catalog/motioneye/features
 
 **File:** `server/frontend/src/components/app/InstallWizard.jsx`  
 **Effort:** 4 hours  
-**Dependencies:** T2.1.0 (Feature Matrix Schema)  
-**Status:** 🔴  
-**Completed By:**
+**Dependencies:** T2.1.0 (Feature Matrix Schema)
+**Status:** 🟡 In Progress
+**Completed By:** @maxl
 
 **User Journey:**
 1. Browse app catalog → Click "Install"
@@ -1011,3 +1011,4 @@ curl http://localhost:8080/api/v1/setup/preflight
 | 2026-02-17 | Restructured around user journeys, added missing Setup Wizard |
 | 2026-02-17 | Added T2.1.0: App Feature Matrix Schema (from feature request) |
 | 2026-02-17 | T2.1.0: Implemented types.go, motioneye/app.yaml with access_model=shared_account |
+| 2026-02-18 | T2.1.0: Marked complete; T2.1.1: Started App Install Wizard |
