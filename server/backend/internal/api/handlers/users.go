@@ -194,6 +194,10 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusNotFound, "user not found")
 			return
 		}
+		if err == auth.ErrLastAdmin {
+			JSONError(w, http.StatusBadRequest, "cannot delete the last admin user")
+			return
+		}
 		JSONError(w, http.StatusInternalServerError, "failed to delete user: "+err.Error())
 		return
 	}
