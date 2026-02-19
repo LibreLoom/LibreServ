@@ -1,10 +1,26 @@
 import { useState, useEffect } from "react";
-import { User, Shield, Trash2, Settings, Plus } from "lucide-react";
+import { User, Shield, Trash2, Settings, Plus, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
 import Card from "../components/common/cards/Card";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import VerificationCard from "../components/common/cards/VerificationCard";
 import api from "../lib/api";
+
+function formatLastLogin(dateString) {
+  if (!dateString) return "Never";
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
 
 export default function UsersPage() {
   // Track server results + UI state for loading and destructive actions.
@@ -61,8 +77,13 @@ export default function UsersPage() {
       setUsers(users.filter((user) => user.id !== userToDelete.id));
       setShowVerification(false);
       setUserToDelete(null);
-    } catch {
-      alert("Unable to delete user. Please try again.");
+    } catch (err) {
+      const message = err?.message || "Unable to delete user. Please try again.";
+      if (message.includes("last admin") || message.includes("last admin user")) {
+        alert("Cannot delete the last admin user. There must be at least one admin.");
+      } else {
+        alert(message);
+      }
     }
   };
 
@@ -138,6 +159,10 @@ export default function UsersPage() {
                           {user.role.charAt(0).toUpperCase() +
                             user.role.slice(1)}
                         </div>
+                        <div className="text-xs text-primary/40 flex items-center gap-1">
+                          <Clock size={10} aria-hidden="true" />
+                          {formatLastLogin(user.last_login)}
+                        </div>
                       </div>
                     </Link>
                     <div className="flex items-center gap-1 shrink-0">
@@ -172,6 +197,7 @@ export default function UsersPage() {
                     <th className="px-4 py-3 font-medium">User</th>
                     <th className="px-4 py-3 font-medium">Email</th>
                     <th className="px-4 py-3 font-medium">Role</th>
+                    <th className="px-4 py-3 font-medium">Last Login</th>
                     <th className="px-4 py-3 font-medium w-12">
                       <span className="sr-only">Actions</span>
                     </th>
@@ -214,6 +240,9 @@ export default function UsersPage() {
                               user.role.slice(1)}
                           </span>
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-primary/60 text-sm">
+                        {formatLastLogin(user.last_login)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
