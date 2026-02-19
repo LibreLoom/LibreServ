@@ -253,43 +253,41 @@ func processIcon(data []byte, contentType, appID string) ([]byte, string) {
 }
 
 func stripSVGColors(svg string) string {
-	svg = strings.ReplaceAll(svg, `fill="`, `fill-value="`)
-	svg = strings.ReplaceAll(svg, `stroke="`, `stroke-value="`)
-	svg = strings.ReplaceAll(svg, `fill='`, `fill-value='`)
-	svg = strings.ReplaceAll(svg, `stroke='`, `stroke-value='`)
+	svg = removeAttr(svg, "fill")
+	svg = removeAttr(svg, "stroke")
+	svg = removeAttr(svg, "style")
 
-	svg = strings.ReplaceAll(svg, `fill-value="`, `fill="`)
-	svg = strings.ReplaceAll(svg, `stroke-value="`, `stroke="`)
-
-	svg = stripAttr(svg, `fill="`, `"`)
-	svg = stripAttr(svg, `stroke="`, `"`)
-	svg = stripAttr(svg, `fill='`, `'`)
-	svg = stripAttr(svg, `stroke='`, `'`)
-
-	if !strings.Contains(svg, "currentColor") && !strings.Contains(svg, "<svg") {
-		svg = `<svg fill="currentColor" ` + svg[4:]
-	} else if !strings.Contains(svg, "fill=") && strings.Contains(svg, "<svg") {
-		svg = strings.Replace(svg, "<svg", `<svg fill="currentColor"`, 1)
-	}
+	svg = strings.Replace(svg, "<svg", `<svg fill="currentColor"`, 1)
 
 	return svg
 }
 
-func stripAttr(s, prefix, suffix string) string {
+func removeAttr(svg, attr string) string {
 	result := ""
-	for i := 0; i < len(s); i++ {
-		idx := strings.Index(s[i:], prefix)
-		if idx == -1 {
-			result += s[i:]
-			break
+	i := 0
+
+	dqPattern := attr + `="`
+	sqPattern := attr + `='`
+
+	for i < len(svg) {
+		if strings.HasPrefix(svg[i:], dqPattern) {
+			i += len(dqPattern)
+			end := strings.Index(svg[i:], `"`)
+			if end != -1 {
+				i += end + 1
+			}
+			continue
 		}
-		result += s[i : i+idx]
-		i += idx + len(prefix)
-		endIdx := strings.Index(s[i:], suffix)
-		if endIdx == -1 {
-			break
+		if strings.HasPrefix(svg[i:], sqPattern) {
+			i += len(sqPattern)
+			end := strings.Index(svg[i:], `'`)
+			if end != -1 {
+				i += end + 1
+			}
+			continue
 		}
-		i += endIdx
+		result += string(svg[i])
+		i++
 	}
 	return result
 }

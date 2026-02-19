@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"syscall"
 	"time"
 
@@ -16,13 +15,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 )
-
-func isSecureRequest(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
-}
 
 // SetupHandler handles initial setup endpoints
 type SetupHandler struct {

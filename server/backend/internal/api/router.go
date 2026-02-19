@@ -142,6 +142,9 @@ func (s *Server) setupRoutes() {
 			r.Post("/auth/register", authHandler.Register)
 			r.Post("/auth/refresh", authHandler.RefreshToken)
 
+			// Public catalog icon endpoint (for app icons)
+			r.Get("/catalog/{appId}/icon", catalogHandler.GetAppIcon)
+
 		})
 
 		// Protected routes (require authentication) - read-only operations
@@ -171,7 +174,6 @@ func (s *Server) setupRoutes() {
 				r.Post("/refresh", catalogHandler.RefreshCatalog)
 				r.Get("/{appId}", catalogHandler.GetApp)
 				r.Get("/{appId}/features", catalogHandler.GetAppFeatures)
-				r.Get("/{appId}/icon", catalogHandler.GetAppIcon)
 			})
 
 			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
