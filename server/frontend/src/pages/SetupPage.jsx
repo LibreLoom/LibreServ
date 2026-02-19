@@ -80,10 +80,10 @@ export default function SetupPage() {
 
       setStep("complete");
 
-      // Redirect to login after 2 seconds
+      // Reload the page to trigger auth context refresh (user is now logged in via cookies)
       setTimeout(() => {
-        navigate("/");
-      }, 2000);
+        window.location.href = "/";
+      }, 1500);
     } catch (err) {
       setError(err.message);
       setStep("setup");

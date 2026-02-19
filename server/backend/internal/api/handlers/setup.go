@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +16,13 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 )
+
+func isSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
 
 // SetupHandler handles initial setup endpoints
 type SetupHandler struct {
@@ -139,6 +147,28 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "failed to finalize setup: "+err.Error())
 		return
 	}
+
+	// Set auth cookies to automatically log in the user
+	secure := isSecureRequest(r)
+	refreshExpiresAt := time.Now().Add(7 * 24 * time.Hour)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    tokens.Tokens.AccessToken,
+		Path:     "/",
+		Expires:  time.Unix(tokens.Tokens.ExpiresAt, 0),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    tokens.Tokens.RefreshToken,
+		Path:     "/",
+		Expires:  refreshExpiresAt,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
+	})
 
 	// Send a welcome email if SMTP is configured
 	go h.sendWelcome(req.AdminEmail, req.AdminUsername)
