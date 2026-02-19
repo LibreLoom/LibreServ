@@ -253,13 +253,71 @@ func processIcon(data []byte, contentType, appID string) ([]byte, string) {
 }
 
 func stripSVGColors(svg string) string {
+	svg = removeFillStrokeFromStyle(svg)
 	svg = removeAttr(svg, "fill")
 	svg = removeAttr(svg, "stroke")
-	svg = removeAttr(svg, "style")
 
 	svg = strings.Replace(svg, "<svg", `<svg fill="currentColor"`, 1)
 
 	return svg
+}
+
+func removeFillStrokeFromStyle(svg string) string {
+	result := ""
+	i := 0
+	stylePattern := `style="`
+	stylePatternSq := `style='`
+
+	for i < len(svg) {
+		if strings.HasPrefix(svg[i:], stylePattern) {
+			result += `style="`
+			i += len(stylePattern)
+			end := strings.Index(svg[i:], `"`)
+			if end != -1 {
+				styleContent := svg[i : i+end]
+				styleContent = removeCSSProperty(styleContent, "fill")
+				styleContent = removeCSSProperty(styleContent, "stroke")
+				result += styleContent + `"`
+				i += end + 1
+				continue
+			}
+		}
+		if strings.HasPrefix(svg[i:], stylePatternSq) {
+			result += `style='`
+			i += len(stylePatternSq)
+			end := strings.Index(svg[i:], `'`)
+			if end != -1 {
+				styleContent := svg[i : i+end]
+				styleContent = removeCSSProperty(styleContent, "fill")
+				styleContent = removeCSSProperty(styleContent, "stroke")
+				result += styleContent + `'`
+				i += end + 1
+				continue
+			}
+		}
+		result += string(svg[i])
+		i++
+	}
+	return result
+}
+
+func removeCSSProperty(style, prop string) string {
+	result := ""
+	parts := strings.Split(style, ";")
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, prop+":") || strings.HasPrefix(trimmed, prop+" :") {
+			continue
+		}
+		if result != "" {
+			result += ";"
+		}
+		result += trimmed
+	}
+	return result
 }
 
 func removeAttr(svg, attr string) string {

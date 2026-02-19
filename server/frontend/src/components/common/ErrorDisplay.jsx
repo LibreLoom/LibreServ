@@ -1,18 +1,15 @@
 import { X, AlertCircle, AlertTriangle, Info } from 'lucide-react';
 
-/**
- * Error Display Component
- * 
- * Displays error messages in different styles based on severity.
- * Can be used inline in forms or as standalone alerts.
- * 
- * @param {Object} props
- * @param {string} props.message - Error message to display
- * @param {string} props.type - Error type: 'error' | 'warning' | 'info'
- * @param {Function} props.onDismiss - Callback when user dismisses the error
- * @param {boolean} props.dismissible - Whether the error can be dismissed
- * @param {React.ReactNode} props.children - Additional content (e.g., retry button)
- */
+const solidPill =
+  "inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium " +
+  "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary " +
+  "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+
+const ghostPill =
+  "inline-flex items-center gap-2 rounded-pill bg-transparent text-secondary px-4 py-2 text-sm font-medium outline-2 outline-accent " +
+  "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:outline-0 " +
+  "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+
 export function ErrorDisplay({ 
   message, 
   type = 'error', 
@@ -23,21 +20,18 @@ export function ErrorDisplay({
   const styles = {
     error: {
       bg: 'bg-error/10',
-      border: 'border-error/20',
       icon: AlertCircle,
       iconColor: 'text-error',
       text: 'text-error',
     },
     warning: {
       bg: 'bg-warning/10',
-      border: 'border-warning/20',
       icon: AlertTriangle,
       iconColor: 'text-warning',
       text: 'text-warning',
     },
     info: {
       bg: 'bg-info/10',
-      border: 'border-info/20',
       icon: Info,
       iconColor: 'text-info',
       text: 'text-info',
@@ -48,7 +42,7 @@ export function ErrorDisplay({
   const Icon = style.icon;
 
   return (
-    <div className={`${style.bg} border ${style.border} rounded-lg p-4 mb-4`}>
+    <div className={`${style.bg} rounded-large-element p-4 mb-4`}>
       <div className="flex items-start gap-3">
         <Icon className={`w-5 h-5 ${style.iconColor} flex-shrink-0 mt-0.5`} />
         <div className="flex-1 min-w-0">
@@ -58,7 +52,7 @@ export function ErrorDisplay({
         {dismissible && onDismiss && (
           <button
             onClick={onDismiss}
-            className={`${style.text} hover:opacity-70 transition-opacity flex-shrink-0`}
+            className={`${style.text} hover:opacity-70 motion-safe:transition-opacity flex-shrink-0 focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded-pill p-1`}
             aria-label="Dismiss error"
           >
             <X className="w-5 h-5" />
@@ -69,13 +63,6 @@ export function ErrorDisplay({
   );
 }
 
-/**
- * Inline Error Component for forms
- * 
- * @param {Object} props
- * @param {string} props.message - Error message
- * @param {string} props.className - Additional CSS classes
- */
 export function InlineError({ message, className = '' }) {
   if (!message) return null;
   
@@ -86,15 +73,6 @@ export function InlineError({ message, className = '' }) {
   );
 }
 
-/**
- * Form Error Summary Component
- * 
- * Displays a summary of all form errors
- * 
- * @param {Object} props
- * @param {Object} props.errors - Object with field names as keys and error messages as values
- * @param {Function} props.onRetry - Callback to retry the action
- */
 export function FormErrorSummary({ errors, onRetry }) {
   const errorEntries = Object.entries(errors).filter(([_, value]) => value);
   
@@ -114,10 +92,7 @@ export function FormErrorSummary({ errors, onRetry }) {
         ))}
       </ul>
       {onRetry && (
-        <button
-          onClick={onRetry}
-          className="mt-3 px-4 py-2 bg-accent text-primary rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors"
-        >
+        <button onClick={onRetry} className={solidPill}>
           Try Again
         </button>
       )}
@@ -125,16 +100,6 @@ export function FormErrorSummary({ errors, onRetry }) {
   );
 }
 
-/**
- * API Error Component
- * 
- * Displays API errors with automatic retry functionality
- * 
- * @param {Object} props
- * @param {Error} props.error - The error object
- * @param {Function} props.onRetry - Callback to retry the failed operation
- * @param {Function} props.onDismiss - Callback to dismiss the error
- */
 export function ApiError({ error, onRetry, onDismiss }) {
   if (!error) return null;
 
@@ -148,17 +113,11 @@ export function ApiError({ error, onRetry, onDismiss }) {
     >
       {onRetry && (
         <div className="flex gap-2">
-          <button
-            onClick={onRetry}
-            className="px-4 py-2 bg-accent text-primary rounded-lg text-sm font-medium hover:bg-accent/90 transition-colors"
-          >
+          <button onClick={onRetry} className={solidPill}>
             Retry
           </button>
           {onDismiss && (
-            <button
-              onClick={onDismiss}
-              className="px-4 py-2 bg-surface text-secondary rounded-lg text-sm font-medium border border-secondary/20 hover:bg-surface/80 transition-colors"
-            >
+            <button onClick={onDismiss} className={ghostPill}>
               Dismiss
             </button>
           )}
