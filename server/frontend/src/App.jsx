@@ -68,7 +68,7 @@ export default function App() {
               }
             />
             <Route
-              path="/apps/:appName"
+              path="/apps/:instanceId"
               element={
                 <DataPage>
                   <AppDetailPage />
