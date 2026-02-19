@@ -65,7 +65,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
             value={typedName}
             onChange={(e) => setTypedName(e.target.value)}
             placeholder={`Type "${appName}"`}
-            className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-primary focus:outline-2 focus:outline-accent focus:outline-offset-2 border-primary/30 focus:border-accent"
+            className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-primary/40 focus:outline-2 focus:outline-accent focus:outline-offset-2 border-primary/30 focus:border-accent"
             disabled={isUninstalling}
             autoFocus
           />
@@ -202,11 +202,11 @@ export default function AppDetailPage() {
   const getStatusColor = (status) => {
     switch (status) {
       case "running":
-        return "text-green-500";
+        return "text-success";
       case "stopped":
-        return "text-yellow-500";
+        return "text-warning";
       case "error":
-        return "text-accent";
+        return "text-error";
       default:
         return "text-primary/50";
     }
@@ -215,9 +215,9 @@ export default function AppDetailPage() {
   const getHealthColor = (health) => {
     switch (health) {
       case "healthy":
-        return "text-green-500";
+        return "text-success";
       case "unhealthy":
-        return "text-accent";
+        return "text-error";
       default:
         return "text-primary/50";
     }

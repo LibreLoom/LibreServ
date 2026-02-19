@@ -13,10 +13,10 @@ function PasswordStrengthIndicator({ password }) {
     if (/[0-9]/.test(password)) score += 1;
     if (/[^a-zA-Z0-9]/.test(password)) score += 1;
 
-    if (score <= 2) return { score, label: "Weak", color: "bg-accent" };
-    if (score <= 3) return { score, label: "Fair", color: "bg-yellow-500" };
-    if (score <= 4) return { score, label: "Good", color: "bg-green-500" };
-    return { score, label: "Strong", color: "bg-green-600" };
+    if (score <= 2) return { score, label: "Weak", color: "bg-error" };
+    if (score <= 3) return { score, label: "Fair", color: "bg-warning" };
+    if (score <= 4) return { score, label: "Good", color: "bg-success" };
+    return { score, label: "Strong", color: "bg-success" };
   }, [password]);
 
   if (!password) return null;

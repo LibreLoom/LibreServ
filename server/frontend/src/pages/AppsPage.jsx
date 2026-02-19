@@ -124,6 +124,8 @@ export default function AppsPage() {
   ];
 
   const filteredCatalog = catalog.filter((app) => {
+    if (installedAppIds.has(app.id)) return false;
+
     const matchesSearch =
       !searchQuery ||
       app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -246,8 +248,8 @@ export default function AppsPage() {
                       {app.name}
                     </h3>
                     <p className={`text-sm capitalize ${
-                      app.status === "running" ? "text-green-500" :
-                      app.status === "stopped" ? "text-yellow-500" : "text-primary/50"
+                      app.status === "running" ? "text-success" :
+                      app.status === "stopped" ? "text-warning" : "text-primary/50"
                     }`}>
                       {app.status}
                     </p>
