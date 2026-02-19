@@ -171,6 +171,7 @@ func (s *Server) setupRoutes() {
 				r.Post("/refresh", catalogHandler.RefreshCatalog)
 				r.Get("/{appId}", catalogHandler.GetApp)
 				r.Get("/{appId}/features", catalogHandler.GetAppFeatures)
+				r.Get("/{appId}/icon", catalogHandler.GetAppIcon)
 			})
 
 			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
