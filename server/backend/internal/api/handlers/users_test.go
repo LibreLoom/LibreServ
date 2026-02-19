@@ -80,13 +80,69 @@ func TestUsersCRUD(t *testing.T) {
 		t.Fatalf("update status %d", rec.Code)
 	}
 
-	// delete user
+	// delete user (should fail - this is the last admin)
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+id, nil).WithContext(ctx)
 	req = withChiURLParam(req, "userID", id)
 	h.DeleteUser(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected delete last admin to fail with 400, got %d", rec.Code)
+	}
+}
+
+func TestDeleteLastAdminProtection(t *testing.T) {
+	h, ctx := newTestUsersHandler(t)
+
+	// Create two admin users with unique emails
+	body1 := `{"username":"admin1","password":"Password1234","role":"admin","email":"admin1@test.com"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBufferString(body1))
+	h.CreateUser(rec, req.WithContext(ctx))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create admin1 status %d", rec.Code)
+	}
+
+	body2 := `{"username":"admin2","password":"Password1234","role":"admin","email":"admin2@test.com"}`
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBufferString(body2))
+	h.CreateUser(rec, req.WithContext(ctx))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create admin2 status %d", rec.Code)
+	}
+
+	// List to get IDs
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	h.ListUsers(rec, req.WithContext(ctx))
+	var list struct {
+		Data []map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(list.Data) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(list.Data))
+	}
+
+	id1 := list.Data[0]["id"].(string)
+	id2 := list.Data[1]["id"].(string)
+
+	// Delete first admin (should succeed - not the last admin)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+id1, nil).WithContext(ctx)
+	req = withChiURLParam(req, "userID", id1)
+	h.DeleteUser(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("delete status %d", rec.Code)
+		t.Fatalf("delete first admin status %d", rec.Code)
+	}
+
+	// Delete second admin (should fail - this is now the last admin)
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+id2, nil).WithContext(ctx)
+	req = withChiURLParam(req, "userID", id2)
+	h.DeleteUser(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected delete last admin to fail with 400, got %d", rec.Code)
 	}
 }
 

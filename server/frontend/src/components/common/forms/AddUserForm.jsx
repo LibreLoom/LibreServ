@@ -1,6 +1,42 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { User, Mail, Shield, Lock, ArrowRight } from "lucide-react";
+
+function PasswordStrengthIndicator({ password }) {
+  const strength = useMemo(() => {
+    if (!password) return { score: 0, label: "", color: "" };
+
+    let score = 0;
+    if (password.length >= 12) score += 1;
+    if (password.length >= 16) score += 1;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+    if (/[0-9]/.test(password)) score += 1;
+    if (/[^a-zA-Z0-9]/.test(password)) score += 1;
+
+    if (score <= 2) return { score, label: "Weak", color: "bg-accent" };
+    if (score <= 3) return { score, label: "Fair", color: "bg-yellow-500" };
+    if (score <= 4) return { score, label: "Good", color: "bg-green-500" };
+    return { score, label: "Strong", color: "bg-green-600" };
+  }, [password]);
+
+  if (!password) return null;
+
+  return (
+    <div className="mt-2 px-5">
+      <div className="flex gap-1 mb-1">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className={`h-1 flex-1 rounded-full transition-colors ${
+              i <= strength.score ? strength.color : "bg-primary/20"
+            }`}
+          />
+        ))}
+      </div>
+      <p className="text-xs text-primary/60">{strength.label}</p>
+    </div>
+  );
+}
 
 export default function AddUserForm({ onSuccess }) {
   const { request } = useAuth();
@@ -177,6 +213,7 @@ export default function AddUserForm({ onSuccess }) {
             {errors.password}
           </p>
         )}
+        <PasswordStrengthIndicator password={formData.password} />
       </div>
 
       <div>

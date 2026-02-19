@@ -21,6 +21,8 @@ var (
 	ErrUserExists = errors.New("user already exists")
 	// ErrInvalidCredentials indicates a username/password mismatch.
 	ErrInvalidCredentials = errors.New("invalid username or password")
+	// ErrLastAdmin indicates attempting to delete the last admin user.
+	ErrLastAdmin = errors.New("cannot delete the last admin user")
 )
 
 // Service handles authentication and user management
@@ -99,6 +101,13 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse,
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate tokens: %w", err)
 	}
+
+	// Update last login time
+	now := time.Now()
+	if _, err := s.db.Exec(`UPDATE users SET last_login = ? WHERE id = ?`, now, user.ID); err != nil {
+		s.logger.Warn("Failed to update last_login", "user_id", user.ID, "error", err)
+	}
+	user.LastLogin = &now
 
 	s.logger.Info("User logged in", "user_id", user.ID, "username", user.Username)
 
@@ -288,11 +297,11 @@ func (s *Service) CreateUser(ctx context.Context, user *models.User) error {
 
 // GetUserByID retrieves a user by ID
 func (s *Service) GetUserByID(ctx context.Context, id string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, role, created_at, updated_at FROM users WHERE id = ?`
+	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users WHERE id = ?`
 	row := s.db.QueryRow(query, id)
 
 	user := &models.User{}
-	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
@@ -302,11 +311,11 @@ func (s *Service) GetUserByID(ctx context.Context, id string) (*models.User, err
 
 // GetUserByUsername retrieves a user by username
 func (s *Service) GetUserByUsername(ctx context.Context, username string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, role, created_at, updated_at FROM users WHERE username = ?`
+	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users WHERE username = ?`
 	row := s.db.QueryRow(query, username)
 
 	user := &models.User{}
-	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
@@ -316,11 +325,11 @@ func (s *Service) GetUserByUsername(ctx context.Context, username string) (*mode
 
 // GetUserByEmail retrieves a user by email
 func (s *Service) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
-	query := `SELECT id, username, password_hash, email, role, created_at, updated_at FROM users WHERE email = ?`
+	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users WHERE email = ?`
 	row := s.db.QueryRow(query, email)
 
 	user := &models.User{}
-	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
 	if err != nil {
 		return nil, ErrUserNotFound
 	}
@@ -379,6 +388,22 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 
 // DeleteUser deletes a user
 func (s *Service) DeleteUser(ctx context.Context, id string) error {
+	// Check if this is the last admin
+	user, err := s.GetUserByID(ctx, id)
+	if err != nil {
+		return ErrUserNotFound
+	}
+
+	if user.Role == "admin" {
+		var adminCount int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&adminCount); err != nil {
+			return fmt.Errorf("failed to count admins: %w", err)
+		}
+		if adminCount <= 1 {
+			return ErrLastAdmin
+		}
+	}
+
 	query := `DELETE FROM users WHERE id = ?`
 	result, err := s.db.Exec(query, id)
 	if err != nil {
@@ -396,7 +421,7 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 
 // ListUsers returns all users
 func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
-	query := `SELECT id, username, password_hash, email, role, created_at, updated_at FROM users ORDER BY created_at DESC`
+	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users ORDER BY created_at DESC`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
@@ -410,7 +435,7 @@ func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
 	var users []*models.User
 	for rows.Next() {
 		user := &models.User{}
-		err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+		err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
@@ -433,7 +458,7 @@ func (s *Service) ListUsersPaginated(ctx context.Context, offset, limit int) ([]
 	}
 
 	// Get paginated users
-	query := `SELECT id, username, password_hash, email, role, created_at, updated_at 
+	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login 
 		FROM users 
 		ORDER BY created_at DESC 
 		LIMIT ? OFFSET ?`
@@ -450,7 +475,7 @@ func (s *Service) ListUsersPaginated(ctx context.Context, offset, limit int) ([]
 	var users []*models.User
 	for rows.Next() {
 		user := &models.User{}
-		err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt)
+		err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan user: %w", err)
 		}
