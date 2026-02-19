@@ -3,7 +3,6 @@ name: SearXNG
 description: Privacy-respecting, hackable metasearch engine aggregating results from multiple search engines without tracking
 version: 2024.12.18-b8443118c
 category: search
-icon: https://docs.searxng.org/_static/searxng-wordmark.svg
 website: https://docs.searxng.org
 repository: https://github.com/searxng/searxng
 featured: true

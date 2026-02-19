@@ -1,13 +1,13 @@
-import { Component } from 'react';
-import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react';
+import { Component } from "react";
+import { AlertTriangle, RefreshCw, Home, Bug } from "lucide-react";
 
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { 
-      hasError: false, 
-      error: null, 
-      errorInfo: null 
+    this.state = {
+      hasError: false,
+      error: null,
+      errorInfo: null,
     };
   }
 
@@ -16,11 +16,11 @@ class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
-    
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
+
     this.setState({
       error,
-      errorInfo
+      errorInfo,
     });
   }
 
@@ -29,7 +29,7 @@ class ErrorBoundary extends Component {
   };
 
   handleGoHome = () => {
-    window.location.href = '/';
+    window.location.href = "/";
   };
 
   handleGoBack = () => {
@@ -38,14 +38,14 @@ class ErrorBoundary extends Component {
 
   render() {
     if (this.state.hasError) {
-      const solidPill =
-        "inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary px-6 py-3 font-medium " +
-        "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary " +
-        "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+      const primaryBtn =
+        "inline-flex items-center justify-center gap-2 rounded-pill bg-secondary text-primary px-6 py-3 font-medium " +
+        "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent " +
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 
-      const ghostPill =
-        "inline-flex items-center justify-center gap-2 rounded-pill bg-transparent text-secondary px-6 py-3 font-medium outline-2 outline-accent " +
-        "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:outline-0 " +
+      const secondaryBtn =
+        "inline-flex items-center justify-center gap-2 rounded-pill bg-transparent text-secondary px-6 py-3 font-medium outline-2 outline-secondary/30 " +
+        "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-0 " +
         "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
 
       return (
@@ -62,7 +62,8 @@ class ErrorBoundary extends Component {
                 Something went wrong
               </h1>
               <p className="text-secondary/70">
-                We apologize for the inconvenience. An unexpected error has occurred.
+                We apologize for the inconvenience. An unexpected error has
+                occurred.
               </p>
             </div>
 
@@ -70,10 +71,14 @@ class ErrorBoundary extends Component {
               <div className="bg-secondary text-primary rounded-large-element p-4 mb-6 outline-2 outline-error/30">
                 <div className="flex items-center gap-2 mb-3 text-error">
                   <Bug className="w-5 h-5" />
-                  <span className="font-mono font-medium">Error Details (Development)</span>
+                  <span className="font-mono font-medium">
+                    Error Details (Development)
+                  </span>
                 </div>
-                <div className="bg-primary/50 rounded-large-element p-3 font-mono text-sm text-secondary/80 overflow-x-auto">
-                  <p className="text-error mb-2">{this.state.error.toString()}</p>
+                <div className="bg-primary rounded-large-element p-3 font-mono text-sm text-secondary/80 overflow-x-auto">
+                  <p className="text-error mb-2">
+                    {this.state.error.toString()}
+                  </p>
                   {this.state.errorInfo && (
                     <pre className="text-xs text-secondary/60 whitespace-pre-wrap">
                       {this.state.errorInfo.componentStack}
@@ -86,24 +91,18 @@ class ErrorBoundary extends Component {
             <div className="space-y-3">
               <button
                 onClick={this.handleReload}
-                className={`w-full ${solidPill}`}
+                className={`w-full ${primaryBtn}`}
               >
                 <RefreshCw className="w-5 h-5" />
                 Reload Page
               </button>
 
               <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={this.handleGoBack}
-                  className={ghostPill}
-                >
+                <button onClick={this.handleGoBack} className={secondaryBtn}>
                   Go Back
                 </button>
 
-                <button
-                  onClick={this.handleGoHome}
-                  className={ghostPill}
-                >
+                <button onClick={this.handleGoHome} className={secondaryBtn}>
                   <Home className="w-5 h-5" />
                   Go Home
                 </button>
@@ -112,7 +111,10 @@ class ErrorBoundary extends Component {
 
             <div className="mt-8 text-center text-sm text-secondary/50">
               <p>If this problem persists, please contact support.</p>
-              <p className="mt-1">Error ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}</p>
+              <p className="mt-1">
+                Error ID:{" "}
+                {Math.random().toString(36).substr(2, 9).toUpperCase()}
+              </p>
             </div>
           </div>
         </div>
@@ -134,7 +136,7 @@ export class ErrorBoundaryWithFallback extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    console.error("ErrorBoundary caught an error:", error, errorInfo);
     if (this.props.onError) {
       this.props.onError(error, errorInfo);
     }

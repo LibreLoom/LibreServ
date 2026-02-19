@@ -3,7 +3,6 @@ name: MotionEye
 description: Simple, web-based frontend for motion detection with easy camera management
 version: "0.43.0"
 category: security
-icon: https://raw.githubusercontent.com/motioneye-project/motioneye/master/motioneye/static/img/motioneye-logo.svg
 website: https://github.com/motioneye-project/motioneye
 repository: https://github.com/motioneye-project/motioneye
 featured: false
