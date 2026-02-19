@@ -3,7 +3,7 @@ name: Nextcloud AIO
 description: Official Nextcloud All-in-One stack with built-in updater, Talk, and full suite managed by the AIO master container
 version: 20241220_081520-latest
 category: productivity
-icon: https://nextcloud.com/wp-content/themes/next/assets/img/common/nextcloud-square-logo.png
+icon: https://raw.githubusercontent.com/nextcloud/nextcloud.com/master/assets/img/logo/logo_nextcloud_blue.svg
 website: https://nextcloud.com/all-in-one
 repository: https://github.com/nextcloud/all-in-one
 featured: true

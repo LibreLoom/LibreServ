@@ -56,8 +56,8 @@ Installs an app → It works → Creates backup → Done
 **File:** `server/frontend/src/pages/SetupWizardPage.jsx`  
 **Effort:** 4 hours  
 **Dependencies:** None  
-**Status:** 🔴 **CRITICAL - NOT STARTED**  
-**Completed By:**
+**Status:** 🟡 **Claimed by @trafficcone**  
+**Completed By:** @trafficcone
 
 **User Journey:**
 1. User opens browser to device IP

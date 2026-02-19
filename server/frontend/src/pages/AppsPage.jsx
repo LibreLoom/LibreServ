@@ -4,48 +4,18 @@ import { useAuth } from "../hooks/useAuth";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
 import Dropdown from "../components/common/Dropdown";
+import AppIcon from "../components/common/AppIcon";
 import {
   Search,
-  Cloud,
-  Cpu,
-  Shield,
-  FileText,
-  Zap,
   Download,
   Check,
 } from "lucide-react";
 
-const categoryIcons = {
-  productivity: Cloud,
-  media: FileText,
-  development: Cpu,
-  ai: Zap,
-  search: Search,
-  storage: Cloud,
-  security: Shield,
-  other: FileText,
-};
-
 function AppCatalogCard({ app, isInstalled, onInstall }) {
-  const Icon = categoryIcons[app.category] || FileText;
-
   return (
     <Card className="relative flex flex-col h-full">
       <div className="flex items-start gap-4">
-        {app.icon ? (
-          <img
-            src={app.icon}
-            alt=""
-            className="w-12 h-12 rounded-large-element object-contain bg-secondary/10 p-1"
-            onError={(e) => {
-              e.target.style.display = "none";
-            }}
-          />
-        ) : (
-          <div className="w-12 h-12 rounded-large-element bg-secondary/10 flex items-center justify-center">
-            <Icon size={24} className="text-secondary/50" />
-          </div>
-        )}
+        <AppIcon appId={app.id} size={48} className="flex-shrink-0" />
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
@@ -205,7 +175,7 @@ export default function AppsPage() {
       )}
 
       <div className="mt-5 flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
+        <div className="relative w-full sm:max-w-sm transition-all duration-300">
           <Search
             size={18}
             className="absolute left-4 top-1/2 -translate-y-1/2 text-secondary/50"
@@ -215,7 +185,7 @@ export default function AppsPage() {
             placeholder="Search apps..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-11 pr-4 py-2 border-2 border-secondary/30 rounded-pill bg-primary text-secondary focus:outline-2 focus:outline-accent focus:outline-offset-2"
+            className="w-full pl-11 pr-4 py-2 border-2 border-secondary/30 rounded-pill bg-primary text-secondary focus:outline-2 focus:outline-accent focus:outline-offset-2 transition-all duration-300"
           />
         </div>
 

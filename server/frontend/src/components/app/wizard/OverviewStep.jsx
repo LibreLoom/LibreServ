@@ -81,11 +81,11 @@ function OverviewStep({ app, features, onContinue, onBack }) {
   return (
     <div className="space-y-6">
       <div className="text-center space-y-4">
-        {app?.icon && (
+        {app?.id && (
           <img
-            src={app.icon}
+            src={`/api/v1/catalog/${app.id}/icon`}
             alt={`${app.name} icon`}
-            className="w-16 h-16 mx-auto rounded-large-element object-contain bg-secondary/10 p-2"
+            className="w-16 h-16 mx-auto rounded-large-element object-contain text-secondary p-2"
             onError={(e) => {
               e.target.style.display = "none";
             }}

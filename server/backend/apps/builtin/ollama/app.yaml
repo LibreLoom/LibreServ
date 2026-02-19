@@ -3,7 +3,7 @@ name: Ollama
 description: Run large language models locally with a simple API. Supports Llama, Mistral, Code Llama, and many more models
 version: 0.5.4
 category: ai
-icon: https://ollama.ai/public/ollama.png
+icon: https://raw.githubusercontent.com/ollama/ollama/main/docs/ollama-logo.svg
 website: https://ollama.ai
 repository: https://github.com/ollama/ollama
 featured: true
