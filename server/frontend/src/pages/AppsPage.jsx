@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
+import Dropdown from "../components/common/Dropdown";
 import {
   Search,
   Cloud,
@@ -29,7 +30,7 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
   const Icon = categoryIcons[app.category] || FileText;
 
   return (
-    <Card className="relative">
+    <Card className="relative flex flex-col h-full">
       <div className="flex items-start gap-4">
         {app.icon ? (
           <img
@@ -58,38 +59,28 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
               </span>
             )}
           </div>
-
-          <p className="text-sm text-primary/70 mt-1 line-clamp-2">
-            {app.description}
-          </p>
-
-          <div className="flex items-center gap-2 mt-3">
-            {app.category && (
-              <span className="px-2 py-1 rounded-large-element bg-secondary/10 text-xs font-mono text-primary/50 capitalize">
-                {app.category}
-              </span>
-            )}
-          </div>
         </div>
       </div>
 
-{!isInstalled && (
+      <p className="text-sm text-primary/70 mt-3 line-clamp-2">
+        {app.description}
+      </p>
+
+      {app.category && (
+        <span className="mt-2 self-start px-2 py-1 rounded-large-element bg-secondary/10 text-xs font-mono text-primary/50 capitalize">
+          {app.category}
+        </span>
+      )}
+
+      <div className="flex-1" />
+
+      {!isInstalled && (
         <button
           onClick={() => onInstall(app.id)}
           className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono font-medium text-sm"
         >
           <Download size={16} />
           Install
-        </button>
-      )}
-
-      {isInstalled && (
-        <button
-          disabled
-          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-secondary/10 text-secondary/50 font-mono text-sm cursor-not-allowed"
-        >
-          <Check size={16} />
-          Already Installed
         </button>
       )}
 
@@ -229,18 +220,20 @@ export default function AppsPage() {
         </div>
 
         {categories.length > 1 && (
-          <select
-            value={selectedCategory || ""}
-            onChange={(e) => setSelectedCategory(e.target.value || null)}
-            className="px-4 py-2 border-2 border-secondary/30 rounded-pill bg-primary text-secondary focus:outline-2 focus:outline-accent focus:outline-offset-2 cursor-pointer"
-          >
-            <option value="">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat} value={cat} className="capitalize">
-                {cat}
-              </option>
-            ))}
-          </select>
+          <Dropdown
+            label="Category"
+            value={selectedCategory}
+            onChange={setSelectedCategory}
+            placeholder="All Categories"
+            width={160}
+            options={[
+              { value: null, label: "All Categories" },
+              ...categories.map((cat) => ({
+                value: cat,
+                label: cat.charAt(0).toUpperCase() + cat.slice(1),
+              })),
+            ]}
+          />
         )}
       </div>
 

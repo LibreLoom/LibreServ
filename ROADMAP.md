@@ -34,7 +34,7 @@ Installs an app → It works → Creates backup → Done
 | Priority | Feature | Why | Current State |
 |----------|---------|-----|---------------|
 | P0 | Setup Wizard Frontend | No terminal = must have GUI setup | ❌ MISSING |
-| P0 | App Install Flow | Core value proposition | ⚠️ Backend exists, no wizard UI |
+| P0 | App Install Flow | Core value proposition | ✅ Backend + Wizard UI complete |
 | P0 | Backup/Restore UI | "Actions should be reversible" | ❌ Backend only |
 | P1 | HTTPS/Domain Setup | Production requirement | ⚠️ Backend exists, no UI |
 | P1 | Domain Provider Integration | Remote access requires domain | ❌ MISSING |
@@ -174,7 +174,7 @@ Visual display of system checks from `/api/v1/setup/preflight`.
 
 ### 2.1 App Installation Flow
 
-**Current State:** Backend complete, frontend has basic pages but no install wizard
+**Current State:** Backend complete, frontend has install wizard and catalog page
 
 #### T2.1.0. Add App Feature Matrix Schema (Backend)
 
@@ -273,17 +273,17 @@ curl http://localhost:8080/api/v1/catalog/motioneye/features
 **File:** `server/frontend/src/pages/AppsPage.jsx` (EXISTS - enhance)  
 **Effort:** 2 hours  
 **Dependencies:** T2.1.1  
-**Status:** 🔴  
-**Completed By:**
+**Status:** ✅ Complete
+**Completed By:** @plainskill
 
 **Current State:** Page exists but uses mock data from `services.js`
 
 **Acceptance Criteria:**
-- [ ] Replace mock data with live API call to `/api/v1/catalog`
-- [ ] Group apps by category
-- [ ] Show "Installed" badge on already-installed apps
-- [ ] "Install" button opens wizard (T2.1.1)
-- [ ] Search/filter functionality
+- [x] Replace mock data with live API call to `/api/v1/catalog`
+- [x] Group apps by category
+- [x] Show "Installed" badge on already-installed apps
+- [x] "Install" button opens wizard (T2.1.1)
+- [x] Search/filter functionality
 
 ---
 
@@ -1013,3 +1013,4 @@ curl http://localhost:8080/api/v1/setup/preflight
 | 2026-02-17 | T2.1.0: Implemented types.go, motioneye/app.yaml with access_model=shared_account |
 | 2026-02-18 | T2.1.0: Marked complete; T2.1.1: Started App Install Wizard |
 | 2026-02-18 | T2.1.1: App Install Wizard complete with multi-step flow, feature warnings, dynamic config |
+| 2026-02-19 | T2.1.2: Enhanced App Catalog Page with live API, category filter, search, installed badges |
