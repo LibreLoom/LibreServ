@@ -304,7 +304,7 @@ func (s *Server) serveFSPath(w http.ResponseWriter, r *http.Request, fsPath, nam
 	}
 
 	// Set Content Security Policy headers for XSS protection
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://gt.plainskill.net; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://nextcloud.com https://docs.searxng.org https://raw.githubusercontent.com https://ollama.ai; font-src 'self' data:; connect-src 'self' https://gt.plainskill.net; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 
