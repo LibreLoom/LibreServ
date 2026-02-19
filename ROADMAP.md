@@ -292,21 +292,23 @@ curl http://localhost:8080/api/v1/catalog/motioneye/features
 **File:** Update `server/frontend/src/pages/AppDetailPage.jsx`  
 **Effort:** 1.5 hours  
 **Dependencies:** None  
-**Status:** 🔴  
-**Completed By:**
-
-**User Journey:**
-1. User clicks "Uninstall"
-2. Sees warning: "This will delete all data for [App Name]"
-3. Must type app name to confirm
-4. Shows progress during uninstall
-5. Redirects to app list when done
+**Status:** ✅ Complete  
+**Completed By:** @plainskill
 
 **Acceptance Criteria:**
-- [ ] Confirmation modal with typing requirement
-- [ ] Shows what will be deleted (volumes, config)
-- [ ] Progress indicator during uninstall
-- [ ] Cannot uninstall if backup in progress
+- [x] Confirmation modal with typing requirement
+- [x] Shows what will be deleted (volumes, config)
+- [x] Progress indicator during uninstall
+- [x] Cannot uninstall if backup in progress
+
+**Implementation Notes:**
+- Completely rewrote AppDetailPage to fetch live app data from `/api/apps/{instanceId}`
+- Added UninstallConfirmModal component requiring user to type app name
+- Added display of what will be deleted (volumes, config, container images)
+- Added progress indicator during uninstall operation
+- Added Start/Stop/Restart buttons with status-aware enabling
+- Updated route parameter from `:appName` to `:instanceId` for API consistency
+- Added "Installed Apps" section to AppsPage with Manage links
 
 ---
 
@@ -1014,6 +1016,7 @@ curl http://localhost:8080/api/v1/setup/preflight
 
 | Date | Change |
 |------|--------|
+| 2026-02-19 | T2.1.3: App uninstall with confirmation modal, typing requirement, and progress indicator |
 | 2026-02-19 | T3.2.1: Enhanced user management with last_login, last admin protection, password strength indicator |
 | 2026-02-17 | Added T2.2.3: Cloud Backup Integration, T3.1.3: Domain Provider Integration |
 | 2026-02-17 | Restructured around user journeys, added missing Setup Wizard |
