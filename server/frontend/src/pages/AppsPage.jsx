@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
@@ -9,6 +9,7 @@ import {
   Search,
   Download,
   Check,
+  Settings,
 } from "lucide-react";
 
 function AppCatalogCard({ app, isInstalled, onInstall }) {
@@ -228,6 +229,53 @@ export default function AppsPage() {
             />
           ))}
         </div>
+      )}
+
+      {installedApps.length > 0 && (
+        <section className="mt-10" aria-label="Installed apps">
+          <h2 className="text-xl font-mono font-normal mb-4 text-primary/70">
+            Installed Apps
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {installedApps.map((app) => (
+              <Card key={app.id} className="relative flex flex-col">
+                <div className="flex items-start gap-4">
+                  <AppIcon appId={app.app_id} size={48} className="flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-mono text-lg text-primary truncate">
+                      {app.name}
+                    </h3>
+                    <p className={`text-sm capitalize ${
+                      app.status === "running" ? "text-green-500" :
+                      app.status === "stopped" ? "text-yellow-500" : "text-primary/50"
+                    }`}>
+                      {app.status}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Link
+                    to={`/apps/${app.id}`}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-secondary/10 text-primary hover:bg-secondary/20 transition-colors font-mono text-sm"
+                  >
+                    <Settings size={16} />
+                    Manage
+                  </Link>
+                  {app.url && (
+                    <a
+                      href={app.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
+                    >
+                      Open
+                    </a>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </section>
       )}
     </main>
   );
