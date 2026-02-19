@@ -6,7 +6,7 @@ version: "3.8"
 # (allows Nextcloud to manage app containers dynamically)
 services:
   nextcloud-aio-mastercontainer:
-    image: nextcloud/all-in-one:20241220_081520-latest
+    image: nextcloud/all-in-one:latest
     container_name: "{{.instance_id}}-nextcloud-aio-master"
     restart: unless-stopped
     ports:

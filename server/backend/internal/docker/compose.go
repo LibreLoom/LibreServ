@@ -33,6 +33,15 @@ func (cm *ComposeManager) getComposeArgs(composePath string) (composeFile string
 		composeFile = filepath.Join(composePath, "docker-compose.yml")
 		workDir = composePath
 	}
+	// Convert to absolute paths to avoid issues when cmd.Dir is set
+	absFile, err := filepath.Abs(composeFile)
+	if err == nil {
+		composeFile = absFile
+	}
+	absDir, err := filepath.Abs(workDir)
+	if err == nil {
+		workDir = absDir
+	}
 	return
 }
 

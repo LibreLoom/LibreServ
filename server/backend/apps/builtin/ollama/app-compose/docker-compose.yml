@@ -1,6 +1,6 @@
 services:
   ollama:
-    image: ollama/ollama:0.5.4
+    image: ollama/ollama:latest
     container_name: "{{.instance_id}}-ollama"
     restart: unless-stopped
 {{- if .enable_gpu }}

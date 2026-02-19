@@ -1,6 +1,6 @@
 services:
   searxng:
-    image: searxng/searxng:2024.12.18-b8443118c
+    image: searxng/searxng:latest
     container_name: "{{.instance_id}}-searxng"
     restart: unless-stopped
     ports:
@@ -16,6 +16,7 @@ services:
       - CHOWN
       - SETGID
       - SETUID
+      - DAC_OVERRIDE
     depends_on:
       - redis
     labels:
