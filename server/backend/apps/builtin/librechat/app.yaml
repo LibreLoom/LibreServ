@@ -8,18 +8,18 @@ repository: https://github.com/danny-avila/LibreChat
 featured: true
 
 deployment:
-  compose_file: docker-compose.yml
+  compose_file: app-compose/docker-compose.yml
   ports:
     - host: 3080
       container: 3080
       protocol: tcp
   volumes:
-    - name: data
+    - name: librechat
       mount_path: /app/data
-    - name: images
-      mount_path: /app/client/public/images
-    - name: logs
-      mount_path: /app/api/logs
+    - name: mongodb
+      mount_path: /data/db
+    - name: meilisearch
+      mount_path: /meili_data
   depends_on:
     - mongodb
   restart_policy: always

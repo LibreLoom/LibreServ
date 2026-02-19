@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -187,6 +188,38 @@ func (m *Manager) RebuildBackends(ctx context.Context) {
 	}
 }
 
+// StartInstalledApps starts all installed apps that should be running.
+func (m *Manager) StartInstalledApps(ctx context.Context) {
+	if err := m.CleanupStaleInstallations(ctx); err != nil {
+		m.logger.Warn("Failed to cleanup stale installations", "error", err)
+	}
+
+	apps, err := m.ListInstalledApps(ctx)
+	if err != nil {
+		m.logger.Warn("Failed to list installed apps for startup", "error", err)
+		return
+	}
+
+	for _, app := range apps {
+		composePath := filepath.Join(m.appsDataDir, app.ID, "docker-compose.yml")
+		if _, err := os.Stat(composePath); os.IsNotExist(err) {
+			m.logger.Warn("Compose file missing for app, marking as error", "instance_id", app.ID)
+			m.updateStatus(ctx, app.ID, StatusError)
+			continue
+		}
+
+		if app.Status == StatusRunning || app.Status == StatusInstalling {
+			m.logger.Info("Starting app on boot", "instance_id", app.ID, "app_id", app.AppID)
+			if err := m.runtime.ComposeUp(ctx, composePath); err != nil {
+				m.logger.Error("Failed to start app on boot", "instance_id", app.ID, "error", err)
+				m.updateStatus(ctx, app.ID, StatusError)
+			} else {
+				m.updateStatus(ctx, app.ID, StatusRunning)
+			}
+		}
+	}
+}
+
 // GetInstaller returns the installer
 func (m *Manager) GetInstaller() *Installer {
 	return m.installer
@@ -264,9 +297,17 @@ func (m *Manager) RestartApp(ctx context.Context, instanceID string) error {
 
 // GetAppStatus returns the current status of an app
 func (m *Manager) GetAppStatus(ctx context.Context, instanceID string) (*AppStatusInfo, error) {
-	_, err := m.GetInstalledApp(ctx, instanceID)
+	app, err := m.GetInstalledApp(ctx, instanceID)
 	if err != nil {
 		return nil, err
+	}
+
+	if app.Status == StatusInstalling || app.Status == StatusUpdating {
+		return &AppStatusInfo{
+			InstanceID: instanceID,
+			Status:     app.Status,
+			Containers: nil,
+		}, nil
 	}
 
 	label := "libreserv.app=" + instanceID
@@ -293,7 +334,7 @@ func (m *Manager) GetAppStatus(ctx context.Context, instanceID string) (*AppStat
 			Name:   firstName(cinfo.Names),
 			ID:     cinfo.ID,
 			Status: cinfo.Status,
-			Health: cinfo.State, // placeholder; Docker API health requires inspection
+			Health: cinfo.State,
 		})
 	}
 
@@ -566,11 +607,39 @@ func (m *Manager) recordUpdateFailure(updateID int64, err error, rolledBack bool
 // UninstallApp removes an installed app
 func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 	if err := m.installer.Uninstall(ctx, instanceID); err != nil {
-		return err
+		m.logger.Warn("Installer uninstall returned error, continuing with DB cleanup", "error", err)
 	}
 
 	_, err := m.db.Exec(`DELETE FROM apps WHERE id = ?`, instanceID)
 	return err
+}
+
+// CleanupStaleInstallations removes apps stuck in "installing" state for too long
+func (m *Manager) CleanupStaleInstallations(ctx context.Context) error {
+	cutoff := time.Now().Add(-30 * time.Minute)
+	rows, err := m.db.Query(`SELECT id FROM apps WHERE status = ? AND installed_at < ?`, string(StatusInstalling), cutoff)
+	if err != nil {
+		return fmt.Errorf("failed to query stale installations: %w", err)
+	}
+	defer rows.Close()
+
+	var staleIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		staleIDs = append(staleIDs, id)
+	}
+
+	for _, id := range staleIDs {
+		m.logger.Info("Cleaning up stale installation", "instance_id", id)
+		if err := m.UninstallApp(ctx, id); err != nil {
+			m.logger.Warn("Failed to cleanup stale installation", "instance_id", id, "error", err)
+		}
+	}
+
+	return nil
 }
 
 // ListUpdateHistory returns the update history for an app or all apps

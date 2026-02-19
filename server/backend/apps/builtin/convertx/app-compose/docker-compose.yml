@@ -1,6 +1,6 @@
 services:
   convertx:
-    image: ghcr.io/c4illin/convertx:0.5.2
+    image: ghcr.io/c4illin/convertx:latest
     container_name: "{{.instance_id}}-convertx"
     restart: unless-stopped
     ports:

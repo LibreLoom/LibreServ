@@ -63,7 +63,7 @@ services:
 
 {{- if .enable_meilisearch }}
   meilisearch:
-    image: getmeili/meilisearch:v1.12.3
+    image: getmeili/meilisearch:latest
     container_name: "{{.instance_id}}-meilisearch"
     restart: always
     environment:

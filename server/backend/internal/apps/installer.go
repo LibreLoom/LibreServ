@@ -64,62 +64,51 @@ type InstallResult struct {
 	Error   string        `json:"error,omitempty"`
 }
 
-// Install installs an app from the catalog
+// Install installs an app from the catalog (async - returns immediately with installing status)
 func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallResult, error) {
 	i.logger.Info("Installing app", "app_id", opts.AppID)
 
-	// Get app definition from catalog
 	appDef, err := i.catalog.GetApp(opts.AppID)
 	if err != nil {
 		return &InstallResult{Success: false, Error: err.Error()}, err
 	}
 
-	// Generate unique instance ID
 	instanceID := generateInstanceID()
 
-	// Determine app name
 	appName := opts.Name
 	if appName == "" {
 		appName = appDef.Name
 	}
 
-	// Create installation directory
 	installPath := filepath.Join(i.appsDataDir, instanceID)
 	if err := os.MkdirAll(installPath, 0755); err != nil {
 		return &InstallResult{Success: false, Error: "failed to create install directory"}, err
 	}
 
-	// Merge default config with user config
 	config := i.mergeConfig(appDef, opts.Config)
 
-	// Add generated values
 	config["instance_id"] = instanceID
 	config["install_path"] = installPath
 	config["app_name"] = appName
 
-	// Generate any auto-generated values (passwords, etc.)
 	config = i.generateAutoValues(appDef, config)
 
-	// Process compose template
 	composePath, err := i.processComposeTemplate(appDef, installPath, config)
 	if err != nil {
 		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to process compose template"}, err
 	}
 
-	// Create .libreserv.yaml metadata file
 	if err := i.createMetadataFile(installPath, appDef, config); err != nil {
 		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to create metadata file"}, err
 	}
 
-	// Create any required data directories
 	if err := i.createDataDirectories(installPath, appDef); err != nil {
 		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to create data directories"}, err
 	}
 
-	// Create installed app record
 	installedApp := &InstalledApp{
 		ID:           instanceID,
 		AppID:        appDef.ID,
@@ -133,33 +122,48 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		UpdatedAt:    time.Now(),
 	}
 
-	// Pull images
-	i.logger.Info("Pulling images", "app_id", opts.AppID, "instance_id", instanceID)
-	if err := i.runtime.ComposePull(ctx, composePath); err != nil {
-		i.logger.Error("Failed to pull images", "error", err)
-		// Don't fail on pull error, images might already exist
-	}
-
-	// Start containers
-	i.logger.Info("Starting containers", "app_id", opts.AppID, "instance_id", instanceID)
-	if err := i.runtime.ComposeUp(ctx, composePath); err != nil {
-		_ = os.RemoveAll(installPath)
-		return &InstallResult{Success: false, Error: "failed to start containers"}, err
-	}
-
-	// Update status to running
-	installedApp.Status = StatusRunning
-	installedApp.HealthStatus = HealthUnknown
-
-	// Determine URL if app exposes a web interface
 	if len(appDef.Deployment.Ports) > 0 {
 		port := appDef.Deployment.Ports[0].Host
 		installedApp.URL = fmt.Sprintf("http://localhost:%d", port)
 	}
+
+	if err := i.saveInstalledApp(installedApp); err != nil {
+		_ = os.RemoveAll(installPath)
+		return &InstallResult{Success: false, Error: "failed to save app record"}, err
+	}
+
+	go i.completeInstall(appDef, installedApp, composePath, config)
+
+	return &InstallResult{
+		Success: true,
+		App:     installedApp,
+	}, nil
+}
+
+func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *InstalledApp, composePath string, config map[string]interface{}) {
+	instanceID := installedApp.ID
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+
+	i.logger.Info("Pulling images", "app_id", appDef.ID, "instance_id", instanceID)
+	if err := i.runtime.ComposePull(ctx, composePath); err != nil {
+		i.logger.Error("Failed to pull images", "error", err)
+	}
+
+	i.logger.Info("Starting containers", "app_id", appDef.ID, "instance_id", instanceID)
+	if err := i.runtime.ComposeUp(ctx, composePath); err != nil {
+		i.logger.Error("Failed to start containers", "error", err)
+		i.updateAppStatus(instanceID, StatusError, "failed to start containers: "+err.Error())
+		_ = os.RemoveAll(installedApp.Path)
+		return
+	}
+
+	installedApp.Status = StatusRunning
+	installedApp.HealthStatus = HealthUnknown
+
 	if i.registerBackend != nil && installedApp.URL != "" {
 		i.registerBackend(appDef.ID, installedApp.URL, "")
 	}
-	// Register additional named backends if available
 	if i.registerBackend != nil {
 		for _, p := range appDef.Deployment.Ports {
 			if p.Host == 0 || p.Name == "" {
@@ -175,29 +179,26 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		}
 	}
 
-	// Persist installed app
 	if err := i.saveInstalledApp(installedApp); err != nil {
-		i.logger.Error("Failed to save installed app", "error", err)
+		i.logger.Error("Failed to update installed app", "error", err)
 	}
 
-	// Register default health checks if configured
 	if i.monitor != nil {
 		if err := i.registerHealth(appDef, instanceID, config); err != nil {
 			i.logger.Warn("Failed to register health check", "error", err)
 		}
 	}
 
-	// Run system-setup if present
 	if err := i.RunSystemSetup(ctx, appDef, instanceID, config); err != nil {
 		i.logger.Warn("system-setup failed", "error", err)
 	}
 
-	i.logger.Info("App installed successfully", "app_id", opts.AppID, "instance_id", instanceID)
+	i.logger.Info("App installed successfully", "app_id", appDef.ID, "instance_id", instanceID)
+}
 
-	return &InstallResult{
-		Success: true,
-		App:     installedApp,
-	}, nil
+func (i *Installer) updateAppStatus(instanceID string, status AppStatus, errMsg string) error {
+	_, err := i.db.Exec(`UPDATE apps SET status = ?, updated_at = ? WHERE id = ?`, string(status), time.Now(), instanceID)
+	return err
 }
 
 // mergeConfig merges default values from app definition with user-provided config
@@ -261,10 +262,18 @@ func (i *Installer) processComposeTemplate(appDef *AppDefinition, installPath st
 			return generateSecurePassword(length)
 		},
 		"dataPath": func() string {
-			return filepath.Join(installPath, "data")
+			path := filepath.Join(installPath, "data")
+			if abs, err := filepath.Abs(path); err == nil {
+				return abs
+			}
+			return path
 		},
 		"configPath": func() string {
-			return filepath.Join(installPath, "config")
+			path := filepath.Join(installPath, "config")
+			if abs, err := filepath.Abs(path); err == nil {
+				return abs
+			}
+			return path
 		},
 		"default": func(def, val interface{}) interface{} {
 			if val == nil || val == "" {
@@ -318,12 +327,25 @@ func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition
 
 // createDataDirectories creates required data directories for the app
 func (i *Installer) createDataDirectories(installPath string, appDef *AppDefinition) error {
-	// Create standard directories
 	dirs := []string{"data", "config", "logs"}
 
 	for _, dir := range dirs {
 		path := filepath.Join(installPath, dir)
 		if err := os.MkdirAll(path, 0755); err != nil {
+			return err
+		}
+	}
+
+	for _, vol := range appDef.Deployment.Volumes {
+		if vol.Name == "" || vol.Name == "data" || vol.Name == "config" || vol.Name == "logs" {
+			continue
+		}
+		dataPath := filepath.Join(installPath, "data", vol.Name)
+		if err := os.MkdirAll(dataPath, 0755); err != nil {
+			return err
+		}
+		configPath := filepath.Join(installPath, "config", vol.Name)
+		if err := os.MkdirAll(configPath, 0755); err != nil {
 			return err
 		}
 	}
@@ -338,15 +360,18 @@ func (i *Installer) Uninstall(ctx context.Context, instanceID string) error {
 	installPath := filepath.Join(i.appsDataDir, instanceID)
 	composePath := filepath.Join(installPath, "docker-compose.yml")
 
-	// Stop and remove containers
-	if err := i.runtime.ComposeDown(ctx, composePath); err != nil {
-		i.logger.Warn("Failed to stop containers", "error", err)
-		// Continue with removal anyway
+	if _, err := os.Stat(composePath); err == nil {
+		if err := i.runtime.ComposeDown(ctx, composePath); err != nil {
+			i.logger.Warn("Failed to stop containers", "error", err)
+		}
+	} else {
+		i.logger.Debug("Compose file not found, skipping container stop", "path", composePath)
 	}
 
-	// Remove installation directory
-	if err := os.RemoveAll(installPath); err != nil {
-		return fmt.Errorf("failed to remove installation directory: %w", err)
+	if _, err := os.Stat(installPath); err == nil {
+		if err := os.RemoveAll(installPath); err != nil {
+			i.logger.Warn("Failed to remove installation directory", "error", err)
+		}
 	}
 
 	i.logger.Info("App uninstalled successfully", "instance_id", instanceID)

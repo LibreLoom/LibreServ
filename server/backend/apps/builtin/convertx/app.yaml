@@ -8,13 +8,13 @@ repository: https://github.com/C4illin/ConvertX
 featured: false
 
 deployment:
-  compose_file: docker-compose.yml
+  compose_file: app-compose/docker-compose.yml
   ports:
     - host: 3000
       container: 3000
       protocol: tcp
   volumes:
-    - name: data
+    - name: convertx
       mount_path: /app/data
   restart_policy: unless-stopped
 
@@ -33,13 +33,6 @@ configuration:
     default: "http://localhost:*"
     required: false
     env_var: HTTP_ALLOWED
-  - name: account_registration
-    label: Allow Registration
-    description: Allow new users to register accounts
-    type: boolean
-    default: true
-    required: false
-    env_var: ACCOUNT_REGISTRATION
 
 health_check:
   type: http
@@ -61,6 +54,9 @@ updates:
   strategy: notify
   backup_before_update: true
   allow_downgrade: false
+
+features:
+  access_model: public
 
 scripts:
   system:

@@ -8,15 +8,15 @@ repository: https://github.com/motioneye-project/motioneye
 featured: false
 
 deployment:
-  compose_file: docker-compose.yml
+  compose_file: app-compose/docker-compose.yml
   ports:
     - host: 8765
       container: 8765
       protocol: tcp
   volumes:
-    - name: config
+    - name: motioneye
       mount_path: /etc/motioneye
-    - name: data
+    - name: motioneye-data
       mount_path: /var/lib/motioneye
   restart_policy: unless-stopped
   privileged: true

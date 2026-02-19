@@ -8,14 +8,16 @@ repository: https://github.com/searxng/searxng
 featured: true
 
 deployment:
-  compose_file: docker-compose.yml
+  compose_file: app-compose/docker-compose.yml
   ports:
     - host: 8080
       container: 8080
       protocol: tcp
   volumes:
-    - name: config
+    - name: searxng
       mount_path: /etc/searxng
+    - name: redis
+      mount_path: /data
   depends_on:
     - redis
   restart_policy: unless-stopped
@@ -89,6 +91,9 @@ updates:
   strategy: notify
   backup_before_update: true
   allow_downgrade: false
+
+features:
+  access_model: public
 
 scripts:
   system:

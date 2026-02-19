@@ -5,12 +5,7 @@ import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
 import Dropdown from "../components/common/Dropdown";
 import AppIcon from "../components/common/AppIcon";
-import {
-  Search,
-  Download,
-  Check,
-  Settings,
-} from "lucide-react";
+import { Search, Download, Check, Settings } from "lucide-react";
 
 function AppCatalogCard({ app, isInstalled, onInstall }) {
   return (
@@ -166,11 +161,7 @@ export default function AppsPage() {
       {loading && showLoading && (
         <div className="fixed inset-0 flex items-center justify-center">
           <Card className="w-[70vw] sm:w-[20vw]">
-            <div
-              className="my-5 text-center"
-              role="status"
-              aria-live="polite"
-            >
+            <div className="my-5 text-center" role="status" aria-live="polite">
               <p>Loading apps...</p>
             </div>
           </Card>
@@ -235,22 +226,27 @@ export default function AppsPage() {
 
       {installedApps.length > 0 && (
         <section className="mt-10" aria-label="Installed apps">
-          <h2 className="text-xl font-mono font-normal mb-4 text-primary/70">
+          <h2 className="text-xl font-mono font-normal mb-4 text-secondary">
             Installed Apps
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {installedApps.map((app) => (
               <Card key={app.id} className="relative flex flex-col">
                 <div className="flex items-start gap-4">
-                  <AppIcon appId={app.app_id} size={48} className="flex-shrink-0" />
+                  <AppIcon appId={app.app_id} size={48} className="shrink-0" />
                   <div className="flex-1 min-w-0">
                     <h3 className="font-mono text-lg text-primary truncate">
                       {app.name}
                     </h3>
-                    <p className={`text-sm capitalize ${
-                      app.status === "running" ? "text-success" :
-                      app.status === "stopped" ? "text-warning" : "text-primary/50"
-                    }`}>
+                    <p
+                      className={`text-sm capitalize ${
+                        app.status === "running"
+                          ? "text-success"
+                          : app.status === "stopped"
+                            ? "text-warning"
+                            : "text-primary/50"
+                      }`}
+                    >
                       {app.status}
                     </p>
                   </div>
@@ -258,7 +254,7 @@ export default function AppsPage() {
                 <div className="mt-4 flex gap-2">
                   <Link
                     to={`/apps/${app.id}`}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-secondary/10 text-primary hover:bg-secondary/20 transition-colors font-mono text-sm"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary hover:ring-2 motion-safe:transition-all font-mono text-sm"
                   >
                     <Settings size={16} />
                     Manage

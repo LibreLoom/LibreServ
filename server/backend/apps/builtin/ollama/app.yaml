@@ -8,13 +8,13 @@ repository: https://github.com/ollama/ollama
 featured: true
 
 deployment:
-  compose_file: docker-compose.yml
+  compose_file: app-compose/docker-compose.yml
   ports:
     - host: 11434
       container: 11434
       protocol: tcp
   volumes:
-    - name: models
+    - name: ollama
       mount_path: /root/.ollama
   restart_policy: unless-stopped
   gpu:
@@ -91,6 +91,9 @@ updates:
   strategy: notify
   backup_before_update: false
   allow_downgrade: true
+
+features:
+  access_model: public
 
 scripts:
   system:
