@@ -1,17 +1,6 @@
 import { Component } from 'react';
 import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react';
 
-/**
- * Error Boundary Component
- * 
- * Catches JavaScript errors anywhere in the child component tree,
- * logs those errors, and displays a fallback UI instead of crashing.
- * 
- * Usage:
- * <ErrorBoundary>
- *   <YourComponent />
- * </ErrorBoundary>
- */
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -23,23 +12,16 @@ class ErrorBoundary extends Component {
   }
 
   static getDerivedStateFromError(error) {
-    // Update state so the next render will show the fallback UI
     return { hasError: true, error };
   }
 
   componentDidCatch(error, errorInfo) {
-    // Log error details (in production, send to error tracking service)
     console.error('ErrorBoundary caught an error:', error, errorInfo);
     
     this.setState({
       error,
       errorInfo
     });
-
-    // In production, you would send to an error tracking service like Sentry
-    // if (process.env.NODE_ENV === 'production') {
-    //   sendErrorToService(error, errorInfo);
-    // }
   }
 
   handleReload = () => {
@@ -56,20 +38,27 @@ class ErrorBoundary extends Component {
 
   render() {
     if (this.state.hasError) {
-      // Render fallback UI
+      const solidPill =
+        "inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary px-6 py-3 font-medium " +
+        "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary " +
+        "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+
+      const ghostPill =
+        "inline-flex items-center justify-center gap-2 rounded-pill bg-transparent text-secondary px-6 py-3 font-medium outline-2 outline-accent " +
+        "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:outline-0 " +
+        "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+
       return (
         <div className="min-h-screen bg-primary flex items-center justify-center p-4">
           <div className="max-w-lg w-full">
-            {/* Error Icon */}
             <div className="flex justify-center mb-6">
-              <div className="w-20 h-20 bg-error/10 rounded-full flex items-center justify-center">
+              <div className="w-20 h-20 rounded-pill bg-error/10 flex items-center justify-center">
                 <AlertTriangle className="w-10 h-10 text-error" />
               </div>
             </div>
 
-            {/* Error Title */}
             <div className="text-center mb-8">
-              <h1 className="text-2xl font-bold text-secondary mb-2">
+              <h1 className="text-2xl font-mono text-secondary mb-2">
                 Something went wrong
               </h1>
               <p className="text-secondary/70">
@@ -77,14 +66,13 @@ class ErrorBoundary extends Component {
               </p>
             </div>
 
-            {/* Error Details (Development Only) */}
             {import.meta.env.DEV && this.state.error && (
-              <div className="bg-surface border border-error/20 rounded-lg p-4 mb-6">
+              <div className="bg-secondary text-primary rounded-large-element p-4 mb-6 outline-2 outline-error/30">
                 <div className="flex items-center gap-2 mb-3 text-error">
                   <Bug className="w-5 h-5" />
-                  <span className="font-semibold">Error Details (Development)</span>
+                  <span className="font-mono font-medium">Error Details (Development)</span>
                 </div>
-                <div className="bg-primary/50 rounded p-3 font-mono text-sm text-secondary/80 overflow-x-auto">
+                <div className="bg-primary/50 rounded-large-element p-3 font-mono text-sm text-secondary/80 overflow-x-auto">
                   <p className="text-error mb-2">{this.state.error.toString()}</p>
                   {this.state.errorInfo && (
                     <pre className="text-xs text-secondary/60 whitespace-pre-wrap">
@@ -95,11 +83,10 @@ class ErrorBoundary extends Component {
               </div>
             )}
 
-            {/* Action Buttons */}
             <div className="space-y-3">
               <button
                 onClick={this.handleReload}
-                className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent/90 text-primary font-semibold py-3 px-6 rounded-lg transition-colors"
+                className={`w-full ${solidPill}`}
               >
                 <RefreshCw className="w-5 h-5" />
                 Reload Page
@@ -108,14 +95,14 @@ class ErrorBoundary extends Component {
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={this.handleGoBack}
-                  className="flex items-center justify-center gap-2 bg-surface hover:bg-surface/80 text-secondary font-semibold py-3 px-6 rounded-lg border border-secondary/20 transition-colors"
+                  className={ghostPill}
                 >
                   Go Back
                 </button>
 
                 <button
                   onClick={this.handleGoHome}
-                  className="flex items-center justify-center gap-2 bg-surface hover:bg-surface/80 text-secondary font-semibold py-3 px-6 rounded-lg border border-secondary/20 transition-colors"
+                  className={ghostPill}
                 >
                   <Home className="w-5 h-5" />
                   Go Home
@@ -123,7 +110,6 @@ class ErrorBoundary extends Component {
               </div>
             </div>
 
-            {/* Support Info */}
             <div className="mt-8 text-center text-sm text-secondary/50">
               <p>If this problem persists, please contact support.</p>
               <p className="mt-1">Error ID: {Math.random().toString(36).substr(2, 9).toUpperCase()}</p>
@@ -133,16 +119,10 @@ class ErrorBoundary extends Component {
       );
     }
 
-    // Render children if no error
     return this.props.children;
   }
 }
 
-/**
- * Error Boundary with Fallback Component
- * 
- * Allows passing a custom fallback component for specific error UIs
- */
 export class ErrorBoundaryWithFallback extends Component {
   constructor(props) {
     super(props);

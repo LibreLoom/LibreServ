@@ -20,6 +20,8 @@ const Login = lazy(() => import("./pages/Login"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const LorePage = lazy(() => import("./pages/LorePage"));
+const ErrorBoundaryDemo = lazy(() => import("./pages/ErrorBoundaryDemo"));
+const ErrorDisplayDemo = lazy(() => import("./pages/ErrorDisplayDemo"));
 
 function RequireAuth({ children }) {
   const { me, initialized } = useAuth();
@@ -131,6 +133,8 @@ export default function App() {
             />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/lore" element={<LorePage />} />
+            <Route path="/demo/error-boundary" element={<ErrorBoundaryDemo />} />
+            <Route path="/demo/error-display" element={<ErrorDisplayDemo />} />
           </Route>
           {/* Public routes outside auth requirement */}
           <Route path="/setup" element={<SetupPage />} />
