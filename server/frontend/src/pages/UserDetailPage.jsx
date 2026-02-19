@@ -7,7 +7,7 @@ import VerificationCard from "../components/common/cards/VerificationCard";
 import ModalCard from "../components/common/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import api from "../lib/api";
-import { User, Mail, Shield, Calendar, Edit2 } from "lucide-react";
+import { User, Mail, Shield, Calendar, Edit2, Clock } from "lucide-react";
 import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
 import RoleChangeForm from "../components/common/forms/RoleChangeForm";
 import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
@@ -68,8 +68,13 @@ export default function UserDetailPage() {
       });
 
       navigate("/users");
-    } catch {
-      alert("Unable to delete user. Please try again.");
+    } catch (err) {
+      const message = err?.message || "Unable to delete user. Please try again.";
+      if (message.includes("last admin") || message.includes("last admin user")) {
+        alert("Cannot delete the last admin user. There must be at least one admin.");
+      } else {
+        alert(message);
+      }
     }
   };
 
@@ -218,6 +223,14 @@ export default function UserDetailPage() {
                 <h2 className="text-xl font-mono font-normal">Last Updated</h2>
               </div>
               <p className="text-lg ml-8">{formatDate(user.updated_at)}</p>
+            </Card>
+
+            <Card className="motion-safe:transition hover:scale-[1.02]">
+              <div className="flex items-center gap-3 mb-3">
+                <Clock size={20} className="text-accent" aria-hidden="true" />
+                <h2 className="text-xl font-mono font-normal">Last Login</h2>
+              </div>
+              <p className="text-lg ml-8">{formatDate(user.last_login) || "Never"}</p>
             </Card>
             {/* Ideas for more cards? */}
           </section>

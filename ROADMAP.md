@@ -579,16 +579,23 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 **File:** `server/frontend/src/pages/UsersPage.jsx` (EXISTS)  
 **Effort:** 1.5 hours  
 **Dependencies:** None  
-**Status:** 🟡  
-**Completed By:**
+**Status:** ✅ Complete  
+**Completed By:** @plainskill
 
 **Acceptance Criteria:**
-- [ ] List all users with role, last login
-- [ ] Create user with role selection
-- [ ] Edit user (change password, role)
-- [ ] Delete user with confirmation
-- [ ] Cannot delete last admin
-- [ ] Password strength indicator
+- [x] List all users with role, last login
+- [x] Create user with role selection
+- [x] Edit user (change password, role)
+- [x] Delete user with confirmation
+- [x] Cannot delete last admin
+- [x] Password strength indicator
+
+**Implementation Notes:**
+- Added `last_login` field to User model with migration 008
+- Added `ErrLastAdmin` error and protection in DeleteUser
+- Added password strength indicator to AddUserForm
+- Updated UsersPage and UserDetailPage to show last login
+- Updated delete handlers to show friendly error for last admin
 
 ---
 
@@ -1007,6 +1014,7 @@ curl http://localhost:8080/api/v1/setup/preflight
 
 | Date | Change |
 |------|--------|
+| 2026-02-19 | T3.2.1: Enhanced user management with last_login, last admin protection, password strength indicator |
 | 2026-02-17 | Added T2.2.3: Cloud Backup Integration, T3.1.3: Domain Provider Integration |
 | 2026-02-17 | Restructured around user journeys, added missing Setup Wizard |
 | 2026-02-17 | Added T2.1.0: App Feature Matrix Schema (from feature request) |

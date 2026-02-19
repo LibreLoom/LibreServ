@@ -4,13 +4,14 @@ import "time"
 
 // User represents an application user record.
 type User struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"` // Never return password hash in JSON
-	Email        string    `json:"email"`
-	Role         string    `json:"role"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string     `json:"id"`
+	Username     string     `json:"username"`
+	PasswordHash string     `json:"-"` // Never return password hash in JSON
+	Email        string     `json:"email"`
+	Role         string     `json:"role"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	LastLogin    *time.Time `json:"last_login,omitempty"`
 }
 
 // UserRepository defines database operations for users.
