@@ -7,7 +7,6 @@ export default function ErrorDisplayDemo() {
   const [showInfo, setShowInfo] = useState(false);
   const [showInlineError, setShowInlineError] = useState(false);
   const [showFormError, setShowFormError] = useState(false);
-  const [showApiError, setShowApiError] = useState(false);
   const [apiError, setApiError] = useState(null);
 
   const triggerApiError = () => {

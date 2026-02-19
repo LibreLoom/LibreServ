@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { AlertTriangle, Info, HardDrive, Cpu, MemoryStick } from "lucide-react";
+import AppIcon from "../../common/AppIcon";
 
 const ACCESS_MODEL_INFO = {
   shared_account: {
@@ -82,14 +83,9 @@ function OverviewStep({ app, features, onContinue, onBack }) {
     <div className="space-y-6">
       <div className="text-center space-y-4">
         {app?.id && (
-          <img
-            src={`/api/v1/catalog/${app.id}/icon`}
-            alt={`${app.name} icon`}
-            className="w-16 h-16 mx-auto rounded-large-element object-contain text-secondary p-2"
-            onError={(e) => {
-              e.target.style.display = "none";
-            }}
-          />
+          <div className="w-16 h-16 mx-auto">
+            <AppIcon appId={app.id} size={64} className="text-secondary" />
+          </div>
         )}
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Install {app?.name || "App"}

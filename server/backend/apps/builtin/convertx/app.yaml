@@ -3,7 +3,6 @@ name: ConvertX
 description: Self-hosted file converter supporting 800+ formats including documents, images, audio, video, and archives
 version: "0.5.2"
 category: utility
-icon: https://raw.githubusercontent.com/C4illin/ConvertX/main/public/favicon.svg
 website: https://github.com/C4illin/ConvertX
 repository: https://github.com/C4illin/ConvertX
 featured: false

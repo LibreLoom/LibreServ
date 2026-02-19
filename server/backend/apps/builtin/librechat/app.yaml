@@ -3,7 +3,6 @@ name: LibreChat
 description: Enhanced ChatGPT clone supporting multiple AI providers (OpenAI, Anthropic, Google, Azure, local models via Ollama) with conversation branching, plugins, and multi-user support
 version: latest
 category: ai
-icon: https://raw.githubusercontent.com/danny-avila/LibreChat/main/client/public/assets/logo.svg
 website: https://librechat.ai
 repository: https://github.com/danny-avila/LibreChat
 featured: true
