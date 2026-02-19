@@ -112,7 +112,7 @@ export default function Login() {
       tabIndex={-1}
     >
       {/* Centered login card for quick access from any state. */}
-      <div className="relative w-full max-w-lg overflow-scroll bg-secondary text-primary rounded-large-element outline-2 outline-accent pop-in p-8">
+      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element outline-2 outline-accent pop-in p-8">
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
         </span>
