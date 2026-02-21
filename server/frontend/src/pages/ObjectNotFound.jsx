@@ -122,6 +122,7 @@ export default function ObjectNotFound({
           <HeaderCard
             title={`${titleLabel} Not Found`}
             align="center"
+            dynamicRounding={false}
             className="p-8 outline-2 outline-accent text-center motion-reduce:animate-none"
             leftContent={
               <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center shrink-0">
