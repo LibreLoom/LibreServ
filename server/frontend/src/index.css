@@ -25,7 +25,7 @@
     /* Setup Pill Shape */
     --radius-pill: 9999px;
     /* Setup Large Element Shape */
-    --radius-large-element: 24px;
+    --radius-large-element: 12px;
 }
 
 :root {
