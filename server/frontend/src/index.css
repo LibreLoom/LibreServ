@@ -235,7 +235,7 @@ body {
 
 @keyframes slide-in-from-bottom-4 {
     from {
-        transform: translateY(16px);
+        transform: translateY(32px);
     }
     to {
         transform: translateY(0);
