@@ -63,9 +63,9 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
       </div>
 
       {isSharedAccount && (
-        <div className="p-4 rounded-large-element bg-accent/20 border border-accent/30">
+        <div className="p-4 rounded-large-element bg-secondary/10 border border-secondary/30">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="text-accent mt-0.5" size={18} />
+            <AlertTriangle className="text-secondary mt-0.5" size={18} />
             <div className="space-y-3 flex-1">
               <p className="font-mono text-sm text-secondary">
                 Shared Credentials
@@ -83,19 +83,19 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
                     value={config._shared_username || "admin"}
                     onChange={(e) => handleFieldChange("_shared_username", e.target.value)}
                     placeholder="admin"
-                    className="w-full px-3 py-2 border-2 border-secondary/30 rounded-large-element bg-primary text-secondary focus:outline-2 focus:outline-accent focus:outline-offset-2"
+                    className="w-full px-3 py-2 border-2 border-secondary/30 rounded-large-element bg-primary text-secondary focus:outline-2 focus:outline-secondary focus:outline-offset-2"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="block font-mono text-sm text-secondary">
-                    Password <span className="text-accent">*</span>
+                    Password <span className="text-secondary">*</span>
                   </label>
                   <input
                     type="password"
                     value={config._shared_password || ""}
                     onChange={(e) => handleFieldChange("_shared_password", e.target.value)}
                     placeholder="Leave empty to auto-generate"
-                    className="w-full px-3 py-2 border-2 border-secondary/30 rounded-large-element bg-primary text-secondary focus:outline-2 focus:outline-accent focus:outline-offset-2"
+                    className="w-full px-3 py-2 border-2 border-secondary/30 rounded-large-element bg-primary text-secondary focus:outline-2 focus:outline-secondary focus:outline-offset-2"
                   />
                   <p className="text-xs text-secondary/50">
                     If empty, a secure password will be created for you
@@ -124,7 +124,7 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
                   onChange={(value) => handleFieldChange(field.name, value)}
                 />
                 {errors[field.name] && (
-                  <p className="text-xs text-accent mt-1">{errors[field.name]}</p>
+                  <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
                 )}
               </div>
             ))}
@@ -152,7 +152,7 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
         </button>
         <button
           type="submit"
-          className="px-6 py-2 rounded-pill bg-accent text-primary hover:bg-accent/90 motion-safe:transition-all font-mono"
+          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
         >
           Install
         </button>

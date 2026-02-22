@@ -1,20 +1,28 @@
-import React, { useState, useEffect, useRef } from "react";
-import PropTypes from "prop-types";
-import { Link } from "react-router-dom";
-import HeaderCard from "../components/common/cards/HeaderCard";
-import Card from "../components/common/cards/Card";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useAuth } from "../hooks/useAuth";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import ErrorDisplay from "../components/common/ErrorDisplay";
+import SettingsSidebar from "../components/settings/SettingsSidebar";
+import SettingsContent from "../components/settings/SettingsContent";
 import { getSettings, updateSettings } from "../lib/settings-api.js";
-import { Settings, Server, FileText, Palette, Check, AlertCircle, ChevronRight, Shield, Globe } from "lucide-react";
+import {
+  getSecuritySettings,
+  updateSecuritySettings,
+  sendTestNotification,
+} from "../lib/security-api.js";
+import { goeyToast } from "goey-toast";
+import { ArrowLeft } from "lucide-react";
+
+const DEBOUNCE_MS = 500;
 
 export default function SettingsPage() {
+  const { me: user } = useAuth();
   const [settings, setSettings] = useState(null);
+  const [securitySettings, setSecuritySettings] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
-  const [logLevel, setLogLevel] = useState("info");
+  const [activeCategory, setActiveCategory] = useState("general");
+  const [showMobileContent, setShowMobileContent] = useState(false);
 
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem("theme");
@@ -22,15 +30,14 @@ export default function SettingsPage() {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
 
-  const successTimeoutRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
+  const pendingSettingsRef = useRef(null);
+  const pendingSecurityRef = useRef(null);
 
   useEffect(() => {
-    loadSettings();
-
+    loadData();
     return () => {
-      if (successTimeoutRef.current) {
-        clearTimeout(successTimeoutRef.current);
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, []);
 
@@ -44,17 +51,19 @@ export default function SettingsPage() {
     }
   }, [darkMode]);
 
-  const loadSettings = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await getSettings();
-      setSettings(data);
-      if (data?.logging?.level) {
-        setLogLevel(data.logging.level);
-      }
+      const [settingsData, securityData] = await Promise.all([
+        getSettings(),
+        getSecuritySettings(),
+      ]);
+      setSettings(settingsData);
+      setSecuritySettings(securityData);
     } catch (err) {
-      const errorMessage = err?.message || err?.response?.data?.message || "Failed to load settings. Please try again.";
+      const errorMessage =
+        err?.message || err?.response?.data?.message || "Failed to load settings.";
       setError(errorMessage);
       console.error("Error loading settings:", err);
     } finally {
@@ -62,48 +71,78 @@ export default function SettingsPage() {
     }
   };
 
-  const handleLogLevelChange = (level) => {
-    setLogLevel(level);
+  const performSave = useCallback(async () => {
+    const promises = [];
+    
+    if (pendingSettingsRef.current) {
+      promises.push(updateSettings(pendingSettingsRef.current));
+      pendingSettingsRef.current = null;
+    }
+    
+    if (pendingSecurityRef.current) {
+      promises.push(updateSecuritySettings(pendingSecurityRef.current));
+      pendingSecurityRef.current = null;
+    }
+
+    if (promises.length > 0) {
+      try {
+        await Promise.all(promises);
+        goeyToast.success("Settings saved", {
+          description: "Your changes have been applied.",
+          timing: { displayDuration: 2500 },
+        });
+      } catch (err) {
+        console.error("Error saving settings:", err);
+        const errorMsg = typeof err?.message === "string" 
+          ? err.message.split("\n")[0]
+          : "Please try again.";
+        goeyToast.error("Failed to save", {
+          description: errorMsg,
+        });
+      }
+    }
+  }, []);
+
+  const scheduleSave = useCallback(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(performSave, DEBOUNCE_MS);
+  }, [performSave]);
+
+  const handleLoggingChange = (level) => {
+    setSettings((prev) => ({
+      ...prev,
+      logging: { ...prev?.logging, level },
+    }));
+    pendingSettingsRef.current = { logging: { level } };
+    scheduleSave();
   };
 
-  const handleDarkModeToggle = () => {
+  const handleDarkModeChange = () => {
     setDarkMode((prev) => !prev);
   };
 
-  const handleSave = async () => {
-    if (successTimeoutRef.current) {
-      clearTimeout(successTimeoutRef.current);
-    }
+  const handleSecuritySettingsChange = (newSettings) => {
+    setSecuritySettings(newSettings);
+    pendingSecurityRef.current = newSettings;
+    scheduleSave();
+  };
 
-    try {
-      setSaving(true);
-      setError(null);
-      setSuccessMessage(null);
-      await updateSettings({
-        logging: {
-          level: logLevel,
-        },
-      });
-      setSuccessMessage("Settings saved successfully!");
-      successTimeoutRef.current = setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err) {
-      const errorMessage = err?.message || err?.response?.data?.message || "Failed to save settings. Please try again.";
-      setError(errorMessage);
-      console.error("Error saving settings:", err);
-    } finally {
-      setSaving(false);
-    }
+  const handleTestNotification = async () => {
+    return sendTestNotification();
+  };
+
+  const handleCategoryChange = (category) => {
+    setActiveCategory(category);
+    setShowMobileContent(true);
+  };
+
+  const handleBackToSidebar = () => {
+    setShowMobileContent(false);
   };
 
   if (loading) {
     return (
-      <main
-        className="bg-primary text-secondary px-8 pt-5 pb-32"
-        aria-labelledby="settings-title"
-        id="main-content"
-        tabIndex={-1}
-      >
-        <HeaderCard id="settings-title" title="Settings" />
+      <main className="bg-primary text-secondary px-4 pt-5 pb-32 min-h-screen">
         <div className="flex justify-center items-center mt-12">
           <LoadingSpinner size="lg" />
         </div>
@@ -112,227 +151,70 @@ export default function SettingsPage() {
   }
 
   return (
-    <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
-      aria-labelledby="settings-title"
-      id="main-content"
-      tabIndex={-1}
-    >
-      <HeaderCard
-        id="settings-title"
-        title="Settings"
-        subtitle="Manage your application settings and preferences"
-      />
-
+    <main className="bg-primary text-secondary min-h-screen">
       {error && (
-        <div className="mt-6">
+        <div className="px-4 pt-4">
           <ErrorDisplay error={error} />
         </div>
       )}
 
-      {successMessage && (
-        <div className="mt-6 p-4 bg-secondary/10 border border-secondary/30 rounded-lg flex items-center gap-2 text-secondary">
-          <Check size={20} />
-          <span>{successMessage}</span>
+      <div className="hidden md:flex md:gap-6 md:p-6 md:pt-8 pb-32">
+        <div className="w-[20%] min-w-[200px] max-w-[280px] flex-shrink-0">
+          <SettingsSidebar
+            user={user}
+            activeCategory={activeCategory}
+            onCategoryChange={setActiveCategory}
+            className="sticky top-6"
+          />
         </div>
-      )}
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card>
-          <div className="flex items-center gap-2 mb-4">
-            <Server size={20} className="text-accent" />
-            <h2 className="font-medium">Backend API</h2>
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between py-2 border-b border-secondary/20">
-              <span className="text-accent">Host</span>
-              <span className="font-medium">{settings?.backend?.host || "N/A"}</span>
-            </div>
-            <div className="flex items-center justify-between py-2 border-b border-secondary/20">
-              <span className="text-accent">Port</span>
-              <span className="font-medium">{settings?.backend?.port || "N/A"}</span>
-            </div>
-            <div className="flex items-center justify-between py-2">
-              <span className="text-accent">Mode</span>
-              <span className="font-medium">
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    settings?.backend?.mode === "production"
-                      ? "bg-secondary/15 text-secondary"
-                      : "bg-warning/15 text-warning"
-                  }`}
-                >
-                  {settings?.backend?.mode || "N/A"}
-                </span>
-              </span>
-            </div>
-          </div>
-        </Card>
-
-        {settings?.proxy && (
-          <Card>
-            <div className="flex items-center gap-2 mb-4">
-              <Globe size={20} className="text-accent" />
-              <h2 className="font-medium">Reverse Proxy</h2>
-            </div>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between py-2 border-b border-secondary/20">
-                <span className="text-accent">Type</span>
-                <span className="font-medium">{settings?.proxy?.type || "N/A"}</span>
-              </div>
-              {settings?.proxy?.mode && (
-                <div className="flex items-center justify-between py-2 border-b border-secondary/20">
-                  <span className="text-accent">Mode</span>
-                  <span className="font-medium">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        settings?.proxy?.mode === "production"
-                          ? "bg-secondary/15 text-secondary"
-                          : "bg-warning/15 text-warning"
-                      }`}
-                    >
-                      {settings?.proxy?.mode}
-                    </span>
-                  </span>
-                </div>
-              )}
-              {settings?.proxy?.admin_api && (
-                <div className="flex items-center justify-between py-2 border-b border-secondary/20">
-                  <span className="text-accent">Admin API</span>
-                  <span className="font-medium font-mono text-sm">{settings?.proxy?.admin_api}</span>
-                </div>
-              )}
-              {settings?.proxy?.default_domain && (
-                <div className="flex items-center justify-between py-2 border-b border-secondary/20">
-                  <span className="text-accent">Default Domain</span>
-                  <span className="font-medium">{settings?.proxy?.default_domain}</span>
-                </div>
-              )}
-              <div className="flex items-center justify-between py-2">
-                <span className="text-accent">Auto HTTPS</span>
-                <span className="font-medium">
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      settings?.proxy?.auto_https
-                        ? "bg-secondary/15 text-secondary"
-                        : "bg-accent/20 text-accent"
-                    }`}
-                  >
-                    {settings?.proxy?.auto_https ? "true" : "false"}
-                  </span>
-                </span>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        <Card>
-          <div className="flex items-center gap-2 mb-4">
-            <FileText size={20} className="text-accent" />
-            <h2 className="font-medium">Logging Configuration</h2>
-          </div>
-          <div className="space-y-6">
-            <div>
-              <label htmlFor="log-level" className="block font-medium mb-2">
-                Log Level
-              </label>
-              <select
-                id="log-level"
-                value={logLevel}
-                onChange={(e) => handleLogLevelChange(e.target.value)}
-                className="w-full px-3 py-2 border border-secondary/30 rounded-lg bg-primary text-secondary focus:outline-none focus:ring-2 focus:ring-accent"
-                aria-label="Select log level"
-              >
-                <option value="debug">Debug</option>
-                <option value="info">Info</option>
-                <option value="warn">Warn</option>
-                <option value="error">Error</option>
-              </select>
-            </div>
-
-            <div className="border-t border-secondary/20 pt-4">
-              <span className="text-accent text-sm">Log Path</span>
-              <p className="font-mono text-sm mt-1 bg-secondary/10 px-3 py-2 rounded">
-                {settings?.logging?.path || "N/A"}
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-center gap-2 mb-4">
-            <Palette size={20} className="text-accent" />
-            <h2 className="font-medium">Appearance</h2>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="font-medium">Dark Mode</h3>
-              <p className="text-sm text-accent mt-1">
-                Use dark theme for the interface
-              </p>
-            </div>
-            <button
-              onClick={handleDarkModeToggle}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 ${
-                darkMode ? "bg-accent" : "bg-secondary/20"
-              }`}
-              role="switch"
-              aria-checked={darkMode}
-              aria-label="Toggle dark mode"
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-primary transition-transform ${
-                  darkMode ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-center gap-2 mb-4">
-            <Settings size={20} className="text-accent" />
-            <h2 className="font-medium">Quick Links</h2>
-          </div>
-          <div className="space-y-2">
-            <Link
-              to="/settings/security"
-              className="flex items-center justify-between p-3 rounded-lg border border-secondary/20 hover:bg-secondary/10 transition-colors"
-              aria-label="Go to security settings"
-            >
-              <div className="flex items-center gap-3">
-                <Shield size={18} className="text-accent" />
-                <div>
-                  <div className="font-medium">Security Settings</div>
-                  <div className="text-sm text-accent">
-                    Manage security and notification preferences
-                  </div>
-                </div>
-              </div>
-              <ChevronRight size={18} className="text-accent" />
-            </Link>
-          </div>
-        </Card>
+        <div className="flex-1 max-w-3xl animate-in fade-in slide-in-from-right-2 duration-300">
+          <SettingsContent
+            category={activeCategory}
+            settings={settings}
+            darkMode={darkMode}
+            onDarkModeChange={handleDarkModeChange}
+            securitySettings={securitySettings}
+            onSecuritySettingsChange={handleSecuritySettingsChange}
+            onTestNotification={handleTestNotification}
+            onLoggingChange={handleLoggingChange}
+          />
+        </div>
       </div>
 
-      <div className="mt-6 flex justify-end">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="inline-flex items-center gap-2 px-6 py-3 bg-secondary text-primary font-medium rounded-lg hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {saving ? (
-            <>
-              <LoadingSpinner size="sm" />
-              Saving...
-            </>
-          ) : (
-            "Save Settings"
-          )}
-        </button>
+      <div className="md:hidden">
+        {!showMobileContent ? (
+          <div className="p-4 pt-6">
+            <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-200">
+              Settings
+            </h1>
+            <SettingsSidebar
+              user={user}
+              activeCategory={activeCategory}
+              onCategoryChange={handleCategoryChange}
+            />
+          </div>
+        ) : (
+          <div className="p-4 pt-6 pb-32 animate-in fade-in slide-in-from-right-4 duration-300">
+            <button
+              onClick={handleBackToSidebar}
+              className="flex items-center gap-2 px-3 py-1.5 mb-4 -ml-3 text-accent hover:text-secondary transition-colors duration-200 rounded-pill"
+            >
+              <ArrowLeft size={18} />
+              <span>Back</span>
+            </button>
+            <SettingsContent
+              category={activeCategory}
+              settings={settings}
+              darkMode={darkMode}
+              onDarkModeChange={handleDarkModeChange}
+              securitySettings={securitySettings}
+              onSecuritySettingsChange={handleSecuritySettingsChange}
+              onTestNotification={handleTestNotification}
+              onLoggingChange={handleLoggingChange}
+            />
+          </div>
+        )}
       </div>
     </main>
   );
 }
-
-SettingsPage.propTypes = {};

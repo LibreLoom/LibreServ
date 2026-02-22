@@ -30,6 +30,11 @@ function ProgressStep({ instanceId, onComplete, onError }) {
         const data = await res.json();
         setStatus(data.status);
 
+        // Store error message if present
+        if (data.error) {
+          setError(data.error);
+        }
+
         if (data.status === "running") {
           setCurrentPhase(INSTALL_PHASES.length);
           setTimeout(() => onComplete(data), 1000);
@@ -60,7 +65,7 @@ function ProgressStep({ instanceId, onComplete, onError }) {
   if (error) {
     return (
       <div className="space-y-6 text-center">
-        <XCircle className="mx-auto text-accent" size={48} />
+        <XCircle className="mx-auto text-secondary" size={48} />
         <div className="space-y-2">
           <h2 className="font-mono text-2xl font-normal text-secondary">
             Installation Failed
@@ -69,7 +74,7 @@ function ProgressStep({ instanceId, onComplete, onError }) {
         </div>
         <button
           onClick={() => window.location.reload()}
-          className="px-6 py-2 rounded-pill bg-accent text-primary hover:bg-accent/90 motion-safe:transition-all font-mono"
+          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
         >
           Try Again
         </button>
@@ -85,7 +90,7 @@ function ProgressStep({ instanceId, onComplete, onError }) {
         {isComplete ? (
           <CheckCircle className="mx-auto text-accent" size={48} />
         ) : (
-          <Loader2 className="mx-auto text-accent animate-spin" size={48} />
+          <Loader2 className="mx-auto text-secondary animate-spin" size={48} />
         )}
         <h2 className="font-mono text-2xl font-normal text-secondary">
           {isComplete ? "Almost Ready!" : "Installing..."}
@@ -107,21 +112,21 @@ function ProgressStep({ instanceId, onComplete, onError }) {
             <div
               key={phase.id}
               className={`
-                flex items-center gap-3 p-3 rounded-large-element
+                flex items-center gap-3 p-3 rounded-pill
                 motion-safe:transition-all
-                ${isDone ? "bg-accent/20" : isCurrent ? "bg-secondary/10" : "bg-secondary/5"}
+                ${isDone ? "bg-secondary/20" : isCurrent ? "bg-secondary/10" : "bg-secondary/5"}
               `}
             >
               <div
                 className={`
                   flex h-6 w-6 items-center justify-center rounded-full
-                  ${isDone ? "bg-accent text-primary" : isCurrent ? "border-2 border-accent" : "border-2 border-secondary/30"}
+                  ${isDone ? "bg-accent text-primary" : isCurrent ? "border-2 border-secondary" : "border-2 border-secondary/30"}
                 `}
               >
                 {isDone ? (
                   <CheckCircle size={14} />
                 ) : isCurrent ? (
-                  <div className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+                  <div className="h-2 w-2 rounded-full bg-secondary animate-pulse" />
                 ) : (
                   <div className="h-2 w-2 rounded-full bg-secondary/30" />
                 )}

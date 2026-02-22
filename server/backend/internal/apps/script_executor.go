@@ -25,6 +25,7 @@ type ScriptExecutor struct {
 	logger       *slog.Logger
 	dockerClient *docker.Client
 	basePath     string
+	catalogPath  string
 }
 
 func NewScriptExecutor(logger *slog.Logger, dockerClient *docker.Client, basePath string) *ScriptExecutor {
@@ -32,6 +33,16 @@ func NewScriptExecutor(logger *slog.Logger, dockerClient *docker.Client, basePat
 		logger:       logger,
 		dockerClient: dockerClient,
 		basePath:     basePath,
+		catalogPath:  "",
+	}
+}
+
+func NewScriptExecutorWithCatalog(logger *slog.Logger, dockerClient *docker.Client, basePath, catalogPath string) *ScriptExecutor {
+	return &ScriptExecutor{
+		logger:       logger,
+		dockerClient: dockerClient,
+		basePath:     basePath,
+		catalogPath:  catalogPath,
 	}
 }
 
@@ -62,26 +73,37 @@ func (e *ScriptExecutor) validateScriptPath(scriptPath string) (string, error) {
 		return "", fmt.Errorf("failed to resolve script path: %w", err)
 	}
 
-	// Ensure resolved path is still within expected directory
-	absBasePath, err := filepath.Abs(e.basePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve base path: %w", err)
-	}
-
 	absScriptPath, err := filepath.Abs(resolvedPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve script path: %w", err)
 	}
-
-	// Use filepath.Clean to normalize paths before comparison
-	absBasePath = filepath.Clean(absBasePath)
 	absScriptPath = filepath.Clean(absScriptPath)
 
-	if !strings.HasPrefix(absScriptPath, absBasePath+string(filepath.Separator)) {
-		return "", fmt.Errorf("script path outside allowed directory: %s", scriptPath)
+	// Check if path is within apps data directory
+	absBasePath, err := filepath.Abs(e.basePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve base path: %w", err)
+	}
+	absBasePath = filepath.Clean(absBasePath)
+
+	if strings.HasPrefix(absScriptPath, absBasePath+string(filepath.Separator)) {
+		return resolvedPath, nil
 	}
 
-	return resolvedPath, nil
+	// Check if path is within catalog directory (for builtin app scripts)
+	if e.catalogPath != "" {
+		absCatalogPath, err := filepath.Abs(e.catalogPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve catalog path: %w", err)
+		}
+		absCatalogPath = filepath.Clean(absCatalogPath)
+
+		if strings.HasPrefix(absScriptPath, absCatalogPath+string(filepath.Separator)) {
+			return resolvedPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("script path outside allowed directory: %s", scriptPath)
 }
 
 func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath string, options map[string]interface{}) (*ScriptResult, error) {

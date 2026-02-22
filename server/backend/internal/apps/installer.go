@@ -28,6 +28,7 @@ type Installer struct {
 	runtime         runtime.ContainerRuntime
 	db              *database.DB
 	appsDataDir     string
+	catalogPath     string
 	logger          *slog.Logger
 	monitor         *monitoring.Monitor
 	registerBackend func(appID, backend, name string)
@@ -43,6 +44,11 @@ func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *databa
 		logger:      slog.Default().With("component", "installer"),
 		monitor:     monitor,
 	}
+}
+
+// SetCatalogPath sets the catalog path for the installer
+func (i *Installer) SetCatalogPath(catalogPath string) {
+	i.catalogPath = catalogPath
 }
 
 // SetBackendRegistrar wires a callback used to register the reachable backend for an app (for ACME).
@@ -124,6 +130,24 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 
 	if len(appDef.Deployment.Ports) > 0 {
 		port := appDef.Deployment.Ports[0].Host
+		// Check if user overrode the port in config
+		for _, field := range appDef.Configuration {
+			if field.Type == "port" {
+				if configPort, ok := config[field.Name]; ok {
+					switch v := configPort.(type) {
+					case float64:
+						port = int(v)
+					case int:
+						port = v
+					case string:
+						if parsed, err := strconv.Atoi(v); err == nil {
+							port = parsed
+						}
+					}
+					break
+				}
+			}
+		}
 		installedApp.URL = fmt.Sprintf("http://localhost:%d", port)
 	}
 
@@ -153,8 +177,7 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 	i.logger.Info("Starting containers", "app_id", appDef.ID, "instance_id", instanceID)
 	if err := i.runtime.ComposeUp(ctx, composePath); err != nil {
 		i.logger.Error("Failed to start containers", "error", err)
-		i.updateAppStatus(instanceID, StatusError, "failed to start containers: "+err.Error())
-		_ = os.RemoveAll(installedApp.Path)
+		i.handleInstallFailure(instanceID, installedApp.Path, "failed to start containers: "+err.Error())
 		return
 	}
 
@@ -197,8 +220,40 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 }
 
 func (i *Installer) updateAppStatus(instanceID string, status AppStatus, errMsg string) error {
-	_, err := i.db.Exec(`UPDATE apps SET status = ?, updated_at = ? WHERE id = ?`, string(status), time.Now(), instanceID)
+	// Use COALESCE to preserve existing error if not provided
+	if errMsg != "" {
+		_, err := i.db.Exec(`UPDATE apps SET status = ?, updated_at = ?, error = ? WHERE id = ?`, string(status), time.Now(), errMsg, instanceID)
+		return err
+	}
+	// If no error message, clear the error field
+	_, err := i.db.Exec(`UPDATE apps SET status = ?, updated_at = ?, error = NULL WHERE id = ?`, string(status), time.Now(), instanceID)
 	return err
+}
+
+// handleInstallFailure cleans up after a failed install
+func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string) {
+	// Mark as error in DB
+	i.updateAppStatus(instanceID, StatusError, errMsg)
+
+	// Try to stop and remove any running containers
+	if i.runtime != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		composePath := filepath.Join(installPath, "docker-compose.yml")
+		if _, err := os.Stat(composePath); err == nil {
+			// Try to clean up docker resources
+			_ = i.runtime.ComposeDown(ctx, composePath)
+		}
+	}
+
+	// Remove the installation directory
+	_ = os.RemoveAll(installPath)
+
+	// Remove from DB entirely (cascade will handle related records)
+	_, _ = i.db.Exec(`DELETE FROM apps WHERE id = ?`, instanceID)
+
+	i.logger.Info("Install failed and cleaned up", "instance_id", instanceID, "error", errMsg)
 }
 
 // mergeConfig merges default values from app definition with user-provided config
@@ -485,6 +540,15 @@ func (i *Installer) saveInstalledApp(app *InstalledApp) error {
 	_, err = i.db.Exec(`
 		INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			type = excluded.type,
+			source = excluded.source,
+			path = excluded.path,
+			status = excluded.status,
+			health_status = excluded.health_status,
+			updated_at = excluded.updated_at,
+			metadata = excluded.metadata
 	`, app.ID, app.Name, string(app.Type), app.AppID, app.Path, string(app.Status), string(app.HealthStatus), app.InstalledAt, app.UpdatedAt, string(configJSON))
 
 	return err
@@ -585,7 +649,7 @@ func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, i
 
 	i.logger.Info("Running system-setup", "app_id", appDef.ID, "instance_id", instanceID)
 
-	executor := NewScriptExecutor(i.logger, nil, i.appsDataDir)
+	executor := NewScriptExecutorWithCatalog(i.logger, nil, i.appsDataDir, i.catalogPath)
 	result, err := executor.Execute(ctx, instanceID, scriptPath, config)
 	if err != nil {
 		i.logger.Warn("system-setup failed", "app_id", appDef.ID, "error", err)

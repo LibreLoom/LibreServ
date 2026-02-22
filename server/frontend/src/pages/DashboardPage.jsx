@@ -1,9 +1,9 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { Clock, Server, Circle, X, AlertTriangle } from "lucide-react";
+import { Clock, Server, CheckCircle, RefreshCw } from "lucide-react";
 
 import StatCard from "../components/common/cards/StatCard";
 import HeaderCard from "../components/common/cards/HeaderCard";
-import ServiceCards from "../components/common/cards/ServiceCards";
+import AppCards from "../components/common/cards/AppCards";
 import DropdownCard from "../components/common/cards/DropdownCard";
 import RefreshDropdown, { REFRESH_INTERVALS } from "../components/common/RefreshDropdown";
 
@@ -13,7 +13,6 @@ import api from "../lib/api";
 import {
   getBreakdownItems,
   totalResourceUsage,
-  services,
 } from "../data/services";
 
 function getGreeting() {
@@ -158,11 +157,6 @@ export default function Dashboard() {
         ram: clamp01(Number(source.ram)),
         disk: clamp01(Number(source.disk)),
         net: clamp01(Number(source.net)),
-        energy: clamp01(
-          Number.isFinite(Number(source.energy))
-            ? Number(source.energy)
-            : Number(source.cpu) * 0.5 + Number(source.ram) * 0.3 + Number(source.net) * 0.2,
-        ),
       };
 
       const stress = totalResourceUsage(liveResources);
@@ -201,31 +195,12 @@ export default function Dashboard() {
 
   // Calculate overall system status
   const systemStatus = useMemo(() => {
-    const hasOffline = services.some((s) => s.status === "offline");
-    const hasWarning = services.some((s) => s.status === "warning");
-
-    if (hasOffline) {
-      return {
-        status: "offline",
-        text: "Some Services Offline",
-        icon: X,
-        className: "text-accent",
-      };
-    } else if (hasWarning) {
-      return {
-        status: "warning",
-        text: "Some Services Have Warnings",
-        icon: AlertTriangle,
-        className: "text-accent",
-      };
-    } else {
-      return {
-        status: "online",
-        text: "All Systems Operational",
-        icon: Circle,
-        className: "fill-accent text-accent",
-      };
-    }
+    return {
+      status: "online",
+      text: "All Systems Operational",
+      icon: CheckCircle,
+      className: "text-accent",
+    };
   }, []);
   const greetingBase = greeting.endsWith(", ")
     ? greeting.slice(0, -2)
@@ -254,6 +229,12 @@ export default function Dashboard() {
       <span>{systemStatus.text}</span>
     </span>
   );
+  const refreshControl = (
+    <div className="flex items-center gap-2 text-xs md:text-sm text-secondary/70">
+      <RefreshCw size={14} className="text-accent" aria-hidden="true" />
+      <RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} onOpenChange={setIsDropdownOpen} />
+    </div>
+  );
 
   return (
     <main
@@ -268,6 +249,7 @@ export default function Dashboard() {
           id="dashboard-title"
           title={greetingTitle}
           className="group"
+          leftContent={refreshControl}
           rightContent={statusBadge}
         ></HeaderCard>
       </header>
@@ -288,16 +270,15 @@ export default function Dashboard() {
           <DropdownCard
             title="Server Stress Index"
             value={stressLoaded ? Math.round(stressIndex * 100) + "%" : "Loading..."}
-            subtitle={<RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} onOpenChange={setIsDropdownOpen} />}
             breakdownItems={stressBreakdown}
             Icon={Server}
             forceHover={isDropdownOpen}
           />
         </div>
 
-        {/* Services */}
+        {/* Apps */}
         <div className="flex-1 grid grid-cols-1 xl:grid-cols-3 gap-6 content-start order-2 md:order-1">
-          {ServiceCards()}
+          <AppCards refreshInterval={refreshInterval} />
         </div>
       </section>
     </main>

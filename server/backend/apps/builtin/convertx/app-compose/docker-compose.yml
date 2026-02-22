@@ -8,6 +8,7 @@ services:
     environment:
       - "HTTP_ALLOWED={{.http_allowed}}"
       - "ACCOUNT_REGISTRATION={{.account_registration}}"
+      - "ALLOW_UNAUTHENTICATED={{.allow_unauthenticated}}"
     volumes:
       - "{{ dataPath }}/convertx:/app/data"
     labels:

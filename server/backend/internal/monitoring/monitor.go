@@ -223,6 +223,90 @@ func (m *Monitor) GetSystemMetrics(ctx context.Context) (*SystemMetrics, error) 
 	return m.metricsCollector.CollectSystemMetrics(ctx)
 }
 
+// CalculateAvailability calculates the availability percentage for an app based on recent health checks
+// Takes into account missing checks due to downtime (time since last check)
+func (m *Monitor) CalculateAvailability(ctx context.Context, appID string) float64 {
+	// Check if the app is currently stopped
+	var appStatus string
+	err := m.db.QueryRow(`SELECT status FROM apps WHERE id = ?`, appID).Scan(&appStatus)
+	if err != nil {
+		return 0
+	}
+
+	// Get health check counts
+	checks, err := m.getRecentChecks(ctx, appID, 100)
+	if err != nil || len(checks) == 0 {
+		// No checks at all - if stopped, 0% availability
+		if appStatus == "stopped" {
+			return 0
+		}
+		return 0
+	}
+
+	healthy := 0
+	for _, check := range checks {
+		if check.Status == HealthStatusHealthy {
+			healthy++
+		}
+	}
+
+	// For stopped apps, calculate availability including downtime
+	if appStatus == "stopped" {
+		// Get the timestamp of the last health check directly from DB
+		var lastCheckTime time.Time
+		err = m.db.QueryRow(`
+			SELECT checked_at FROM health_checks 
+			WHERE app_id = ? 
+			ORDER BY checked_at DESC LIMIT 1
+		`, appID).Scan(&lastCheckTime)
+
+		if err == nil {
+			timeSinceLastCheck := time.Since(lastCheckTime)
+
+			// Calculate how many checks would have occurred during downtime
+			// Assuming 30 second check interval
+			missingChecks := int(timeSinceLastCheck.Seconds() / 30)
+			if missingChecks > 100 {
+				missingChecks = 100
+			}
+
+			// The total "slots" we're measuring: actual checks + missing checks (capped at 100)
+			totalSlots := len(checks) + missingChecks
+			if totalSlots > 100 {
+				totalSlots = 100
+			}
+
+			// Only healthy checks from when app was running count
+			return float64(healthy) / float64(totalSlots) * 100
+		}
+
+		// Fallback: if we can't get the time, just use the check count ratio
+		return float64(healthy) / float64(100) * 100
+	}
+
+	// Normal case for running apps: missing checks count as unhealthy
+	totalExpected := 100
+	if len(checks) < totalExpected {
+		return float64(healthy) / float64(totalExpected) * 100
+	}
+
+	return float64(healthy) / float64(len(checks)) * 100
+}
+
+// GetAppHealthStatus returns the current health status for an app
+func (m *Monitor) GetAppHealthStatus(ctx context.Context, appID string) HealthStatus {
+	health, err := m.GetAppHealth(ctx, appID)
+	if err != nil {
+		return HealthStatusUnknown
+	}
+	return health.Status
+}
+
+// MetricsCollector returns the underlying metrics collector for direct access
+func (m *Monitor) MetricsCollector() *MetricsCollector {
+	return m.metricsCollector
+}
+
 // GetMetricsHistory returns historical metrics for an app
 func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since time.Time, limit int) ([]Metrics, error) {
 	query := `

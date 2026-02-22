@@ -11,7 +11,7 @@ const UsersPage = lazy(() => import("./pages/UsersPage"));
 const UserDetailPage = lazy(() => import("./pages/UserDetailPage"));
 const AddUserPage = lazy(() => import("./pages/AddUserPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const SecurityPage = lazy(() => import("./pages/SecurityPage"));
+
 const SecurityActivityPage = lazy(() => import("./pages/SecurityActivityPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
@@ -25,8 +25,7 @@ const ErrorDisplayDemo = lazy(() => import("./pages/ErrorDisplayDemo"));
 
 function RequireAuth({ children }) {
   const { me, initialized } = useAuth();
-  if (!initialized)
-    return <LoadingFast label="Checking session..." heading="Authenticating" />;
+  if (!initialized) return <LoadingFast label="Checking authentication..." />;
   return me ? children : <Login />;
 }
 
@@ -38,9 +37,7 @@ function DataPage({ children }) {
 export default function App() {
   return (
     <ErrorBoundary>
-      <Suspense
-        fallback={<LoadingFast label="Loading..." heading="LibreServ" />}
-      >
+      <Suspense fallback={<LoadingFast />}>
         <Routes>
           {/* App shell routes: gated by auth to keep public access minimal. */}
           {/* Wrap app routes so auth and layout are applied consistently. */}
@@ -115,14 +112,7 @@ export default function App() {
                 </DataPage>
               }
             />
-            <Route
-              path="/settings/security"
-              element={
-                <DataPage>
-                  <SecurityPage />
-                </DataPage>
-              }
-            />
+
             <Route
               path="/security"
               element={

@@ -145,14 +145,3 @@ func (j *JWTManager) ValidateRefreshToken(tokenString string) (*Claims, error) {
 	}
 	return claims, nil
 }
-
-// RefreshTokens validates a refresh token and generates new token pair
-func (j *JWTManager) RefreshTokens(refreshToken string) (*TokenPair, error) {
-	claims, err := j.ValidateRefreshToken(refreshToken)
-	if err != nil {
-		return nil, err
-	}
-
-	// Generate new token pair
-	return j.GenerateTokenPair(claims.UserID, claims.Username, claims.Role)
-}

@@ -5,7 +5,32 @@ import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
 import Dropdown from "../components/common/Dropdown";
 import AppIcon from "../components/common/AppIcon";
-import { Search, Download, Check, Settings } from "lucide-react";
+import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp } from "lucide-react";
+import StatusPill from "../components/common/StatusPill";
+
+function formatDuration(seconds) {
+  if (!seconds || seconds < 0) return "-";
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${mins}m`;
+  if (mins > 0) return `${mins}m`;
+  return `${seconds}s`;
+}
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return "-";
+  const units = ["B", "KB", "MB", "GB"];
+  let unitIndex = 0;
+  let value = bytes;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  return `${value.toFixed(1)} ${units[unitIndex]}`;
+}
 
 function AppCatalogCard({ app, isInstalled, onInstall }) {
   return (
@@ -230,48 +255,85 @@ export default function AppsPage() {
             Installed Apps
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {installedApps.map((app) => (
-              <Card key={app.id} className="relative flex flex-col">
-                <div className="flex items-start gap-4">
-                  <AppIcon appId={app.app_id} size={48} className="shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-mono text-lg text-primary truncate">
-                      {app.name}
-                    </h3>
-                    <p
-                      className={`text-sm capitalize ${
-                        app.status === "running"
-                          ? "text-success"
-                          : app.status === "stopped"
-                            ? "text-warning"
-                            : "text-primary/50"
-                      }`}
-                    >
-                      {app.status}
-                    </p>
+            {installedApps.map((app) => {
+              const isRunning = app.status === "running";
+              const uptime = isRunning ? app.uptime_seconds : app.downtime_seconds;
+              const uptimeLabel = isRunning ? "Uptime" : "Downtime";
+
+              return (
+                <Card key={app.id} className="relative flex flex-col">
+                  <StatusPill status={app.status} />
+                  <div className="flex items-start gap-4">
+                    <AppIcon appId={app.app_id} size={48} className="shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      {app.url ? (
+                        <a
+                          href={app.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-mono text-lg text-primary truncate pr-20 hover:text-accent transition-colors block"
+                        >
+                          {app.name}
+                        </a>
+                      ) : (
+                        <h3 className="font-mono text-lg text-primary truncate pr-20">
+                          {app.name}
+                        </h3>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <Link
-                    to={`/apps/${app.id}`}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary hover:ring-2 motion-safe:transition-all font-mono text-sm"
-                  >
-                    <Settings size={16} />
-                    Manage
-                  </Link>
-                  {app.url && (
-                    <a
-                      href={app.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
+
+                  <div className="grid grid-cols-2 gap-3 text-sm mt-4 text-primary/80">
+                    <div className="flex items-center gap-2">
+                      <Cpu size={14} className="text-primary/50" />
+                      <span className="text-primary/70">CPU:</span>
+                      <span className="font-mono">
+                        {app.cpu_percent != null ? `${app.cpu_percent.toFixed(1)}%` : "-"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MemoryStick size={14} className="text-primary/50" />
+                      <span className="text-primary/70">RAM:</span>
+                      <span className="font-mono">
+                        {app.memory_usage != null ? formatBytes(app.memory_usage) : "-"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Clock size={14} className="text-primary/50" />
+                      <span className="text-primary/70">{uptimeLabel}:</span>
+                      <span className="font-mono">{formatDuration(uptime)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <TrendingUp size={14} className="text-primary/50" />
+                      <span className="text-primary/70">Avail:</span>
+                      <span className="font-mono">
+                        {app.availability_pct != null ? `${app.availability_pct.toFixed(0)}%` : "-"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-auto pt-4 flex gap-2">
+                    <Link
+                      to={`/apps/${app.id}`}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary hover:ring-2 motion-safe:transition-all font-mono text-sm"
                     >
-                      Open
-                    </a>
-                  )}
-                </div>
-              </Card>
-            ))}
+                      <Settings size={16} />
+                      Manage
+                    </Link>
+                    {app.url && (
+                      <a
+                        href={app.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
+                      >
+                        Open
+                      </a>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
           </div>
         </section>
       )}

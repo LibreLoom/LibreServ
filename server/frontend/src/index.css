@@ -10,50 +10,34 @@
     --color-secondary: var(--color-secondary);
     --color-accent: var(--color-accent);
 
-    /* Status Colors */
-    --color-success: var(--color-success);
-    --color-warning: var(--color-warning);
-    --color-error: var(--color-error);
-    --color-info: var(--color-info);
+    /* Status Colors - Standard colors independent of theme */
+    --color-success: var(--palette-success, #22c55e);
+    --color-warning: var(--palette-warning, #eab308);
+    --color-error: var(--palette-error, #ef4444);
+    --color-info: var(--palette-info, #3b82f6);
 
-    /* Status Background Colors */
-    --bg-success: var(--bg-success);
-    --bg-warning: var(--bg-warning);
-    --bg-error: var(--bg-error);
-    --bg-info: var(--bg-info);
+    /* Status Background Colors - rgba works regardless of theme */
+    --bg-success: rgba(34, 197, 94, 0.25);
+    --bg-warning: rgba(234, 179, 8, 0.25);
+    --bg-error: rgba(239, 68, 68, 0.3);
+    --bg-info: rgba(59, 130, 246, 0.25);
 
     /* Setup Pill Shape */
     --radius-pill: 9999px;
     /* Setup Large Element Shape */
-    --radius-large-element: 12px;
+    --radius-large-element: 24px;
 }
 
 :root {
-    /* Initial Color Setup - Base palette values */
+    /* Base palette values */
     --palette-light: #ffffff;
     --palette-dark: #000000;
     --palette-accent: #767676;
-
-    /* Status Colors */
-    --palette-success: #22c55e;  /* Green */
-    --palette-warning: #eab308;  /* Yellow */
-    --palette-error: #ef4444;    /* Red */
-    --palette-info: #3b82f6;     /* Blue */
 
     /* Default Mapping (Light Mode) */
     --color-primary: var(--palette-light);
     --color-secondary: var(--palette-dark);
     --color-accent: var(--palette-accent);
-    --color-success: var(--palette-success);
-    --color-warning: var(--palette-warning);
-    --color-error: var(--palette-error);
-    --color-info: var(--palette-info);
-
-    /* Background variants for status colors */
-    --bg-success: rgba(34, 197, 94, 0.2);
-    --bg-warning: rgba(234, 179, 8, 0.2);
-    --bg-error: rgba(239, 68, 68, 0.2);
-    --bg-info: rgba(59, 130, 246, 0.2);
 }
 
 .dark {
@@ -127,13 +111,23 @@ body {
 
 /* Material Design 3 Indeterminate Linear Progress Animations */
 @keyframes md-indeterminate-bar-1 {
-    0% { transform: translate3d(-35%, 0, 0) scaleX(0.35); }
-    60%, 100% { transform: translate3d(100%, 0, 0) scaleX(0.9); }
+    0% {
+        transform: translate3d(-35%, 0, 0) scaleX(0.35);
+    }
+    60%,
+    100% {
+        transform: translate3d(100%, 0, 0) scaleX(0.9);
+    }
 }
 
 @keyframes md-indeterminate-bar-2 {
-    0% { transform: translate3d(-200%, 0, 0) scaleX(2); }
-    60%, 100% { transform: translate3d(107%, 0, 0) scaleX(0.01); }
+    0% {
+        transform: translate3d(-200%, 0, 0) scaleX(2);
+    }
+    60%,
+    100% {
+        transform: translate3d(107%, 0, 0) scaleX(0.01);
+    }
 }
 
 /* Fade in up animation */
@@ -149,7 +143,8 @@ body {
 }
 
 /* Animation utility classes */
-.animate-md-bar-1, .animate-md-bar-2 {
+.animate-md-bar-1,
+.animate-md-bar-2 {
     width: 100%;
     will-change: transform;
     backface-visibility: hidden;
@@ -158,11 +153,13 @@ body {
 }
 
 .animate-md-bar-1 {
-    animation: md-indeterminate-bar-1 2s cubic-bezier(0.65, 0.815, 0.735, 0.395) infinite both;
+    animation: md-indeterminate-bar-1 2s cubic-bezier(0.65, 0.815, 0.735, 0.395)
+        infinite both;
 }
 
 .animate-md-bar-2 {
-    animation: md-indeterminate-bar-2 2s cubic-bezier(0.165, 0.84, 0.44, 1) infinite both;
+    animation: md-indeterminate-bar-2 2s cubic-bezier(0.165, 0.84, 0.44, 1)
+        infinite both;
     animation-delay: 1s;
 }
 
@@ -175,7 +172,9 @@ body {
     contain: strict;
     opacity: 1;
     transform: translate3d(0, 0, 0);
-    transition: opacity 100ms ease-out, transform 100ms ease-out;
+    transition:
+        opacity 100ms ease-out,
+        transform 100ms ease-out;
 }
 
 .loading-bar.loading-bar-enter {
@@ -186,15 +185,19 @@ body {
 .loading-bar.loading-bar-exit {
     opacity: 0;
     transform: translate3d(0, 100%, 0);
-    transition: opacity 200ms ease-out, transform 200ms ease-out;
+    transition:
+        opacity 200ms ease-out,
+        transform 200ms ease-out;
 }
 
 /* GPU acceleration hints */
-.pop-in, .pop-out {
+.pop-in,
+.pop-out {
     will-change: transform, opacity;
 }
 
-.motion-safe\:transition, .motion-safe\:transition-all {
+.motion-safe\:transition,
+.motion-safe\:transition-all {
     will-change: transform, opacity, color, background-color;
 }
 
@@ -202,12 +205,120 @@ body {
     will-change: transform, left, top;
 }
 
+/* Settings animations - Material Expressive inspired */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slide-in-from-bottom-1 {
+    from {
+        transform: translateY(4px);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+@keyframes slide-in-from-bottom-2 {
+    from {
+        transform: translateY(8px);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+@keyframes slide-in-from-left-2 {
+    from {
+        transform: translateX(-8px);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slide-in-from-right-2 {
+    from {
+        transform: translateX(8px);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slide-in-from-right-4 {
+    from {
+        transform: translateX(16px);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slide-in-from-top-2 {
+    from {
+        transform: translateY(-8px);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+.animate-in {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.05, 0.7, 0.1, 1);
+    animation-fill-mode: both;
+}
+
+.fade-in {
+    animation-name: fade-in;
+}
+
+.slide-in-from-bottom-1 {
+    animation-name: fade-in, slide-in-from-bottom-1;
+}
+
+.slide-in-from-bottom-2 {
+    animation-name: fade-in, slide-in-from-bottom-2;
+}
+
+.slide-in-from-left-2 {
+    animation-name: fade-in, slide-in-from-left-2;
+}
+
+.slide-in-from-right-2 {
+    animation-name: fade-in, slide-in-from-right-2;
+}
+
+.slide-in-from-right-4 {
+    animation-name: fade-in, slide-in-from-right-4;
+}
+
+.slide-in-from-top-2 {
+    animation-name: fade-in, slide-in-from-top-2;
+}
+
+.duration-200 {
+    animation-duration: 200ms;
+}
+
+.duration-300 {
+    animation-duration: 300ms;
+}
+
 /* Reduced motion accessibility - WCAG 2.1 Level AA */
 @media (prefers-reduced-motion: reduce) {
-    .pop-in, .pop-out {
+    .pop-in,
+    .pop-out {
         animation: none !important;
     }
-    .animate-md-bar-1, .animate-md-bar-2 {
+    .animate-md-bar-1,
+    .animate-md-bar-2 {
         animation: none;
         transform: translate3d(0, 0, 0) scaleX(0.6);
         opacity: 0.5;
@@ -222,4 +333,38 @@ body {
         transform: none;
         transition: none;
     }
+    .animate-in {
+        animation: none !important;
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* Goey toast fixes - prevent text reflow during morph animation */
+[data-sonner-toast] .goey-content {
+    max-width: 380px;
+    min-width: 280px;
+}
+
+[data-sonner-toast] .goey-contentCompact,
+[data-sonner-toast] .goey-contentExpanded {
+    max-width: 380px;
+    min-width: 280px;
+}
+
+[data-sonner-toast] .goey-title {
+    white-space: normal !important;
+    word-break: break-word;
+    max-width: 320px;
+}
+
+[data-sonner-toast] .goey-description {
+    word-break: break-word;
+    max-width: 360px;
+    margin-top: 8px !important;
+    line-height: 1.4 !important;
+}
+
+[data-sonner-toast][data-x-position="top-right"] {
+    margin-right: 24px !important;
 }
