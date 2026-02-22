@@ -31,18 +31,20 @@ type Installer struct {
 	catalogPath     string
 	logger          *slog.Logger
 	monitor         *monitoring.Monitor
+	metricsCache    *AppMetricsCache
 	registerBackend func(appID, backend, name string)
 }
 
 // NewInstaller creates a new Installer
-func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *database.DB, appsDataDir string, monitor *monitoring.Monitor) *Installer {
+func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *database.DB, appsDataDir string, monitor *monitoring.Monitor, metricsCache *AppMetricsCache) *Installer {
 	return &Installer{
-		catalog:     catalog,
-		runtime:     runtime,
-		db:          db,
-		appsDataDir: appsDataDir,
-		logger:      slog.Default().With("component", "installer"),
-		monitor:     monitor,
+		catalog:      catalog,
+		runtime:      runtime,
+		db:           db,
+		appsDataDir:  appsDataDir,
+		logger:       slog.Default().With("component", "installer"),
+		monitor:      monitor,
+		metricsCache: metricsCache,
 	}
 }
 
@@ -183,6 +185,10 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 
 	installedApp.Status = StatusRunning
 	installedApp.HealthStatus = HealthUnknown
+
+	if i.metricsCache != nil {
+		i.metricsCache.UpdateStatus(instanceID, StatusRunning)
+	}
 
 	if i.registerBackend != nil && installedApp.URL != "" {
 		i.registerBackend(appDef.ID, installedApp.URL, "")
