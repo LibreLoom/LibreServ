@@ -183,6 +183,12 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 		return
 	}
 
+	if err := i.waitForContainers(ctx, instanceID); err != nil {
+		i.logger.Error("Containers failed to start", "error", err)
+		i.handleInstallFailure(instanceID, installedApp.Path, "containers failed to start: "+err.Error())
+		return
+	}
+
 	installedApp.Status = StatusRunning
 	installedApp.HealthStatus = HealthUnknown
 
@@ -669,4 +675,46 @@ func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, i
 	}
 
 	return nil
+}
+
+func (i *Installer) waitForContainers(ctx context.Context, instanceID string) error {
+	label := "libreserv.app=" + instanceID
+	maxWait := 5 * time.Minute
+	interval := 2 * time.Second
+	start := time.Now()
+
+	for {
+		containers, err := i.runtime.ListContainersByLabel(label)
+		if err != nil {
+			return fmt.Errorf("failed to list containers: %w", err)
+		}
+
+		if len(containers) == 0 {
+			if time.Since(start) > maxWait {
+				return fmt.Errorf("no containers found after %v", maxWait)
+			}
+			i.logger.Debug("No containers yet, waiting...", "instance_id", instanceID)
+			time.Sleep(interval)
+			continue
+		}
+
+		running := 0
+		for _, c := range containers {
+			if c.State == "running" {
+				running++
+			}
+		}
+
+		if running == len(containers) {
+			i.logger.Debug("All containers running", "instance_id", instanceID, "count", running)
+			return nil
+		}
+
+		if time.Since(start) > maxWait {
+			return fmt.Errorf("timeout waiting for containers to start: %d/%d running", running, len(containers))
+		}
+
+		i.logger.Debug("Waiting for containers to start", "instance_id", instanceID, "running", running, "total", len(containers))
+		time.Sleep(interval)
+	}
 }
