@@ -1,0 +1,67 @@
+import GeneralCategory from "./categories/GeneralCategory";
+import AppearanceCategory from "./categories/AppearanceCategory";
+import SecurityCategory from "./categories/SecurityCategory";
+import AboutCategory from "./categories/AboutCategory";
+
+const CATEGORY_TITLES = {
+  general: "General Settings",
+  appearance: "Appearance",
+  security: "Security",
+  about: "About",
+};
+
+const CATEGORY_COMPONENTS = {
+  general: GeneralCategory,
+  appearance: AppearanceCategory,
+  security: SecurityCategory,
+  about: AboutCategory,
+};
+
+export default function SettingsContent({
+  category,
+  settings,
+  darkMode,
+  onDarkModeChange,
+  securitySettings,
+  onSecuritySettingsChange,
+  onTestNotification,
+  onLoggingChange,
+}) {
+  const CategoryComponent = CATEGORY_COMPONENTS[category] || GeneralCategory;
+  const title = CATEGORY_TITLES[category] || "Settings";
+
+  const getSettingsProps = () => {
+    switch (category) {
+      case "general":
+        return {
+          settings: {
+            ...settings,
+            onLoggingChange,
+          },
+        };
+      case "appearance":
+        return { darkMode, onDarkModeChange };
+      case "security":
+        return {
+          settings: securitySettings,
+          onSettingsChange: onSecuritySettingsChange,
+          onTestNotification,
+        };
+      case "about":
+        return { settings };
+      default:
+        return { settings };
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-1 duration-200">
+        {title}
+      </h1>
+      <div key={category} className="animate-in fade-in duration-200">
+        <CategoryComponent {...getSettingsProps()} />
+      </div>
+    </div>
+  );
+}

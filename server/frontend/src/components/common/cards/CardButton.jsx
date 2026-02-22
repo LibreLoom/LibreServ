@@ -14,9 +14,24 @@ export default function CardButton({
   actionLabel = "View All",
   variant = "default",
   className = "",
+  external = false,
 }) {
   // Map visual intent to a Tailwind class bundle.
   const variantClasses = variants[variant] || variants.default;
+
+  if (external) {
+    return (
+      <a
+        href={action}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={actionLabel}
+        className={`flex items-center justify-center rounded-pill p-2 motion-safe:transition-all hover:outline-2 hover:outline-solid cursor-pointer ${variantClasses} ${className} h-full w-full`}
+      >
+        <span className="text-sm font-medium">{actionLabel}</span>
+      </a>
+    );
+  }
 
   return (
     <Link

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,6 +30,7 @@ type Manager struct {
 	appsDataDir    string
 	logger         *slog.Logger
 	monitor        *monitoring.Monitor
+	metricsCache   *AppMetricsCache
 	backendMap     map[string][]string            // appID -> backend URLs (primary first)
 	backendByName  map[string]map[string][]string // appID -> name -> backends
 	scriptExecutor *ScriptExecutor
@@ -52,7 +54,7 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 		monitor:        monitor,
 		backendMap:     make(map[string][]string),
 		backendByName:  make(map[string]map[string][]string),
-		scriptExecutor: NewScriptExecutor(slog.Default().With("component", "script-executor"), nil, appsDataDir),
+		scriptExecutor: NewScriptExecutorWithCatalog(slog.Default().With("component", "script-executor"), nil, appsDataDir, catalogPath),
 	}
 
 	// Set up repair callback if monitor is available
@@ -60,8 +62,12 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 		monitor.RepairCallback = m.handleRepair
 	}
 
+	// Initialize metrics cache
+	m.metricsCache = NewAppMetricsCache(monitor, m.logger)
+
 	// Create installer
 	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor)
+	m.installer.SetCatalogPath(catalogPath)
 	m.installer.SetBackendRegistrar(func(appID, backend, name string) {
 		if name != "" {
 			m.RegisterNamedBackend(appID, name, backend)
@@ -77,6 +83,27 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 // GetCatalog returns the app catalog
 func (m *Manager) GetCatalog() *Catalog {
 	return m.catalog
+}
+
+// Start begins the metrics cache collection
+func (m *Manager) Start(ctx context.Context) {
+	if m.metricsCache != nil {
+		m.metricsCache.Start(ctx)
+	}
+}
+
+// Stop halts the metrics cache collection
+func (m *Manager) Stop() {
+	if m.metricsCache != nil {
+		m.metricsCache.Stop()
+	}
+}
+
+// RefreshMetrics forces an immediate metrics refresh
+func (m *Manager) RefreshMetrics(ctx context.Context) {
+	if m.metricsCache != nil {
+		m.metricsCache.RefreshNow(ctx)
+	}
 }
 
 // GetBackendURL returns a backend URL for an app if known.
@@ -200,6 +227,13 @@ func (m *Manager) StartInstalledApps(ctx context.Context) {
 		return
 	}
 
+	// Initialize metrics cache with existing app statuses
+	if m.metricsCache != nil {
+		for _, app := range apps {
+			m.metricsCache.UpdateStatus(app.ID, app.Status)
+		}
+	}
+
 	for _, app := range apps {
 		composePath := filepath.Join(m.appsDataDir, app.ID, "docker-compose.yml")
 		if _, err := os.Stat(composePath); os.IsNotExist(err) {
@@ -310,6 +344,16 @@ func (m *Manager) GetAppStatus(ctx context.Context, instanceID string) (*AppStat
 		}, nil
 	}
 
+	// If app has error status, return the error message
+	if app.Status == StatusError {
+		return &AppStatusInfo{
+			InstanceID: instanceID,
+			Status:     StatusError,
+			Containers: nil,
+			Error:      app.Error,
+		}, nil
+	}
+
 	label := "libreserv.app=" + instanceID
 	containers, err := m.runtime.ListContainersByLabel(label)
 	if err != nil {
@@ -361,6 +405,7 @@ type AppStatusInfo struct {
 	InstanceID string            `json:"instance_id"`
 	Status     AppStatus         `json:"status"`
 	Containers []ContainerStatus `json:"containers"`
+	Error      string            `json:"error,omitempty"`
 }
 
 // ContainerStatus contains status information about a single container
@@ -374,7 +419,7 @@ type ContainerStatus struct {
 // ListInstalledApps returns all installed apps
 func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error) {
 	rows, err := m.db.Query(`
-		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version
+		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error
 		FROM apps
 		ORDER BY installed_at DESC
 	`)
@@ -395,6 +440,18 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 			continue
 		}
 		app.Backends = m.listBackendRefs(app.AppID)
+
+		// Populate metrics from cache
+		if m.metricsCache != nil {
+			metrics := m.metricsCache.GetMetrics(app.ID)
+			app.CPUPercent = metrics.CPUPercent
+			app.MemoryUsage = metrics.MemoryUsage
+			app.MemoryLimit = metrics.MemoryLimit
+			app.Uptime = metrics.Uptime
+			app.Downtime = metrics.Downtime
+			app.Availability = metrics.Availability
+		}
+
 		apps = append(apps, app)
 	}
 
@@ -404,7 +461,7 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 // GetInstalledApp returns a single installed app by instance ID
 func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*InstalledApp, error) {
 	row := m.db.QueryRow(`
-		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version
+		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error
 		FROM apps WHERE id = ?
 	`, instanceID)
 
@@ -762,6 +819,11 @@ func (m *Manager) Close() error {
 
 // updateStatus updates the status and updated_at fields for an app
 func (m *Manager) updateStatus(ctx context.Context, instanceID string, status AppStatus) error {
+	// Update metrics cache with new status
+	if m.metricsCache != nil {
+		m.metricsCache.UpdateStatus(instanceID, status)
+	}
+
 	_, err := m.db.Exec(`UPDATE apps SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, string(status), instanceID)
 	return err
 }
@@ -775,9 +837,10 @@ func scanInstalledApp(scanner interface {
 		installedAt, updatedAt                                time.Time
 		metadataJSON                                          string
 		pinnedVersion                                         sql.NullString
+		errMsg                                                sql.NullString
 	)
 
-	if err := scanner.Scan(&id, &name, &appType, &source, &path, &status, &healthStatus, &installedAt, &updatedAt, &metadataJSON, &pinnedVersion); err != nil {
+	if err := scanner.Scan(&id, &name, &appType, &source, &path, &status, &healthStatus, &installedAt, &updatedAt, &metadataJSON, &pinnedVersion, &errMsg); err != nil {
 		return nil, err
 	}
 
@@ -800,6 +863,7 @@ func scanInstalledApp(scanner interface {
 		InstalledAt:   installedAt,
 		UpdatedAt:     updatedAt,
 		PinnedVersion: pinnedVersion.String,
+		Error:         errMsg.String,
 	}, nil
 }
 
@@ -856,12 +920,38 @@ func (m *Manager) inferBackends(app *InstalledApp) []backendEntry {
 
 	if m.catalog != nil {
 		if def, err := m.catalog.GetApp(app.AppID); err == nil {
+			// Build a map of config field names to user-provided values
+			configValues := make(map[string]interface{})
+			if app.Config != nil {
+				for k, v := range app.Config {
+					configValues[k] = v
+				}
+			}
+
 			for _, p := range def.Deployment.Ports {
-				if p.Host > 0 {
-					backends = append(backends, backendEntry{
-						backend: fmt.Sprintf("http://%s:%d", host, p.Host),
-						name:    p.Name,
-					})
+				if p.Host > 0 || p.Name != "" {
+					// Check if user overrode this port in config
+					port := p.Host
+					if configPort, ok := configValues[p.Name]; ok {
+						// Handle port config - could be string or int
+						switch v := configPort.(type) {
+						case float64:
+							port = int(v)
+						case int:
+							port = v
+						case string:
+							if parsed, err := strconv.Atoi(v); err == nil {
+								port = parsed
+							}
+						}
+					}
+					// Only add if we have a valid port
+					if port > 0 {
+						backends = append(backends, backendEntry{
+							backend: fmt.Sprintf("http://%s:%d", host, port),
+							name:    p.Name,
+						})
+					}
 				}
 			}
 			for _, b := range def.Deployment.Backends {

@@ -123,8 +123,8 @@ export default function SetupPage() {
         <div className="max-w-md w-full mx-4">
           <div className="bg-secondary rounded-3xl p-8 outline outline-2 outline-accent">
             <AlertCircle className="w-16 h-16 text-accent mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-center mb-2">Setup Error</h1>
-            <p className="text-center text-primary/70 mb-4">{error}</p>
+            <h1 className="text-2xl font-bold text-center text-primary mb-2">Setup Error</h1>
+            <p className="text-center text-primary/80 mb-4">{error}</p>
             <button
               onClick={() => window.location.reload()}
               className="w-full bg-accent text-primary py-3 rounded-pill font-semibold hover:opacity-90 transition-opacity"
@@ -143,8 +143,8 @@ export default function SetupPage() {
         <div className="max-w-md w-full mx-4">
           <div className="bg-secondary rounded-3xl p-8 outline outline-2 outline-accent text-center">
             <CheckCircle2 className="w-16 h-16 text-accent mx-auto mb-4" />
-            <h1 className="text-2xl font-bold mb-2">Setup Complete!</h1>
-            <p className="text-primary/70 mb-4">Redirecting you to login...</p>
+            <h1 className="text-2xl font-bold text-primary mb-2">Setup Complete!</h1>
+            <p className="text-primary/80 mb-4">Redirecting you to login...</p>
             <Loader2 className="w-6 h-6 animate-spin text-accent mx-auto" />
           </div>
         </div>
@@ -158,20 +158,20 @@ export default function SetupPage() {
         <div className="bg-secondary rounded-3xl p-8 outline outline-2 outline-accent">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold mb-2">Welcome to LibreServ</h1>
-            <p className="text-primary/70">
+            <h1 className="text-3xl font-bold text-primary mb-2">Welcome to LibreServ</h1>
+            <p className="text-primary/80">
               Let's set up your admin account to get started
             </p>
           </div>
 
           {/* Error message */}
           {error && (
-            <div className="mb-6 p-4 bg-accent/20 border-2 border-accent rounded-2xl">
+            <div className="mb-6 p-4 bg-primary rounded-2xl border-2 border-accent">
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold text-accent">Setup Failed</p>
-                  <p className="text-sm text-secondary/70">{error}</p>
+                  <p className="text-sm text-secondary/80">{error}</p>
                 </div>
               </div>
             </div>
@@ -183,7 +183,7 @@ export default function SetupPage() {
             <div>
               <label
                 htmlFor="admin_username"
-                className="block text-sm font-semibold mb-2"
+                className="block text-sm font-semibold text-primary mb-2"
               >
                 Admin Username
               </label>
@@ -195,11 +195,11 @@ export default function SetupPage() {
                 onChange={handleChange}
                 required
                 autoComplete="username"
-                className="w-full px-4 py-3 bg-primary rounded-2xl outline outline-2 outline-accent focus:outline-4 transition-all"
+                className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl outline outline-2 outline-primary/50 focus:outline-accent focus:outline-4 transition-all"
                 placeholder="admin"
                 disabled={step === "creating"}
               />
-              <p className="text-xs text-primary/60 mt-1">
+              <p className="text-xs text-primary/70 mt-1">
                 This will be your login username
               </p>
             </div>
@@ -208,7 +208,7 @@ export default function SetupPage() {
             <div>
               <label
                 htmlFor="admin_email"
-                className="block text-sm font-semibold mb-2"
+                className="block text-sm font-semibold text-primary mb-2"
               >
                 Admin Email
               </label>
@@ -220,11 +220,11 @@ export default function SetupPage() {
                 onChange={handleChange}
                 required
                 autoComplete="email"
-                className="w-full px-4 py-3 bg-primary rounded-2xl outline outline-2 outline-accent focus:outline-4 transition-all"
+                className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl outline outline-2 outline-primary/50 focus:outline-accent focus:outline-4 transition-all"
                 placeholder="admin@example.com"
                 disabled={step === "creating"}
               />
-              <p className="text-xs text-primary/60 mt-1">
+              <p className="text-xs text-primary/70 mt-1">
                 Used for notifications and account recovery
               </p>
             </div>
@@ -233,7 +233,7 @@ export default function SetupPage() {
             <div>
               <label
                 htmlFor="admin_password"
-                className="block text-sm font-semibold mb-2"
+                className="block text-sm font-semibold text-primary mb-2"
               >
                 Admin Password
               </label>
@@ -245,7 +245,7 @@ export default function SetupPage() {
                 onChange={handleChange}
                 required
                 autoComplete="new-password"
-                className="w-full px-4 py-3 bg-primary rounded-2xl outline outline-2 outline-accent focus:outline-4 transition-all"
+                className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl outline outline-2 outline-primary/50 focus:outline-accent focus:outline-4 transition-all"
                 placeholder="Enter a strong password"
                 disabled={step === "creating"}
               />
@@ -269,12 +269,12 @@ export default function SetupPage() {
                       />
                     ))}
                   </div>
-                  <div className="text-xs space-y-1">
+                  <div className="text-xs space-y-1 text-primary/80">
                     <div
                       className={
                         passwordStrength.hasLength
                           ? "text-accent"
-                          : "text-primary/60"
+                          : "text-primary/70"
                       }
                     >
                       {passwordStrength.hasLength ? "✓" : "○"} At least 12
@@ -284,7 +284,7 @@ export default function SetupPage() {
                       className={
                         passwordStrength.hasLetter
                           ? "text-accent"
-                          : "text-primary/60"
+                          : "text-primary/70"
                       }
                     >
                       {passwordStrength.hasLetter ? "✓" : "○"} Contains letters
@@ -293,7 +293,7 @@ export default function SetupPage() {
                       className={
                         passwordStrength.hasDigit
                           ? "text-accent"
-                          : "text-primary/60"
+                          : "text-primary/70"
                       }
                     >
                       {passwordStrength.hasDigit ? "✓" : "○"} Contains numbers
@@ -302,7 +302,7 @@ export default function SetupPage() {
                       className={
                         passwordStrength.hasSpecial
                           ? "text-accent"
-                          : "text-primary/60"
+                          : "text-primary/70"
                       }
                     >
                       {passwordStrength.hasSpecial ? "✓" : "○"} Contains special
@@ -331,7 +331,7 @@ export default function SetupPage() {
           </form>
 
           {/* Footer */}
-          <div className="mt-8 pt-6 border-t border-primary/20 text-center text-xs text-primary/60">
+          <div className="mt-8 pt-6 border-t border-primary/20 text-center text-xs text-primary/70">
             <p>LibreServ • Self-hosted cloud platform</p>
           </div>
         </div>

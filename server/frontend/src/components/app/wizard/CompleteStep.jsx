@@ -32,7 +32,7 @@ function CompleteStep({ app, instance, onDone }) {
             Your temporary password:
           </p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 px-3 py-2 bg-primary rounded-large-element font-mono text-sm text-accent">
+            <code className="flex-1 px-3 py-2 bg-primary rounded-large-element font-mono text-sm text-secondary">
               {generatedPassword}
             </code>
             <button
@@ -40,7 +40,7 @@ function CompleteStep({ app, instance, onDone }) {
               className="p-2 rounded-large-element hover:bg-secondary/20 motion-safe:transition-all"
               aria-label="Copy password"
             >
-              {copied ? <Check size={18} className="text-accent" /> : <Copy size={18} />}
+              {copied ? <Check size={18} className="text-secondary" /> : <Copy size={18} />}
             </button>
           </div>
           <p className="text-xs text-secondary/50 mt-2">

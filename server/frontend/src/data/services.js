@@ -4,7 +4,6 @@ import {
   Search,
   Cloud,
   Wifi,
-  Zap,
   MemoryStick,
   FileSliders,
 } from "lucide-react";
@@ -25,7 +24,6 @@ export const services = [
       ram: 0.6,
       disk: 0.25,
       net: 0.4,
-      energy: 0.5,
     },
   },
   {
@@ -39,7 +37,6 @@ export const services = [
       ram: 0.7,
       disk: 0.55,
       net: 0.3,
-      energy: 0.4,
     },
   },
   {
@@ -53,7 +50,6 @@ export const services = [
       ram: 0.05,
       disk: 0.01,
       net: 0.0,
-      energy: 0.03,
     },
   },
 ];
@@ -63,7 +59,6 @@ export const resources = {
   ram: 0.6,
   disk: 0.25,
   net: 0.4,
-  energy: 0.5,
 };
 
 export function getBreakdownItems(resources) {
@@ -85,11 +80,6 @@ export function getBreakdownItems(resources) {
       icon: Wifi,
       label: "Network",
       value: Math.round(resources.net * 100) + "%",
-    },
-    {
-      icon: Zap,
-      label: "Energy",
-      value: Math.round(resources.energy * 100) + "%",
     },
   ];
 }

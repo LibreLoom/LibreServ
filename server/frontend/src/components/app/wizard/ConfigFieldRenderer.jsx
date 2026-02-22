@@ -29,12 +29,12 @@ function ConfigFieldRenderer({ field, value, onChange, disabled }) {
   const inputBaseClasses = `
     w-full px-4 py-2 border-2 rounded-large-element
     bg-primary text-secondary
-    focus:outline-2 focus:outline-accent focus:outline-offset-2
+    focus:outline-2 focus:outline-secondary focus:outline-offset-2
     motion-safe:transition-all
     disabled:opacity-50 disabled:cursor-not-allowed
   `;
 
-  const errorClasses = localError ? "border-accent" : "border-secondary/30 focus:border-accent";
+  const errorClasses = localError ? "border-secondary" : "border-secondary/30 focus:border-secondary";
 
   const renderInput = () => {
     switch (field.type) {
@@ -75,8 +75,8 @@ function ConfigFieldRenderer({ field, value, onChange, disabled }) {
               disabled={disabled}
               className="
                 h-5 w-5 rounded border-2 border-secondary/30
-                bg-primary text-accent
-                focus:outline-2 focus:outline-accent focus:outline-offset-2
+                bg-primary text-secondary
+                focus:outline-2 focus:outline-secondary focus:outline-offset-2
                 motion-safe:transition-all
                 disabled:opacity-50 disabled:cursor-not-allowed
               "
@@ -144,7 +144,7 @@ function ConfigFieldRenderer({ field, value, onChange, disabled }) {
           className="block font-mono text-sm text-secondary"
         >
           {field.label}
-          {field.required && <span className="text-accent ml-1">*</span>}
+          {field.required && <span className="text-secondary ml-1">*</span>}
         </label>
       )}
 
@@ -155,7 +155,7 @@ function ConfigFieldRenderer({ field, value, onChange, disabled }) {
       {renderInput()}
 
       {localError && (
-        <p id={`${field.name}-error`} className="text-xs text-accent mt-1">
+        <p id={`${field.name}-error`} className="text-xs text-secondary mt-1">
           {localError}
         </p>
       )}

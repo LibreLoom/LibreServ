@@ -513,6 +513,12 @@ function shouldIgnoreLine(filePath, lineText) {
     if (/^\s*--color-(primary|secondary|accent)\s*:/.test(lineText)) {
       return true;
     }
+    if (
+      /^\s*--color-(success|warning|error|info)\s*:/.test(lineText) ||
+      /^\s*--bg-(success|warning|error|info)\s*:/.test(lineText)
+    ) {
+      return true;
+    }
   }
   if (ext === ".svg") {
     if (/\b(pagecolor|bordercolor|inkscape:deskcolor)\s*=/.test(lineText)) {
@@ -889,8 +895,31 @@ function hasHardcodedColorValue(value) {
   if (hexTestRe.test(value)) return true;
   if (rgbTestRe.test(value)) return true;
   if (hslTestRe.test(value)) return true;
-  if (colorFnTestRe.test(value)) return true;
   if (tailwindThemeTestRe.test(value)) return true;
+
+  if (colorFnTestRe.test(value)) {
+    const colorFnMatchRe = /\b(?:lab|lch|oklab|oklch|color|color-mix)\(\s*([^)]+)\)/gi;
+    let match;
+    while ((match = colorFnMatchRe.exec(value)) !== null) {
+      const inner = match[1] || "";
+      const varRe = /var\(--[a-zA-Z0-9-_]+\)/gi;
+      const interpolationRe = /\$\{[^}]+\}/gi;
+      const hexInInner = hexTestRe.test(inner);
+      const rgbInInner = rgbTestRe.test(inner);
+      const hslInInner = hslTestRe.test(inner);
+      const keywordInInner = keywordTestRe.test(inner);
+      const hasVars = varRe.test(inner);
+      const hasInterpolation = interpolationRe.test(inner);
+      if (!hasVars && !hasInterpolation) {
+        return true;
+      }
+      if ((hexInInner || rgbInInner || hslInInner || keywordInInner) && !hasInterpolation) {
+        return true;
+      }
+    }
+    colorFnMatchRe.lastIndex = 0;
+    return false;
+  }
 
   if (cssVarTestRe.test(value)) {
     return false;

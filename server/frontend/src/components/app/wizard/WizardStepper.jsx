@@ -26,9 +26,9 @@ export default memo(function WizardStepper({ currentStep }) {
                     motion-safe:transition-all
                     ${
                       isComplete
-                        ? "bg-accent text-primary"
+                        ? "bg-secondary text-primary"
                         : isActive
-                          ? "bg-accent text-primary ring-2 ring-accent ring-offset-2 ring-offset-primary"
+                          ? "bg-secondary text-primary ring-2 ring-secondary ring-offset-2 ring-offset-primary"
                           : "bg-secondary/50 text-secondary/50 border-2 border-secondary/30"
                     }
                   `}
@@ -54,7 +54,7 @@ export default memo(function WizardStepper({ currentStep }) {
                 <div
                   className={`
                     mx-2 sm:mx-4 h-0.5 w-4 sm:w-8
-                    ${step.id < currentStep ? "bg-accent" : "bg-secondary/30"}
+                    ${step.id < currentStep ? "bg-secondary" : "bg-secondary/30"}
                   `}
                   aria-hidden="true"
                 />

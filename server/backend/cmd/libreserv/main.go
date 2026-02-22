@@ -195,7 +195,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	appManager.Start(context.Background())
+	defer appManager.Stop()
+
 	appManager.StartInstalledApps(context.Background())
+	appManager.RefreshMetrics(context.Background())
 
 	authService := auth.NewService(db, cfg.Auth.JWTSecret)
 

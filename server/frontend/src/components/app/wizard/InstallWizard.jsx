@@ -6,7 +6,6 @@ import OverviewStep from "./OverviewStep";
 import ConfigureStep from "./ConfigureStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
-import LoadingFast from "../../../pages/LoadingFast";
 
 function InstallWizard({ appId }) {
   const navigate = useNavigate();
@@ -20,6 +19,15 @@ function InstallWizard({ appId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [alreadyInstalled, setAlreadyInstalled] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      // Small delay to allow DOM to settle, then trigger animations
+      const timer = setTimeout(() => setShowWizard(true), 50);
+      return () => clearTimeout(timer);
+    }
+  }, [loading]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -124,7 +132,11 @@ function InstallWizard({ appId }) {
   }, [navigate]);
 
   if (loading) {
-    return <LoadingFast label="Loading app details..." heading="Install App" />;
+    return (
+      <div className="flex items-center justify-center py-20">
+        <p className="text-secondary/50 font-mono">Loading...</p>
+      </div>
+    );
   }
 
   if (alreadyInstalled) {
@@ -138,7 +150,7 @@ function InstallWizard({ appId }) {
         </p>
         <button
           onClick={() => navigate("/apps")}
-          className="px-6 py-2 rounded-pill bg-accent text-primary hover:bg-accent/90 motion-safe:transition-all font-mono"
+          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
         >
           Back to Apps
         </button>
@@ -155,7 +167,7 @@ function InstallWizard({ appId }) {
         <p className="text-secondary/70">{error}</p>
         <button
           onClick={() => navigate("/apps")}
-          className="px-6 py-2 rounded-pill bg-accent text-primary hover:bg-accent/90 motion-safe:transition-all font-mono"
+          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
         >
           Back to Apps
         </button>
@@ -164,10 +176,12 @@ function InstallWizard({ appId }) {
   }
 
   return (
-    <div className="space-y-8">
-      <WizardStepper currentStep={step} />
+    <div className={`space-y-8 transition-all duration-300 ${showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
+      <div className={`transition-all duration-300 delay-75 ${showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
+        <WizardStepper currentStep={step} />
+      </div>
 
-      <div className="max-w-2xl mx-auto">
+      <div className={`max-w-2xl mx-auto transition-all duration-300 delay-150 ${showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
         {step === 1 && (
           <OverviewStep
             app={app}

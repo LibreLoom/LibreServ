@@ -36,7 +36,7 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -46,7 +46,7 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
 }
@@ -134,7 +134,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  time.Unix(response.Tokens.ExpiresAt, 0),
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -143,7 +143,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
 	JSON(w, http.StatusOK, response.User)
@@ -287,7 +287,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  time.Unix(tokens.ExpiresAt, 0),
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -296,7 +296,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		Secure:   secure,
 	})
 	JSON(w, http.StatusOK, map[string]string{"message": "refreshed"})

@@ -258,18 +258,15 @@ func (h *MonitoringHandlers) SystemHealth(w http.ResponseWriter, r *http.Request
 		ramResource = hostRAM
 	}
 	resources := map[string]float64{
-		"cpu":    cpuResource,
-		"ram":    ramResource,
-		"disk":   normalizeUsage(diskTotal-diskFree, diskTotal),
-		"net":    0,
-		"energy": 0,
+		"cpu":  cpuResource,
+		"ram":  ramResource,
+		"disk": normalizeUsage(diskTotal-diskFree, diskTotal),
+		"net":  0,
 	}
 	now := time.Now()
 	containerNet := h.networkLoad(systemMetrics.NetworkRx+systemMetrics.NetworkTx, now)
 	hostNet := h.hostNetworkLoad(now)
 	resources["net"] = maxFloat(containerNet, hostNet)
-	// Energy is a lightweight proxy derived from other utilization signals.
-	resources["energy"] = clamp01(resources["cpu"]*0.5 + resources["ram"]*0.3 + resources["net"]*0.2)
 
 	response := map[string]interface{}{
 		"status":    "healthy",

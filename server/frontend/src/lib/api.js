@@ -1,3 +1,12 @@
+let refreshPromise = null;
+
+export class AuthError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
 export default async function api(path, options = {}, retried = false) {
   // Keep API versioning in one place and always send cookies for session auth.
   const { noRetry, ...fetchOptions } = options;
@@ -20,13 +29,30 @@ export default async function api(path, options = {}, retried = false) {
     !retried &&
     !noRetry
   ) {
-    // Attempt a silent refresh once before surfacing an auth error.
-    const refreshResponse = await fetch("/api/v1/auth/refresh", {
-      credentials: "include",
-      method: "POST",
-    });
-    if (refreshResponse.ok) {
-      return await api(path, options, true);
+    // Prevent race conditions by ensuring only one refresh request at a time
+    if (!refreshPromise) {
+      refreshPromise = fetch("/api/v1/auth/refresh", {
+        credentials: "include",
+        method: "POST",
+      });
+    }
+
+    try {
+      const refreshResponse = await refreshPromise;
+      refreshPromise = null;
+
+      if (refreshResponse.ok) {
+        return await api(path, options, true);
+      }
+
+      // Refresh failed - user needs to log in again
+      throw new AuthError("Session expired. Please log in again.");
+    } catch (error) {
+      refreshPromise = null;
+      if (error instanceof AuthError) {
+        throw error;
+      }
+      throw new AuthError("Session expired. Please log in again.");
     }
   }
   if (!res.ok) {

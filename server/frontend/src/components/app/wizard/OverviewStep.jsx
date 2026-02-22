@@ -38,7 +38,7 @@ function RequirementBadge({ icon: Icon, label, value, warning }) {
     <div
       className={`
         flex items-center gap-2 px-3 py-2 rounded-large-element
-        ${warning ? "bg-accent/20 text-accent" : "bg-secondary/10 text-secondary"}
+        ${warning ? "bg-secondary/20 text-secondary" : "bg-secondary/10 text-secondary"}
       `}
     >
       <Icon size={16} aria-hidden="true" />
@@ -53,7 +53,7 @@ function FeatureWarning({ info }) {
 
   const Icon = info.icon;
   const bgColor =
-    info.variant === "warning" ? "bg-accent/20 border-accent/50" : "bg-secondary/10 border-secondary/30";
+    info.variant === "warning" ? "bg-secondary/20 border-secondary/50" : "bg-secondary/10 border-secondary/30";
 
   return (
     <div
@@ -62,7 +62,7 @@ function FeatureWarning({ info }) {
     >
       <Icon
         size={20}
-        className={info.variant === "warning" ? "text-accent" : "text-secondary/70"}
+        className={info.variant === "warning" ? "text-secondary" : "text-secondary/70"}
         aria-hidden="true"
       />
       <div>
@@ -149,7 +149,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
         <button
           type="button"
           onClick={onContinue}
-          className="px-6 py-2 rounded-pill bg-accent text-primary hover:bg-accent/90 motion-safe:transition-all font-mono"
+          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
         >
           Continue
         </button>

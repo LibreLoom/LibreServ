@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import api from "../lib/api";
+import api, { AuthError } from "../lib/api";
 import { AuthContext } from "./AuthContextContext";
 
 export function AuthProvider({ children }) {

@@ -272,11 +272,6 @@ func (s *Service) ValidateRefreshToken(tokenString string) (*Claims, error) {
 	return s.jwtManager.ValidateRefreshToken(tokenString)
 }
 
-// RefreshTokens refreshes tokens using a refresh token
-func (s *Service) RefreshTokens(refreshToken string) (*TokenPair, error) {
-	return s.jwtManager.RefreshTokens(refreshToken)
-}
-
 // DBHealth exposes a simple DB health check for setup/preflight.
 func (s *Service) DBHealth() error {
 	return s.db.HealthCheck()

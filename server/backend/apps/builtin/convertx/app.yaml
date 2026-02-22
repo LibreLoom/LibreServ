@@ -27,12 +27,26 @@ configuration:
     required: true
     env_var: HTTP_PORT
   - name: http_allowed
-    label: Allowed HTTP Origins
-    description: Comma-separated list of allowed origins for CORS (use specific origins in production)
-    type: string
-    default: "http://localhost:*"
-    required: false
+    label: Allow HTTP Connections
+    description: Set to true to allow HTTP connections (required for local access without HTTPS)
+    type: boolean
+    default: true
+    required: true
     env_var: HTTP_ALLOWED
+  - name: account_registration
+    label: Allow Account Registration
+    description: Set to false to disable account registration (public access mode)
+    type: boolean
+    default: false
+    required: true
+    env_var: ACCOUNT_REGISTRATION
+  - name: allow_unauthenticated
+    label: Allow Unauthenticated Access
+    description: Set to true to allow users to use the service without logging in (history in localStorage)
+    type: boolean
+    default: true
+    required: true
+    env_var: ALLOW_UNAUTHENTICATED
 
 health_check:
   type: http

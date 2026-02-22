@@ -10,18 +10,18 @@ import AppIcon from "../components/common/AppIcon";
 import api from "../lib/api";
 import {
   Grid2X2,
-  Server,
   Trash2,
   ExternalLink,
   Play,
   Square,
   RotateCw,
-  Activity,
-  Calendar,
   Folder,
+  Server,
   AlertTriangle,
   Loader2,
+  Activity,
 } from "lucide-react";
+import StatusPill from "../components/common/StatusPill";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");
@@ -34,12 +34,15 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
         <div className="flex items-center gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
           <AlertTriangle className="text-accent shrink-0" size={24} />
           <p className="text-sm">
-            This action <strong>cannot be undone</strong>. All data will be permanently deleted.
+            This action <strong>cannot be undone</strong>. All data will be
+            permanently deleted.
           </p>
         </div>
 
         <div className="space-y-2">
-          <p className="text-sm text-primary/70">The following will be deleted:</p>
+          <p className="text-sm text-primary/70">
+            The following will be deleted:
+          </p>
           <ul className="text-sm space-y-1 ml-4">
             <li className="flex items-center gap-2">
               <Folder size={14} className="text-primary/50" />
@@ -82,7 +85,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
           <button
             onClick={onConfirm}
             disabled={!matches || isUninstalling}
-            className="flex-1 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="flex-1 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isUninstalling ? (
               <>
@@ -162,7 +165,7 @@ export default function AppDetailPage() {
         setActionLoading(null);
       }
     },
-    [app, actionLoading, request]
+    [app, actionLoading, request],
   );
 
   const handleUninstall = useCallback(async () => {
@@ -202,11 +205,11 @@ export default function AppDetailPage() {
   const getStatusColor = (status) => {
     switch (status) {
       case "running":
-        return "text-success";
+        return "text-primary";
       case "stopped":
-        return "text-warning";
+        return "text-primary/60";
       case "error":
-        return "text-error";
+        return "text-primary";
       default:
         return "text-primary/50";
     }
@@ -215,9 +218,9 @@ export default function AppDetailPage() {
   const getHealthColor = (health) => {
     switch (health) {
       case "healthy":
-        return "text-success";
+        return "text-primary";
       case "unhealthy":
-        return "text-error";
+        return "text-primary";
       default:
         return "text-primary/50";
     }
@@ -242,13 +245,16 @@ export default function AppDetailPage() {
       id="main-content"
       tabIndex={-1}
     >
-      <header className="mb-10">
+      <header className="mb-8">
         <HeaderCard
           id="app-detail-title"
           title={app?.name || "App Details"}
           leftContent={
+            app && <AppIcon appId={app.app_id} size={40} className="mr-3" />
+          }
+          rightContent={
             app && (
-              <AppIcon appId={app.app_id} size={40} className="mr-3" />
+              <StatusPill status={app.status} className="relative !static" />
             )
           }
         />
@@ -276,93 +282,113 @@ export default function AppDetailPage() {
 
       {!loading && !error && app && (
         <>
-          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card className="motion-safe:transition hover:scale-[1.02]">
-              <div className="flex items-center gap-3 mb-3">
-                <Server size={20} className="text-accent" aria-hidden="true" />
-                <h2 className="text-xl font-mono font-normal">Status</h2>
-              </div>
-              <p className={`text-lg ml-8 capitalize ${getStatusColor(app.status)}`}>
+          <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <Card className="flex flex-col items-center justify-center py-6 text-center">
+              <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
+                Status
+              </p>
+              <p
+                className={`text-2xl font-mono capitalize ${getStatusColor(app.status)}`}
+              >
                 {app.status}
               </p>
             </Card>
 
-            <Card className="motion-safe:transition hover:scale-[1.02]">
-              <div className="flex items-center gap-3 mb-3">
-                <Activity size={20} className="text-accent" aria-hidden="true" />
-                <h2 className="text-xl font-mono font-normal">Health</h2>
-              </div>
-              <p className={`text-lg ml-8 capitalize ${getHealthColor(app.health_status)}`}>
+            <Card className="flex flex-col items-center justify-center py-6 text-center">
+              <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
+                Health
+              </p>
+              <p
+                className={`text-2xl font-mono capitalize ${getHealthColor(app.health_status)}`}
+              >
                 {app.health_status || "Unknown"}
               </p>
             </Card>
 
-            <Card className="motion-safe:transition hover:scale-[1.02]">
-              <div className="flex items-center gap-3 mb-3">
-                <Calendar size={20} className="text-accent" aria-hidden="true" />
-                <h2 className="text-xl font-mono font-normal">Installed</h2>
-              </div>
-              <p className="text-lg ml-8">{formatDate(app.installed_at)}</p>
+            <Card className="flex flex-col items-center justify-center py-6 text-center">
+              <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
+                Installed
+              </p>
+              <p className="text-lg font-mono">
+                {formatDate(app.installed_at)}
+              </p>
             </Card>
+
+            {app.url && (
+              <Card className="flex flex-col items-center justify-center py-6 text-center">
+                <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
+                  Link
+                </p>
+                <a
+                  href={app.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-lg font-mono text-accent hover:underline flex items-center gap-1"
+                >
+                  Open App
+                  <ExternalLink size={14} />
+                </a>
+              </Card>
+            )}
           </section>
 
-          <section className="mt-6">
+          <section>
             <Card className="bg-primary! text-secondary! border-2! border-secondary!">
-              <h2 className="text-2xl font-mono font-normal mb-6">Actions</h2>
+              <h2 className="text-2xl font-mono font-normal mb-6">Control</h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
-                {app.url && (
-                  <a
-                    href={app.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block"
-                  >
-                    <CardButton
-                      action="#"
-                      actionLabel="Open App"
-                      variant="inverted"
-                    />
-                  </a>
-                )}
-
-                <div
-                  onClick={() => app.status === "stopped" && handleAppAction("start")}
-                  className={app.status !== "stopped" ? "opacity-50 cursor-not-allowed" : ""}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={() =>
+                    app.status === "stopped" && handleAppAction("start")
+                  }
+                  disabled={app.status !== "stopped" || actionLoading}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
                 >
-                  <CardButton
-                    action="#"
-                    actionLabel={actionLoading === "start" ? "Starting..." : "Start"}
-                    variant="inverted"
-                  />
-                </div>
+                  {actionLoading === "start" ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <Play size={18} />
+                  )}
+                  {actionLoading === "start" ? "Starting..." : "Start"}
+                </button>
 
-                <div
-                  onClick={() => app.status === "running" && handleAppAction("stop")}
-                  className={app.status !== "running" ? "opacity-50 cursor-not-allowed" : ""}
+                <button
+                  onClick={() =>
+                    app.status === "running" && handleAppAction("stop")
+                  }
+                  disabled={app.status !== "running" || actionLoading}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
                 >
-                  <CardButton
-                    action="#"
-                    actionLabel={actionLoading === "stop" ? "Stopping..." : "Stop"}
-                    variant="inverted"
-                  />
-                </div>
+                  {actionLoading === "stop" ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <Square size={18} />
+                  )}
+                  {actionLoading === "stop" ? "Stopping..." : "Stop"}
+                </button>
 
-                <div onClick={() => handleAppAction("restart")}>
-                  <CardButton
-                    action="#"
-                    actionLabel={actionLoading === "restart" ? "Restarting..." : "Restart"}
-                    variant="inverted"
-                  />
-                </div>
+                <button
+                  onClick={() => handleAppAction("restart")}
+                  disabled={actionLoading}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill border-2 border-accent text-accent hover:bg-accent/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
+                >
+                  {actionLoading === "restart" ? (
+                    <Loader2 size={18} className="animate-spin" />
+                  ) : (
+                    <RotateCw size={18} />
+                  )}
+                  {actionLoading === "restart" ? "Restarting..." : "Restart"}
+                </button>
 
-                <div onClick={() => setShowUninstallModal(true)} className="lg:col-span-4">
-                  <CardButton
-                    action="#"
-                    actionLabel="Uninstall"
-                    variant="danger"
-                  />
-                </div>
+                <div className="flex-1" />
+
+                <button
+                  onClick={() => setShowUninstallModal(true)}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-error text-primary hover:opacity-80 transition-colors font-mono"
+                >
+                  <Trash2 size={18} />
+                  Uninstall
+                </button>
               </div>
             </Card>
           </section>

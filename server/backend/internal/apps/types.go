@@ -212,6 +212,23 @@ type InstalledApp struct {
 	UpdatedAt     time.Time              `json:"updated_at"`
 	LastHealthAt  time.Time              `json:"last_health_at,omitempty"`
 	ContainerIDs  []string               `json:"container_ids,omitempty"`
+	Error         string                 `json:"error,omitempty"` // Error message from failed install/update
+
+	// Runtime metrics
+	CPUPercent  float64 `json:"cpu_percent,omitempty"`
+	MemoryUsage uint64  `json:"memory_usage,omitempty"`
+	MemoryLimit uint64  `json:"memory_limit,omitempty"`
+
+	// Uptime/Downtime (in seconds)
+	Uptime   int64 `json:"uptime_seconds,omitempty"`
+	Downtime int64 `json:"downtime_seconds,omitempty"`
+
+	// Availability (0-100)
+	Availability float64 `json:"availability_pct,omitempty"`
+
+	// State tracking
+	LastStartedAt time.Time `json:"last_started_at,omitempty"`
+	LastStoppedAt time.Time `json:"last_stopped_at,omitempty"`
 }
 
 // BackendRef describes a reachable backend for an installed app.

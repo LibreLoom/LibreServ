@@ -68,21 +68,27 @@ class ErrorBoundary extends Component {
             </div>
 
             {import.meta.env.DEV && this.state.error && (
-              <div className="bg-secondary text-primary rounded-large-element p-4 mb-6 outline-2 outline-error/30">
-                <div className="flex items-center gap-2 mb-3 text-error">
-                  <Bug className="w-5 h-5" />
-                  <span className="font-mono font-medium">
+              <div className="bg-secondary text-primary rounded-large-element p-5 mb-6 outline-2 outline-accent/30">
+                <div className="flex items-center gap-2 mb-4">
+                  <Bug className="w-5 h-5 text-accent" />
+                  <span className="font-mono font-medium text-secondary">
                     Error Details (Development)
                   </span>
                 </div>
-                <div className="bg-primary rounded-large-element p-3 font-mono text-sm text-secondary/80 overflow-x-auto">
-                  <p className="text-error mb-2">
-                    {this.state.error.toString()}
-                  </p>
+                <div className="bg-primary rounded-large-element p-4 font-mono text-sm overflow-x-auto border border-secondary/20">
+                  <div className="mb-3">
+                    <span className="text-secondary/60 text-xs uppercase tracking-wider mb-1 block">Error</span>
+                    <p className="text-error font-medium break-all">
+                      {this.state.error.toString()}
+                    </p>
+                  </div>
                   {this.state.errorInfo && (
-                    <pre className="text-xs text-secondary/60 whitespace-pre-wrap">
-                      {this.state.errorInfo.componentStack}
-                    </pre>
+                    <div>
+                      <span className="text-secondary/60 text-xs uppercase tracking-wider mb-1 block">Stack Trace</span>
+                      <pre className="text-xs text-secondary/70 whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">
+                        {this.state.errorInfo.componentStack}
+                      </pre>
+                    </div>
                   )}
                 </div>
               </div>
