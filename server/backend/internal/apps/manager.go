@@ -66,7 +66,7 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 	m.metricsCache = NewAppMetricsCache(monitor, m.logger)
 
 	// Create installer
-	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor)
+	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache)
 	m.installer.SetCatalogPath(catalogPath)
 	m.installer.SetBackendRegistrar(func(appID, backend, name string) {
 		if name != "" {
@@ -665,6 +665,10 @@ func (m *Manager) recordUpdateFailure(updateID int64, err error, rolledBack bool
 func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 	if err := m.installer.Uninstall(ctx, instanceID); err != nil {
 		m.logger.Warn("Installer uninstall returned error, continuing with DB cleanup", "error", err)
+	}
+
+	if m.metricsCache != nil {
+		m.metricsCache.RemoveApp(instanceID)
 	}
 
 	_, err := m.db.Exec(`DELETE FROM apps WHERE id = ?`, instanceID)
