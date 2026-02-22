@@ -1,0 +1,18 @@
+version: "3"
+services:
+  homeassistant:
+    image: lscr.io/linuxserver/homeassistant:latest
+    container_name: "{{.instance_id}}-homeassistant"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ={{.timezone}}
+    volumes:
+      - "{{ dataPath }}/config:/config"
+    ports:
+      - "{{.port}}:8123"
+    restart: unless-stopped
+    network_mode: host
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"

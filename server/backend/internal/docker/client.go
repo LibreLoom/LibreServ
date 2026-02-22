@@ -22,7 +22,11 @@ type Client struct {
 func NewClient(cfg config.DockerConfig) (*Client, error) {
 	switch cfg.Method {
 	case "auto":
-		return autoDetectConnection()
+		c, err := autoDetectConnection()
+		if err != nil {
+			return &Client{cli: nil, ctx: context.Background()}, nil // mock for dev
+		}
+		return c, nil
 	case "socket":
 		return connectViaSocket(cfg.SocketPath)
 	case "tcp":
@@ -112,6 +116,10 @@ func connectViaSSH(cfg config.SSHConfig) (*Client, error) {
 
 // HealthCheck verifies connection to the daemon
 func (c *Client) HealthCheck() error {
+	if c.cli == nil {
+		return fmt.Errorf("docker daemon not configured")
+	}
+
 	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
 
@@ -124,11 +132,17 @@ func (c *Client) HealthCheck() error {
 
 // Close releases the underlying Docker client.
 func (c *Client) Close() error {
-	return c.cli.Close()
+	if c.cli != nil {
+		return c.cli.Close()
+	}
+	return nil
 }
 
 // GetRawClient returns the underlying Docker client for direct API access
 func (c *Client) GetRawClient() *client.Client {
+	if c.cli == nil {
+		return nil
+	}
 	return c.cli
 }
 
@@ -136,24 +150,36 @@ func (c *Client) GetRawClient() *client.Client {
 
 // ComposeUp starts containers defined in a compose file
 func (c *Client) ComposeUp(ctx context.Context, composePath string) error {
+	if c.cli == nil {
+		return fmt.Errorf("docker not available in dev mode")
+	}
 	cm := NewComposeManager(c)
 	return cm.Up(ctx, composePath)
 }
 
 // ComposeDown stops and removes containers defined in a compose file
 func (c *Client) ComposeDown(ctx context.Context, composePath string) error {
+	if c.cli == nil {
+		return fmt.Errorf("docker not available in dev mode")
+	}
 	cm := NewComposeManager(c)
 	return cm.Down(ctx, composePath)
 }
 
 // ComposePull pulls images defined in a compose file
 func (c *Client) ComposePull(ctx context.Context, composePath string) error {
+	if c.cli == nil {
+		return fmt.Errorf("docker not available in dev mode")
+	}
 	cm := NewComposeManager(c)
 	return cm.Pull(ctx, composePath)
 }
 
 // ComposeStop stops containers without removing them
 func (c *Client) ComposeStop(ctx context.Context, composePath string) error {
+	if c.cli == nil {
+		return fmt.Errorf("docker not available in dev mode")
+	}
 	cm := NewComposeManager(c)
 	return cm.Stop(ctx, composePath)
 }
