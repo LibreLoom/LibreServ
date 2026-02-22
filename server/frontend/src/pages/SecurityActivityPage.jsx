@@ -295,7 +295,7 @@ export default function SecurityActivityPage() {
       <Card className="mt-6" title="Security Tips" icon={<Shield size={20} />}>
         <div className="grid md:grid-cols-2 gap-4">
           <div className="p-4 bg-secondary/10 rounded-lg">
-            <h4 className="font-medium text-secondary mb-2">
+            <h4 className="font-medium text-primary mb-2">
               Use a Strong Password
             </h4>
             <p className="text-sm text-accent">
@@ -304,7 +304,7 @@ export default function SecurityActivityPage() {
             </p>
           </div>
           <div className="p-4 bg-secondary/10 rounded-lg">
-            <h4 className="font-medium text-secondary mb-2">
+            <h4 className="font-medium text-primary mb-2">
               Monitor Your Account
             </h4>
             <p className="text-sm text-accent">
@@ -322,7 +322,7 @@ export default function SecurityActivityPage() {
             </p>
           </div>
           <div className="p-4 bg-secondary/10 rounded-lg">
-            <h4 className="font-medium text-secondary mb-2">
+            <h4 className="font-medium text-primary mb-2">
               Keep Software Updated
             </h4>
             <p className="text-sm text-accent">
