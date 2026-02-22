@@ -7,6 +7,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"log/slog"
 )
 
 // Minimal smoke test for installer ValidateConfig.
@@ -33,7 +34,7 @@ func TestInstallerValidateConfig(t *testing.T) {
 		},
 	}}
 
-	inst := NewInstaller(catalog, docker.NewRuntimeAdapter(&docker.Client{}), db, dir, monitoring.NewMonitor(db, nil))
+	inst := NewInstaller(catalog, docker.NewRuntimeAdapter(&docker.Client{}), db, dir, monitoring.NewMonitor(db, nil), NewAppMetricsCache(monitoring.NewMonitor(db, nil), slog.Default()))
 
 	err = inst.ValidateConfig("app1", map[string]interface{}{"required_field": "ok"})
 	if err != nil {
