@@ -59,14 +59,20 @@ export default function DropdownCard({
       >
         {/* Breakdown tiles are optional; empty arrays render a collapsed list. */}
         <div className="grid grid-cols-2 gap-2 p-2">
-          {breakdownItems.map((item) => (
-            <MiniStatCard
-              key={item.label}
-              icon={item.icon}
-              label={item.label}
-              value={item.value}
-            />
-          ))}
+          {breakdownItems.length === 0 ? (
+            <div className="col-span-2 text-center py-3 px-4 rounded-pill bg-accent text-primary font-medium">
+              Loading...
+            </div>
+          ) : (
+            breakdownItems.map((item) => (
+              <MiniStatCard
+                key={item.label}
+                icon={item.icon}
+                label={item.label}
+                value={item.value}
+              />
+            ))
+          )}
         </div>
       </div>
     </div>
