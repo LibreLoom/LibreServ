@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect } from "react";
+import { memo, useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../hooks/useAuth";
 import WizardStepper from "./WizardStepper";
@@ -20,6 +20,8 @@ function InstallWizard({ appId }) {
   const [error, setError] = useState(null);
   const [alreadyInstalled, setAlreadyInstalled] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [animationDirection, setAnimationDirection] = useState("right");
+  const prevStepRef = useRef(1);
 
   useEffect(() => {
     if (!loading) {
@@ -77,8 +79,15 @@ function InstallWizard({ appId }) {
     }
   }, [appId, request]);
 
+  const handleStepChange = useCallback((newStep) => {
+    const direction = newStep > prevStepRef.current ? "right" : "left";
+    setAnimationDirection(direction);
+    prevStepRef.current = newStep;
+    setStep(newStep);
+  }, []);
+
   const handleInstall = useCallback(async () => {
-    setStep(3);
+    handleStepChange(3);
 
     try {
       const installConfig = { ...config };
@@ -106,13 +115,16 @@ function InstallWizard({ appId }) {
     } catch (err) {
       console.error("Install failed:", err);
       setError("Installation failed. Please check your settings and try again.");
-      setStep(2);
+      handleStepChange(2);
     }
-  }, [appId, config, features, request]);
+  }, [appId, config, features, request, handleStepChange]);
 
   const handleComplete = useCallback(
     (statusData) => {
-      setInstance((prev) => ({ ...prev, ...statusData }));
+      setInstance((prev) => ({
+        ...prev,
+        status: statusData.status,
+      }));
       setStep(4);
     },
     []
@@ -181,37 +193,57 @@ function InstallWizard({ appId }) {
         <WizardStepper currentStep={step} />
       </div>
 
-      <div className={`max-w-2xl mx-auto transition-all duration-300 delay-150 ${showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
+      <div className="max-w-2xl mx-auto">
         {step === 1 && (
-          <OverviewStep
-            app={app}
-            features={features}
-            onContinue={() => setStep(2)}
-            onBack={handleBack}
-          />
+          <div
+            key={`step-1-${animationDirection}`}
+            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+          >
+            <OverviewStep
+              app={app}
+              features={features}
+              onContinue={() => handleStepChange(2)}
+              onBack={handleBack}
+            />
+          </div>
         )}
 
         {step === 2 && (
-          <ConfigureStep
-            app={app}
-            features={features}
-            config={config}
-            onConfigChange={setConfig}
-            onContinue={handleInstall}
-            onBack={() => setStep(1)}
-          />
+          <div
+            key={`step-2-${animationDirection}`}
+            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+          >
+            <ConfigureStep
+              app={app}
+              features={features}
+              config={config}
+              onConfigChange={setConfig}
+              onContinue={handleInstall}
+              onBack={() => handleStepChange(1)}
+            />
+          </div>
         )}
 
         {step === 3 && (
-          <ProgressStep
-            instanceId={instance?.id}
-            onComplete={handleComplete}
-            onError={handleError}
-          />
+          <div
+            key={`step-3-${animationDirection}`}
+            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+          >
+            <ProgressStep
+              instanceId={instance?.id}
+              onComplete={handleComplete}
+              onError={handleError}
+            />
+          </div>
         )}
 
         {step === 4 && (
-          <CompleteStep app={app} instance={instance} onDone={handleDone} />
+          <div
+            key={`step-4-${animationDirection}`}
+            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+          >
+            <CompleteStep app={app} instance={instance} onDone={handleDone} />
+          </div>
         )}
       </div>
     </div>
