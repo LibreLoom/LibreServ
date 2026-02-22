@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useTheme } from "../context/ThemeContext";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import ErrorDisplay from "../components/common/ErrorDisplay";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
@@ -17,18 +18,13 @@ const DEBOUNCE_MS = 500;
 
 export default function SettingsPage() {
   const { me: user } = useAuth();
+  const { darkMode, toggleDarkMode } = useTheme();
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState("general");
   const [showMobileContent, setShowMobileContent] = useState(false);
-
-  const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem("theme");
-    if (saved) return saved === "dark";
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  });
 
   const saveTimeoutRef = useRef(null);
   const pendingSettingsRef = useRef(null);
@@ -40,16 +36,6 @@ export default function SettingsPage() {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, []);
-
-  useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  }, [darkMode]);
 
   const loadData = async () => {
     try {
@@ -118,7 +104,7 @@ export default function SettingsPage() {
   };
 
   const handleDarkModeChange = () => {
-    setDarkMode((prev) => !prev);
+    toggleDarkMode();
   };
 
   const handleSecuritySettingsChange = (newSettings) => {

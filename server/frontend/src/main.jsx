@@ -5,6 +5,7 @@ import "goey-toast/styles.css";
 import App from "./App.jsx";
 import { BrowserRouter } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { setupGlobalErrorHandlers } from "./utils/errorReporting";
 import { GoeyToaster } from "goey-toast";
 
@@ -14,8 +15,10 @@ createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
-        <GoeyToaster position="top-right" spring={false} />
+        <ThemeProvider>
+          <App />
+          <GoeyToaster position="top-right" spring={false} />
+        </ThemeProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
