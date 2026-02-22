@@ -159,7 +159,7 @@ export default function SecurityActivityPage() {
             <div className="text-sm text-accent mt-1">Total Events</div>
           </Card>
           <Card className="text-center">
-            <div className="text-3xl font-bold text-secondary">
+            <div className="text-3xl font-bold text-accent">
               {stats.successful_logins}
             </div>
             <div className="text-sm text-accent mt-1">Successful Logins</div>
