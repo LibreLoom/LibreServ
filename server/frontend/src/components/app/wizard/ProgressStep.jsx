@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useState, useRef } from "react";
 import { Loader2, CheckCircle, XCircle } from "lucide-react";
 
 const INSTALL_PHASES = [
@@ -9,19 +9,28 @@ const INSTALL_PHASES = [
   { id: "verifying", label: "Verifying installation" },
 ];
 
-function ProgressStep({ instanceId, onComplete, onError }) {
+function ProgressStep({ instanceId, onComplete }) {
   const [currentPhase, setCurrentPhase] = useState(0);
   const [status, setStatus] = useState("installing");
   const [error, setError] = useState(null);
+  const hasCompleted = useRef(false);
 
   useEffect(() => {
-    if (!instanceId) return;
+    if (!instanceId || hasCompleted.current) return;
 
     const pollStatus = async () => {
+      if (hasCompleted.current) return;
+
       try {
         const res = await fetch(`/api/v1/apps/${instanceId}/status`, {
           credentials: "include",
         });
+
+        if (res.status === 404) {
+          hasCompleted.current = true;
+          setError("Installation failed and was cleaned up. The app may have encountered a configuration error.");
+          return;
+        }
 
         if (!res.ok) {
           throw new Error("Failed to check status");
@@ -30,17 +39,17 @@ function ProgressStep({ instanceId, onComplete, onError }) {
         const data = await res.json();
         setStatus(data.status);
 
-        // Store error message if present
         if (data.error) {
           setError(data.error);
         }
 
         if (data.status === "running") {
+          hasCompleted.current = true;
           setCurrentPhase(INSTALL_PHASES.length);
           setTimeout(() => onComplete(data), 1000);
         } else if (data.status === "error") {
-          setError("Installation failed. Please try again.");
-          onError(new Error("Installation failed"));
+          hasCompleted.current = true;
+          setError(data.error || "Installation failed. Please try again.");
         } else if (data.status === "installing") {
           setCurrentPhase((prev) => Math.min(prev + 1, INSTALL_PHASES.length - 1));
         }
@@ -60,7 +69,7 @@ function ProgressStep({ instanceId, onComplete, onError }) {
       clearInterval(interval);
       clearInterval(phaseInterval);
     };
-  }, [instanceId, onComplete, onError]);
+  }, [instanceId, onComplete]);
 
   if (error) {
     return (

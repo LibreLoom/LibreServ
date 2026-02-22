@@ -20,12 +20,11 @@ function InstallWizard({ appId }) {
   const [error, setError] = useState(null);
   const [alreadyInstalled, setAlreadyInstalled] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
-  const [animationDirection, setAnimationDirection] = useState("right");
+  const [animationDirection, setAnimationDirection] = useState("initial");
   const prevStepRef = useRef(1);
 
   useEffect(() => {
     if (!loading) {
-      // Small delay to allow DOM to settle, then trigger animations
       const timer = setTimeout(() => setShowWizard(true), 50);
       return () => clearTimeout(timer);
     }
@@ -130,11 +129,6 @@ function InstallWizard({ appId }) {
     []
   );
 
-  const handleError = useCallback((err) => {
-    console.error("Installation error:", err);
-    setError("Something went wrong during installation.");
-  }, []);
-
   const handleDone = useCallback(() => {
     navigate("/apps");
   }, [navigate]);
@@ -188,7 +182,7 @@ function InstallWizard({ appId }) {
   }
 
   return (
-    <div className={`space-y-8 transition-all duration-300 ${showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
+    <div className="space-y-8">
       <div className={`transition-all duration-300 delay-75 ${showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
         <WizardStepper currentStep={step} />
       </div>
@@ -197,7 +191,7 @@ function InstallWizard({ appId }) {
         {step === 1 && (
           <div
             key={`step-1-${animationDirection}`}
-            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+            className={`animate-in duration-300 ${animationDirection === "initial" ? "slide-in-from-bottom-4" : animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
           >
             <OverviewStep
               app={app}
@@ -232,7 +226,6 @@ function InstallWizard({ appId }) {
             <ProgressStep
               instanceId={instance?.id}
               onComplete={handleComplete}
-              onError={handleError}
             />
           </div>
         )}
