@@ -18,7 +18,7 @@ default: build
 build:
 	@echo ">> Building backend $(VERSION)"
 	@mkdir -p $(BIN_DIR)
-	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags "$(BUILD_TAGS)" $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) ~/go/bin/go1.25.0 build -tags "$(BUILD_TAGS)" $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
 
 run: build
 	@echo ">> Running $(APP_NAME)"

@@ -40,6 +40,19 @@ export const services = [
     },
   },
   {
+    name: "Home Assistant",
+    status: "online",
+    time: "14 days, 3 hours",
+    resourceUsage: 45,
+    icon: Cloud,
+    resources: {
+      cpu: 0.15,
+      ram: 0.4,
+      disk: 0.15,
+      net: 0.2,
+    },
+  },
+  {
     name: "Convertx",
     status: "offline",
     time: "14 days, 3 hours",

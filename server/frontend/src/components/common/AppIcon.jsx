@@ -13,7 +13,7 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    fetch(`/api/v1/catalog/${appId}/icon`, { signal: controller.signal })
+    fetch(`/api/v1/catalog/${appId}/icon?v=${Date.now()}`, { signal: controller.signal })
       .then((res) => res.text())
       .then((svgText) => {
         if (controller.signal.aborted || !mountedRef.current) return;

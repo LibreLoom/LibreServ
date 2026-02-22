@@ -1,0 +1,55 @@
+id: homeassistant
+name: Home Assistant
+description: Open source home automation that puts local control and privacy first.
+version: stable
+category: smarthome
+website: https://www.home-assistant.io/
+repository: https://github.com/home-assistant/core
+featured: true
+
+deployment:
+  compose_file: app-compose/docker-compose.yml
+  ports:
+    - host: 8123
+      container: 8123
+      protocol: tcp
+  volumes:
+    - name: config
+      mount_path: /config
+  restart_policy: unless-stopped
+
+configuration:
+  - name: port
+    label: Port
+    description: Port for Home Assistant web interface
+    type: port
+    default: 8123
+    required: true
+  - name: timezone
+    label: Timezone
+    description: Timezone for Home Assistant (e.g. Europe/London)
+    type: string
+    default: "UTC"
+    required: true
+
+health_check:
+  type: http
+  endpoint: /
+  port: 8123
+  interval: 30s
+  timeout: 15s
+  retries: 5
+
+requirements:
+  min_ram: "2G"
+  recommended_ram: "4G"
+  min_cpu: 1
+  min_disk: "32G"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: true
+  allow_downgrade: false
