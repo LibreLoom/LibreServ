@@ -1,6 +1,6 @@
 # LibreServ
 
-Bringing control of the web into users' hands: run alternatives to everyday cloud services (Google Drive, Google Search, Microsoft 365, etc.) right in your home. No subscription. No paywall. Just you in control.
+Taking back your privacy shouldn't require a degree in networking. LibreServ is on a mission to decouple your data from large companies like Google and Microsoft by creating a home server experience that is powerful enough for experts, yet simple enough for everyone else.
 
 ## Target Audience
 
