@@ -6,7 +6,7 @@ const INSTALL_PHASES = [
   { id: "downloading", label: "Downloading application" },
   { id: "configuring", label: "Setting up configuration" },
   { id: "starting", label: "Starting services" },
-  { id: "verifying", label: "Verifying installation" },
+  { id: "verifying", label: "Verifying installation (this may take a while)" },
 ];
 
 function ProgressStep({ instanceId, onComplete }) {
@@ -107,7 +107,7 @@ function ProgressStep({ instanceId, onComplete }) {
         <p className="text-secondary/70">
           {isComplete
             ? "Your app is starting up. This won't take long."
-            : "Please wait while we set things up."}
+            : "Please wait while we set things up. You can leave this page; installation will continue in the background."}
         </p>
       </div>
 
