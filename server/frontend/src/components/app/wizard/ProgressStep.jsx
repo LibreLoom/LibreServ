@@ -6,7 +6,7 @@ const INSTALL_PHASES = [
   { id: "downloading", label: "Downloading application" },
   { id: "configuring", label: "Setting up configuration" },
   { id: "starting", label: "Starting services" },
-  { id: "verifying", label: "Verifying installation (this may take a while)" },
+  { id: "verifying", label: "Verifying installation" },
 ];
 
 function ProgressStep({ instanceId, onComplete }) {
@@ -38,10 +38,6 @@ function ProgressStep({ instanceId, onComplete }) {
 
         const data = await res.json();
         setStatus(data.status);
-
-        if (data.error) {
-          setError(data.error);
-        }
 
         if (data.status === "running") {
           hasCompleted.current = true;
