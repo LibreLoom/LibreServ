@@ -20,6 +20,11 @@ import {
   AlertTriangle,
   Loader2,
   Activity,
+  Cpu,
+  HardDrive,
+  ArrowUpCircle,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import StatusPill from "../components/common/StatusPill";
 
@@ -115,6 +120,9 @@ export default function AppDetailPage() {
   const [showUninstallModal, setShowUninstallModal] = useState(false);
   const [isUninstalling, setIsUninstalling] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
+  const [metrics, setMetrics] = useState(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState(null);
 
   useEffect(() => {
     if (!instanceId) {
@@ -149,6 +157,46 @@ export default function AppDetailPage() {
     fetchApp();
     return () => clearTimeout(delayTimer);
   }, [instanceId, request]);
+
+  useEffect(() => {
+    if (!app?.id) return;
+    const fetchMetrics = async () => {
+      setMetricsLoading(true);
+      try {
+        const response = await request(`/apps/${app.id}/metrics`);
+        if (response.ok) {
+          const data = await response.json();
+          setMetrics(data);
+        }
+      } catch {
+        // Metrics not available, silently ignore
+      } finally {
+        setMetricsLoading(false);
+      }
+    };
+    fetchMetrics();
+    const interval = setInterval(fetchMetrics, 30000);
+    return () => clearInterval(interval);
+  }, [app?.id, request]);
+
+  useEffect(() => {
+    if (!app?.app_id) return;
+    const checkUpdates = async () => {
+      try {
+        const response = await request(`/apps/updates/available`);
+        if (response.ok) {
+          const updates = await response.json();
+          const update = updates?.updates?.find(
+            (u) => u.instance_id === app.id
+          );
+          setAvailableUpdate(update || null);
+        }
+      } catch {
+        // Silently ignore
+      }
+    };
+    checkUpdates();
+  }, [app?.id, app?.app_id, request]);
 
   const handleAppAction = useCallback(
     async (action) => {
@@ -202,6 +250,21 @@ export default function AppDetailPage() {
     });
   };
 
+  const formatBytes = (bytes, decimals = 2) => {
+    if (bytes === 0) return "0 B";
+    const k = 1024;
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return (
+      parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + " " + sizes[i]
+    );
+  };
+
+  const formatPercent = (value) => {
+    if (value === undefined || value === null) return "N/A";
+    return `${value.toFixed(1)}%`;
+  };
+
   const getStatusColor = (status) => {
     switch (status) {
       case "running":
@@ -223,6 +286,17 @@ export default function AppDetailPage() {
         return "text-primary";
       default:
         return "text-primary/50";
+    }
+  };
+
+  const getHealthIcon = (health) => {
+    switch (health) {
+      case "healthy":
+        return <CheckCircle className="text-green-500" size={20} />;
+      case "unhealthy":
+        return <XCircle className="text-red-500" size={20} />;
+      default:
+        return <Activity className="text-primary/50" size={20} />;
     }
   };
 
@@ -298,11 +372,14 @@ export default function AppDetailPage() {
               <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
                 Health
               </p>
-              <p
-                className={`text-2xl font-mono capitalize ${getHealthColor(app.health_status)}`}
-              >
-                {app.health_status || "Unknown"}
-              </p>
+              <div className="flex items-center gap-2">
+                {getHealthIcon(app.health_status)}
+                <p
+                  className={`text-2xl font-mono capitalize ${getHealthColor(app.health_status)}`}
+                >
+                  {app.health_status || "Unknown"}
+                </p>
+              </div>
             </Card>
 
             <Card className="flex flex-col items-center justify-center py-6 text-center">
@@ -331,6 +408,90 @@ export default function AppDetailPage() {
               </Card>
             )}
           </section>
+
+          {metrics && (
+            <section className="mb-8">
+              <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+                <h2 className="text-2xl font-mono font-normal mb-6">Resource Usage</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 rounded-full bg-secondary/20">
+                      <Cpu size={24} className="text-accent" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-mono uppercase tracking-wider text-primary/50">
+                        CPU
+                      </p>
+                      <p className="text-xl font-mono">
+                        {formatPercent(metrics.cpu_percent)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 rounded-full bg-secondary/20">
+                      <Activity size={24} className="text-accent" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-mono uppercase tracking-wider text-primary/50">
+                        Memory
+                      </p>
+                      <p className="text-xl font-mono">
+                        {formatBytes(metrics.memory_usage)} / {formatBytes(metrics.memory_limit)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 rounded-full bg-secondary/20">
+                      <HardDrive size={24} className="text-accent" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-mono uppercase tracking-wider text-primary/50">
+                        Network
+                      </p>
+                      <p className="text-xl font-mono">
+                        {formatBytes(metrics.network_rx || 0)} / {formatBytes(metrics.network_tx || 0)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </section>
+          )}
+
+          {availableUpdate && (
+            <section className="mb-8">
+              <Card className="bg-primary! text-secondary! border-2! border-accent!">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <ArrowUpCircle size={32} className="text-accent" />
+                    <div>
+                      <h2 className="text-xl font-mono font-normal">Update Available</h2>
+                      <p className="text-sm text-primary/70">
+                        {availableUpdate.current_version} to {availableUpdate.latest_version}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleAppAction("update")}
+                    disabled={actionLoading}
+                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
+                  >
+                    {actionLoading === "update" ? (
+                      <>
+                        <Loader2 size={18} className="animate-spin" />
+                        Updating...
+                      </>
+                    ) : (
+                      <>
+                        <ArrowUpCircle size={18} />
+                        Update Now
+                      </>
+                    )}
+                  </button>
+                </div>
+              </Card>
+            </section>
+          )}
 
           <section>
             <Card className="bg-primary! text-secondary! border-2! border-secondary!">

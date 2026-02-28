@@ -420,18 +420,18 @@ User sets "Backup every day at 3 AM" for Nextcloud.
 
 #### T2.3.1. Enhance App Detail Page
 
-**File:** `server/frontend/src/pages/AppDetailPage.jsx` (EXISTS - enhance)  
-**Effort:** 2 hours  
-**Dependencies:** None  
-**Status:** 🟡  
-**Completed By:**
+**File:** `server/frontend/src/pages/AppDetailPage.jsx` (EXISTS - enhance)
+**Effort:** 2 hours
+**Dependencies:** None
+**Status:** ✅ Complete
+**Completed By:** @opencode
 
 **Acceptance Criteria:**
-- [ ] Show resource usage (CPU, RAM, disk) from `/api/v1/apps/{id}/metrics`
-- [ ] Show app health status prominently
-- [ ] Start/Stop/Restart buttons with confirmation
-- [ ] Link to app's web interface (if applicable)
-- [ ] Show installed version and available updates
+- [x] Show resource usage (CPU, RAM, disk) from `/api/v1/apps/{id}/metrics`
+- [x] Show app health status prominently
+- [x] Start/Stop/Restart buttons with confirmation
+- [x] Link to app's web interface (if applicable)
+- [x] Show installed version and available updates
 
 ---
 
@@ -742,16 +742,16 @@ Create Backup → Restore Backup → Uninstall App
 
 #### T4.2.2. Add Rate Limiting Middleware
 
-**File:** `server/backend/internal/api/middleware/ratelimit.go` (verify exists)  
-**Effort:** 2 hours  
-**Status:** 🟡  
-**Completed By:**
+**File:** `server/backend/internal/api/middleware/ratelimit.go` (verify exists)
+**Effort:** 2 hours
+**Status:** ✅ Complete
+**Completed By:** @opencode
 
 **Acceptance Criteria:**
-- [ ] Rate limit by IP on public endpoints
-- [ ] Rate limit by user on authenticated endpoints
-- [ ] Stricter limits on auth endpoints
-- [ ] Return 429 with Retry-After header
+- [x] Rate limit by IP on public endpoints
+- [x] Rate limit by user on authenticated endpoints
+- [x] Stricter limits on auth endpoints
+- [x] Return 429 with Retry-After header
 
 ---
 
@@ -774,17 +774,17 @@ Create Backup → Restore Backup → Uninstall App
 
 #### T4.3.1. Enhance Install Script
 
-**File:** `install.sh` (EXISTS)  
-**Effort:** 2 hours  
-**Status:** 🟡  
-**Completed By:**
+**File:** `install.sh` (EXISTS)
+**Effort:** 2 hours
+**Status:** ✅ Complete
+**Completed By:** @opencode
 
 **Acceptance Criteria:**
-- [ ] Installs systemd service
-- [ ] Verifies service starts successfully
-- [ ] Shows post-install instructions
-- [ ] Supports upgrade (preserve data)
-- [ ] Has uninstall option
+- [x] Installs systemd service
+- [x] Verifies service starts successfully
+- [x] Shows post-install instructions
+- [x] Supports upgrade (preserve data)
+- [x] Has uninstall option
 
 ---
 
@@ -1016,6 +1016,9 @@ curl http://localhost:8080/api/v1/setup/preflight
 
 | Date | Change |
 |------|--------|
+| 2026-02-27 | T2.3.1: Enhanced AppDetailPage with resource metrics, health icon, update notifications |
+| 2026-02-27 | T4.2.2: Rate limiting by user on authenticated endpoints, by IP on public, fixed Retry-After header |
+| 2026-02-27 | T4.3.1: Enhanced install.sh with upgrade/uninstall, post-install instructions, service verification |
 | 2026-02-19 | T2.1.3: App uninstall with confirmation modal, typing requirement, and progress indicator |
 | 2026-02-19 | T3.2.1: Enhanced user management with last_login, last admin protection, password strength indicator |
 | 2026-02-17 | Added T2.2.3: Cloud Backup Integration, T3.1.3: Domain Provider Integration |

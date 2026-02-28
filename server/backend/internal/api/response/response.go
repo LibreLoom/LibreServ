@@ -6,6 +6,7 @@ package response
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/errors"
 )
@@ -170,7 +171,7 @@ func ValidationError(w http.ResponseWriter, field, message string) {
 
 // RateLimitExceeded writes a rate limit error response
 func RateLimitExceeded(w http.ResponseWriter, retryAfter int) {
-	w.Header().Set("Retry-After", string(rune(retryAfter)))
+	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 	JSON(w, http.StatusTooManyRequests, Response{
 		Success: false,
 		Error: &ErrorInfo{
