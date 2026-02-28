@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"strconv"
@@ -13,21 +14,20 @@ import (
 )
 
 const (
-	// Rate limiting defaults
 	defaultSetupLimit      = 30
 	defaultAuthLimit       = 120
-	defaultUserLimit       = 60  // User management operations
-	defaultSupportLimit    = 30  // Support session commands
-	defaultGeneralLimit    = 300 // General API operations
+	defaultUserLimit       = 60
+	defaultSupportLimit    = 30
+	defaultGeneralLimit    = 300
 	defaultRateLimitWindow = time.Minute
 	defaultStrictWindow    = time.Minute
 )
 
-// RateRule defines a simple window-based rate limit.
 type RateRule struct {
 	Prefix string
 	Limit  int
 	Window time.Duration
+	ByUser bool
 }
 
 type bucket struct {
@@ -44,14 +44,11 @@ type limiter struct {
 	logger        *slog.Logger
 }
 
-// globalLimiters tracks all active limiters for cleanup
 var (
 	globalLimiters   []*limiter
 	globalLimitersMu sync.Mutex
 )
 
-// StopAllLimiters stops all active rate limiter cleanup goroutines.
-// This should be called during application shutdown.
 func StopAllLimiters() {
 	globalLimitersMu.Lock()
 	defer globalLimitersMu.Unlock()
@@ -62,48 +59,42 @@ func StopAllLimiters() {
 	globalLimiters = nil
 }
 
-// RateLimitDefault applies conservative limits on setup/auth endpoints.
 func RateLimitDefault() func(http.Handler) http.Handler {
 	rules := []RateRule{
-		{Prefix: "/api/v1/setup", Limit: defaultSetupLimit, Window: defaultRateLimitWindow},
-		{Prefix: "/api/v1/auth", Limit: defaultAuthLimit, Window: defaultRateLimitWindow},
+		{Prefix: "/api/v1/setup", Limit: defaultSetupLimit, Window: defaultRateLimitWindow, ByUser: false},
+		{Prefix: "/api/v1/auth", Limit: defaultAuthLimit, Window: defaultRateLimitWindow, ByUser: false},
 	}
 	return RateLimit(rules)
 }
 
-// RateLimitSensitive applies stricter limits on sensitive operations like user management.
 func RateLimitSensitive() func(http.Handler) http.Handler {
 	rules := []RateRule{
-		{Prefix: "/api/v1/users", Limit: defaultUserLimit, Window: defaultStrictWindow},
-		{Prefix: "/api/v1/support", Limit: defaultSupportLimit, Window: defaultStrictWindow},
+		{Prefix: "/api/v1/users", Limit: defaultUserLimit, Window: defaultStrictWindow, ByUser: true},
+		{Prefix: "/api/v1/support", Limit: defaultSupportLimit, Window: defaultStrictWindow, ByUser: true},
 	}
 	return RateLimit(rules)
 }
 
-// RateLimitGeneral applies standard limits on general API operations.
 func RateLimitGeneral() func(http.Handler) http.Handler {
 	rules := []RateRule{
-		{Prefix: "/api/v1", Limit: defaultGeneralLimit, Window: defaultRateLimitWindow},
+		{Prefix: "/api/v1", Limit: defaultGeneralLimit, Window: defaultRateLimitWindow, ByUser: true},
 	}
 	return RateLimit(rules)
 }
 
-// RateLimit applies simple fixed-window limits.
 func RateLimit(rules []RateRule) func(http.Handler) http.Handler {
 	l := &limiter{
 		rules:         rules,
 		data:          make(map[string]*bucket),
 		stopCh:        make(chan struct{}),
 		logger:        slog.Default().With("component", "rate_limiter"),
-		cleanupTicker: time.NewTicker(5 * time.Minute), // Cleanup every 5 minutes
+		cleanupTicker: time.NewTicker(5 * time.Minute),
 	}
 
-	// Register for global cleanup
 	globalLimitersMu.Lock()
 	globalLimiters = append(globalLimiters, l)
 	globalLimitersMu.Unlock()
 
-	// Start background cleanup goroutine
 	go l.cleanupRoutine()
 
 	return func(next http.Handler) http.Handler {
@@ -141,11 +132,38 @@ func (l *limiter) matchRule(path string) (RateRule, bool) {
 }
 
 func (l *limiter) keyFor(r *http.Request, rule RateRule) string {
+	var identifier string
+
+	if rule.ByUser {
+		if userID, ok := GetUserIDFromContext(r.Context()); ok && userID != "" {
+			identifier = "user:" + userID
+		} else {
+			identifier = l.extractIP(r)
+		}
+	} else {
+		identifier = l.extractIP(r)
+	}
+
+	return rule.Prefix + "::" + identifier
+}
+
+func (l *limiter) extractIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr
 	}
-	return rule.Prefix + "::" + host
+
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		parts := strings.Split(forwarded, ",")
+		if len(parts) > 0 {
+			trimmed := strings.TrimSpace(parts[0])
+			if trimmed != "" {
+				host = trimmed
+			}
+		}
+	}
+
+	return "ip:" + host
 }
 
 func (l *limiter) take(key string, rule RateRule) (remaining int, reset time.Duration, allowed bool) {
@@ -171,7 +189,6 @@ func intToStr(v int) string {
 	return strconv.Itoa(v)
 }
 
-// cleanupRoutine periodically removes stale entries to prevent memory leaks
 func (l *limiter) cleanupRoutine() {
 	for {
 		select {
@@ -184,20 +201,17 @@ func (l *limiter) cleanupRoutine() {
 	}
 }
 
-// cleanupStaleEntries removes entries that are older than the max window
 func (l *limiter) cleanupStaleEntries() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Find the maximum window duration among all rules
-	maxWindow := time.Minute // default
+	maxWindow := time.Minute
 	for _, rule := range l.rules {
 		if rule.Window > maxWindow {
 			maxWindow = rule.Window
 		}
 	}
 
-	// Allow entries to be stale for up to 2x the max window before cleanup
 	staleThreshold := maxWindow * 2
 	now := time.Now()
 
@@ -210,21 +224,20 @@ func (l *limiter) cleanupStaleEntries() {
 
 	removed := initialCount - len(l.data)
 	if removed > 0 {
-		l.logger.Debug("cleaned up stale rate limit entries",
-			"removed", removed,
-			"remaining", len(l.data),
-		)
+		l.logger.Debug("cleaned up stale rate limit entries", "removed", removed, "remaining", len(l.data))
 	}
 }
 
-// Stop gracefully shuts down the limiter's background goroutine
-// Safe to call multiple times
 func (l *limiter) Stop() {
 	select {
 	case <-l.stopCh:
-		// Already closed, do nothing
 		return
 	default:
 		close(l.stopCh)
 	}
+}
+
+func GetUserIDFromContext(ctx context.Context) (string, bool) {
+	userID, ok := ctx.Value(UserIDContextKey).(string)
+	return userID, ok
 }
