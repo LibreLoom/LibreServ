@@ -202,3 +202,18 @@ func (d *DB) QueryRow(query string, args ...interface{}) *sql.Row {
 func (d *DB) Query(query string, args ...interface{}) (*sql.Rows, error) {
 	return d.db.Query(query, args...)
 }
+
+// ExecContext executes a query with context without returning rows
+func (d *DB) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	return d.db.ExecContext(ctx, query, args...)
+}
+
+// QueryRowContext executes a query with context that is expected to return at most one row
+func (d *DB) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	return d.db.QueryRowContext(ctx, query, args...)
+}
+
+// QueryContext executes a query with context that returns rows
+func (d *DB) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	return d.db.QueryContext(ctx, query, args...)
+}

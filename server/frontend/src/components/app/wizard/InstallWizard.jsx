@@ -138,11 +138,7 @@ function InstallWizard({ appId }) {
   }, [navigate]);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <p className="text-secondary/50 font-mono">Loading...</p>
-      </div>
-    );
+    return null;
   }
 
   if (alreadyInstalled) {

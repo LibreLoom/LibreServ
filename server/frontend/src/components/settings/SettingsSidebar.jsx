@@ -1,11 +1,12 @@
-import { Settings, Palette, Shield, Info, ChevronRight } from "lucide-react";
+import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup } from "lucide-react";
 import SettingsUserCard from "./SettingsUserCard";
 
 const CATEGORIES = [
-  { id: "general", label: "General", icon: Settings },
-  { id: "appearance", label: "Appearance", icon: Palette },
-  { id: "security", label: "Security", icon: Shield },
-  { id: "about", label: "About", icon: Info },
+	{ id: "general", label: "General", icon: Settings },
+	{ id: "appearance", label: "Appearance", icon: Palette },
+	{ id: "backups", label: "Backups", icon: DatabaseBackup },
+	{ id: "security", label: "Security", icon: Shield },
+	{ id: "about", label: "About", icon: Info },
 ];
 
 export default function SettingsSidebar({

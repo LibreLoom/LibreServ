@@ -1,0 +1,14 @@
+app_id: convertx
+app_name: ConvertX
+app_version: 0.5.2
+config:
+    account_registration: false
+    allow_unauthenticated: true
+    app_name: ConvertX
+    http_allowed: true
+    http_port: "1234"
+    install_path: dev/apps/1cf169af99e81519
+    instance_id: 1cf169af99e81519
+    version: 0.5.2
+installed_at: "2026-02-28T14:49:43-08:00"
+type: builtin

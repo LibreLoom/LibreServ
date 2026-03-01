@@ -318,11 +318,11 @@ curl http://localhost:8080/api/v1/catalog/motioneye/features
 
 #### T2.2.1. Create Backups Page
 
-**File:** `server/frontend/src/pages/BackupsPage.jsx`  
-**Effort:** 3 hours  
-**Dependencies:** None  
-**Status:** 🔴  
-**Completed By:**
+**File:** `server/frontend/src/pages/BackupsPage.jsx`
+**Effort:** 3 hours
+**Dependencies:** None
+**Status:** ✅ Complete
+**Completed By:** @opencode
 
 **User Journey:**
 1. See list of all backups (app name, date, size)
@@ -338,13 +338,15 @@ curl http://localhost:8080/api/v1/catalog/motioneye/features
 - `DELETE /api/v1/backups/{id}` - Delete
 
 **Acceptance Criteria:**
-- [ ] List backups sorted by date (newest first)
-- [ ] Show app name, date, size, status
-- [ ] "Create Backup" dropdown to select app
-- [ ] Restore requires confirmation
-- [ ] Show warning: "Current data will be replaced"
-- [ ] Progress indicator during backup/restore
-- [ ] Auto-refresh during operations
+- [x] List backups sorted by date (newest first)
+- [x] Show app name, date, size, status
+- [x] "Create Backup" dropdown to select app
+- [x] Restore requires confirmation
+- [x] Show warning: "Current data will be replaced"
+- [x] Progress indicator during backup/restore
+- [x] Auto-refresh during operations
+- [x] Cloud backup status display
+- [x] Upload to cloud button per backup
 
 ---
 
@@ -370,11 +372,11 @@ User sets "Backup every day at 3 AM" for Nextcloud.
 
 #### T2.2.3. Add Cloud Backup Integration
 
-**Files:** `server/backend/internal/backup/cloud/`, `server/frontend/src/components/backups/CloudBackupConfig.jsx`  
-**Effort:** 4 hours  
-**Dependencies:** T2.2.1  
-**Status:** 🔴  
-**Completed By:**
+**Files:** `server/backend/internal/backup/cloud/`, `server/frontend/src/components/backups/CloudBackupConfig.jsx`
+**Effort:** 4 hours
+**Dependencies:** T2.2.1
+**Status:** ✅ Complete
+**Completed By:** @opencode
 
 **Why:** Local backups protect against app failure, but not hardware failure, theft, or disaster. Users need off-site backup for true data safety.
 
@@ -386,31 +388,29 @@ User sets "Backup every day at 3 AM" for Nextcloud.
 5. Enables "Upload backups to cloud after creation"
 6. Sees cloud backup status on each backup entry
 
-**Implementation Options:**
-| Option | Effort | Pros | Cons |
-|--------|--------|------|------|
-| Backblaze B2 API | 3h | Simple, cheap, user-friendly | Single provider |
-| S3-compatible API | 4h | Works with many providers | More complex config |
-| rclone integration | 2h | Supports 40+ providers | External dependency |
-| Manual setup guide | 1h | Zero code | User must use terminal |
-
-**Recommended:** Start with "Manual Setup Guide" (instructions page), then add Backblaze B2 integration.
+**Implementation:**
+- Implemented both Backblaze B2 and S3-compatible providers
+- Added manual setup guide option for advanced users
+- Credentials encrypted with AES-256-GCM before storage
+- Automatic cloud upload after backup creation when enabled
 
 **Acceptance Criteria:**
-- [ ] Cloud provider selection UI (Backblaze, S3, Manual)
-- [ ] Credential input form with validation
-- [ ] "Test Connection" button
-- [ ] Toggle: "Upload backups to cloud automatically"
-- [ ] Show cloud upload status on backup list
-- [ ] Restore from cloud backup option
-- [ ] Plain-language setup guide for manual option
+- [x] Cloud provider selection UI (Backblaze, S3, Manual)
+- [x] Credential input form with validation
+- [x] "Test Connection" button
+- [x] Toggle: "Upload backups to cloud automatically"
+- [x] Show cloud upload status on backup list
+- [x] Restore from cloud backup option
+- [x] Plain-language setup guide for manual option
 
-**Backend API (to add):**
-- `GET /api/v1/backups/cloud/providers` - List supported providers
-- `POST /api/v1/backups/cloud/config` - Save cloud config
-- `POST /api/v1/backups/cloud/test` - Test connection
-- `POST /api/v1/backups/{id}/upload` - Upload to cloud
-- `POST /api/v1/backups/cloud/download` - Download from cloud
+**Backend API:**
+- `GET /api/v1/backups/cloud/providers` - List supported providers ✅
+- `GET /api/v1/backups/cloud/config` - Get current config ✅
+- `POST /api/v1/backups/cloud/config` - Save cloud config ✅
+- `POST /api/v1/backups/cloud/test` - Test connection ✅
+- `POST /api/v1/backups/{id}/upload` - Upload to cloud ✅
+- `GET /api/v1/backups/{id}/status` - Get upload status ✅
+- `GET /api/v1/backups/{id}/cloud-status` - Get cloud backup status ✅
 
 ---
 
@@ -1016,12 +1016,14 @@ curl http://localhost:8080/api/v1/setup/preflight
 
 | Date | Change |
 |------|--------|
+| 2026-02-28 | T2.2.3: Cloud backup integration with Backblaze B2, S3-compatible, and manual setup guide |
+| 2026-02-28 | T2.2.1: Backups page with create/restore/delete functionality and cloud status |
 | 2026-02-27 | T2.3.1: Enhanced AppDetailPage with resource metrics, health icon, update notifications |
 | 2026-02-27 | T4.2.2: Rate limiting by user on authenticated endpoints, by IP on public, fixed Retry-After header |
 | 2026-02-27 | T4.3.1: Enhanced install.sh with upgrade/uninstall, post-install instructions, service verification |
 | 2026-02-19 | T2.1.3: App uninstall with confirmation modal, typing requirement, and progress indicator |
 | 2026-02-19 | T3.2.1: Enhanced user management with last_login, last admin protection, password strength indicator |
-| 2026-02-17 | Added T2.2.3: Cloud Backup Integration, T3.1.3: Domain Provider Integration |
+| 2026-02-17 | T2.2.3: Cloud Backup Integration, T3.1.3: Domain Provider Integration |
 | 2026-02-17 | Restructured around user journeys, added missing Setup Wizard |
 | 2026-02-17 | Added T2.1.0: App Feature Matrix Schema (from feature request) |
 | 2026-02-17 | T2.1.0: Implemented types.go, motioneye/app.yaml with access_model=shared_account |

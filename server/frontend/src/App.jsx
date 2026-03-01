@@ -104,23 +104,22 @@ export default function App() {
                 </DataPage>
               }
             />
-            <Route
-              path="/settings"
-              element={
-                <DataPage>
-                  <SettingsPage />
-                </DataPage>
-              }
-            />
-
-            <Route
-              path="/security"
-              element={
-                <DataPage>
-                  <SecurityActivityPage />
-                </DataPage>
-              }
-            />
+		<Route
+			path="/settings"
+			element={
+				<DataPage>
+					<SettingsPage />
+				</DataPage>
+			}
+/>
+<Route
+path="/security"
+element={
+<DataPage>
+<SecurityActivityPage />
+</DataPage>
+}
+/>
             <Route path="/help" element={<HelpPage />} />
             <Route path="/lore" element={<LorePage />} />
             <Route path="/demo/error-boundary" element={<ErrorBoundaryDemo />} />

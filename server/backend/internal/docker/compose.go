@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -98,14 +99,30 @@ func (cm *ComposeManager) Pull(ctx context.Context, composePath string) error {
 func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
 
+	// Try graceful stop first
 	cmd := exec.CommandContext(ctx, "docker", "compose",
 		"-f", composeFile,
-		"stop")
+		"stop", "--timeout", "2") // 2 second timeout for graceful stop
 
 	cmd.Dir = workDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return composeError("stop", output, err)
+		// If graceful stop fails, try forceful kill with docker compose down --timeout 0
+		killCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+
+		killCmd := exec.CommandContext(killCtx, "docker", "compose",
+			"-f", composeFile,
+			"down", "--timeout", "0")
+
+		killCmd.Dir = workDir
+		killOutput, killErr := killCmd.CombinedOutput()
+		if killErr != nil {
+			// Both graceful and forceful stop failed
+			return fmt.Errorf("graceful stop failed: %s; forceful kill also failed: %s: %w", output, killOutput, killErr)
+		}
+		// Forceful kill succeeded
+		return nil
 	}
 	return nil
 }
