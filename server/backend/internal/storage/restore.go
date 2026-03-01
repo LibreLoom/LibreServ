@@ -217,11 +217,36 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 			log.Printf("extractTarball: first file: %s (type: %c)", header.Name, header.Typeflag)
 		}
 
+		log.Printf("extractTarball: processing: %s (type: %c)", header.Name, header.Typeflag)
+
 		// Sanitize the path to prevent directory traversal
 		targetPath := filepath.Join(destPath, header.Name)
 		cleanDest := filepath.Clean(destPath)
-		if !strings.HasPrefix(targetPath, cleanDest+string(os.PathSeparator)) {
-			log.Printf("extractTarball: invalid file path in archive: %s", header.Name)
+
+		// Handle special directory entries "." and ".." and "./" and "../"
+		cleanName := filepath.Clean(header.Name)
+		if cleanName == "." || cleanName == ".." {
+			// Skip these entries - they don't need to be extracted
+			log.Printf("extractTarball: skipping directory entry: %s (cleaned: %s)", header.Name, cleanName)
+			continue
+		}
+
+		// Check if the resolved path is within the destination directory
+		resolvedPath, err := filepath.Abs(targetPath)
+		if err != nil {
+			log.Printf("extractTarball: failed to get absolute path for %s: %v", header.Name, err)
+			return fmt.Errorf("invalid file path in archive: %s", header.Name)
+		}
+
+		resolvedDest, err := filepath.Abs(cleanDest)
+		if err != nil {
+			log.Printf("extractTarball: failed to get absolute path for dest %s: %v", cleanDest, err)
+			return fmt.Errorf("invalid destination path: %s", cleanDest)
+		}
+
+		// Check if path is within destination (allow equality for "." entries)
+		if resolvedPath != resolvedDest && !strings.HasPrefix(resolvedPath, resolvedDest+string(os.PathSeparator)) {
+			log.Printf("extractTarball: invalid file path in archive: %s (resolved: %s, dest: %s)", header.Name, resolvedPath, resolvedDest)
 			return fmt.Errorf("invalid file path in archive: %s", header.Name)
 		}
 
