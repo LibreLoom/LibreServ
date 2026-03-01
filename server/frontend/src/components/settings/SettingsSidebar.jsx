@@ -30,14 +30,15 @@ export default function SettingsSidebar({
           {CATEGORIES.map(({ id, label, icon: Icon }, index) => {
             const isActive = activeCategory === id;
             return (
-              <li
-                key={id}
-                style={{
-                  animationDelay: `${index * 50}ms`,
-                }}
-              >
-                <button
-                  onClick={() => onCategoryChange(id)}
+<li
+          key={id}
+          style={{
+            animationDelay: `${index * 50}ms`,
+          }}
+        >
+          <button
+            onClick={() => onCategoryChange(id)}
+            id={id}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-pill transition-all duration-200 ease-out text-left ${
                     isActive
                       ? "bg-secondary text-primary"

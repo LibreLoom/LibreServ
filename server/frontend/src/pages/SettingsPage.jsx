@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../context/ThemeContext";
 import LoadingSpinner from "../components/common/LoadingSpinner";
@@ -17,32 +16,18 @@ import { ArrowLeft } from "lucide-react";
 
 const DEBOUNCE_MS = 500;
 
-const HASH_TO_CATEGORY = {
-  "#general": "general",
-  "#appearance": "appearance", 
-  "#backups": "backups",
-  "#security": "security",
-  "#about": "about"
-};
-
-const CATEGORY_TO_HASH = {
-  "general": "#general",
-  "appearance": "#appearance",
-  "backups": "#backups", 
-  "security": "#security",
-  "about": "#about"
-};
-
 export default function SettingsPage() {
-  const location = useLocation();
-  const navigate = useNavigate();
   const { me: user } = useAuth();
   const { darkMode, toggleDarkMode } = useTheme();
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeCategory, setActiveCategory] = useState("general");
+  const [activeCategory, setActiveCategory] = useState(() => {
+    const hash = window.location.hash.slice(1);
+    const validCategories = ["general", "appearance", "backups", "security", "about"];
+    return validCategories.includes(hash) ? hash : "general";
+  });
   const [showMobileContent, setShowMobileContent] = useState(false);
 
   const saveTimeoutRef = useRef(null);
@@ -50,22 +35,15 @@ export default function SettingsPage() {
   const pendingSecurityRef = useRef(null);
 
   useEffect(() => {
-    const hash = location.hash;
-    if (hash && HASH_TO_CATEGORY[hash]) {
-      setActiveCategory(HASH_TO_CATEGORY[hash]);
-    }
     loadData();
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [location.hash]);
+  }, []);
 
   useEffect(() => {
-    const hash = CATEGORY_TO_HASH[activeCategory];
-    if (hash && location.hash !== hash) {
-      navigate(`/settings${hash}`);
-    }
-  }, [activeCategory, navigate, location.hash]);
+    window.history.replaceState(null, "", `#${activeCategory}`);
+  }, [activeCategory]);
 
   const loadData = async () => {
     try {

@@ -61,80 +61,43 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 	// Stop app if required and running
 	if opts.StopBeforeRestore && appStatus == "running" {
 		log.Printf("Stopping app %s for restore", backup.AppID)
-		stopCtx, cancel := context.WithTimeout(ctx, 8*time.Second) // Increased timeout for 2-step stop
+		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := s.docker.ComposeStop(stopCtx, appPath); err != nil {
 			log.Printf("Warning: failed to stop app %s: %v", backup.AppID, err)
-			// Continue anyway - we'll try to force rename and restore
-			log.Printf("Will attempt restore despite failed stop - data may be inconsistent")
+			// Continue anyway - the restore might still work
 		}
-		// Give Docker a moment to release file locks
-		time.Sleep(500 * time.Millisecond)
 	}
 
 	// Create backup of current state before restoring
 	currentBackupPath := appPath + ".pre-restore-" + time.Now().Format("20060102-150405")
-	log.Printf("RestoreApp: attempting to backup current state by renaming %s to %s", appPath, currentBackupPath)
-
-	// Try multiple times to rename, files might be briefly locked
-	var renameErr error
-	for i := 0; i < 5; i++ { // Increased from 3 to 5 attempts
-		renameErr = os.Rename(appPath, currentBackupPath)
-		if renameErr == nil {
-			log.Printf("RestoreApp: successfully backed up current state to %s", currentBackupPath)
-			defer func() {
-				// Clean up the pre-restore backup if restore succeeded
-				if result.Error == nil {
-					log.Printf("RestoreApp: cleaning up pre-restore backup %s", currentBackupPath)
-					_ = os.RemoveAll(currentBackupPath)
-				} else {
-					// Restore failed, rollback
-					log.Printf("RestoreApp: restore failed, rolling back from %s to %s", currentBackupPath, appPath)
-					_ = os.RemoveAll(appPath)
-					_ = os.Rename(currentBackupPath, appPath)
-				}
-			}()
-			break
-		}
-		log.Printf("RestoreApp: rename attempt %d failed: %v", i+1, renameErr)
-		// If rename fails with "device or resource busy", containers might still be running
-		if strings.Contains(renameErr.Error(), "device or resource busy") ||
-			strings.Contains(renameErr.Error(), "The process cannot access") {
-			// Try to kill containers more aggressively
-			log.Printf("RestoreApp: files busy, trying to force kill containers")
-			forceCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			_ = s.docker.ComposeDown(forceCtx, appPath) // Try docker compose down
-			cancel()
-			time.Sleep(200 * time.Millisecond)
-		}
-		time.Sleep(300 * time.Millisecond) // Longer delay between attempts
+	if err := os.Rename(appPath, currentBackupPath); err != nil {
+		// If rename fails, try to continue anyway
+		log.Printf("Warning: could not backup current state: %v", err)
+	} else {
+		defer func() {
+			// Clean up the pre-restore backup if restore succeeded
+			if result.Error == nil {
+				_ = os.RemoveAll(currentBackupPath)
+			} else {
+				// Restore failed, rollback
+				_ = os.RemoveAll(appPath)
+				_ = os.Rename(currentBackupPath, appPath)
+			}
+		}()
 	}
 
-	if renameErr != nil {
-		// If rename fails even after retries, fail the restore
-		result.Error = fmt.Errorf("cannot backup current app state; directory may be in use: %w", renameErr)
-		log.Printf("RestoreApp: failed to backup current state after 5 attempts: %v", renameErr)
+	// Create app directory
+	if err := os.MkdirAll(appPath, 0755); err != nil {
+		result.Error = fmt.Errorf("failed to create app directory: %w", err)
 		return result, result.Error
 	}
 
-	// Create app directory (if rename failed, directory already exists)
-	if _, err := os.Stat(appPath); os.IsNotExist(err) {
-		log.Printf("RestoreApp: creating app directory %s", appPath)
-		if err := os.MkdirAll(appPath, 0755); err != nil {
-			result.Error = fmt.Errorf("failed to create app directory: %w", err)
-			return result, result.Error
-		}
-	} else {
-		log.Printf("RestoreApp: app directory %s already exists", appPath)
-	}
-
 	// Extract the backup
-	log.Printf("RestoreApp: extracting backup from %s to %s", backup.Path, appPath)
 	if err := s.extractTarball(backup.Path, appPath); err != nil {
 		result.Error = fmt.Errorf("failed to extract backup: %w", err)
 		return result, result.Error
 	}
-	log.Printf("RestoreApp: backup extracted successfully")
 
 	// Restart app if requested
 	if opts.RestartAfterRestore {
@@ -160,129 +123,66 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 
 // extractTarball extracts a tarball (possibly gzipped) to a directory
 func (s *BackupService) extractTarball(tarPath, destPath string) error {
-	log.Printf("extractTarball: opening %s (absolute path: %s)", tarPath, getAbsPath(tarPath))
-
-	// Check if file exists
-	if _, err := os.Stat(tarPath); err != nil {
-		log.Printf("extractTarball: file stat error: %v", err)
-		return fmt.Errorf("backup file not found: %w", err)
-	}
-
 	file, err := os.Open(tarPath)
 	if err != nil {
-		log.Printf("extractTarball: failed to open file: %v", err)
 		return err
 	}
-	defer func() {
-		_ = file.Close()
-		log.Printf("extractTarball: file closed")
-	}()
-
-	fileInfo, _ := file.Stat()
-	log.Printf("extractTarball: file size: %d bytes", fileInfo.Size())
+	defer func() { _ = file.Close() }()
 
 	var reader io.Reader = file
 
 	// Check if gzipped
 	if strings.HasSuffix(tarPath, ".gz") || strings.HasSuffix(tarPath, ".tgz") {
-		log.Printf("extractTarball: creating gzip reader")
 		gzReader, err := gzip.NewReader(file)
 		if err != nil {
-			log.Printf("extractTarball: failed to create gzip reader: %v", err)
 			return fmt.Errorf("failed to create gzip reader: %w", err)
 		}
-		defer func() {
-			_ = gzReader.Close()
-			log.Printf("extractTarball: gzip reader closed")
-		}()
+		defer func() { _ = gzReader.Close() }()
 		reader = gzReader
 	}
 
 	tarReader := tar.NewReader(reader)
-	fileCount := 0
 
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
-			log.Printf("extractTarball: extracted %d files", fileCount)
 			break
 		}
 		if err != nil {
-			log.Printf("extractTarball: error reading tar header (file %d): %v", fileCount, err)
 			return fmt.Errorf("error reading tar: %w", err)
 		}
-		fileCount++
-
-		if fileCount == 1 {
-			log.Printf("extractTarball: first file: %s (type: %c)", header.Name, header.Typeflag)
-		}
-
-		log.Printf("extractTarball: processing: %s (type: %c)", header.Name, header.Typeflag)
 
 		// Sanitize the path to prevent directory traversal
 		targetPath := filepath.Join(destPath, header.Name)
-		cleanDest := filepath.Clean(destPath)
-
-		// Handle special directory entries "." and ".." and "./" and "../"
-		cleanName := filepath.Clean(header.Name)
-		if cleanName == "." || cleanName == ".." {
-			// Skip these entries - they don't need to be extracted
-			log.Printf("extractTarball: skipping directory entry: %s (cleaned: %s)", header.Name, cleanName)
-			continue
-		}
-
-		// Check if the resolved path is within the destination directory
-		resolvedPath, err := filepath.Abs(targetPath)
-		if err != nil {
-			log.Printf("extractTarball: failed to get absolute path for %s: %v", header.Name, err)
-			return fmt.Errorf("invalid file path in archive: %s", header.Name)
-		}
-
-		resolvedDest, err := filepath.Abs(cleanDest)
-		if err != nil {
-			log.Printf("extractTarball: failed to get absolute path for dest %s: %v", cleanDest, err)
-			return fmt.Errorf("invalid destination path: %s", cleanDest)
-		}
-
-		// Check if path is within destination (allow equality for "." entries)
-		if resolvedPath != resolvedDest && !strings.HasPrefix(resolvedPath, resolvedDest+string(os.PathSeparator)) {
-			log.Printf("extractTarball: invalid file path in archive: %s (resolved: %s, dest: %s)", header.Name, resolvedPath, resolvedDest)
+		if !strings.HasPrefix(targetPath, filepath.Clean(destPath)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid file path in archive: %s", header.Name)
 		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			log.Printf("extractTarball: creating directory %s", targetPath)
 			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
-				log.Printf("extractTarball: failed to create directory %s: %v", targetPath, err)
 				return fmt.Errorf("failed to create directory %s: %w", targetPath, err)
 			}
 
 		case tar.TypeReg:
 			// Ensure parent directory exists
-			parentDir := filepath.Dir(targetPath)
-			if err := os.MkdirAll(parentDir, 0755); err != nil {
-				log.Printf("extractTarball: failed to create parent directory %s: %v", parentDir, err)
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
 
-			log.Printf("extractTarball: extracting file %s (size: %d)", targetPath, header.Size)
 			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode))
 			if err != nil {
-				log.Printf("extractTarball: failed to create file %s: %v", targetPath, err)
 				return fmt.Errorf("failed to create file %s: %w", targetPath, err)
 			}
 
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				_ = outFile.Close()
-				log.Printf("extractTarball: failed to write file %s: %v", targetPath, err)
 				return fmt.Errorf("failed to write file %s: %w", targetPath, err)
 			}
 			_ = outFile.Close()
 
 		case tar.TypeSymlink, tar.TypeLink:
 			// For safety, disallow link restoration to avoid path escapes.
-			log.Printf("extractTarball: archive contains links which are not supported: %s", header.Name)
 			return fmt.Errorf("archive contains links which are not supported for restore: %s", header.Name)
 		}
 
@@ -293,16 +193,7 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 		}
 	}
 
-	log.Printf("extractTarball: successfully extracted %d files", fileCount)
 	return nil
-}
-
-func getAbsPath(path string) string {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return path
-	}
-	return abs
 }
 
 // RestoreDatabase restores the LibreServ database from a backup
