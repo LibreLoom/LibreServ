@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
+import { goeyToast } from "goey-toast";
 import Card from "../common/cards/Card";
-import Dropdown from "../common/Dropdown";
 import {
   Cloud,
   Server,
@@ -10,14 +10,15 @@ import {
   Loader2,
   Eye,
   EyeOff,
-  ExternalLink,
   AlertCircle,
+  Folder,
+  Copy,
 } from "lucide-react";
 
 const PROVIDERS = [
   { id: "backblaze", name: "Backblaze B2", icon: "backblaze" },
   { id: "s3", name: "S3-Compatible Storage", icon: "s3" },
-  { id: "manual", name: "Manual Setup Guide", icon: "manual" },
+  { id: "manual", name: "Manual Setup", icon: "manual" },
 ];
 
 const PROVIDER_SETUP_GUIDES = {
@@ -30,15 +31,6 @@ const PROVIDER_SETUP_GUIDES = {
 2. Create an IAM user with read/write permissions
 3. Enter your Access Key ID and Secret Access Key below
 4. For non-AWS storage, provide the custom endpoint`,
-
-  manual: `For advanced users who prefer manual backup configuration:
-
-1. Your backups are stored in: /var/lib/libreserv/backups/
-2. Use any tool (rclone, rsync, etc.) to sync this directory
-3. Example with rclone:
-   rclone sync /var/lib/libreserv/backups/ remote:libreserv-backups/
-
-See the documentation for recommended tools and configurations.`,
 };
 
 function ProviderIcon({ provider, className = "w-6 h-6" }) {
@@ -51,6 +43,8 @@ function ProviderIcon({ provider, className = "w-6 h-6" }) {
       );
     case "s3":
       return <Server className={className} />;
+    case "manual":
+      return <Folder className={className} />;
     default:
       return <Cloud className={className} />;
   }
@@ -71,6 +65,8 @@ export default function CloudBackupConfig({ onConfigured }) {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [backupPath, setBackupPath] = useState("./dev/apps/backups");
 
   useEffect(() => {
     loadData();
@@ -81,6 +77,11 @@ export default function CloudBackupConfig({ onConfigured }) {
     try {
       const configRes = await request("/backups/cloud/config");
 
+      if (!configRes.ok) {
+        const err = await configRes.json();
+        throw new Error(err.error || "Failed to load configuration");
+      }
+
       const configData = await configRes.json();
 
       if (configData.configured && configData.config) {
@@ -89,10 +90,24 @@ export default function CloudBackupConfig({ onConfigured }) {
         setRegion(configData.config.region || "");
         setKeyId(configData.config.key_id || "");
         setEndpoint(configData.config.endpoint || "");
-        setEnabled(configData.config.enabled);
+        setEnabled(configData.config.enabled !== false);
+      }
+
+      // Try to get actual backup path from settings
+      try {
+        const settingsRes = await request("/settings");
+        if (settingsRes.ok) {
+          const settings = await settingsRes.json();
+          if (settings.backup_path) {
+            setBackupPath(settings.backup_path);
+          }
+        }
+      } catch {
+        // Use default path
       }
     } catch (err) {
       console.error("Failed to load cloud backup config:", err);
+      setLoadError(err.message);
     } finally {
       setLoading(false);
     }
@@ -111,11 +126,21 @@ export default function CloudBackupConfig({ onConfigured }) {
 
       const result = await res.json();
       setTestResult(result);
+
+      if (result.success) {
+        goeyToast.success("Connection successful", {
+          description: "Your cloud storage is properly configured.",
+          timing: { displayDuration: 3000 },
+        });
+      }
     } catch (err) {
       setTestResult({
         success: false,
         message: "Connection test failed",
         error: err.message,
+      });
+      goeyToast.error("Connection failed", {
+        description: err.message,
       });
     } finally {
       setTesting(false);
@@ -125,10 +150,10 @@ export default function CloudBackupConfig({ onConfigured }) {
   async function saveConfig(enableAfterSave = enabled) {
     const payload = {
       provider: selectedProvider,
-      bucket: selectedProvider === "manual" ? "" : bucket,
+      bucket: bucket,
       region: selectedProvider === "s3" ? region : "",
-      key_id: selectedProvider === "manual" ? "" : keyId,
-      key_secret: selectedProvider === "manual" ? "" : keySecret,
+      key_id: keyId,
+      key_secret: keySecret,
       endpoint: selectedProvider === "s3" ? endpoint : "",
       enabled: enableAfterSave,
     };
@@ -151,13 +176,20 @@ export default function CloudBackupConfig({ onConfigured }) {
     setSaving(true);
 
     try {
-      const result = await saveConfig(enabled);
+      await saveConfig(enabled);
+      goeyToast.success("Configuration saved", {
+        description: "Your cloud backup settings have been saved.",
+        timing: { displayDuration: 3000 },
+      });
 
       if (onConfigured) {
-        onConfigured(result.config);
+        onConfigured();
       }
     } catch (err) {
       console.error("Failed to save config:", err);
+      goeyToast.error("Failed to save", {
+        description: err.message,
+      });
     } finally {
       setSaving(false);
     }
@@ -166,13 +198,11 @@ export default function CloudBackupConfig({ onConfigured }) {
   function handleProviderChange(providerId) {
     setSelectedProvider(providerId);
     setTestResult(null);
+  }
 
-    if (providerId === "manual") {
-      setBucket("");
-      setKeyId("");
-      setKeySecret("");
-      setEndpoint("");
-    }
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text);
+    goeyToast.success("Copied to clipboard");
   }
 
   if (loading) {
@@ -185,8 +215,25 @@ export default function CloudBackupConfig({ onConfigured }) {
     );
   }
 
+  if (loadError) {
+    return (
+      <Card className="p-6">
+        <div className="text-center">
+          <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-2" />
+          <p className="font-mono text-sm text-red-500 mb-3">{loadError}</p>
+          <button
+            onClick={loadData}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </Card>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card className="p-6">
         <h2 className="font-mono text-lg text-primary mb-4">
           Cloud Backup Configuration
@@ -215,14 +262,59 @@ export default function CloudBackupConfig({ onConfigured }) {
             </div>
           </div>
 
-          <div className="bg-secondary/5 rounded-card p-4">
-            <p className="font-mono text-sm text-primary/70 whitespace-pre-line">
-              {PROVIDER_SETUP_GUIDES[selectedProvider]}
-            </p>
-          </div>
+          {selectedProvider === "manual" ? (
+            <div className="space-y-4">
+              <div className="bg-secondary/5 rounded-card p-4">
+                <h3 className="font-mono text-sm text-primary mb-3">Manual Backup Instructions</h3>
+                <p className="font-mono text-sm text-primary/70 mb-4">
+                  Your backups are stored in the directory below. You can use any sync tool 
+                  (rclone, rsync, etc.) to copy them to your preferred cloud storage.
+                </p>
 
-          {selectedProvider !== "manual" && (
+                <div className="bg-primary/5 rounded-card p-3 mb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-mono text-xs text-primary/50 mb-1">Backup Location</p>
+                      <p className="font-mono text-sm text-primary font-semibold">{backupPath}</p>
+                    </div>
+                    <button
+                      onClick={() => copyToClipboard(backupPath)}
+                      className="p-2 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                      title="Copy path"
+                    >
+                      <Copy size={16} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="font-mono text-sm text-primary">Example commands:</p>
+                  <div className="bg-primary/5 rounded-card p-3 font-mono text-xs text-primary/70">
+                    <p className="mb-2"># Using rclone:</p>
+                    <p className="text-primary">rclone sync {backupPath} remote:libreserv-backups/</p>
+                  </div>
+                  <div className="bg-primary/5 rounded-card p-3 font-mono text-xs text-primary/70">
+                    <p className="mb-2"># Using rsync:</p>
+                    <p className="text-primary">rsync -avz {backupPath}/ user@server:/backup/libreserv/</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-card p-3">
+                <p className="font-mono text-xs text-yellow-500">
+                  Note: Manual mode does not upload backups automatically. You are responsible for 
+                  setting up and maintaining your own backup sync solution.
+                </p>
+              </div>
+            </div>
+          ) : (
             <>
+              <div className="bg-secondary/5 rounded-card p-4">
+                <p className="font-mono text-sm text-primary/70 whitespace-pre-line">
+                  {PROVIDER_SETUP_GUIDES[selectedProvider]}
+                </p>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-mono text-primary/70 mb-2">
@@ -256,9 +348,7 @@ export default function CloudBackupConfig({ onConfigured }) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-mono text-primary/70 mb-2">
-                    {selectedProvider === "s3"
-                      ? "Access Key ID *"
-                      : "Key ID *"}
+                    {selectedProvider === "s3" ? "Access Key ID *" : "Key ID *"}
                   </label>
                   <input
                     type="text"
@@ -271,9 +361,7 @@ export default function CloudBackupConfig({ onConfigured }) {
 
                 <div>
                   <label className="block text-sm font-mono text-primary/70 mb-2">
-                    {selectedProvider === "s3"
-                      ? "Secret Access Key *"
-                      : "Key Secret *"}
+                    {selectedProvider === "s3" ? "Secret Access Key *" : "Key Secret *"}
                   </label>
                   <div className="relative">
                     <input
@@ -288,11 +376,7 @@ export default function CloudBackupConfig({ onConfigured }) {
                       onClick={() => setShowSecret(!showSecret)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-primary/50 hover:text-primary"
                     >
-                      {showSecret ? (
-                        <EyeOff size={16} />
-                      ) : (
-                        <Eye size={16} />
-                      )}
+                      {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
                 </div>
@@ -315,48 +399,30 @@ export default function CloudBackupConfig({ onConfigured }) {
                   </p>
                 </div>
               )}
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="cloud-enabled"
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded accent-accent"
+                />
+                <label htmlFor="cloud-enabled" className="font-mono text-sm text-primary">
+                  Upload backups to cloud automatically after creation
+                </label>
+              </div>
             </>
           )}
-
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="cloud-enabled"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
-              className="w-4 h-4 rounded accent-accent"
-              disabled={selectedProvider === "manual"}
-            />
-            <label
-              htmlFor="cloud-enabled"
-              className="font-mono text-sm text-primary"
-            >
-              Upload backups to cloud automatically after creation
-            </label>
-          </div>
         </div>
       </Card>
 
-      {testResult && (
-        <Card
-          className={`p-4 ${
-            testResult.success
-              ? "bg-accent/10 border-accent/30"
-              : "bg-red-500/10 border-red-500/30"
-          }`}
-        >
+      {testResult && !testResult.success && (
+        <div className="p-4 rounded-card bg-red-500/10 border border-red-500/30">
           <div className="flex items-start gap-3">
-            {testResult.success ? (
-              <Check className="w-5 h-5 text-accent mt-0.5" />
-            ) : (
-              <AlertCircle className="w-5 h-5 text-red-500 mt-0.5" />
-            )}
-            <div>
-              <p
-                className={`font-mono text-sm ${
-                  testResult.success ? "text-accent" : "text-red-500"
-                }`}
-              >
+            <AlertCircle className="w-5 h-5 text-red-500 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-mono text-sm text-red-500">
                 {testResult.message}
               </p>
               {testResult.error && (
@@ -365,12 +431,18 @@ export default function CloudBackupConfig({ onConfigured }) {
                 </p>
               )}
             </div>
+            <button
+              onClick={() => setTestResult(null)}
+              className="text-red-500/50 hover:text-red-500"
+            >
+              <X size={16} />
+            </button>
           </div>
-        </Card>
+        </div>
       )}
 
-      <div className="flex gap-3">
-        {selectedProvider !== "manual" && (
+      {selectedProvider !== "manual" && (
+        <div className="flex gap-3">
           <button
             onClick={handleTestConnection}
             disabled={testing || !bucket || !keyId || !keySecret}
@@ -383,21 +455,21 @@ export default function CloudBackupConfig({ onConfigured }) {
             )}
             Test Connection
           </button>
-        )}
 
-        <button
-          onClick={handleSave}
-          disabled={saving || (selectedProvider !== "manual" && (!bucket || !keyId || !keySecret))}
-          className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Check className="w-4 h-4" />
-          )}
-          Save Configuration
-        </button>
-      </div>
+          <button
+            onClick={handleSave}
+            disabled={saving || !bucket || !keyId || !keySecret}
+            className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Check className="w-4 h-4" />
+            )}
+            Save Configuration
+          </button>
+        </div>
+      )}
     </div>
   );
 }

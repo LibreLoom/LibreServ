@@ -121,7 +121,7 @@ export default function AppDetailPage() {
   const [isUninstalling, setIsUninstalling] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [metrics, setMetrics] = useState(null);
-  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [_metricsLoading, setMetricsLoading] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState(null);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
+import { goeyToast } from "goey-toast";
 import {
   Cloud,
   HardDrive,
@@ -10,28 +11,26 @@ import {
   Trash2,
   Upload,
   AlertTriangle,
-  CheckCircle,
-  X,
 } from "lucide-react";
 import CloudBackupConfig from "../../backups/CloudBackupConfig";
 import Card from "../../common/cards/Card";
 
 function formatDate(dateStr) {
-	if (!dateStr) return "-";
-	const date = new Date(dateStr);
-	return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+  if (!dateStr) return "-";
+  const date = new Date(dateStr);
+  return date.toLocaleDateString() + " " + date.toLocaleTimeString();
 }
 
 function formatBytes(bytes) {
-	if (!bytes || bytes === 0) return "-";
-	const units = ["B", "KB", "MB", "GB"];
-	let unitIndex = 0;
-	let value = bytes;
-	while (value >= 1024 && unitIndex < units.length - 1) {
-		value /= 1024;
-		unitIndex++;
-	}
-	return `${value.toFixed(1)} ${units[unitIndex]}`;
+  if (!bytes || bytes === 0) return "-";
+  const units = ["B", "KB", "MB", "GB"];
+  let unitIndex = 0;
+  let value = bytes;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
 export default function BackupsCategory() {
@@ -49,22 +48,23 @@ export default function BackupsCategory() {
   const [restoring, setRestoring] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(null);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
 
-useEffect(() => {
+  useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const clearNotifications = useCallback(() => {
-    setError(null);
-    setSuccess(null);
+  const showSuccess = useCallback((message, description) => {
+    goeyToast.success(message, {
+      description,
+      timing: { displayDuration: 3000 },
+    });
   }, []);
 
-  const showSuccess = useCallback((message) => {
-    setSuccess(message);
-    setTimeout(() => setSuccess(null), 5000);
+  const showError = useCallback((message, description) => {
+    goeyToast.error(message, {
+      description,
+    });
   }, []);
 
   async function loadData() {
@@ -97,10 +97,9 @@ useEffect(() => {
     }
   }
 
-async function handleCreateBackup() {
+  async function handleCreateBackup() {
     if (!selectedApp) return;
     setCreating(true);
-    clearNotifications();
 
     try {
       const res = await request("/backups", {
@@ -120,10 +119,10 @@ async function handleCreateBackup() {
 
       setShowCreateModal(false);
       setSelectedApp("");
-      showSuccess("Backup created successfully");
+      showSuccess("Backup created", "Your backup has been created successfully.");
       loadData();
     } catch (err) {
-      setError(err.message);
+      showError("Failed to create backup", err.message);
     } finally {
       setCreating(false);
     }
@@ -132,7 +131,6 @@ async function handleCreateBackup() {
   async function handleRestoreBackup() {
     if (!showRestoreModal) return;
     setRestoring(true);
-    clearNotifications();
 
     try {
       const res = await request(
@@ -154,10 +152,10 @@ async function handleCreateBackup() {
       }
 
       setShowRestoreModal(null);
-      showSuccess("Backup restored successfully");
+      showSuccess("Backup restored", "Your data has been restored successfully.");
       loadData();
     } catch (err) {
-      setError(err.message);
+      showError("Failed to restore backup", err.message);
     } finally {
       setRestoring(false);
     }
@@ -166,7 +164,6 @@ async function handleCreateBackup() {
   async function handleDeleteBackup() {
     if (!showDeleteModal) return;
     setDeleting(true);
-    clearNotifications();
 
     try {
       const res = await request(`/backups/${showDeleteModal.id}`, {
@@ -179,10 +176,10 @@ async function handleCreateBackup() {
       }
 
       setShowDeleteModal(null);
-      showSuccess("Backup deleted successfully");
+      showSuccess("Backup deleted", "The backup has been removed.");
       loadData();
     } catch (err) {
-      setError(err.message);
+      showError("Failed to delete backup", err.message);
     } finally {
       setDeleting(false);
     }
@@ -190,7 +187,6 @@ async function handleCreateBackup() {
 
   async function handleUploadToCloud(backup) {
     setUploading(backup.id);
-    clearNotifications();
 
     try {
       const res = await request(`/backups/${backup.id}/upload`, {
@@ -202,10 +198,10 @@ async function handleCreateBackup() {
         throw new Error(err.error || "Failed to upload to cloud");
       }
 
-      showSuccess("Backup uploaded to cloud successfully");
+      showSuccess("Upload complete", "Backup has been uploaded to cloud storage.");
       loadData();
     } catch (err) {
-      setError(err.message);
+      showError("Upload failed", err.message);
     } finally {
       setUploading(null);
     }
@@ -216,145 +212,121 @@ async function handleCreateBackup() {
     return app?.name || backup.app_id || "System";
   }
 
-	const recentBackups = backups.slice(0, 5);
+  const recentBackups = backups.slice(0, 5);
 
-return (
+  return (
     <div className="space-y-4">
-      {/* Success Message */}
-      {success && (
-        <div className="bg-accent/10 border border-accent/30 rounded-card p-3 flex items-center justify-between">
+      {/* Local Backups Section */}
+      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
           <div className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4 text-accent" />
-            <p className="font-mono text-sm text-accent">{success}</p>
+            <HardDrive size={18} className="text-accent" />
+            <h2 className="font-mono font-normal text-primary">Local Backups</h2>
           </div>
-          <button onClick={() => setSuccess(null)} className="text-accent/50 hover:text-accent">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-      {/* Error Message */}
-      {error && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-card p-3 flex items-center justify-between">
-          <p className="font-mono text-sm text-red-500">{error}</p>
-          <button onClick={() => setError(null)} className="text-red-500/50 hover:text-red-500">
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-			{/* Local Backups Section */}
-			<div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
-				<div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
-					<div className="flex items-center gap-2">
-						<HardDrive size={18} className="text-accent" />
-						<h2 className="font-mono font-normal text-primary">Local Backups</h2>
-					</div>
-					<button
-						onClick={() => setShowCreateModal(true)}
-						className="flex items-center gap-1 text-xs text-accent hover:text-secondary transition-colors"
-					>
-						<Plus size={14} />
-						Create
-					</button>
-				</div>
-
-{loading ? (
-        <div className="px-4 py-6 flex justify-center">
-          <Loader2 className="w-5 h-5 animate-spin text-accent" />
-        </div>
-      ) : loadError ? (
-        <div className="px-4 py-6 text-center">
-          <AlertTriangle className="w-10 h-10 text-red-500 mx-auto mb-2" />
-          <p className="text-sm text-red-500 mb-3">{loadError}</p>
           <button
-            onClick={loadData}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-1 text-xs text-accent hover:text-secondary transition-colors"
           >
-            Retry
+            <Plus size={14} />
+            Create
           </button>
         </div>
-      ) : recentBackups.length === 0 ? (
-					<div className="px-4 py-6 text-center">
-						<DatabaseBackup className="w-10 h-10 text-primary/30 mx-auto mb-2" />
-						<p className="text-sm text-accent">No backups yet</p>
-						<button
-							onClick={() => setShowCreateModal(true)}
-							className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono text-sm"
-						>
-							<Plus size={16} />
-							Create Backup
-						</button>
-					</div>
-				) : (
-					<div className="divide-y divide-primary/10">
-{recentBackups.map((backup) => {
-        const app = apps.find((a) => a.id === backup.app_id);
-        const isUploading = uploading === backup.id;
-        return (
-          <div key={backup.id} className="px-4 py-3 flex items-center justify-between">
-            <div className="flex-1 min-w-0">
-              <div className="font-mono text-sm text-primary truncate">
-                {getAppDisplayName(backup)}
-              </div>
-              <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
-                <span>{formatDate(backup.created_at)}</span>
-                <span>·</span>
-                <span>{formatBytes(backup.size)}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1">
-              {backup.cloud_status?.has_cloud_copy ? (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-pill bg-accent/20 text-accent text-xs mr-2">
-                  <Cloud size={12} />
-                  Cloud
-                </span>
-              ) : (
-                <button
-                  onClick={() => handleUploadToCloud(backup)}
-                  disabled={isUploading}
-                  className={`p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all mr-1 ${isUploading ? "opacity-50 cursor-wait" : ""}`}
-                  title="Upload to Cloud"
-                >
-                  {isUploading ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Upload size={14} />
-                  )}
-                </button>
-              )}
-              <button
-                onClick={() => setShowRestoreModal(backup)}
-                className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                title="Restore"
-              >
-                <Download size={14} />
-              </button>
-              <button
-                onClick={() => setShowDeleteModal(backup)}
-                className="p-1.5 rounded-pill hover:bg-red-500/10 text-accent/50 hover:text-red-500 transition-all"
-                title="Delete"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
+
+        {loading ? (
+          <div className="px-4 py-6 flex justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-accent" />
           </div>
-        );
-      })}
-					</div>
-				)}
+        ) : loadError ? (
+          <div className="px-4 py-6 text-center">
+            <AlertTriangle className="w-10 h-10 text-red-500 mx-auto mb-2" />
+            <p className="text-sm text-red-500 mb-3">{loadError}</p>
+            <button
+              onClick={loadData}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
+            >
+              Retry
+            </button>
+          </div>
+        ) : recentBackups.length === 0 ? (
+          <div className="px-4 py-6 text-center">
+            <DatabaseBackup className="w-10 h-10 text-primary/30 mx-auto mb-2" />
+            <p className="text-sm text-accent">No backups yet</p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono text-sm"
+            >
+              <Plus size={16} />
+              Create Backup
+            </button>
+          </div>
+        ) : (
+          <div className="divide-y divide-primary/10">
+            {recentBackups.map((backup) => {
+              const isUploading = uploading === backup.id;
+              return (
+                <div key={backup.id} className="px-4 py-3 flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono text-sm text-primary truncate">
+                      {getAppDisplayName(backup)}
+                    </div>
+                    <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
+                      <span>{formatDate(backup.created_at)}</span>
+                      <span>·</span>
+                      <span>{formatBytes(backup.size)}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {backup.cloud_status?.has_cloud_copy ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-pill bg-accent/20 text-accent text-xs mr-2">
+                        <Cloud size={12} />
+                        Cloud
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleUploadToCloud(backup)}
+                        disabled={isUploading}
+                        className={`p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all mr-1 ${isUploading ? "opacity-50 cursor-wait" : ""}`}
+                        title="Upload to Cloud"
+                      >
+                        {isUploading ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <Upload size={14} />
+                        )}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowRestoreModal(backup)}
+                      className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                      title="Restore"
+                    >
+                      <Download size={14} />
+                    </button>
+                    <button
+                      onClick={() => setShowDeleteModal(backup)}
+                      className="p-1.5 rounded-pill hover:bg-red-500/10 text-accent/50 hover:text-red-500 transition-all"
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
-				{backups.length > 5 && (
-					<div className="px-4 py-2 border-t border-primary/10 text-center">
-						<span className="text-xs text-accent">
-							{backups.length - 5} more backup{backups.length - 5 !== 1 ? "s" : ""}
-						</span>
-					</div>
-				)}
-			</div>
+        {backups.length > 5 && (
+          <div className="px-4 py-2 border-t border-primary/10 text-center">
+            <span className="text-xs text-accent">
+              {backups.length - 5} more backup{backups.length - 5 !== 1 ? "s" : ""}
+            </span>
+          </div>
+        )}
+      </div>
 
-{/* Cloud Backup Section */}
-      <div 
+      {/* Cloud Backup Section */}
+      <div
         className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300"
         style={{ animationDelay: "50ms" }}
       >
@@ -391,9 +363,9 @@ return (
         )}
       </div>
 
-{/* Create Backup Modal */}
+      {/* Create Backup Modal */}
       {showCreateModal && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
@@ -457,9 +429,9 @@ return (
         </div>
       )}
 
-{/* Restore Confirmation Modal */}
+      {/* Restore Confirmation Modal */}
       {showRestoreModal && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
@@ -513,47 +485,60 @@ return (
         </div>
       )}
 
-			{/* Delete Confirmation Modal */}
-			{showDeleteModal && (
-				<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-					<Card className="w-full max-w-md p-6">
-						<div className="flex items-start gap-3 mb-4">
-							<AlertTriangle className="w-6 h-6 text-red-500 mt-0.5" />
-							<div>
-								<h2 className="font-mono text-lg text-primary">Delete Backup</h2>
-								<p className="font-mono text-sm text-primary/70 mt-1">
-									This backup will be permanently deleted.
-								</p>
-							</div>
-						</div>
-						<div className="bg-red-500/10 border border-red-500/30 rounded-card p-3 mb-4">
-							<p className="font-mono text-xs text-red-500">
-								This action cannot be undone. The backup file will be removed from disk.
-							</p>
-						</div>
-						<div className="flex gap-3">
-							<button
-								onClick={() => setShowDeleteModal(null)}
-								className="flex-1 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
-							>
-								Cancel
-							</button>
-							<button
-								onClick={handleDeleteBackup}
-								disabled={deleting}
-								className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-red-500 text-primary hover:outline-red-500 hover:ring-2 transition-all font-mono text-sm"
-							>
-								{deleting ? (
-									<Loader2 className="w-4 h-4 animate-spin" />
-								) : (
-									<Trash2 className="w-4 h-4" />
-								)}
-								Delete
-							</button>
-						</div>
-					</Card>
-				</div>
-			)}
-		</div>
-	);
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowDeleteModal(null);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setShowDeleteModal(null);
+            }
+          }}
+          tabIndex={-1}
+        >
+          <Card className="w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start gap-3 mb-4">
+              <AlertTriangle className="w-6 h-6 text-red-500 mt-0.5" />
+              <div>
+                <h2 className="font-mono text-lg text-primary">Delete Backup</h2>
+                <p className="font-mono text-sm text-primary/70 mt-1">
+                  Backup for <strong>{getAppDisplayName(showDeleteModal)}</strong> will be permanently deleted.
+                </p>
+              </div>
+            </div>
+            <div className="bg-red-500/10 border border-red-500/30 rounded-card p-3 mb-4">
+              <p className="font-mono text-xs text-red-500">
+                This action cannot be undone. The backup file will be removed from disk.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteModal(null)}
+                className="flex-1 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteBackup}
+                disabled={deleting}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-red-500 text-primary hover:outline-red-500 hover:ring-2 transition-all font-mono text-sm"
+              >
+                {deleting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+                Delete
+              </button>
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
 }
