@@ -22,10 +22,12 @@
     --bg-error: rgba(239, 68, 68, 0.3);
     --bg-info: rgba(59, 130, 246, 0.25);
 
-    /* Setup Pill Shape */
-    --radius-pill: 9999px;
-    /* Setup Large Element Shape */
-    --radius-large-element: 24px;
+/* Setup Pill Shape */
+  --radius-pill: 9999px;
+  /* Setup Large Element Shape */
+  --radius-large-element: 24px;
+  /* Setup Card Shape */
+  --radius-card: 12px;
 }
 
 :root {
@@ -313,7 +315,11 @@ body {
 }
 
 .slide-in-from-top-2 {
-    animation-name: fade-in, slide-in-from-top-2;
+  animation-name: fade-in, slide-in-from-top-2;
+}
+
+.rounded-card {
+  border-radius: var(--radius-card);
 }
 
 @keyframes slide-in-from-right-pop {
