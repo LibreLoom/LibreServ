@@ -17,6 +17,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/backup/cloud"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
@@ -87,6 +88,10 @@ func main() {
 
 	backupBase := filepath.Join(cfg.Apps.DataPath, "backups")
 	backupService := storage.NewBackupService(db, dockerClient, backupBase, cfg.Apps.DataPath)
+
+	// Initialize cloud backup service
+	cloudService := cloud.NewService(db, cfg.Auth.CSRFSecret)
+	backupService.SetCloudService(cloudService)
 
 	caddyManager := network.NewCaddyManager(db, network.CaddyConfig{
 		Mode:          cfg.Network.Caddy.Mode,
@@ -224,6 +229,7 @@ func main() {
 		AuthService:    authService,
 		Monitor:        monitor,
 		BackupService:  backupService,
+		CloudService:   cloudService,
 		DockerClient:   dockerClient,
 		CaddyManager:   caddyManager,
 		SetupService:   setupService,

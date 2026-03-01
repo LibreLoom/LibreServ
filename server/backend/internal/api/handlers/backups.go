@@ -93,7 +93,11 @@ func (h *BackupHandlers) CreateBackup(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.backupService.BackupApp(r.Context(), req.AppID, opts)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		errMsg := err.Error()
+		if result != nil && result.Error != nil {
+			errMsg = result.Error.Error()
+		}
+		JSONError(w, http.StatusInternalServerError, errMsg)
 		return
 	}
 
@@ -137,7 +141,11 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.backupService.RestoreApp(r.Context(), backupID, opts)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		errMsg := err.Error()
+		if result != nil && result.Error != nil {
+			errMsg = result.Error.Error()
+		}
+		JSONError(w, http.StatusInternalServerError, errMsg)
 		return
 	}
 

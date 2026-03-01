@@ -20,6 +20,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/backup/cloud"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
@@ -43,6 +44,7 @@ type Server struct {
 	authService     *auth.Service
 	monitor         *monitoring.Monitor
 	backupService   *storage.BackupService
+	cloudService    *cloud.Service
 	devMode         bool
 	logger          *slog.Logger
 	staticFS        fs.FS
@@ -69,6 +71,7 @@ type ServerConfig struct {
 	AuthService    *auth.Service
 	Monitor        *monitoring.Monitor
 	BackupService  *storage.BackupService
+	CloudService   *cloud.Service
 	DockerClient   *docker.Client
 	CaddyManager   *network.CaddyManager
 	SetupService   *setup.Service
@@ -126,6 +129,7 @@ func NewServer(cfg ServerConfig) *Server {
 		authService:     cfg.AuthService,
 		monitor:         cfg.Monitor,
 		backupService:   cfg.BackupService,
+		cloudService:    cfg.CloudService,
 		devMode:         cfg.DevMode,
 		logger:          logger,
 		dockerClient:    cfg.DockerClient,

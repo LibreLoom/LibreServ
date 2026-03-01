@@ -1,13 +1,13 @@
 import {
-  Grid2X2,
-  Home,
-  Settings,
-  Users,
-  LifeBuoy,
-  Menu,
-  X,
-  User,
-  Shield,
+	Grid2X2,
+	Home,
+	Settings,
+	Users,
+	LifeBuoy,
+	Menu,
+	X,
+	User,
+	Shield,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -43,12 +43,12 @@ const navButtonClasses =
 const menuItemClasses = `flex items-center gap-2 px-3 py-2 rounded-pill ${TRANSITION.base}`;
 
 const navButtons = [
-  { to: "/", icon: Home, label: "Dashboard" },
-  { to: "/apps", icon: Grid2X2, label: "Apps" },
-  { to: "/users", icon: Users, label: "Users" },
-  { to: "/security", icon: Shield, label: "Security" },
-  { to: "/settings", icon: Settings, label: "Settings" },
-  { to: "/help", icon: LifeBuoy, label: "Help" },
+	{ to: "/", icon: Home, label: "Dashboard" },
+	{ to: "/apps", icon: Grid2X2, label: "Apps" },
+	{ to: "/users", icon: Users, label: "Users" },
+	{ to: "/security", icon: Shield, label: "Security" },
+	{ to: "/settings", icon: Settings, label: "Settings" },
+	{ to: "/help", icon: LifeBuoy, label: "Help" },
 ];
 
 const FAB_SIZE = 64;

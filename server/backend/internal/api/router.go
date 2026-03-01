@@ -242,6 +242,21 @@ func (s *Server) setupRoutes() {
 				r.Get("/database", backupHandler.ListDatabaseBackups)
 				r.Post("/database", backupHandler.CreateDatabaseBackup)
 				r.Post("/database/{backupID}/restore", backupHandler.RestoreDatabaseBackup)
+
+				// Cloud backup routes
+				if s.cloudService != nil {
+					cloudHandler := handlers.NewCloudBackupHandlers(s.cloudService)
+					r.Route("/cloud", func(r chi.Router) {
+						r.Get("/providers", cloudHandler.ListProviders)
+						r.Get("/config", cloudHandler.GetConfig)
+						r.Post("/config", cloudHandler.SaveConfig)
+						r.Post("/test", cloudHandler.TestConnection)
+						r.Get("/remote", cloudHandler.ListRemoteBackups)
+					})
+					r.Post("/{backupID}/upload", cloudHandler.UploadBackup)
+					r.Get("/{backupID}/status", cloudHandler.GetUploadStatus)
+					r.Get("/{backupID}/cloud-status", cloudHandler.GetBackupCloudStatus)
+				}
 			})
 
 			// Network / Caddy - reverse proxy and routing management

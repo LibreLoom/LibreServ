@@ -2,19 +2,22 @@ import GeneralCategory from "./categories/GeneralCategory";
 import AppearanceCategory from "./categories/AppearanceCategory";
 import SecurityCategory from "./categories/SecurityCategory";
 import AboutCategory from "./categories/AboutCategory";
+import BackupsCategory from "./categories/BackupsCategory";
 
 const CATEGORY_TITLES = {
-  general: "General Settings",
-  appearance: "Appearance",
-  security: "Security",
-  about: "About",
+	general: "General Settings",
+	appearance: "Appearance",
+	backups: "Backups",
+	security: "Security",
+	about: "About",
 };
 
 const CATEGORY_COMPONENTS = {
-  general: GeneralCategory,
-  appearance: AppearanceCategory,
-  security: SecurityCategory,
-  about: AboutCategory,
+	general: GeneralCategory,
+	appearance: AppearanceCategory,
+	backups: BackupsCategory,
+	security: SecurityCategory,
+	about: AboutCategory,
 };
 
 export default function SettingsContent({
@@ -30,29 +33,31 @@ export default function SettingsContent({
   const CategoryComponent = CATEGORY_COMPONENTS[category] || GeneralCategory;
   const title = CATEGORY_TITLES[category] || "Settings";
 
-  const getSettingsProps = () => {
-    switch (category) {
-      case "general":
-        return {
-          settings: {
-            ...settings,
-            onLoggingChange,
-          },
-        };
-      case "appearance":
-        return { darkMode, onDarkModeChange };
-      case "security":
-        return {
-          settings: securitySettings,
-          onSettingsChange: onSecuritySettingsChange,
-          onTestNotification,
-        };
-      case "about":
-        return { settings };
-      default:
-        return { settings };
-    }
-  };
+	const getSettingsProps = () => {
+		switch (category) {
+			case "general":
+				return {
+					settings: {
+						...settings,
+						onLoggingChange,
+					},
+				};
+			case "appearance":
+				return { darkMode, onDarkModeChange };
+			case "backups":
+				return {};
+			case "security":
+				return {
+					settings: securitySettings,
+					onSettingsChange: onSecuritySettingsChange,
+					onTestNotification,
+				};
+			case "about":
+				return { settings };
+			default:
+				return { settings };
+		}
+	};
 
   return (
     <div className="space-y-4">

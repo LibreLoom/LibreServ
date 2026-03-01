@@ -21,10 +21,14 @@ import (
 
 // BackupService handles backup and restore operations
 type BackupService struct {
-	db          *database.DB
-	docker      *docker.Client
-	basePath    string // Base path for storing backups
-	appDataPath string // Base path where app data is stored
+	db           *database.DB
+	docker       *docker.Client
+	basePath     string // Base path for storing backups
+	appDataPath  string // Base path where app data is stored
+	cloudService interface {
+		IsEnabled() bool
+		UploadBackupAsync(backupID, localPath string) error
+	}
 }
 
 // NewBackupService creates a new backup service
@@ -37,18 +41,22 @@ func NewBackupService(db *database.DB, docker *docker.Client, basePath, appDataP
 	}
 }
 
-// BackupApp creates a backup of an app's data
+// BackupApp creates a backup of an app\'s data
 func (s *BackupService) BackupApp(ctx context.Context, appID string, opts BackupOptions) (*BackupResult, error) {
 	startTime := time.Now()
 	result := &BackupResult{}
+
+	log.Printf("BackupApp: starting backup for app %s", appID)
 
 	// Get app info from database
 	var appPath, appStatus string
 	err := s.db.QueryRow("SELECT path, status FROM apps WHERE id = ?", appID).Scan(&appPath, &appStatus)
 	if err != nil {
-		result.Error = fmt.Errorf("app not found: %w", err)
+		result.Error = fmt.Errorf("app not found (id=%s): %w", appID, err)
+		log.Printf("BackupApp: app not found (id=%s): %v", appID, err)
 		return result, result.Error
 	}
+	log.Printf("BackupApp: found app at path %s with status %s", appPath, appStatus)
 
 	// Stop app if required
 	if opts.StopBeforeBackup && appStatus == "running" {
@@ -117,7 +125,24 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 
 	log.Printf("Backup created for %s: %s (%d bytes) in %v", appID, backupPath, size, result.Duration)
 
+	// Trigger cloud upload if configured and enabled
+	if s.cloudService != nil && s.cloudService.IsEnabled() {
+		go func() {
+			if err := s.cloudService.UploadBackupAsync(backup.ID, backupPath); err != nil {
+				log.Printf("Cloud backup upload failed for %s: %v", backup.ID, err)
+			}
+		}()
+	}
+
 	return result, nil
+}
+
+// SetCloudService configures the cloud backup service for automatic uploads
+func (s *BackupService) SetCloudService(cloudService interface {
+	IsEnabled() bool
+	UploadBackupAsync(backupID, localPath string) error
+}) {
+	s.cloudService = cloudService
 }
 
 // createTarball creates a compressed tarball of a directory
