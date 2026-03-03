@@ -128,7 +128,7 @@ npm test -- src/hooks/useAuth.test.jsx
 
 > **⚠️ CRITICAL: Before working on ANY frontend code, you MUST:**
 > 1. Read this entire Design Language section
-> 2. Review the [LibreLoom Branding Repository](https://gt.plainskill.net/LibreLoom/libreloom-branding) for official guidelines, logos, color palettes, and design assets
+> 2. Review the [LibreLoom Design & Branding Repository](https://gt.plainskill.net/LibreLoom/libreloom-branding) for official design guidelines & requirements, logos, color palettes, and design assets
 > 3. Understand when the branding repo is needed:
 >    - ✅ **Read branding repo when:** Creating new pages, modifying existing UI components, adding new color schemes, working with logos/branding assets, or unsure about design consistency
 >    - ❌ **Not needed for:** Backend-only changes, API modifications, database migrations, configuration changes, or fixing typos
