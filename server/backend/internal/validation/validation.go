@@ -3,12 +3,12 @@ package validation
 
 import (
 	"fmt"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
 	"net/mail"
 	"regexp"
 	"strings"
 	"unicode"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
 )
 
 var (
@@ -95,12 +95,12 @@ func (v *Validator) ValidateUsername(username string) *Validator {
 		return v
 	}
 
-	if len(username) < 3 {
+	if len(username) < constants.MinUsernameLength {
 		v.addError("username", "Username must be at least 3 characters")
 		return v
 	}
 
-	if len(username) > 32 {
+	if len(username) > constants.MaxUsernameLength {
 		v.addError("username", "Username must be no more than 32 characters")
 		return v
 	}
@@ -124,7 +124,7 @@ func (v *Validator) ValidatePassword(password string) *Validator {
 		return v
 	}
 
-	if len(password) > 128 {
+	if len(password) > constants.MaxPasswordLength {
 		v.addError("password", "Password must be no more than 128 characters")
 		return v
 	}
@@ -154,7 +154,7 @@ func (v *Validator) ValidateEmail(email string) *Validator {
 		return v
 	}
 
-	if len(email) > 254 {
+	if len(email) > constants.MaxEmailLength {
 		v.addError("email", "Email must be no more than 254 characters")
 		return v
 	}

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
@@ -12,6 +13,8 @@ type TokenStore struct {
 	db            *database.DB
 	accessExpiry  time.Duration
 	refreshExpiry time.Duration
+	// Mutex to prevent race conditions during token rotation
+	mu sync.Mutex
 }
 
 // NewTokenStore creates a new TokenStore.
@@ -113,4 +116,30 @@ func GetTokenJTI(claims *Claims) string {
 		return claims.JTI
 	}
 	return claims.ID
+}
+
+// RevokeTokenIfNotRevoked atomically checks and revokes a token.
+// Returns true if the token was successfully revoked (was not already revoked).
+// Returns false if the token was already revoked.
+// This prevents race conditions in token rotation scenarios.
+func (s *TokenStore) RevokeTokenIfNotRevoked(jti, userID, tokenType, revokedBy, reason string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Check if already revoked
+	revoked, err := s.IsRevoked(jti, tokenType)
+	if err != nil {
+		return false, err
+	}
+	if revoked {
+		return false, nil
+	}
+
+	// Token not revoked, so revoke it now
+	err = s.RevokeToken(jti, userID, tokenType, revokedBy, reason)
+	if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }

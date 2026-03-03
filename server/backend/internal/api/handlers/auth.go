@@ -70,7 +70,7 @@ func NewAuthHandler(authService *auth.Service, securityService *security.Service
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req auth.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "Please check your information and try again")
+		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -103,7 +103,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusTooManyRequests, "Your account is temporarily locked. Please try again later.")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "login failed")
+		JSONError(w, http.StatusInternalServerError, "failed to process login request")
 		return
 	}
 
@@ -184,7 +184,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req auth.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "Please check your information and try again")
+		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 

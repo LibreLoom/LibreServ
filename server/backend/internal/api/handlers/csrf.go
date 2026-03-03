@@ -27,7 +27,11 @@ func (h *CSRFHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "csrf not configured")
 		return
 	}
-	token := middleware.GenerateCSRF(h.secret, user.ID)
+	token, err := middleware.GenerateCSRF(h.secret, user.ID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to generate csrf token")
+		return
+	}
 	JSON(w, http.StatusOK, map[string]string{
 		"csrf_token": token,
 	})

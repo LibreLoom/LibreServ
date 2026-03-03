@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -38,6 +39,13 @@ type LicenseChecker interface {
 	LicenseID() string
 }
 
+// isProductionEnvironment checks if the application is running in production mode.
+// Returns true if the mode is "production" or if the environment variable is not set.
+func isProductionEnvironment() bool {
+	mode := strings.ToLower(os.Getenv("LIBRESERV_MODE"))
+	return mode == "production" || mode == ""
+}
+
 func IsDevTokenEnabled() bool {
 	return os.Getenv("LIBRESERV_DEV_TOKEN_ENABLED") == "true"
 }
@@ -52,11 +60,28 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 			}
 			var user *User
 
-			if cfg.DevMode && IsDevTokenEnabled() && token == "dev-token" {
-				user = &User{
-					ID:       "dev-user",
-					Username: "admin",
-					Role:     "admin",
+			// Check if attempting to use dev token
+			if token == "dev-token" {
+				// Prevent dev token usage in production
+				if isProductionEnvironment() {
+					slog.Warn("Dev token authentication attempt blocked in production mode",
+						"remote_addr", r.RemoteAddr,
+						"path", r.URL.Path,
+					)
+					response.Unauthorized(w, "Dev tokens are not allowed in production")
+					return
+				}
+
+				// Allow dev token only if explicitly enabled in non-production
+				if cfg.DevMode && IsDevTokenEnabled() {
+					user = &User{
+						ID:       "dev-user",
+						Username: "admin",
+						Role:     "admin",
+					}
+				} else {
+					response.Unauthorized(w, "Dev token authentication is disabled")
+					return
 				}
 			} else {
 				claims, err := cfg.AuthService.ValidateAccessToken(token)
