@@ -34,28 +34,28 @@
 }
 
 @theme {
-/* Setup Fonts */
---font-mono: "FreeMono", "Courier New", monospace;
-    --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
+  /* Setup Fonts */
+  --font-mono: "FreeMono", "Courier New", monospace;
+  --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
 
-    /* Setup Colors */
-    --color-primary: var(--color-primary);
-    --color-secondary: var(--color-secondary);
-    --color-accent: var(--color-accent);
+  /* Setup Colors - reference CSS variables defined in :root/.dark */
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
 
-    /* Status Colors - Standard colors independent of theme */
-    --color-success: var(--palette-success, #22c55e);
-    --color-warning: var(--palette-warning, #eab308);
-    --color-error: var(--palette-error, #ef4444);
-    --color-info: var(--palette-info, #3b82f6);
+  /* Status Colors - Standard colors independent of theme */
+  --color-success: var(--palette-success, #22c55e);
+  --color-warning: var(--palette-warning, #eab308);
+  --color-error: var(--palette-error, #ef4444);
+  --color-info: var(--palette-info, #3b82f6);
 
-    /* Status Background Colors - rgba works regardless of theme */
-    --bg-success: rgba(34, 197, 94, 0.25);
-    --bg-warning: rgba(234, 179, 8, 0.25);
-    --bg-error: rgba(239, 68, 68, 0.3);
-    --bg-info: rgba(59, 130, 246, 0.25);
+  /* Status Background Colors - rgba works regardless of theme */
+  --bg-success: rgba(34, 197, 94, 0.25);
+  --bg-warning: rgba(234, 179, 8, 0.25);
+  --bg-error: rgba(239, 68, 68, 0.3);
+  --bg-info: rgba(59, 130, 246, 0.25);
 
-/* Setup Pill Shape */
+  /* Setup Pill Shape */
   --radius-pill: 9999px;
   /* Setup Large Element Shape */
   --radius-large-element: 24px;
@@ -64,21 +64,21 @@
 }
 
 :root {
-    /* Base palette values */
-    --palette-light: #ffffff;
-    --palette-dark: #000000;
-    --palette-accent: #767676;
+  /* Base palette values */
+  --palette-light: #ffffff;
+  --palette-dark: #000000;
+  --palette-accent: #767676;
 
-    /* Default Mapping (Light Mode) */
-    --color-primary: var(--palette-light);
-    --color-secondary: var(--palette-dark);
-    --color-accent: var(--palette-accent);
+  /* Default Mapping (Light Mode) */
+  --primary: var(--palette-light);
+  --secondary: var(--palette-dark);
+  --accent: var(--palette-accent);
 }
 
 .dark {
-    /* Dark Mode Mapping - Invert primary and secondary */
-    --color-primary: var(--palette-dark);
-    --color-secondary: var(--palette-light);
+  /* Dark Mode Mapping - Invert primary and secondary */
+  --primary: var(--palette-dark);
+  --secondary: var(--palette-light);
 }
 
 body {
