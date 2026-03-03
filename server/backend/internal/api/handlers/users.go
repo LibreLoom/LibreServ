@@ -31,11 +31,6 @@ func (h *UsersHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// scrub password hashes
-	for _, u := range users {
-		u.PasswordHash = ""
-	}
-
 	JSON(w, http.StatusOK, pagination.NewResult(users, total, params))
 }
 
@@ -97,7 +92,6 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	user.PasswordHash = ""
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"user":    user,
@@ -118,7 +112,6 @@ func (h *UsersHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusNotFound, "user not found")
 		return
 	}
-	user.PasswordHash = ""
 	JSON(w, http.StatusOK, user)
 }
 
@@ -174,7 +167,6 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.PasswordHash = ""
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"user":    user,
 		"message": "user updated",

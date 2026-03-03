@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
@@ -48,21 +50,21 @@ func CSRF(secret string) func(http.Handler) http.Handler {
 
 // GenerateCSRF creates a token for a user with a random nonce for uniqueness.
 // Token format: hex(HMAC(secret, userID|ts|nonce))|ts|nonce
-func GenerateCSRF(secret, userID string) string {
+func GenerateCSRF(secret, userID string) (string, error) {
 	ts := time.Now().Unix()
 
 	// Generate cryptographically secure random nonce (16 bytes = 32 hex chars)
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
-		// Fallback to timestamp-based nonce if crypto/rand fails (extremely rare)
-		nonceBytes = []byte(strconv.FormatInt(ts, 10))
+		// Fail securely - do not generate a weak token
+		return "", fmt.Errorf("failed to generate secure random nonce: %w", err)
 	}
 	nonce := hex.EncodeToString(nonceBytes)
 
 	payload := userID + "|" + strconv.FormatInt(ts, 10) + "|" + nonce
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(payload))
-	return hex.EncodeToString(mac.Sum(nil)) + "|" + strconv.FormatInt(ts, 10) + "|" + nonce
+	return hex.EncodeToString(mac.Sum(nil)) + "|" + strconv.FormatInt(ts, 10) + "|" + nonce, nil
 }
 
 func validateCSRF(secret, userID, token string) bool {
@@ -77,7 +79,7 @@ func validateCSRF(secret, userID, token string) bool {
 		return false
 	}
 	// 24h validity
-	if time.Since(time.Unix(ts, 0)) > 24*time.Hour {
+	if time.Since(time.Unix(ts, 0)) > constants.CSRFTokenValidityPeriod {
 		return false
 	}
 

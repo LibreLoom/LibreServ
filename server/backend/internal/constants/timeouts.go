@@ -57,7 +57,35 @@ const (
 
 	// MinPasswordLength is the minimum required password length
 	MinPasswordLength = 12
+
+	// CSRFTokenValidityPeriod is how long CSRF tokens remain valid (reduced from 24h for security)
+	CSRFTokenValidityPeriod = 4 * time.Hour
 )
+
+// Validation constants
+const (
+	// Username length constraints
+	MinUsernameLength = 3
+	MaxUsernameLength = 32
+
+	// Password length constraints
+	MaxPasswordLength = 128
+
+	// Email constraints
+	MaxEmailLength = 254
+
+	// Instance ID length constraints
+	MinInstanceIDLength = 1
+	MaxInstanceIDLength = 64
+
+	// Subdomain constraints
+	MaxSubdomainLength = 63
+
+	// Search query constraints
+	MaxSearchQueryLength = 100
+
+)
+
 
 // Job queue constants
 const (
@@ -95,14 +123,6 @@ const (
 	RequestTimeoutSeconds = 60
 )
 
-// Validation constants
-const (
-	// MaxInstanceIDLength is the maximum length for app instance IDs
-	MaxInstanceIDLength = 64
-
-	// MinInstanceIDLength is the minimum length for app instance IDs
-	MinInstanceIDLength = 1
-)
 
 // Status constants
 const (
