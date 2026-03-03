@@ -1,8 +1,41 @@
 @import "tailwindcss";
 
+/* Load FreeMono font locally */
+@font-face {
+  font-family: 'FreeMono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/FreeMono.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/FreeMonoOblique.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/FreeMonoBold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/FreeMonoBoldOblique.ttf') format('truetype');
+}
+
 @theme {
-    /* Setup Fonts */
-    --font-mono: "FreeMono", "Courier New", monospace;
+/* Setup Fonts */
+--font-mono: "FreeMono", "Courier New", monospace;
     --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
 
     /* Setup Colors */
