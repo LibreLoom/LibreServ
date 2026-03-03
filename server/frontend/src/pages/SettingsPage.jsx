@@ -18,7 +18,8 @@ const DEBOUNCE_MS = 500;
 
 export default function SettingsPage() {
   const { me: user } = useAuth();
-  const { darkMode, toggleDarkMode } = useTheme();
+  const { theme, toggleTheme } = useTheme();
+  const darkMode = theme === "dark";
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -112,7 +113,7 @@ export default function SettingsPage() {
   };
 
   const handleDarkModeChange = () => {
-    toggleDarkMode();
+    toggleTheme();
   };
 
   const handleSecuritySettingsChange = (newSettings) => {
