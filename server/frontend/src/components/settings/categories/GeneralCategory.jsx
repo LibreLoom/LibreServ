@@ -32,7 +32,11 @@ export default function GeneralCategory({ settings }) {
         </SettingsRow>
       </div>
 
-      {settings?.proxy && (
+      <div
+        className={`overflow-hidden transition-all duration-300 ease-in-out ${
+          settings?.proxy ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
+        }`}
+      >
         <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "50ms" }}>
           <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
             <Globe size={18} className="text-accent" />
@@ -78,7 +82,7 @@ export default function GeneralCategory({ settings }) {
             </span>
           </SettingsRow>
         </div>
-      )}
+      </div>
 
       <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "100ms" }}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">

@@ -82,72 +82,74 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
           </button>
         </SettingsRow>
 
-        {settings?.notifications_enabled && (
-          <>
-            <div className="px-4 py-3 border-b border-primary/10">
-              <div className="font-medium text-primary mb-3">Frequency</div>
-              <div className="space-y-2">
-                {FREQUENCY_OPTIONS.map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`flex items-center gap-3 p-2.5 rounded-large-element border cursor-pointer transition-all duration-200 ${
+        <div
+          className={`overflow-hidden transition-all duration-300 ease-in-out ${
+            settings?.notifications_enabled ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
+          }`}
+        >
+          <div className="px-4 py-3 border-b border-primary/10">
+            <div className="font-medium text-primary mb-3">Frequency</div>
+            <div className="space-y-2">
+              {FREQUENCY_OPTIONS.map((opt) => (
+                <label
+                  key={opt.value}
+                  className={`flex items-center gap-3 p-2.5 rounded-large-element border cursor-pointer transition-all duration-200 ${
+                    settings?.notification_frequency === opt.value
+                      ? "border-accent bg-accent/10"
+                      : "border-primary/10 hover:bg-primary/5"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="frequency"
+                    value={opt.value}
+                    checked={settings?.notification_frequency === opt.value}
+                    onChange={() => handleFrequencyChange(opt.value)}
+                    className="sr-only"
+                  />
+                  <div
+                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ${
                       settings?.notification_frequency === opt.value
-                        ? "border-accent bg-accent/10"
-                        : "border-primary/10 hover:bg-primary/5"
+                        ? "border-accent"
+                        : "border-accent/40"
                     }`}
                   >
-                    <input
-                      type="radio"
-                      name="frequency"
-                      value={opt.value}
-                      checked={settings?.notification_frequency === opt.value}
-                      onChange={() => handleFrequencyChange(opt.value)}
-                      className="sr-only"
-                    />
-                    <div
-                      className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ${
-                        settings?.notification_frequency === opt.value
-                          ? "border-accent"
-                          : "border-accent/40"
-                      }`}
-                    >
-                      {settings?.notification_frequency === opt.value && (
-                        <div className="w-2 h-2 rounded-full bg-accent" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium text-primary text-sm">{opt.label}</div>
-                      <div className="text-xs text-accent">{opt.description}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
+                    {settings?.notification_frequency === opt.value && (
+                      <div className="w-2 h-2 rounded-full bg-accent" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-medium text-primary text-sm">{opt.label}</div>
+                    <div className="text-xs text-accent">{opt.description}</div>
+                  </div>
+                </label>
+              ))}
             </div>
+          </div>
 
-            <div className="px-4 py-3">
-              <div className="font-medium text-primary mb-3">Notify Me About</div>
-              <div className="space-y-2">
-                {NOTIFICATION_OPTIONS.map((opt) => (
-                  <label
-                    key={opt.key}
-                    className="flex items-center gap-3 p-2.5 rounded-large-element border border-primary/10 hover:bg-primary/5 cursor-pointer transition-all duration-200"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={settings?.[opt.key] || false}
-                      onChange={() => handleToggle(opt.key)}
-                      className="w-4 h-4 rounded border-accent/40 text-accent focus:ring-accent focus:ring-offset-0 accent-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="font-medium text-primary text-sm">{opt.label}</div>
-                      <div className="text-xs text-accent">{opt.description}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
+          <div className="px-4 py-3">
+            <div className="font-medium text-primary mb-3">Notify Me About</div>
+            <div className="space-y-2">
+              {NOTIFICATION_OPTIONS.map((opt) => (
+                <label
+                  key={opt.key}
+                  className="flex items-center gap-3 p-2.5 rounded-large-element border border-primary/10 hover:bg-primary/5 cursor-pointer transition-all duration-200"
+                >
+                  <input
+                    type="checkbox"
+                    checked={settings?.[opt.key] || false}
+                    onChange={() => handleToggle(opt.key)}
+                    className="w-4 h-4 rounded border-accent/40 text-accent focus:ring-accent focus:ring-offset-0 accent-accent"
+                  />
+                  <div className="flex-1">
+                    <div className="font-medium text-primary text-sm">{opt.label}</div>
+                    <div className="text-xs text-accent">{opt.description}</div>
+                  </div>
+                </label>
+              ))}
             </div>
-          </>
-        )}
+          </div>
+        </div>
       </div>
 
       <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "50ms" }}>

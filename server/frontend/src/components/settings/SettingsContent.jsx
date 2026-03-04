@@ -29,35 +29,54 @@ export default function SettingsContent({
   onSecuritySettingsChange,
   onTestNotification,
   onLoggingChange,
+  colors,
+  setColors,
+  darkColors,
+  setDarkColors,
+  useSeparateDarkColors,
+  setUseSeparateDarkColors,
+  resetColors,
+  isCustomTheme,
 }) {
   const CategoryComponent = CATEGORY_COMPONENTS[category] || GeneralCategory;
   const title = CATEGORY_TITLES[category] || "Settings";
 
-	const getSettingsProps = () => {
-		switch (category) {
-			case "general":
-				return {
-					settings: {
-						...settings,
-						onLoggingChange,
-					},
-				};
-			case "appearance":
-				return { darkMode, onDarkModeChange };
-			case "backups":
-				return {};
-			case "security":
-				return {
-					settings: securitySettings,
-					onSettingsChange: onSecuritySettingsChange,
-					onTestNotification,
-				};
-			case "about":
-				return { settings };
-			default:
-				return { settings };
-		}
-	};
+  const getSettingsProps = () => {
+    switch (category) {
+      case "general":
+        return {
+          settings: {
+            ...settings,
+            onLoggingChange,
+          },
+        };
+      case "appearance":
+        return {
+          darkMode,
+          onDarkModeChange,
+          colors,
+          setColors,
+          darkColors,
+          setDarkColors,
+          useSeparateDarkColors,
+          setUseSeparateDarkColors,
+          resetColors,
+          isCustomTheme,
+        };
+      case "backups":
+        return {};
+      case "security":
+        return {
+          settings: securitySettings,
+          onSettingsChange: onSecuritySettingsChange,
+          onTestNotification,
+        };
+      case "about":
+        return { settings };
+      default:
+        return { settings };
+    }
+  };
 
   return (
     <div className="space-y-4">

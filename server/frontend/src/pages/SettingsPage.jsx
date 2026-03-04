@@ -18,7 +18,18 @@ const DEBOUNCE_MS = 500;
 
 export default function SettingsPage() {
   const { me: user } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const {
+    theme,
+    toggleTheme,
+    colors,
+    setColors,
+    darkColors,
+    setDarkColors,
+    useSeparateDarkColors,
+    setUseSeparateDarkColors,
+    resetColors,
+    isCustomTheme,
+  } = useTheme();
   const darkMode = theme === "dark";
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
@@ -163,16 +174,24 @@ export default function SettingsPage() {
           />
         </div>
         <div className="flex-1 max-w-3xl animate-in fade-in slide-in-from-right-2 duration-300">
-          <SettingsContent
-            category={activeCategory}
-            settings={settings}
-            darkMode={darkMode}
-            onDarkModeChange={handleDarkModeChange}
-            securitySettings={securitySettings}
-            onSecuritySettingsChange={handleSecuritySettingsChange}
-            onTestNotification={handleTestNotification}
-            onLoggingChange={handleLoggingChange}
-          />
+        <SettingsContent
+          category={activeCategory}
+          settings={settings}
+          darkMode={darkMode}
+          onDarkModeChange={handleDarkModeChange}
+          securitySettings={securitySettings}
+          onSecuritySettingsChange={handleSecuritySettingsChange}
+          onTestNotification={handleTestNotification}
+          onLoggingChange={handleLoggingChange}
+          colors={colors}
+          setColors={setColors}
+          darkColors={darkColors}
+          setDarkColors={setDarkColors}
+          useSeparateDarkColors={useSeparateDarkColors}
+          setUseSeparateDarkColors={setUseSeparateDarkColors}
+          resetColors={resetColors}
+          isCustomTheme={isCustomTheme}
+        />
         </div>
       </div>
 
@@ -197,16 +216,24 @@ export default function SettingsPage() {
               <ArrowLeft size={18} />
               <span>Back</span>
             </button>
-            <SettingsContent
-              category={activeCategory}
-              settings={settings}
-              darkMode={darkMode}
-              onDarkModeChange={handleDarkModeChange}
-              securitySettings={securitySettings}
-              onSecuritySettingsChange={handleSecuritySettingsChange}
-              onTestNotification={handleTestNotification}
-              onLoggingChange={handleLoggingChange}
-            />
+        <SettingsContent
+          category={activeCategory}
+          settings={settings}
+          darkMode={darkMode}
+          onDarkModeChange={handleDarkModeChange}
+          securitySettings={securitySettings}
+          onSecuritySettingsChange={handleSecuritySettingsChange}
+          onTestNotification={handleTestNotification}
+          onLoggingChange={handleLoggingChange}
+          colors={colors}
+          setColors={setColors}
+          darkColors={darkColors}
+          setDarkColors={setDarkColors}
+          useSeparateDarkColors={useSeparateDarkColors}
+          setUseSeparateDarkColors={setUseSeparateDarkColors}
+          resetColors={resetColors}
+          isCustomTheme={isCustomTheme}
+        />
           </div>
         )}
       </div>
