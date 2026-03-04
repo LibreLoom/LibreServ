@@ -420,7 +420,7 @@ export default function AppDetailPage() {
                       <Cpu size={24} className="text-accent" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-primary/50">
+                      <p className="text-xs font-mono uppercase tracking-wider text-accent font-bold">
                         CPU
                       </p>
                       <p className="text-xl font-mono">
@@ -433,7 +433,7 @@ export default function AppDetailPage() {
                       <Activity size={24} className="text-accent" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-primary/50">
+                      <p className="text-xs font-mono uppercase tracking-wider text-accent font-bold">
                         Memory
                       </p>
                       <p className="text-xl font-mono">
@@ -446,7 +446,7 @@ export default function AppDetailPage() {
                       <HardDrive size={24} className="text-accent" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-primary/50">
+                      <p className="text-xs font-mono uppercase tracking-wider text-accent font-bold">
                         Network
                       </p>
                       <p className="text-xl font-mono">
