@@ -23,10 +23,10 @@ export default function SettingsSidebar({
       <SettingsUserCard user={user} />
 
       <div className="mt-4 border-t border-accent/30 pt-4">
-        <div className="px-3 mb-3 text-xs font-medium text-accent uppercase tracking-wider">
+        <div className="px-3 mb-3 text-xs font-medium text-secondary uppercase tracking-wider">
           Settings
         </div>
-        <ul className="space-y-1">
+        <ul className="space-y-1 font-bold">
           {CATEGORIES.map(({ id, label, icon: Icon }, index) => {
             const isActive = activeCategory === id;
             return (
@@ -42,7 +42,7 @@ export default function SettingsSidebar({
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-pill transition-all duration-200 ease-out text-left ${
                     isActive
                       ? "bg-secondary text-primary"
-                      : "text-accent hover:bg-secondary/10 hover:text-secondary"
+                      : "text-secondary hover:bg-secondary/10 hover:text-secondary"
                   }`}
                   aria-current={isActive ? "page" : undefined}
                 >
@@ -51,7 +51,7 @@ export default function SettingsSidebar({
                   <ChevronRight
                     size={16}
                     className={`transition-transform duration-200 ${
-                      isActive ? "rotate-90" : ""
+                      isActive ? "translate-x-1" : ""
                     }`}
                   />
                 </button>
