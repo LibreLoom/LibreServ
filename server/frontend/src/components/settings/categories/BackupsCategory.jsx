@@ -18,7 +18,19 @@ import Card from "../../common/cards/Card";
 function formatDate(dateStr) {
   if (!dateStr) return "-";
   const date = new Date(dateStr);
-  return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+  return (
+    date.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }) +
+    " " +
+    date.toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    })
+  );
 }
 
 function formatBytes(bytes) {
@@ -343,11 +355,16 @@ export default function BackupsCategory() {
           </button>
         </div>
 
-        {showCloudConfig ? (
+        <div
+          className={`overflow-hidden transition-all duration-300 ease-in-out ${
+            showCloudConfig ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
+          }`}
+        >
           <div className="p-4">
             <CloudBackupConfig onConfigured={() => setShowCloudConfig(false)} />
           </div>
-        ) : (
+        </div>
+        {!showCloudConfig && (
           <div className="px-4 py-6 text-center">
             <Cloud className="w-8 h-8 text-primary/30 mx-auto mb-2" />
             <p className="text-sm text-accent">

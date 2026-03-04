@@ -93,15 +93,15 @@ export default function UserDetailPage() {
   };
 
   const formatDate = (dateString) => {
-    // Format for readability rather than raw ISO strings.
     if (!dateString) return "Unknown";
     const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
+    return date.toLocaleDateString("en-GB", {
       year: "numeric",
       month: "long",
       day: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: false,
     });
   };
   const showName = Boolean(user?.username || user?.email);

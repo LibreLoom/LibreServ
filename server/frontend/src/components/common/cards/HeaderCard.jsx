@@ -115,7 +115,7 @@ export default function HeaderCard({
      Styling
      ------------------------------------------------------------------ */
 
-  const baseCardClass = "border border-secondary/30";
+  const baseCardClass = "border border-secondary/30 transition-all duration-300 ease-in-out";
   const titleCardClass = `${baseCardClass} ${className}`.trim();
 
   /* ------------------------------------------------------------------
