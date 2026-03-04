@@ -137,8 +137,24 @@ body {
     }
 }
 
+/* Dropdown open animation - expands from button */
+@keyframes dropdown-open {
+    from {
+        opacity: 0;
+        transform: translateY(-4px) scaleY(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+    }
+}
+
 .pop-in {
     animation: pop-in 200ms ease-out both;
+}
+
+.animate-dropdown-open {
+    animation: dropdown-open 200ms ease-out both;
 }
 
 /* Pop-out animation for modal/dialog exits */

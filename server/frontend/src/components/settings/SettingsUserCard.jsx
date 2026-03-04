@@ -14,9 +14,9 @@ export default function SettingsUserCard({ user }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-secondary truncate">{user.username}</div>
-        <div className="text-sm text-accent flex items-center gap-1">
+        <div className="text-sm text-secondary flex items-center gap-1">
           <Shield size={12} />
-          <span className="capitalize">{user.role}</span>
+          <span className="capitalize text-secondary">{user.role}</span>
         </div>
       </div>
       <ChevronRight

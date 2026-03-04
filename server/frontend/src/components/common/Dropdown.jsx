@@ -12,7 +12,7 @@ export default function Dropdown({
   className = "",
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
+  const [position, setPosition] = useState({ top: 0, left: 0 });
   const containerRef = useRef(null);
   const portalRef = useRef(null);
   const buttonRef = useRef(null);
@@ -22,7 +22,7 @@ export default function Dropdown({
   const updatePosition = useCallback(() => {
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      const menuWidth = width || Math.max(rect.width, 150);
+      const menuWidth = width || rect.width;
       let left = rect.left + window.scrollX;
 
       if (left + menuWidth > window.innerWidth - 8) {
@@ -35,7 +35,6 @@ export default function Dropdown({
       setPosition({
         top: rect.bottom + window.scrollY + 4,
         left,
-        width: menuWidth,
       });
     }
   }, [width]);
@@ -77,6 +76,14 @@ export default function Dropdown({
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", handleScroll);
     };
+  }, [isOpen, updatePosition]);
+
+  useEffect(() => {
+    if (isOpen) {
+      requestAnimationFrame(() => {
+        updatePosition();
+      });
+    }
   }, [isOpen, updatePosition]);
 
   const handleSelect = (optionValue) => {
@@ -123,9 +130,8 @@ export default function Dropdown({
               position: "absolute",
               top: position.top,
               left: position.left,
-              width: position.width,
             }}
-            className="bg-secondary text-primary ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
+            className="bg-secondary text-primary ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden min-w-[8rem] animate-dropdown-open"
             tabIndex={-1}
           >
             {options.map((option) => (

@@ -104,19 +104,25 @@ function getContrastRatio(hex1, hex2) {
 function createValidatedPresets() {
   const presets = [
     { label: "Classic", colors: { primary: "#ffffff", secondary: "#000000", accent: "#767676" } },
-    { label: "Ocean", colors: { primary: "#cce7f5", secondary: "#0c4a6e", accent: "#0369a1" } },
-    { label: "Forest", colors: { primary: "#c6e9c6", secondary: "#14532d", accent: "#15803d" } },
-    { label: "Sunset", colors: { primary: "#ffedd5", secondary: "#5c1d0a", accent: "#c2410c" } },
-    { label: "Lavender", colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#7e22ce" } },
-    { label: "Midnight", colors: { primary: "#e2e8f0", secondary: "#0f172a", accent: "#38bdf8" } },
+    { label: "Ocean", colors: { primary: "#cce7f5", secondary: "#0c4a6e", accent: "#1888b8" } },
+    { label: "Forest", colors: { primary: "#dcfce7", secondary: "#14532d", accent: "#15803d" } },
+    { label: "Sunset", colors: { primary: "#ffedd5", secondary: "#5c1d0a", accent: "#c45635" } },
+    { label: "Lavender", colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#9b4dca" } },
+    { label: "Midnight", colors: { primary: "#e2e8f0", secondary: "#0f172a", accent: "#0ea5e9" } },
   ];
 
-  const MIN_CONTRAST = 10;
+  const MIN_CONTRAST = 12;
 
   return presets.map((preset) => {
-    const contrast = getContrastRatio(preset.colors.primary, preset.colors.secondary);
-    const isCompliant = contrast >= MIN_CONTRAST;
-    return { ...preset, contrast: contrast.toFixed(2), isCompliant };
+    const contrastPrimary = getContrastRatio(preset.colors.primary, preset.colors.accent);
+    const contrastSecondary = getContrastRatio(preset.colors.secondary, preset.colors.accent);
+    const isCompliant = contrastPrimary >= MIN_CONTRAST && contrastSecondary >= MIN_CONTRAST;
+    return { 
+      ...preset, 
+      contrastPrimary: contrastPrimary.toFixed(2), 
+      contrastSecondary: contrastSecondary.toFixed(2),
+      isCompliant 
+    };
   });
 }
 
@@ -200,8 +206,8 @@ export default function AppearanceCategory({
         <div className="px-4 pt-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-medium text-primary text-sm">Enable Custom Colors</div>
-              <div className="text-xs text-accent mt-0.5">Customize the primary, secondary, and accent colors</div>
+              <div className="font-medium text-primary">Enable Custom Colors</div>
+              <div className="text-sm text-accent mt-0.5 mb-3">Customize the primary, secondary, and accent colors</div>
             </div>
             <button
               onClick={handleToggleCustomColors}
@@ -213,10 +219,12 @@ export default function AppearanceCategory({
               aria-label="Enable custom colors"
             >
               <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-primary transition-all duration-300 ease-out ${
+                className={`inline-flex items-center justify-center h-5 w-5 transform rounded-full bg-primary transition-all duration-300 ease-out ${
                   showCustomColors ? "translate-x-6" : "translate-x-1"
                 }`}
-              />
+              >
+                {showCustomColors ? <Check size={12} className="text-accent" /> : <Palette size={12} className="text-accent" />}
+              </span>
             </button>
           </div>
 
@@ -318,10 +326,10 @@ export default function AppearanceCategory({
               </div>
             </div>
 
-            <div className="mt-4 pt-4 border-t border-primary/10 pb-4">
+            <div className="mt-4 pt-4 border-t border-primary/10">
               <button
                 onClick={handleReset}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all text-sm"
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all text-sm"
                 aria-label="Reset colors to default"
               >
                 <RotateCcw size={14} />
