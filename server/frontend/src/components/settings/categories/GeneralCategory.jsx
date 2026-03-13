@@ -87,13 +87,13 @@ export default function GeneralCategory({ settings }) {
 
           <div className="border-t border-primary/10 mt-3 pt-3" />
           <ExtraInfoDropdown title="backend info">
-            <SettingsRow label="Host" compact>
+            <SettingsRow mono label="Host" compact>
               <ValueDisplay mono>{settings?.backend?.host || "N/A"}</ValueDisplay>
             </SettingsRow>
-            <SettingsRow label="Port" compact>
+            <SettingsRow mono label="Port" compact>
               <ValueDisplay mono>{settings?.backend?.port || "N/A"}</ValueDisplay>
             </SettingsRow>
-            <SettingsRow label="Mode" hideDivider compact>
+            <SettingsRow mono label="Mode" hideDivider compact>
               <StatusBadge variant={settings?.backend?.mode === "production" ? "default" : "warning"}>
                 {settings?.backend?.mode || "N/A"}
               </StatusBadge>
@@ -102,27 +102,27 @@ export default function GeneralCategory({ settings }) {
 
           {settings?.proxy && (
             <ExtraInfoDropdown title="proxy info">
-              <SettingsRow label="Type" compact>
-                <ValueDisplay>{settings?.proxy?.type || "N/A"}</ValueDisplay>
+              <SettingsRow mono label="Type" compact>
+                <ValueDisplay mono>{settings?.proxy?.type || "N/A"}</ValueDisplay>
               </SettingsRow>
               {settings?.proxy?.mode && (
-                <SettingsRow label="Mode" compact>
+                <SettingsRow mono label="Mode" compact>
                   <StatusBadge variant={settings?.proxy?.mode === "production" ? "default" : "warning"}>
                     {settings?.proxy?.mode}
                   </StatusBadge>
                 </SettingsRow>
               )}
               {settings?.proxy?.admin_api && (
-                <SettingsRow label="Admin API" compact>
+                <SettingsRow mono label="Admin API" compact>
                   <ValueDisplay mono>{settings?.proxy?.admin_api}</ValueDisplay>
                 </SettingsRow>
               )}
               {settings?.proxy?.default_domain && (
-                <SettingsRow label="Default Domain" compact>
-                  <ValueDisplay>{settings?.proxy?.default_domain}</ValueDisplay>
+                <SettingsRow mono label="Default Domain" compact>
+                  <ValueDisplay mono>{settings?.proxy?.default_domain}</ValueDisplay>
                 </SettingsRow>
               )}
-              <SettingsRow label="Auto HTTPS" hideDivider compact>
+              <SettingsRow mono label="Auto HTTPS" hideDivider compact>
                 <StatusBadge variant={settings?.proxy?.auto_https ? "default" : "accent"}>
                   {settings?.proxy?.auto_https ? "Enabled" : "Disabled"}
                 </StatusBadge>
