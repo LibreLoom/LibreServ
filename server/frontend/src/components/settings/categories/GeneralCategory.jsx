@@ -38,11 +38,11 @@ export default function GeneralCategory({ settings }) {
           settings?.proxy ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
         }`}
       >
-        <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "50ms" }}>
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-            <Globe size={18} className="text-accent" />
-            <h2 className="font-mono font-normal text-primary">Reverse Proxy</h2>
-          </div>
+          <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "50ms" }}>
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
+              <Globe size={18} className="text-accent" />
+              <h2 className="font-mono font-normal text-primary">Reverse Proxy</h2>
+            </div>
           <SettingsRow label="Type">
             <span className="text-primary">{settings?.proxy?.type || "N/A"}</span>
           </SettingsRow>
@@ -85,11 +85,11 @@ export default function GeneralCategory({ settings }) {
         </div>
       </div>
 
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "100ms" }}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-          <FileText size={18} className="text-accent" />
-          <h2 className="font-mono font-normal text-primary">Logging</h2>
-        </div>
+        <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "100ms" }}>
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
+            <FileText size={18} className="text-accent" />
+            <h2 className="font-mono font-normal text-primary">Logging</h2>
+          </div>
         <div className="px-4 py-3">
           <div className="flex items-center justify-between">
             <div>
@@ -110,7 +110,7 @@ export default function GeneralCategory({ settings }) {
               ]}
             />
           </div>
-          <div className="mt-3 pt-3 border-t border-primary/10">
+          <div className="mt-3 pt-3 border-t border-primary/10 mx-4">
             <div className="text-sm text-accent">Log Path</div>
             <div className="font-mono text-sm text-primary mt-1 bg-primary/10 px-3 py-2 rounded-large-element">
               {settings?.logging?.path || "N/A"}
