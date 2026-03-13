@@ -62,14 +62,14 @@ export default function AboutCategory({ settings }) {
           </div>
 
           <ExtraInfoDropdown title="server details">
-            <SettingsRow label="Backend API" compact>
-              <ValueDisplay>{settings?.backend?.host || "N/A"}</ValueDisplay>
+            <SettingsRow mono label="Backend API" compact>
+              <ValueDisplay mono>{settings?.backend?.host || "N/A"}</ValueDisplay>
             </SettingsRow>
-            <SettingsRow label="Server Port" compact>
+            <SettingsRow mono label="Server Port" compact>
               <ValueDisplay mono>{settings?.backend?.port || "N/A"}</ValueDisplay>
             </SettingsRow>
-            <SettingsRow label="Proxy Type" hideDivider compact>
-              <ValueDisplay>{settings?.proxy?.type || "None"}</ValueDisplay>
+            <SettingsRow mono label="Proxy Type" hideDivider compact>
+              <ValueDisplay mono>{settings?.proxy?.type || "None"}</ValueDisplay>
             </SettingsRow>
           </ExtraInfoDropdown>
         </div>

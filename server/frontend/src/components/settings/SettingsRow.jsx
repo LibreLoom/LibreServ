@@ -5,6 +5,7 @@ export default function SettingsRow({
   className = "",
   hideDivider = false,
   compact = false,
+  mono = false,
 }) {
   return (
     <div
@@ -15,7 +16,7 @@ export default function SettingsRow({
       } ${className}`}
     >
       <div className="flex-1 min-w-0 pr-4">
-        <div className="text-primary">{label}</div>
+        <div className={`text-primary ${mono ? 'font-mono' : ''}`}>{label}</div>
         {description && (
           <div className="text-sm text-accent mt-0.5">{description}</div>
         )}
