@@ -1,103 +1,74 @@
-import { Server, Globe, FileText } from "lucide-react";
+import { useState } from "react";
+import { Server, Globe, FileText, ChevronDown } from "lucide-react";
 import SettingsRow from "../SettingsRow";
 import Dropdown from "../../common/Dropdown";
+
+function ExtraInfoDropdown({ title, children, defaultOpen = false }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const dropdownId = `extra-info-${title.toLowerCase().replace(/\s+/g, "-")}`;
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        type="button"
+        className="flex items-center gap-1.5 font-mono text-xs text-accent hover:text-primary transition-colors cursor-pointer"
+        aria-expanded={isOpen}
+        aria-controls={dropdownId}
+      >
+        <ChevronDown
+          size={14}
+          className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : "rotate-0"}`}
+          aria-hidden="true"
+        />
+        <span>{isOpen ? "Hide" : "Show"} {title}</span>
+      </button>
+      <div
+        id={dropdownId}
+        className={`overflow-hidden motion-safe:transition-all duration-300 ease-out ${
+          isOpen ? "max-h-96 opacity-100 mt-3" : "max-h-0 opacity-0"
+        }`}
+        aria-hidden={!isOpen}
+      >
+        <div className="bg-primary/5 rounded-card p-3 space-y-0">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ValueDisplay({ children, mono = false }) {
+  return (
+    <span className={`${mono ? "font-mono" : ""} text-sm text-primary`}>
+      {children}
+    </span>
+  );
+}
+
+function StatusBadge({ children, variant = "default" }) {
+  const variants = {
+    default: "bg-primary/10 text-primary",
+    warning: "bg-warning/20 text-warning",
+    accent: "bg-accent/20 text-accent",
+  };
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-pill text-xs font-medium ${variants[variant]}`}>
+      {children}
+    </span>
+  );
+}
 
 export default function GeneralCategory({ settings }) {
   return (
     <div className="space-y-4">
       <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-          <Server size={18} className="text-accent" />
-          <h2 className="font-mono font-normal text-primary">Backend API</h2>
+        <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-primary/10">
+          <FileText size={18} className="text-accent" />
+          <h2 className="font-mono font-normal text-primary text-sm">Logging</h2>
         </div>
-        <SettingsRow label="Host">
-          <span className="font-mono text-sm text-primary">
-            {settings?.backend?.host || "N/A"}
-          </span>
-        </SettingsRow>
-        <SettingsRow label="Port">
-          <span className="font-mono text-sm text-primary">
-            {settings?.backend?.port || "N/A"}
-          </span>
-        </SettingsRow>
-        <SettingsRow label="Mode">
-          <span
-            className={`inline-flex items-center px-3 py-1 rounded-pill text-xs font-medium ${
-              settings?.backend?.mode === "production"
-                ? "bg-primary/10 text-primary"
-                : "bg-warning/20 text-warning"
-            }`}
-          >
-            {settings?.backend?.mode || "N/A"}
-          </span>
-        </SettingsRow>
-      </div>
-
-      <div
-        className={`overflow-hidden transition-all duration-300 ease-in-out ${
-          settings?.proxy ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"
-        }`}
-      >
-          <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "50ms" }}>
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-              <Globe size={18} className="text-accent" />
-              <h2 className="font-mono font-normal text-primary">Reverse Proxy</h2>
-            </div>
-          <SettingsRow label="Type">
-            <span className="text-primary">{settings?.proxy?.type || "N/A"}</span>
-          </SettingsRow>
-          {settings?.proxy?.mode && (
-            <SettingsRow label="Mode">
-              <span
-                className={`inline-flex items-center px-3 py-1 rounded-pill text-xs font-medium ${
-                  settings?.proxy?.mode === "production"
-                    ? "bg-primary/10 text-primary"
-                    : "bg-warning/20 text-warning"
-                }`}
-              >
-                {settings?.proxy?.mode}
-              </span>
-            </SettingsRow>
-          )}
-          {settings?.proxy?.admin_api && (
-            <SettingsRow label="Admin API">
-              <span className="font-mono text-sm text-primary">
-                {settings?.proxy?.admin_api}
-              </span>
-            </SettingsRow>
-          )}
-          {settings?.proxy?.default_domain && (
-            <SettingsRow label="Default Domain">
-              <span className="text-primary">{settings?.proxy?.default_domain}</span>
-            </SettingsRow>
-          )}
-          <SettingsRow label="Auto HTTPS">
-            <span
-              className={`inline-flex items-center px-3 py-1 rounded-pill text-xs font-medium ${
-                settings?.proxy?.auto_https
-                  ? "bg-primary/10 text-primary"
-                  : "bg-accent/20 text-accent"
-              }`}
-            >
-              {settings?.proxy?.auto_https ? "Enabled" : "Disabled"}
-            </span>
-          </SettingsRow>
-        </div>
-      </div>
-
-        <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "100ms" }}>
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-            <FileText size={18} className="text-accent" />
-            <h2 className="font-mono font-normal text-primary">Logging</h2>
-          </div>
-        <div className="px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-medium text-primary">Log Level</div>
-              <div className="text-sm text-accent mt-0.5">
-                Verbosity of logged messages
-              </div>
-            </div>
+        <div className="px-5 py-3">
+          <SettingsRow label="Log Level" description="Verbosity of logged messages">
             <Dropdown
               value={settings?.logging?.level || "info"}
               onChange={(val) => settings?.onLoggingChange?.(val)}
@@ -109,13 +80,55 @@ export default function GeneralCategory({ settings }) {
                 { value: "error", label: "Error" },
               ]}
             />
-          </div>
-          <div className="mt-3 pt-3 border-t border-primary/10 mx-4">
-            <div className="text-sm text-accent">Log Path</div>
-            <div className="font-mono text-sm text-primary mt-1 bg-primary/10 px-3 py-2 rounded-large-element">
-              {settings?.logging?.path || "N/A"}
-            </div>
-          </div>
+          </SettingsRow>
+          <SettingsRow label="Log Path" hideDivider>
+            <ValueDisplay mono>{settings?.logging?.path || "N/A"}</ValueDisplay>
+          </SettingsRow>
+
+          <div className="border-t border-primary/10 mt-3 pt-3" />
+          <ExtraInfoDropdown title="backend info">
+            <SettingsRow label="Host" compact>
+              <ValueDisplay mono>{settings?.backend?.host || "N/A"}</ValueDisplay>
+            </SettingsRow>
+            <SettingsRow label="Port" compact>
+              <ValueDisplay mono>{settings?.backend?.port || "N/A"}</ValueDisplay>
+            </SettingsRow>
+            <SettingsRow label="Mode" hideDivider compact>
+              <StatusBadge variant={settings?.backend?.mode === "production" ? "default" : "warning"}>
+                {settings?.backend?.mode || "N/A"}
+              </StatusBadge>
+            </SettingsRow>
+          </ExtraInfoDropdown>
+
+          {settings?.proxy && (
+            <ExtraInfoDropdown title="proxy info">
+              <SettingsRow label="Type" compact>
+                <ValueDisplay>{settings?.proxy?.type || "N/A"}</ValueDisplay>
+              </SettingsRow>
+              {settings?.proxy?.mode && (
+                <SettingsRow label="Mode" compact>
+                  <StatusBadge variant={settings?.proxy?.mode === "production" ? "default" : "warning"}>
+                    {settings?.proxy?.mode}
+                  </StatusBadge>
+                </SettingsRow>
+              )}
+              {settings?.proxy?.admin_api && (
+                <SettingsRow label="Admin API" compact>
+                  <ValueDisplay mono>{settings?.proxy?.admin_api}</ValueDisplay>
+                </SettingsRow>
+              )}
+              {settings?.proxy?.default_domain && (
+                <SettingsRow label="Default Domain" compact>
+                  <ValueDisplay>{settings?.proxy?.default_domain}</ValueDisplay>
+                </SettingsRow>
+              )}
+              <SettingsRow label="Auto HTTPS" hideDivider compact>
+                <StatusBadge variant={settings?.proxy?.auto_https ? "default" : "accent"}>
+                  {settings?.proxy?.auto_https ? "Enabled" : "Disabled"}
+                </StatusBadge>
+              </SettingsRow>
+            </ExtraInfoDropdown>
+          )}
         </div>
       </div>
     </div>
