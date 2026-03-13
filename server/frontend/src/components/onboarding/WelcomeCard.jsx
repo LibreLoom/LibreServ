@@ -31,18 +31,24 @@ const quickActions = [
 
 export default function WelcomeCard() {
   const [visible, setVisible] = useState(() => !localStorage.getItem(STORAGE_KEY));
+  const [hiding, setHiding] = useState(false);
   const [dontShow, setDontShow] = useState(false);
 
   function handleDismiss() {
     if (dontShow) {
       localStorage.setItem(STORAGE_KEY, "true");
     }
-    setVisible(false);
+    setHiding(true);
+    setTimeout(() => setVisible(false), 300);
   }
 
   if (!visible) return null;
 
   return (
+    <div
+      className="overflow-hidden transition-all duration-300 ease-in-out"
+      style={{ maxHeight: hiding ? 0 : 600, opacity: hiding ? 0 : 1, marginBottom: hiding ? 0 : undefined }}
+    >
     <Card className="border-accent/40 relative">
       <button
         onClick={handleDismiss}
@@ -100,5 +106,6 @@ export default function WelcomeCard() {
         </span>
       </label>
     </Card>
+    </div>
   );
 }
