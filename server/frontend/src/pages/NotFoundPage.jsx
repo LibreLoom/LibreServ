@@ -250,27 +250,26 @@ export default function NotFoundPage({ includeMain = true }) {
         inert: "",
       };
 
-  // Shared button/link base class:
-  // IMPORTANT: `focus:outline-none` removes the browser default :focus outline (the “weird grey line”).
-  // We still keep `focus-visible:*` for keyboard users.
-  const solidPill =
-    "inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium " +
-    "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid " +
-    "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+   // Shared button/link base class:
+   // We use focus-visible:ring-* for keyboard focus indicators and apply ring utilities for hover/focus states.
+    const solidPill =
+      "inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium " +
+      "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary " +
+      "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2";
 
-  const ghostPill =
-    "inline-flex items-center gap-2 rounded-pill bg-transparent text-primary px-4 py-2 text-sm font-medium outline-2 outline-accent " +
-    "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:outline-0 " +
-    "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+    const ghostPill =
+      "inline-flex items-center gap-2 rounded-pill bg-transparent text-primary px-4 py-2 text-sm font-medium ring-2 ring-accent " +
+      "motion-safe:transition-all hover:bg-primary hover:text-secondary " +
+      "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2";
 
   return (
-    <Wrapper
-      className="bg-primary text-secondary px-8 pt-10 pb-32 focus:outline-none!"
-      aria-labelledby={regionTitleId}
-      aria-describedby={detailsId}
-      id="main-content"
-      tabIndex={-1}
-    >
+     <Wrapper
+       className="bg-primary text-secondary px-8 pt-10 pb-32 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+       aria-labelledby={regionTitleId}
+       aria-describedby={detailsId}
+       id="main-content"
+       tabIndex={-1}
+     >
       {/* Reliable region label (does not depend on HeaderCard internals). */}
       <span id={regionTitleId} className="sr-only">
         Page Not Found
@@ -282,7 +281,7 @@ export default function NotFoundPage({ includeMain = true }) {
             title="Page Not Found"
             align="center"
             dynamicRounding={false}
-            className="p-8 outline-2 outline-accent text-center motion-reduce:animate-none"
+             className="p-8 ring-2 ring-accent text-center motion-reduce:animate-none"
             leftContent={
               <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center shrink-0">
                 <Ghost size={30} aria-hidden="true" />
@@ -328,7 +327,7 @@ export default function NotFoundPage({ includeMain = true }) {
             }
           />
 
-          <Card className="p-8 outline-2 outline-accent text-left motion-reduce:animate-none">
+           <Card className="p-8 ring-2 ring-accent text-left motion-reduce:animate-none">
             <h2 className="text-xl font-mono font-normal block text-center">
               Quick Ways Out
             </h2>
@@ -376,10 +375,10 @@ export default function NotFoundPage({ includeMain = true }) {
                 onClick={() => setIsInvestigationOpen((open) => !open)}
                 aria-expanded={isInvestigationOpen}
                 aria-controls={investigationId}
-                className={
-                  "w-full flex items-center justify-between gap-3 rounded-large-element px-4 py-3 font-bold text-left " +
-                  "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-                }
+                 className={
+                   "w-full flex items-center justify-between gap-3 rounded-large-element px-4 py-3 font-bold text-left " +
+                   "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
+                 }
               >
                 <span>Highly Scientific Investigation (Optional)</span>
                 <ChevronDown

@@ -18,25 +18,25 @@ export default function ErrorDisplayDemo() {
     <div className="p-8 bg-primary text-secondary space-y-8">
       <h1 className="text-2xl font-mono">Error Display Demo</h1>
       
-      <div className="space-y-4">
+<div className="space-y-4">
         <h2 className="text-xl font-mono">Standard Errors</h2>
         <div className="flex flex-wrap gap-3">
-          <button
-            onClick={() => setShowError(!showError)}
-            className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
-          >
-            Toggle Error
-          </button>
-          <button
-            onClick={() => setShowWarning(!showWarning)}
-            className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
-          >
+           <button
+             onClick={() => setShowError(!showError)}
+             className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus-visible:ring-2 focus-visible:ring-accent"
+           >
+             Toggle Error
+           </button>
+            <button
+              onClick={() => setShowWarning(!showWarning)}
+              className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus-visible:ring-2 focus-visible:ring-accent"
+            >
             Toggle Warning
           </button>
-          <button
-            onClick={() => setShowInfo(!showInfo)}
-            className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
-          >
+           <button
+             onClick={() => setShowInfo(!showInfo)}
+className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus-visible:ring-2 focus-visible:ring-accent"
+           >
             Toggle Info
           </button>
         </div>
@@ -66,23 +66,23 @@ export default function ErrorDisplayDemo() {
         )}
       </div>
 
-      <div className="space-y-4">
-        <h2 className="text-xl font-mono">Inline Error</h2>
-        <button
-          onClick={() => setShowInlineError(!showInlineError)}
-          className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
-        >
+       <div className="space-y-4">
+         <h2 className="text-xl font-mono">Inline Error</h2>
+          <button
+            onClick={() => setShowInlineError(!showInlineError)}
+            className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus-visible:ring-2 focus-visible:ring-accent"
+          >
           Toggle Inline Error
         </button>
         {showInlineError && <InlineError message="This is an inline error" />}
       </div>
 
-      <div className="space-y-4">
-        <h2 className="text-xl font-mono">Form Error Summary</h2>
-        <button
-          onClick={() => setShowFormError(!showFormError)}
-          className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
-        >
+       <div className="space-y-4">
+         <h2 className="text-xl font-mono">Form Error Summary</h2>
+          <button
+            onClick={() => setShowFormError(!showFormError)}
+            className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus-visible:ring-2 focus-visible:ring-accent"
+          >
           Toggle Form Errors
         </button>
         {showFormError && (
@@ -95,16 +95,16 @@ export default function ErrorDisplayDemo() {
 
       <div className="space-y-4">
         <h2 className="text-xl font-mono">API Error</h2>
-        <button
-          onClick={triggerApiError}
-          className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
-        >
+         <button
+            onClick={triggerApiError}
+            className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus-visible:ring-2 focus-visible:ring-accent"
+         >
           Trigger API Error
         </button>
-        <button
-          onClick={() => setApiError(null)}
-          className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
-        >
+         <button
+            onClick={() => setApiError(null)}
+            className="rounded-pill bg-primary text-secondary px-4 py-2 font-medium hover:bg-secondary hover:text-primary focus-visible:ring-2 focus-visible:ring-accent"
+          >
           Clear API Error
         </button>
         {apiError && <ApiError error={apiError} onRetry={triggerApiError} onDismiss={() => setApiError(null)} />}

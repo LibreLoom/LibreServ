@@ -47,9 +47,9 @@ function ColorInput({ label, value, onChange, description }) {
           value={inputValue}
           onChange={handleChange}
           placeholder="#000000"
-          className={`w-24 px-2 py-1 text-sm font-mono rounded-lg bg-primary/10 border ${
-            isValid ? "border-primary/20" : "border-error"
-          } text-primary focus:outline-none focus:ring-2 focus:ring-accent`}
+className={`w-24 px-2 py-1 text-sm font-mono rounded-lg bg-primary/10 border ${
+             isValid ? "border-primary/20" : "border-error"
+           } text-primary focus-visible:ring-2 focus:ring-accent`}
           aria-label={`${label} hex value`}
         />
       </div>
@@ -177,10 +177,10 @@ export default function AppearanceCategory({
         </div>
         <SettingsRow label="Dark Mode" description="Use dark theme for the interface">
           <button
-            onClick={onDarkModeChange}
-            className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-              darkMode ? "bg-accent" : "bg-primary/20"
-            }`}
+onClick={onDarkModeChange}
+             className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
+               darkMode ? "bg-accent" : "bg-primary/20"
+             }`}
             role="switch"
             aria-checked={darkMode}
             aria-label="Toggle dark mode"
@@ -210,10 +210,10 @@ export default function AppearanceCategory({
               <div className="text-sm text-accent mt-0.5 mb-3">Customize the primary, secondary, and accent colors</div>
             </div>
             <button
-              onClick={handleToggleCustomColors}
-              className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-                showCustomColors ? "bg-accent" : "bg-primary/20"
-              }`}
+onClick={handleToggleCustomColors}
+               className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
+                 showCustomColors ? "bg-accent" : "bg-primary/20"
+               }`}
               role="switch"
               aria-checked={showCustomColors}
               aria-label="Enable custom colors"
@@ -280,9 +280,9 @@ export default function AppearanceCategory({
                 </div>
                 <button
                   onClick={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
-                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-                    useSeparateDarkColors ? "bg-accent" : "bg-primary/20"
-                  }`}
+className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
+                     useSeparateDarkColors ? "bg-accent" : "bg-primary/20"
+                   }`}
                   role="switch"
                   aria-checked={useSeparateDarkColors}
                   aria-label="Use separate dark mode colors"

@@ -186,7 +186,7 @@ export default function SecurityActivityPage() {
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="px-3 py-2 border rounded-lg bg-primary focus:outline-none focus:ring-2 focus:ring-accent"
+            className="px-3 py-2 border rounded-lg bg-primary focus-visible:ring-2 focus:ring-accent"
           >
             <option value="24h">Last 24 hours</option>
             <option value="7d">Last 7 days</option>

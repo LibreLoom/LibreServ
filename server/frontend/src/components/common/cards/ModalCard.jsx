@@ -73,7 +73,7 @@ export default function ModalCard({
             <button
               type="button"
               onClick={handleClose}
-              className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+              className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
               aria-label="Close"
               ref={closeButtonRef}
             >

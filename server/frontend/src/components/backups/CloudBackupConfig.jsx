@@ -320,13 +320,13 @@ export default function CloudBackupConfig({ onConfigured }) {
                   <label className="block text-sm font-mono text-primary/70 mb-2">
                     Bucket Name *
                   </label>
-                  <input
-                    type="text"
-                    value={bucket}
-                    onChange={(e) => setBucket(e.target.value)}
-                    className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus:outline-none focus:border-accent"
-                    placeholder="my-backup-bucket"
-                  />
+                   <input
+                     type="text"
+                     value={bucket}
+                     onChange={(e) => setBucket(e.target.value)}
+                     className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
+                     placeholder="my-backup-bucket"
+                   />
                 </div>
 
                 {selectedProvider === "s3" && (
@@ -334,13 +334,13 @@ export default function CloudBackupConfig({ onConfigured }) {
                     <label className="block text-sm font-mono text-primary/70 mb-2">
                       Region
                     </label>
-                    <input
-                      type="text"
-                      value={region}
-                      onChange={(e) => setRegion(e.target.value)}
-                      className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus:outline-none focus:border-accent"
-                      placeholder="us-east-1"
-                    />
+                       <input
+                         type="text"
+                         value={region}
+                         onChange={(e) => setRegion(e.target.value)}
+                         className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
+                         placeholder="us-east-1"
+                       />
                   </div>
                 )}
               </div>
@@ -350,13 +350,13 @@ export default function CloudBackupConfig({ onConfigured }) {
                   <label className="block text-sm font-mono text-primary/70 mb-2">
                     {selectedProvider === "s3" ? "Access Key ID *" : "Key ID *"}
                   </label>
-                  <input
-                    type="text"
-                    value={keyId}
-                    onChange={(e) => setKeyId(e.target.value)}
-                    className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus:outline-none focus:border-accent"
-                    placeholder="Enter your key ID"
-                  />
+                   <input
+                     type="text"
+                     value={keyId}
+                     onChange={(e) => setKeyId(e.target.value)}
+                     className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
+                     placeholder="Enter your key ID"
+                   />
                 </div>
 
                 <div>
@@ -364,13 +364,13 @@ export default function CloudBackupConfig({ onConfigured }) {
                     {selectedProvider === "s3" ? "Secret Access Key *" : "Key Secret *"}
                   </label>
                   <div className="relative">
-                    <input
-                      type={showSecret ? "text" : "password"}
-                      value={keySecret}
-                      onChange={(e) => setKeySecret(e.target.value)}
-                      className="w-full px-3 py-2 pr-10 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus:outline-none focus:border-accent"
-                      placeholder="Enter your secret"
-                    />
+                     <input
+                       type={showSecret ? "text" : "password"}
+                       value={keySecret}
+                       onChange={(e) => setKeySecret(e.target.value)}
+                       className="w-full px-3 py-2 pr-10 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
+                       placeholder="Enter your secret"
+                     />
                     <button
                       type="button"
                       onClick={() => setShowSecret(!showSecret)}
@@ -387,13 +387,13 @@ export default function CloudBackupConfig({ onConfigured }) {
                   <label className="block text-sm font-mono text-primary/70 mb-2">
                     Custom Endpoint (optional)
                   </label>
-                  <input
-                    type="text"
-                    value={endpoint}
-                    onChange={(e) => setEndpoint(e.target.value)}
-                    className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus:outline-none focus:border-accent"
-                    placeholder="https://s3.example.com"
-                  />
+                   <input
+                     type="text"
+                     value={endpoint}
+                     onChange={(e) => setEndpoint(e.target.value)}
+                     className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
+                     placeholder="https://s3.example.com"
+                   />
                   <p className="mt-1 text-xs text-primary/50 font-mono">
                     For non-AWS S3-compatible storage (MinIO, Wasabi, etc.)
                   </p>
@@ -459,7 +459,7 @@ export default function CloudBackupConfig({ onConfigured }) {
           <button
             onClick={handleSave}
             disabled={saving || !bucket || !keyId || !keySecret}
-            className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+             className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-accent hover:ring-2 transition-all font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? (
               <Loader2 className="w-4 h-4 animate-spin" />

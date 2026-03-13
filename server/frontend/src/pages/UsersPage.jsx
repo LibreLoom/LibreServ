@@ -166,21 +166,21 @@ export default function UsersPage() {
                       </div>
                     </Link>
                     <div className="flex items-center gap-1 shrink-0">
-                      <Link
-                        to={`/users/${user.id}`}
-                        className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
-                        aria-label={`Manage ${user.username}`}
-                      >
+                       <Link
+                         to={`/users/${user.id}`}
+                         className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:ring-2 focus:ring-primary focus:ring-offset-2"
+                         aria-label={`Manage ${user.username}`}
+                       >
                         <Settings size={18} />
                       </Link>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleDeleteClick(user.id, user.username)
-                        }
-                        className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-                        aria-label={`Delete ${user.username}`}
-                      >
+                       <button
+                         type="button"
+                         onClick={() =>
+                           handleDeleteClick(user.id, user.username)
+                         }
+                         className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
+                         aria-label={`Delete ${user.username}`}
+                       >
                         <Trash2 size={18} />
                       </button>
                     </div>
@@ -246,21 +246,21 @@ export default function UsersPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
-                          <Link
-                            to={`/users/${user.id}`}
-                            className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
-                            aria-label={`Manage ${user.username}`}
-                          >
+                           <Link
+                             to={`/users/${user.id}`}
+                             className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:ring-2 focus:ring-primary focus:ring-offset-2"
+                             aria-label={`Manage ${user.username}`}
+                           >
                             <Settings size={18} />
                           </Link>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleDeleteClick(user.id, user.username)
-                            }
-                            className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-                            aria-label={`Delete ${user.username}`}
-                          >
+                           <button
+                             type="button"
+                             onClick={() =>
+                               handleDeleteClick(user.id, user.username)
+                             }
+                             className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
+                             aria-label={`Delete ${user.username}`}
+                           >
                             <Trash2 size={18} />
                           </button>
                         </div>
@@ -276,7 +276,7 @@ export default function UsersPage() {
         {!loading && !error && users.length > 0 && (
           <Link
             to="/users/create"
-            className="fixed bottom-8 right-8 z-40 bg-secondary text-primary rounded-full p-4 motion-safe:transition-all hover:scale-110 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+             className="fixed bottom-8 right-8 z-40 bg-secondary text-primary rounded-full p-4 motion-safe:transition-all hover:scale-110 focus-visible:ring-2 focus:ring-primary focus:ring-offset-2"
             aria-label="Add new user"
           >
             <Plus size={32} aria-hidden="true" />

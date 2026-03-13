@@ -14,7 +14,7 @@ export default function ErrorBoundaryDemo() {
       <p className="mb-4">Click the button below to trigger a test error:</p>
       <button
         onClick={() => setThrowError(true)}
-        className="rounded-pill bg-primary text-secondary px-6 py-3 font-medium hover:bg-secondary hover:text-primary focus:outline-none focus-visible:outline-2 focus-visible:outline-accent"
+        className="rounded-pill bg-primary text-secondary px-6 py-3 font-medium hover:bg-secondary hover:text-primary focus-visible:ring-2 focus-visible:ring-accent"
       >
         Trigger Error
       </button>

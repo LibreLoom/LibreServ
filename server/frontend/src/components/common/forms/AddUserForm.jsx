@@ -131,21 +131,21 @@ export default function AddUserForm({ onSuccess }) {
             className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
             aria-hidden="true"
           />
-          <input
-            id="username"
-            type="text"
-            value={formData.username}
-            onChange={handleChange("username")}
-            placeholder="e.g. johndoe"
-            className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus:outline-2 focus:outline-accent focus:outline-offset-2 ${
-              errors.username
-                ? "border-accent"
-                : "border-primary/30 focus:border-accent"
-            }`}
-            disabled={loading}
-            aria-invalid={Boolean(errors.username)}
-            aria-describedby={errors.username ? "username-error" : undefined}
-          />
+            <input
+              id="username"
+              type="text"
+              value={formData.username}
+onChange={handleChange("username")}
+               placeholder="e.g. johndoe"
+               className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 ${
+                 errors.username
+                   ? "border-accent"
+                   : "border-primary/30 focus:border-accent"
+               }`}
+              disabled={loading}
+              aria-invalid={Boolean(errors.username)}
+              aria-describedby={errors.username ? "username-error" : undefined}
+            />
         </div>
         {errors.username && (
           <p id="username-error" className="text-accent text-xs mt-1 px-5">
@@ -167,15 +167,15 @@ export default function AddUserForm({ onSuccess }) {
             className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
             aria-hidden="true"
           />
-          <input
-            id="email"
-            type="email"
-            value={formData.email}
-            onChange={handleChange("email")}
-            placeholder="e.g. john@example.com"
-            className="w-full pl-11 pr-4 py-2 border-2 rounded-pill focus:outline-2 focus:outline-accent focus:outline-offset-2 border-primary/30 focus:border-accent"
-            disabled={loading}
-          />
+            <input
+              id="email"
+              type="email"
+              value={formData.email}
+              onChange={handleChange("email")}
+              placeholder="e.g. john@example.com"
+              className="w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
+              disabled={loading}
+            />
         </div>
       </div>
 
@@ -192,21 +192,21 @@ export default function AddUserForm({ onSuccess }) {
             className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
             aria-hidden="true"
           />
-          <input
-            id="password"
-            type="password"
-            value={formData.password}
-            onChange={handleChange("password")}
-            placeholder="Minimum 12 characters (letters and numbers)"
-            className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus:outline-2 focus:outline-accent focus:outline-offset-2 ${
-              errors.password
-                ? "border-accent"
-                : "border-primary/30 focus:border-accent"
-            }`}
-            disabled={loading}
-            aria-invalid={Boolean(errors.password)}
-            aria-describedby={errors.password ? "password-error" : undefined}
-          />
+            <input
+              id="password"
+              type="password"
+              value={formData.password}
+              onChange={handleChange("password")}
+              placeholder="Minimum 12 characters (letters and numbers)"
+className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 ${
+                 errors.password
+                   ? "border-accent"
+                   : "border-primary/30 focus:border-accent"
+               }`}
+              disabled={loading}
+              aria-invalid={Boolean(errors.password)}
+              aria-describedby={errors.password ? "password-error" : undefined}
+            />
         </div>
         {errors.password && (
           <p id="password-error" className="text-accent text-xs mt-1 px-5">
@@ -233,7 +233,7 @@ export default function AddUserForm({ onSuccess }) {
             id="role"
             value={formData.role}
             onChange={handleChange("role")}
-            className="w-full pl-11 pr-10 py-2 border-2 rounded-pill focus:outline-2 focus:outline-accent focus:outline-offset-2 border-primary/30 focus:border-accent bg-secondary cursor-pointer"
+            className="w-full pl-11 pr-10 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent bg-secondary cursor-pointer"
             disabled={loading}
           >
             <option value="user">User</option>

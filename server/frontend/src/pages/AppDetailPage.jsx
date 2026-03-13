@@ -68,15 +68,15 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
           <label className="text-sm text-primary/70 block mb-2">
             Type <strong className="text-primary">{appName}</strong> to confirm:
           </label>
-          <input
-            type="text"
-            value={typedName}
-            onChange={(e) => setTypedName(e.target.value)}
-            placeholder={`Type "${appName}"`}
-            className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-primary/40 focus:outline-2 focus:outline-accent focus:outline-offset-2 border-primary/30 focus:border-accent"
-            disabled={isUninstalling}
-            autoFocus
-          />
+           <input
+             type="text"
+             value={typedName}
+             onChange={(e) => setTypedName(e.target.value)}
+             placeholder={`Type "${appName}"`}
+             className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-primary/40 focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
+             disabled={isUninstalling}
+             autoFocus
+           />
         </div>
 
         <div className="flex gap-3 pt-2">

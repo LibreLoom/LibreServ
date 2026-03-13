@@ -65,13 +65,13 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
             className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
             aria-hidden="true"
           />
-          <select
-            id="role"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            className="w-full pl-11 pr-10 py-2 border-2 rounded-pill focus:outline-2 focus:outline-accent focus:outline-offset-2 border-primary/30 focus:border-accent bg-secondary cursor-pointer"
-            disabled={loading}
-          >
+            <select
+              id="role"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full pl-11 pr-10 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent bg-secondary cursor-pointer"
+              disabled={loading}
+            >
             <option value="user">User</option>
             <option value="admin">Admin</option>
           </select>
@@ -88,7 +88,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
         <button
           type="button"
           onClick={onCancel}
-          className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid font-medium text-sm focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+           className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary hover:ring-solid font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
           disabled={loading}
         >
           Cancel

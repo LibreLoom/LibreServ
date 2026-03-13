@@ -121,7 +121,7 @@ function NoAppsCard() {
 
       <Link
         to="/apps"
-        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono font-medium text-sm"
+        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-accent transition-all font-mono font-medium text-sm"
       >
         Install an App
       </Link>
