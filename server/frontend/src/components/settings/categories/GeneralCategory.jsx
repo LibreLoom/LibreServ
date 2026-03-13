@@ -1,5 +1,6 @@
 import { Server, Globe, FileText } from "lucide-react";
 import SettingsRow from "../SettingsRow";
+import Dropdown from "../../common/Dropdown";
 
 export default function GeneralCategory({ settings }) {
   return (
@@ -97,16 +98,17 @@ export default function GeneralCategory({ settings }) {
                 Verbosity of logged messages
               </div>
             </div>
-            <select
+            <Dropdown
               value={settings?.logging?.level || "info"}
-              onChange={(e) => settings?.onLoggingChange?.(e.target.value)}
-              className="px-4 py-2 border border-primary/20 rounded-pill bg-primary text-secondary focus:outline-none focus:ring-2 focus:ring-accent text-sm transition-all duration-200"
-            >
-              <option value="debug">Debug</option>
-              <option value="info">Info</option>
-              <option value="warn">Warn</option>
-              <option value="error">Error</option>
-            </select>
+              onChange={(val) => settings?.onLoggingChange?.(val)}
+              width={120}
+              options={[
+                { value: "debug", label: "Debug" },
+                { value: "info", label: "Info" },
+                { value: "warn", label: "Warn" },
+                { value: "error", label: "Error" },
+              ]}
+            />
           </div>
           <div className="mt-3 pt-3 border-t border-primary/10">
             <div className="text-sm text-accent">Log Path</div>
