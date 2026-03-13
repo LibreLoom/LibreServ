@@ -6,6 +6,7 @@ import HeaderCard from "../components/common/cards/HeaderCard";
 import AppCards from "../components/common/cards/AppCards";
 import DropdownCard from "../components/common/cards/DropdownCard";
 import RefreshDropdown, { REFRESH_INTERVALS } from "../components/common/RefreshDropdown";
+import WelcomeCard from "../components/onboarding/WelcomeCard";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
 import api from "../lib/api";
@@ -84,7 +85,6 @@ export default function Dashboard() {
   const [stressLoaded, setStressLoaded] = useState(false);
   const [stressBreakdown, setStressBreakdown] = useState([]);
   const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
   // Fetch user data
   useEffect(() => {
@@ -232,7 +232,7 @@ export default function Dashboard() {
   const refreshControl = (
     <div className="flex items-center gap-2 text-xs md:text-sm text-secondary/70">
       <RefreshCw size={14} className="text-accent" aria-hidden="true" />
-      <RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} onOpenChange={setIsDropdownOpen} />
+      <RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} />
     </div>
   );
 
@@ -254,6 +254,11 @@ export default function Dashboard() {
         ></HeaderCard>
       </header>
 
+      {/* Welcome card for first-time users */}
+      <section className="px-8 mb-10">
+        <WelcomeCard />
+      </section>
+
       {/* Main content */}
       <section
         className="flex flex-col md:flex-row gap-8 px-8 w-full"
@@ -272,7 +277,6 @@ export default function Dashboard() {
             value={stressLoaded ? Math.round(stressIndex * 100) + "%" : "Loading..."}
             breakdownItems={stressBreakdown}
             Icon={Server}
-            forceHover={isDropdownOpen}
           />
         </div>
 
