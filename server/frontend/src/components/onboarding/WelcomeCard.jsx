@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Sparkles, Download, Shield, BookOpen, X, CircleCheck } from "lucide-react";
 import Card from "../common/cards/Card";
@@ -32,23 +32,40 @@ const quickActions = [
 export default function WelcomeCard() {
   const [visible, setVisible] = useState(() => !localStorage.getItem(STORAGE_KEY));
   const [hiding, setHiding] = useState(false);
+  const [contentHeight, setContentHeight] = useState(null);
+  const contentRef = useRef(null);
   const [dontShow, setDontShow] = useState(false);
+
+  useEffect(() => {
+    if (contentRef.current) {
+      setContentHeight(contentRef.current.scrollHeight);
+    }
+  }, []);
 
   function handleDismiss() {
     if (dontShow) {
       localStorage.setItem(STORAGE_KEY, "true");
     }
     setHiding(true);
-    setTimeout(() => setVisible(false), 300);
+  }
+
+  function handleTransitionEnd(e) {
+    if (hiding && e.propertyName === "maxHeight") {
+      setVisible(false);
+    }
   }
 
   if (!visible) return null;
 
+  const maxH = hiding ? 0 : (contentHeight ?? 600);
+
   return (
     <div
+      onTransitionEnd={handleTransitionEnd}
       className="overflow-hidden transition-all duration-300 ease-in-out"
-      style={{ maxHeight: hiding ? 0 : 600, opacity: hiding ? 0 : 1, marginBottom: hiding ? 0 : undefined }}
+      style={{ maxHeight: maxH, opacity: hiding ? 0 : 1 }}
     >
+      <div ref={contentRef}>
     <Card className="border-accent/40 relative">
       <button
         onClick={handleDismiss}
@@ -106,6 +123,7 @@ export default function WelcomeCard() {
         </span>
       </label>
     </Card>
+      </div>
     </div>
   );
 }
