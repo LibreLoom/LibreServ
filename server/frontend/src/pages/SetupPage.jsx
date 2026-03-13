@@ -121,7 +121,7 @@ export default function SetupPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-primary">
         <div className="max-w-md w-full mx-4">
-          <div className="bg-secondary rounded-3xl p-8 outline outline-2 outline-accent">
+           <div className="bg-secondary rounded-3xl p-8 ring-2 ring-accent">
             <AlertCircle className="w-16 h-16 text-accent mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-center text-primary mb-2">Setup Error</h1>
             <p className="text-center text-primary/80 mb-4">{error}</p>
@@ -141,7 +141,7 @@ export default function SetupPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-primary">
         <div className="max-w-md w-full mx-4">
-          <div className="bg-secondary rounded-3xl p-8 outline outline-2 outline-accent text-center">
+           <div className="bg-secondary rounded-3xl p-8 ring-2 ring-accent text-center">
             <CheckCircle2 className="w-16 h-16 text-accent mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-primary mb-2">Setup Complete!</h1>
             <p className="text-primary/80 mb-4">Redirecting you to login...</p>
@@ -155,7 +155,7 @@ export default function SetupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-primary p-4">
       <div className="max-w-2xl w-full">
-        <div className="bg-secondary rounded-3xl p-8 outline outline-2 outline-accent">
+        <div className="bg-secondary rounded-3xl p-8 ring-2 ring-accent">
           {/* Header */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-primary mb-2">Welcome to LibreServ</h1>
@@ -179,76 +179,76 @@ export default function SetupPage() {
 
           {/* Setup form */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Username */}
-            <div>
-              <label
-                htmlFor="admin_username"
-                className="block text-sm font-semibold text-primary mb-2"
-              >
-                Admin Username
-              </label>
-              <input
-                type="text"
-                id="admin_username"
-                name="admin_username"
-                value={formData.admin_username}
-                onChange={handleChange}
-                required
-                autoComplete="username"
-                className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl outline outline-2 outline-primary/50 focus:outline-accent focus:outline-4 transition-all"
-                placeholder="admin"
-                disabled={step === "creating"}
-              />
-              <p className="text-xs text-primary/70 mt-1">
-                This will be your login username
-              </p>
-            </div>
+             {/* Username */}
+             <div>
+               <label
+                 htmlFor="admin_username"
+                 className="block text-sm font-semibold text-primary mb-2"
+               >
+                 Admin Username
+               </label>
+                <input
+                  type="text"
+                  id="admin_username"
+                  name="admin_username"
+                  value={formData.admin_username}
+                  onChange={handleChange}
+                  required
+                  autoComplete="username"
+                  className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl ring-2 ring-primary/50 focus-visible:ring-accent focus:ring-4 transition-all"
+                  placeholder="admin"
+                  disabled={step === "creating"}
+                />
+               <p className="text-xs text-primary/70 mt-1">
+                 This will be your login username
+               </p>
+             </div>
 
-            {/* Email */}
-            <div>
-              <label
-                htmlFor="admin_email"
-                className="block text-sm font-semibold text-primary mb-2"
-              >
-                Admin Email
-              </label>
-              <input
-                type="email"
-                id="admin_email"
-                name="admin_email"
-                value={formData.admin_email}
-                onChange={handleChange}
-                required
-                autoComplete="email"
-                className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl outline outline-2 outline-primary/50 focus:outline-accent focus:outline-4 transition-all"
-                placeholder="admin@example.com"
-                disabled={step === "creating"}
-              />
-              <p className="text-xs text-primary/70 mt-1">
-                Used for notifications and account recovery
-              </p>
-            </div>
+             {/* Email */}
+             <div>
+               <label
+                 htmlFor="admin_email"
+                 className="block text-sm font-semibold text-primary mb-2"
+               >
+                 Admin Email
+               </label>
+                <input
+                  type="email"
+                  id="admin_email"
+                  name="admin_email"
+                  value={formData.admin_email}
+                  onChange={handleChange}
+                  required
+                  autoComplete="email"
+                  className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl ring-2 ring-primary/50 focus-visible:ring-accent focus:ring-4 transition-all"
+                  placeholder="admin@example.com"
+                  disabled={step === "creating"}
+                />
+               <p className="text-xs text-primary/70 mt-1">
+                 Used for notifications and account recovery
+               </p>
+             </div>
 
-            {/* Password */}
-            <div>
-              <label
-                htmlFor="admin_password"
-                className="block text-sm font-semibold text-primary mb-2"
-              >
-                Admin Password
-              </label>
-              <input
-                type="password"
-                id="admin_password"
-                name="admin_password"
-                value={formData.admin_password}
-                onChange={handleChange}
-                required
-                autoComplete="new-password"
-                className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl outline outline-2 outline-primary/50 focus:outline-accent focus:outline-4 transition-all"
-                placeholder="Enter a strong password"
-                disabled={step === "creating"}
-              />
+             {/* Password */}
+             <div>
+               <label
+                 htmlFor="admin_password"
+                 className="block text-sm font-semibold text-primary mb-2"
+               >
+                 Admin Password
+               </label>
+                <input
+                  type="password"
+                  id="admin_password"
+                  name="admin_password"
+                  value={formData.admin_password}
+                  onChange={handleChange}
+                  required
+                  autoComplete="new-password"
+                  className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl ring-2 ring-primary/50 focus-visible:ring-accent focus:ring-4 transition-all"
+                  placeholder="Enter a strong password"
+                  disabled={step === "creating"}
+                />
 
               {/* Password strength indicator */}
               {passwordStrength && (

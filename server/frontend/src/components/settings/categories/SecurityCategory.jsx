@@ -66,14 +66,14 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         </div>
 
         <SettingsRow label="Enable Notifications" description="Receive security alerts">
-          <button
-            onClick={() => handleToggle("notifications_enabled")}
-            className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-              settings?.notifications_enabled ? "bg-accent" : "bg-primary/20"
-            }`}
-            role="switch"
-            aria-checked={settings?.notifications_enabled}
-          >
+           <button
+             onClick={() => handleToggle("notifications_enabled")}
+             className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
+               settings?.notifications_enabled ? "bg-accent" : "bg-primary/20"
+             }`}
+             role="switch"
+             aria-checked={settings?.notifications_enabled}
+           >
             <span
               className={`inline-block h-5 w-5 transform rounded-full bg-primary transition-all duration-300 ease-out ${
                 settings?.notifications_enabled ? "translate-x-6" : "translate-x-1"

@@ -33,12 +33,12 @@ const navButtonClasses =
   "aria-[current=page]:text-secondary " +
   "hover:aria-[current=page]:text-primary " +
   "hover:aria-[current=page]:bg-secondary " +
-  "hover:aria-[current=page]:outline-2 " +
-  "hover:aria-[current=page]:outline-primary " +
-  "hover:aria-[current=page]:outline-solid " +
-  "focus-visible:outline-2 " +
-  "focus-visible:outline-accent " +
-  "focus-visible:outline-offset-2";
+  "hover:aria-[current=page]:ring-2 " +
+  "hover:aria-[current=page]:ring-accent " +
+  "hover:aria-[current=page]:ring-offset-2 " +
+  "focus-visible:ring-2 " +
+  "focus-visible:ring-accent " +
+  "focus-visible:ring-offset-2";
 
 const menuItemClasses = `flex items-center gap-2 px-3 py-2 rounded-pill ${TRANSITION.base}`;
 
@@ -379,7 +379,7 @@ export default function Navbar() {
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
           aria-label="Primary"
         >
-          <div className="bg-secondary text-primary rounded-pill px-3 py-3 outline-2 outline-accent flex items-center gap-6">
+           <div className="bg-secondary text-primary rounded-pill px-3 py-3 ring-2 ring-accent flex items-center gap-6">
             <span className="font-mono px-3 py-1.5 flex items-center">
               LibreServ
             </span>
@@ -401,7 +401,7 @@ export default function Navbar() {
                 className={`absolute bottom-0 right-0 pb-16 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto ${TRANSITION.full}`}
               >
                 <div
-                  className={`bg-secondary rounded-2xl outline-2 outline-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 ${TRANSITION.full}`}
+                  className={`bg-secondary rounded-2xl ring-2 ring-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 ${TRANSITION.full}`}
                 >
                   <NavLink
                     to="/users"
@@ -505,10 +505,10 @@ export default function Navbar() {
         role="dialog"
         aria-label="Primary navigation"
       >
-        <nav
-          className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-3xl justify-start outline-2 outline-accent"
-          aria-label="Primary"
-        >
+         <nav
+           className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-3xl justify-start ring-2 ring-accent"
+           aria-label="Primary"
+         >
           <div className="p-2.5 gap-1 flex flex-col">
             {navButtons.map((item, index) => (
               <React.Fragment key={`mobileNav-${item.to}`}>

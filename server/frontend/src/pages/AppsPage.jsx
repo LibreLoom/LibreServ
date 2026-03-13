@@ -68,7 +68,7 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
       {!isInstalled && (
         <button
           onClick={() => onInstall(app.id)}
-          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono font-medium text-sm"
+          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-accent hover:ring-2 transition-all font-mono font-medium text-sm"
         >
           <Download size={16} />
           Install
@@ -199,13 +199,13 @@ export default function AppsPage() {
             size={18}
             className="absolute left-4 top-1/2 -translate-y-1/2 text-secondary/50"
           />
-          <input
-            type="text"
-            placeholder="Search apps..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-11 pr-4 py-2 border-2 border-secondary/30 rounded-pill bg-primary text-secondary focus:outline-2 focus:outline-accent focus:outline-offset-2 transition-all duration-300"
-          />
+           <input
+             type="text"
+             placeholder="Search apps..."
+             value={searchQuery}
+             onChange={(e) => setSearchQuery(e.target.value)}
+             className="w-full pl-11 pr-4 py-2 border-2 border-secondary/30 rounded-pill bg-primary text-secondary focus:ring-2 focus:ring-accent focus:ring-offset-2 transition-all duration-300"
+           />
         </div>
 
         {categories.length > 1 && (

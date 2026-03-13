@@ -26,12 +26,12 @@ function ConfigFieldRenderer({ field, value, onChange, disabled }) {
     onChange(newValue);
   };
 
-  const inputBaseClasses = `
-    w-full px-4 py-2 border-2 rounded-large-element
-    bg-primary text-secondary
-    focus:outline-2 focus:outline-secondary focus:outline-offset-2
-    motion-safe:transition-all
-    disabled:opacity-50 disabled:cursor-not-allowed
+const inputBaseClasses = `
+      w-full px-4 py-2 border-2 rounded-large-element
+      bg-primary text-secondary
+      focus:ring-2 focus:ring-accent focus:ring-offset-2
+      motion-safe:transition-all
+      disabled:opacity-50 disabled:cursor-not-allowed
   `;
 
   const errorClasses = localError ? "border-secondary" : "border-secondary/30 focus:border-secondary";
@@ -69,17 +69,17 @@ function ConfigFieldRenderer({ field, value, onChange, disabled }) {
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               id={field.name}
-              type="checkbox"
-              checked={value ?? field.default ?? false}
-              onChange={(e) => handleChange(e.target.checked)}
-              disabled={disabled}
-              className="
-                h-5 w-5 rounded border-2 border-secondary/30
-                bg-primary text-secondary
-                focus:outline-2 focus:outline-secondary focus:outline-offset-2
-                motion-safe:transition-all
-                disabled:opacity-50 disabled:cursor-not-allowed
-              "
+               type="checkbox"
+               checked={value ?? field.default ?? false}
+               onChange={(e) => handleChange(e.target.checked)}
+               disabled={disabled}
+                className="
+                  h-5 w-5 rounded border-2 border-secondary/30
+                  bg-primary text-secondary
+                  focus-visible:ring-2 focus:ring-accent focus:ring-offset-2
+                  motion-safe:transition-all
+                  disabled:opacity-50 disabled:cursor-not-allowed
+                "
             />
             <span className="text-sm text-secondary/70">{field.description}</span>
           </label>

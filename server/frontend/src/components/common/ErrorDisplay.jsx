@@ -1,14 +1,14 @@
 import { X, AlertCircle, AlertTriangle, Info } from "lucide-react";
 
 const primaryBtn =
-  "inline-flex items-center gap-2 rounded-pill bg-secondary text-primary px-4 py-2 text-sm font-medium " +
-  "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent " +
-  "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+"inline-flex items-center gap-2 rounded-pill bg-secondary text-primary px-4 py-2 text-sm font-medium " +
+   "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent " +
+   "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 
 const secondaryBtn =
-  "inline-flex items-center gap-2 rounded-pill bg-transparent text-secondary px-4 py-2 text-sm font-medium outline-2 outline-secondary/30 " +
-  "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-0 " +
-  "focus:outline-none focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2";
+  "inline-flex items-center gap-2 rounded-pill bg-transparent text-secondary px-4 py-2 text-sm font-medium " +
+"motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0 " +
+   "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 
 export function ErrorDisplay({
   message,
@@ -52,7 +52,7 @@ export function ErrorDisplay({
         {dismissible && onDismiss && (
           <button
             onClick={onDismiss}
-            className={`${style.iconColor} hover:bg-primary/20 motion-safe:transition-all shrink-0 rounded-pill p-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2`}
+            className={`${style.iconColor} hover:bg-primary/20 motion-safe:transition-all shrink-0 rounded-pill p-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2`}
             aria-label="Dismiss error"
           >
             <X className="w-4 h-4" />

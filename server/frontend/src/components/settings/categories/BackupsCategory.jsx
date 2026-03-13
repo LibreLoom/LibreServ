@@ -262,14 +262,14 @@ export default function BackupsCategory() {
         ) : recentBackups.length === 0 ? (
           <div className="px-4 py-6 text-center">
             <DatabaseBackup className="w-10 h-10 text-primary/30 mx-auto mb-2" />
-            <p className="text-sm text-accent">No backups yet</p>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono text-sm"
-            >
-              <Plus size={16} />
-              Create Backup
-            </button>
+             <p className="text-sm text-accent">No backups yet</p>
+             <button
+               onClick={() => setShowCreateModal(true)}
+               className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
+             >
+               <Plus size={16} />
+               Create Backup
+             </button>
           </div>
         ) : (
           <div className="divide-y divide-primary/10">
@@ -367,15 +367,15 @@ export default function BackupsCategory() {
         {!showCloudConfig && (
           <div className="px-4 py-6 text-center">
             <Cloud className="w-8 h-8 text-primary/30 mx-auto mb-2" />
-            <p className="text-sm text-accent">
-              Configure cloud backup for off-site storage
-            </p>
-            <button
-              onClick={() => setShowCloudConfig(true)}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono text-sm"
-            >
-              Configure Cloud Backup
-            </button>
+             <p className="text-sm text-accent">
+               Configure cloud backup for off-site storage
+             </p>
+             <button
+               onClick={() => setShowCloudConfig(true)}
+               className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
+             >
+               Configure Cloud Backup
+             </button>
           </div>
         )}
       </div>
@@ -408,7 +408,7 @@ export default function BackupsCategory() {
                 <select
                   value={selectedApp}
                   onChange={(e) => setSelectedApp(e.target.value)}
-                  className="w-full px-3 py-2 bg-primary/10 border border-primary/20 rounded-pill font-mono text-sm text-primary focus:outline-none focus:border-accent"
+                   className="w-full px-3 py-2 bg-primary/10 border border-primary/20 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
                 >
                   <option value="">Select an app...</option>
                   {apps.map((app) => (
@@ -429,11 +429,11 @@ export default function BackupsCategory() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleCreateBackup}
-                disabled={!selectedApp || creating}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:outline-accent hover:ring-2 transition-all font-mono text-sm disabled:opacity-50"
-              >
+               <button
+                 onClick={handleCreateBackup}
+                 disabled={!selectedApp || creating}
+                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm disabled:opacity-50"
+               >
                 {creating ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
@@ -485,11 +485,11 @@ export default function BackupsCategory() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleRestoreBackup}
-                disabled={restoring}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-yellow-500 text-primary hover:outline-yellow-500 hover:ring-2 transition-all font-mono text-sm"
-              >
+               <button
+                 onClick={handleRestoreBackup}
+                 disabled={restoring}
+                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-yellow-500 text-primary hover:ring-yellow-500 hover:ring-2 transition-all font-mono text-sm"
+               >
                 {restoring ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
@@ -540,11 +540,11 @@ export default function BackupsCategory() {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleDeleteBackup}
-                disabled={deleting}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-red-500 text-primary hover:outline-red-500 hover:ring-2 transition-all font-mono text-sm"
-              >
+               <button
+                 onClick={handleDeleteBackup}
+                 disabled={deleting}
+                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-red-500 text-primary hover:ring-red-500 hover:ring-2 transition-all font-mono text-sm"
+               >
                 {deleting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (

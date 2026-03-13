@@ -112,7 +112,7 @@ export default function Login() {
       tabIndex={-1}
     >
       {/* Centered login card for quick access from any state. */}
-      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element outline-2 outline-accent pop-in p-8">
+       <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8">
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
         </span>
@@ -137,7 +137,7 @@ export default function Login() {
             placeholder="e.g. admin"
             id="username"
             onChange={(e) => setUsername(e.target.value)}
-            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:outline-2 focus:outline-accent focus:outline-offset-2"
+             className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
             name="username"
             autoComplete="username"
             aria-invalid={Boolean(errorStatus)}
@@ -155,7 +155,7 @@ export default function Login() {
             id="password"
             onChange={(e) => setPassword(e.target.value)}
             type="password"
-            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:outline-2 focus:outline-accent focus:outline-offset-2"
+             className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:ring-2 focus:ring-accent focus:ring-offset-2"
             name="password"
             autoComplete="current-password"
             aria-invalid={Boolean(errorStatus)}
@@ -163,7 +163,7 @@ export default function Login() {
           ></input>
           <button
             type="submit"
-            className={`bg-secondary text-primary rounded-pill p-2 ${loading ? "opacity-50" : ""} mt-6 transition-all duration-300 hover:bg-primary hover:text-secondary hover:outline-accent hover:ring-2`}
+            className={`bg-secondary text-primary rounded-pill p-2 ${loading ? "opacity-50" : ""} mt-6 transition-all duration-300 hover:bg-primary hover:text-secondary hover:ring-accent hover:ring-2`}
             disabled={loading}
           >
             {loading ? "Loading..." : "Login"}

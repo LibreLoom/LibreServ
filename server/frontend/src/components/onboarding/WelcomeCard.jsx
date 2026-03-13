@@ -91,7 +91,7 @@ export default function WelcomeCard() {
           <Link
             key={to}
             to={to}
-            className="group flex flex-col items-center text-center p-4 rounded-large-element bg-primary/10 hover:bg-primary/20 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+            className="group flex flex-col items-center text-center p-4 rounded-large-element bg-primary/10 hover:bg-primary/20 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
           >
             <Icon
               className={`w-8 h-8 mb-2 ${color} group-hover:scale-110 transition-transform`}

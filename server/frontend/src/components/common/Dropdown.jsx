@@ -105,7 +105,7 @@ export default function Dropdown({
         ref={buttonRef}
         type="button"
         onClick={handleToggle}
-        className="inline-flex flex-col items-start gap-0 px-0 py-0 bg-transparent text-secondary text-xs font-medium motion-safe:transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary"
+        className="inline-flex flex-col items-start gap-0 px-0 py-0 bg-transparent text-secondary text-xs font-medium motion-safe:transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary"
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label={label ? `${label}: ${selectedOption?.label || "select"}` : undefined}

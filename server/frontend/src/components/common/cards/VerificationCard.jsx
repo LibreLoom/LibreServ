@@ -99,13 +99,13 @@ export default function VerificationCard({
       >
         <Card className={`relative ${isClosing ? "pop-out" : ""}`}>
           {/* Close button */}
-          <button
-            type="button"
-            onClick={handleClose}
-            className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-            aria-label="Close"
-            ref={closeButtonRef}
-          >
+             <button
+               type="button"
+               onClick={handleClose}
+               className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+               aria-label="Close"
+               ref={closeButtonRef}
+             >
             <X size={20} aria-hidden="true" />
           </button>
 
@@ -134,11 +134,11 @@ export default function VerificationCard({
 
           {/* Action buttons */}
           <div className="flex gap-3">
-            <button
-              type="button"
-              onClick={handleClose}
-              className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:outline-2 hover:outline-primary hover:outline-solid font-medium text-sm focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
-            >
+             <button
+               type="button"
+               onClick={handleClose}
+               className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+             >
               {cancelLabel}
             </button>
             <button
