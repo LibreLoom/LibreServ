@@ -121,7 +121,7 @@ function NoAppsCard() {
 
       <Link
         to="/apps"
-        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-accent transition-all font-mono font-medium text-sm"
+        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary hover:ring-2 hover:ring-accent transition-all font-mono font-medium text-sm"
       >
         Install an App
       </Link>
@@ -173,8 +173,24 @@ export default function AppCards({ refreshInterval = 30000 }) {
     );
   }
 
-  if (error || apps.length === 0) {
+  if (apps.length === 0) {
     return <NoAppsCard />;
+  }
+
+  if (error) {
+    return (
+      <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center">
+            <Package size={22} className="text-error" />
+          </div>
+          <div className="text-left">
+            <div className="font-mono font-normal text-error">Failed to load apps</div>
+            <div className="font-mono font-normal text-sm text-primary/50">{error}</div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

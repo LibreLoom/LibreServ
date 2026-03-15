@@ -44,14 +44,14 @@ export default function DropdownCard({
         >
           <ChevronDown
             size={16}
-            className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : "rotate-0"}`}
+            className={`motion-safe:transition-transform duration-300 ${isOpen ? "rotate-180" : "rotate-0"}`}
             aria-hidden="true"
           />
           <span>{isOpen ? "Hide breakdown" : "Show breakdown"}</span>
         </button>
         <div
           id={breakdownId}
-          className={`overflow-y-hidden overflow-x-visible motion-safe:transition-all duration-300 ease-out ${
+          className={`overflow-y-hidden overflow-x-visible motion-safe:transition-all duration-500 ease-out ${
             isOpen ? "max-h-96" : "max-h-0"
           }`}
           aria-hidden={!isOpen}
