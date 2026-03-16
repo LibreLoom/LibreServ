@@ -106,8 +106,8 @@ export default function Login() {
     }
   }
   return (
-    <main
-      className="fixed inset-0 grid place-items-center bg-primary"
+      <main
+      className="fixed inset-0 grid place-items-center bg-primary px-4"
       id="main-content"
       tabIndex={-1}
     >
@@ -163,10 +163,20 @@ export default function Login() {
           ></input>
           <button
             type="submit"
-            className={`bg-secondary text-primary rounded-pill p-2 ${loading ? "opacity-50" : ""} mt-6 transition-all duration-300 hover:bg-primary hover:text-secondary hover:ring-accent hover:ring-2`}
+            className={`bg-secondary text-primary rounded-pill p-2 mt-6 transition-all duration-300 ease-out hover:bg-primary hover:text-secondary hover:ring-accent hover:ring-2 disabled:bg-accent disabled:cursor-not-allowed disabled:ring-0`}
             disabled={loading}
+            aria-pressed={loading}
           >
-            {loading ? "Loading..." : "Login"}
+            <span className="flex items-center justify-center">
+              <span className="sr-only">{loading ? "Logging in, please wait" : ""}</span>
+              <span
+                className={`overflow-hidden transition-all duration-300 ease-out ${loading ? "w-5 mr-1" : "w-0"}`}
+                aria-hidden="true"
+              >
+                <span className="inline-block w-4 h-4 border-2 border-primary border-t-primary rounded-full animate-spin"></span>
+              </span>
+              <span>Login</span>
+            </span>
           </button>
           <div
             className={`text-accent overflow-hidden transition-all duration-300 ease-in-out ${errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0"}`}

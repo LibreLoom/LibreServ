@@ -26,7 +26,7 @@ func (s *Server) setupRoutes() {
 	securityHandler := handlers.NewSecurityHandler(s.securityService)
 	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService)
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient)
-	backupHandler := handlers.NewBackupHandlers(s.backupService)
+	backupHandler := handlers.NewBackupHandlers(s.backupService, s.cloudService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
 	settingsHandler := handlers.NewSettingsHandler()
 	csrfSecret := config.Get().Auth.CSRFSecret
@@ -245,7 +245,7 @@ func (s *Server) setupRoutes() {
 
 				// Cloud backup routes
 				if s.cloudService != nil {
-					cloudHandler := handlers.NewCloudBackupHandlers(s.cloudService)
+					cloudHandler := handlers.NewCloudBackupHandlers(s.cloudService, s.backupService)
 					r.Route("/cloud", func(r chi.Router) {
 						r.Get("/providers", cloudHandler.ListProviders)
 						r.Get("/config", cloudHandler.GetConfig)

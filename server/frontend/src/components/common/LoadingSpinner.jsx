@@ -1,6 +1,9 @@
 /**
  * LoadingSpinner component
  * Displays a loading spinner with configurable size
+ * 
+ * @deprecated Use TypewriterLoader instead for a more branded,
+ * Simplex Mono-aligned loading experience.
  */
 
 export default function LoadingSpinner({ size = "md" }) {

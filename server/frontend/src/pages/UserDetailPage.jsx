@@ -154,7 +154,7 @@ export default function UserDetailPage() {
       </header>
 
       {loading && showLoading && (
-        <div className="fixed inset-0 flex items-center justify-center">
+        <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
           <Card className="w-[70vw] sm:w-[20vw]">
             <div className="my-5 text-center" role="status" aria-live="polite">
               <p>Loading user...</p>
@@ -164,7 +164,7 @@ export default function UserDetailPage() {
       )}
 
       {error && (
-        <div className="fixed inset-0 flex items-center justify-center">
+        <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
           <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
             <div className="my-5 text-center" role="status" aria-live="polite">
               <p>Error: {error}</p>

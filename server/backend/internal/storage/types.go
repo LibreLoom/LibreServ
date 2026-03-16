@@ -16,13 +16,14 @@ const (
 
 // Backup represents a backup record
 type Backup struct {
-	ID        string     `json:"id"`
-	AppID     string     `json:"app_id,omitempty"`
-	Type      BackupType `json:"type"`
-	Path      string     `json:"path"`
-	Size      int64      `json:"size"`
-	CreatedAt time.Time  `json:"created_at"`
-	Checksum  string     `json:"checksum,omitempty"`
+	ID          string                 `json:"id"`
+	AppID       string                 `json:"app_id,omitempty"`
+	Type        BackupType             `json:"type"`
+	Path        string                 `json:"path"`
+	Size        int64                  `json:"size"`
+	CreatedAt   time.Time              `json:"created_at"`
+	Checksum    string                 `json:"checksum,omitempty"`
+	CloudStatus map[string]interface{} `json:"cloud_status,omitempty"`
 }
 
 // BackupOptions configures how a backup is created

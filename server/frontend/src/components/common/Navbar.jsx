@@ -10,7 +10,7 @@ import {
 	Shield,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 
 const TRANSITION = {
   duration: "duration-200",
@@ -51,46 +51,25 @@ const navButtons = [
 	{ to: "/help", icon: LifeBuoy, label: "Help" },
 ];
 
-const FAB_SIZE = 64;
-const EDGE_PADDING = 24;
-const SNAP_THRESHOLD = 80;
+const FAB_SIZE = 60;
 
 function getSnapPosition(x, y, windowWidth, windowHeight) {
-  const centerX = windowWidth / 2 - FAB_SIZE / 2;
-  const centerY = windowHeight / 2 - FAB_SIZE / 2;
-  const minX = EDGE_PADDING;
-  const maxX = windowWidth - FAB_SIZE - EDGE_PADDING;
-  const minY = EDGE_PADDING;
-  const maxY = windowHeight - FAB_SIZE - EDGE_PADDING;
-
-  const distToLeft = x;
-  const distToRight = windowWidth - x - FAB_SIZE;
-  const distToTop = y;
-  const distToBottom = windowHeight - y - FAB_SIZE;
-
-  const minHorizontal = Math.min(distToLeft, distToRight);
-  const minVertical = Math.min(distToTop, distToBottom);
+  const snapMargin = 20;
+  const maxX = windowWidth - FAB_SIZE - snapMargin;
+  const maxY = windowHeight - FAB_SIZE - snapMargin;
 
   let targetX, targetY;
 
-  if (minHorizontal < minVertical) {
-    targetX = distToLeft < distToRight ? minX : maxX;
-    if (y < SNAP_THRESHOLD + minY) {
-      targetY = minY;
-    } else if (y > maxY - SNAP_THRESHOLD) {
-      targetY = maxY;
-    } else {
-      targetY = centerY;
-    }
+  if (x < windowWidth / 2) {
+    targetX = snapMargin;
   } else {
-    targetY = distToTop < distToBottom ? minY : maxY;
-    if (x < SNAP_THRESHOLD + minX) {
-      targetX = minX;
-    } else if (x > maxX - SNAP_THRESHOLD) {
-      targetX = maxX;
-    } else {
-      targetX = centerX;
-    }
+    targetX = maxX;
+  }
+
+  if (y < windowHeight / 2) {
+    targetY = snapMargin;
+  } else {
+    targetY = maxY;
   }
 
   return { x: targetX, y: targetY };
@@ -104,206 +83,189 @@ export default function Navbar() {
   const dialogRef = useRef(null);
   const mobileMenuId = "mobile-nav-menu";
 
-  const [fabPosition, setFabPosition] = useState(() => {
-    const defaultPos = {
-      x:
-        typeof window !== "undefined"
-          ? window.innerWidth - FAB_SIZE - EDGE_PADDING
-          : 0,
-      y:
-        typeof window !== "undefined"
-          ? window.innerHeight - FAB_SIZE - EDGE_PADDING
-          : 0,
-    };
-
-    try {
-      const saved = localStorage.getItem("fabPosition");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (typeof parsed.x === "number" && typeof parsed.y === "number") {
-          if (typeof window !== "undefined") {
-            return getSnapPosition(
-              parsed.x,
-              parsed.y,
-              window.innerWidth,
-              window.innerHeight,
-            );
-          }
-          return parsed;
-        }
-      }
-    } catch {
-      // Ignore localStorage errors
-    }
-    return defaultPos;
-  });
+  const [position, setPosition] = useState({ x: null, y: null });
   const [isDragging, setIsDragging] = useState(false);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const dragStartRef = useRef({ x: 0, y: 0, fabX: 0, fabY: 0 });
-  const velocityRef = useRef({ x: 0, y: 0 });
-  const lastPosRef = useRef({ x: 0, y: 0, time: 0 });
-  const animationRef = useRef(null);
-  const hasDraggedRef = useRef(false);
-  const fabPositionRef = useRef(fabPosition);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [hasMoved, setHasMoved] = useState(false);
+  const animationFrameRef = useRef(null);
+  const pendingPositionRef = useRef(null);
 
   useEffect(() => {
-    fabPositionRef.current = fabPosition;
-  }, [fabPosition]);
+    const savedPosition = localStorage.getItem("hamburgerPosition");
+    if (savedPosition) {
+      const parsed = JSON.parse(savedPosition);
+      const windowWidth = window.innerWidth;
+      const windowHeight = window.innerHeight;
+
+      if (
+        parsed.x !== null &&
+        parsed.y !== null &&
+        parsed.x >= 0 &&
+        parsed.x <= windowWidth - FAB_SIZE &&
+        parsed.y >= 0 &&
+        parsed.y <= windowHeight - FAB_SIZE
+      ) {
+        setPosition(parsed);
+      } else {
+        localStorage.removeItem("hamburgerPosition");
+        setPosition({ x: null, y: null });
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
-      setFabPosition((prev) => {
-        if (prev.x === null) return prev;
-        const snap = getSnapPosition(
-          prev.x,
-          prev.y,
-          window.innerWidth,
-          window.innerHeight,
-        );
-        return snap;
-      });
+      if (window.innerWidth >= 1280) {
+        setIsMobileMenuOpen(false);
+      }
+
+      if (position.x !== null && position.y !== null) {
+        const windowWidth = window.innerWidth;
+        const windowHeight = window.innerHeight;
+
+        if (
+          position.x < 0 ||
+          position.x > windowWidth - FAB_SIZE ||
+          position.y < 0 ||
+          position.y > windowHeight - FAB_SIZE
+        ) {
+          localStorage.removeItem("hamburgerPosition");
+          setPosition({ x: null, y: null });
+        }
+      }
     };
+
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  }, [position]);
 
-  const handleDragStart = useCallback((clientX, clientY) => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
+  const handleDragStart = (e) => {
+    if (window.innerWidth >= 1280) return;
+
+    e.preventDefault();
+
+    const clientX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
+    const clientY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
+
+    let currentX = position.x;
+    let currentY = position.y;
+
+    if (currentX === null || currentY === null) {
+      const rect = menuButtonRef.current?.getBoundingClientRect();
+      if (rect) {
+        currentX = rect.left;
+        currentY = rect.top;
+      }
     }
+
     setIsDragging(true);
-    setIsAnimating(false);
-    dragStartRef.current = {
-      x: clientX,
-      y: clientY,
-      fabX: fabPositionRef.current.x,
-      fabY: fabPositionRef.current.y,
-    };
-    lastPosRef.current = { x: clientX, y: clientY, time: Date.now() };
-    velocityRef.current = { x: 0, y: 0 };
-    hasDraggedRef.current = false;
-  }, []);
-
-  const handleDragMove = useCallback((clientX, clientY) => {
-    setFabPosition(() => {
-      const now = Date.now();
-      const dt = now - lastPosRef.current.time;
-      if (dt > 0) {
-        velocityRef.current = {
-          x: ((clientX - lastPosRef.current.x) / dt) * 16,
-          y: ((clientY - lastPosRef.current.y) / dt) * 16,
-        };
-      }
-      lastPosRef.current = { x: clientX, y: clientY, time: now };
-
-      const deltaX = clientX - dragStartRef.current.x;
-      const deltaY = clientY - dragStartRef.current.y;
-
-      if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
-        hasDraggedRef.current = true;
-      }
-
-      let newX = dragStartRef.current.fabX + deltaX;
-      let newY = dragStartRef.current.fabY + deltaY;
-
-      newX = Math.max(
-        EDGE_PADDING,
-        Math.min(newX, window.innerWidth - FAB_SIZE - EDGE_PADDING),
-      );
-      newY = Math.max(
-        EDGE_PADDING,
-        Math.min(newY, window.innerHeight - FAB_SIZE - EDGE_PADDING),
-      );
-
-      return { x: newX, y: newY };
+    setHasMoved(false);
+    setPosition({ x: currentX, y: currentY });
+    setDragStart({
+      x: clientX - currentX,
+      y: clientY - currentY,
     });
-  }, []);
+  };
 
-  const handleDragEnd = useCallback(() => {
+  const handleDrag = (e) => {
+    if (!isDragging || window.innerWidth >= 1280) return;
+
+    e.preventDefault();
+    const clientX = e.type.includes("mouse") ? e.clientX : e.touches[0].clientX;
+    const clientY = e.type.includes("mouse") ? e.clientY : e.touches[0].clientY;
+
+    let newX = clientX - dragStart.x;
+    let newY = clientY - dragStart.y;
+
+    const moveThreshold = 5;
+    const deltaX = Math.abs(newX - position.x);
+    const deltaY = Math.abs(newY - position.y);
+
+    if (!hasMoved && (deltaX > moveThreshold || deltaY > moveThreshold)) {
+      setHasMoved(true);
+    }
+
+    newX = Math.max(0, Math.min(newX, window.innerWidth - FAB_SIZE));
+    newY = Math.max(0, Math.min(newY, window.innerHeight - FAB_SIZE));
+
+    pendingPositionRef.current = { x: newX, y: newY };
+
+    if (!animationFrameRef.current) {
+      animationFrameRef.current = requestAnimationFrame(() => {
+        if (pendingPositionRef.current) {
+          setPosition(pendingPositionRef.current);
+          pendingPositionRef.current = null;
+        }
+        animationFrameRef.current = null;
+      });
+    }
+  };
+
+  const handleDragEnd = () => {
+    if (!isDragging || window.innerWidth >= 1280) return;
+
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
     setIsDragging(false);
 
-    let currentX = fabPositionRef.current.x;
-    let currentY = fabPositionRef.current.y;
-    let velX = velocityRef.current.x;
-    let velY = velocityRef.current.y;
+    const currentX = position.x !== null ? position.x : window.innerWidth - 80;
+    const currentY = position.y !== null ? position.y : window.innerHeight - 80;
 
-    const animate = () => {
-      const friction = 0.92;
-      velX *= friction;
-      velY *= friction;
+    const snap = getSnapPosition(
+      currentX,
+      currentY,
+      window.innerWidth,
+      window.innerHeight,
+    );
 
-      currentX += velX;
-      currentY += velY;
+    setPosition(snap);
+    localStorage.setItem("hamburgerPosition", JSON.stringify(snap));
+  };
 
-      currentX = Math.max(
-        EDGE_PADDING,
-        Math.min(currentX, window.innerWidth - FAB_SIZE - EDGE_PADDING),
-      );
-      currentY = Math.max(
-        EDGE_PADDING,
-        Math.min(currentY, window.innerHeight - FAB_SIZE - EDGE_PADDING),
-      );
+  useEffect(() => {
+    if (isDragging) {
+      const handleMouseMove = (e) => handleDrag(e);
+      const handleMouseUp = () => handleDragEnd();
+      const handleTouchMove = (e) => handleDrag(e);
+      const handleTouchEnd = () => handleDragEnd();
 
-      if (Math.abs(velX) < 0.5 && Math.abs(velY) < 0.5) {
-        const snap = getSnapPosition(
-          currentX,
-          currentY,
-          window.innerWidth,
-          window.innerHeight,
-        );
-        setIsAnimating(true);
-        setFabPosition(snap);
-        try {
-          localStorage.setItem("fabPosition", JSON.stringify(snap));
-        } catch {
-          // Ignore localStorage errors
-        }
-        setTimeout(() => setIsAnimating(false), 300);
-        return;
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.addEventListener("touchmove", handleTouchMove, { passive: false });
+      document.addEventListener("touchend", handleTouchEnd);
+
+      return () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        document.removeEventListener("touchmove", handleTouchMove);
+        document.removeEventListener("touchend", handleTouchEnd);
+      };
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDragging, position]);
+
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
       }
-
-      setFabPosition({ x: currentX, y: currentY });
-      animationRef.current = requestAnimationFrame(animate);
     };
-
-    animationRef.current = requestAnimationFrame(animate);
   }, []);
 
-  useEffect(() => {
-    const handleMouseMove = (e) => handleDragMove(e.clientX, e.clientY);
-    const handleMouseUp = () => handleDragEnd();
-
-    if (isDragging) {
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
+  const getHamburgerStyle = () => {
+    if (position.x === null || position.y === null) {
+      return {};
     }
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+    return {
+      left: `${position.x}px`,
+      top: `${position.y}px`,
+      right: "auto",
+      bottom: "auto",
     };
-  }, [isDragging, handleDragMove, handleDragEnd]);
-
-  useEffect(() => {
-    const handleTouchMove = (e) => {
-      if (e.touches.length === 1) {
-        handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
-      }
-    };
-    const handleTouchEnd = () => handleDragEnd();
-
-    if (isDragging) {
-      window.addEventListener("touchmove", handleTouchMove, { passive: true });
-      window.addEventListener("touchend", handleTouchEnd);
-      window.addEventListener("touchcancel", handleTouchEnd);
-    }
-
-    return () => {
-      window.removeEventListener("touchmove", handleTouchMove);
-      window.removeEventListener("touchend", handleTouchEnd);
-      window.removeEventListener("touchcancel", handleTouchEnd);
-    };
-  }, [isDragging, handleDragMove, handleDragEnd]);
+  };
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -444,49 +406,25 @@ export default function Navbar() {
       </div>
 
       <button
+        ref={menuButtonRef}
         type="button"
-        className={`${TRANSITION.base} fixed h-16 w-16 z-1000 xl:hidden bg-secondary text-primary rounded-pill border-2 border-accent select-none touch-none ${isAnimating ? TRANSITION.full : ""} ${isMobileMenuOpen ? "" : "opacity-100 scale-100"} ${isDragging ? "cursor-grabbing scale-110" : "cursor-grab"}`}
-        style={
-          fabPosition.x !== null
-            ? { left: fabPosition.x, top: fabPosition.y }
-            : { bottom: EDGE_PADDING, right: EDGE_PADDING }
-        }
-        onClick={() => {
-          if (!hasDraggedRef.current) {
-            setIsMobileMenuOpen(!isMobileMenuOpen);
-          }
-        }}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          handleDragStart(e.clientX, e.clientY);
-        }}
-        onTouchStart={(e) => {
-          if (e.touches.length === 1) {
-            handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
-          }
-        }}
-        aria-label={isMobileMenuOpen ? "Close Navigation" : "Open Navigation"}
+        className={`xl:hidden fixed bottom-5 right-5 flex flex-col justify-center items-center w-[60px] h-[60px] bg-secondary border-2 border-accent rounded-full cursor-grab p-0 z-[1001] touch-none select-none ${isDragging ? "cursor-grabbing scale-105 transition-none" : "transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"} ${isMobileMenuOpen ? "active" : ""}`}
+        style={getHamburgerStyle()}
+        onClick={() => !hasMoved && setIsMobileMenuOpen(!isMobileMenuOpen)}
+        onMouseDown={handleDragStart}
+        onTouchStart={handleDragStart}
+        aria-label="Toggle menu"
         aria-expanded={isMobileMenuOpen}
         aria-controls={mobileMenuId}
-        ref={menuButtonRef}
       >
-        <div className="relative w-full h-full items-center justify-center flex">
-          <X
-            aria-hidden="true"
-            className={`absolute ${TRANSITION.base} ease-[cubic-bezier(0.2,0,0,1)] ${isMobileMenuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-50"}`}
-            size={36}
-          />
-          <Menu
-            aria-hidden="true"
-            className={`absolute ${TRANSITION.base} ease-[cubic-bezier(0.2,0,0,1)] ${isMobileMenuOpen ? "opacity-0 rotate-90 scale-50" : "opacity-100 rotate-0 scale-100"}`}
-            size={36}
-          />
-        </div>
+        <span className={`absolute w-6 h-[3px] bg-primary rounded-[10px] transition-all duration-400 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2"}`} />
+        <span className={`absolute w-6 h-[3px] bg-primary rounded-[10px] transition-all duration-400 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100"}`} />
+        <span className={`absolute w-6 h-[3px] bg-primary rounded-[10px] transition-all duration-400 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2"}`} />
       </button>
 
       <button
         type="button"
-        className={`fixed inset-0 ${TRANSITION.base} bg-secondary z-999 ${isMobileMenuOpen ? "opacity-10" : "opacity-0 pointer-events-none"}`}
+        className={`fixed inset-0 ${TRANSITION.base} bg-secondary/60 backdrop-blur-sm z-999 ${isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
         onClick={() => {
           setIsMobileMenuOpen(false);
           menuButtonRef.current?.focus();

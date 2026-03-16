@@ -269,6 +269,7 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
 ## Key Notes
 
+- **Hosting:** Gitea at https://gt.plainskill.net (not GitHub)
 - **Go Module:** `gt.plainskill.net/LibreLoom/LibreServ`
 - **Database:** SQLite with migrations in `internal/database/migrations/`
 - **Environment:** `.env` file in `server/backend/` for local config

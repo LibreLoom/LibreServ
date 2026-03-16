@@ -61,31 +61,38 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 	// Stop app if required and running
 	if opts.StopBeforeRestore && appStatus == "running" {
 		log.Printf("Stopping app %s for restore", backup.AppID)
-		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		if err := s.docker.ComposeStop(stopCtx, appPath); err != nil {
-			log.Printf("Warning: failed to stop app %s: %v", backup.AppID, err)
-			// Continue anyway - the restore might still work
+			cancel()
+			result.Error = fmt.Errorf("failed to stop app %s before restore: %w", backup.AppID, err)
+			log.Printf("RestoreApp: failed to stop app %s: %v", backup.AppID, err)
+			return result, result.Error
 		}
+		log.Printf("App %s stopped successfully", backup.AppID)
 	}
 
 	// Create backup of current state before restoring
 	currentBackupPath := appPath + ".pre-restore-" + time.Now().Format("20060102-150405")
+	log.Printf("Creating pre-restore backup: renaming %s to %s", appPath, currentBackupPath)
 	if err := os.Rename(appPath, currentBackupPath); err != nil {
-		// If rename fails, try to continue anyway
-		log.Printf("Warning: could not backup current state: %v", err)
-	} else {
-		defer func() {
-			// Clean up the pre-restore backup if restore succeeded
-			if result.Error == nil {
-				_ = os.RemoveAll(currentBackupPath)
-			} else {
-				// Restore failed, rollback
-				_ = os.RemoveAll(appPath)
-				_ = os.Rename(currentBackupPath, appPath)
-			}
-		}()
+		result.Error = fmt.Errorf("failed to backup current app state at %s: %w", appPath, err)
+		log.Printf("RestoreApp: failed to rename app directory: %v", err)
+		return result, result.Error
 	}
+	log.Printf("Pre-restore backup created successfully")
+	defer func() {
+		// Clean up the pre-restore backup if restore succeeded
+		if result.Error == nil {
+			log.Printf("Cleaning up pre-restore backup %s", currentBackupPath)
+			_ = os.RemoveAll(currentBackupPath)
+		} else {
+			// Restore failed, rollback
+			log.Printf("Restore failed, rolling back from %s", currentBackupPath)
+			_ = os.RemoveAll(appPath)
+			_ = os.Rename(currentBackupPath, appPath)
+		}
+	}()
 
 	// Create app directory
 	if err := os.MkdirAll(appPath, 0755); err != nil {
@@ -152,9 +159,14 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 			return fmt.Errorf("error reading tar: %w", err)
 		}
 
+		// Skip the root directory entry
+		if header.Name == "." || header.Name == "./" {
+			continue
+		}
+
 		// Sanitize the path to prevent directory traversal
 		targetPath := filepath.Join(destPath, header.Name)
-		if !strings.HasPrefix(targetPath, filepath.Clean(destPath)+string(os.PathSeparator)) {
+		if !strings.HasPrefix(targetPath, filepath.Clean(destPath)+string(os.PathSeparator)) && targetPath != filepath.Clean(destPath) {
 			return fmt.Errorf("invalid file path in archive: %s", header.Name)
 		}
 

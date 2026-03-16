@@ -101,7 +101,7 @@ export default function UsersPage() {
 
         {loading && showLoading && (
           // Delayed loader avoids flicker on fast responses.
-          <div className="fixed inset-0 flex items-center justify-center">
+          <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
             <Card className="w-[70vw] sm:w-[20vw]">
               <div
                 className="my-5 text-center"
@@ -116,7 +116,7 @@ export default function UsersPage() {
 
         {error && (
           // Full-screen error so it can't be missed.
-          <div className="fixed inset-0 flex items-center justify-center">
+          <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
             <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
               <div
                 className="my-5 text-center"

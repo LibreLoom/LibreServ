@@ -205,13 +205,13 @@ onClick={onDarkModeChange}
         </div>
         <div className="px-4 pt-4">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex-1 min-w-0 pr-4">
               <div className="font-medium text-primary">Enable Custom Colors</div>
-              <div className="text-sm text-accent mt-0.5 mb-3">Customize the primary, secondary, and accent colors</div>
+              <div className="text-sm text-accent mt-0.5">Customize the primary, secondary, and accent colors</div>
             </div>
             <button
 onClick={handleToggleCustomColors}
-               className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
+               className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
                  showCustomColors ? "bg-accent" : "bg-primary/20"
                }`}
               role="switch"
@@ -273,14 +273,14 @@ onClick={handleToggleCustomColors}
             </div>
 
             <div className="mt-4">
-              <div className="flex items-center justify-between mb-3 pr-1">
-                <div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex-1 min-w-0 pr-4">
                   <div className="font-medium text-primary text-sm">Separate Dark Mode Colors</div>
                   <div className="text-xs text-accent mt-0.5">Use different colors when dark mode is active</div>
                 </div>
                 <button
                   onClick={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
-className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
+ className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
                      useSeparateDarkColors ? "bg-accent" : "bg-primary/20"
                    }`}
                   role="switch"

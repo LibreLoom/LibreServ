@@ -203,9 +203,6 @@ func main() {
 	appManager.Start(context.Background())
 	defer appManager.Stop()
 
-	appManager.StartInstalledApps(context.Background())
-	appManager.RefreshMetrics(context.Background())
-
 	authService := auth.NewService(db, cfg.Auth.JWTSecret)
 
 	setupService := setup.NewService(db)
@@ -245,6 +242,9 @@ func main() {
 			errCh <- err
 		}
 	}()
+
+	appManager.StartInstalledApps(context.Background())
+	appManager.RefreshMetrics(context.Background())
 
 	// Graceful shutdown on SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)

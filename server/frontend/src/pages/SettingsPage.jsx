@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
-import LoadingSpinner from "../components/common/LoadingSpinner";
 import ErrorDisplay from "../components/common/ErrorDisplay";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
@@ -147,13 +146,7 @@ export default function SettingsPage() {
   };
 
   if (loading) {
-    return (
-      <main className="bg-primary text-secondary px-4 pt-5 pb-32 min-h-screen">
-        <div className="flex justify-center items-center mt-12">
-          <LoadingSpinner size="lg" />
-        </div>
-      </main>
-    );
+    return null;
   }
 
   return (
@@ -173,7 +166,7 @@ export default function SettingsPage() {
             className="sticky top-6"
           />
         </div>
-        <div className="flex-1 max-w-3xl animate-in fade-in slide-in-from-right-2 duration-300">
+        <div className="flex-1 animate-in fade-in slide-in-from-right-2 duration-300">
         <SettingsContent
           category={activeCategory}
           settings={settings}

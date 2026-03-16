@@ -268,18 +268,6 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	check("smtp", func() error {
-		if cfg.SMTP.Host == "" {
-			results["smtp_configured"] = false
-			return nil
-		}
-		if err := email.TestSMTP(cfg.SMTP); err != nil {
-			return err
-		}
-		results["smtp_configured"] = true
-		return nil
-	})
-
 	statusCode := http.StatusOK
 	if !allHealthy {
 		statusCode = http.StatusServiceUnavailable
