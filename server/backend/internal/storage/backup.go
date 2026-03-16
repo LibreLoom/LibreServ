@@ -94,6 +94,7 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 	checksum, size, err := s.createTarball(appPath, backupPath, opts)
 	if err != nil {
 		result.Error = fmt.Errorf("failed to create backup: %w", err)
+		log.Printf("BackupApp: failed to create tarball for app %s from %s: %v", appID, appPath, err)
 		return result, result.Error
 	}
 
@@ -147,10 +148,19 @@ func (s *BackupService) SetCloudService(cloudService interface {
 
 // createTarball creates a compressed tarball of a directory
 func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptions) (string, int64, error) {
+	// Verify source path exists
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return "", 0, fmt.Errorf("source path does not exist or is not accessible: %s: %w", srcPath, err)
+	}
+	if !srcInfo.IsDir() {
+		return "", 0, fmt.Errorf("source path is not a directory: %s", srcPath)
+	}
+
 	// Create the destination file
 	file, err := os.Create(destPath)
 	if err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("failed to create backup file %s: %w", destPath, err)
 	}
 	defer func() { _ = file.Close() }()
 
@@ -171,9 +181,9 @@ func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptio
 	defer tarWriter.Close()
 
 	// Walk the source directory and add files to the tarball
-	err = filepath.Walk(srcPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	err = filepath.Walk(srcPath, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return fmt.Errorf("error accessing %s: %w", path, walkErr)
 		}
 
 		// Skip logs if not included
@@ -184,31 +194,31 @@ func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptio
 		// Create tar header
 		header, err := tar.FileInfoHeader(info, "")
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create tar header for %s: %w", path, err)
 		}
 
 		// Update the header name to be relative to srcPath
 		relPath, err := filepath.Rel(srcPath, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get relative path for %s: %w", path, err)
 		}
 		header.Name = relPath
 
 		// Write header
 		if err := tarWriter.WriteHeader(header); err != nil {
-			return err
+			return fmt.Errorf("failed to write tar header for %s: %w", path, err)
 		}
 
 		// If it's a regular file, write its contents
 		if !info.IsDir() {
 			file, err := os.Open(path)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to open %s: %w", path, err)
 			}
 			defer func() { _ = file.Close() }()
 
 			if _, err := io.Copy(tarWriter, file); err != nil {
-				return err
+				return fmt.Errorf("failed to copy %s to archive: %w", path, err)
 			}
 		}
 
@@ -216,7 +226,8 @@ func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptio
 	})
 
 	if err != nil {
-		return "", 0, err
+		_ = os.Remove(destPath)
+		return "", 0, fmt.Errorf("failed to walk source directory %s: %w", srcPath, err)
 	}
 
 	// Close writers to flush
@@ -228,7 +239,7 @@ func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptio
 	// Get file size
 	fileInfo, err := os.Stat(destPath)
 	if err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("failed to stat backup file %s: %w", destPath, err)
 	}
 
 	checksum := hex.EncodeToString(hash.Sum(nil))

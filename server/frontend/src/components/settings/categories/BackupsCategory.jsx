@@ -383,7 +383,7 @@ export default function BackupsCategory() {
       {/* Create Backup Modal */}
       {showCreateModal && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowCreateModal(false);
@@ -398,7 +398,7 @@ export default function BackupsCategory() {
           }}
           tabIndex={-1}
         >
-          <Card className="w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+          <Card className="w-full max-w-md p-6 border-2 border-accent" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-mono text-lg text-primary mb-4">Create Backup</h2>
             <div className="space-y-4">
               <div>
@@ -449,7 +449,7 @@ export default function BackupsCategory() {
       {/* Restore Confirmation Modal */}
       {showRestoreModal && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowRestoreModal(null);
@@ -462,7 +462,7 @@ export default function BackupsCategory() {
           }}
           tabIndex={-1}
         >
-          <Card className="w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+          <Card className="w-full max-w-md p-6 border-2 border-accent" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3 mb-4">
               <AlertTriangle className="w-6 h-6 text-yellow-500 mt-0.5" />
               <div>
@@ -505,7 +505,7 @@ export default function BackupsCategory() {
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          className="fixed inset-0 flex items-center justify-center z-50 p-4"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setShowDeleteModal(null);
@@ -518,7 +518,7 @@ export default function BackupsCategory() {
           }}
           tabIndex={-1}
         >
-          <Card className="w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+          <Card className="w-full max-w-md p-6 border-2 border-accent" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3 mb-4">
               <AlertTriangle className="w-6 h-6 text-red-500 mt-0.5" />
               <div>

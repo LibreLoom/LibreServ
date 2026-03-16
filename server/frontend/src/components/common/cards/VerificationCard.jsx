@@ -88,7 +88,7 @@ export default function VerificationCard({
   }, [handleClose]);
 
   return (
-    <div className="fixed inset-0 bg-primary flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div
         ref={dialogRef}
         role="alertdialog"

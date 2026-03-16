@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, useRef } from "react";
-import { Loader2, CheckCircle, XCircle } from "lucide-react";
+import { CheckCircle, XCircle } from "lucide-react";
+import TypewriterLoader from "../../../components/common/TypewriterLoader";
 
 const INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },
@@ -14,6 +15,7 @@ function ProgressStep({ instanceId, onComplete }) {
   const [status, setStatus] = useState("installing");
   const [error, setError] = useState(null);
   const hasCompleted = useRef(false);
+  const consecutive404Count = useRef(0);
 
   useEffect(() => {
     if (!instanceId || hasCompleted.current) return;
@@ -27,13 +29,62 @@ function ProgressStep({ instanceId, onComplete }) {
         });
 
         if (res.status === 404) {
-          hasCompleted.current = true;
-          setError("Installation failed and was cleaned up. The app may have encountered a configuration error.");
+          consecutive404Count.current += 1;
+          
+          // Try to read the actual error message from the response
+          let errorMessage = "Installation status not available";
+          try {
+            const errorData = await res.json();
+            if (errorData.error) {
+              errorMessage = errorData.error;
+            }
+          } catch {
+            // Ignore JSON parsing errors
+          }
+          
+          // If we get multiple consecutive 404s, check if app still exists
+          if (consecutive404Count.current >= 3) {
+            // Before showing error, check if app exists via main endpoint
+            try {
+              const appCheckRes = await fetch(`/api/v1/apps/${instanceId}`, {
+                credentials: "include",
+              });
+              
+              if (appCheckRes.ok) {
+                // App exists but status endpoint returns 404 - this is weird but installation might still be in progress
+                console.warn(`App exists but status endpoint returns 404: ${errorMessage}, continuing to poll...`);
+                consecutive404Count.current = 2; // Reset to 2 to give more time
+                return;
+              }
+            } catch (checkErr) {
+              console.warn("Failed to check app existence:", checkErr);
+            }
+            
+            hasCompleted.current = true;
+            setError(`Unable to check installation status: ${errorMessage}. Check the app list to see if installation completed.`);
+            return;
+          }
+          
+          // For first few 404s, just log and continue polling
+          console.warn(`App status 404 (attempt ${consecutive404Count.current}/3): ${errorMessage}, continuing to poll...`);
           return;
+        } else {
+          // Reset 404 counter on successful response
+          consecutive404Count.current = 0;
         }
 
         if (!res.ok) {
-          throw new Error("Failed to check status");
+          // For non-404 errors, try to read error message
+          let errorMessage = "Failed to check status";
+          try {
+            const errorData = await res.json();
+            if (errorData.error) {
+              errorMessage = errorData.error;
+            }
+          } catch {
+            // Ignore JSON parsing errors
+          }
+          throw new Error(errorMessage);
         }
 
         const data = await res.json();
@@ -95,10 +146,10 @@ function ProgressStep({ instanceId, onComplete }) {
         {isComplete ? (
           <CheckCircle className="mx-auto text-accent" size={48} />
         ) : (
-          <Loader2 className="mx-auto text-secondary animate-spin" size={48} />
+          <TypewriterLoader message="Installing..." size="lg" />
         )}
         <h2 className="font-mono text-2xl font-normal text-secondary">
-          {isComplete ? "Almost Ready!" : "Installing..."}
+          {isComplete ? "Almost Ready!" : ""}
         </h2>
         <p className="text-secondary/70">
           {isComplete

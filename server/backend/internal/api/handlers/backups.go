@@ -1,23 +1,31 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
+type CloudStatusProvider interface {
+	GetBackupCloudStatus(ctx context.Context, backupID string) (map[string]interface{}, error)
+}
+
 // BackupHandlers handles backup-related API endpoints
 type BackupHandlers struct {
 	backupService *storage.BackupService
+	cloudService  CloudStatusProvider
 }
 
 // NewBackupHandlers creates new backup handlers
-func NewBackupHandlers(backupService *storage.BackupService) *BackupHandlers {
+func NewBackupHandlers(backupService *storage.BackupService, cloudService CloudStatusProvider) *BackupHandlers {
 	return &BackupHandlers{
 		backupService: backupService,
+		cloudService:  cloudService,
 	}
 }
 
@@ -30,6 +38,18 @@ func (h *BackupHandlers) ListBackups(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	for i := range backups {
+		if h.cloudService != nil {
+			status, err := h.cloudService.GetBackupCloudStatus(r.Context(), backups[i].ID)
+			if err == nil {
+				backups[i].CloudStatus = status
+			}
+		}
+		if backups[i].CloudStatus == nil {
+			backups[i].CloudStatus = map[string]interface{}{"has_cloud_copy": false}
+		}
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
@@ -97,6 +117,7 @@ func (h *BackupHandlers) CreateBackup(w http.ResponseWriter, r *http.Request) {
 		if result != nil && result.Error != nil {
 			errMsg = result.Error.Error()
 		}
+		log.Printf("CreateBackup: failed for app %s: %s", req.AppID, errMsg)
 		JSONError(w, http.StatusInternalServerError, errMsg)
 		return
 	}
@@ -145,6 +166,7 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		if result != nil && result.Error != nil {
 			errMsg = result.Error.Error()
 		}
+		log.Printf("RestoreBackup: failed for backup %s: %s", backupID, errMsg)
 		JSONError(w, http.StatusInternalServerError, errMsg)
 		return
 	}

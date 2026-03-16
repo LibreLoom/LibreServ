@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle, Loader2, Check, X } from "lucide-react";
 
 export default function SetupPage() {
   const navigate = useNavigate();
-  const [step, setStep] = useState("checking"); // checking, setup, creating, complete, error
+  const [step, setStep] = useState("checking"); // checking, preflight, setup, creating, complete, error
   const [error, setError] = useState(null);
+  const [preflightData, setPreflightData] = useState(null);
   const [formData, setFormData] = useState({
     admin_username: "",
     admin_password: "",
@@ -23,7 +24,7 @@ export default function SetupPage() {
         if (data.setup_state?.status === "complete") {
           navigate("/");
         } else {
-          setStep("setup");
+          setStep("preflight");
         }
       } catch {
         setError("Failed to check setup status");
@@ -33,6 +34,32 @@ export default function SetupPage() {
 
     checkSetupStatus();
   }, [navigate]);
+
+  // Run preflight checks
+  useEffect(() => {
+    const runPreflight = async () => {
+      if (step !== "preflight") return;
+      
+      try {
+        const response = await fetch("/api/v1/setup/preflight");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        setPreflightData(data);
+        
+        if (data.healthy) {
+          setStep("setup");
+        } else {
+          setError("System checks failed. Please fix the issues below before continuing.");
+        }
+      } catch (err) {
+        setError(`Failed to run system checks: ${err.message}`);
+        setStep("error");
+      }
+    };
+
+    runPreflight();
+  }, [step]);
 
   // Validate password strength
   useEffect(() => {
@@ -117,6 +144,24 @@ export default function SetupPage() {
     );
   }
 
+  if (step === "preflight") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-primary">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-accent mx-auto mb-4" />
+          <p className="text-secondary">Running system checks...</p>
+          {preflightData && (
+            <div className="mt-4">
+              <p className="text-sm text-secondary/70">
+                Checks complete: {preflightData.healthy ? "All passed" : "Some failed"}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (step === "error") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-primary">
@@ -164,8 +209,95 @@ export default function SetupPage() {
             </p>
           </div>
 
+          {/* Preflight success summary */}
+          {preflightData && preflightData.healthy && (
+            <div className="mb-8 p-4 bg-accent/10 rounded-2xl border-2 border-accent/30">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
+                  <Check className="w-5 h-5 text-accent" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-primary">System Ready</h3>
+                  <p className="text-sm text-primary/70">
+                    All system checks passed successfully
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(preflightData.checks || {}).slice(0, 6).map(([name]) => (
+                  <div key={name} className="flex items-center gap-2">
+                    <Check className="w-3 h-3 text-accent" />
+                    <span className="text-xs text-primary/80 capitalize">
+                      {name.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Preflight results */}
+          {preflightData && !preflightData.healthy && (
+            <div className="mb-8 p-6 bg-primary rounded-2xl border-2 border-accent">
+              <h2 className="text-xl font-bold text-primary mb-4 flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-accent" />
+                System Check Required
+              </h2>
+              <p className="text-primary/80 mb-4">
+                The following system checks must pass before setup can continue:
+              </p>
+              
+              <div className="space-y-3 mb-6">
+                {Object.entries(preflightData.checks || {}).map(([name, check]) => (
+                  <div key={name} className="flex items-center gap-3 p-3 bg-secondary/50 rounded-xl">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      check.status === "ok" ? "bg-accent/20 text-accent" : "bg-accent text-primary"
+                    }`}>
+                      {check.status === "ok" ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex justify-between items-center">
+                        <span className="font-semibold text-primary capitalize">
+                          {name.replace(/_/g, " ")}
+                        </span>
+                        <span className={`text-sm px-2 py-0.5 rounded-full ${
+                          check.status === "ok" ? "bg-accent/20 text-accent" : "bg-accent text-primary"
+                        }`}>
+                          {check.status === "ok" ? "PASS" : "FAIL"}
+                        </span>
+                      </div>
+                      {check.error && (
+                        <p className="text-sm text-primary/70 mt-1">{check.error}</p>
+                      )}
+                      {name === "disk_space" && check.status === "ok" && check.disk_space_bytes_free && (
+                        <p className="text-sm text-primary/70 mt-1">
+                          {Math.round(check.disk_space_bytes_free / (1024 * 1024))} MB available
+                        </p>
+                      )}
+                      {name === "smtp" && check.smtp_configured !== undefined && (
+                        <p className="text-sm text-primary/70 mt-1">
+                          SMTP {check.smtp_configured ? "configured" : "not configured"}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="flex-1 bg-accent text-primary py-3 rounded-pill font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                >
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Re-run Checks
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Error message */}
-          {error && (
+          {error && !preflightData && (
             <div className="mb-6 p-4 bg-primary rounded-2xl border-2 border-accent">
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />

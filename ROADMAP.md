@@ -33,9 +33,9 @@ Installs an app → It works → Creates backup → Done
 
 | Priority | Feature | Why | Current State |
 |----------|---------|-----|---------------|
-| P0 | Setup Wizard Frontend | No terminal = must have GUI setup | ❌ MISSING |
+| P0 | Setup Wizard Frontend | No terminal = must have GUI setup | ✅ Backend + UI complete with preflight checks |
 | P0 | App Install Flow | Core value proposition | ✅ Backend + Wizard UI complete |
-| P0 | Backup/Restore UI | "Actions should be reversible" | ❌ Backend only |
+| P0 | Backup/Restore UI | "Actions should be reversible" | ✅ Backend + Settings UI complete |
 | P1 | HTTPS/Domain Setup | Production requirement | ⚠️ Backend exists, no UI |
 | P1 | Domain Provider Integration | Remote access requires domain | ❌ MISSING |
 | P1 | Cloud Backup Integration | Off-site backup for safety | ❌ MISSING |
@@ -53,11 +53,11 @@ Installs an app → It works → Creates backup → Done
 
 #### T1.1.1. Create Setup Wizard Page
 
-**File:** `server/frontend/src/pages/SetupWizardPage.jsx`  
+**File:** `server/frontend/src/pages/SetupPage.jsx`  
 **Effort:** 4 hours  
 **Dependencies:** None  
-**Status:** 🟡 **Claimed by @trafficcone**  
-**Completed By:** @trafficcone
+**Status:** ✅  
+**Completed By:** SetupPage.jsx exists with preflight integration
 
 **User Journey:**
 1. User opens browser to device IP
@@ -102,13 +102,13 @@ rm /var/lib/libreserv/setup.json  # or wherever state lives
 **File:** `server/frontend/src/App.jsx` (or router file)  
 **Effort:** 1 hour  
 **Dependencies:** T1.1.1  
-**Status:** 🔴  
-**Completed By:**
+**Status:** ✅  
+**Completed By:** Route exists at `/setup`
 
 **Acceptance Criteria:**
-- [ ] Route `/setup` shows SetupWizardPage
-- [ ] Root `/` redirects to `/setup` if not configured
-- [ ] Route protected after setup (can't revisit)
+- [x] Route `/setup` shows SetupPage
+- [ ] Root `/` redirects to `/setup` if not configured (handled by SetupPage status check)
+- [x] Route protected after setup (SetupPage redirects to root if complete)
 
 ---
 
@@ -143,11 +143,11 @@ After first login, show friendly welcome:
 
 #### T1.1.4. Create Preflight Checks Component
 
-**File:** `server/frontend/src/components/setup/PreflightChecks.jsx`  
+**File:** `server/frontend/src/pages/SetupPage.jsx`  
 **Effort:** 2 hours  
 **Dependencies:** T1.1.1  
-**Status:** 🔴  
-**Completed By:**
+**Status:** ✅  
+**Completed By:** Integrated into SetupPage.jsx
 
 **What to Build:**
 Visual display of system checks from `/api/v1/setup/preflight`.

@@ -336,7 +336,7 @@ export default function AppDetailPage() {
       </header>
 
       {loading && showLoading && (
-        <div className="fixed inset-0 flex items-center justify-center">
+        <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
           <Card className="w-[70vw] sm:w-[20vw]">
             <div className="my-5 text-center" role="status" aria-live="polite">
               <p>Loading app...</p>
@@ -346,7 +346,7 @@ export default function AppDetailPage() {
       )}
 
       {error && (
-        <div className="fixed inset-0 flex items-center justify-center z-40">
+        <div className="fixed inset-0 flex items-center justify-center z-40 bg-primary/60 backdrop-blur-sm">
           <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
             <div className="my-5 text-center" role="status" aria-live="polite">
               <p className="text-accent">Error: {error}</p>

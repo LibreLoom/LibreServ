@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
-import LoadingSpinner from "../components/common/LoadingSpinner";
+import TypewriterLoader from "../components/common/TypewriterLoader";
 import ErrorDisplay from "../components/common/ErrorDisplay";
 import {
   getSecurityEvents,
@@ -216,7 +216,7 @@ export default function SecurityActivityPage() {
       <Card className="mt-6" title="Activity Log" icon={<Activity size={20} />}>
         {loading ? (
           <div className="flex justify-center items-center py-12">
-            <LoadingSpinner size="lg" />
+            <TypewriterLoader size="lg" />
           </div>
         ) : events.length === 0 ? (
           <div className="text-center py-12">

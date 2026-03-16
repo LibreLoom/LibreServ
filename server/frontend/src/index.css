@@ -422,6 +422,20 @@ body {
     animation-duration: 300ms;
 }
 
+/* Cursor blink animation for TypewriterLoader */
+@keyframes cursor-blink {
+    0%, 50% {
+        opacity: 1;
+    }
+    51%, 100% {
+        opacity: 0;
+    }
+}
+
+.animate-cursor-blink {
+    animation: cursor-blink 1s step-end infinite;
+}
+
 /* Reduced motion accessibility - WCAG 2.1 Level AA */
 @media (prefers-reduced-motion: reduce) {
     .pop-in,
@@ -455,6 +469,10 @@ body {
         animation: none !important;
         opacity: 1;
         transform: none;
+    }
+    .animate-cursor-blink {
+        animation: none;
+        opacity: 1;
     }
 }
 

@@ -6,15 +6,18 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/backup/cloud"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
 type CloudBackupHandlers struct {
-	cloudService *cloud.Service
+	cloudService  *cloud.Service
+	backupService *storage.BackupService
 }
 
-func NewCloudBackupHandlers(cloudService *cloud.Service) *CloudBackupHandlers {
+func NewCloudBackupHandlers(cloudService *cloud.Service, backupService *storage.BackupService) *CloudBackupHandlers {
 	return &CloudBackupHandlers{
-		cloudService: cloudService,
+		cloudService:  cloudService,
+		backupService: backupService,
 	}
 }
 
@@ -132,10 +135,20 @@ func (h *CloudBackupHandlers) UploadBackup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	backup, err := h.backupService.GetBackup(r.Context(), backupID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, "backup not found")
+		return
+	}
+
+	if err := h.cloudService.UploadBackupAsync(backupID, backup.Path); err != nil {
+		JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	JSON(w, http.StatusAccepted, map[string]interface{}{
 		"status":    "uploading",
 		"backup_id": backupID,
-		"message":   "Use POST /api/v1/backups/{backupID}/cloud-upload endpoint",
 	})
 }
 
