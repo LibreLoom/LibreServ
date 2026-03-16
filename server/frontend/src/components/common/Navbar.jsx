@@ -7,7 +7,6 @@ import {
 	Menu,
 	X,
 	User,
-	Shield,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
@@ -46,7 +45,6 @@ const navButtons = [
 	{ to: "/", icon: Home, label: "Dashboard" },
 	{ to: "/apps", icon: Grid2X2, label: "Apps" },
 	{ to: "/users", icon: Users, label: "Users" },
-	{ to: "/security", icon: Shield, label: "Security" },
 	{ to: "/settings", icon: Settings, label: "Settings" },
 	{ to: "/help", icon: LifeBuoy, label: "Help" },
 ];

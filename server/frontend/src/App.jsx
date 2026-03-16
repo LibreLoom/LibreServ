@@ -12,7 +12,6 @@ const UserDetailPage = lazy(() => import("./pages/UserDetailPage"));
 const AddUserPage = lazy(() => import("./pages/AddUserPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
-const SecurityActivityPage = lazy(() => import("./pages/SecurityActivityPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
 const AppInstallPage = lazy(() => import("./pages/AppInstallPage"));
@@ -111,14 +110,6 @@ export default function App() {
 					<SettingsPage />
 				</DataPage>
 			}
-/>
-<Route
-path="/security"
-element={
-<DataPage>
-<SecurityActivityPage />
-</DataPage>
-}
 />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/lore" element={<LorePage />} />
