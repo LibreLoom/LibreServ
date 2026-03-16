@@ -157,7 +157,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="hidden md:flex md:gap-6 md:p-6 md:pt-8 pb-32">
+      <div className="hidden md:flex md:gap-6 md:p-6 md:pt-8 pb-20">
         <div className="w-[20%] min-w-[200px] max-w-[280px] flex-shrink-0">
           <SettingsSidebar
             user={user}
@@ -201,7 +201,7 @@ export default function SettingsPage() {
             />
           </div>
         ) : (
-          <div className="p-4 pt-6 pb-32 animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="p-4 pt-6 pb-20 animate-in fade-in slide-in-from-right-4 duration-300">
             <button
               onClick={handleBackToSidebar}
               className="flex items-center gap-2 px-3 py-1.5 mb-4 -ml-3 text-accent hover:text-secondary transition-colors duration-200 rounded-pill"
