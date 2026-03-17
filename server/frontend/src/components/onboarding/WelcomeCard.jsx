@@ -18,14 +18,14 @@ const quickActions = [
     title: "Configure Settings",
     description: "Set up HTTPS, domains, and system preferences",
     to: "/settings",
-    color: "text-green-400",
+    color: "text-success",
   },
   {
     icon: BookOpen,
     title: "Read the Docs",
     description: "Learn how to get the most from your LibreServ",
     to: "/help",
-    color: "text-blue-400",
+    color: "text-info",
   },
 ];
 

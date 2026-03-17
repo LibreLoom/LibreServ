@@ -218,9 +218,9 @@ export default function CloudBackupConfig({ onConfigured }) {
   if (loadError) {
     return (
       <Card className="p-6">
-        <div className="text-center">
-          <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-2" />
-          <p className="font-mono text-sm text-red-500 mb-3">{loadError}</p>
+          <div className="text-center">
+            <AlertCircle className="w-10 h-10 text-error mx-auto mb-2" />
+            <p className="font-mono text-sm text-error mb-3">{loadError}</p>
           <button
             onClick={loadData}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
@@ -300,8 +300,8 @@ export default function CloudBackupConfig({ onConfigured }) {
                 </div>
               </div>
 
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-card p-3">
-                <p className="font-mono text-xs text-yellow-500">
+              <div className="bg-warning/10 border border-warning/30 rounded-card p-3">
+                <p className="font-mono text-xs text-warning">
                   Note: Manual mode does not upload backups automatically. You are responsible for 
                   setting up and maintaining your own backup sync solution.
                 </p>
@@ -418,22 +418,22 @@ export default function CloudBackupConfig({ onConfigured }) {
       </Card>
 
       {testResult && !testResult.success && (
-        <div className="p-4 rounded-card bg-red-500/10 border border-red-500/30">
+        <div className="p-4 rounded-card bg-error/10 border border-error/30">
           <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-error mt-0.5" />
             <div className="flex-1">
-              <p className="font-mono text-sm text-red-500">
+              <p className="font-mono text-sm text-error">
                 {testResult.message}
               </p>
               {testResult.error && (
-                <p className="font-mono text-xs text-red-500/70 mt-1">
+                <p className="font-mono text-xs text-error/70 mt-1">
                   {testResult.error}
                 </p>
               )}
             </div>
             <button
               onClick={() => setTestResult(null)}
-              className="text-red-500/50 hover:text-red-500"
+              className="text-error/50 hover:text-error"
             >
               <X size={16} />
             </button>

@@ -265,8 +265,8 @@ export default function ScheduleForm() {
                     <span
                       className={`px-2 py-0.5 rounded-pill text-xs ${
                         schedule.enabled
-                          ? "bg-green-500/20 text-green-500"
-                          : "bg-yellow-500/20 text-yellow-500"
+                          ? "bg-success/20 text-success"
+                          : "bg-warning/20 text-warning"
                       }`}
                     >
                       {schedule.enabled ? "Active" : "Paused"}
@@ -287,7 +287,7 @@ export default function ScheduleForm() {
                   <button
                     onClick={() => handleDelete(schedule)}
                     disabled={deleting === schedule.id}
-                    className="p-1.5 rounded-pill hover:bg-red-500/10 text-accent/50 hover:text-red-500 transition-all disabled:opacity-50"
+                    className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all disabled:opacity-50"
                     title="Delete"
                   >
                     {deleting === schedule.id ? (

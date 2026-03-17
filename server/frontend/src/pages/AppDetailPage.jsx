@@ -293,9 +293,9 @@ export default function AppDetailPage() {
   const getHealthIcon = (health) => {
     switch (health) {
       case "healthy":
-        return <CheckCircle className="text-green-500" size={20} />;
+        return <CheckCircle className="text-success" size={20} />;
       case "unhealthy":
-        return <XCircle className="text-red-500" size={20} />;
+        return <XCircle className="text-error" size={20} />;
       default:
         return <Activity className="text-primary/50" size={20} />;
     }
