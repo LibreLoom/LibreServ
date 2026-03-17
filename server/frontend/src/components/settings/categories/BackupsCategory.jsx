@@ -251,8 +251,8 @@ export default function BackupsCategory() {
           </div>
         ) : loadError ? (
           <div className="px-4 py-6 text-center">
-            <AlertTriangle className="w-10 h-10 text-red-500 mx-auto mb-2" />
-            <p className="text-sm text-red-500 mb-3">{loadError}</p>
+            <AlertTriangle className="w-10 h-10 text-error mx-auto mb-2" />
+            <p className="text-sm text-error mb-3">{loadError}</p>
             <button
               onClick={loadData}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
@@ -317,7 +317,7 @@ export default function BackupsCategory() {
                     </button>
                     <button
                       onClick={() => setShowDeleteModal(backup)}
-                      className="p-1.5 rounded-pill hover:bg-red-500/10 text-accent/50 hover:text-red-500 transition-all"
+                      className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -468,7 +468,7 @@ export default function BackupsCategory() {
         >
           <Card className="w-full max-w-md p-6 border-2 border-accent" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3 mb-4">
-              <AlertTriangle className="w-6 h-6 text-yellow-500 mt-0.5" />
+              <AlertTriangle className="w-6 h-6 text-warning mt-0.5" />
               <div>
                 <h2 className="font-mono text-lg text-primary">Restore Backup</h2>
                 <p className="font-mono text-sm text-primary/70 mt-1">
@@ -477,8 +477,8 @@ export default function BackupsCategory() {
                 </p>
               </div>
             </div>
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-card p-3 mb-4">
-              <p className="font-mono text-xs text-yellow-500">
+            <div className="bg-warning/10 border border-warning/30 rounded-card p-3 mb-4">
+              <p className="font-mono text-xs text-warning">
                 Warning: Current data will be overwritten. This action cannot be undone.
               </p>
             </div>
@@ -492,7 +492,7 @@ export default function BackupsCategory() {
                <button
                  onClick={handleRestoreBackup}
                  disabled={restoring}
-                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-yellow-500 text-primary hover:ring-yellow-500 hover:ring-2 transition-all font-mono text-sm"
+                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-warning text-primary hover:ring-warning hover:ring-2 transition-all font-mono text-sm"
                >
                 {restoring ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -524,7 +524,7 @@ export default function BackupsCategory() {
         >
           <Card className="w-full max-w-md p-6 border-2 border-accent" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-3 mb-4">
-              <AlertTriangle className="w-6 h-6 text-red-500 mt-0.5" />
+              <AlertTriangle className="w-6 h-6 text-error mt-0.5" />
               <div>
                 <h2 className="font-mono text-lg text-primary">Delete Backup</h2>
                 <p className="font-mono text-sm text-primary/70 mt-1">
@@ -532,8 +532,8 @@ export default function BackupsCategory() {
                 </p>
               </div>
             </div>
-            <div className="bg-red-500/10 border border-red-500/30 rounded-card p-3 mb-4">
-              <p className="font-mono text-xs text-red-500">
+            <div className="bg-error/10 border border-error/30 rounded-card p-3 mb-4">
+              <p className="font-mono text-xs text-error">
                 This action cannot be undone. The backup file will be removed from disk.
               </p>
             </div>
@@ -547,7 +547,7 @@ export default function BackupsCategory() {
                <button
                  onClick={handleDeleteBackup}
                  disabled={deleting}
-                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-red-500 text-primary hover:ring-red-500 hover:ring-2 transition-all font-mono text-sm"
+                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-error text-primary hover:ring-error hover:ring-2 transition-all font-mono text-sm"
                >
                 {deleting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

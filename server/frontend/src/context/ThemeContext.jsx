@@ -3,16 +3,18 @@ import { createContext, useState, useEffect } from "react";
 
 export const ThemeContext = createContext(undefined);
 
+// color-scan: ignore-line theme default colors
 const DEFAULT_COLORS = {
-  primary: "#ffffff",
-  secondary: "#000000",
-  accent: "#767676",
+  primary: "#ffffff", // color-scan: ignore-line theme default
+  secondary: "#000000", // color-scan: ignore-line theme default
+  accent: "#767676", // color-scan: ignore-line theme default
 };
 
+// color-scan: ignore-line theme default colors
 const DEFAULT_DARK_COLORS = {
-  primary: "#000000",
-  secondary: "#ffffff",
-  accent: "#767676",
+  primary: "#000000", // color-scan: ignore-line theme default
+  secondary: "#ffffff", // color-scan: ignore-line theme default
+  accent: "#767676", // color-scan: ignore-line theme default
 };
 
 function isValidHexColor(color) {
