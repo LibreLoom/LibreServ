@@ -13,8 +13,40 @@ The primary method of delivery for LibreServ will likely be via hardware with th
 - Backend is Go; Frontend is React/Vite. Reverse proxy is Caddy. Database is SQLite. Apps run via Docker.
 
 ## Goals
-- 99% of users shouldn’t need a terminal; actions should be reversible and plain-language.
+- 99% of users shouldn't need a terminal; actions should be reversible and plain-language.
 - Ship opinionated defaults for Caddy/HTTPS, monitoring, backups, and a small curated app set (quality over quantity).
+
+## MVP Definition
+
+LibreServ has achieved MVP when ALL of the following are true:
+
+### First-Run Experience
+- [ ] A user can setup the hardware shipped with LibreServ with no technical help
+- [ ] Setup wizard guides user through creating admin account
+- [ ] Preflight checks verify Docker, disk space, database before first use
+
+### App Management
+- [ ] A user can install any app from the catalog without difficulty
+- [ ] User sees plain-language warnings about app features (shared account, external auth)
+- [ ] User can start, stop, and restart installed apps
+- [ ] User can uninstall apps with confirmation
+
+### Backups
+- [ ] User can create backups of any installed app
+- [ ] User can restore from an existing backup
+- [ ] User can configure automatic cloud backups (Backblaze B2 or S3)
+
+### Remote Access
+- [ ] User can configure a domain for remote access
+- [ ] HTTPS is automatically configured and renewed
+- [ ] User can add custom domain routes to apps
+
+### System
+- [ ] User can check system health and resource usage
+- [ ] User can add and manage multiple users
+- [ ] User can update LibreServ from the web UI
+
+---
 
 ## What’s here
 - **Backend** (`server/backend`): API server, app installer/manager, monitoring, backups, support session tooling.
