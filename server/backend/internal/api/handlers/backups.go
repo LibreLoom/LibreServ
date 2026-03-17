@@ -6,8 +6,10 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
@@ -255,5 +257,179 @@ func (h *BackupHandlers) RestoreDatabaseBackup(w http.ResponseWriter, r *http.Re
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"backup_id": backupID,
 		"status":    "restored",
+	})
+}
+
+// ListSchedules returns all backup schedules
+// GET /api/v1/backups/schedules
+func (h *BackupHandlers) ListSchedules(w http.ResponseWriter, r *http.Request) {
+	schedules, err := h.backupService.ListSchedules(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"schedules": schedules,
+		"count":     len(schedules),
+	})
+}
+
+// GetSchedule returns a specific backup schedule
+// GET /api/v1/backups/schedules/{scheduleID}
+func (h *BackupHandlers) GetSchedule(w http.ResponseWriter, r *http.Request) {
+	scheduleID := chi.URLParam(r, "scheduleID")
+	if scheduleID == "" {
+		JSONError(w, http.StatusBadRequest, "schedule ID required")
+		return
+	}
+
+	schedule, err := h.backupService.GetSchedule(r.Context(), scheduleID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, schedule)
+}
+
+// CreateScheduleRequest is the request body for creating a backup schedule
+type CreateScheduleRequest struct {
+	AppID            string `json:"app_id"`
+	Type             string `json:"type"`
+	CronExpr         string `json:"cron_expr"`
+	Enabled          bool   `json:"enabled"`
+	StopBeforeBackup bool   `json:"stop_before_backup"`
+	Compress         bool   `json:"compress"`
+	IncludeConfig    bool   `json:"include_config"`
+	IncludeLogs      bool   `json:"include_logs"`
+	Retention        int    `json:"retention"`
+}
+
+// CreateSchedule creates a new backup schedule
+// POST /api/v1/backups/schedules
+func (h *BackupHandlers) CreateSchedule(w http.ResponseWriter, r *http.Request) {
+	var req CreateScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.CronExpr == "" {
+		JSONError(w, http.StatusBadRequest, "cron_expr is required")
+		return
+	}
+
+	if req.Type == "" {
+		req.Type = "app"
+	}
+
+	if req.Retention == 0 {
+		req.Retention = 7
+	}
+
+	schedule := &storage.BackupSchedule{
+		ID:       uuid.New().String(),
+		AppID:    req.AppID,
+		Type:     storage.BackupType(req.Type),
+		CronExpr: req.CronExpr,
+		Enabled:  req.Enabled,
+		Options: storage.BackupOptions{
+			StopBeforeBackup: req.StopBeforeBackup,
+			Compress:         req.Compress,
+			IncludeConfig:    req.IncludeConfig,
+			IncludeLogs:      req.IncludeLogs,
+		},
+		Retention: req.Retention,
+		CreatedAt: time.Now(),
+	}
+
+	if err := h.backupService.CreateSchedule(r.Context(), schedule); err != nil {
+		JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusCreated, schedule)
+}
+
+// UpdateScheduleRequest is the request body for updating a backup schedule
+type UpdateScheduleRequest struct {
+	CronExpr         string `json:"cron_expr,omitempty"`
+	Enabled          *bool  `json:"enabled,omitempty"`
+	StopBeforeBackup *bool  `json:"stop_before_backup,omitempty"`
+	Compress         *bool  `json:"compress,omitempty"`
+	IncludeConfig    *bool  `json:"include_config,omitempty"`
+	IncludeLogs      *bool  `json:"include_logs,omitempty"`
+	Retention        *int   `json:"retention,omitempty"`
+}
+
+// UpdateSchedule updates a backup schedule
+// PUT /api/v1/backups/schedules/{scheduleID}
+func (h *BackupHandlers) UpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	scheduleID := chi.URLParam(r, "scheduleID")
+	if scheduleID == "" {
+		JSONError(w, http.StatusBadRequest, "schedule ID required")
+		return
+	}
+
+	var req UpdateScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	schedule, err := h.backupService.GetSchedule(r.Context(), scheduleID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	if req.CronExpr != "" {
+		schedule.CronExpr = req.CronExpr
+	}
+	if req.Enabled != nil {
+		schedule.Enabled = *req.Enabled
+	}
+	if req.StopBeforeBackup != nil {
+		schedule.Options.StopBeforeBackup = *req.StopBeforeBackup
+	}
+	if req.Compress != nil {
+		schedule.Options.Compress = *req.Compress
+	}
+	if req.IncludeConfig != nil {
+		schedule.Options.IncludeConfig = *req.IncludeConfig
+	}
+	if req.IncludeLogs != nil {
+		schedule.Options.IncludeLogs = *req.IncludeLogs
+	}
+	if req.Retention != nil {
+		schedule.Retention = *req.Retention
+	}
+
+	if err := h.backupService.UpdateSchedule(r.Context(), schedule); err != nil {
+		JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, schedule)
+}
+
+// DeleteSchedule deletes a backup schedule
+// DELETE /api/v1/backups/schedules/{scheduleID}
+func (h *BackupHandlers) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	scheduleID := chi.URLParam(r, "scheduleID")
+	if scheduleID == "" {
+		JSONError(w, http.StatusBadRequest, "schedule ID required")
+		return
+	}
+
+	if err := h.backupService.DeleteSchedule(r.Context(), scheduleID); err != nil {
+		JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "deleted",
+		"message": "Backup schedule deleted successfully",
 	})
 }

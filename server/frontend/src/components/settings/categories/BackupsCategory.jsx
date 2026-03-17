@@ -13,6 +13,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import CloudBackupConfig from "../../backups/CloudBackupConfig";
+import ScheduleForm from "../../backups/ScheduleForm";
 import Card from "../../common/cards/Card";
 
 function formatDate(dateStr) {
@@ -336,6 +337,9 @@ export default function BackupsCategory() {
           </div>
         )}
       </div>
+
+      {/* Backup Schedules Section */}
+      <ScheduleForm />
 
       {/* Cloud Backup Section */}
       <div

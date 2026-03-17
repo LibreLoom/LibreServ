@@ -238,6 +238,13 @@ func (s *Server) setupRoutes() {
 				r.Post("/{backupID}/restore", backupHandler.RestoreBackup)
 				r.Delete("/{backupID}", backupHandler.DeleteBackup)
 
+				// Backup schedules
+				r.Get("/schedules", backupHandler.ListSchedules)
+				r.Post("/schedules", backupHandler.CreateSchedule)
+				r.Get("/schedules/{scheduleID}", backupHandler.GetSchedule)
+				r.Put("/schedules/{scheduleID}", backupHandler.UpdateSchedule)
+				r.Delete("/schedules/{scheduleID}", backupHandler.DeleteSchedule)
+
 				// Database backups
 				r.Get("/database", backupHandler.ListDatabaseBackups)
 				r.Post("/database", backupHandler.CreateDatabaseBackup)

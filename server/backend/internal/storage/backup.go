@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -457,3 +458,105 @@ type nopWriteCloser struct {
 }
 
 func (nopWriteCloser) Close() error { return nil }
+
+// ListSchedules returns all backup schedules
+func (s *BackupService) ListSchedules(ctx context.Context) ([]BackupSchedule, error) {
+	query := `SELECT id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, last_run, next_run, created_at, updated_at FROM backup_schedules ORDER BY created_at DESC`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query backup schedules: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
+
+	var schedules []BackupSchedule
+	for rows.Next() {
+		var bs BackupSchedule
+		var scheduleType string
+		var lastRun, nextRun sql.NullTime
+		if err := rows.Scan(&bs.ID, &bs.AppID, &scheduleType, &bs.CronExpr, &bs.Enabled, &bs.Options.StopBeforeBackup, &bs.Options.Compress, &bs.Options.IncludeConfig, &bs.Options.IncludeLogs, &bs.Retention, &lastRun, &nextRun, &bs.CreatedAt, &bs.UpdatedAt); err != nil {
+			log.Printf("failed to scan backup schedule: %v", err)
+			continue
+		}
+		bs.Type = BackupType(scheduleType)
+		if lastRun.Valid {
+			bs.LastRun = &lastRun.Time
+		}
+		if nextRun.Valid {
+			bs.NextRun = &nextRun.Time
+		}
+		schedules = append(schedules, bs)
+	}
+
+	return schedules, nil
+}
+
+// GetSchedule retrieves a specific backup schedule by ID
+func (s *BackupService) GetSchedule(ctx context.Context, scheduleID string) (*BackupSchedule, error) {
+	var bs BackupSchedule
+	var scheduleType string
+	var lastRun, nextRun sql.NullTime
+
+	err := s.db.QueryRow(`
+		SELECT id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, last_run, next_run, created_at, updated_at
+		FROM backup_schedules WHERE id = ?
+	`, scheduleID).Scan(&bs.ID, &bs.AppID, &scheduleType, &bs.CronExpr, &bs.Enabled, &bs.Options.StopBeforeBackup, &bs.Options.Compress, &bs.Options.IncludeConfig, &bs.Options.IncludeLogs, &bs.Retention, &lastRun, &nextRun, &bs.CreatedAt, &bs.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("backup schedule not found: %w", err)
+	}
+
+	bs.Type = BackupType(scheduleType)
+	if lastRun.Valid {
+		bs.LastRun = &lastRun.Time
+	}
+	if nextRun.Valid {
+		bs.NextRun = &nextRun.Time
+	}
+
+	return &bs, nil
+}
+
+// CreateSchedule creates a new backup schedule
+func (s *BackupService) CreateSchedule(ctx context.Context, schedule *BackupSchedule) error {
+	_, err := s.db.Exec(`
+		INSERT INTO backup_schedules (id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, schedule.ID, schedule.AppID, string(schedule.Type), schedule.CronExpr, schedule.Enabled, schedule.Options.StopBeforeBackup, schedule.Options.Compress, schedule.Options.IncludeConfig, schedule.Options.IncludeLogs, schedule.Retention, schedule.CreatedAt, schedule.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create backup schedule: %w", err)
+	}
+
+	log.Printf("Backup schedule created: %s", schedule.ID)
+	return nil
+}
+
+// UpdateSchedule updates an existing backup schedule
+func (s *BackupService) UpdateSchedule(ctx context.Context, schedule *BackupSchedule) error {
+	_, err := s.db.Exec(`
+		UPDATE backup_schedules SET cron_expr = ?, enabled = ?, stop_before_backup = ?, compress = ?, include_config = ?, include_logs = ?, retention = ?, updated_at = ? WHERE id = ?
+	`, schedule.CronExpr, schedule.Enabled, schedule.Options.StopBeforeBackup, schedule.Options.Compress, schedule.Options.IncludeConfig, schedule.Options.IncludeLogs, schedule.Retention, time.Now(), schedule.ID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update backup schedule: %w", err)
+	}
+
+	log.Printf("Backup schedule updated: %s", schedule.ID)
+	return nil
+}
+
+// DeleteSchedule removes a backup schedule
+func (s *BackupService) DeleteSchedule(ctx context.Context, scheduleID string) error {
+	_, err := s.db.Exec("DELETE FROM backup_schedules WHERE id = ?", scheduleID)
+	if err != nil {
+		return fmt.Errorf("failed to delete backup schedule: %w", err)
+	}
+
+	log.Printf("Backup schedule deleted: %s", scheduleID)
+	return nil
+}
