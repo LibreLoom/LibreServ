@@ -60,6 +60,7 @@ type BackupSchedule struct {
 	LastRun   *time.Time    `json:"last_run,omitempty"`
 	NextRun   *time.Time    `json:"next_run,omitempty"`
 	CreatedAt time.Time     `json:"created_at"`
+	UpdatedAt time.Time     `json:"updated_at"`
 }
 
 // DatabaseBackup represents a database backup record
