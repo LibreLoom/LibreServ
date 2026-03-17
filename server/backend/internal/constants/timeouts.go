@@ -83,9 +83,7 @@ const (
 
 	// Search query constraints
 	MaxSearchQueryLength = 100
-
 )
-
 
 // Job queue constants
 const (
@@ -122,7 +120,6 @@ const (
 	// RequestTimeoutSeconds is the middleware request timeout
 	RequestTimeoutSeconds = 60
 )
-
 
 // Status constants
 const (
