@@ -22,14 +22,14 @@ LibreServ has achieved MVP when ALL of the following are true:
 
 ### First-Run Experience
 - [ ] A user can setup the hardware shipped with LibreServ with no technical help
-- [ ] Setup wizard guides user through creating admin account
+- [x] Setup wizard guides user through creating admin account
 - [ ] Preflight checks verify Docker, disk space, database before first use
 
 ### App Management
-- [ ] A user can install any app from the catalog without difficulty
-- [ ] User sees plain-language warnings about app features (shared account, external auth)
-- [ ] User can start, stop, and restart installed apps
-- [ ] User can uninstall apps with confirmation
+- [x] A user can install any app from the catalog without difficulty
+- [x] User sees plain-language warnings about app features (shared account, external auth)
+- [x] User can start, stop, and restart installed apps
+- [x] User can uninstall apps with confirmation
 
 ### Backups
 - [ ] User can create backups of any installed app
@@ -43,7 +43,7 @@ LibreServ has achieved MVP when ALL of the following are true:
 
 ### System
 - [ ] User can check system health and resource usage
-- [ ] User can add and manage multiple users
+- [x] User can add and manage multiple users
 - [ ] User can update LibreServ from the web UI
 
 ---
