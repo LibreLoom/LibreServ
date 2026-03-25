@@ -123,6 +123,7 @@ export default function AppDetailPage() {
   const [metrics, setMetrics] = useState(null);
   const [_metricsLoading, setMetricsLoading] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState(null);
+  const appUrl = app?.url || app?.backends?.[0]?.url || "";
 
   useEffect(() => {
     if (!instanceId) {
@@ -392,13 +393,13 @@ export default function AppDetailPage() {
               </p>
             </Card>
 
-            {app.url && (
+            {appUrl && (
               <Card className="flex flex-col items-center justify-center py-6 text-center">
                 <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
                   Link
                 </p>
                 <a
-                  href={app.url}
+                  href={appUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-lg font-mono text-accent hover:underline flex items-center gap-1"

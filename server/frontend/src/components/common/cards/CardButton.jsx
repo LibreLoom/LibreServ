@@ -15,9 +15,16 @@ export default function CardButton({
   variant = "default",
   className = "",
   external = false,
+  icon: Icon,
 }) {
-  // Map visual intent to a Tailwind class bundle.
   const variantClasses = variants[variant] || variants.default;
+
+  const content = (
+    <>
+      {Icon && <Icon size={16} />}
+      <span className="text-sm font-medium">{actionLabel}</span>
+    </>
+  );
 
   if (external) {
     return (
@@ -26,9 +33,9 @@ export default function CardButton({
         target="_blank"
         rel="noopener noreferrer"
         aria-label={actionLabel}
-        className={`flex items-center justify-center rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer ${variantClasses} ${className} h-full w-full`}
+        className={`flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer ${variantClasses} ${className} h-full w-full`}
       >
-        <span className="text-sm font-medium">{actionLabel}</span>
+        {content}
       </a>
     );
   }
@@ -37,9 +44,9 @@ export default function CardButton({
      <Link
        to={action}
        aria-label={actionLabel}
-       className={`flex items-center justify-center rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer ${variantClasses} ${className} h-full w-full`}
+       className={`flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer ${variantClasses} ${className} h-full w-full`}
      >
-       <span className="text-sm font-medium">{actionLabel}</span>
+       {content}
      </Link>
    );
 }

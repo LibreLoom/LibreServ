@@ -1,6 +1,6 @@
 import { useEffect, useState, memo, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Package, Cpu, MemoryStick, Clock, TrendingUp } from "lucide-react";
+import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings } from "lucide-react";
 import CardButton from "./CardButton";
 import AppIcon from "../AppIcon";
 import StatusPill from "../StatusPill";
@@ -33,6 +33,7 @@ function formatBytes(bytes) {
 function AppCardInner({ app }) {
   const isRunning = app.status === "running";
   const uptime = isRunning ? app.uptime_seconds : app.downtime_seconds;
+  const appUrl = app.url || app.backends?.[0]?.url || "";
   const uptimeLabel = isRunning ? "Uptime" : "Downtime";
 
   return (
@@ -42,9 +43,9 @@ function AppCardInner({ app }) {
       <div className="flex items-center gap-4">
         <AppIcon appId={app.app_id} size={48} />
         <div className="text-left min-w-0 flex-1">
-          {app.url ? (
+          {appUrl ? (
             <a
-              href={app.url}
+              href={appUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="font-mono font-normal truncate hover:text-accent transition-colors"
@@ -88,13 +89,13 @@ function AppCardInner({ app }) {
         </div>
       </div>
 
-      {app.url && (
+      {appUrl && (
         <div className="mt-4">
-          <CardButton action={app.url} actionLabel="Open App" external />
+          <CardButton action={appUrl} actionLabel="Open App" external icon={ExternalLink} />
         </div>
       )}
 
-      <CardButton action={`/apps/${app.id}`} actionLabel="Manage" />
+      <CardButton action={`/apps/${app.id}`} actionLabel="Manage" icon={Settings} />
     </div>
   );
 }
