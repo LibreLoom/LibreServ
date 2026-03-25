@@ -182,6 +182,7 @@ func (s *Server) setupRoutes() {
 			r.Route("/apps", func(r chi.Router) {
 				r.Get("/", appsHandler.ListInstalledApps)
 				r.Post("/", appsHandler.InstallApp)
+				r.Get("/ports", appsHandler.ListAllocatedPorts)
 				r.Get("/updates/history", appsHandler.GetUpdateHistory)
 				r.Get("/updates/available", appsHandler.GetAvailableUpdates)
 				r.Get("/{instanceId}", appsHandler.GetInstalledApp)

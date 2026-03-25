@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -101,11 +103,13 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
+		slog.Error("App install failed", "app_id", req.AppID, "error", err)
 		JSONError(w, http.StatusInternalServerError, "installation failed: "+err.Error())
 		return
 	}
 
 	if !result.Success {
+		slog.Error("App install unsuccessful", "app_id", req.AppID, "error", result.Error)
 		JSONError(w, http.StatusInternalServerError, result.Error)
 		return
 	}
@@ -331,5 +335,29 @@ func (h *AppsHandler) UnpinAppVersion(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]string{
 		"message":     "app version unpinned",
 		"instance_id": instanceID,
+	})
+}
+
+// ListAllocatedPorts handles GET /api/apps/ports
+// Returns all currently allocated port numbers and which app owns them.
+func (h *AppsHandler) ListAllocatedPorts(w http.ResponseWriter, r *http.Request) {
+	pm := h.manager.GetPortManager()
+	if pm == nil {
+		JSON(w, http.StatusOK, map[string]interface{}{
+			"ports": map[string]string{},
+		})
+		return
+	}
+
+	usedPorts := pm.GetUsedPorts()
+
+	// Convert int keys to string keys for JSON
+	result := make(map[string]string, len(usedPorts))
+	for port, instanceID := range usedPorts {
+		result[fmt.Sprintf("%d", port)] = instanceID
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"ports": result,
 	})
 }

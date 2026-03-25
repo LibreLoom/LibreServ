@@ -24,6 +24,7 @@ type Manager struct {
 	mu             sync.RWMutex
 	catalog        *Catalog
 	installer      *Installer
+	portManager    *PortManager
 	runtime        runtime.ContainerRuntime
 	db             *database.DB
 	backupService  *storage.BackupService
@@ -65,8 +66,15 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 	// Initialize metrics cache
 	m.metricsCache = NewAppMetricsCache(monitor, m.logger)
 
+	// Initialize port manager
+	m.portManager = NewPortManager(db, catalog, config.Get().Server.Port)
+	if err := m.portManager.Init(); err != nil {
+		m.logger.Warn("Failed to initialize port manager", "error", err)
+		// Non-fatal — port allocation will still work, just without pre-existing port awareness
+	}
+
 	// Create installer
-	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache)
+	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache, m.portManager)
 	m.installer.SetCatalogPath(catalogPath)
 	m.installer.SetBackendRegistrar(func(appID, backend, name string) {
 		if name != "" {
@@ -83,6 +91,11 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 // GetCatalog returns the app catalog
 func (m *Manager) GetCatalog() *Catalog {
 	return m.catalog
+}
+
+// GetPortManager returns the port manager
+func (m *Manager) GetPortManager() *PortManager {
+	return m.portManager
 }
 
 // Start begins the metrics cache collection
@@ -665,6 +678,11 @@ func (m *Manager) recordUpdateFailure(updateID int64, err error, rolledBack bool
 func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 	if err := m.installer.Uninstall(ctx, instanceID); err != nil {
 		m.logger.Warn("Installer uninstall returned error, continuing with DB cleanup", "error", err)
+	}
+
+	// Release ports allocated to this app
+	if m.portManager != nil {
+		m.portManager.ReleaseAll(instanceID)
 	}
 
 	if m.metricsCache != nil {
