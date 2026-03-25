@@ -259,6 +259,7 @@ export default function AppsPage() {
               const isRunning = app.status === "running";
               const uptime = isRunning ? app.uptime_seconds : app.downtime_seconds;
               const uptimeLabel = isRunning ? "Uptime" : "Downtime";
+              const appUrl = app.url || app.backends?.[0]?.url || "";
 
               return (
                 <Card key={app.id} className="relative flex flex-col">
@@ -266,9 +267,9 @@ export default function AppsPage() {
                   <div className="flex items-start gap-4">
                     <AppIcon appId={app.app_id} size={48} className="shrink-0" />
                     <div className="flex-1 min-w-0">
-                      {app.url ? (
+                      {appUrl ? (
                         <a
-                          href={app.url}
+                          href={appUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="font-mono text-lg text-primary truncate pr-20 hover:text-accent transition-colors block"
@@ -320,9 +321,9 @@ export default function AppsPage() {
                       <Settings size={16} />
                       Manage
                     </Link>
-                    {app.url && (
+                    {appUrl && (
                       <a
-                        href={app.url}
+                        href={appUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
