@@ -1,11 +1,63 @@
-import { memo, useState, useCallback, useMemo } from "react";
+import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import ConfigFieldRenderer from "./ConfigFieldRenderer";
-import { AlertTriangle, Info } from "lucide-react";
+import { AlertTriangle, Info, ChevronDown, ChevronUp } from "lucide-react";
+
+function AdvancedContent({ show, portFields, config, handleFieldChange, errors }) {
+  const contentRef = useRef(null);
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    if (contentRef.current) {
+      setHeight(contentRef.current.scrollHeight);
+    }
+  }, [show, portFields]);
+
+  return (
+    <div
+      className="overflow-hidden motion-safe:transition-[max-height,opacity] motion-safe:duration-300 motion-safe:ease-in-out"
+      style={{ maxHeight: show ? `${height}px` : "0px", opacity: show ? 1 : 0 }}
+    >
+      <div ref={contentRef}>
+        <p className="text-xs text-secondary/50 pb-3">
+          Network ports will be automatically assigned. Override only if you need a specific port.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 border-l-2 border-secondary/10">
+          {portFields.map((field) => (
+            <div key={field.name}>
+              <ConfigFieldRenderer
+                field={field}
+                value={config[field.name]}
+                onChange={(value) => handleFieldChange(field.name, value)}
+              />
+              {errors[field.name] && (
+                <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBack }) {
   const [errors, setErrors] = useState({});
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const configuration = useMemo(() => app?.configuration || [], [app?.configuration]);
+
+  const { portFields, nonPortFields } = useMemo(() => {
+    const ports = [];
+    const nonPorts = [];
+    configuration.forEach((field) => {
+      if (field.type === "port") {
+        ports.push(field);
+      } else {
+        nonPorts.push(field);
+      }
+    });
+    return { portFields: ports, nonPortFields: nonPorts };
+  }, [configuration]);
 
   const handleFieldChange = useCallback(
     (fieldName, value) => {
@@ -107,13 +159,13 @@ value={config._shared_password || ""}
         </div>
       )}
 
-      {configuration.length > 0 && (
+      {nonPortFields.length > 0 && (
         <div className="space-y-4">
           <p className="text-xs font-mono text-secondary/50 uppercase tracking-wide">
             Application Settings
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {configuration.map((field) => (
+            {nonPortFields.map((field) => (
               <div
                 key={field.name}
                 className={field.type === "boolean" ? "sm:col-span-2" : ""}
@@ -129,6 +181,23 @@ value={config._shared_password || ""}
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {portFields.length > 0 && (
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center gap-2 text-xs font-mono text-secondary/50 uppercase tracking-wide hover:text-secondary/70 motion-safe:transition-colors"
+          >
+            <span>
+              {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </span>
+            Advanced Settings
+          </button>
+
+          <AdvancedContent show={showAdvanced} portFields={portFields} config={config} handleFieldChange={handleFieldChange} errors={errors} />
         </div>
       )}
 

@@ -32,11 +32,12 @@ type Installer struct {
 	logger          *slog.Logger
 	monitor         *monitoring.Monitor
 	metricsCache    *AppMetricsCache
+	portManager     *PortManager
 	registerBackend func(appID, backend, name string)
 }
 
 // NewInstaller creates a new Installer
-func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *database.DB, appsDataDir string, monitor *monitoring.Monitor, metricsCache *AppMetricsCache) *Installer {
+func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *database.DB, appsDataDir string, monitor *monitoring.Monitor, metricsCache *AppMetricsCache, portManager *PortManager) *Installer {
 	return &Installer{
 		catalog:      catalog,
 		runtime:      runtime,
@@ -45,6 +46,7 @@ func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *databa
 		logger:       slog.Default().With("component", "installer"),
 		monitor:      monitor,
 		metricsCache: metricsCache,
+		portManager:  portManager,
 	}
 }
 
@@ -100,6 +102,65 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	config["app_name"] = appName
 
 	config = i.generateAutoValues(appDef, config)
+
+	// Auto-allocate ports for port-type config fields
+	if i.portManager != nil {
+		for _, field := range appDef.Configuration {
+			if field.Type != "port" {
+				continue
+			}
+
+			current := toInt(config[field.Name])
+
+			// If user explicitly set this field to a non-default value, check availability
+			userSet := opts.Config != nil
+			if userSet {
+				_, userSet = opts.Config[field.Name]
+			}
+			// If the value matches the field's default, treat as auto (not explicitly chosen)
+			if userSet {
+				defaultVal := toInt(field.Default)
+				if defaultVal > 0 && current == defaultVal {
+					userSet = false
+				}
+			}
+			if userSet {
+				if current > 0 && !i.portManager.IsAvailable(current) {
+					_ = os.RemoveAll(installPath)
+					return &InstallResult{
+						Success: false,
+						Error:   fmt.Sprintf("port %d is already in use", current),
+					}, fmt.Errorf("port %d is already in use", current)
+				}
+			} else {
+				// User didn't set it — auto-allocate
+				preferred := current
+				if preferred == 0 {
+					preferred = toInt(field.Default)
+				}
+				if preferred == 0 {
+					preferred = WellKnownPortMax + 1 // fallback to 1024
+				}
+
+				allocated, err := i.portManager.Allocate(preferred)
+				if err != nil {
+					_ = os.RemoveAll(installPath)
+					return &InstallResult{Success: false, Error: "no available ports"}, err
+				}
+				config[field.Name] = allocated
+			}
+		}
+
+		// Reserve all allocated ports in the port manager
+		for _, field := range appDef.Configuration {
+			if field.Type != "port" {
+				continue
+			}
+			if p := toInt(config[field.Name]); p > 0 {
+				i.portManager.Reserve(p, instanceID)
+			}
+		}
+	}
 
 	composePath, err := i.processComposeTemplate(appDef, installPath, config)
 	if err != nil {
