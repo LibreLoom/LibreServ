@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, X } from "lucide-react";
 import ModalCard from "../../common/cards/ModalCard";
 
@@ -9,12 +10,33 @@ export function ActionResultModal({ result, onClose }) {
 
   const formatDuration = (duration) => {
     if (!duration) return "N/A";
-    const seconds = Math.round(duration / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
+    if (typeof duration === "string") {
+      const match = duration.match(/^(\d+h)?(\d+m)?(\d+(\.\d+)?s)?$/);
+      if (match) {
+        const hours = match[1] ? parseInt(match[1]) : 0;
+        const minutes = match[2] ? parseInt(match[2]) : 0;
+        const seconds = match[3] ? parseFloat(match[3]) : 0;
+        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+        if (totalSeconds < 60) return `${totalSeconds}s`;
+        const mins = Math.floor(totalSeconds / 60);
+        const secs = Math.round(totalSeconds % 60);
+        return `${mins}m ${secs}s`;
+      }
+      return duration;
+    }
+    if (typeof duration === "number") {
+      const seconds = Math.round(duration / 1000);
+      if (seconds < 60) return `${seconds}s`;
+      const minutes = Math.floor(seconds / 60);
+      const remainingSeconds = seconds % 60;
+      return `${minutes}m ${remainingSeconds}s`;
+    }
+    return String(duration);
   };
+
+  const exitCode = result.exit_code;
+  const output = typeof result.output === "string" ? result.output : result.output ? JSON.stringify(result.output) : "";
+  const errorMsg = typeof result.error === "string" ? result.error : result.error ? String(result.error) : "";
 
   return (
     <ModalCard title={result.success ? "Action Completed" : "Action Failed"} onClose={onClose}>
@@ -34,7 +56,7 @@ export function ActionResultModal({ result, onClose }) {
               {result.success ? "Success" : "Failed"}
             </p>
             <p className="text-sm text-primary/70">
-              Exit code: {result.exit_code ?? "N/A"}
+              Exit code: {exitCode ?? "N/A"}
             </p>
           </div>
           <div className="flex items-center gap-1 text-sm text-primary/60">
@@ -43,7 +65,7 @@ export function ActionResultModal({ result, onClose }) {
           </div>
         </div>
 
-        {result.output && (
+        {output && (
           <div>
             <button
               onClick={() => setShowVerbose(!showVerbose)}
@@ -53,19 +75,29 @@ export function ActionResultModal({ result, onClose }) {
               {showVerbose ? "Hide output" : "View output"}
             </button>
             
-            {showVerbose && (
-              <div className="bg-primary/50 border border-secondary/20 rounded-large-element p-3">
-                <pre className="text-sm font-mono whitespace-pre-wrap break-all text-primary/80">
-                  {result.output}
-                </pre>
-              </div>
-            )}
+            <AnimatePresence initial={false}>
+              {showVerbose && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="overflow-hidden"
+                >
+                  <div className="bg-primary/50 border border-secondary/20 rounded-large-element p-3 mt-2">
+                    <pre className="text-sm font-mono whitespace-pre-wrap break-all text-primary/80">
+                      {output}
+                    </pre>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
-        {result.error && (
+        {errorMsg && (
           <div className="bg-error/5 border border-error/20 rounded-large-element p-3">
-            <p className="text-sm text-error font-mono">{result.error}</p>
+            <p className="text-sm text-error font-mono">{errorMsg}</p>
           </div>
         )}
 

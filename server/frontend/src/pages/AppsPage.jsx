@@ -5,7 +5,7 @@ import HeaderCard from "../components/common/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
 import Dropdown from "../components/common/Dropdown";
 import AppIcon from "../components/common/AppIcon";
-import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp } from "lucide-react";
+import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink } from "lucide-react";
 import StatusPill from "../components/common/StatusPill";
 
 function formatDuration(seconds) {
@@ -321,16 +321,17 @@ export default function AppsPage() {
                       <Settings size={16} />
                       Manage
                     </Link>
-                    {appUrl && (
-                      <a
-                        href={appUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
-                      >
-                        Open
-                      </a>
-                    )}
+{appUrl && (
+                        <a
+                          href={appUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
+                        >
+                          <ExternalLink size={16} />
+                          Open
+                        </a>
+                      )}
                   </div>
                 </Card>
               );

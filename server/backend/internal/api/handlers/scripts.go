@@ -95,6 +95,7 @@ type ExecuteActionRequest struct {
 
 type ExecuteActionResponse struct {
 	ExecutionID string             `json:"execution_id"`
+	Duration    string             `json:"duration"`
 	Result      *apps.ScriptResult `json:"result,omitempty"`
 	StreamURL   string             `json:"stream_url,omitempty"`
 }
@@ -159,7 +160,7 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 
 	response := ExecuteActionResponse{
 		ExecutionID: instanceID + "-" + req.Action,
-		Result:      result,
+		Duration:    result.Duration.String(),
 	}
 
 	if action, _ := h.getAction(appDef, req.Action); action != nil && action.Execution.StreamOutput {

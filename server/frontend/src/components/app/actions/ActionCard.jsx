@@ -11,9 +11,6 @@ export function ActionCard({ action, onExecute, disabled, loading }) {
         </div>
         <div>
           <p className="font-mono font-medium">{action.label}</p>
-          {action.description && (
-            <p className="text-sm text-primary/60">{action.description}</p>
-          )}
           {hasOptions && (
             <span className="inline-block text-xs bg-accent/20 text-accent px-2 py-0.5 rounded-pill mt-1">
               Has options

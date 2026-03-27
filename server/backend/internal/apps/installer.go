@@ -95,6 +95,14 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		return &InstallResult{Success: false, Error: "failed to create install directory"}, err
 	}
 
+	// Convert to absolute path to ensure scripts work correctly
+	absInstallPath, err := filepath.Abs(installPath)
+	if err != nil {
+		_ = os.RemoveAll(installPath)
+		return &InstallResult{Success: false, Error: "failed to resolve install path"}, err
+	}
+	installPath = absInstallPath
+
 	config := i.mergeConfig(appDef, opts.Config)
 
 	config["instance_id"] = instanceID
@@ -176,6 +184,11 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	if err := i.createDataDirectories(installPath, appDef); err != nil {
 		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to create data directories"}, err
+	}
+
+	if err := i.copyScripts(installPath, appDef); err != nil {
+		i.logger.Warn("Failed to copy app scripts", "error", err)
+		// Non-fatal - app can still work without scripts
 	}
 
 	installedApp := &InstalledApp{
@@ -476,6 +489,52 @@ func (i *Installer) createDataDirectories(installPath string, appDef *AppDefinit
 		if err := os.MkdirAll(configPath, 0755); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// copyScripts copies app scripts from catalog to the installation directory
+func (i *Installer) copyScripts(installPath string, appDef *AppDefinition) error {
+	if appDef.CatalogPath == "" {
+		return nil // No catalog path, nothing to copy
+	}
+
+	catalogScriptsPath := filepath.Join(appDef.CatalogPath, "scripts")
+	if _, err := os.Stat(catalogScriptsPath); os.IsNotExist(err) {
+		return nil // No scripts directory in catalog, nothing to copy
+	}
+
+	installScriptsPath := filepath.Join(installPath, "scripts")
+	if err := os.MkdirAll(installScriptsPath, 0755); err != nil {
+		return fmt.Errorf("failed to create scripts directory: %w", err)
+	}
+
+	entries, err := os.ReadDir(catalogScriptsPath)
+	if err != nil {
+		return fmt.Errorf("failed to read catalog scripts: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		srcPath := filepath.Join(catalogScriptsPath, entry.Name())
+		dstPath := filepath.Join(installScriptsPath, entry.Name())
+
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			i.logger.Warn("Failed to read script", "script", entry.Name(), "error", err)
+			continue
+		}
+
+		if err := os.WriteFile(dstPath, data, 0755); err != nil {
+			i.logger.Warn("Failed to write script", "script", entry.Name(), "error", err)
+			continue
+		}
+
+		i.logger.Debug("Copied script", "script", entry.Name())
 	}
 
 	return nil

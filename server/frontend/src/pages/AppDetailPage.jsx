@@ -26,6 +26,7 @@ import {
   CheckCircle,
   XCircle,
   Wrench,
+  Settings,
 } from "lucide-react";
 import StatusPill from "../components/common/StatusPill";
 import { ActionCard } from "../components/app/actions/ActionCard";
@@ -226,15 +227,25 @@ export default function AppDetailPage() {
   }, [app?.id, request]);
 
   const handleActionExecute = useCallback(
-    async (actionId, options = {}) => {
+    async (actionName, options = {}) => {
       if (!app || actionLoading) return;
-      setActionLoading(actionId);
+      setActionLoading(actionName);
       try {
-        const response = await request(`/apps/${app.id}/actions/${actionId}/execute`, {
+        const response = await request(`/apps/${app.id}/actions/${actionName}/execute`, {
           method: "POST",
-          body: JSON.stringify(options),
+          body: JSON.stringify({ action: actionName, options }),
         });
         return await response.json();
+      } catch (err) {
+        if (err.cause?.response) {
+          try {
+            const errorData = await err.cause.response.json();
+            return { error: errorData.error || errorData.message || err.message };
+          } catch {
+            return { error: err.message };
+          }
+        }
+        return { error: err.message };
       } finally {
         setActionLoading(null);
       }
@@ -457,7 +468,10 @@ export default function AppDetailPage() {
           {metrics && (
             <section className="mb-8">
               <Card className="bg-primary! text-secondary! border-2! border-secondary!">
-                <h2 className="text-2xl font-mono font-normal mb-6">Resource Usage</h2>
+                <div className="flex items-center gap-2 mb-6">
+                  <Server size={20} className="text-accent" />
+                  <h2 className="text-2xl font-mono font-normal">Resource Usage</h2>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
@@ -540,7 +554,10 @@ export default function AppDetailPage() {
 
           <section>
             <Card className="bg-primary! text-secondary! border-2! border-secondary!">
-              <h2 className="text-2xl font-mono font-normal mb-6">Control</h2>
+              <div className="flex items-center gap-2 mb-6">
+                <Settings size={20} className="text-accent" />
+                <h2 className="text-2xl font-mono font-normal">Control</h2>
+              </div>
 
               <div className="flex flex-wrap gap-3">
                 <button
