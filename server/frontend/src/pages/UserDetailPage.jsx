@@ -1,16 +1,16 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import Card from "../components/common/cards/Card";
-import CardButton from "../components/common/cards/CardButton";
-import HeaderCard from "../components/common/cards/HeaderCard";
-import VerificationCard from "../components/common/cards/VerificationCard";
-import ModalCard from "../components/common/cards/ModalCard";
+import Card from "../components/cards/Card";
+import CardButton from "../components/cards/CardButton";
+import HeaderCard from "../components/cards/HeaderCard";
+import VerificationCard from "../components/cards/VerificationCard";
+import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import api from "../lib/api";
 import { User, Mail, Shield, Calendar, Edit2, Clock } from "lucide-react";
-import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
-import RoleChangeForm from "../components/common/forms/RoleChangeForm";
-import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
+import ChangeEmailForm from "../components/forms/ChangeEmailForm";
+import RoleChangeForm from "../components/forms/RoleChangeForm";
+import ResetPasswordForm from "../components/forms/ResetPasswordForm";
 
 export default function UserDetailPage() {
   const { userId } = useParams();

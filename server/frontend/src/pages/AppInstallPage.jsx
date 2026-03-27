@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Navigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import HeaderCard from "../components/common/cards/HeaderCard";
+import HeaderCard from "../components/cards/HeaderCard";
 import InstallWizard from "../components/app/wizard/InstallWizard";
 
 export default function AppInstallPage() {

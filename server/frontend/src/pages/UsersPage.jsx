@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { User, Shield, Trash2, Settings, Plus, Clock } from "lucide-react";
 import { Link } from "react-router-dom";
-import Card from "../components/common/cards/Card";
-import HeaderCard from "../components/common/cards/HeaderCard";
-import VerificationCard from "../components/common/cards/VerificationCard";
+import Card from "../components/cards/Card";
+import HeaderCard from "../components/cards/HeaderCard";
+import VerificationCard from "../components/cards/VerificationCard";
 import api from "../lib/api";
 
 function formatLastLogin(dateString) {

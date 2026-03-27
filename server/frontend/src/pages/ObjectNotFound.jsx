@@ -4,8 +4,8 @@ import { ArrowLeft, Home, LifeBuoy, SearchX } from "lucide-react";
 
 import { objectnotfound as quips } from "../assets/greetings";
 
-import Card from "../components/common/cards/Card";
-import HeaderCard from "../components/common/cards/HeaderCard";
+import Card from "../components/cards/Card";
+import HeaderCard from "../components/cards/HeaderCard";
 
 /* ======================================================================
    Helpers

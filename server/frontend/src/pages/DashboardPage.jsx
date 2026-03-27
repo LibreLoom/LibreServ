@@ -1,11 +1,11 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Clock, Server, CheckCircle, RefreshCw } from "lucide-react";
 
-import StatCard from "../components/common/cards/StatCard";
-import HeaderCard from "../components/common/cards/HeaderCard";
-import AppCards from "../components/common/cards/AppCards";
-import DropdownCard from "../components/common/cards/DropdownCard";
-import RefreshDropdown, { REFRESH_INTERVALS } from "../components/common/RefreshDropdown";
+import StatCard from "../components/cards/StatCard";
+import HeaderCard from "../components/cards/HeaderCard";
+import AppCards from "../components/cards/AppCards";
+import DropdownCard from "../components/cards/DropdownCard";
+import RefreshDropdown, { REFRESH_INTERVALS } from "../components/ui/RefreshDropdown";
 import WelcomeCard from "../components/onboarding/WelcomeCard";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
