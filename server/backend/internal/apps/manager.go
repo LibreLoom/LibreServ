@@ -1024,6 +1024,7 @@ func (m *Manager) mergeExposedInfo(app *InstalledApp, catalogApp *AppDefinition)
 			Description:   field.Description,
 			Type:          field.Type,
 			Group:         field.Group,
+			Advanced:      field.Advanced,
 			Value:         val,
 			Copyable:      field.Copyable,
 			Revealable:    field.Revealable,

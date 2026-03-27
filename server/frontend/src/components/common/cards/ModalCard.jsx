@@ -28,6 +28,8 @@ export default function ModalCard({
     return () => clearTimeout(timer);
   }, []);
 
+  const content = typeof children === "function" ? children({ close: handleClose }) : children;
+
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
@@ -66,13 +68,17 @@ export default function ModalCard({
   }, [handleClose]);
 
   return (
-    <div className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
+    <div
+      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}
+      onClick={handleClose}
+    >
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         className="max-w-md w-full"
+        onClick={(event) => event.stopPropagation()}
       >
         <Card className={`relative ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
           {showCloseButton && (
@@ -93,7 +99,7 @@ export default function ModalCard({
             </h2>
           )}
 
-          {children}
+          {content}
         </Card>
       </div>
     </div>

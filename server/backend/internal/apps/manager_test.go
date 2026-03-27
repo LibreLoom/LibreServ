@@ -163,6 +163,71 @@ func TestMergeExposedInfo(t *testing.T) {
 	}
 }
 
+func TestMergeExposedInfoGroupingAndAdvanced(t *testing.T) {
+	m := &Manager{}
+
+	app := &InstalledApp{
+		Config: map[string]interface{}{
+			"api_key":      "key-123",
+			"internal_id":  "id-456",
+			"advanced_val": "secret-val",
+		},
+	}
+
+	catalogApp := &AppDefinition{
+		ExposedInfo: []ExposedInfoField{
+			{
+				Name:     "api_key",
+				Label:    "API Key",
+				Type:     "password",
+				Group:    "credentials",
+				Advanced: false,
+			},
+			{
+				Name:     "internal_id",
+				Label:    "Internal ID",
+				Type:     "string",
+				Group:    "connection",
+				Advanced: false,
+			},
+			{
+				Name:     "advanced_val",
+				Label:    "Advanced Val",
+				Type:     "password",
+				Group:    "credentials",
+				Advanced: true,
+			},
+		},
+	}
+
+	merged := m.mergeExposedInfo(app, catalogApp)
+
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 exposed info fields, got %d", len(merged))
+	}
+
+	apiKey := merged["api_key"]
+	if apiKey.Group != "credentials" {
+		t.Fatalf("expected credentials group, got %s", apiKey.Group)
+	}
+	if apiKey.Advanced {
+		t.Fatal("expected api_key not to be advanced")
+	}
+
+	internalID := merged["internal_id"]
+	if internalID.Group != "connection" {
+		t.Fatalf("expected connection group, got %s", internalID.Group)
+	}
+
+	advancedVal := merged["advanced_val"]
+	if advancedVal.Group != "credentials" {
+		t.Fatalf("expected credentials group, got %s", advancedVal.Group)
+	}
+	if !advancedVal.Advanced {
+		t.Fatal("expected advanced_val to be advanced")
+	}
+}
+
 func TestMergeExposedInfoEmptyConfig(t *testing.T) {
 	m := &Manager{}
 

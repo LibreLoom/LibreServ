@@ -35,8 +35,9 @@ type ExposedInfoField struct {
 	Name          string `yaml:"name" json:"name"`
 	Label         string `yaml:"label" json:"label"`
 	Description   string `yaml:"description,omitempty" json:"description,omitempty"`
-	Type          string `yaml:"type" json:"type"`                       // password, string, url, username
-	Group         string `yaml:"group,omitempty" json:"group,omitempty"` // Optional grouping (e.g., "credentials", "connection")
+	Type          string `yaml:"type" json:"type"`                             // password, string, url, username
+	Group         string `yaml:"group,omitempty" json:"group,omitempty"`       // Optional grouping (e.g., "credentials", "connection")
+	Advanced      bool   `yaml:"advanced,omitempty" json:"advanced,omitempty"` // Hide behind advanced toggle
 	Copyable      bool   `yaml:"copyable" json:"copyable"`
 	Revealable    bool   `yaml:"revealable" json:"revealable"`
 	MaskByDefault bool   `yaml:"mask_by_default" json:"mask_by_default"`
@@ -47,6 +48,7 @@ type ExposedInfoValue struct {
 	Description   string      `json:"description,omitempty"`
 	Type          string      `json:"type"` // password, string, url, username
 	Group         string      `json:"group,omitempty"`
+	Advanced      bool        `json:"advanced,omitempty"`
 	Value         interface{} `json:"value,omitempty"`
 	Copyable      bool        `json:"copyable"`
 	Revealable    bool        `json:"revealable"`

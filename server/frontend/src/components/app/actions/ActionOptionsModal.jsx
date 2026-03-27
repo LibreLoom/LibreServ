@@ -71,16 +71,20 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
       }
 
       const scriptResult = data.result || data;
+      const rawOutput = scriptResult.Output ?? scriptResult.output;
+      const duration = data.Duration ?? data.duration ?? scriptResult.Duration ?? scriptResult.duration ?? 0;
       setResult({
         success: scriptResult.Success ?? scriptResult.success ?? true,
         exit_code: scriptResult.ExitCode ?? scriptResult.exit_code ?? 0,
-        output: typeof (scriptResult.Output ?? scriptResult.output) === "string"
-          ? (scriptResult.Output ?? scriptResult.output)
-          : JSON.stringify(scriptResult.Output ?? scriptResult.output ?? ""),
+        output: typeof rawOutput === "string"
+          ? rawOutput
+          : rawOutput == null
+            ? ""
+            : JSON.stringify(rawOutput),
         error: typeof (scriptResult.Error ?? scriptResult.error) === "string"
           ? (scriptResult.Error ?? scriptResult.error)
           : undefined,
-        duration: scriptResult.Duration ?? scriptResult.duration ?? 0,
+        duration,
       });
     } catch (err) {
       setResult({ success: false, exit_code: 0, output: "", error: err.message || "Failed to execute action", duration: 0 });

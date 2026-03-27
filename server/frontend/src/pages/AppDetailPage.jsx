@@ -518,10 +518,6 @@ export default function AppDetailPage() {
             </section>
           )}
 
-          {app.exposed_info && Object.keys(app.exposed_info).length > 0 && (
-            <ExposedInfoCard info={app.exposed_info} />
-          )}
-
           {availableUpdate && (
             <section className="mb-8">
               <Card className="bg-primary! text-secondary! border-2! border-accent!">
@@ -635,9 +631,9 @@ export default function AppDetailPage() {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {actions.map((action) => (
+                    {actions.map((action, index) => (
                       <ActionCard
-                        key={action.id}
+                        key={action.name || action.label || `action-${index}`}
                         action={action}
                         onExecute={() => {
                           setSelectedAction(action);
@@ -650,6 +646,10 @@ export default function AppDetailPage() {
                 )}
               </Card>
             </section>
+          )}
+
+          {app.exposed_info && Object.keys(app.exposed_info).length > 0 && (
+            <ExposedInfoCard info={app.exposed_info} />
           )}
         </>
       )}

@@ -161,6 +161,7 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 	response := ExecuteActionResponse{
 		ExecutionID: instanceID + "-" + req.Action,
 		Duration:    result.Duration.String(),
+		Result:      result,
 	}
 
 	if action, _ := h.getAction(appDef, req.Action); action != nil && action.Execution.StreamOutput {
