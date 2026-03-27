@@ -25,7 +25,7 @@ func (s *Server) setupRoutes() {
 	authHandler := handlers.NewAuthHandler(s.authService, s.securityService)
 	securityHandler := handlers.NewSecurityHandler(s.securityService)
 	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService)
-	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient)
+	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient, s.appManager.GetMetricsCache())
 	backupHandler := handlers.NewBackupHandlers(s.backupService, s.cloudService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
 	settingsHandler := handlers.NewSettingsHandler()

@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
@@ -23,10 +24,11 @@ import (
 
 // MonitoringHandlers handles monitoring-related API endpoints
 type MonitoringHandlers struct {
-	monitor *monitoring.Monitor
-	db      *database.DB
-	docker  *docker.Client
-	mailer  func() (*email.Sender, error)
+	monitor      *monitoring.Monitor
+	db           *database.DB
+	docker       *docker.Client
+	mailer       func() (*email.Sender, error)
+	metricsCache *apps.AppMetricsCache
 
 	netMu            sync.Mutex
 	lastNetBytes     uint64
@@ -41,12 +43,13 @@ type MonitoringHandlers struct {
 }
 
 // NewMonitoringHandlers creates new monitoring handlers
-func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, dockerClient *docker.Client) *MonitoringHandlers {
+func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, dockerClient *docker.Client, metricsCache *apps.AppMetricsCache) *MonitoringHandlers {
 	return &MonitoringHandlers{
-		monitor: monitor,
-		db:      db,
-		docker:  dockerClient,
-		mailer:  email.NewSender,
+		monitor:      monitor,
+		db:           db,
+		docker:       dockerClient,
+		mailer:       email.NewSender,
+		metricsCache: metricsCache,
 	}
 }
 
@@ -75,6 +78,23 @@ func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Reques
 	if appID == "" {
 		JSONError(w, http.StatusBadRequest, "app ID required")
 		return
+	}
+
+	if h.metricsCache != nil {
+		cached := h.metricsCache.GetMetrics(appID)
+		if cached != nil {
+			metrics := &monitoring.Metrics{
+				AppID:       appID,
+				Timestamp:   time.Now(),
+				CPUPercent:  cached.CPUPercent,
+				MemoryUsage: cached.MemoryUsage,
+				MemoryLimit: cached.MemoryLimit,
+				NetworkRx:   cached.NetworkRx,
+				NetworkTx:   cached.NetworkTx,
+			}
+			JSON(w, http.StatusOK, metrics)
+			return
+		}
 	}
 
 	metrics, err := h.monitor.GetAppMetrics(r.Context(), appID)
