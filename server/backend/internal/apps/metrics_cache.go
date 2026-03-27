@@ -27,6 +27,8 @@ type AppMetrics struct {
 	CPUPercent   float64
 	MemoryUsage  uint64
 	MemoryLimit  uint64
+	NetworkRx    uint64
+	NetworkTx    uint64
 	Uptime       int64
 	Downtime     int64
 	Availability float64
@@ -112,6 +114,8 @@ func (c *AppMetricsCache) refreshApp(ctx context.Context, appID string) {
 			metrics.CPUPercent = dockerMetrics.CPUPercent
 			metrics.MemoryUsage = dockerMetrics.MemoryUsage
 			metrics.MemoryLimit = dockerMetrics.MemoryLimit
+			metrics.NetworkRx = dockerMetrics.NetworkRx
+			metrics.NetworkTx = dockerMetrics.NetworkTx
 		}
 	}
 

@@ -119,6 +119,11 @@ func (m *Manager) RefreshMetrics(ctx context.Context) {
 	}
 }
 
+// GetMetricsCache returns the metrics cache for efficient metric retrieval
+func (m *Manager) GetMetricsCache() *AppMetricsCache {
+	return m.metricsCache
+}
+
 // GetBackendURL returns a backend URL for an app if known.
 func (m *Manager) GetBackendURL(appID string) string {
 	m.mu.RLock()
