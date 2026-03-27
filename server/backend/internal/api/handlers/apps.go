@@ -338,6 +338,36 @@ func (h *AppsHandler) UnpinAppVersion(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetExposedInfoField handles GET /api/apps/{instanceId}/exposed-info/{fieldName}
+// Returns a specific exposed info field value
+func (h *AppsHandler) GetExposedInfoField(w http.ResponseWriter, r *http.Request) {
+	instanceID := chi.URLParam(r, "instanceId")
+	if instanceID == "" {
+		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		return
+	}
+
+	fieldName := chi.URLParam(r, "fieldName")
+	if fieldName == "" {
+		JSONError(w, http.StatusBadRequest, "field name is required")
+		return
+	}
+
+	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+
+	value, ok := app.ExposedInfo[fieldName]
+	if !ok {
+		JSONError(w, http.StatusNotFound, "exposed info field not found: "+fieldName)
+		return
+	}
+
+	JSON(w, http.StatusOK, value)
+}
+
 // ListAllocatedPorts handles GET /api/apps/ports
 // Returns all currently allocated port numbers and which app owns them.
 func (h *AppsHandler) ListAllocatedPorts(w http.ResponseWriter, r *http.Request) {

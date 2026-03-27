@@ -31,6 +31,7 @@ import {
 import StatusPill from "../components/common/StatusPill";
 import { ActionCard } from "../components/app/actions/ActionCard";
 import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal";
+import { ExposedInfoCard } from "../components/app/ExposedInfoCard";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");
@@ -515,6 +516,10 @@ export default function AppDetailPage() {
                 </div>
               </Card>
             </section>
+          )}
+
+          {app.exposed_info && Object.keys(app.exposed_info).length > 0 && (
+            <ExposedInfoCard info={app.exposed_info} />
           )}
 
           {availableUpdate && (
