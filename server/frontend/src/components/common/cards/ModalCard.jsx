@@ -9,6 +9,7 @@ export default function ModalCard({
   showCloseButton = true,
 }) {
   const [isClosing, setIsClosing] = useState(false);
+  const [isEntering, setIsEntering] = useState(true);
   const titleId = useId();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
@@ -21,6 +22,11 @@ export default function ModalCard({
       onClose?.();
     }, 300);
   }, [isClosing, onClose]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIsEntering(false), 200);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -60,7 +66,7 @@ export default function ModalCard({
   }, [handleClose]);
 
   return (
-    <div className="fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
       <div
         ref={dialogRef}
         role="dialog"
@@ -68,7 +74,7 @@ export default function ModalCard({
         aria-labelledby={titleId}
         className="max-w-md w-full"
       >
-        <Card className={`relative ${isClosing ? "pop-out" : ""}`}>
+        <Card className={`relative ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
           {showCloseButton && (
             <button
               type="button"

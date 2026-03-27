@@ -21,7 +21,7 @@ function scriptOptionToField(option) {
   };
 }
 
-export function ActionOptionsModal({ action, instanceId, onClose }) {
+export function ActionOptionsModal({ action, onClose, onExecute }) {
   const [options, setOptions] = useState(() => {
     const initial = {};
     action.options?.forEach((opt) => {
@@ -53,18 +53,37 @@ export function ActionOptionsModal({ action, instanceId, onClose }) {
   };
 
   const executeAction = async (opts = options) => {
+    if (!onExecute) return;
     setExecuting(true);
     setShowConfirm(false);
     try {
-      const response = await fetch(`/api/v1/apps/${instanceId}/actions/${action.name}/execute`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: action.name, options: opts }),
+      const data = await onExecute(action.name, opts);
+
+      if (!data || data.error) {
+        setResult({
+          success: false,
+          exit_code: data?.code || 0,
+          output: "",
+          error: data?.error || data?.message || "Unknown error occurred",
+          duration: data?.duration || 0,
+        });
+        return;
+      }
+
+      const scriptResult = data.result || data;
+      setResult({
+        success: scriptResult.Success ?? scriptResult.success ?? true,
+        exit_code: scriptResult.ExitCode ?? scriptResult.exit_code ?? 0,
+        output: typeof (scriptResult.Output ?? scriptResult.output) === "string"
+          ? (scriptResult.Output ?? scriptResult.output)
+          : JSON.stringify(scriptResult.Output ?? scriptResult.output ?? ""),
+        error: typeof (scriptResult.Error ?? scriptResult.error) === "string"
+          ? (scriptResult.Error ?? scriptResult.error)
+          : undefined,
+        duration: scriptResult.Duration ?? scriptResult.duration ?? 0,
       });
-      const data = await response.json();
-      setResult(data.result || { success: response.ok, output: data.error || "Unknown error" });
     } catch (err) {
-      setResult({ success: false, error: err.message || "Failed to execute action" });
+      setResult({ success: false, exit_code: 0, output: "", error: err.message || "Failed to execute action", duration: 0 });
     } finally {
       setExecuting(false);
     }
@@ -156,7 +175,7 @@ export function ActionOptionsModal({ action, instanceId, onClose }) {
           <button
             type="submit"
             disabled={executing}
-            className="flex-1 px-4 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/80 motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-mono"
+            className="flex-1 px-4 py-2 rounded-pill bg-primary text-secondary hover:ring-2 hover:ring-accent motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-mono"
           >
             {executing ? (
               <>

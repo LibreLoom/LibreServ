@@ -44,7 +44,7 @@ class ErrorBoundary extends Component {
    "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 
         const secondaryBtn =
-          "inline-flex items-center justify-center gap-2 rounded-pill bg-transparent text-secondary px-6 py-3 font-medium " +
+          "inline-flex items-center justify-center gap-2 ring-2 ring-secondary rounded-pill bg-transparent text-secondary px-6 py-3 font-medium " +
 "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0 " +
    "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 

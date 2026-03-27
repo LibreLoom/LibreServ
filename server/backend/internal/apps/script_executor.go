@@ -87,7 +87,7 @@ func (e *ScriptExecutor) validateScriptPath(scriptPath string) (string, error) {
 	absBasePath = filepath.Clean(absBasePath)
 
 	if strings.HasPrefix(absScriptPath, absBasePath+string(filepath.Separator)) {
-		return resolvedPath, nil
+		return absScriptPath, nil
 	}
 
 	// Check if path is within catalog directory (for builtin app scripts)
@@ -99,7 +99,7 @@ func (e *ScriptExecutor) validateScriptPath(scriptPath string) (string, error) {
 		absCatalogPath = filepath.Clean(absCatalogPath)
 
 		if strings.HasPrefix(absScriptPath, absCatalogPath+string(filepath.Separator)) {
-			return resolvedPath, nil
+			return absScriptPath, nil
 		}
 	}
 
@@ -136,7 +136,8 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 		}, fmt.Errorf("script not found: %s", validatedPath)
 	}
 
-	installPath := filepath.Join(e.basePath, "apps", instanceID)
+	// Install path is derived from validated script path (script is at {installPath}/scripts/{name})
+	installPath := filepath.Dir(filepath.Dir(validatedPath))
 	appDataPath := filepath.Join(installPath, "data")
 	configPath := filepath.Join(installPath, "config.json")
 
@@ -229,7 +230,8 @@ func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPa
 		return nil, err
 	}
 
-	installPath := filepath.Join(e.basePath, "apps", instanceID)
+	// Install path is derived from validated script path (script is at {installPath}/scripts/{name})
+	installPath := filepath.Dir(filepath.Dir(validatedPath))
 	appDataPath := filepath.Join(installPath, "data")
 	configPath := filepath.Join(installPath, "config.json")
 
