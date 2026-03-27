@@ -94,11 +94,19 @@ const inputBaseClasses = `
             disabled={disabled}
             className={`${inputBaseClasses} ${errorClasses} cursor-pointer`}
           >
-            {field.options?.map((option) => (
-              <option key={String(option)} value={String(option)}>
-                {option === "" ? "— None —" : String(option)}
-              </option>
-            ))}
+            {field.options?.length > 0 && field.options[0]?.value !== undefined ? (
+              field.options.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label || option.value}
+                </option>
+              ))
+            ) : (
+              field.options?.map((option) => (
+                <option key={String(option)} value={String(option)}>
+                  {option === "" ? "— None —" : String(option)}
+                </option>
+              ))
+            )}
           </select>
         );
 

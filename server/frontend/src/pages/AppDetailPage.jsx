@@ -25,8 +25,11 @@ import {
   ArrowUpCircle,
   CheckCircle,
   XCircle,
+  Wrench,
 } from "lucide-react";
 import StatusPill from "../components/common/StatusPill";
+import { ActionCard } from "../components/app/actions/ActionCard";
+import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");
@@ -123,6 +126,10 @@ export default function AppDetailPage() {
   const [metrics, setMetrics] = useState(null);
   const [_metricsLoading, setMetricsLoading] = useState(false);
   const [availableUpdate, setAvailableUpdate] = useState(null);
+  const [actions, setActions] = useState([]);
+  const [actionsLoading, setActionsLoading] = useState(false);
+  const [selectedAction, setSelectedAction] = useState(null);
+  const [showActionModal, setShowActionModal] = useState(false);
   const appUrl = app?.url || app?.backends?.[0]?.url || "";
 
   useEffect(() => {
@@ -198,6 +205,42 @@ export default function AppDetailPage() {
     };
     checkUpdates();
   }, [app?.id, app?.app_id, request]);
+
+  useEffect(() => {
+    if (!app?.id) return;
+    const fetchActions = async () => {
+      setActionsLoading(true);
+      try {
+        const response = await request(`/apps/${app.id}/actions`);
+        if (response.ok) {
+          const data = await response.json();
+          setActions(data.actions || []);
+        }
+      } catch {
+        // Silently ignore
+      } finally {
+        setActionsLoading(false);
+      }
+    };
+    fetchActions();
+  }, [app?.id, request]);
+
+  const handleActionExecute = useCallback(
+    async (actionId, options = {}) => {
+      if (!app || actionLoading) return;
+      setActionLoading(actionId);
+      try {
+        const response = await request(`/apps/${app.id}/actions/${actionId}/execute`, {
+          method: "POST",
+          body: JSON.stringify(options),
+        });
+        return await response.json();
+      } finally {
+        setActionLoading(null);
+      }
+    },
+    [app, actionLoading, request],
+  );
 
   const handleAppAction = useCallback(
     async (action) => {
@@ -555,6 +598,37 @@ export default function AppDetailPage() {
               </div>
             </Card>
           </section>
+
+          {actions.length > 0 && (
+            <section className="mt-8">
+              <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+                <div className="flex items-center gap-2 mb-6">
+                  <Wrench size={20} className="text-accent" />
+                  <h2 className="text-2xl font-mono font-normal">Actions</h2>
+                </div>
+
+                {actionsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 size={24} className="animate-spin text-accent" />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {actions.map((action) => (
+                      <ActionCard
+                        key={action.id}
+                        action={action}
+                        onExecute={() => {
+                          setSelectedAction(action);
+                          setShowActionModal(true);
+                        }}
+                        disabled={actionLoading !== null}
+                      />
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </section>
+          )}
         </>
       )}
 
@@ -564,6 +638,18 @@ export default function AppDetailPage() {
           onConfirm={handleUninstall}
           onCancel={() => setShowUninstallModal(false)}
           isUninstalling={isUninstalling}
+        />
+      )}
+
+      {showActionModal && selectedAction && (
+        <ActionOptionsModal
+          action={selectedAction}
+          onClose={() => {
+            setShowActionModal(false);
+            setSelectedAction(null);
+          }}
+          onExecute={handleActionExecute}
+          actionLoading={actionLoading}
         />
       )}
     </main>
