@@ -77,3 +77,128 @@ func TestRegisterNamedBackend(t *testing.T) {
 		t.Fatalf("expected 2 backends, got %d", got)
 	}
 }
+
+func TestMergeExposedInfo(t *testing.T) {
+	m := &Manager{}
+
+	app := &InstalledApp{
+		Config: map[string]interface{}{
+			"jwt_secret":     "super-secret-key",
+			"admin_password": "admin123",
+			"external_url":   "https://app.example.com",
+			"other_field":    "not-exposed",
+		},
+	}
+
+	catalogApp := &AppDefinition{
+		ExposedInfo: []ExposedInfoField{
+			{
+				Name:          "jwt_secret",
+				Label:         "JWT Secret",
+				Description:   "Secret key for JWT tokens",
+				Type:          "password",
+				Copyable:      true,
+				Revealable:    true,
+				MaskByDefault: true,
+			},
+			{
+				Name:          "admin_password",
+				Label:         "Admin Password",
+				Type:          "password",
+				Copyable:      true,
+				Revealable:    true,
+				MaskByDefault: true,
+			},
+			{
+				Name:          "external_url",
+				Label:         "External URL",
+				Description:   "Public URL for accessing this app",
+				Type:          "url",
+				Copyable:      true,
+				Revealable:    false,
+				MaskByDefault: false,
+			},
+		},
+	}
+
+	merged := m.mergeExposedInfo(app, catalogApp)
+
+	if len(merged) != 3 {
+		t.Fatalf("expected 3 exposed info fields, got %d", len(merged))
+	}
+
+	jwtInfo, ok := merged["jwt_secret"]
+	if !ok {
+		t.Fatal("jwt_secret not in merged map")
+	}
+	if jwtInfo.Label != "JWT Secret" {
+		t.Fatalf("expected JWT Secret label, got %s", jwtInfo.Label)
+	}
+	if jwtInfo.Type != "password" {
+		t.Fatalf("expected password type, got %s", jwtInfo.Type)
+	}
+	if jwtInfo.Value != "super-secret-key" {
+		t.Fatalf("expected super-secret-key value, got %v", jwtInfo.Value)
+	}
+	if !jwtInfo.Copyable {
+		t.Fatal("expected copyable to be true")
+	}
+	if !jwtInfo.Revealable {
+		t.Fatal("expected revealable to be true")
+	}
+	if !jwtInfo.MaskByDefault {
+		t.Fatal("expected mask_by_default to be true")
+	}
+
+	urlInfo := merged["external_url"]
+	if urlInfo.Type != "url" {
+		t.Fatalf("expected url type, got %s", urlInfo.Type)
+	}
+	if urlInfo.MaskByDefault {
+		t.Fatal("expected mask_by_default to be false for url")
+	}
+
+	if _, exists := merged["other_field"]; exists {
+		t.Fatal("other_field should not be in exposed info")
+	}
+}
+
+func TestMergeExposedInfoEmptyConfig(t *testing.T) {
+	m := &Manager{}
+
+	app := &InstalledApp{
+		Config: map[string]interface{}{},
+	}
+
+	catalogApp := &AppDefinition{
+		ExposedInfo: []ExposedInfoField{
+			{Name: "jwt_secret", Label: "JWT Secret", Type: "password"},
+		},
+	}
+
+	merged := m.mergeExposedInfo(app, catalogApp)
+
+	if len(merged) != 0 {
+		t.Fatalf("expected 0 exposed info fields for empty config, got %d", len(merged))
+	}
+}
+
+func TestMergeExposedInfoNoExposedInfoFields(t *testing.T) {
+	m := &Manager{}
+
+	app := &InstalledApp{
+		Config: map[string]interface{}{
+			"jwt_secret": "secret",
+		},
+	}
+
+	catalogApp := &AppDefinition{
+		ExposedInfo: nil,
+	}
+
+	merged := m.mergeExposedInfo(app, catalogApp)
+
+	if len(merged) != 0 {
+		t.Fatalf("expected 0 exposed info fields when catalog has none, got %d", len(merged))
+	}
+}

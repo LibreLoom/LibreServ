@@ -490,6 +490,11 @@ func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*Inst
 
 	app.Backends = m.listBackendRefs(app.AppID)
 
+	catalogApp, err := m.catalog.GetApp(app.AppID)
+	if err == nil {
+		app.ExposedInfo = m.mergeExposedInfo(app, catalogApp)
+	}
+
 	return app, nil
 }
 
@@ -1004,4 +1009,27 @@ func firstName(names []string) string {
 		return n[1:]
 	}
 	return n
+}
+
+func (m *Manager) mergeExposedInfo(app *InstalledApp, catalogApp *AppDefinition) map[string]ExposedInfoValue {
+	merged := make(map[string]ExposedInfoValue)
+
+	for _, field := range catalogApp.ExposedInfo {
+		val, ok := app.Config[field.Name]
+		if !ok {
+			continue
+		}
+		merged[field.Name] = ExposedInfoValue{
+			Label:         field.Label,
+			Description:   field.Description,
+			Type:          field.Type,
+			Group:         field.Group,
+			Value:         val,
+			Copyable:      field.Copyable,
+			Revealable:    field.Revealable,
+			MaskByDefault: field.MaskByDefault,
+		}
+	}
+
+	return merged
 }

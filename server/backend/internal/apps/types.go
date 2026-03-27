@@ -31,6 +31,28 @@ const (
 )
 
 // AppDefinition represents a complete app definition in the catalog
+type ExposedInfoField struct {
+	Name          string `yaml:"name" json:"name"`
+	Label         string `yaml:"label" json:"label"`
+	Description   string `yaml:"description,omitempty" json:"description,omitempty"`
+	Type          string `yaml:"type" json:"type"`                       // password, string, url, username
+	Group         string `yaml:"group,omitempty" json:"group,omitempty"` // Optional grouping (e.g., "credentials", "connection")
+	Copyable      bool   `yaml:"copyable" json:"copyable"`
+	Revealable    bool   `yaml:"revealable" json:"revealable"`
+	MaskByDefault bool   `yaml:"mask_by_default" json:"mask_by_default"`
+}
+
+type ExposedInfoValue struct {
+	Label         string      `json:"label"`
+	Description   string      `json:"description,omitempty"`
+	Type          string      `json:"type"` // password, string, url, username
+	Group         string      `json:"group,omitempty"`
+	Value         interface{} `json:"value,omitempty"`
+	Copyable      bool        `json:"copyable"`
+	Revealable    bool        `json:"revealable"`
+	MaskByDefault bool        `json:"mask_by_default"`
+}
+
 type AppDefinition struct {
 	// Core metadata
 	ID          string      `yaml:"id" json:"id"`
@@ -48,6 +70,9 @@ type AppDefinition struct {
 
 	// User-configurable fields shown during installation
 	Configuration []ConfigField `yaml:"configuration" json:"configuration"`
+
+	// Exposed info fields - config values to expose to frontend
+	ExposedInfo []ExposedInfoField `yaml:"exposed_info,omitempty" json:"exposed_info,omitempty"`
 
 	// Health check configuration
 	HealthCheck HealthCheckConfig `yaml:"health_check" json:"health_check"`
@@ -214,6 +239,9 @@ type InstalledApp struct {
 	ContainerIDs  []string               `json:"container_ids,omitempty"`
 	Error         string                 `json:"error,omitempty"` // Error message from failed install/update
 
+	// Exposed info - merged from app definition + script output
+	ExposedInfo map[string]ExposedInfoValue `json:"exposed_info,omitempty"`
+
 	// Runtime metrics
 	CPUPercent  float64 `json:"cpu_percent,omitempty"`
 	MemoryUsage uint64  `json:"memory_usage,omitempty"`
@@ -344,12 +372,13 @@ type ScriptExecution struct {
 }
 
 type ScriptResult struct {
-	Success  bool                   `json:"success"`
-	ExitCode int                    `json:"exit_code"`
-	Output   string                 `json:"output,omitempty"`
-	Error    string                 `json:"error,omitempty"`
-	Duration time.Duration          `json:"duration"`
-	Data     map[string]interface{} `json:"data,omitempty"`
+	Success     bool                   `json:"success"`
+	ExitCode    int                    `json:"exit_code"`
+	Output      string                 `json:"output,omitempty"`
+	Error       string                 `json:"error,omitempty"`
+	Duration    time.Duration          `json:"duration"`
+	Data        map[string]interface{} `json:"data,omitempty"`
+	ExposedInfo map[string]interface{} `json:"exposed_info,omitempty"`
 }
 
 type ScriptExecutionRequest struct {

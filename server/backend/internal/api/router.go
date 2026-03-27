@@ -195,6 +195,7 @@ func (s *Server) setupRoutes() {
 				r.Post("/{instanceId}/pin", appsHandler.PinAppVersion)
 				r.Post("/{instanceId}/unpin", appsHandler.UnpinAppVersion)
 				r.Get("/{instanceId}/updates/history", appsHandler.GetAppUpdateHistory)
+				r.Get("/{instanceId}/exposed-info/{fieldName}", appsHandler.GetExposedInfoField)
 				r.Get("/{instanceId}/actions", scriptsHandler.ListActions)
 				r.Get("/{instanceId}/actions/{actionName}", scriptsHandler.GetAction)
 				r.Post("/{instanceId}/actions/{actionName}/execute", scriptsHandler.ExecuteAction)

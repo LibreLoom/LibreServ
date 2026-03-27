@@ -213,6 +213,9 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 	data := e.parseScriptOutput(output)
 	if data != nil {
 		result.Data = data
+		if exposedInfo, ok := data["exposed_info"].(map[string]interface{}); ok {
+			result.ExposedInfo = exposedInfo
+		}
 	}
 
 	return result, nil

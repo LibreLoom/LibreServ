@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, X } from "lucide-react";
 import ModalCard from "../../common/cards/ModalCard";
 

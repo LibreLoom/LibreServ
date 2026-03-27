@@ -114,6 +114,48 @@ configuration:
     required: false
     env_var: CREDS_IV
 
+exposed_info:
+  - name: meili_master_key
+    label: "Meilisearch Master Key"
+    description: "Master key for Meilisearch search functionality"
+    type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+  - name: jwt_secret
+    label: "JWT Secret"
+    description: "Secret key for JWT token authentication"
+    type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+  - name: jwt_refresh_secret
+    label: "JWT Refresh Secret"
+    description: "Secret key for JWT refresh tokens"
+    type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+  - name: creds_key
+    label: "Credentials Encryption Key"
+    description: "32-char key for encrypting stored credentials"
+    type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+  - name: creds_iv
+    label: "Credentials IV"
+    description: "16-char initialization vector for credential encryption"
+    type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+
 health_check:
   type: http
   endpoint: /api/health
