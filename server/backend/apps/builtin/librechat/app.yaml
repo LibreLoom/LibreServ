@@ -144,6 +144,7 @@ exposed_info:
     description: "32-char key for encrypting stored credentials"
     type: password
     group: credentials
+    advanced: true
     copyable: true
     revealable: true
     mask_by_default: true
@@ -152,6 +153,7 @@ exposed_info:
     description: "16-char initialization vector for credential encryption"
     type: password
     group: credentials
+    advanced: true
     copyable: true
     revealable: true
     mask_by_default: true

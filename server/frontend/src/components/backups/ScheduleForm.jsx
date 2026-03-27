@@ -221,7 +221,7 @@ export default function ScheduleForm() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-6">
+      <Card className="p-6" noPopIn>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Calendar size={18} className="text-accent" />

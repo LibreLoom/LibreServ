@@ -95,6 +95,22 @@ updates:
 features:
   access_model: public
 
+exposed_info:
+  - name: secret_key
+    label: "Secret Key"
+    description: "Secret key for SearXNG"
+    type: password
+    copyable: true
+    revealable: true
+    mask_by_default: true
+    group: credentials
+  - name: base_url
+    label: "Access URL"
+    description: "Public URL for accessing SearXNG"
+    type: url
+    copyable: true
+    group: connection
+
 scripts:
   system:
     setup: scripts/system-setup

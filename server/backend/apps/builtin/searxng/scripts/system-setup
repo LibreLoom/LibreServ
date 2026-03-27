@@ -30,5 +30,10 @@ fi
 chmod -R 755 "$APP_DATA_PATH"
 chmod -R 755 "$CONFIG_PATH"
 
+SECRET_KEY=$(grep "SEARXNG_SECRET=" "$CONFIG_PATH/searxng/secret_key.env" | cut -d'=' -f2)
 echo ">> [SearXNG] Setup completed successfully"
+
+cat <<EOF
+{"exposed_info": {"secret_key": "$SECRET_KEY", "base_url": "${base_url:-http://localhost:${http_port}/}"}}
+EOF
 exit 0
