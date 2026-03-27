@@ -1,4 +1,4 @@
-import HeaderCard from "../components/common/cards/HeaderCard";
+import HeaderCard from "../components/cards/HeaderCard";
 
 export default function HelpPage() {
   return (

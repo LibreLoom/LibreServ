@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import HeaderCard from "../components/common/cards/HeaderCard";
-import Card from "../components/common/cards/Card";
-import Dropdown from "../components/common/Dropdown";
-import AppIcon from "../components/common/AppIcon";
+import HeaderCard from "../components/cards/HeaderCard";
+import Card from "../components/cards/Card";
+import Dropdown from "../components/ui/Dropdown";
+import AppIcon from "../components/ui/AppIcon";
 import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink } from "lucide-react";
-import StatusPill from "../components/common/StatusPill";
+import StatusPill from "../components/ui/StatusPill";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";

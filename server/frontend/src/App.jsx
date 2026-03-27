@@ -2,7 +2,7 @@ import { lazy, Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import LoadingFast from "./pages/LoadingFast";
-import ErrorBoundary from "./components/common/ErrorBoundary";
+import ErrorBoundary from "./components/ui/ErrorBoundary";
 
 const MainLayout = lazy(() => import("./layout/MainLayout"));
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));

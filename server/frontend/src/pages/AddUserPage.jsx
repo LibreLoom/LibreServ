@@ -1,8 +1,8 @@
 import { useNavigate } from "react-router-dom";
-import HeaderCard from "../components/common/cards/HeaderCard";
-import Card from "../components/common/cards/Card";
+import HeaderCard from "../components/cards/HeaderCard";
+import Card from "../components/cards/Card";
 import { ArrowLeft } from "lucide-react";
-import AddUserForm from "../components/common/forms/AddUserForm";
+import AddUserForm from "../components/forms/AddUserForm";
 
 export default function AddUserPage() {
   const navigate = useNavigate();

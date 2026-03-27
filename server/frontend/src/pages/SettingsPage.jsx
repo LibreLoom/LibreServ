@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
-import ErrorDisplay from "../components/common/ErrorDisplay";
+import ErrorDisplay from "../components/ui/ErrorDisplay";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { getSettings, updateSettings } from "../lib/settings-api.js";

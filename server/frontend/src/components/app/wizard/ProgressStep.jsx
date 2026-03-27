@@ -1,6 +1,6 @@
 import { memo, useEffect, useState, useRef } from "react";
 import { CheckCircle, XCircle } from "lucide-react";
-import TypewriterLoader from "../../../components/common/TypewriterLoader";
+import TypewriterLoader from "../../../components/ui/TypewriterLoader";
 
 const INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },
