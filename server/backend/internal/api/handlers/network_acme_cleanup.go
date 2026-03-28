@@ -29,7 +29,7 @@ func (h *ACMECleanupHandler) DeleteRoute(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := h.caddy.RemoveRoute(r.Context(), id); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to delete route")
 		return
 	}
 	// Attempt to reload config after deletion

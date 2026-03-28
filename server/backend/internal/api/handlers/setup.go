@@ -72,7 +72,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 
 	if state.Status == setup.StatusPending {
 		if _, err := h.setupService.MarkInProgress(r.Context()); err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to start setup: "+err.Error())
+			JSONError(w, http.StatusInternalServerError, "failed to start setup")
 			return
 		}
 	}
@@ -106,7 +106,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.authService.ValidatePassword(req.AdminPassword); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		JSONError(w, http.StatusBadRequest, "password does not meet requirements")
 		return
 	}
 
@@ -117,7 +117,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusForbidden, "setup has already been completed")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to complete setup: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to complete setup")
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := h.setupService.MarkComplete(r.Context()); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to finalize setup: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to finalize setup")
 		return
 	}
 
@@ -217,7 +217,7 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 
 	check := func(name string, fn func() error) {
 		if err := fn(); err != nil {
-			results[name] = map[string]interface{}{"status": "failed", "error": err.Error()}
+			results[name] = map[string]interface{}{"status": "failed", "error": "check failed"}
 			allHealthy = false
 		} else {
 			results[name] = map[string]interface{}{"status": "ok"}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -25,7 +26,7 @@ func newTestUsersHandler(t *testing.T) (*UsersHandler, context.Context) {
 	if err := db.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	svc := auth.NewService(db, "secret")
+	svc := auth.NewService(db, "secret", slog.Default())
 	return NewUsersHandler(svc), context.Background()
 }
 

@@ -54,7 +54,13 @@ func (d *DB) Migrate() error {
 		return fmt.Errorf("migration dry-run failed: %w", err)
 	}
 
-	// 4. Backup database before migration
+	// 4. Checkpoint WAL to ensure all data is in the main DB file before backup.
+	// Without this, CopyFile may miss data still in the WAL file.
+	if _, err := d.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		slog.Warn("WAL checkpoint before migration backup failed (non-fatal)", "error", err)
+	}
+
+	// 5. Backup database before migration
 	backupPath := d.path + ".pre-migration-" + time.Now().Format("20060102-150405")
 	slog.Info("Backing up database before migration", "path", backupPath)
 	if err := CopyFile(d.path, backupPath); err != nil {

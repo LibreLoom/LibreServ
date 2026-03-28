@@ -111,7 +111,7 @@ func (h *SecurityHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.securityService.ListEvents(r.Context(), filter)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list security events: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to list security events")
 		return
 	}
 
@@ -130,7 +130,7 @@ func (h *SecurityHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.securityService.GetStats(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get security stats: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to get security stats")
 		return
 	}
 
@@ -148,7 +148,7 @@ func (h *SecurityHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 
 	settings, err := h.securityService.GetUserSettings(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get settings: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to get settings")
 		return
 	}
 
@@ -189,13 +189,13 @@ func (h *SecurityHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 
 	var req UpdateSettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	// Validate request
 	if err := req.Validate(); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		JSONError(w, http.StatusBadRequest, "invalid notification frequency")
 		return
 	}
 
@@ -210,7 +210,7 @@ func (h *SecurityHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.securityService.UpdateUserSettings(r.Context(), settings); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to update settings: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to update settings")
 		return
 	}
 
@@ -247,7 +247,7 @@ func (h *SecurityHandler) TestNotification(w http.ResponseWriter, r *http.Reques
 	// Get user settings
 	settings, err := h.securityService.GetUserSettings(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get settings: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to get settings")
 		return
 	}
 
@@ -270,7 +270,7 @@ func (h *SecurityHandler) TestNotification(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.securityService.RecordEvent(r.Context(), &testEvent); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to record test event: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to record test event")
 		return
 	}
 

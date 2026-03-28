@@ -27,7 +27,7 @@ func newTestAuthHandler(t *testing.T) (*AuthHandler, context.Context) {
 	if err := db.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	svc := auth.NewService(db, "secret")
+	svc := auth.NewService(db, "secret", slog.Default())
 
 	// Create security service for tests
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))

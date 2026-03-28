@@ -38,7 +38,7 @@ func (h *BackupHandlers) ListBackups(w http.ResponseWriter, r *http.Request) {
 
 	backups, err := h.backupService.ListBackups(r.Context(), appID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to list backups")
 		return
 	}
 
@@ -71,7 +71,7 @@ func (h *BackupHandlers) GetBackup(w http.ResponseWriter, r *http.Request) {
 
 	backup, err := h.backupService.GetBackup(r.Context(), backupID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "backup not found")
 		return
 	}
 
@@ -115,11 +115,12 @@ func (h *BackupHandlers) CreateBackup(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.backupService.BackupApp(r.Context(), req.AppID, opts)
 	if err != nil {
-		errMsg := err.Error()
+		errMsg := "backup failed"
 		if result != nil && result.Error != nil {
-			errMsg = result.Error.Error()
+			log.Printf("CreateBackup: failed for app %s: %s", req.AppID, result.Error)
+		} else {
+			log.Printf("CreateBackup: failed for app %s: %s", req.AppID, err)
 		}
-		log.Printf("CreateBackup: failed for app %s: %s", req.AppID, errMsg)
 		JSONError(w, http.StatusInternalServerError, errMsg)
 		return
 	}
@@ -164,11 +165,12 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.backupService.RestoreApp(r.Context(), backupID, opts)
 	if err != nil {
-		errMsg := err.Error()
+		errMsg := "restore failed"
 		if result != nil && result.Error != nil {
-			errMsg = result.Error.Error()
+			log.Printf("RestoreBackup: failed for backup %s: %s", backupID, result.Error)
+		} else {
+			log.Printf("RestoreBackup: failed for backup %s: %s", backupID, err)
 		}
-		log.Printf("RestoreBackup: failed for backup %s: %s", backupID, errMsg)
 		JSONError(w, http.StatusInternalServerError, errMsg)
 		return
 	}
@@ -190,7 +192,7 @@ func (h *BackupHandlers) DeleteBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.backupService.DeleteBackup(r.Context(), backupID); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to delete backup")
 		return
 	}
 
@@ -205,7 +207,7 @@ func (h *BackupHandlers) DeleteBackup(w http.ResponseWriter, r *http.Request) {
 func (h *BackupHandlers) CreateDatabaseBackup(w http.ResponseWriter, r *http.Request) {
 	backup, err := h.backupService.BackupDatabase(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to create database backup")
 		return
 	}
 
@@ -217,7 +219,7 @@ func (h *BackupHandlers) CreateDatabaseBackup(w http.ResponseWriter, r *http.Req
 func (h *BackupHandlers) ListDatabaseBackups(w http.ResponseWriter, r *http.Request) {
 	backups, err := h.backupService.ListDatabaseBackups(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to list database backups")
 		return
 	}
 
@@ -250,7 +252,7 @@ func (h *BackupHandlers) RestoreDatabaseBackup(w http.ResponseWriter, r *http.Re
 	opts := storage.DatabaseRestoreOptions{VerifyChecksum: req.VerifyChecksum}
 
 	if err := h.backupService.RestoreDatabase(r.Context(), backupID, opts); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to restore database backup")
 		return
 	}
 
@@ -265,7 +267,7 @@ func (h *BackupHandlers) RestoreDatabaseBackup(w http.ResponseWriter, r *http.Re
 func (h *BackupHandlers) ListSchedules(w http.ResponseWriter, r *http.Request) {
 	schedules, err := h.backupService.ListSchedules(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to list schedules")
 		return
 	}
 
@@ -286,7 +288,7 @@ func (h *BackupHandlers) GetSchedule(w http.ResponseWriter, r *http.Request) {
 
 	schedule, err := h.backupService.GetSchedule(r.Context(), scheduleID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "schedule not found")
 		return
 	}
 
@@ -345,7 +347,7 @@ func (h *BackupHandlers) CreateSchedule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.backupService.CreateSchedule(r.Context(), schedule); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to create schedule")
 		return
 	}
 
@@ -380,7 +382,7 @@ func (h *BackupHandlers) UpdateSchedule(w http.ResponseWriter, r *http.Request) 
 
 	schedule, err := h.backupService.GetSchedule(r.Context(), scheduleID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "schedule not found")
 		return
 	}
 
@@ -407,7 +409,7 @@ func (h *BackupHandlers) UpdateSchedule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.backupService.UpdateSchedule(r.Context(), schedule); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to update schedule")
 		return
 	}
 
@@ -424,7 +426,7 @@ func (h *BackupHandlers) DeleteSchedule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.backupService.DeleteSchedule(r.Context(), scheduleID); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to delete schedule")
 		return
 	}
 

@@ -126,6 +126,17 @@ func addFrontendTests() {
 	})
 
 	DefaultRegistry.Add(&Test{
+		ID:          "frontend-test",
+		Name:        "Frontend Unit Tests",
+		Description: "Run Vitest unit tests for frontend components and hooks",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm test",
+		WorkDir:     "/repo/server/frontend",
+		Timeout:     10 * time.Minute,
+	})
+
+	DefaultRegistry.Add(&Test{
 		ID:          "frontend-build",
 		Name:        "Frontend Build",
 		Description: "Build the frontend application",

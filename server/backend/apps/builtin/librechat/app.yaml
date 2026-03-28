@@ -159,8 +159,7 @@ exposed_info:
     mask_by_default: true
 
 health_check:
-  type: http
-  endpoint: /api/health
+  type: tcp
   port: 3080
   interval: 30s
   timeout: 10s

@@ -183,7 +183,7 @@ func (h *JobQueueHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		// Log detailed error internally
 		h.logger.Error("failed to cancel job", "job_id", jobID, "error", err)
 		// Return sanitized error message to user
-		JSONError(w, http.StatusBadRequest, err.Error())
+		JSONError(w, http.StatusBadRequest, "failed to cancel job")
 		return
 	}
 

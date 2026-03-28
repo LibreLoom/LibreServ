@@ -61,7 +61,7 @@ func (h *SupportHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		CreatedBy: createdBy,
 	})
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to create session: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to create support session")
 		return
 	}
 
@@ -81,7 +81,7 @@ func (h *SupportHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	sessions, err := h.svc.ListSessions(r.Context(), limit)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list sessions: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to list support sessions")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{
@@ -118,7 +118,7 @@ func (h *SupportHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		by = user.Username
 	}
 	if err := h.svc.RevokeSession(r.Context(), id, by); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to revoke session: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to revoke support session")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]string{"status": "revoked"})

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/ui/ErrorDisplay";
+import LoadingFast from "./LoadingFast";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { getSettings, updateSettings } from "../lib/settings-api.js";
@@ -146,14 +147,14 @@ export default function SettingsPage() {
   };
 
   if (loading) {
-    return null;
+    return <LoadingFast label="Loading settings" />;
   }
 
   return (
     <main className="bg-primary text-secondary min-h-screen">
       {error && (
         <div className="px-4 pt-4">
-          <ErrorDisplay error={error} />
+          <ErrorDisplay message={error} />
         </div>
       )}
 

@@ -61,7 +61,7 @@ func (h *ACMEHandler) ProbeDNS(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := network.ResolveHostname(r.Context(), body.Host, 3*time.Second)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to resolve hostname")
 		return
 	}
 	JSON(w, http.StatusOK, res)
@@ -119,13 +119,13 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 		// Ensure a route exists for this domain (idempotent).
 		route, err := h.caddyManager.AddDomainRoute(r.Context(), body.Domain, backend, "acme-auto")
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to add route for domain: "+err.Error())
+			JSONError(w, http.StatusInternalServerError, "failed to add route for domain")
 			return
 		}
 		routeID = route.ID
 		// Ensure config applied after route addition
 		if err := h.caddyManager.ApplyConfig(); err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to apply caddy config: "+err.Error())
+			JSONError(w, http.StatusInternalServerError, "failed to apply caddy config")
 			return
 		}
 	}
@@ -134,7 +134,7 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 	if h.jobQueue != nil {
 		job, err := h.jobQueue.Enqueue(jobqueue.JobTypeIssuance, body.Domain, body.Email, routeID, jobqueue.PriorityNormal)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to enqueue acme job: "+err.Error())
+			JSONError(w, http.StatusInternalServerError, "failed to enqueue acme job")
 			return
 		}
 
@@ -150,7 +150,7 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 		// Legacy fallback: Create job directly in database
 		job, err := network.CreateACMEJob(r.Context(), h.db, body.Domain, body.Email, routeID)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to create acme job: "+err.Error())
+			JSONError(w, http.StatusInternalServerError, "failed to create acme job")
 			return
 		}
 
@@ -223,7 +223,7 @@ func (h *ACMEHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	}
 	job, err := network.GetACMEJobByID(r.Context(), h.db, id)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "job not found")
 		return
 	}
 	JSON(w, http.StatusOK, job)
@@ -242,7 +242,7 @@ func (h *ACMEHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	job, err := network.LatestACMEJobForDomain(r.Context(), h.db, domain)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "no acme job found for domain")
 		return
 	}
 	JSON(w, http.StatusOK, job)

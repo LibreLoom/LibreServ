@@ -64,7 +64,7 @@ func (h *MonitoringHandlers) GetAppHealth(w http.ResponseWriter, r *http.Request
 
 	health, err := h.monitor.GetAppHealth(r.Context(), appID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to retrieve health status")
 		return
 	}
 
@@ -100,14 +100,14 @@ func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Reques
 	metrics, err := h.monitor.GetAppMetrics(r.Context(), appID)
 	if err != nil {
 		if monitoring.IsDockerUnavailable(err) {
-			JSONError(w, http.StatusServiceUnavailable, err.Error())
+			JSONError(w, http.StatusServiceUnavailable, "docker service unavailable")
 			return
 		}
 		if monitoring.IsNoContainers(err) {
-			JSONError(w, http.StatusNotFound, err.Error())
+			JSONError(w, http.StatusNotFound, "no containers found for app")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to retrieve metrics")
 		return
 	}
 
@@ -143,7 +143,7 @@ func (h *MonitoringHandlers) GetMetricsHistory(w http.ResponseWriter, r *http.Re
 
 	metrics, err := h.monitor.GetMetricsHistory(r.Context(), appID, since, limit)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to retrieve metrics history")
 		return
 	}
 
@@ -194,10 +194,10 @@ func (h *MonitoringHandlers) RegisterHealthCheck(w http.ResponseWriter, r *http.
 
 	if err := h.monitor.RegisterApp(appID, config); err != nil {
 		if monitoring.IsDockerUnavailable(err) {
-			JSONError(w, http.StatusServiceUnavailable, err.Error())
+			JSONError(w, http.StatusServiceUnavailable, "docker service unavailable")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to register health checks")
 		return
 	}
 
@@ -603,7 +603,7 @@ func (h *MonitoringHandlers) CleanupMetrics(w http.ResponseWriter, r *http.Reque
 
 	retention := time.Duration(retentionDays) * 24 * time.Hour
 	if err := h.monitor.CleanupOldData(retention); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to clean up monitoring data", http.StatusInternalServerError)
 		return
 	}
 
@@ -637,11 +637,11 @@ func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Reques
 		mailer, err = h.mailer()
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "smtp setup error: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to set up SMTP")
 		return
 	}
 	if err := mailer.Send([]string{body.To}, "LibreServ SMTP Test", "This is a test email from LibreServ."); err != nil {
-		JSONError(w, http.StatusInternalServerError, "send failed: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to send email")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{

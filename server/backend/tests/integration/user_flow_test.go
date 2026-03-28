@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -42,7 +43,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 
 	jwtSecret := "integration-test-jwt-secret-key-1234567890abcdef"
-	authSvc := auth.NewService(db, jwtSecret)
+	authSvc := auth.NewService(db, jwtSecret, slog.Default())
 	setupSvc := setup.NewService(db)
 	if _, err := setupSvc.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure setup state: %v", err)

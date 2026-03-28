@@ -32,7 +32,7 @@ func (h *ScriptsHandler) ListActions(w http.ResponseWriter, r *http.Request) {
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "app not found")
 		return
 	}
 
@@ -67,7 +67,7 @@ func (h *ScriptsHandler) GetAction(w http.ResponseWriter, r *http.Request) {
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "app not found")
 		return
 	}
 
@@ -120,7 +120,7 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "app not found")
 		return
 	}
 
@@ -154,7 +154,7 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 
 	result, err := executor.Execute(r.Context(), instanceID, fullScriptPath, req.Options)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "script execution failed")
 		return
 	}
 
@@ -199,7 +199,7 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "app not found")
 		return
 	}
 
@@ -233,7 +233,7 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 
 	stream, err := executor.StreamExecute(r.Context(), instanceID, fullScriptPath, nil)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "script execution failed")
 		return
 	}
 

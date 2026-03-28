@@ -29,7 +29,7 @@ func (h *SystemHandler) CheckUpdates(w http.ResponseWriter, r *http.Request) {
 	// We get the current version from the health package (where it is set at build time)
 	info, err := h.checker.CheckForUpdates(Version)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to check for updates: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to check for updates")
 		return
 	}
 
@@ -42,7 +42,7 @@ func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "system.update", "", "libreserv", "failure", err.Error(), nil)
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to apply update: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to apply update")
 		return
 	}
 

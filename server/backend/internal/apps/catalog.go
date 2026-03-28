@@ -132,7 +132,8 @@ func (c *Catalog) validateAppDefinition(app *AppDefinition) error {
 	return nil
 }
 
-// GetApp returns an app definition by ID
+// GetApp returns an app definition by ID.
+// Returns a copy to prevent callers from mutating the catalog's canonical state.
 func (c *Catalog) GetApp(id string) (*AppDefinition, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -142,7 +143,7 @@ func (c *Catalog) GetApp(id string) (*AppDefinition, error) {
 		return nil, fmt.Errorf("app not found: %s", id)
 	}
 
-	return app, nil
+	return app.Clone(), nil
 }
 
 // ListApps returns all apps matching the given filters

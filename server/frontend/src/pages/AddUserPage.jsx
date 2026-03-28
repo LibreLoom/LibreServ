@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import HeaderCard from "../components/cards/HeaderCard";
-import Card from "../components/cards/Card";
+import Card from "../components/common/cards/Card";
 import { ArrowLeft } from "lucide-react";
 import AddUserForm from "../components/forms/AddUserForm";
 

@@ -40,12 +40,12 @@ type Service struct {
 }
 
 // NewService creates a new auth service
-func NewService(db *database.DB, jwtSecret string) *Service {
+func NewService(db *database.DB, jwtSecret string, logger *slog.Logger) *Service {
 	svc := &Service{
 		db:            db,
 		jwtManager:    NewJWTManager(jwtSecret, constants.DefaultJWTAccessTokenExpiry, constants.DefaultJWTRefreshTokenExpiry),
 		tokenStore:    NewTokenStore(db, constants.DefaultJWTAccessTokenExpiry, constants.DefaultJWTRefreshTokenExpiry),
-		logger:        slog.Default().With("component", "auth"),
+		logger:        logger.With("component", "auth"),
 		failed:        make(map[string]*loginAttempts),
 		lockoutAfter:  constants.DefaultAccountLockoutAfter,
 		lockoutWindow: constants.DefaultLockoutWindow,
@@ -256,7 +256,7 @@ func (s *Service) ValidateAccessToken(tokenString string) (*Claims, error) {
 	}
 
 	jti := GetTokenJTI(claims)
-	revoked, err := s.tokenStore.IsRevoked(jti, "access")
+	revoked, err := s.tokenStore.IsRevokedOrUserRevokedAll(jti, claims.UserID, "access")
 	if err != nil {
 		return nil, fmt.Errorf("failed to check token revocation: %w", err)
 	}
@@ -525,19 +525,24 @@ func (s *Service) RefreshTokensWithRotation(refreshToken, revokedBy string) (*To
 
 	jti := GetTokenJTI(claims)
 
-	revoked, err := s.tokenStore.IsRevoked(jti, "refresh")
+	// Atomically check if revoked and revoke in one operation to prevent race conditions.
+	// Also handles user-wide revocation (revoke-all) by checking sentinel rows.
+	revoked, err := s.tokenStore.RevokeTokenIfNotRevoked(
+		jti, claims.UserID, "refresh", revokedBy, "Token rotation - consumed",
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check token revocation: %w", err)
 	}
-	if revoked {
-		s.logger.Warn("Refresh token reuse detected - possible token theft", "user_id", claims.UserID, "jti", jti)
-		_ = s.tokenStore.RevokeAllTokens(claims.UserID, "system", "Suspicious refresh token reuse detected")
+	if !revoked {
+		// Token was already revoked — possible token reuse attack.
+		// Also check if user-wide revocation was the cause.
+		userRevoked, checkErr := s.tokenStore.IsRevokedOrUserRevokedAll(jti, claims.UserID, "refresh")
+		if checkErr == nil && !userRevoked {
+			// Specific token reuse detected (not from revoke-all), revoke all tokens.
+			s.logger.Warn("Refresh token reuse detected - possible token theft", "user_id", claims.UserID, "jti", jti)
+			_ = s.tokenStore.RevokeAllTokens(claims.UserID, "system", "Suspicious refresh token reuse detected")
+		}
 		return nil, ErrTokenRevoked
-	}
-
-	err = s.tokenStore.RevokeToken(jti, claims.UserID, "refresh", revokedBy, "Token rotation - consumed")
-	if err != nil {
-		return nil, fmt.Errorf("failed to revoke old refresh token: %w", err)
 	}
 
 	newTokens, err := s.jwtManager.GenerateTokenPair(claims.UserID, claims.Username, claims.Role)

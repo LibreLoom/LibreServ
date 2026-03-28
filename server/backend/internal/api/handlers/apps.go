@@ -46,7 +46,8 @@ type AppsListResponse struct {
 func (h *AppsHandler) ListInstalledApps(w http.ResponseWriter, r *http.Request) {
 	appList, err := h.manager.ListInstalledApps(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list apps: "+err.Error())
+		slog.Error("Failed to list installed apps", "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to retrieve apps")
 		return
 	}
 
@@ -67,7 +68,8 @@ func (h *AppsHandler) GetInstalledApp(w http.ResponseWriter, r *http.Request) {
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		slog.Warn("Installed app not found", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusNotFound, "App not found")
 		return
 	}
 
@@ -79,7 +81,7 @@ func (h *AppsHandler) GetInstalledApp(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	var req InstallRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -91,7 +93,7 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	// Validate config against app definition
 	installer := h.manager.GetInstaller()
 	if err := installer.ValidateConfig(req.AppID, req.Config); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid configuration: "+err.Error())
+		JSONError(w, http.StatusBadRequest, "invalid configuration")
 		return
 	}
 
@@ -104,7 +106,7 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		slog.Error("App install failed", "app_id", req.AppID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "installation failed: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "Installation failed")
 		return
 	}
 
@@ -127,7 +129,8 @@ func (h *AppsHandler) StartApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.StartApp(r.Context(), instanceID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to start app: "+err.Error())
+		slog.Error("Failed to start app", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to start app")
 		return
 	}
 
@@ -147,7 +150,8 @@ func (h *AppsHandler) StopApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.StopApp(r.Context(), instanceID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to stop app: "+err.Error())
+		slog.Error("Failed to stop app", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to stop app")
 		return
 	}
 
@@ -167,7 +171,8 @@ func (h *AppsHandler) RestartApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.RestartApp(r.Context(), instanceID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to restart app: "+err.Error())
+		slog.Error("Failed to restart app", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to restart app")
 		return
 	}
 
@@ -187,10 +192,11 @@ func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.UpdateApp(r.Context(), instanceID); err != nil {
+		slog.Error("Failed to update app", "instance_id", instanceID, "error", err)
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "app.update", instanceID, "", "failure", err.Error(), nil)
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to update app: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "Failed to update app")
 		return
 	}
 
@@ -214,7 +220,8 @@ func (h *AppsHandler) UninstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.UninstallApp(r.Context(), instanceID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to uninstall app: "+err.Error())
+		slog.Error("Failed to uninstall app", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to uninstall app")
 		return
 	}
 
@@ -235,7 +242,8 @@ func (h *AppsHandler) GetAppStatus(w http.ResponseWriter, r *http.Request) {
 
 	status, err := h.manager.GetAppStatus(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		slog.Warn("App status not found", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusNotFound, "App not found")
 		return
 	}
 
@@ -247,7 +255,8 @@ func (h *AppsHandler) GetAppStatus(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) GetUpdateHistory(w http.ResponseWriter, r *http.Request) {
 	history, err := h.manager.ListUpdateHistory(r.Context(), "")
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get update history: "+err.Error())
+		slog.Error("Failed to get update history", "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to retrieve update history")
 		return
 	}
 
@@ -265,7 +274,8 @@ func (h *AppsHandler) GetAppUpdateHistory(w http.ResponseWriter, r *http.Request
 
 	history, err := h.manager.ListUpdateHistory(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get update history: "+err.Error())
+		slog.Error("Failed to get app update history", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to retrieve update history")
 		return
 	}
 
@@ -277,7 +287,8 @@ func (h *AppsHandler) GetAppUpdateHistory(w http.ResponseWriter, r *http.Request
 func (h *AppsHandler) GetAvailableUpdates(w http.ResponseWriter, r *http.Request) {
 	updates, err := h.manager.GetAvailableUpdates(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to check for updates: "+err.Error())
+		slog.Error("Failed to check for updates", "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to check for updates")
 		return
 	}
 
@@ -307,7 +318,8 @@ func (h *AppsHandler) PinAppVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.PinAppVersion(r.Context(), instanceID, req.Version); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to pin app: "+err.Error())
+		slog.Error("Failed to pin app version", "instance_id", instanceID, "version", req.Version, "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to pin app version")
 		return
 	}
 
@@ -328,7 +340,8 @@ func (h *AppsHandler) UnpinAppVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.UnpinAppVersion(r.Context(), instanceID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to unpin app: "+err.Error())
+		slog.Error("Failed to unpin app version", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to unpin app version")
 		return
 	}
 
@@ -355,13 +368,14 @@ func (h *AppsHandler) GetExposedInfoField(w http.ResponseWriter, r *http.Request
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		slog.Warn("Exposed info: app not found", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusNotFound, "App not found")
 		return
 	}
 
 	value, ok := app.ExposedInfo[fieldName]
 	if !ok {
-		JSONError(w, http.StatusNotFound, "exposed info field not found: "+fieldName)
+		JSONError(w, http.StatusNotFound, "Exposed info field not found")
 		return
 	}
 

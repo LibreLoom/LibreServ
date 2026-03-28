@@ -31,7 +31,7 @@ func (h *CloudBackupHandlers) ListProviders(w http.ResponseWriter, r *http.Reque
 func (h *CloudBackupHandlers) GetConfig(w http.ResponseWriter, r *http.Request) {
 	config, err := h.cloudService.LoadConfig(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to load cloud config")
 		return
 	}
 
@@ -106,7 +106,7 @@ func (h *CloudBackupHandlers) SaveConfig(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.cloudService.SaveConfig(r.Context(), config); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to save cloud config")
 		return
 	}
 
@@ -121,7 +121,7 @@ func (h *CloudBackupHandlers) SaveConfig(w http.ResponseWriter, r *http.Request)
 func (h *CloudBackupHandlers) TestConnection(w http.ResponseWriter, r *http.Request) {
 	result, err := h.cloudService.TestConnection(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "cloud connection test failed")
 		return
 	}
 
@@ -142,7 +142,7 @@ func (h *CloudBackupHandlers) UploadBackup(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.cloudService.UploadBackupAsync(backupID, backup.Path); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to start backup upload")
 		return
 	}
 
@@ -180,7 +180,7 @@ func (h *CloudBackupHandlers) DownloadBackup(w http.ResponseWriter, r *http.Requ
 	localPath := "/tmp/libreserv-restore-" + backupID + ".tar.gz"
 
 	if err := h.cloudService.DownloadBackup(r.Context(), backupID, localPath); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to download backup")
 		return
 	}
 
@@ -194,7 +194,7 @@ func (h *CloudBackupHandlers) DownloadBackup(w http.ResponseWriter, r *http.Requ
 func (h *CloudBackupHandlers) ListRemoteBackups(w http.ResponseWriter, r *http.Request) {
 	backups, err := h.cloudService.ListRemoteBackups(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to list remote backups")
 		return
 	}
 
@@ -213,7 +213,7 @@ func (h *CloudBackupHandlers) GetBackupCloudStatus(w http.ResponseWriter, r *htt
 
 	status, err := h.cloudService.GetBackupCloudStatus(r.Context(), backupID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to get cloud status")
 		return
 	}
 

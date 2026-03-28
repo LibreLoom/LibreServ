@@ -4,7 +4,7 @@ import { ArrowLeft, ChevronDown, Ghost, Home, LifeBuoy } from "lucide-react";
 
 import { notfound as quips } from "../assets/greetings";
 
-import Card from "../components/cards/Card";
+import Card from "../components/common/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
 
 /* ======================================================================

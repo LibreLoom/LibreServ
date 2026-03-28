@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
-import Card from "./Card";
+import Card from "../common/cards/Card";
 
 /**
  * VerificationCard - Modal card for confirming destructive actions like user deletion

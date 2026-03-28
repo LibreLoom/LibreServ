@@ -7,11 +7,11 @@ services:
     ports:
       - "{{.http_port}}:8765"
 {{- if .enable_network_cameras }}
-      - "8081:8081"
-      - "8082:8082"
-      - "8083:8083"
-      - "8084:8084"
-      - "8085:8085"
+      - "{{.camera_port_1}}:8081"
+      - "{{.camera_port_2}}:8082"
+      - "{{.camera_port_3}}:8083"
+      - "{{.camera_port_4}}:8084"
+      - "{{.camera_port_5}}:8085"
 {{- end }}
     environment:
       - "TZ={{.timezone}}"

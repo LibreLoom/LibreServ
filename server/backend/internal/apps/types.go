@@ -1,6 +1,10 @@
 package apps
 
-import "time"
+import (
+	"maps"
+	"slices"
+	"time"
+)
 
 // AppType represents the type of app in the catalog
 type AppType string
@@ -30,7 +34,7 @@ const (
 	CategoryOther        AppCategory = "other"
 )
 
-// AppDefinition represents a complete app definition in the catalog
+// ExposedInfoField represents a field exposed by an app (e.g., credentials, URLs).
 type ExposedInfoField struct {
 	Name          string `yaml:"name" json:"name"`
 	Label         string `yaml:"label" json:"label"`
@@ -94,6 +98,31 @@ type AppDefinition struct {
 	// Internal metadata (not from YAML)
 	Type        AppType `yaml:"-" json:"type"`
 	CatalogPath string  `yaml:"-" json:"-"`
+}
+
+// Clone returns a deep copy of the AppDefinition.
+// This prevents callers from mutating the catalog's canonical state.
+func (a *AppDefinition) Clone() *AppDefinition {
+	c := *a // shallow copy
+
+	// Deep copy slices in Deployment
+	c.Deployment.Ports = slices.Clone(a.Deployment.Ports)
+	c.Deployment.Volumes = slices.Clone(a.Deployment.Volumes)
+	c.Deployment.DependsOn = slices.Clone(a.Deployment.DependsOn)
+
+	// Deep copy maps in Deployment
+	if a.Deployment.Environment != nil {
+		c.Deployment.Environment = maps.Clone(a.Deployment.Environment)
+	}
+	if a.Deployment.Labels != nil {
+		c.Deployment.Labels = maps.Clone(a.Deployment.Labels)
+	}
+
+	// Deep copy top-level slices
+	c.Configuration = slices.Clone(a.Configuration)
+	c.ExposedInfo = slices.Clone(a.ExposedInfo)
+
+	return &c
 }
 
 type AppFeatures struct {

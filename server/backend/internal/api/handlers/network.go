@@ -41,7 +41,7 @@ func (h *NetworkHandlers) WithACME(acme *ACMEHandler) *NetworkHandlers {
 func (h *NetworkHandlers) GetCaddyStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := h.caddyManager.GetStatus(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to get caddy status")
 		return
 	}
 
@@ -80,7 +80,7 @@ func (h *NetworkHandlers) GetRoute(w http.ResponseWriter, r *http.Request) {
 
 	route, err := h.caddyManager.GetRoute(routeID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "route not found")
 		return
 	}
 
@@ -175,7 +175,7 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 
 	route, err := h.caddyManager.AddRoute(r.Context(), req.Subdomain, req.Domain, backend, req.AppID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to create route")
 		return
 	}
 
@@ -224,7 +224,7 @@ func (h *NetworkHandlers) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 
 	route, err := h.caddyManager.UpdateRoute(r.Context(), routeID, req.Backend, req.Enabled)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to update route")
 		return
 	}
 
@@ -241,7 +241,7 @@ func (h *NetworkHandlers) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.caddyManager.RemoveRoute(r.Context(), routeID); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to delete route")
 		return
 	}
 
@@ -256,7 +256,7 @@ func (h *NetworkHandlers) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 func (h *NetworkHandlers) GetCaddyfile(w http.ResponseWriter, r *http.Request) {
 	content, err := h.caddyManager.GetCaddyfileContent()
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to get caddyfile")
 		return
 	}
 
@@ -310,7 +310,7 @@ func (h *NetworkHandlers) GetRouteByApp(w http.ResponseWriter, r *http.Request) 
 
 	route, err := h.caddyManager.GetRouteByApp(appID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "route not found for app")
 		return
 	}
 
@@ -335,7 +335,7 @@ func (h *NetworkHandlers) ConfigureDomain(w http.ResponseWriter, r *http.Request
 
 	// Update Caddy manager with new defaults
 	if err := h.caddyManager.UpdateDefaults(req.DefaultDomain, req.SSLEmail, req.AutoHTTPS); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to update domain configuration: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to update domain configuration")
 		return
 	}
 

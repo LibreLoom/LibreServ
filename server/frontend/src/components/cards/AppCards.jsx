@@ -1,10 +1,10 @@
-import { useEffect, useState, memo, useCallback } from "react";
+import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings } from "lucide-react";
 import CardButton from "./CardButton";
 import AppIcon from "../ui/AppIcon";
 import StatusPill from "../ui/StatusPill";
-import { useAuth } from "../../hooks/useAuth";
+import { useApps } from "../../hooks/useApps";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";
@@ -131,35 +131,9 @@ function NoAppsCard() {
 }
 
 export default function AppCards({ refreshInterval = 30000 }) {
-  const { request } = useAuth();
-  const [apps, setApps] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { data: apps = [], isLoading, error } = useApps(refreshInterval);
 
-  const fetchApps = useCallback(async () => {
-    try {
-      const response = await request("/apps");
-      const data = await response.json();
-      setApps(data.apps || []);
-    } catch (err) {
-      console.error("Failed to fetch apps:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [request]);
-
-  useEffect(() => {
-    fetchApps();
-
-    const interval = setInterval(() => {
-      fetchApps();
-    }, refreshInterval);
-
-    return () => clearInterval(interval);
-  }, [fetchApps, refreshInterval]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
         <div className="flex items-center gap-4">
@@ -187,7 +161,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
           </div>
           <div className="text-left">
             <div className="font-mono font-normal text-error">Failed to load apps</div>
-            <div className="font-mono font-normal text-sm text-primary/50">{error}</div>
+            <div className="font-mono font-normal text-sm text-primary/50">{error.message}</div>
           </div>
         </div>
       </div>

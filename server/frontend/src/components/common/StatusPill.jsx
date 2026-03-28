@@ -1,5 +1,6 @@
 /* color-scan: ignore-file dynamic color-mix with CSS variables */
 import { CheckCircle, XCircle, AlertCircle, Circle } from "lucide-react";
+import PropTypes from "prop-types";
 
 const statusConfig = {
   running: {
@@ -52,3 +53,8 @@ export default function StatusPill({ status, className = "" }) {
     </div>
   );
 }
+
+StatusPill.propTypes = {
+  status: PropTypes.oneOf(["running", "stopped", "error", "unknown"]),
+  className: PropTypes.string,
+};

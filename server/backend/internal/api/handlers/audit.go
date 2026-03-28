@@ -31,7 +31,7 @@ func (h *AuditHandler) ListLogs(w http.ResponseWriter, r *http.Request) {
 
 	entries, err := h.service.List(r.Context(), limit)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list audit logs: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to list audit logs")
 		return
 	}
 

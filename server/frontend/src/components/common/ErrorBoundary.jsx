@@ -1,5 +1,6 @@
 import { Component } from "react";
 import { AlertTriangle, RefreshCw, Home, Bug } from "lucide-react";
+import PropTypes from "prop-types";
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -164,3 +165,13 @@ export class ErrorBoundaryWithFallback extends Component {
 }
 
 export default ErrorBoundary;
+
+ErrorBoundary.propTypes = {
+  children: PropTypes.node,
+};
+
+ErrorBoundaryWithFallback.propTypes = {
+  children: PropTypes.node,
+  fallback: PropTypes.func,
+  onError: PropTypes.func,
+};

@@ -94,7 +94,7 @@ func (h *CatalogHandler) GetApp(w http.ResponseWriter, r *http.Request) {
 	catalog := h.manager.GetCatalog()
 	app, err := catalog.GetApp(appID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "app not found")
 		return
 	}
 
@@ -112,7 +112,7 @@ func (h *CatalogHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
 
 func (h *CatalogHandler) RefreshCatalog(w http.ResponseWriter, r *http.Request) {
 	if err := h.manager.RefreshCatalog(); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to refresh catalog: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to refresh catalog")
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *CatalogHandler) GetAppFeatures(w http.ResponseWriter, r *http.Request) 
 	catalog := h.manager.GetCatalog()
 	app, err := catalog.GetApp(appID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, err.Error())
+		JSONError(w, http.StatusNotFound, "app not found")
 		return
 	}
 

@@ -2,7 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import HeaderCard from "../components/cards/HeaderCard";
-import Card from "../components/cards/Card";
+import Card from "../components/common/cards/Card";
 import CardButton from "../components/cards/CardButton";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";

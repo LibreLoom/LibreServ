@@ -1,6 +1,7 @@
 import { memo } from "react";
+import PropTypes from "prop-types";
 
-export default memo(function Card({ children, className = "", noPopIn = false }) {
+function Card({ children, className = "", noPopIn = false }) {
   const animationClass = noPopIn
     ? ""
     : "pop-in transition-all duration-300 ease-in-out";
@@ -12,4 +13,12 @@ export default memo(function Card({ children, className = "", noPopIn = false })
       {children}
     </div>
   );
-});
+}
+
+Card.propTypes = {
+  children: PropTypes.node,
+  className: PropTypes.string,
+  noPopIn: PropTypes.bool,
+};
+
+export default memo(Card);
