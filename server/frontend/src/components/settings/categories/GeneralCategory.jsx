@@ -85,7 +85,7 @@ export default function GeneralCategory({ settings }) {
             <ValueDisplay mono>{settings?.logging?.path || "N/A"}</ValueDisplay>
           </SettingsRow>
 
-          <div className="border-t border-primary/10 mt-3 pt-3" />
+          <div className="border-t border-primary/10 pt-3" />
           <ExtraInfoDropdown title="backend info">
             <SettingsRow mono label="Host" compact>
               <ValueDisplay mono>{settings?.backend?.host || "N/A"}</ValueDisplay>
