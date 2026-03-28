@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import SettingsRow from "../SettingsRow";
 import Card from "../../common/cards/Card";
-import TypewriterLoader from "../../common/TypewriterLoader";
+import TypewriterLoader from "../../ui/TypewriterLoader";
 import ErrorDisplay from "../../common/ErrorDisplay";
 import {
   getSecurityEvents,

@@ -23,7 +23,7 @@ func (h *NetworkProbeHandler) DNS(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := network.ResolveHostname(r.Context(), host, 3*time.Second)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to resolve hostname")
 		return
 	}
 	JSON(w, http.StatusOK, res)

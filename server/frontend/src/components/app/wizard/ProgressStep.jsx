@@ -1,6 +1,7 @@
 import { memo, useEffect, useState, useRef } from "react";
-import { CheckCircle, XCircle } from "lucide-react";
+import { CheckCircle, XCircle, Copy, Check, ChevronDown } from "lucide-react";
 import TypewriterLoader from "../../../components/ui/TypewriterLoader";
+import Button from "../../../components/ui/Button";
 
 const INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },
@@ -10,10 +11,32 @@ const INSTALL_PHASES = [
   { id: "verifying", label: "Verifying installation" },
 ];
 
+function getErrorSummary(error) {
+  if (!error) return "Application startup failed";
+  return "Application startup failed";
+}
+
+function getErrorHint(error) {
+  if (!error) return "We couldn't finish bringing the app online.";
+  const lower = error.toLowerCase();
+  if (lower.includes("port") && lower.includes("already")) {
+    return "A required port is already in use on this system.";
+  }
+  if (lower.includes("compose") || lower.includes("container")) {
+    return "The app's containers could not be started successfully.";
+  }
+  if (lower.includes("network")) {
+    return "Container networking could not be configured.";
+  }
+  return "We couldn't finish bringing the app online.";
+}
+
 function ProgressStep({ instanceId, onComplete }) {
   const [currentPhase, setCurrentPhase] = useState(0);
   const [status, setStatus] = useState("installing");
   const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const hasCompleted = useRef(false);
   const consecutive404Count = useRef(0);
 
@@ -119,15 +142,87 @@ function ProgressStep({ instanceId, onComplete }) {
   }, [instanceId, onComplete]);
 
   if (error) {
+    const errorSummary = getErrorSummary(error);
+    const errorHint = getErrorHint(error);
+
+    const handleCopyError = async () => {
+      try {
+        await navigator.clipboard.writeText(error);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        console.error("Failed to copy error:", err);
+      }
+    };
+
     return (
-      <div className="space-y-6 text-center">
+      <div className="space-y-5 text-center">
         <XCircle className="mx-auto text-secondary" size={48} />
-        <div className="space-y-2">
+        <div className="space-y-3">
           <h2 className="font-mono text-2xl font-normal text-secondary">
             Installation Failed
           </h2>
-          <p className="text-secondary/70">{error}</p>
+          <p className="text-secondary/80">{errorSummary}</p>
+          <p className="mx-auto max-w-md text-sm leading-relaxed text-secondary/60">
+            {errorHint}
+          </p>
         </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setDetailsOpen((open) => !open)}
+            className="border border-secondary/15 bg-primary/20 font-mono text-secondary hover:bg-secondary/10 hover:text-secondary"
+            aria-expanded={detailsOpen}
+            aria-controls="install-error-details"
+          >
+            <ChevronDown
+              size={14}
+              className={`motion-safe:transition-transform ${detailsOpen ? "rotate-180" : "rotate-0"}`}
+            />
+            {detailsOpen ? "Hide details" : "Show details"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCopyError}
+            className="border border-secondary/15 bg-primary/20 font-mono text-secondary hover:bg-secondary/10 hover:text-secondary"
+          >
+            {copied ? (
+              <>
+                <Check size={14} />
+                Copied
+              </>
+            ) : (
+              <>
+                <Copy size={14} />
+                Copy error
+              </>
+            )}
+          </Button>
+        </div>
+
+        <div
+          id="install-error-details"
+          aria-hidden={!detailsOpen}
+          className={`mx-auto w-full max-w-2xl overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out ${
+            detailsOpen
+              ? "mt-1 max-h-96 opacity-100 translate-y-0"
+              : "max-h-0 opacity-0 -translate-y-2 pointer-events-none"
+          }`}
+        >
+          <div className="rounded-card border border-secondary/10 bg-primary/20 p-4 text-left motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out">
+            <div className="mb-3 flex items-center justify-between gap-3 border-b border-secondary/10 pb-3">
+              <p className="font-mono text-sm text-secondary">Technical details</p>
+              <p className="text-xs text-secondary/50">Useful for debugging or support</p>
+            </div>
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-secondary/70">
+              {error}
+            </pre>
+          </div>
+        </div>
+
         <button
           onClick={() => window.location.reload()}
           className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"

@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -25,7 +26,7 @@ func newTestSetupHandler(t *testing.T) (*SetupHandler, context.Context) {
 	if err := db.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	svc := auth.NewService(db, "secret")
+	svc := auth.NewService(db, "secret", slog.Default())
 	setupSvc := setup.NewService(db)
 	if _, err := setupSvc.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure setup state: %v", err)

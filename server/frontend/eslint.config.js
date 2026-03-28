@@ -33,6 +33,23 @@ export default defineConfig([
     },
   },
   {
+    // Test files get vitest globals.
+    files: ["**/*.test.{js,jsx}", "src/test/**"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        vi: "readonly",
+        describe: "readonly",
+        it: "readonly",
+        expect: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        beforeAll: "readonly",
+        afterAll: "readonly",
+      },
+    },
+  },
+  {
     // Script utilities run in Node, not the browser.
     files: ["scripts/**/*.js"],
     languageOptions: {

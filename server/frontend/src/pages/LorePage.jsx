@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import Card from "../components/cards/Card";
+import Card from "../components/common/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
+import TypewriterLoader from "../components/ui/TypewriterLoader";
 
 export default function LorePage() {
   const [loreContent, setLoreContent] = useState("");
@@ -39,7 +40,7 @@ export default function LorePage() {
       {/* Content */}
       <section className="px-8" aria-label="Lore content">
         <Card>
-          {loading && <p>Loading lore...</p>}
+          {loading && <TypewriterLoader message="Loading lore..." size="sm" />}
           {error && <p className="text-accent">Error: {error}</p>}
           {!loading && !error && (
             <div className="markdown-content">

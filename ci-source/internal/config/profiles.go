@@ -37,8 +37,8 @@ var Profiles = map[string]*Profile{
 	"quick": {
 		ID:          "quick",
 		Name:        "Quick",
-		Description: "Fast feedback - format, vet, unit tests, lint (4 tests)",
-		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "frontend-lint"},
+		Description: "Fast feedback - format, vet, unit tests, lint (5 tests)",
+		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "frontend-lint", "frontend-test"},
 	},
 	"backend": {
 		ID:          "backend",
@@ -49,16 +49,16 @@ var Profiles = map[string]*Profile{
 	"frontend": {
 		ID:          "frontend",
 		Name:        "Frontend",
-		Description: "Frontend tests - lint, build, color scan (3 tests)",
-		TestIDs:     []string{"frontend-lint", "frontend-build", "frontend-colors"},
+		Description: "Frontend tests - lint, test, build, color scan (4 tests)",
+		TestIDs:     []string{"frontend-lint", "frontend-test", "frontend-build", "frontend-colors"},
 	},
 	"deep": {
 		ID:          "deep",
 		Name:        "Deep",
-		Description: "Comprehensive - race detection, all fuzz, e2e (22 tests)",
+		Description: "Comprehensive - race detection, all fuzz, e2e (23 tests)",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race",
-			"frontend-lint", "frontend-build",
+			"frontend-lint", "frontend-test", "frontend-build",
 			"fuzz-docker-unmarshal", "fuzz-docker-marshal",
 			"fuzz-apps-definition", "fuzz-apps-script",
 			"fuzz-network-caddyfile", "fuzz-network-route", "fuzz-network-backend",
@@ -86,10 +86,10 @@ var Profiles = map[string]*Profile{
 	"full": {
 		ID:          "full",
 		Name:        "Full",
-		Description: "Complete test suite - all 28 tests",
+		Description: "Complete test suite - all 29 tests",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build",
-			"frontend-lint", "frontend-build", "frontend-colors",
+			"frontend-lint", "frontend-test", "frontend-build", "frontend-colors",
 			"fuzz-docker-unmarshal", "fuzz-docker-marshal",
 			"fuzz-apps-definition", "fuzz-apps-script",
 			"fuzz-network-caddyfile", "fuzz-network-route", "fuzz-network-backend",

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	"path/filepath"
 	"testing"
 
@@ -27,7 +28,7 @@ func TestRegisterLoginChangePassword(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	svc := NewService(db, "testsecret")
+	svc := NewService(db, "testsecret", slog.Default())
 
 	// register
 	user, err := svc.Register(ctx, &RegisterRequest{
@@ -88,7 +89,7 @@ func TestSetupFlow(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 
-	svc := NewService(db, "testsecret")
+	svc := NewService(db, "testsecret", slog.Default())
 
 	complete, err := svc.IsSetupComplete(ctx)
 	if err != nil {

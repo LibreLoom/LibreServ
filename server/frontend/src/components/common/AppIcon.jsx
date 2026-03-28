@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import PropTypes from "prop-types";
 
 export default function AppIcon({ appId, size = 48, className = "" }) {
   const [svg, setSvg] = useState("");
@@ -64,3 +65,9 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
     />
   );
 }
+
+AppIcon.propTypes = {
+  appId: PropTypes.string.isRequired,
+  size: PropTypes.number,
+  className: PropTypes.string,
+};

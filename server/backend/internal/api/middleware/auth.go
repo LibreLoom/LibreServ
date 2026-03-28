@@ -55,6 +55,7 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token, err := extractAccessToken(r)
 			if err != nil {
+				slog.Debug("Auth middleware: no token found", "path", r.URL.Path, "error", err.Error())
 				response.Unauthorized(w, "")
 				return
 			}
@@ -86,6 +87,7 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 			} else {
 				claims, err := cfg.AuthService.ValidateAccessToken(token)
 				if err != nil {
+					slog.Debug("Auth middleware: token validation failed", "path", r.URL.Path, "error", err.Error())
 					if err == auth.ErrExpiredToken {
 						response.Unauthorized(w, "Your session has expired. Please log in again.")
 						return

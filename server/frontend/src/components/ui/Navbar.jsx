@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useAuth } from "../../hooks/useAuth";
 
 const TRANSITION = {
   duration: "duration-200",
@@ -74,8 +75,8 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
 }
 
 export default function Navbar() {
+  const { me: user, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [user, setUser] = useState(null);
   const menuButtonRef = useRef(null);
   const firstNavLinkRef = useRef(null);
   const dialogRef = useRef(null);
@@ -266,21 +267,6 @@ export default function Navbar() {
   };
 
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const response = await fetch("/api/v1/auth/me", {
-          credentials: "include",
-        });
-        const userData = await response.json();
-        setUser(userData);
-      } catch {
-        // Silently handle error - user will be shown as not logged in
-      }
-    };
-    fetchUser();
-  }, []);
-
-  useEffect(() => {
     if (!isMobileMenuOpen) {
       document.body.style.overflow = "";
       return;
@@ -381,15 +367,7 @@ export default function Navbar() {
                   </NavLink>
                   <button
                     onClick={async () => {
-                      try {
-                        await fetch("/api/v1/auth/logout", {
-                          method: "POST",
-                          credentials: "include",
-                        });
-                        window.location.href = "/";
-                      } catch {
-                        // Error handled by navigation
-                      }
+                      await logout();
                     }}
                     className={`${menuItemClasses} hover:bg-accent hover:text-primary text-left`}
                   >
@@ -468,15 +446,7 @@ export default function Navbar() {
             <button
               type="button"
               onClick={async () => {
-                try {
-                  await fetch("/api/v1/auth/logout", {
-                    method: "POST",
-                    credentials: "include",
-                  });
-                  window.location.href = "/";
-                } catch {
-                  // Error handled by navigation
-                }
+                await logout();
               }}
               className={`w-full justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
             >

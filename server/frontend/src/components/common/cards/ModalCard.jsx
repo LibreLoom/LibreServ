@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { X } from "lucide-react";
+import PropTypes from "prop-types";
 import Card from "./Card";
 
 export default function ModalCard({
@@ -105,3 +106,10 @@ export default function ModalCard({
     </div>
   );
 }
+
+ModalCard.propTypes = {
+  title: PropTypes.string,
+  children: PropTypes.oneOfType([PropTypes.node, PropTypes.func]),
+  onClose: PropTypes.func,
+  showCloseButton: PropTypes.bool,
+};

@@ -76,12 +76,12 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 	// Create installer
 	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache, m.portManager)
 	m.installer.SetCatalogPath(catalogPath)
-	m.installer.SetBackendRegistrar(func(appID, backend, name string) {
+	m.installer.SetBackendRegistrar(func(instanceID, backend, name string) {
 		if name != "" {
-			m.RegisterNamedBackend(appID, name, backend)
+			m.RegisterNamedBackend(instanceID, name, backend)
 			return
 		}
-		m.RegisterBackend(appID, backend)
+		m.RegisterBackend(instanceID, backend)
 	})
 	m.RebuildBackends(context.Background())
 
@@ -228,7 +228,7 @@ func (m *Manager) RebuildBackends(ctx context.Context) {
 	}
 	for _, app := range apps {
 		for _, be := range m.inferBackends(app) {
-			m.registerBackend(app.AppID, be.backend, be.name)
+			m.registerBackend(app.ID, be.backend, be.name)
 		}
 	}
 }
@@ -457,7 +457,7 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 			m.logger.Warn("Failed to scan installed app", "error", err)
 			continue
 		}
-		app.Backends = m.listBackendRefs(app.AppID)
+		app.Backends = m.listBackendRefs(app.ID)
 
 		// Populate metrics from cache
 		if m.metricsCache != nil {
@@ -488,7 +488,7 @@ func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*Inst
 		return nil, fmt.Errorf("app not found: %s", instanceID)
 	}
 
-	app.Backends = m.listBackendRefs(app.AppID)
+	app.Backends = m.listBackendRefs(app.ID)
 
 	catalogApp, err := m.catalog.GetApp(app.AppID)
 	if err == nil {

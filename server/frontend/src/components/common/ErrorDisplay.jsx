@@ -1,4 +1,5 @@
 import { X, AlertCircle, AlertTriangle, Info } from "lucide-react";
+import PropTypes from "prop-types";
 
 const primaryBtn =
 "inline-flex items-center gap-2 rounded-pill bg-secondary text-primary px-4 py-2 text-sm font-medium " +
@@ -125,3 +126,29 @@ export function ApiError({ error, onRetry, onDismiss }) {
 }
 
 export default ErrorDisplay;
+
+ErrorDisplay.propTypes = {
+  message: PropTypes.string,
+  type: PropTypes.oneOf(["error", "warning", "info"]),
+  onDismiss: PropTypes.func,
+  dismissible: PropTypes.bool,
+  children: PropTypes.node,
+};
+
+InlineError.propTypes = {
+  message: PropTypes.string,
+  className: PropTypes.string,
+};
+
+FormErrorSummary.propTypes = {
+  errors: PropTypes.object,
+  onRetry: PropTypes.func,
+};
+
+ApiError.propTypes = {
+  error: PropTypes.shape({
+    message: PropTypes.string,
+  }),
+  onRetry: PropTypes.func,
+  onDismiss: PropTypes.func,
+};

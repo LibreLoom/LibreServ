@@ -32,7 +32,7 @@ func (h *SupportDiagnosticsHandler) Get(w http.ResponseWriter, r *http.Request) 
 
 	check := func(name string, fn func() error) {
 		if err := fn(); err != nil {
-			results[name] = map[string]interface{}{"status": "failed", "error": err.Error()}
+			results[name] = map[string]interface{}{"status": "failed", "error": "check failed"}
 			healthy = false
 		} else {
 			results[name] = map[string]interface{}{"status": "ok"}

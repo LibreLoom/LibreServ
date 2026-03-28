@@ -66,7 +66,7 @@ func (h *NotifyHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	if req.Persist {
 		if err := config.SaveConfig(req.FilePath); err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to persist config: "+err.Error())
+			JSONError(w, http.StatusInternalServerError, "failed to persist config")
 			return
 		}
 	}
@@ -96,7 +96,7 @@ func (h *NotifyHandler) Preview(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := email.RenderTemplate(req.Template, req.Data)
 	if err != nil {
-		JSONError(w, http.StatusBadRequest, "render failed: "+err.Error())
+		JSONError(w, http.StatusBadRequest, "failed to render template")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]string{"body": body})

@@ -1,12 +1,13 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
 import HeaderCard from "../components/cards/HeaderCard";
-import Card from "../components/cards/Card";
+import Card from "../components/common/cards/Card";
 import Dropdown from "../components/ui/Dropdown";
 import AppIcon from "../components/ui/AppIcon";
 import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink } from "lucide-react";
 import StatusPill from "../components/ui/StatusPill";
+import { useApps } from "../hooks/useApps";
+import { useCatalog } from "../hooks/useCatalog";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";
@@ -90,45 +91,15 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
 
 export default function AppsPage() {
   const navigate = useNavigate();
-  const { request } = useAuth();
 
-  const [catalog, setCatalog] = useState([]);
-  const [installedApps, setInstalledApps] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showLoading, setShowLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const { data: catalog = [], isLoading: catalogLoading, error: catalogError } = useCatalog();
+  const { data: installedApps = [], isLoading: appsLoading, error: appsError } = useApps();
+
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState(null);
 
-  useEffect(() => {
-    let delayTimer;
-    const fetchData = async () => {
-      try {
-        delayTimer = setTimeout(() => {
-          setShowLoading(true);
-        }, 500);
-        const [catalogRes, installedRes] = await Promise.all([
-          request("/catalog"),
-          request("/apps"),
-        ]);
-
-        const catalogData = await catalogRes.json();
-        const installedData = await installedRes.json();
-
-        setCatalog(catalogData.apps || []);
-        setInstalledApps(installedData.apps || []);
-      } catch (err) {
-        console.error("Failed to load data:", err);
-        setError("Failed to load app catalog. Please try again.");
-      } finally {
-        clearTimeout(delayTimer);
-        setShowLoading(false);
-        setLoading(false);
-      }
-    };
-    fetchData();
-    return () => clearTimeout(delayTimer);
-  }, [request]);
+  const loading = catalogLoading || appsLoading;
+  const error = catalogError || appsError;
 
   const handleInstall = useCallback(
     (appId) => {
@@ -162,7 +133,7 @@ export default function AppsPage() {
       <main className="bg-primary text-secondary px-8 pt-5 pb-32">
         <HeaderCard id="apps-title" title="Apps" />
         <div className="mt-8 text-center">
-          <p className="text-secondary/70">{error}</p>
+          <p className="text-secondary/70">Failed to load app catalog. Please try again.</p>
           <button
             onClick={() => window.location.reload()}
             className="mt-4 px-6 py-2 rounded-pill bg-accent text-primary"
@@ -176,14 +147,14 @@ export default function AppsPage() {
 
   return (
     <main
-      className={`bg-primary text-secondary px-8 pt-5 pb-32 ${showLoading ? "pop-out" : "pop-in"}`}
+      className={`bg-primary text-secondary px-8 pt-5 pb-32 ${loading ? "pop-out" : "pop-in"}`}
       aria-labelledby="apps-title"
       id="main-content"
       tabIndex={-1}
     >
       <HeaderCard id="apps-title" title="Apps" />
 
-      {loading && showLoading && (
+      {loading && (
         <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
           <Card className="w-[70vw] sm:w-[20vw]">
             <div className="my-5 text-center" role="status" aria-live="polite">
@@ -321,17 +292,17 @@ export default function AppsPage() {
                       <Settings size={16} />
                       Manage
                     </Link>
-{appUrl && (
-                        <a
-                          href={appUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
-                        >
-                          <ExternalLink size={16} />
-                          Open
-                        </a>
-                      )}
+                    {appUrl && (
+                      <a
+                        href={appUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
+                      >
+                        <ExternalLink size={16} />
+                        Open
+                      </a>
+                    )}
                   </div>
                 </Card>
               );

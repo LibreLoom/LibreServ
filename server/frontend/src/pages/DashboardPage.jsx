@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Clock, Server, CheckCircle, RefreshCw } from "lucide-react";
 
 import StatCard from "../components/cards/StatCard";
@@ -9,7 +9,9 @@ import RefreshDropdown, { REFRESH_INTERVALS } from "../components/ui/RefreshDrop
 import WelcomeCard from "../components/onboarding/WelcomeCard";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
-import api from "../lib/api";
+import { useUser } from "../hooks/useUser";
+import { useUptime } from "../hooks/useUptime";
+import { useMonitoring } from "../hooks/useMonitoring";
 
 import {
   getBreakdownItems,
@@ -21,7 +23,6 @@ function getGreeting() {
   const month = today.getMonth();
   const date = today.getDate();
 
-  // Holiday greetings
   if (month === 0 && date === 1) return "Happy New Year, ";
   if (month === 2 && date === 8) return "Happy International Women's Day, ";
   if (month === 2 && date === 21) return "Happy Nowruz, ";
@@ -34,12 +35,10 @@ function getGreeting() {
   if (month === 11 && date === 26) return "Happy Kwanzaa, ";
   if (month === 7 && date === 4) return "Happy Independence Day, ";
 
-  // Rotating greeting (changes every 12 hours)
   const hoursSinceEpoch = Math.floor(today.getTime() / 43200000);
   return greetingMessages[hoursSinceEpoch % greetingMessages.length];
 }
 
-// Format seconds into human-readable uptime string
 function formatUptime(seconds) {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
@@ -68,144 +67,77 @@ function getInitialRefreshInterval() {
   return isValidRefreshInterval(parsed) ? parsed : 30000;
 }
 
+function clamp01(value) {
+  if (!Number.isFinite(value)) return 0;
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}
+
 export default function Dashboard() {
-  // Memoize so the greeting doesn't change on re-renders.
   const greeting = useMemo(() => getGreeting(), []);
-  const [user, setUser] = useState(null);
-  const [userLoaded, setUserLoaded] = useState(false);
-
-  // Uptime state
-  const [, setUptimeSeconds] = useState(0);
-  const [displayUptime, setDisplayUptime] = useState("Loading...");
-  const uptimeRef = useRef(0);
-  const uptimeIntervalRef = useRef(null);
-
-  // Stress index state
-  const [stressIndex, setStressIndex] = useState(0);
-  const [stressLoaded, setStressLoaded] = useState(false);
-  const [stressBreakdown, setStressBreakdown] = useState([]);
+  const { data: user } = useUser();
+  const { data: uptimeSeconds = 0 } = useUptime();
   const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
+  const { data: resources } = useMonitoring(refreshInterval);
 
-  // Fetch user data
+  // Local uptime counter for smooth display between API syncs
+  const uptimeRef = useRef(uptimeSeconds);
+
+  // Sync ref when API provides new value
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const response = await api("/auth/me");
-        const userData = await response.json();
-        setUser(userData);
-      } catch {
-        // Silently handle error - user will be shown as not logged in
-      } finally {
-        setUserLoaded(true);
-      }
-    };
-    fetchUser();
-  }, []);
+    uptimeRef.current = uptimeSeconds;
+  }, [uptimeSeconds]);
 
-  // Fetch uptime from health endpoint
-  const fetchUptime = useCallback(async () => {
-    try {
-      const response = await fetch("/health");
-      if (response.ok) {
-        const data = await response.json();
-        if (data.uptime_seconds !== undefined) {
-          uptimeRef.current = data.uptime_seconds;
-          setUptimeSeconds(data.uptime_seconds);
-          setDisplayUptime(formatUptime(data.uptime_seconds));
-        }
-      }
-    } catch (err) {
-      console.error("Failed to fetch uptime:", err);
-    }
-  }, []);
-
-  // Initial uptime fetch and setup interval
+  // Increment local counter every second
+  const [displayUptime, setDisplayUptime] = useState(formatUptime(uptimeSeconds));
   useEffect(() => {
-    fetchUptime();
-
-    // Set up uptime counter (increments locally every second)
-    uptimeIntervalRef.current = setInterval(() => {
+    const interval = setInterval(() => {
       uptimeRef.current += 1;
-      setUptimeSeconds(uptimeRef.current);
       setDisplayUptime(formatUptime(uptimeRef.current));
     }, 1000);
-
-    // Refresh from API every minute to stay in sync
-    const apiRefreshInterval = setInterval(() => {
-      fetchUptime();
-    }, 60000);
-
-    return () => {
-      if (uptimeIntervalRef.current) {
-        clearInterval(uptimeIntervalRef.current);
-      }
-      clearInterval(apiRefreshInterval);
-    };
-  }, [fetchUptime]);
-
-  // Fetch stress index data
-  const fetchStressData = useCallback(async () => {
-    try {
-      const response = await api("/monitoring/system");
-      const data = await response.json();
-      const source = data?.resources;
-      if (!source) {
-        throw new Error("Missing resources in /monitoring/system response");
-      }
-      const liveResources = {
-        cpu: clamp01(Number(source.cpu)),
-        ram: clamp01(Number(source.ram)),
-        disk: clamp01(Number(source.disk)),
-        net: clamp01(Number(source.net)),
-      };
-
-      const stress = totalResourceUsage(liveResources);
-      setStressIndex(stress);
-      setStressBreakdown(getBreakdownItems(liveResources));
-      setStressLoaded(true);
-    } catch (err) {
-      console.error("Failed to fetch stress data:", err);
-    }
+    return () => clearInterval(interval);
   }, []);
 
-  // Fetch stress data on mount and when refresh interval changes
-  useEffect(() => {
-    fetchStressData();
-
-    const interval = setInterval(() => {
-      fetchStressData();
-    }, refreshInterval);
-
-    return () => clearInterval(interval);
-  }, [fetchStressData, refreshInterval]);
-
-  // Refetch on bfcache restore so stale values don't linger until interval tick.
-  useEffect(() => {
-    const onPageShow = () => {
-      fetchStressData();
-    };
-    window.addEventListener("pageshow", onPageShow);
-    return () => window.removeEventListener("pageshow", onPageShow);
-  }, [fetchStressData]);
-
-  // Persist user-selected refresh interval.
+  // Persist user-selected refresh interval
   useEffect(() => {
     window.localStorage.setItem(REFRESH_INTERVAL_STORAGE_KEY, String(refreshInterval));
   }, [refreshInterval]);
 
-  // Calculate overall system status
-  const systemStatus = useMemo(() => {
-    return {
+  const stressIndex = useMemo(() => {
+    if (!resources) return 0;
+    return totalResourceUsage({
+      cpu: clamp01(Number(resources.cpu)),
+      ram: clamp01(Number(resources.ram)),
+      disk: clamp01(Number(resources.disk)),
+      net: clamp01(Number(resources.net)),
+    });
+  }, [resources]);
+
+  const stressBreakdown = useMemo(() => {
+    if (!resources) return [];
+    return getBreakdownItems({
+      cpu: clamp01(Number(resources.cpu)),
+      ram: clamp01(Number(resources.ram)),
+      disk: clamp01(Number(resources.disk)),
+      net: clamp01(Number(resources.net)),
+    });
+  }, [resources]);
+
+  const systemStatus = useMemo(
+    () => ({
       status: "online",
       text: "All Systems Operational",
       icon: CheckCircle,
       className: "text-accent",
-    };
-  }, []);
+    }),
+    [],
+  );
+
   const greetingBase = greeting.endsWith(", ")
     ? greeting.slice(0, -2)
     : greeting;
-  const showUsername = userLoaded && user?.username;
+  const showUsername = user?.username;
   const StatusIcon = systemStatus.icon;
   const greetingTitle = (
     <span className="inline-flex flex-wrap items-center justify-center gap-2">
@@ -243,7 +175,6 @@ export default function Dashboard() {
       id="main-content"
       tabIndex={-1}
     >
-      {/* Header */}
       <header className="px-8 mb-10">
         <HeaderCard
           id="dashboard-title"
@@ -254,17 +185,14 @@ export default function Dashboard() {
         ></HeaderCard>
       </header>
 
-      {/* Welcome card for first-time users */}
       <section className="px-8 mb-10">
         <WelcomeCard />
       </section>
 
-      {/* Main content */}
       <section
         className="flex flex-col md:flex-row gap-8 px-8 w-full"
         aria-label="Dashboard metrics"
       >
-        {/* Stats column */}
         <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-0">
           <StatCard
             icon={Clock}
@@ -274,24 +202,16 @@ export default function Dashboard() {
           />
           <DropdownCard
             title="Server Stress Index"
-            value={stressLoaded ? Math.round(stressIndex * 100) + "%" : "Loading..."}
+            value={resources ? Math.round(stressIndex * 100) + "%" : "Loading..."}
             breakdownItems={stressBreakdown}
             Icon={Server}
           />
         </div>
 
-        {/* Apps */}
         <div className="flex-1 grid grid-cols-1 xl:grid-cols-3 gap-6 content-start order-2 md:order-1">
           <AppCards refreshInterval={refreshInterval} />
         </div>
       </section>
     </main>
   );
-}
-
-function clamp01(value) {
-  if (!Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
 }

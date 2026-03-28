@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
@@ -138,11 +139,36 @@ func (pm *PortManager) GetUsedPorts() map[int]string {
 }
 
 // IsAvailable checks if a port can be used for allocation.
+// It checks both the internal tracking and verifies the port is free at the OS level.
 func (pm *PortManager) IsAvailable(port int) bool {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
-	return pm.isAvailableLocked(port)
+	if !pm.isAvailableLocked(port) {
+		return false
+	}
+
+	return pm.isPortFreeAtOSLocked(port)
+}
+
+// IsPortFreeAtOS checks if a port is available at the OS level by attempting to bind to it.
+func (pm *PortManager) IsPortFreeAtOS(port int) bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	return pm.isPortFreeAtOSLocked(port)
+}
+
+// isPortFreeAtOSLocked checks OS availability without acquiring the lock (caller must hold lock).
+func (pm *PortManager) isPortFreeAtOSLocked(port int) bool {
+	addr := fmt.Sprintf(":%d", port)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		pm.logger.Debug("Port not available at OS level", "port", port, "error", err)
+		return false
+	}
+	_ = listener.Close()
+	return true
 }
 
 // isAvailableLocked checks availability without acquiring the lock (caller must hold lock).
@@ -164,12 +190,13 @@ func (pm *PortManager) isAvailableLocked(port int) bool {
 
 // Allocate tries to assign the preferred port. If taken, scans upward to find
 // the next available port. Returns the allocated port or an error if none found.
+// It verifies port availability at both the internal tracking level and OS level.
 func (pm *PortManager) Allocate(preferred int) (int, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// Try preferred first
-	if pm.isAvailableLocked(preferred) {
+	// Try preferred first (checks both DB and OS level via isAvailableLocked)
+	if pm.isAvailableLocked(preferred) && pm.isPortFreeAtOSLocked(preferred) {
 		return preferred, nil
 	}
 
@@ -181,7 +208,7 @@ func (pm *PortManager) Allocate(preferred int) (int, error) {
 	start := port
 
 	for attempt := 0; attempt < MaxScanAttempts; attempt++ {
-		if pm.isAvailableLocked(port) {
+		if pm.isAvailableLocked(port) && pm.isPortFreeAtOSLocked(port) {
 			return port, nil
 		}
 		port++

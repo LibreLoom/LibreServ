@@ -27,7 +27,7 @@ func (h *UsersHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 	users, total, err := h.authService.ListUsersPaginated(r.Context(), params.Offset, params.Limit)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list users: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to list users")
 		return
 	}
 
@@ -80,7 +80,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusConflict, "username already exists")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to create user: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
 
@@ -88,7 +88,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Role != "" && req.Role != user.Role {
 		user.Role = req.Role
 		if err := h.authService.UpdateUser(r.Context(), user); err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to set role: "+err.Error())
+			JSONError(w, http.StatusInternalServerError, "failed to set role")
 			return
 		}
 	}
@@ -163,7 +163,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.authService.UpdateUser(r.Context(), user); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to update user: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to update user")
 		return
 	}
 
@@ -190,7 +190,7 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusBadRequest, "cannot delete the last admin user")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to delete user: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "failed to delete user")
 		return
 	}
 

@@ -42,7 +42,7 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 	}
 	session, policy, err := h.validateSessionAndPolicy(req.Code, req.Token)
 	if err != nil {
-		JSONError(w, http.StatusUnauthorized, err.Error())
+		JSONError(w, http.StatusUnauthorized, "invalid session")
 		return
 	}
 	if !hasScope(session.Scopes, "files-ro") && !hasScope(session.Scopes, "files-ro+docker") {
@@ -103,7 +103,7 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 	}
 	session, policy, err := h.validateSessionAndPolicy(req.Code, req.Token)
 	if err != nil {
-		JSONError(w, http.StatusUnauthorized, err.Error())
+		JSONError(w, http.StatusUnauthorized, "invalid session")
 		return
 	}
 	if !hasScope(session.Scopes, "files-rw") && !hasScope(session.Scopes, "files-rw+docker") {

@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import Card from "../components/cards/Card";
+import Card from "../components/common/cards/Card";
 import CardButton from "../components/cards/CardButton";
 import HeaderCard from "../components/cards/HeaderCard";
 import VerificationCard from "../components/cards/VerificationCard";

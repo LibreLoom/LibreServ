@@ -55,7 +55,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _, err := h.validateSessionAndPolicy(req.Code, req.Token)
 	if err != nil {
-		JSONError(w, http.StatusUnauthorized, err.Error())
+		JSONError(w, http.StatusUnauthorized, "invalid session")
 		return
 	}
 	if !hasScope(sess.Scopes, "shell-lite") && !hasScope(sess.Scopes, "shell-full") {
@@ -69,7 +69,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Command == "docker" {
 		if err := support.ValidateDockerArgs(req.Args); err != nil {
-			JSONError(w, http.StatusForbidden, err.Error())
+			JSONError(w, http.StatusForbidden, "invalid docker arguments")
 			return
 		}
 	}
@@ -83,7 +83,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 	policy.Allow = append(policy.Allow, support.SafeWorkdir())
 	policy.Deny = append(policy.Deny, "/var/lib/docker")
 	if err := validateCommandPaths(policy, req.Command, req.Args); err != nil {
-		JSONError(w, http.StatusForbidden, err.Error())
+		JSONError(w, http.StatusForbidden, "path not allowed")
 		return
 	}
 

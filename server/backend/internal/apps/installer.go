@@ -33,7 +33,7 @@ type Installer struct {
 	monitor         *monitoring.Monitor
 	metricsCache    *AppMetricsCache
 	portManager     *PortManager
-	registerBackend func(appID, backend, name string)
+	registerBackend func(instanceID, backend, name string)
 }
 
 // NewInstaller creates a new Installer
@@ -56,7 +56,7 @@ func (i *Installer) SetCatalogPath(catalogPath string) {
 }
 
 // SetBackendRegistrar wires a callback used to register the reachable backend for an app (for ACME).
-func (i *Installer) SetBackendRegistrar(fn func(appID, backend, name string)) {
+func (i *Installer) SetBackendRegistrar(fn func(instanceID, backend, name string)) {
 	i.registerBackend = fn
 }
 
@@ -168,6 +168,50 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 				i.portManager.Reserve(p, instanceID)
 			}
 		}
+
+		// Auto-allocate deployment ports if catalog defaults are not available
+		originalToAllocated := make(map[int]int) // maps original port -> allocated port
+		for idx, depPort := range appDef.Deployment.Ports {
+			if depPort.Host == 0 {
+				continue // Skip ports with no host mapping
+			}
+			if i.portManager.IsAvailable(depPort.Host) {
+				continue // Port is available, use catalog default
+			}
+
+			// Port is not available, need to allocate a new one
+			allocatedPort, err := i.portManager.Allocate(depPort.Host)
+			if err != nil {
+				_ = os.RemoveAll(installPath)
+				return &InstallResult{Success: false, Error: "no available ports for deployment"}, err
+			}
+			originalToAllocated[depPort.Host] = allocatedPort
+			appDef.Deployment.Ports[idx].Host = allocatedPort
+			i.logger.Info("Allocated new port for deployment", "app_id", appDef.ID, "original_port", depPort.Host, "allocated_port", allocatedPort)
+		}
+
+		// Update config fields for any re-allocated ports
+		// Match by checking if the field's default value matches the original port
+		for _, field := range appDef.Configuration {
+			if field.Type != "port" {
+				continue
+			}
+			fieldDefault := toInt(field.Default)
+			if fieldDefault == 0 {
+				continue
+			}
+			if allocatedPort, ok := originalToAllocated[fieldDefault]; ok {
+				config[field.Name] = allocatedPort
+				i.logger.Info("Updated config for re-allocated port", "field", field.Name, "original", fieldDefault, "allocated", allocatedPort)
+			}
+		}
+
+		// Reserve all deployment ports
+		for _, depPort := range appDef.Deployment.Ports {
+			if depPort.Host > 0 {
+				i.portManager.Reserve(depPort.Host, instanceID)
+			}
+		}
 	}
 
 	composePath, err := i.processComposeTemplate(appDef, installPath, config)
@@ -271,20 +315,20 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 	}
 
 	if i.registerBackend != nil && installedApp.URL != "" {
-		i.registerBackend(appDef.ID, installedApp.URL, "")
+		i.registerBackend(instanceID, installedApp.URL, "")
 	}
 	if i.registerBackend != nil {
 		for _, p := range appDef.Deployment.Ports {
 			if p.Host == 0 || p.Name == "" {
 				continue
 			}
-			i.registerBackend(appDef.ID, fmt.Sprintf("http://localhost:%d", p.Host), p.Name)
+			i.registerBackend(instanceID, fmt.Sprintf("http://localhost:%d", p.Host), p.Name)
 		}
 		for _, b := range appDef.Deployment.Backends {
 			if b.URL == "" || b.Name == "" {
 				continue
 			}
-			i.registerBackend(appDef.ID, b.URL, b.Name)
+			i.registerBackend(instanceID, b.URL, b.Name)
 		}
 	}
 
@@ -318,7 +362,7 @@ func (i *Installer) updateAppStatus(instanceID string, status AppStatus, errMsg 
 
 // handleInstallFailure cleans up after a failed install
 func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string) {
-	// Mark as error in DB
+	// Mark as error in DB (keep the record so frontend can show the error message)
 	i.updateAppStatus(instanceID, StatusError, errMsg)
 
 	// Try to stop and remove any running containers
@@ -336,10 +380,10 @@ func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string)
 	// Remove the installation directory
 	_ = os.RemoveAll(installPath)
 
-	// Remove from DB entirely (cascade will handle related records)
-	_, _ = i.db.Exec(`DELETE FROM apps WHERE id = ?`, instanceID)
+	// Keep the app record with StatusError so frontend can retrieve the error message
+	// Do NOT delete from DB - this allows the user to see what went wrong
 
-	i.logger.Info("Install failed and cleaned up", "instance_id", instanceID, "error", errMsg)
+	i.logger.Info("Install failed", "instance_id", instanceID, "error", errMsg)
 }
 
 // mergeConfig merges default values from app definition with user-provided config

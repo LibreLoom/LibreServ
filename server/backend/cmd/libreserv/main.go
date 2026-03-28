@@ -203,7 +203,7 @@ func main() {
 	appManager.Start(context.Background())
 	defer appManager.Stop()
 
-	authService := auth.NewService(db, cfg.Auth.JWTSecret)
+	authService := auth.NewService(db, cfg.Auth.JWTSecret, slog.Default())
 
 	setupService := setup.NewService(db)
 	supportService := support.NewService(db, lic)
