@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -960,21 +959,28 @@ func (m *Manager) inferBackends(app *InstalledApp) []backendEntry {
 				}
 			}
 
+			// Build a map from catalog default port values to config field names
+			// This allows us to look up config overrides when port names are empty
+			defaultPortToFieldName := make(map[int]string)
+			for _, field := range def.Configuration {
+				if field.Type == "port" {
+					if d := toInt(field.Default); d > 0 {
+						defaultPortToFieldName[d] = field.Name
+					}
+				}
+			}
+
 			for _, p := range def.Deployment.Ports {
 				if p.Host > 0 || p.Name != "" {
 					// Check if user overrode this port in config
 					port := p.Host
+					// First try matching by port name
 					if configPort, ok := configValues[p.Name]; ok {
-						// Handle port config - could be string or int
-						switch v := configPort.(type) {
-						case float64:
-							port = int(v)
-						case int:
-							port = v
-						case string:
-							if parsed, err := strconv.Atoi(v); err == nil {
-								port = parsed
-							}
+						port = toInt(configPort)
+					} else if fieldName, ok := defaultPortToFieldName[p.Host]; ok {
+						// Fallback: match by catalog default port -> config field name
+						if configPort, ok := configValues[fieldName]; ok {
+							port = toInt(configPort)
 						}
 					}
 					// Only add if we have a valid port
