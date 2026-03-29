@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -48,6 +49,7 @@ func (h *SetupHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userStatus, _ := h.authService.GetSetupStatus(r.Context())
+	state = h.reconcileSetupState(r.Context(), state, userStatus)
 	licenseStatus := LicenseSnapshot(h.license)
 
 	JSON(w, http.StatusOK, map[string]interface{}{
@@ -122,6 +124,11 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := h.setupService.MarkComplete(r.Context()); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to finalize setup")
+		return
+	}
+
 	// Generate tokens for the new admin user
 	tokens, err := h.authService.Login(r.Context(), &auth.LoginRequest{
 		Username: req.AdminUsername,
@@ -133,11 +140,6 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 			"message": "setup complete - please log in",
 			"user":    user,
 		})
-		return
-	}
-
-	if _, err := h.setupService.MarkComplete(r.Context()); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to finalize setup")
 		return
 	}
 
@@ -249,8 +251,12 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 
 	var diskFree uint64
 	check("disk_space", func() error {
+		resolvedPath, err := resolveConfigPath(cfg.Apps.DataPath)
+		if err != nil {
+			return err
+		}
 		var stat syscall.Statfs_t
-		if err := syscall.Statfs(cfg.Apps.DataPath, &stat); err != nil {
+		if err := syscall.Statfs(resolvedPath, &stat); err != nil {
 			return err
 		}
 		diskFree = stat.Bavail * uint64(stat.Bsize)
@@ -278,14 +284,9 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 }
 
 func touchPath(path string) error {
-	if path == "" {
-		return fmt.Errorf("path not configured")
-	}
-	if !filepath.IsAbs(path) {
-		cfgPath := config.Path()
-		if cfgPath != "" {
-			path = filepath.Join(filepath.Dir(cfgPath), path)
-		}
+	path, err := resolveConfigPath(path)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return err
@@ -298,4 +299,39 @@ func touchPath(path string) error {
 	_ = f.Close()
 	_ = os.Remove(name)
 	return nil
+}
+
+func resolveConfigPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path not configured")
+	}
+	if filepath.IsAbs(path) {
+		return path, nil
+	}
+
+	cfgPath := config.Path()
+	if cfgPath != "" {
+		return filepath.Join(filepath.Dir(cfgPath), path), nil
+	}
+
+	resolved, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+func (h *SetupHandler) reconcileSetupState(ctx context.Context, state *setup.State, userStatus *auth.SetupStatus) *setup.State {
+	if state == nil || userStatus == nil {
+		return state
+	}
+	if state.Status == setup.StatusComplete || !userStatus.SetupComplete {
+		return state
+	}
+
+	updated, err := h.setupService.MarkComplete(ctx)
+	if err != nil {
+		return state
+	}
+	return updated
 }

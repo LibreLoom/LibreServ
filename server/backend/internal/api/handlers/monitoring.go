@@ -342,7 +342,12 @@ func maxFloat(a, b float64) float64 {
 }
 
 func getDiskUsage(path string) (total, free uint64) {
-	tryPaths := []string{path}
+	resolvedPath, err := resolveConfigPath(path)
+	if err != nil {
+		resolvedPath = path
+	}
+
+	tryPaths := []string{resolvedPath}
 	if path != "/" {
 		tryPaths = append(tryPaths, "/")
 	}

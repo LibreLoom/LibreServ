@@ -156,3 +156,30 @@ func TestRateLimitFallbackToIPWhenNoUser(t *testing.T) {
 		t.Fatalf("handler should run 2 times, ran %d", count)
 	}
 }
+
+func TestRateLimitDefaultUsesSpecificSetupRules(t *testing.T) {
+	rl := RateLimitDefault()
+	count := 0
+	handler := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/complete", nil)
+	for i := 0; i < 15; i++ {
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("request %d unexpected status: %d", i+1, rr.Code)
+		}
+	}
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected rate limit, got %d", rr.Code)
+	}
+	if count != 15 {
+		t.Fatalf("handler should run 15 times, ran %d", count)
+	}
+}
