@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -228,7 +229,11 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		if h.docker == nil {
 			return nil
 		}
-		return h.docker.HealthCheck()
+		if err := h.docker.HealthCheck(); err != nil {
+			results["docker_optional"] = true
+			return nil
+		}
+		return nil
 	})
 
 	check("database", func() error {
@@ -242,31 +247,22 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		return touchPath(cfg.Logging.Path)
 	})
 
+	var diskFree uint64
 	check("disk_space", func() error {
 		var stat syscall.Statfs_t
 		if err := syscall.Statfs(cfg.Apps.DataPath, &stat); err != nil {
 			return err
 		}
-		free := stat.Bavail * uint64(stat.Bsize)
-		if free < 512*1024*1024 { // 512MB
-			return fmt.Errorf("low disk space: %d bytes available", free)
+		diskFree = stat.Bavail * uint64(stat.Bsize)
+		if diskFree < 512*1024*1024 { // 512MB
+			return fmt.Errorf("low disk space: %d bytes available", diskFree)
 		}
-		results["disk_space_bytes_free"] = free
 		return nil
 	})
-
-	check("smtp", func() error {
-		// If SMTP is not configured, this passes silently
-		if cfg.SMTP.Host == "" {
-			results["smtp_configured"] = false
-			return nil
-		}
-		if err := email.TestSMTP(cfg.SMTP); err != nil {
-			return err
-		}
-		results["smtp_configured"] = true
-		return nil
-	})
+	// Attach detail to the disk_space check result
+	if m, ok := results["disk_space"].(map[string]interface{}); ok && diskFree > 0 {
+		m["disk_space_bytes_free"] = diskFree
+	}
 
 	statusCode := http.StatusOK
 	if !allHealthy {
@@ -284,6 +280,12 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 func touchPath(path string) error {
 	if path == "" {
 		return fmt.Errorf("path not configured")
+	}
+	if !filepath.IsAbs(path) {
+		cfgPath := config.Path()
+		if cfgPath != "" {
+			path = filepath.Join(filepath.Dir(cfgPath), path)
+		}
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return err

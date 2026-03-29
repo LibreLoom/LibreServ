@@ -41,9 +41,41 @@ exposed_info:
 | `label` | string | Yes | Human-readable label shown in UI |
 | `description` | string | No | Optional description text |
 | `type` | string | Yes | One of: `password`, `string`, `url`, `username` |
+| `group` | string | No | Group name for UI sectioning (e.g., `credentials`, `connection`) |
+| `advanced` | bool | No | Hide behind "Advanced Information" toggle (default: false) |
 | `copyable` | bool | No | Show copy-to-clipboard button (default: false) |
 | `revealable` | bool | No | Show show/hide toggle for passwords (default: false) |
 | `mask_by_default` | bool | No | Mask the value by default (default: false) |
+
+### Grouping and Advanced Fields
+
+Fields can be organized into groups for a cleaner UI. The frontend supports built-in labels for `credentials` and `connection` groups. Other group names are title-cased automatically.
+
+Fields marked `advanced: true` are hidden behind an expandable "Advanced Information" section at the bottom of the card, keeping primary credentials visible by default.
+
+```yaml
+exposed_info:
+  - name: admin_password
+    label: "Admin Password"
+    type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+  - name: api_endpoint
+    label: "API Endpoint"
+    type: url
+    group: connection
+    copyable: true
+  - name: encryption_key
+    label: "Internal Encryption Key"
+    type: password
+    group: credentials
+    advanced: true         # hidden by default
+    copyable: true
+    revealable: true
+    mask_by_default: true
+```
 
 ### Field Types
 
@@ -103,6 +135,7 @@ exposed_info:
     label: "Meilisearch Master Key"
     description: "Master key for Meilisearch search functionality"
     type: password
+    group: credentials
     copyable: true
     revealable: true
     mask_by_default: true
@@ -110,6 +143,7 @@ exposed_info:
     label: "JWT Secret"
     description: "Secret key for JWT token authentication"
     type: password
+    group: credentials
     copyable: true
     revealable: true
     mask_by_default: true
@@ -117,6 +151,15 @@ exposed_info:
     label: "JWT Refresh Secret"
     description: "Secret key for JWT refresh tokens"
     type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+  - name: creds_key
+    label: "Credentials Encryption Key"
+    type: password
+    group: credentials
+    advanced: true
     copyable: true
     revealable: true
     mask_by_default: true

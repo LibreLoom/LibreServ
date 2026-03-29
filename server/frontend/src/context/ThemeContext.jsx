@@ -1,7 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useState, useEffect } from "react";
+import { createContext, useState, useEffect, useCallback } from "react";
 
 export const ThemeContext = createContext(undefined);
+
+function getSystemTheme() {
+  if (typeof window !== "undefined" && window.matchMedia) {
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  return "light";
+}
 
 // color-scan: ignore-line theme default colors
 const DEFAULT_COLORS = {
@@ -69,30 +76,42 @@ export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("theme");
-      if (stored === "dark" || stored === "light") return stored;
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      if (stored === "system" || stored === "dark" || stored === "light") return stored;
+      return "system";
     }
-    return "light";
+    return "system";
   });
-  
-  const [customColors, setCustomColors] = useState(() => 
+
+  const [systemTheme, setSystemTheme] = useState(() => getSystemTheme());
+
+  const resolvedTheme = theme === "system" ? systemTheme : theme;
+
+  const [customColors, setCustomColors] = useState(() =>
     getStoredValue("theme-colors", null)
   );
-  
+
   const [darkColors, setDarkColors] = useState(() =>
     getStoredValue("theme-dark-colors", null)
   );
-  
+
   const [useSeparateDarkColors, setUseSeparateDarkColors] = useState(() =>
     getStoredValue("theme-separate-dark", false)
   );
 
   useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e) => setSystemTheme(e.matches ? "dark" : "light");
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
     const root = document.documentElement;
-    
+
     if (customColors) {
       root.classList.add("theme-custom");
-      applyThemeColors(customColors, darkColors, theme === "dark", useSeparateDarkColors);
+      applyThemeColors(customColors, darkColors, resolvedTheme === "dark", useSeparateDarkColors);
     } else {
       root.classList.remove("theme-custom");
       root.style.removeProperty("--custom-primary");
@@ -101,33 +120,37 @@ export function ThemeProvider({ children }) {
       root.style.removeProperty("--custom-primary-dark");
       root.style.removeProperty("--custom-secondary-dark");
       root.style.removeProperty("--custom-accent-dark");
-      
-      if (theme === "dark") {
+
+      if (resolvedTheme === "dark") {
         root.classList.add("dark");
       } else {
         root.classList.remove("dark");
       }
     }
-    
+
     localStorage.setItem("theme", theme);
     if (customColors) {
       localStorage.setItem("theme-colors", JSON.stringify(customColors));
     } else {
       localStorage.removeItem("theme-colors");
     }
-    
+
     if (darkColors && useSeparateDarkColors) {
       localStorage.setItem("theme-dark-colors", JSON.stringify(darkColors));
     } else {
       localStorage.removeItem("theme-dark-colors");
     }
-    
-    localStorage.setItem("theme-separate-dark", JSON.stringify(useSeparateDarkColors));
-  }, [theme, customColors, darkColors, useSeparateDarkColors]);
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  };
+    localStorage.setItem("theme-separate-dark", JSON.stringify(useSeparateDarkColors));
+  }, [theme, resolvedTheme, customColors, darkColors, useSeparateDarkColors]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      if (prev === "system") return "light";
+      if (prev === "light") return "dark";
+      return "system";
+    });
+  }, []);
 
   const setColors = (colors) => {
     if (!colors) {
@@ -158,7 +181,7 @@ export function ThemeProvider({ children }) {
     setUseSeparateDarkColors(false);
   };
 
-  const currentColors = customColors || (theme === "dark" ? DEFAULT_DARK_COLORS : DEFAULT_COLORS);
+  const currentColors = customColors || (resolvedTheme === "dark" ? DEFAULT_DARK_COLORS : DEFAULT_COLORS);
   const currentDarkColors = (useSeparateDarkColors && darkColors) ? darkColors : (useSeparateDarkColors ? DEFAULT_DARK_COLORS : null);
 
   return (
@@ -167,6 +190,7 @@ export function ThemeProvider({ children }) {
         theme,
         setTheme,
         toggleTheme,
+        resolvedTheme,
         colors: currentColors,
         setColors,
         darkColors: currentDarkColors,

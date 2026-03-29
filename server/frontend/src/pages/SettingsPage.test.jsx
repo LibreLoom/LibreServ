@@ -5,8 +5,9 @@ import SettingsPage from "./SettingsPage";
 
 vi.mock("../hooks/useTheme", () => ({
   useTheme: () => ({
-    theme: "light",
-    toggleTheme: vi.fn(),
+    theme: "system",
+    setTheme: vi.fn(),
+    resolvedTheme: "light",
     colors: {},
     setColors: vi.fn(),
     darkColors: {},

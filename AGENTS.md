@@ -302,6 +302,16 @@ cd ../backend
 
 ---
 
+## Documentation
+
+After making any changes to the codebase, ensure `/docs` is fully up-to-date. Update or create documentation in `/docs/` when:
+- Adding or modifying API endpoints, data structures, or configuration options
+- Changing app template format, installation flow, or lifecycle behavior
+- Introducing new scripts, hooks, frontend patterns, or deployment processes
+- Altering security models, authentication flows, or permission systems
+
+---
+
 ## Resources
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution workflow

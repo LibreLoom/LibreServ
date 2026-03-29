@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
@@ -231,7 +232,23 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stream, err := executor.StreamExecute(r.Context(), instanceID, fullScriptPath, nil)
+	// Parse options from query parameters (opt_name=value)
+	var options map[string]interface{}
+	if r.URL.RawQuery != "" {
+		options = make(map[string]interface{})
+		for key, values := range r.URL.Query() {
+			if strings.HasPrefix(key, "opt_") {
+				optName := strings.TrimPrefix(key, "opt_")
+				if len(values) == 1 {
+					options[optName] = values[0]
+				} else {
+					options[optName] = values
+				}
+			}
+		}
+	}
+
+	stream, err := executor.StreamExecute(r.Context(), instanceID, fullScriptPath, options)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "script execution failed")
 		return
@@ -242,6 +259,30 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	for output := range stream {
+		data, _ := json.Marshal(output)
+		_, _ = w.Write([]byte("data: " + string(data) + "\n\n"))
+	}
+}
+
+// StreamInstall handles SSE streaming of install progress for a specific instance.
+func (h *ScriptsHandler) StreamInstall(w http.ResponseWriter, r *http.Request) {
+	instanceID := chi.URLParam(r, "instanceId")
+	if instanceID == "" {
+		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		return
+	}
+
+	outputCh := h.manager.GetInstaller().GetInstallOutputChannel(instanceID)
+	if outputCh == nil {
+		JSONError(w, http.StatusNotFound, "no active install stream for this app")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	for output := range outputCh {
 		data, _ := json.Marshal(output)
 		_, _ = w.Write([]byte("data: " + string(data) + "\n\n"))
 	}

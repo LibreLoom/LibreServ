@@ -110,6 +110,12 @@ exposed_info:
     type: url
     copyable: true
     group: connection
+  - name: test_field
+    label: "Test Field"
+    description: "A hardcoded test value to verify exposed_info rendering"
+    type: string
+    copyable: true
+    group: connection
 
 scripts:
   system:
