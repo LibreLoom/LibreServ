@@ -158,6 +158,22 @@ cd ../frontend
 npm install
 ```
 
+### Resetting Development Data
+
+To completely reset the backend development data (database, app data, logs):
+
+```bash
+cd server/backend
+rm -rf dev/data dev/apps dev/logs
+```
+
+This removes:
+- `dev/data/` — SQLite database and related data
+- `dev/apps/` — Installed app data
+- `dev/logs/` — Application logs
+
+After resetting, restart the backend and navigate to `/setup` to go through initial setup again.
+
 ---
 
 ## Building from Source
