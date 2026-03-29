@@ -110,7 +110,7 @@ func (s *Server) setupRoutes() {
 		CSRFSecret:  csrfSecret,
 	}
 	// Setup guard ensures initial setup is complete before allowing access
-	setupGuard := middleware.RequireSetupComplete(s.setupService)
+	setupGuard := middleware.RequireSetupComplete(s.setupService, s.authService)
 
 	// Public routes (no authentication required)
 	s.router.Group(func(r chi.Router) {

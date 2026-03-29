@@ -18,7 +18,14 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 )
 
-func newTestSetupHandler(t *testing.T) (*SetupHandler, context.Context) {
+type testSetupDeps struct {
+	handler  *SetupHandler
+	authSvc  *auth.Service
+	setupSvc *setup.Service
+	ctx      context.Context
+}
+
+func newTestSetupHandler(t *testing.T) testSetupDeps {
 	t.Helper()
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -41,16 +48,21 @@ func newTestSetupHandler(t *testing.T) (*SetupHandler, context.Context) {
 	if _, err := setupSvc.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure setup state: %v", err)
 	}
-	return NewSetupHandler(svc, setupSvc, (*docker.Client)(nil), nil), context.Background()
+	return testSetupDeps{
+		handler:  NewSetupHandler(svc, setupSvc, (*docker.Client)(nil), nil),
+		authSvc:  svc,
+		setupSvc: setupSvc,
+		ctx:      context.Background(),
+	}
 }
 
 func TestSetupStatusAndComplete(t *testing.T) {
-	handler, ctx := newTestSetupHandler(t)
+	deps := newTestSetupHandler(t)
 
 	// initial status
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
-	handler.GetStatus(rec, req.WithContext(ctx))
+	deps.handler.GetStatus(rec, req.WithContext(deps.ctx))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status code %d", rec.Code)
 	}
@@ -59,18 +71,18 @@ func TestSetupStatusAndComplete(t *testing.T) {
 	rec = httptest.NewRecorder()
 	body := `{"admin_username":"admin","admin_password":"Superstrongpass123","admin_email":"admin@example.com"}`
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/setup/complete", bytes.NewBufferString(body))
-	handler.CompleteSetup(rec, req.WithContext(ctx))
+	deps.handler.CompleteSetup(rec, req.WithContext(deps.ctx))
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("complete status %d", rec.Code)
 	}
 }
 
 func TestPreflightAllowsMissingDocker(t *testing.T) {
-	handler, ctx := newTestSetupHandler(t)
+	deps := newTestSetupHandler(t)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/preflight", nil)
-	handler.Preflight(rec, req.WithContext(ctx))
+	deps.handler.Preflight(rec, req.WithContext(deps.ctx))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("preflight status = %d, want %d", rec.Code, http.StatusOK)
@@ -123,6 +135,105 @@ func TestPreflightAllowsMissingDocker(t *testing.T) {
 
 	if _, exists := checks["smtp"]; exists {
 		t.Fatalf("did not expect smtp check in response")
+	}
+}
+
+func TestPreflightResolvesRelativeDiskSpacePathFromConfigLocation(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "configs", "libreserv.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	configBody := []byte("apps:\n  data_path: ./dev/apps\nlogging:\n  path: ./dev/logs\n")
+	if err := os.WriteFile(configPath, configBody, 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+	if err := config.LoadConfig(configPath); err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	db, err := database.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	authSvc := auth.NewService(db, "secret", slog.Default())
+	setupSvc := setup.NewService(db)
+	if _, err := setupSvc.Ensure(context.Background()); err != nil {
+		t.Fatalf("ensure setup state: %v", err)
+	}
+
+	handler := NewSetupHandler(authSvc, setupSvc, (*docker.Client)(nil), nil)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/preflight", nil)
+	handler.Preflight(rec, req.WithContext(context.Background()))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("preflight status = %d, want %d. Body: %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	checks, ok := payload["checks"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing checks map")
+	}
+	diskCheck, ok := checks["disk_space"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing disk_space check")
+	}
+	if diskCheck["status"] != "ok" {
+		t.Fatalf("disk space status = %v, want ok", diskCheck["status"])
+	}
+}
+
+func TestGetStatusRepairsSoftLockedSetup(t *testing.T) {
+	deps := newTestSetupHandler(t)
+
+	if _, err := deps.setupSvc.MarkInProgress(deps.ctx); err != nil {
+		t.Fatalf("mark in progress: %v", err)
+	}
+
+	if _, err := deps.authSvc.CompleteSetup(deps.ctx, &auth.SetupRequest{
+		AdminUsername: "admin",
+		AdminPassword: "Superstrongpass123",
+		AdminEmail:    "admin@example.com",
+	}); err != nil {
+		t.Fatalf("create admin user: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+	deps.handler.GetStatus(rec, req.WithContext(deps.ctx))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status code %d", rec.Code)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	state, ok := payload["setup_state"].(map[string]interface{})
+	if !ok {
+		t.Fatal("missing setup_state")
+	}
+	if state["status"] != setup.StatusComplete {
+		t.Fatalf("status = %v, want %s", state["status"], setup.StatusComplete)
+	}
+
+	stored, err := deps.setupSvc.Get(deps.ctx)
+	if err != nil {
+		t.Fatalf("get setup state: %v", err)
+	}
+	if stored.Status != setup.StatusComplete {
+		t.Fatalf("stored status = %s, want %s", stored.Status, setup.StatusComplete)
 	}
 }
 

@@ -220,24 +220,29 @@ const CHECK_LABELS = {
   docker:             "Docker",
 };
 
-function PreflightRow({ name, check, index, done }) {
-  const label = CHECK_LABELS[name] ?? name.replace(/_/g, " ");
+function PreflightRow({ name, check, index, done, rerunning }) {
+  const label  = CHECK_LABELS[name] ?? name.replace(/_/g, " ");
   const isOk   = check?.status === "ok";
   const isFail = check && check.status !== "ok";
 
+  // While re-running we keep the previous result visible but dimmed.
+  // Only show the spinner placeholder when there is no prior result at all.
+  const showPrev  = rerunning && check;
+  const showEmpty = !done && !check;
+
   return (
     <div
-      className="flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 animate-in fade-in slide-in-from-bottom-1 duration-300"
+      className={`flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 motion-safe:transition-opacity motion-safe:duration-300 ${rerunning ? "opacity-45" : "opacity-100"} animate-in fade-in slide-in-from-bottom-1 duration-300`}
       style={{ animationDelay: `${index * 80}ms` }}
     >
       {/* Status icon */}
-      <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-200 ${
-        !done || !check ? "bg-primary/10"
-        : isOk          ? "bg-primary/15"
-        : isFail        ? "bg-error/20"
-        :                 "bg-primary/10"
+      <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-300 ${
+        showEmpty             ? "bg-primary/10"
+        : (isOk && !showEmpty)  ? "bg-primary/15"
+        : (isFail && !showEmpty)? "bg-error/20"
+        :                         "bg-primary/10"
       }`}>
-        {!done || !check ? (
+        {showEmpty ? (
           <Loader2 className="w-3.5 h-3.5 text-primary/35 animate-spin" />
         ) : isOk ? (
           <Check className="w-3.5 h-3.5 text-primary/70" />
@@ -259,9 +264,9 @@ function PreflightRow({ name, check, index, done }) {
         )}
       </div>
 
-      {/* Pass/fail badge */}
-      {done && check && (
-        <span className={`flex-shrink-0 font-mono text-[10px] tracking-widest uppercase ${
+      {/* Pass/fail badge — keep visible while re-running so layout doesn't shift */}
+      {(done || showPrev) && check && (
+        <span className={`flex-shrink-0 font-mono text-[10px] tracking-widest uppercase motion-safe:transition-opacity motion-safe:duration-300 ${
           isOk ? "text-primary/30" : "text-error"
         }`}>
           {isOk ? "ok" : "fail"}
@@ -271,10 +276,11 @@ function PreflightRow({ name, check, index, done }) {
   );
 }
 PreflightRow.propTypes = {
-  name:  PropTypes.string.isRequired,
-  check: PropTypes.object,
-  index: PropTypes.number.isRequired,
-  done:  PropTypes.bool.isRequired,
+  name:      PropTypes.string.isRequired,
+  check:     PropTypes.object,
+  index:     PropTypes.number.isRequired,
+  done:      PropTypes.bool.isRequired,
+  rerunning: PropTypes.bool,
 };
 
 function PreflightStep({ onPass }) {
@@ -285,8 +291,6 @@ function PreflightStep({ onPass }) {
 
   const runChecks = useCallback(async () => {
     setRunning(true);
-    setChecks(null);
-    setHealthy(null);
     setError(null);
 
     try {
@@ -310,9 +314,14 @@ function PreflightStep({ onPass }) {
   const checkEntries = checks
     ? Object.entries(checks).filter(([name]) => KNOWN_CHECKS.has(name))
     : [];
+  const hasCheckResults = checkEntries.length > 0;
+  const showSkeleton = !hasCheckResults && running && !error;
+  const rerunning = running && hasCheckResults;
   const done      = checks !== null && !running;
+  // Keep these stable during a re-run so the status line doesn't jump
   const hasFailed = done && healthy === false;
   const allPassed = done && healthy === true;
+  const showRerunButton = hasFailed || error || rerunning;
 
   return (
     <SetupShell>
@@ -335,7 +344,7 @@ function PreflightStep({ onPass }) {
         {/* Check list */}
         <div className="mb-6">
           {/* Skeleton rows while loading */}
-          {!done && !error && (
+          {showSkeleton && (
             <div>
               {Array.from({ length: 5 }, (_, i) => (
                 <div
@@ -353,13 +362,14 @@ function PreflightStep({ onPass }) {
           )}
 
           {/* Real rows */}
-          {(done || running) && checkEntries.map(([name, check], i) => (
+          {hasCheckResults && checkEntries.map(([name, check], i) => (
             <PreflightRow
               key={name}
               name={name}
               check={check}
               index={i}
-              done={done}
+              done={done || rerunning}
+              rerunning={rerunning}
             />
           ))}
 
@@ -385,9 +395,12 @@ function PreflightStep({ onPass }) {
             </p>
           )}
           {hasFailed && (
-            <p className="text-xs text-error/70 animate-in fade-in duration-300">
-              Some checks failed. Fix the issues above and retry.
-            </p>
+            <span className="inline-flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-1 duration-500 ease-out">
+              <AlertCircle className="w-3.5 h-3.5 text-error/70 flex-shrink-0" />
+              <p className="text-xs text-error/70">
+                Some checks failed. Fix the issues above and retry.
+              </p>
+            </span>
           )}
         </div>
 
@@ -405,13 +418,18 @@ function PreflightStep({ onPass }) {
           )}
 
           {/* Re-run — when failed or errored */}
-          {(hasFailed || error) && (
+          {showRerunButton && (
             <button
               onClick={runChecks}
               disabled={running}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-pill border border-primary/20 bg-transparent text-primary py-3.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-40 animate-in fade-in slide-in-from-bottom-2 duration-300"
+              className="w-full inline-flex items-center justify-center rounded-pill border border-primary/20 bg-transparent text-primary py-3.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-40 animate-in fade-in slide-in-from-bottom-2 duration-300"
             >
-              {running ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              <span
+                className={`overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out ${running ? "w-5 mr-2" : "w-0 mr-0"}`}
+                aria-hidden="true"
+              >
+                <Loader2 className="w-4 h-4 animate-spin" />
+              </span>
               Re-run checks
             </button>
           )}

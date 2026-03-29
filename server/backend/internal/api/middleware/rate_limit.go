@@ -14,13 +14,15 @@ import (
 )
 
 const (
-	defaultSetupLimit      = 30
-	defaultAuthLimit       = 120
-	defaultUserLimit       = 60
-	defaultSupportLimit    = 30
-	defaultGeneralLimit    = 300
-	defaultRateLimitWindow = time.Minute
-	defaultStrictWindow    = time.Minute
+	defaultSetupStatusLimit = 180
+	defaultSetupCheckLimit  = 60
+	defaultSetupWriteLimit  = 15
+	defaultAuthLimit        = 120
+	defaultUserLimit        = 60
+	defaultSupportLimit     = 30
+	defaultGeneralLimit     = 300
+	defaultRateLimitWindow  = time.Minute
+	defaultStrictWindow     = time.Minute
 )
 
 type RateRule struct {
@@ -61,7 +63,9 @@ func StopAllLimiters() {
 
 func RateLimitDefault() func(http.Handler) http.Handler {
 	rules := []RateRule{
-		{Prefix: "/api/v1/setup", Limit: defaultSetupLimit, Window: defaultRateLimitWindow, ByUser: false},
+		{Prefix: "/api/v1/setup/complete", Limit: defaultSetupWriteLimit, Window: defaultRateLimitWindow, ByUser: false},
+		{Prefix: "/api/v1/setup/preflight", Limit: defaultSetupCheckLimit, Window: defaultRateLimitWindow, ByUser: false},
+		{Prefix: "/api/v1/setup/status", Limit: defaultSetupStatusLimit, Window: defaultRateLimitWindow, ByUser: false},
 		{Prefix: "/api/v1/auth", Limit: defaultAuthLimit, Window: defaultRateLimitWindow, ByUser: false},
 	}
 	return RateLimit(rules)
