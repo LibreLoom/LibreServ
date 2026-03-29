@@ -1,473 +1,794 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, AlertCircle, Loader2, Check, X } from "lucide-react";
+import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff } from "lucide-react";
+import PropTypes from "prop-types";
 
-export default function SetupPage() {
-  const navigate = useNavigate();
-  const [step, setStep] = useState("checking"); // checking, preflight, setup, creating, complete, error
-  const [error, setError] = useState(null);
-  const [preflightData, setPreflightData] = useState(null);
-  const [formData, setFormData] = useState({
-    admin_username: "",
-    admin_password: "",
-    admin_email: "",
-  });
-  const [passwordStrength, setPasswordStrength] = useState(null);
+// ─── Step constants ───────────────────────────────────────────────────────────
+const STEP = {
+  CHECKING:  "checking",
+  WELCOME:   "welcome",
+  PREFLIGHT: "preflight",
+  ACCOUNT:   "account",
+  CREATING:  "creating",
+  COMPLETE:  "complete",
+  ERROR:     "error",
+};
 
-  // Check if setup is needed
-  useEffect(() => {
-    const checkSetupStatus = async () => {
-      try {
-        const response = await fetch("/api/v1/setup/status");
-        const data = await response.json();
+// ─── Full-screen shell (bg-primary = page background) ────────────────────────
+function SetupShell({ children }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-primary px-4 py-12">
+      {children}
+    </div>
+  );
+}
+SetupShell.propTypes = { children: PropTypes.node.isRequired };
 
-        if (data.setup_state?.status === "complete") {
-          navigate("/");
-        } else {
-          setStep("preflight");
-        }
-      } catch {
-        setError("Failed to check setup status");
-        setStep("error");
-      }
-    };
+// ─── Card surface (bg-secondary = inverted, high contrast) ───────────────────
+// All step content lives on this card. Text inside uses text-primary (inverted).
+function SetupCard({ children, className = "" }) {
+  return (
+    <div
+      className={`w-full max-w-md bg-secondary rounded-[28px] px-10 py-10 shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden ${className}`}
+    >
+      {children}
+    </div>
+  );
+}
+SetupCard.propTypes = {
+  children:  PropTypes.node.isRequired,
+  className: PropTypes.string,
+};
 
-    checkSetupStatus();
-  }, [navigate]);
+// ─── Step progress dots (on the card, so use primary colors) ─────────────────
+const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.COMPLETE];
 
-  // Run preflight checks
-  useEffect(() => {
-    const runPreflight = async () => {
-      if (step !== "preflight") return;
-      
-      try {
-        const response = await fetch("/api/v1/setup/preflight");
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
-        const data = await response.json();
-        setPreflightData(data);
-        
-        if (data.healthy) {
-          setStep("setup");
-        } else {
-          setError("System checks failed. Please fix the issues below before continuing.");
-        }
-      } catch (err) {
-        setError(`Failed to run system checks: ${err.message}`);
-        setStep("error");
-      }
-    };
+function StepDots({ current }) {
+  const idx = VISIBLE_STEPS.indexOf(current);
+  if (idx < 0) return null;
+  return (
+    <div className="flex items-center gap-2 mb-8">
+      {VISIBLE_STEPS.map((s, i) => (
+        <div
+          key={s}
+          className={`rounded-full motion-safe:transition-all motion-safe:duration-300 ${
+            i === idx
+              ? "w-5 h-2 bg-primary"
+              : i < idx
+              ? "w-2 h-2 bg-primary/40"
+              : "w-2 h-2 bg-primary/15"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+StepDots.propTypes = { current: PropTypes.string.isRequired };
 
-    runPreflight();
-  }, [step]);
+// ─── Logo mark (inline SVG — currentColor, rendered on bg-secondary) ─────────
+// On bg-secondary the outer circle fills with primary (white in light, black in dark).
+function LogoMark({ size = 64 }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 512 512"
+      fill="none"
+      width={size}
+      height={size}
+      className="text-primary"
+      aria-hidden="true"
+    >
+      <ellipse cx="256" cy="256" rx="200" ry="200" fill="currentColor" />
+      <rect x="146" y="168" width="220" height="176" rx="20" fill="var(--color-secondary)" />
+      <rect x="162" y="154" width="188" height="20" rx="10" fill="var(--color-secondary)" opacity="0.55" />
+      <rect x="174" y="196" width="164" height="112" rx="14" fill="currentColor" />
 
-  // Validate password strength
-  useEffect(() => {
-    const password = formData.admin_password;
-    if (!password) {
-      setPasswordStrength(null);
-      return;
-    }
+      <defs>
+        <clipPath id="ls-faceplate">
+          <rect x="174" y="196" width="164" height="112" rx="14"/>
+        </clipPath>
+        <clipPath id="ls-aboveFaceplate">
+          <rect x="174" y="174" width="164" height="22" rx="10"/>
+        </clipPath>
+        <mask id="ls-weftOverOdd" x="174" y="196" width="164" height="112" maskUnits="userSpaceOnUse">
+          <rect x="174" y="196" width="164" height="112" fill="black"/>
+          <rect x="186" y="196" width="16" height="112" fill="white"/>
+          <rect x="222" y="196" width="16" height="112" fill="white"/>
+          <rect x="258" y="196" width="16" height="112" fill="white"/>
+          <rect x="294" y="196" width="16" height="112" fill="white"/>
+        </mask>
+        <mask id="ls-weftOverEven" x="174" y="196" width="164" height="112" maskUnits="userSpaceOnUse">
+          <rect x="174" y="196" width="164" height="112" fill="black"/>
+          <rect x="204" y="196" width="16" height="112" fill="white"/>
+          <rect x="240" y="196" width="16" height="112" fill="white"/>
+          <rect x="276" y="196" width="16" height="112" fill="white"/>
+          <rect x="312" y="196" width="16" height="112" fill="white"/>
+        </mask>
+      </defs>
 
-    const hasLength = password.length >= 12;
-    const hasLetter = /[a-zA-Z]/.test(password);
-    const hasDigit = /[0-9]/.test(password);
-    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+      <g clipPath="url(#ls-aboveFaceplate)" fill="currentColor" opacity="0.7">
+        <rect x="190" y="174" width="8" height="22" rx="3"/>
+        <rect x="208" y="174" width="8" height="22" rx="3"/>
+        <rect x="226" y="174" width="8" height="22" rx="3"/>
+        <rect x="244" y="174" width="8" height="22" rx="3"/>
+        <rect x="262" y="174" width="8" height="22" rx="3"/>
+        <rect x="280" y="174" width="8" height="22" rx="3"/>
+        <rect x="298" y="174" width="8" height="22" rx="3"/>
+        <rect x="316" y="174" width="8" height="22" rx="3"/>
+      </g>
 
-    const strength = {
-      score: [hasLength, hasLetter, hasDigit, hasSpecial].filter(Boolean)
-        .length,
-      hasLength,
-      hasLetter,
-      hasDigit,
-      hasSpecial,
-    };
+      <rect x="174" y="196" width="164" height="112" rx="14" stroke="var(--color-secondary)" strokeWidth="5" />
+      <g fill="currentColor" opacity="0.5">
+        <rect x="352" y="207" width="6" height="18" rx="3"/>
+        <rect x="352" y="231" width="6" height="18" rx="3"/>
+        <rect x="352" y="255" width="6" height="18" rx="3"/>
+        <rect x="352" y="279" width="6" height="18" rx="3"/>
+      </g>
 
-    setPasswordStrength(strength);
-  }, [formData.admin_password]);
+      <g clipPath="url(#ls-faceplate)" opacity="0.36">
+        <rect x="182" y="204" width="148" height="14" rx="7" stroke="var(--color-secondary)" strokeWidth="4" />
+        <rect x="182" y="290" width="148" height="14" rx="7" stroke="var(--color-secondary)" strokeWidth="4" />
+      </g>
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setStep("creating");
+      <g clipPath="url(#ls-faceplate)">
+        <path d="M 180 238 H 356" stroke="var(--color-secondary)" strokeWidth="8" strokeLinecap="round" opacity="0.42" />
+        <path d="M 180 270 H 356" stroke="var(--color-secondary)" strokeWidth="8" strokeLinecap="round" opacity="0.4" />
+      </g>
+
+      <g clipPath="url(#ls-faceplate)" fill="var(--color-secondary)" opacity="1">
+        <rect x="190" y="218" width="8" height="84" rx="3"/>
+        <rect x="208" y="218" width="8" height="84" rx="3"/>
+        <rect x="226" y="218" width="8" height="84" rx="3"/>
+        <rect x="244" y="218" width="8" height="84" rx="3"/>
+        <rect x="262" y="218" width="8" height="84" rx="3"/>
+        <rect x="280" y="218" width="8" height="84" rx="3"/>
+        <rect x="298" y="218" width="8" height="84" rx="3"/>
+        <rect x="316" y="218" width="8" height="84" rx="3"/>
+      </g>
+
+      <g clipPath="url(#ls-faceplate)" mask="url(#ls-weftOverOdd)">
+        <path d="M 180 238 H 356" stroke="var(--color-secondary)" strokeWidth="10" strokeLinecap="round" opacity="1" />
+      </g>
+      <g clipPath="url(#ls-faceplate)" mask="url(#ls-weftOverEven)">
+        <path d="M 180 270 H 356" stroke="var(--color-secondary)" strokeWidth="10" strokeLinecap="round" opacity="1" />
+      </g>
+
+      <g fill="currentColor">
+        <rect x="182" y="320" width="30" height="10" rx="3" opacity="0.72" />
+        <rect x="218" y="320" width="30" height="10" rx="3" opacity="0.72" />
+        <circle cx="312" cy="326" r="5" opacity="0.55" />
+        <circle cx="328" cy="326" r="5" opacity="0.92" />
+        <circle cx="346" cy="326" r="7" opacity="0.92" />
+      </g>
+    </svg>
+  );
+}
+LogoMark.propTypes = { size: PropTypes.number };
+
+// ─── STEP: Welcome ────────────────────────────────────────────────────────────
+function WelcomeStep({ onBegin }) {
+  return (
+    <SetupShell>
+      <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="mb-10 flex h-36 w-36 items-center justify-center rounded-full border border-primary/12 bg-primary/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+          <LogoMark size={120} />
+        </div>
+
+        {/* Headline */}
+        <h1 className="font-mono text-5xl font-normal text-primary tracking-tight mb-4">
+          Welcome.
+        </h1>
+
+        {/* Subtext */}
+        <p className="text-primary/68 text-xl leading-[1.65] mb-5 max-w-[22rem]">
+          It&rsquo;s great to see you here.
+        </p>
+        <p className="text-primary/42 text-base leading-relaxed mb-12 max-w-[20rem]">
+          Let&rsquo;s get LibreServ set up for you.
+        </p>
+
+        {/* CTA */}
+        <button
+          onClick={onBegin}
+          className="group inline-flex items-center gap-2.5 rounded-pill bg-primary text-secondary px-9 py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.03] active:scale-[0.98]"
+        >
+          Begin Setup
+          <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+        </button>
+
+        {/* Fine print */}
+        <p className="mt-9 text-xs text-primary/20">
+          LibreServ &bull; Self-hosted cloud platform
+        </p>
+      </SetupCard>
+    </SetupShell>
+  );
+}
+WelcomeStep.propTypes = { onBegin: PropTypes.func.isRequired };
+
+// ─── STEP: Preflight ──────────────────────────────────────────────────────────
+// Only these keys in the checks response are actual checks (not metadata like disk_space_bytes_free)
+const KNOWN_CHECKS = new Set([
+  "database", "data_path_writable", "logs_path_writable", "disk_space", "docker",
+]);
+
+const CHECK_LABELS = {
+  database:           "Database",
+  data_path_writable: "Data storage",
+  logs_path_writable: "Log storage",
+  disk_space:         "Disk space",
+  docker:             "Docker",
+};
+
+function PreflightRow({ name, check, index, done }) {
+  const label = CHECK_LABELS[name] ?? name.replace(/_/g, " ");
+  const isOk   = check?.status === "ok";
+  const isFail = check && check.status !== "ok";
+
+  return (
+    <div
+      className="flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 animate-in fade-in slide-in-from-bottom-1 duration-300"
+      style={{ animationDelay: `${index * 80}ms` }}
+    >
+      {/* Status icon */}
+      <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-200 ${
+        !done || !check ? "bg-primary/10"
+        : isOk          ? "bg-primary/15"
+        : isFail        ? "bg-error/20"
+        :                 "bg-primary/10"
+      }`}>
+        {!done || !check ? (
+          <Loader2 className="w-3.5 h-3.5 text-primary/35 animate-spin" />
+        ) : isOk ? (
+          <Check className="w-3.5 h-3.5 text-primary/70" />
+        ) : (
+          <X className="w-3.5 h-3.5 text-error" />
+        )}
+      </div>
+
+      {/* Label + detail */}
+      <div className="flex-1 min-w-0">
+        <span className="text-sm text-primary capitalize">{label}</span>
+        {isFail && check.error && (
+          <p className="text-xs text-error/75 mt-0.5 truncate">{check.error}</p>
+        )}
+        {name === "disk_space" && isOk && check.disk_space_bytes_free && (
+          <p className="text-xs text-primary/35 mt-0.5">
+            {Math.round((check.disk_space_bytes_free / (1024 * 1024 * 1024)) * 10) / 10} GB free
+          </p>
+        )}
+      </div>
+
+      {/* Pass/fail badge */}
+      {done && check && (
+        <span className={`flex-shrink-0 font-mono text-[10px] tracking-widest uppercase ${
+          isOk ? "text-primary/30" : "text-error"
+        }`}>
+          {isOk ? "ok" : "fail"}
+        </span>
+      )}
+    </div>
+  );
+}
+PreflightRow.propTypes = {
+  name:  PropTypes.string.isRequired,
+  check: PropTypes.object,
+  index: PropTypes.number.isRequired,
+  done:  PropTypes.bool.isRequired,
+};
+
+function PreflightStep({ onPass }) {
+  const [checks, setChecks]     = useState(null);
+  const [healthy, setHealthy]   = useState(null);
+  const [error, setError]       = useState(null);
+  const [running, setRunning]   = useState(false);
+
+  const runChecks = useCallback(async () => {
+    setRunning(true);
+    setChecks(null);
+    setHealthy(null);
     setError(null);
 
     try {
-      const response = await fetch("/api/v1/setup/complete", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(formData),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Setup failed");
+      const res = await fetch("/api/v1/setup/preflight");
+      const data = await res.json();
+      setChecks(data.checks ?? {});
+      setHealthy(data.healthy);
+      if (!res.ok && !data.checks) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
       }
-
-      setStep("complete");
-
-      // Reload the page to trigger auth context refresh (user is now logged in via cookies)
-      setTimeout(() => {
-        window.location.href = "/";
-      }, 1500);
     } catch (err) {
-      setError(err.message);
-      setStep("setup");
+      setError(`Could not reach the server: ${err.message}`);
+    } finally {
+      setRunning(false);
+    }
+  }, []);
+
+  // Run on mount
+  useEffect(() => { runChecks(); }, [runChecks]);
+
+  const checkEntries = checks
+    ? Object.entries(checks).filter(([name]) => KNOWN_CHECKS.has(name))
+    : [];
+  const done      = checks !== null && !running;
+  const hasFailed = done && healthy === false;
+  const allPassed = done && healthy === true;
+
+  return (
+    <SetupShell>
+      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <StepDots current={STEP.PREFLIGHT} />
+
+        {/* Header */}
+        <div className="mb-7">
+          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary/35 mb-3">
+            Step 1 of 3
+          </p>
+          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
+            System check
+          </h2>
+          <p className="text-primary/50 text-sm mt-2">
+            Verifying your environment before we continue.
+          </p>
+        </div>
+
+        {/* Check list */}
+        <div className="mb-6">
+          {/* Skeleton rows while loading */}
+          {!done && !error && (
+            <div>
+              {Array.from({ length: 5 }, (_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 animate-in fade-in duration-300"
+                  style={{ animationDelay: `${i * 60}ms` }}
+                >
+                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Loader2 className="w-3.5 h-3.5 text-primary/25 animate-spin" />
+                  </div>
+                  <div className="h-3 rounded-full bg-primary/10" style={{ width: `${50 + i * 9}%` }} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Real rows */}
+          {(done || running) && checkEntries.map(([name, check], i) => (
+            <PreflightRow
+              key={name}
+              name={name}
+              check={check}
+              index={i}
+              done={done}
+            />
+          ))}
+
+          {/* Network error */}
+          {error && (
+            <div className="flex items-start gap-3 p-4 rounded-[16px] border border-error/25 bg-error/10 animate-in fade-in duration-300">
+              <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-primary/80">{error}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Status line */}
+        <div className="h-6 flex items-center mb-5">
+          {running && (
+            <p className="text-xs text-primary/35 animate-in fade-in duration-300">
+              Running checks&hellip;
+            </p>
+          )}
+          {allPassed && (
+            <p className="text-xs text-primary/50 animate-in fade-in duration-300">
+              All checks passed.
+            </p>
+          )}
+          {hasFailed && (
+            <p className="text-xs text-error/70 animate-in fade-in duration-300">
+              Some checks failed. Fix the issues above and retry.
+            </p>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex flex-col gap-3">
+          {/* Continue — only when all passed */}
+          {allPassed && (
+            <button
+              onClick={onPass}
+              className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] animate-in fade-in slide-in-from-bottom-2 duration-300"
+            >
+              Continue
+              <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+            </button>
+          )}
+
+          {/* Re-run — when failed or errored */}
+          {(hasFailed || error) && (
+            <button
+              onClick={runChecks}
+              disabled={running}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-pill border border-primary/20 bg-transparent text-primary py-3.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-40 animate-in fade-in slide-in-from-bottom-2 duration-300"
+            >
+              {running ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Re-run checks
+            </button>
+          )}
+        </div>
+      </SetupCard>
+    </SetupShell>
+  );
+}
+PreflightStep.propTypes = {
+  onPass: PropTypes.func.isRequired,
+};
+
+// ─── STEP: Account creation ───────────────────────────────────────────────────
+function strengthInfo(pw) {
+  if (!pw) return null;
+  const hasLength  = pw.length >= 12;
+  const hasLetter  = /[a-zA-Z]/.test(pw);
+  const hasDigit   = /[0-9]/.test(pw);
+  const hasSpecial = /[!@#$%^&*(),.?":{}|<>[\]\\;'`~\-_=+]/.test(pw);
+  const score = [hasLength, hasLetter, hasDigit, hasSpecial].filter(Boolean).length;
+  return { score, hasLength, hasLetter, hasDigit, hasSpecial };
+}
+
+const STRENGTH_LABEL = ["", "Weak", "Fair", "Good", "Strong"];
+const STRENGTH_COLOR = ["", "bg-error", "bg-warning", "bg-warning", "bg-success"];
+const STRENGTH_TEXT  = ["", "text-error", "text-warning", "text-warning", "text-success"];
+
+function PasswordStrengthBar({ score }) {
+  return (
+    <div className="flex gap-1 mt-2.5">
+      {[1, 2, 3, 4].map((lvl) => (
+        <div
+          key={lvl}
+          className={`h-1 flex-1 rounded-full motion-safe:transition-all motion-safe:duration-300 ${
+            lvl <= score ? STRENGTH_COLOR[score] : "bg-primary/15"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+PasswordStrengthBar.propTypes = { score: PropTypes.number.isRequired };
+
+function FormField({ id, label, hint, children }) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-sm text-primary/60 mb-2">
+        {label}
+      </label>
+      {children}
+      {hint && <p className="text-xs text-primary/30 mt-1.5">{hint}</p>}
+    </div>
+  );
+}
+FormField.propTypes = {
+  id:       PropTypes.string.isRequired,
+  label:    PropTypes.string.isRequired,
+  hint:     PropTypes.string,
+  children: PropTypes.node.isRequired,
+};
+
+function AccountStep({ onSuccess, onError }) {
+  const [form, setForm] = useState({
+    admin_username: "",
+    admin_email:    "",
+    admin_password: "",
+  });
+  const [showPw, setShowPw]         = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [fieldError, setFieldError] = useState(null);
+
+  const pw       = form.admin_password;
+  const strength = strengthInfo(pw);
+  const isValid  =
+    form.admin_username.trim() &&
+    form.admin_email.trim() &&
+    pw &&
+    (strength?.score ?? 0) >= 3;
+
+  const handleChange = (e) =>
+    setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!isValid || submitting) return;
+    setSubmitting(true);
+    setFieldError(null);
+    try {
+      const res = await fetch("/api/v1/setup/complete", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(form),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? "Setup failed");
+      }
+      onSuccess();
+    } catch (err) {
+      setFieldError(err.message);
+      setSubmitting(false);
+      onError(err.message);
     }
   };
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-  };
-
-  const isFormValid = () => {
-    return (
-      formData.admin_username &&
-      formData.admin_password &&
-      formData.admin_email &&
-      passwordStrength?.score >= 3
-    );
-  };
-
-  if (step === "checking") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-primary">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-accent mx-auto mb-4" />
-          <p className="text-secondary">Checking setup status...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === "preflight") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-primary">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 animate-spin text-accent mx-auto mb-4" />
-          <p className="text-secondary">Running system checks...</p>
-          {preflightData && (
-            <div className="mt-4">
-              <p className="text-sm text-secondary/70">
-                Checks complete: {preflightData.healthy ? "All passed" : "Some failed"}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (step === "error") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-primary">
-        <div className="max-w-md w-full mx-4">
-           <div className="bg-secondary rounded-3xl p-8 ring-2 ring-accent">
-            <AlertCircle className="w-16 h-16 text-accent mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-center text-primary mb-2">Setup Error</h1>
-            <p className="text-center text-primary/80 mb-4">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full bg-accent text-primary py-3 rounded-pill font-semibold hover:opacity-90 transition-opacity"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === "complete") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-primary">
-        <div className="max-w-md w-full mx-4">
-           <div className="bg-secondary rounded-3xl p-8 ring-2 ring-accent text-center">
-            <CheckCircle2 className="w-16 h-16 text-accent mx-auto mb-4" />
-            <h1 className="text-2xl font-bold text-primary mb-2">Setup Complete!</h1>
-            <p className="text-primary/80 mb-4">Redirecting you to login...</p>
-            <Loader2 className="w-6 h-6 animate-spin text-accent mx-auto" />
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Input on bg-secondary: border uses primary tones, text is primary
+  const inputClass =
+    "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/25 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-primary p-4">
-      <div className="max-w-2xl w-full">
-        <div className="bg-secondary rounded-3xl p-8 ring-2 ring-accent">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-primary mb-2">Welcome to LibreServ</h1>
-            <p className="text-primary/80">
-              Let's set up your admin account to get started
-            </p>
+    <SetupShell>
+      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <StepDots current={STEP.ACCOUNT} />
+
+        {/* Header */}
+        <div className="mb-8">
+          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary/35 mb-3">
+            Step 2 of 3
+          </p>
+          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
+            Create your account
+          </h2>
+          <p className="text-primary/50 text-sm mt-2">
+            This will be the administrator account.
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Username */}
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
+            <FormField id="admin_username" label="Username" hint="Used to sign in">
+              <input
+                id="admin_username"
+                name="admin_username"
+                type="text"
+                autoComplete="username"
+                placeholder="admin"
+                value={form.admin_username}
+                onChange={handleChange}
+                disabled={submitting}
+                required
+                className={inputClass}
+              />
+            </FormField>
           </div>
 
-          {/* Preflight success summary */}
-          {preflightData && preflightData.healthy && (
-            <div className="mb-8 p-4 bg-accent/10 rounded-2xl border-2 border-accent/30">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
-                  <Check className="w-5 h-5 text-accent" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-primary">System Ready</h3>
-                  <p className="text-sm text-primary/70">
-                    All system checks passed successfully
-                  </p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {Object.entries(preflightData.checks || {}).slice(0, 6).map(([name]) => (
-                  <div key={name} className="flex items-center gap-2">
-                    <Check className="w-3 h-3 text-accent" />
-                    <span className="text-xs text-primary/80 capitalize">
-                      {name.replace(/_/g, " ")}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Email */}
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
+            <FormField id="admin_email" label="Email" hint="For notifications and account recovery">
+              <input
+                id="admin_email"
+                name="admin_email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={form.admin_email}
+                onChange={handleChange}
+                disabled={submitting}
+                required
+                className={inputClass}
+              />
+            </FormField>
+          </div>
 
-          {/* Preflight results */}
-          {preflightData && !preflightData.healthy && (
-            <div className="mb-8 p-6 bg-primary rounded-2xl border-2 border-accent">
-              <h2 className="text-xl font-bold text-primary mb-4 flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-accent" />
-                System Check Required
-              </h2>
-              <p className="text-primary/80 mb-4">
-                The following system checks must pass before setup can continue:
-              </p>
-              
-              <div className="space-y-3 mb-6">
-                {Object.entries(preflightData.checks || {}).map(([name, check]) => (
-                  <div key={name} className="flex items-center gap-3 p-3 bg-secondary/50 rounded-xl">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                      check.status === "ok" ? "bg-accent/20 text-accent" : "bg-accent text-primary"
-                    }`}>
-                      {check.status === "ok" ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-center">
-                        <span className="font-semibold text-primary capitalize">
-                          {name.replace(/_/g, " ")}
-                        </span>
-                        <span className={`text-sm px-2 py-0.5 rounded-full ${
-                          check.status === "ok" ? "bg-accent/20 text-accent" : "bg-accent text-primary"
-                        }`}>
-                          {check.status === "ok" ? "PASS" : "FAIL"}
-                        </span>
-                      </div>
-                      {check.error && (
-                        <p className="text-sm text-primary/70 mt-1">{check.error}</p>
-                      )}
-                      {name === "disk_space" && check.status === "ok" && check.disk_space_bytes_free && (
-                        <p className="text-sm text-primary/70 mt-1">
-                          {Math.round(check.disk_space_bytes_free / (1024 * 1024))} MB available
-                        </p>
-                      )}
-                      {name === "smtp" && check.smtp_configured !== undefined && (
-                        <p className="text-sm text-primary/70 mt-1">
-                          SMTP {check.smtp_configured ? "configured" : "not configured"}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={() => window.location.reload()}
-                  className="flex-1 bg-accent text-primary py-3 rounded-pill font-semibold hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
-                >
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Re-run Checks
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Error message */}
-          {error && !preflightData && (
-            <div className="mb-6 p-4 bg-primary rounded-2xl border-2 border-accent">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-accent">Setup Failed</p>
-                  <p className="text-sm text-secondary/80">{error}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Setup form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
-             {/* Username */}
-             <div>
-               <label
-                 htmlFor="admin_username"
-                 className="block text-sm font-semibold text-primary mb-2"
-               >
-                 Admin Username
-               </label>
+          {/* Password */}
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+            <FormField id="admin_password" label="Password">
+              <div className="relative">
                 <input
-                  type="text"
-                  id="admin_username"
-                  name="admin_username"
-                  value={formData.admin_username}
-                  onChange={handleChange}
-                  required
-                  autoComplete="username"
-                  className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl ring-2 ring-primary/50 focus-visible:ring-accent focus:ring-4 transition-all"
-                  placeholder="admin"
-                  disabled={step === "creating"}
-                />
-               <p className="text-xs text-primary/70 mt-1">
-                 This will be your login username
-               </p>
-             </div>
-
-             {/* Email */}
-             <div>
-               <label
-                 htmlFor="admin_email"
-                 className="block text-sm font-semibold text-primary mb-2"
-               >
-                 Admin Email
-               </label>
-                <input
-                  type="email"
-                  id="admin_email"
-                  name="admin_email"
-                  value={formData.admin_email}
-                  onChange={handleChange}
-                  required
-                  autoComplete="email"
-                  className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl ring-2 ring-primary/50 focus-visible:ring-accent focus:ring-4 transition-all"
-                  placeholder="admin@example.com"
-                  disabled={step === "creating"}
-                />
-               <p className="text-xs text-primary/70 mt-1">
-                 Used for notifications and account recovery
-               </p>
-             </div>
-
-             {/* Password */}
-             <div>
-               <label
-                 htmlFor="admin_password"
-                 className="block text-sm font-semibold text-primary mb-2"
-               >
-                 Admin Password
-               </label>
-                <input
-                  type="password"
                   id="admin_password"
                   name="admin_password"
-                  value={formData.admin_password}
-                  onChange={handleChange}
-                  required
+                  type={showPw ? "text" : "password"}
                   autoComplete="new-password"
-                  className="w-full px-4 py-3 bg-primary text-secondary rounded-2xl ring-2 ring-primary/50 focus-visible:ring-accent focus:ring-4 transition-all"
-                  placeholder="Enter a strong password"
-                  disabled={step === "creating"}
+                  placeholder="At least 12 characters"
+                  value={pw}
+                  onChange={handleChange}
+                  disabled={submitting}
+                  required
+                  className={`${inputClass} pr-12`}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((v) => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-primary/30 hover:text-primary/60 motion-safe:transition-colors motion-safe:duration-150"
+                  aria-label={showPw ? "Hide password" : "Show password"}
+                >
+                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
 
-              {/* Password strength indicator */}
-              {passwordStrength && (
-                <div className="mt-3 space-y-2">
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4].map((level) => (
-                      <div
-                        key={level}
-                        className={`h-2 flex-1 rounded-full transition-colors ${
-                          level <= passwordStrength.score
-                            ? passwordStrength.score <= 2
-                              ? "bg-accent"
-                              : passwordStrength.score === 3
-                                ? "bg-accent/70"
-                                : "bg-accent"
-                            : "bg-primary/20"
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <div className="text-xs space-y-1 text-primary/80">
-                    <div
-                      className={
-                        passwordStrength.hasLength
-                          ? "text-accent"
-                          : "text-primary/70"
-                      }
-                    >
-                      {passwordStrength.hasLength ? "✓" : "○"} At least 12
-                      characters
-                    </div>
-                    <div
-                      className={
-                        passwordStrength.hasLetter
-                          ? "text-accent"
-                          : "text-primary/70"
-                      }
-                    >
-                      {passwordStrength.hasLetter ? "✓" : "○"} Contains letters
-                    </div>
-                    <div
-                      className={
-                        passwordStrength.hasDigit
-                          ? "text-accent"
-                          : "text-primary/70"
-                      }
-                    >
-                      {passwordStrength.hasDigit ? "✓" : "○"} Contains numbers
-                    </div>
-                    <div
-                      className={
-                        passwordStrength.hasSpecial
-                          ? "text-accent"
-                          : "text-primary/70"
-                      }
-                    >
-                      {passwordStrength.hasSpecial ? "✓" : "○"} Contains special
-                      characters (recommended)
+              {/* Strength bar + label */}
+              {strength && (
+                <div className="mt-1">
+                  <PasswordStrengthBar score={strength.score} />
+                  <div className="flex items-center justify-between mt-1.5">
+                    <p className={`text-xs font-mono ${STRENGTH_TEXT[strength.score]}`}>
+                      {STRENGTH_LABEL[strength.score]}
+                    </p>
+                    <div className="flex gap-3 text-xs text-primary/30">
+                      <span className={strength.hasLength  ? "text-primary/60" : ""}>12+ chars</span>
+                      <span className={strength.hasLetter  ? "text-primary/60" : ""}>letters</span>
+                      <span className={strength.hasDigit   ? "text-primary/60" : ""}>numbers</span>
+                      <span className={strength.hasSpecial ? "text-primary/60" : ""}>symbols</span>
                     </div>
                   </div>
                 </div>
               )}
-            </div>
+            </FormField>
+          </div>
 
-            {/* Submit button */}
+          {/* Inline error */}
+          {fieldError && (
+            <div className="flex items-start gap-2.5 p-4 rounded-[18px] border border-error/25 bg-error/10 animate-in fade-in slide-in-from-bottom-1 duration-200">
+              <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-primary/80">{fieldError}</p>
+            </div>
+          )}
+
+          {/* Submit */}
+          <div className="pt-2 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300">
             <button
               type="submit"
-              disabled={!isFormValid() || step === "creating"}
-              className="w-full bg-accent text-primary py-4 rounded-pill font-bold text-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              disabled={!isValid || submitting}
+              className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-30 disabled:pointer-events-none"
             >
-              {step === "creating" ? (
+              {submitting ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Creating Admin Account...
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Creating account&hellip;
                 </>
               ) : (
-                "Complete Setup"
+                <>
+                  Create account
+                  <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+                </>
               )}
             </button>
-          </form>
-
-          {/* Footer */}
-          <div className="mt-8 pt-6 border-t border-primary/20 text-center text-xs text-primary/70">
-            <p>LibreServ • Self-hosted cloud platform</p>
           </div>
-        </div>
-      </div>
-    </div>
+        </form>
+      </SetupCard>
+    </SetupShell>
   );
+}
+AccountStep.propTypes = {
+  onSuccess: PropTypes.func.isRequired,
+  onError:   PropTypes.func.isRequired,
+};
+
+// ─── STEP: Complete ───────────────────────────────────────────────────────────
+function CompleteStep() {
+  return (
+    <SetupShell>
+      <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <StepDots current={STEP.COMPLETE} />
+
+        {/* Check circle */}
+        <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
+          <Check className="w-7 h-7 text-primary" strokeWidth={1.5} />
+        </div>
+
+        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
+          All done.
+        </h2>
+        <p className="text-primary/50 text-sm animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+          Taking you to your dashboard&hellip;
+        </p>
+
+        <div className="mt-8 animate-in fade-in duration-300 delay-300">
+          <Loader2 className="w-5 h-5 animate-spin text-primary/25" />
+        </div>
+      </SetupCard>
+    </SetupShell>
+  );
+}
+
+// ─── STEP: Error (fatal) ──────────────────────────────────────────────────────
+function ErrorStep({ message }) {
+  return (
+    <SetupShell>
+      <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="mb-6 w-14 h-14 rounded-full border border-error/25 bg-error/12 flex items-center justify-center">
+          <AlertCircle className="w-6 h-6 text-error" strokeWidth={1.5} />
+        </div>
+        <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary/35 mb-3">
+          Setup interrupted
+        </p>
+        <h2 className="font-mono text-2xl font-normal text-primary mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
+          Something went wrong
+        </h2>
+        <p className="text-sm text-primary/55 mb-8 leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
+          {message}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="inline-flex items-center gap-2 rounded-pill border border-primary/20 px-7 py-3.5 font-mono text-sm text-primary motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8"
+        >
+          Try again
+        </button>
+      </SetupCard>
+    </SetupShell>
+  );
+}
+ErrorStep.propTypes = { message: PropTypes.string };
+
+// ─── Root: SetupPage ──────────────────────────────────────────────────────────
+export default function SetupPage() {
+  const navigate        = useNavigate();
+  const [step, setStep] = useState(STEP.CHECKING);
+  const [error, setError] = useState(null);
+
+  // Initial status check
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res  = await fetch("/api/v1/setup/status");
+        const data = await res.json();
+        if (data.setup_state?.status === "complete") {
+          navigate("/");
+        } else {
+          setStep(STEP.WELCOME);
+        }
+      } catch {
+        setError("Failed to connect to the server.");
+        setStep(STEP.ERROR);
+      }
+    };
+    check();
+  }, [navigate]);
+
+  const handleBegin = useCallback(() => setStep(STEP.PREFLIGHT), []);
+
+  const handlePreflightPass = useCallback(() => setStep(STEP.ACCOUNT), []);
+
+  const handleAccountSuccess = useCallback(() => {
+    setStep(STEP.COMPLETE);
+    setTimeout(() => { window.location.href = "/"; }, 1800);
+  }, []);
+
+  const handleAccountError = useCallback((msg) => {
+    // AccountStep shows inline error; preserve step, just track message
+    setError(msg);
+  }, []);
+
+  void error; // may be used for future top-level error propagation
+
+  if (step === STEP.CHECKING) {
+    return (
+      <SetupShell>
+        <Loader2 className="w-8 h-8 animate-spin text-secondary/20" />
+      </SetupShell>
+    );
+  }
+
+  if (step === STEP.ERROR) {
+    return <ErrorStep message={error ?? "An unexpected error occurred."} />;
+  }
+
+  if (step === STEP.WELCOME) {
+    return <WelcomeStep onBegin={handleBegin} />;
+  }
+
+  if (step === STEP.PREFLIGHT) {
+    return <PreflightStep onPass={handlePreflightPass} />;
+  }
+
+  if (step === STEP.ACCOUNT || step === STEP.CREATING) {
+    return (
+      <AccountStep
+        onSuccess={handleAccountSuccess}
+        onError={handleAccountError}
+      />
+    );
+  }
+
+  if (step === STEP.COMPLETE) {
+    return <CompleteStep />;
+  }
+
+  return null;
 }

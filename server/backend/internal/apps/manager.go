@@ -458,6 +458,11 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 		}
 		app.Backends = m.listBackendRefs(app.ID)
 
+		// Populate exposed_info from catalog definition
+		if catalogApp, err := m.catalog.GetApp(app.AppID); err == nil {
+			app.ExposedInfo = m.mergeExposedInfo(app, catalogApp)
+		}
+
 		// Populate metrics from cache
 		if m.metricsCache != nil {
 			metrics := m.metricsCache.GetMetrics(app.ID)
@@ -685,6 +690,10 @@ func (m *Manager) recordUpdateFailure(updateID int64, err error, rolledBack bool
 
 // UninstallApp removes an installed app
 func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
+	if m.monitor != nil {
+		m.monitor.UnregisterApp(instanceID)
+	}
+
 	if err := m.installer.Uninstall(ctx, instanceID); err != nil {
 		m.logger.Warn("Installer uninstall returned error, continuing with DB cleanup", "error", err)
 	}

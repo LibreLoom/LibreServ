@@ -200,6 +200,7 @@ func (s *Server) setupRoutes() {
 				r.Get("/{instanceId}/actions/{actionName}", scriptsHandler.GetAction)
 				r.Post("/{instanceId}/actions/{actionName}/execute", scriptsHandler.ExecuteAction)
 				r.Get("/{instanceId}/actions/{actionName}/stream", scriptsHandler.StreamAction)
+				r.Get("/{instanceId}/install/stream", scriptsHandler.StreamInstall)
 			})
 
 			// Monitoring - system health and metrics management

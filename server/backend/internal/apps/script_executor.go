@@ -214,11 +214,30 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 	if data != nil {
 		result.Data = data
 		if exposedInfo, ok := data["exposed_info"].(map[string]interface{}); ok {
-			result.ExposedInfo = exposedInfo
+			result.ExposedInfo = e.validateExposedInfo(exposedInfo)
 		}
 	}
 
 	return result, nil
+}
+
+// validateExposedInfo ensures script output's exposed_info has valid structure:
+// string keys and scalar values (string, number, bool).
+func (e *ScriptExecutor) validateExposedInfo(raw map[string]interface{}) map[string]interface{} {
+	validated := make(map[string]interface{})
+	for key, val := range raw {
+		if key == "" {
+			e.logger.Warn("exposed_info: skipping empty key")
+			continue
+		}
+		switch v := val.(type) {
+		case string, float64, int, bool:
+			validated[key] = v
+		default:
+			e.logger.Warn("exposed_info: skipping non-scalar value", "key", key, "type", fmt.Sprintf("%T", v))
+		}
+	}
+	return validated
 }
 
 func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPath string, options map[string]interface{}) (<-chan ScriptOutput, error) {
@@ -362,12 +381,13 @@ func (e *ScriptExecutor) createConfigFile(path string, config ScriptExecutionCon
 func (e *ScriptExecutor) parseScriptOutput(output string) map[string]interface{} {
 	var data map[string]interface{}
 
-	output = e.extractJSON(output)
-	if output == "" {
+	jsonOutput := e.extractJSON(output)
+	if jsonOutput == "" {
 		return nil
 	}
 
-	if err := json.Unmarshal([]byte(output), &data); err != nil {
+	if err := json.Unmarshal([]byte(jsonOutput), &data); err != nil {
+		e.logger.Debug("failed to parse script JSON output", "output", jsonOutput, "error", err)
 		return nil
 	}
 
@@ -375,39 +395,15 @@ func (e *ScriptExecutor) parseScriptOutput(output string) map[string]interface{}
 }
 
 func (e *ScriptExecutor) extractJSON(output string) string {
-	start := -1
-	end := -1
-	depth := 0
-	inString := false
-
-outer:
-	for i, c := range output {
-		if c == '"' && (i == 0 || output[i-1] != '\\') {
-			inString = !inString
+	lines := strings.Split(output, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		candidate := strings.TrimSpace(lines[i])
+		if candidate == "" {
 			continue
 		}
-
-		if inString {
-			continue
+		if strings.HasPrefix(candidate, "{") && strings.HasSuffix(candidate, "}") {
+			return candidate
 		}
-
-		switch c {
-		case '{':
-			if depth == 0 {
-				start = i
-			}
-			depth++
-		case '}':
-			depth--
-			if depth == 0 && start >= 0 {
-				end = i + 1
-				break outer
-			}
-		}
-	}
-
-	if start >= 0 && end > start {
-		return output[start:end]
 	}
 
 	return ""

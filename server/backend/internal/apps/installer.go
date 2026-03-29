@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -34,19 +35,23 @@ type Installer struct {
 	metricsCache    *AppMetricsCache
 	portManager     *PortManager
 	registerBackend func(instanceID, backend, name string)
+
+	installOutputsMu sync.Mutex
+	installOutputs   map[string]chan ScriptOutput
 }
 
 // NewInstaller creates a new Installer
 func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *database.DB, appsDataDir string, monitor *monitoring.Monitor, metricsCache *AppMetricsCache, portManager *PortManager) *Installer {
 	return &Installer{
-		catalog:      catalog,
-		runtime:      runtime,
-		db:           db,
-		appsDataDir:  appsDataDir,
-		logger:       slog.Default().With("component", "installer"),
-		monitor:      monitor,
-		metricsCache: metricsCache,
-		portManager:  portManager,
+		catalog:        catalog,
+		runtime:        runtime,
+		db:             db,
+		appsDataDir:    appsDataDir,
+		logger:         slog.Default().With("component", "installer"),
+		monitor:        monitor,
+		metricsCache:   metricsCache,
+		portManager:    portManager,
+		installOutputs: make(map[string]chan ScriptOutput),
 	}
 }
 
@@ -58,6 +63,48 @@ func (i *Installer) SetCatalogPath(catalogPath string) {
 // SetBackendRegistrar wires a callback used to register the reachable backend for an app (for ACME).
 func (i *Installer) SetBackendRegistrar(fn func(instanceID, backend, name string)) {
 	i.registerBackend = fn
+}
+
+// GetInstallOutputChannel returns the output channel for an active install, or nil if none exists.
+func (i *Installer) GetInstallOutputChannel(instanceID string) <-chan ScriptOutput {
+	i.installOutputsMu.Lock()
+	defer i.installOutputsMu.Unlock()
+	if ch, ok := i.installOutputs[instanceID]; ok {
+		return ch
+	}
+	return nil
+}
+
+// createInstallOutputChannel creates and registers an output channel for a streaming install.
+func (i *Installer) createInstallOutputChannel(instanceID string) chan ScriptOutput {
+	ch := make(chan ScriptOutput, 100)
+	i.installOutputsMu.Lock()
+	i.installOutputs[instanceID] = ch
+	i.installOutputsMu.Unlock()
+	return ch
+}
+
+// removeInstallOutputChannel closes and deregisters the output channel for an install.
+func (i *Installer) removeInstallOutputChannel(instanceID string) {
+	i.installOutputsMu.Lock()
+	if ch, ok := i.installOutputs[instanceID]; ok {
+		close(ch)
+		delete(i.installOutputs, instanceID)
+	}
+	i.installOutputsMu.Unlock()
+}
+
+// sendInstallOutput sends a ScriptOutput to the install stream channel if one exists.
+func (i *Installer) sendInstallOutput(instanceID string, output ScriptOutput) {
+	i.installOutputsMu.Lock()
+	ch, ok := i.installOutputs[instanceID]
+	i.installOutputsMu.Unlock()
+	if ok {
+		select {
+		case ch <- output:
+		default:
+		}
+	}
 }
 
 // InstallOptions contains options for app installation
@@ -289,21 +336,31 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
+	// Create install output channel for streaming
+	outputCh := i.createInstallOutputChannel(instanceID)
+	defer i.removeInstallOutputChannel(instanceID)
+
 	i.logger.Info("Pulling images", "app_id", appDef.ID, "instance_id", instanceID)
+	outputCh <- ScriptOutput{Type: "stdout", Content: "Pulling application images...\n"}
 	if err := i.runtime.ComposePull(ctx, composePath); err != nil {
 		i.logger.Error("Failed to pull images", "error", err)
+		outputCh <- ScriptOutput{Type: "stderr", Content: "Warning: failed to pull images: " + err.Error() + "\n"}
 	}
 
 	i.logger.Info("Starting containers", "app_id", appDef.ID, "instance_id", instanceID)
+	outputCh <- ScriptOutput{Type: "stdout", Content: "Starting application services...\n"}
 	if err := i.runtime.ComposeUp(ctx, composePath); err != nil {
 		i.logger.Error("Failed to start containers", "error", err)
 		i.handleInstallFailure(instanceID, installedApp.Path, "failed to start containers: "+err.Error())
+		outputCh <- ScriptOutput{Type: "error", Error: "failed to start containers: " + err.Error()}
 		return
 	}
 
+	outputCh <- ScriptOutput{Type: "stdout", Content: "Waiting for services to start...\n"}
 	if err := i.waitForContainers(ctx, instanceID); err != nil {
 		i.logger.Error("Containers failed to start", "error", err)
 		i.handleInstallFailure(instanceID, installedApp.Path, "containers failed to start: "+err.Error())
+		outputCh <- ScriptOutput{Type: "error", Error: "containers failed to start: " + err.Error()}
 		return
 	}
 
@@ -342,11 +399,14 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 		}
 	}
 
-	if err := i.RunSystemSetup(ctx, appDef, instanceID, config); err != nil {
+	outputCh <- ScriptOutput{Type: "stdout", Content: "Running setup script...\n"}
+	if err := i.RunSystemSetup(ctx, appDef, instanceID, config, installedApp); err != nil {
 		i.logger.Warn("system-setup failed", "error", err)
+		outputCh <- ScriptOutput{Type: "stderr", Content: "Warning: setup script failed: " + err.Error() + "\n"}
 	}
 
 	i.logger.Info("App installed successfully", "app_id", appDef.ID, "instance_id", instanceID)
+	outputCh <- ScriptOutput{Type: "complete", ExitCode: 0}
 }
 
 func (i *Installer) updateAppStatus(instanceID string, status AppStatus, errMsg string) error {
@@ -811,7 +871,7 @@ func (i *Installer) registerHealth(appDef *AppDefinition, instanceID string, cfg
 	return i.monitor.RegisterApp(instanceID, mcfg)
 }
 
-func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, instanceID string, config map[string]interface{}) error {
+func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, instanceID string, config map[string]interface{}, app *InstalledApp) error {
 	setupScript := appDef.Scripts.System.Setup
 	if setupScript == "" {
 		return nil
@@ -836,6 +896,35 @@ func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, i
 		i.logger.Warn("system-setup returned non-zero exit code", "app_id", appDef.ID, "exit_code", result.ExitCode)
 	} else {
 		i.logger.Info("system-setup completed successfully", "app_id", appDef.ID)
+	}
+
+	// Capture script output values into app config so exposed_info can surface them.
+	// Only persist keys declared in exposed_info to avoid polluting runtime config
+	// with arbitrary script output.
+	if result.Success && app != nil && result.ExposedInfo != nil {
+		allowedFields := make(map[string]struct{}, len(appDef.ExposedInfo))
+		for _, field := range appDef.ExposedInfo {
+			allowedFields[field.Name] = struct{}{}
+		}
+
+		changed := false
+		for key, val := range result.ExposedInfo {
+			if _, allowed := allowedFields[key]; !allowed {
+				continue
+			}
+
+			// Overwrite even if key exists — script output takes precedence.
+			oldVal, exists := app.Config[key]
+			if !exists || oldVal != val {
+				app.Config[key] = val
+				changed = true
+			}
+		}
+		if changed {
+			if err := i.saveInstalledApp(app); err != nil {
+				i.logger.Warn("Failed to persist script exposed info", "instance_id", instanceID, "error", err)
+			}
+		}
 	}
 
 	return nil

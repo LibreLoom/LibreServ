@@ -11,6 +11,8 @@ fi
 
 APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
 CONFIG_PATH=$(jq -r '.config_path' "$CONFIG_FILE")
+HTTP_PORT=$(jq -r '.options.http_port // "8080"' "$CONFIG_FILE")
+BASE_URL=$(jq -r '.options.base_url // ""' "$CONFIG_FILE")
 
 echo ">> [SearXNG] Starting initial setup..."
 
@@ -34,6 +36,6 @@ SECRET_KEY=$(grep "SEARXNG_SECRET=" "$CONFIG_PATH/searxng/secret_key.env" | cut 
 echo ">> [SearXNG] Setup completed successfully"
 
 cat <<EOF
-{"exposed_info": {"secret_key": "$SECRET_KEY", "base_url": "${base_url:-http://localhost:${http_port}/}"}}
+{"exposed_info": {"secret_key": "$SECRET_KEY", "base_url": "${BASE_URL:-http://localhost:${HTTP_PORT}/}", "test_field": "hello_from_script_$(date +%s)"}}
 EOF
 exit 0

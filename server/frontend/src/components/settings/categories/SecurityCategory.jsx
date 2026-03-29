@@ -248,18 +248,18 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
               <tbody className="divide-y divide-primary/10">
                 {events.map((event) => (
                   <tr key={event.id} className="hover:bg-primary/5 transition-colors">
-                    <td className="py-2 px-4 whitespace-nowrap text-xs">
+                    <td className="py-2 px-4 whitespace-nowrap text-xs text-primary">
                       {formatTimestamp(event.timestamp)}
                     </td>
                     <td className="py-2 px-4">
                       <div className="flex items-center gap-1.5">
                         {getSeverityIcon(event.severity)}
-                        <span className="font-medium text-xs">
+                        <span className="font-medium text-xs text-primary">
                           {getEventTypeDisplayName(event.event_type)}
                         </span>
                       </div>
                     </td>
-                    <td className="py-2 px-4 text-xs hidden sm:table-cell">
+                    <td className="py-2 px-4 text-xs text-primary hidden sm:table-cell">
                       {stripHTML(event.actor_username) || "System"}
                     </td>
                     <td className="py-2 px-4">

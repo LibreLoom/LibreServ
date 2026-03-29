@@ -4,6 +4,7 @@ import ModalCard from "../../common/cards/ModalCard";
 import ConfigFieldRenderer from "../wizard/ConfigFieldRenderer";
 import { ActionConfirmModal } from "./ActionConfirmModal";
 import { ActionResultModal } from "./ActionResultModal";
+import { ProgressFeedback } from "../../common/ProgressFeedback";
 
 function scriptOptionToField(option) {
   return {
@@ -33,6 +34,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
   const [executing, setExecuting] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [result, setResult] = useState(null);
+  const [streamUrl, setStreamUrl] = useState(null);
 
   const handleFieldChange = (name, value) => {
     setOptions((prev) => ({ ...prev, [name]: value }));
@@ -70,6 +72,13 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
         return;
       }
 
+      // If stream_url is present, show streaming progress
+      if (data.stream_url) {
+        setStreamUrl(data.stream_url);
+        setExecuting(false);
+        return;
+      }
+
       const scriptResult = data.result || data;
       const rawOutput = scriptResult.Output ?? scriptResult.output;
       const duration = data.Duration ?? data.duration ?? scriptResult.Duration ?? scriptResult.duration ?? 0;
@@ -91,6 +100,26 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
     } finally {
       setExecuting(false);
     }
+  };
+
+  const handleStreamComplete = ({ exitCode }) => {
+    setResult({
+      success: exitCode === 0,
+      exit_code: exitCode ?? 0,
+      output: "Action completed.",
+      error: exitCode !== 0 ? "Action failed" : undefined,
+      duration: 0,
+    });
+  };
+
+  const handleStreamError = ({ exitCode, error: streamError }) => {
+    setResult({
+      success: false,
+      exit_code: exitCode ?? 0,
+      output: "",
+      error: streamError || "Action failed",
+      duration: 0,
+    });
   };
 
   const handleSubmit = (e) => {
@@ -128,6 +157,29 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
     );
   }
 
+  if (streamUrl && !result) {
+    return (
+      <ModalCard title={action.label} onClose={handleClose}>
+        <div className="py-6">
+          <ProgressFeedback
+            streamUrl={streamUrl}
+            title={`Running ${action.label}`}
+            onComplete={handleStreamComplete}
+            onError={handleStreamError}
+          />
+        </div>
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={handleClose}
+            className="w-full px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors font-mono"
+          >
+            Cancel
+          </button>
+        </div>
+      </ModalCard>
+    );
+  }
+
   if (result) {
     return (
       <ActionResultModal
@@ -135,6 +187,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
         result={result}
         onClose={() => {
           setResult(null);
+          setStreamUrl(null);
           onClose();
         }}
       />

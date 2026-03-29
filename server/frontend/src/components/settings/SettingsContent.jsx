@@ -23,8 +23,9 @@ const CATEGORY_COMPONENTS = {
 export default function SettingsContent({
   category,
   settings,
-  darkMode,
-  onDarkModeChange,
+  theme,
+  onThemeChange,
+  resolvedTheme,
   securitySettings,
   onSecuritySettingsChange,
   onTestNotification,
@@ -52,8 +53,9 @@ export default function SettingsContent({
         };
       case "appearance":
         return {
-          darkMode,
-          onDarkModeChange,
+          theme,
+          onThemeChange,
+          resolvedTheme,
           colors,
           setColors,
           darkColors,

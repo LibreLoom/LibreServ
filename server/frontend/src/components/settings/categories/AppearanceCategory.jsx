@@ -1,6 +1,12 @@
 import { useState } from "react";
-import { Palette, Moon, Sun, RotateCcw, Check } from "lucide-react";
+import { Palette, Moon, Sun, Monitor, RotateCcw, Check } from "lucide-react";
 import SettingsRow from "../SettingsRow";
+
+const THEME_OPTIONS = [
+  { value: "system", icon: Monitor, label: "System" },
+  { value: "light", icon: Sun, label: "Light" },
+  { value: "dark", icon: Moon, label: "Dark" },
+];
 
 function ColorInput({ label, value, onChange, description }) {
   const [inputValue, setInputValue] = useState(value || "#000000"); // color-scan: ignore-line default hex
@@ -47,9 +53,9 @@ function ColorInput({ label, value, onChange, description }) {
           value={inputValue}
           onChange={handleChange}
           placeholder="#000000" // color-scan: ignore-line placeholder hex
-className={`w-24 px-2 py-1 text-sm font-mono rounded-lg bg-primary/10 border ${
-             isValid ? "border-primary/20" : "border-error"
-           } text-primary focus-visible:ring-2 focus:ring-accent`}
+          className={`w-24 px-2 py-1 text-sm font-mono rounded-lg bg-primary/10 border ${
+            isValid ? "border-primary/20" : "border-error"
+          } text-primary focus-visible:ring-2 focus:ring-accent`}
           aria-label={`${label} hex value`}
         />
       </div>
@@ -66,11 +72,12 @@ function ColorPreset({ colors, label, currentColors, onSelect }) {
   return (
     <button
       onClick={() => onSelect(colors)}
-      className={`flex flex-col items-center gap-1 p-2 rounded-large-element border transition-all duration-200 ${
+      className={`flex flex-col items-center gap-1 p-2 rounded-large-element border transition-all ease-[var(--motion-easing-standard)] ${
         isMatch
           ? "border-accent bg-accent/10"
           : "border-primary/10 hover:border-primary/30 hover:bg-primary/5"
       }`}
+      style={{ transitionDuration: "var(--motion-duration-short2)" }}
       aria-label={`Apply ${label} preset`}
       aria-pressed={isMatch}
     >
@@ -130,8 +137,9 @@ function createValidatedPresets() {
 const COLOR_PRESETS = createValidatedPresets();
 
 export default function AppearanceCategory({
-  darkMode,
-  onDarkModeChange,
+  theme,
+  onThemeChange,
+  resolvedTheme,
   colors,
   setColors,
   darkColors,
@@ -142,6 +150,8 @@ export default function AppearanceCategory({
   isCustomTheme,
 }) {
   const [showCustomColors, setShowCustomColors] = useState(isCustomTheme);
+
+  const darkMode = resolvedTheme === "dark";
 
   const handleColorChange = (key, value) => {
     setColors({ ...colors, [key]: value });
@@ -171,33 +181,42 @@ export default function AppearanceCategory({
 
   return (
     <div className="space-y-4">
-      <div className="bg-secondary rounded-large-element overflow-hidden transition-all duration-300 ease-in-out animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="bg-secondary rounded-large-element overflow-hidden transition-all ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2" style={{ transitionDuration: "var(--motion-duration-medium2)" }}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
           <Palette size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary">Theme</h2>
         </div>
-        <SettingsRow label="Dark Mode" description="Use dark theme for the interface">
-          <button
-onClick={onDarkModeChange}
-             className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-               darkMode ? "bg-accent" : "bg-primary/20"
-             }`}
-            role="switch"
-            aria-checked={darkMode}
-            aria-label="Toggle dark mode"
-          >
-            <span
-              className={`inline-flex items-center justify-center h-5 w-5 rounded-full bg-primary transition-all duration-300 ease-out ${
-                darkMode ? "translate-x-6" : "translate-x-1"
-              }`}
-            >
-              {darkMode ? <Moon size={12} className="text-accent" /> : <Sun size={12} className="text-accent" />}
-            </span>
-          </button>
+        <SettingsRow label="Color Scheme" description="Choose light, dark, or follow system preference" stack>
+          <div className="relative inline-grid grid-cols-3 bg-primary/10 rounded-pill p-[3px]" role="radiogroup" aria-label="Color scheme">
+            <div
+              className="absolute top-[3px] bottom-[3px] left-[3px] rounded-pill bg-accent shadow-sm transition-transform ease-[var(--motion-easing-emphasized)]"
+              style={{
+                width: "calc((100% - 6px) / 3)",
+                transform: `translateX(${THEME_OPTIONS.findIndex((o) => o.value === theme) * 100}%)`,
+                transitionDuration: "var(--motion-duration-short4)",
+              }}
+            />
+            {THEME_OPTIONS.map(({ value, icon: Icon, label }) => (
+              <button
+                key={value}
+                onClick={() => onThemeChange(value)}
+                className={`relative z-10 flex w-20 items-center justify-center gap-1.5 px-3 py-1.5 rounded-pill text-xs font-medium transition-[color] ease-[var(--motion-easing-standard)] ${
+                  theme === value ? "text-primary" : "text-accent hover:text-secondary"
+                }`}
+                style={{ transitionDuration: "var(--motion-duration-short2)" }}
+                role="radio"
+                aria-checked={theme === value}
+                aria-label={label}
+              >
+                <Icon size={14} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
         </SettingsRow>
       </div>
 
-      <div className="bg-secondary rounded-large-element overflow-hidden transition-all duration-300 ease-in-out animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="bg-secondary rounded-large-element overflow-hidden transition-all ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2" style={{ transitionDuration: "var(--motion-duration-medium2)" }}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
           <div className="flex items-center gap-2">
             <Palette size={18} className="text-accent" />
@@ -205,51 +224,54 @@ onClick={onDarkModeChange}
           </div>
         </div>
         <div className="px-4 pt-4">
-          <div className="flex items-center justify-between">
+          <div className={`flex items-center justify-between ${showCustomColors ? "" : "pb-4"}`}>
             <div className="flex-1 min-w-0 pr-4">
               <div className="font-medium text-primary">Enable Custom Colors</div>
               <div className="text-sm text-accent mt-0.5">Customize the primary, secondary, and accent colors</div>
             </div>
             <button
 onClick={handleToggleCustomColors}
-               className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
+               className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all ease-[var(--motion-easing-emphasized)] focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
                  showCustomColors ? "bg-accent" : "bg-primary/20"
                }`}
+               style={{ transitionDuration: "var(--motion-duration-short4)" }}
               role="switch"
               aria-checked={showCustomColors}
               aria-label="Enable custom colors"
             >
               <span
-                className={`inline-flex items-center justify-center h-5 w-5 transform rounded-full bg-primary transition-all duration-300 ease-out ${
+                className={`inline-flex items-center justify-center h-5 w-5 transform rounded-full bg-primary transition-all ease-[var(--motion-easing-emphasized)] ${
                   showCustomColors ? "translate-x-6" : "translate-x-1"
                 }`}
+                style={{ transitionDuration: "var(--motion-duration-short4)" }}
               >
                 {showCustomColors ? <Check size={12} className="text-accent" /> : <Palette size={12} className="text-accent" />}
               </span>
             </button>
           </div>
 
-            <div
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${
-                showCustomColors ? "max-h-[2000px] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0"
-              }`}
-            >
-              <div className="pt-4 border-t border-primary/10 pb-4">
-                <div className="text-xs font-medium text-accent uppercase tracking-wider mb-2">Color Presets</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {COLOR_PRESETS.map((preset) => (
-                    <ColorPreset
-                      key={preset.label}
-                      label={preset.label}
-                      colors={preset.colors}
-                      currentColors={colors}
-                      onSelect={handlePresetSelect}
-                    />
-                  ))}
-                </div>
+          <div
+            className={`overflow-hidden transition-all ease-[var(--motion-easing-emphasized)] ${
+              showCustomColors ? "max-h-[2000px] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0"
+            }`}
+            style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+          >
+            <div className="pt-4 border-t border-primary/10 pb-4">
+              <div className="text-xs font-medium text-accent uppercase tracking-wider mb-2">Color Presets</div>
+              <div className="grid grid-cols-3 gap-2">
+                {COLOR_PRESETS.map((preset) => (
+                  <ColorPreset
+                    key={preset.label}
+                    label={preset.label}
+                    colors={preset.colors}
+                    currentColors={colors}
+                    onSelect={handlePresetSelect}
+                  />
+                ))}
               </div>
+            </div>
 
-              <div className="space-y-2 pt-4 border-t border-primary/10 pb-4">
+            <div className="space-y-2 pt-4 border-t border-primary/10 pb-4">
               <div className="text-xs font-medium text-accent uppercase tracking-wider mb-3">
                 {darkMode ? "Dark Mode Colors" : "Light Mode Colors"}
               </div>
@@ -281,25 +303,28 @@ onClick={handleToggleCustomColors}
                 </div>
                 <button
                   onClick={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
- className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-                     useSeparateDarkColors ? "bg-accent" : "bg-primary/20"
-                   }`}
+                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all ease-[var(--motion-easing-emphasized)] focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
+                    useSeparateDarkColors ? "bg-accent" : "bg-primary/20"
+                  }`}
+                  style={{ transitionDuration: "var(--motion-duration-short4)" }}
                   role="switch"
                   aria-checked={useSeparateDarkColors}
                   aria-label="Use separate dark mode colors"
                 >
                   <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-primary transition-all duration-300 ease-out ${
+                    className={`inline-block h-5 w-5 transform rounded-full bg-primary transition-all ease-[var(--motion-easing-emphasized)] ${
                       useSeparateDarkColors ? "translate-x-6" : "translate-x-1"
                     }`}
+                    style={{ transitionDuration: "var(--motion-duration-short4)" }}
                   />
                 </button>
               </div>
 
               <div
-                className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                className={`overflow-hidden transition-all ease-[var(--motion-easing-emphasized)] ${
                   useSeparateDarkColors ? "max-h-[500px] opacity-100 pb-4" : "max-h-0 opacity-0"
                 }`}
+                style={{ transitionDuration: "var(--motion-duration-medium2)" }}
               >
                 <div className="pt-4 border-t border-primary/10">
                   <div className="text-xs font-medium text-accent uppercase tracking-wider mb-3">
@@ -330,7 +355,8 @@ onClick={handleToggleCustomColors}
             <div className="mt-4 pt-4 border-t border-primary/10">
               <button
                 onClick={handleReset}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all text-sm"
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all ease-[var(--motion-easing-standard)] text-sm"
+                style={{ transitionDuration: "var(--motion-duration-short2)" }}
                 aria-label="Reset colors to default"
               >
                 <RotateCcw size={14} />

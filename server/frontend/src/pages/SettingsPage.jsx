@@ -20,7 +20,8 @@ export default function SettingsPage() {
   const { me: user } = useAuth();
   const {
     theme,
-    toggleTheme,
+    setTheme,
+    resolvedTheme,
     colors,
     setColors,
     darkColors,
@@ -30,7 +31,6 @@ export default function SettingsPage() {
     resetColors,
     isCustomTheme,
   } = useTheme();
-  const darkMode = theme === "dark";
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -123,8 +123,8 @@ export default function SettingsPage() {
     scheduleSave();
   };
 
-  const handleDarkModeChange = () => {
-    toggleTheme();
+  const handleThemeChange = (value) => {
+    setTheme(value);
   };
 
   const handleSecuritySettingsChange = (newSettings) => {
@@ -171,8 +171,9 @@ export default function SettingsPage() {
         <SettingsContent
           category={activeCategory}
           settings={settings}
-          darkMode={darkMode}
-          onDarkModeChange={handleDarkModeChange}
+          theme={theme}
+          onThemeChange={handleThemeChange}
+          resolvedTheme={resolvedTheme}
           securitySettings={securitySettings}
           onSecuritySettingsChange={handleSecuritySettingsChange}
           onTestNotification={handleTestNotification}
@@ -213,8 +214,9 @@ export default function SettingsPage() {
         <SettingsContent
           category={activeCategory}
           settings={settings}
-          darkMode={darkMode}
-          onDarkModeChange={handleDarkModeChange}
+          theme={theme}
+          onThemeChange={handleThemeChange}
+          resolvedTheme={resolvedTheme}
           securitySettings={securitySettings}
           onSecuritySettingsChange={handleSecuritySettingsChange}
           onTestNotification={handleTestNotification}
