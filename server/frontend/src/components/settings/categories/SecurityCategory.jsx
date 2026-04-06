@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import {
   Shield,
   Bell,
@@ -47,6 +48,11 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
   const [activityError, setActivityError] = useState(null);
   const [filter, setFilter] = useState("7d");
   const [lastUpdated, setLastUpdated] = useState(null);
+
+  const activityCard = useAnimatedHeight();
+  const notificationsCard = useAnimatedHeight();
+  const accountCard = useAnimatedHeight();
+  const tipsCard = useAnimatedHeight();
 
   useEffect(() => {
     loadActivityData();
@@ -191,7 +197,12 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         </div>
       )}
 
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div
+        ref={activityCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      >
+        <div ref={activityCard.innerRef}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
           <Activity size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary">Activity Log</h2>
@@ -277,9 +288,15 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </table>
           )}
         </div>
+        </div>
       </div>
 
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "50ms" }}>
+      <div
+        ref={notificationsCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ transitionDuration: "var(--motion-duration-medium2)", animationDelay: "50ms" }}
+      >
+        <div ref={notificationsCard.innerRef}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
           <Bell size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary">Notifications</h2>
@@ -370,9 +387,15 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </div>
           </div>
         </div>
+        </div>
       </div>
 
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "100ms" }}>
+      <div
+        ref={accountCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ transitionDuration: "var(--motion-duration-medium2)", animationDelay: "100ms" }}
+      >
+        <div ref={accountCard.innerRef}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
           <Shield size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary">Account Security</h2>
@@ -400,9 +423,15 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             {testing ? "Sending..." : "Send Test"}
           </button>
         </div>
+        </div>
       </div>
 
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "150ms" }}>
+      <div
+        ref={tipsCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ transitionDuration: "var(--motion-duration-medium2)", animationDelay: "150ms" }}
+      >
+        <div ref={tipsCard.innerRef}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
           <Shield size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary">Security Tips</h2>
@@ -432,6 +461,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
               Ensure LibreServ and all installed apps have the latest security patches.
             </p>
           </div>
+        </div>
         </div>
       </div>
 

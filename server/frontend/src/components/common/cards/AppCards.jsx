@@ -1,4 +1,5 @@
 import { useEffect, useState, memo, useCallback } from "react";
+import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import { Link } from "react-router-dom";
 import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings } from "lucide-react";
 import CardButton from "./CardButton";
@@ -136,6 +137,8 @@ export default function AppCards({ refreshInterval = 30000 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const { outerRef, innerRef } = useAnimatedHeight();
+
   const fetchApps = useCallback(async () => {
     try {
       const response = await request("/apps");
@@ -159,46 +162,60 @@ export default function AppCards({ refreshInterval = 30000 }) {
     return () => clearInterval(interval);
   }, [fetchApps, refreshInterval]);
 
-  if (loading) {
-    return (
-      <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center animate-pulse">
-            <Package size={22} className="text-primary/30" />
-          </div>
-          <div className="text-left">
-            <div className="font-mono font-normal text-primary/50">Loading apps...</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (apps.length === 0) {
-    return <NoAppsCard />;
-  }
-
-  if (error) {
-    return (
-      <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center">
-            <Package size={22} className="text-error" />
-          </div>
-          <div className="text-left">
-            <div className="font-mono font-normal text-error">Failed to load apps</div>
-            <div className="font-mono font-normal text-sm text-primary/50">{error}</div>
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center animate-pulse">
+              <Package size={22} className="text-primary/30" />
+            </div>
+            <div className="text-left">
+              <div className="font-mono font-normal text-primary/50">Loading apps...</div>
+            </div>
           </div>
         </div>
-      </div>
+      );
+    }
+
+    if (apps.length === 0) {
+      return <NoAppsCard />;
+    }
+
+    if (error) {
+      return (
+        <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center">
+              <Package size={22} className="text-error" />
+            </div>
+            <div className="text-left">
+              <div className="font-mono font-normal text-error">Failed to load apps</div>
+              <div className="font-mono font-normal text-sm text-primary/50">{error}</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        {apps.map((app) => (
+          <AppCard key={app.id} app={app} />
+        ))}
+      </>
     );
-  }
+  };
 
   return (
-    <>
-      {apps.map((app) => (
-        <AppCard key={app.id} app={app} />
-      ))}
-    </>
+    <div
+      ref={outerRef}
+      className="overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+    >
+      <div ref={innerRef}>
+        {renderContent()}
+      </div>
+    </div>
   );
 }

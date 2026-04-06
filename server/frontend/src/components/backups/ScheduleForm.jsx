@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 import { useAuth } from "../../hooks/useAuth";
 import { goeyToast } from "goey-toast";
 import Card from "../common/cards/Card";
@@ -59,6 +60,8 @@ export default function ScheduleForm() {
   const [showForm, setShowForm] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [deleting, setDeleting] = useState(null);
+
+  const { outerRef, innerRef } = useAnimatedHeight();
 
   const [formData, setFormData] = useState({
     app_id: "",
@@ -220,12 +223,16 @@ export default function ScheduleForm() {
   }
 
   return (
-    <div className="space-y-4">
-      <Card className="p-6" noPopIn>
-        <div className="flex items-center justify-between mb-4">
+    <div
+      ref={outerRef}
+      className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+    >
+      <div ref={innerRef}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
           <div className="flex items-center gap-2">
             <Calendar size={18} className="text-accent" />
-            <h2 className="font-mono text-lg text-primary">Backup Schedules</h2>
+            <h2 className="font-mono font-normal text-primary">Backup Schedules</h2>
           </div>
           {!showForm && (
             <button
@@ -239,7 +246,7 @@ export default function ScheduleForm() {
         </div>
 
         {schedules.length === 0 && !showForm ? (
-          <div className="text-center py-6">
+          <div className="px-4 py-6 text-center">
             <Clock className="w-10 h-10 text-primary/30 mx-auto mb-2" />
             <p className="text-sm text-accent">No backup schedules configured</p>
             <button
@@ -251,7 +258,7 @@ export default function ScheduleForm() {
             </button>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="p-4 space-y-3">
             {schedules.map((schedule) => (
               <div
                 key={schedule.id}
@@ -303,7 +310,7 @@ export default function ScheduleForm() {
         )}
 
         {showForm && (
-          <div className="mt-4 pt-4 border-t border-primary/10 space-y-4">
+          <div className="p-4 pt-4 border-t border-primary/10 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-mono text-sm text-primary">
                 {editingSchedule ? "Edit Schedule" : "New Schedule"}
@@ -436,7 +443,7 @@ export default function ScheduleForm() {
             </div>
           </div>
         )}
-      </Card>
-    </div>
-  );
-}
+        </div>
+      </div>
+    );
+  }

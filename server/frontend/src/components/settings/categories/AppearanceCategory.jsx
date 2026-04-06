@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check } from "lucide-react";
 import SettingsRow from "../SettingsRow";
 
@@ -153,6 +154,9 @@ export default function AppearanceCategory({
 
   const darkMode = resolvedTheme === "dark";
 
+  const themeCard = useAnimatedHeight();
+  const colorsCard = useAnimatedHeight();
+
   const handleColorChange = (key, value) => {
     setColors({ ...colors, [key]: value });
   };
@@ -181,7 +185,12 @@ export default function AppearanceCategory({
 
   return (
     <div className="space-y-4">
-      <div className="bg-secondary rounded-large-element overflow-hidden transition-all ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2" style={{ transitionDuration: "var(--motion-duration-medium2)" }}>
+      <div
+        ref={themeCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      >
+        <div ref={themeCard.innerRef}>
         <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
           <Palette size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary">Theme</h2>
@@ -214,9 +223,15 @@ export default function AppearanceCategory({
             ))}
           </div>
         </SettingsRow>
+        </div>
       </div>
 
-      <div className="bg-secondary rounded-large-element overflow-hidden transition-all ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2" style={{ transitionDuration: "var(--motion-duration-medium2)" }}>
+      <div
+        ref={colorsCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      >
+        <div ref={colorsCard.innerRef}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
           <div className="flex items-center gap-2">
             <Palette size={18} className="text-accent" />
@@ -364,6 +379,7 @@ onClick={handleToggleCustomColors}
               </button>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>
