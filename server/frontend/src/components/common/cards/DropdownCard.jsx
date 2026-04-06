@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import { ChevronDown, Server } from "lucide-react";
 import MiniStatCard from "./MiniStatCard";
 
@@ -17,11 +18,19 @@ export default function DropdownCard({
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9-_]/g, "")}`;
 
+  const { outerRef, innerRef } = useAnimatedHeight();
+
   return (
     <div
-      className={`pop-in bg-secondary text-primary rounded-large-element p-6 transition-all duration-300 ease-in-out w-full h-fit self-start ${forceHover ? "scale-[1.02]" : "hover:scale-[1.02]"}`}
+      ref={outerRef}
+      className="pop-in bg-secondary text-primary rounded-large-element p-6 transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] w-full h-fit self-start"
+      style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
-      <div className="flex items-center gap-5">
+      <div
+        ref={innerRef}
+        className={forceHover ? "scale-[1.02]" : "hover:scale-[1.02]"}
+      >
+        <div className="flex items-center gap-5">
           <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
             <Icon size={26} aria-hidden="true" />
           </div>
@@ -71,6 +80,7 @@ export default function DropdownCard({
                 />
               ))
             )}
+          </div>
         </div>
       </div>
     </div>

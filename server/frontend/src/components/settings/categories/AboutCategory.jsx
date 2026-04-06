@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import { Info, Heart, ChevronDown } from "lucide-react";
 import SettingsRow from "../SettingsRow";
 
@@ -48,9 +49,17 @@ function ValueDisplay({ children, mono = false }) {
 }
 
 export default function AboutCategory({ settings }) {
+  const appCard = useAnimatedHeight();
+  const libreServCard = useAnimatedHeight();
+
   return (
     <div className="space-y-4">
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div
+        ref={appCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      >
+        <div ref={appCard.innerRef}>
         <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-primary/10">
           <Info size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary text-sm">Application</h2>
@@ -73,9 +82,15 @@ export default function AboutCategory({ settings }) {
             </SettingsRow>
           </ExtraInfoDropdown>
         </div>
+        </div>
       </div>
 
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300" style={{ animationDelay: "50ms" }}>
+      <div
+        ref={libreServCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ transitionDuration: "var(--motion-duration-medium2)", animationDelay: "50ms" }}
+      >
+        <div ref={libreServCard.innerRef}>
         <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-primary/10">
           <Heart size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary text-sm">LibreServ</h2>
@@ -91,6 +106,7 @@ export default function AboutCategory({ settings }) {
               <span>Made with love for the open source community</span>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>

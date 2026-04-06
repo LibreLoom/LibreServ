@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import { useAuth } from "../../../hooks/useAuth";
 import { goeyToast } from "goey-toast";
 import {
@@ -11,9 +12,13 @@ import {
   Trash2,
   Upload,
   AlertTriangle,
+  Save,
 } from "lucide-react";
 import CloudBackupConfig from "../../backups/CloudBackupConfig";
 import ScheduleForm from "../../backups/ScheduleForm";
+import UploadProgress from "../../backups/UploadProgress";
+import RestoreAppSelector from "../../backups/RestoreAppSelector";
+import InfoPopover from "../../common/InfoPopover";
 import Card from "../../common/cards/Card";
 
 function formatDate(dateStr) {
@@ -49,6 +54,7 @@ function formatBytes(bytes) {
 export default function BackupsCategory() {
   const { request } = useAuth();
   const [backups, setBackups] = useState([]);
+  const [unattachedBackups, setUnattachedBackups] = useState([]);
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -56,11 +62,21 @@ export default function BackupsCategory() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(null);
+  const [showAppSelector, setShowAppSelector] = useState(null);
   const [selectedApp, setSelectedApp] = useState("");
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [uploading, setUploading] = useState(null);
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadingDb, setUploadingDb] = useState(false);
+  const [savingDb, setSavingDb] = useState(false);
+  const fileInputRef = useRef(null);
+  const dbFileInputRef = useRef(null);
+  const localCard = useAnimatedHeight();
+  const uploadCard = useAnimatedHeight();
+  const databaseCard = useAnimatedHeight();
+  const cloudCard = useAnimatedHeight();
 
   useEffect(() => {
     loadData();
@@ -84,9 +100,10 @@ export default function BackupsCategory() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [backupsRes, appsRes] = await Promise.all([
+      const [backupsRes, appsRes, unattachedRes] = await Promise.all([
         request("/backups"),
         request("/apps"),
+        request("/backups/unattached"),
       ]);
 
       if (!backupsRes.ok) {
@@ -100,8 +117,10 @@ export default function BackupsCategory() {
 
       const backupsData = await backupsRes.json();
       const appsData = await appsRes.json();
+      const unattachedData = unattachedRes.ok ? await unattachedRes.json() : { backups: [] };
       setBackups(backupsData.backups || []);
       setApps(appsData.apps || []);
+      setUnattachedBackups(unattachedData.backups || []);
     } catch (err) {
       console.error("Failed to load data:", err);
       setLoadError(err.message);
@@ -220,6 +239,126 @@ export default function BackupsCategory() {
     }
   }
 
+  function handleFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.toLowerCase();
+    if (!ext.endsWith(".tar") && !ext.endsWith(".tar.gz") && !ext.endsWith(".tgz")) {
+      showError("Invalid file", "Only .tar, .tar.gz, and .tgz files are supported.");
+      return;
+    }
+
+    setUploadFile(file);
+  }
+
+  function handleUploadComplete() {
+    setUploadFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+    showSuccess("Backup uploaded", "Your backup has been uploaded successfully.");
+    loadData();
+  }
+
+  function handleUploadError(err) {
+    showError("Upload failed", err.message);
+  }
+
+  async function handleRestoreUnattachedBackup(backupId, targetAppId) {
+    setRestoring(true);
+
+    try {
+      const res = await request(`/backups/${backupId}/restore`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_app_id: targetAppId,
+          stop_before_restore: true,
+          restart_after_restore: true,
+          verify_checksum: true,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to restore backup");
+      }
+
+      setShowAppSelector(null);
+      showSuccess("Backup restored", "Your data has been restored successfully.");
+      loadData();
+    } catch (err) {
+      showError("Failed to restore backup", err.message);
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  async function handleSaveDatabase() {
+    setSavingDb(true);
+
+    try {
+      const res = await request("/backups/database", {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to save database");
+      }
+
+      showSuccess("Database saved", "Database backup created successfully.");
+    } catch (err) {
+      showError("Failed to save database", err.message);
+    } finally {
+      setSavingDb(false);
+    }
+  }
+
+  function handleDbFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.toLowerCase();
+    if (!ext.endsWith(".gz") && !ext.endsWith(".db")) {
+      showError("Invalid file", "Only .gz and .db files are supported.");
+      return;
+    }
+
+    uploadAndRestoreDatabase(file);
+  }
+
+  async function uploadAndRestoreDatabase(file) {
+    setUploadingDb(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("backup", file);
+
+      const res = await fetch("/api/v1/backups/database/upload-restore", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to upload database backup");
+      }
+
+      showSuccess("Database restored", "Database has been restored. The page will refresh.");
+      setTimeout(() => window.location.reload(), 2000);
+    } catch (err) {
+      showError("Failed to restore database", err.message);
+    } finally {
+      setUploadingDb(false);
+      if (dbFileInputRef.current) {
+        dbFileInputRef.current.value = "";
+      }
+    }
+  }
+
   function getAppDisplayName(backup) {
     const app = apps.find((a) => a.id === backup.app_id);
     return app?.name || backup.app_id || "System";
@@ -230,7 +369,12 @@ export default function BackupsCategory() {
   return (
     <div className="space-y-4">
       {/* Local Backups Section */}
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div
+        ref={localCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      >
+        <div ref={localCard.innerRef}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
           <div className="flex items-center gap-2">
             <HardDrive size={18} className="text-accent" />
@@ -245,6 +389,11 @@ export default function BackupsCategory() {
           </button>
         </div>
 
+        <div
+          key={loading ? "loading" : loadError ? "error" : recentBackups.length === 0 ? "empty" : "list"}
+          className="animate-in fade-in slide-in-from-bottom-2"
+          style={{ animationDuration: "var(--motion-duration-medium2)" }}
+        >
         {loading ? (
           <div className="px-4 py-6 flex justify-center">
             <Loader2 className="w-5 h-5 animate-spin text-accent" />
@@ -308,12 +457,20 @@ export default function BackupsCategory() {
                         )}
                       </button>
                     )}
+                    <a
+                      href={`/api/v1/backups/${backup.id}/download`}
+                      download
+                      className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                      title="Download"
+                    >
+                      <Download size={14} />
+                    </a>
                     <button
                       onClick={() => setShowRestoreModal(backup)}
                       className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
                       title="Restore"
                     >
-                      <Download size={14} />
+                      <Upload size={14} />
                     </button>
                     <button
                       onClick={() => setShowDeleteModal(backup)}
@@ -336,6 +493,176 @@ export default function BackupsCategory() {
             </span>
           </div>
         )}
+        </div>
+        </div>
+      </div>
+
+      {/* Upload Backup Section */}
+      <div
+        ref={uploadCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      >
+        <div ref={uploadCard.innerRef}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
+          <Upload size={18} className="text-accent" />
+          <h2 className="font-mono font-normal text-primary">Upload Backup</h2>
+        </div>
+
+        <div
+          key={uploadFile ? "uploading" : "idle"}
+          className="animate-in fade-in slide-in-from-bottom-2 p-4"
+          style={{ animationDuration: "var(--motion-duration-medium2)" }}
+        >
+          {uploadFile ? (
+            <UploadProgress
+              file={uploadFile}
+              onComplete={handleUploadComplete}
+              onError={handleUploadError}
+            />
+          ) : (
+            <label className="flex flex-col items-center justify-center border-2 border-dashed border-primary/20 rounded-[16px] p-6 hover:border-primary/40 hover:bg-primary/5 cursor-pointer transition-colors">
+              <Upload className="w-8 h-8 text-primary/40 mb-2" />
+              <span className="text-sm text-primary/60">
+                Drop backup file here or click to upload
+              </span>
+              <span className="text-xs text-primary/35 mt-1">
+                .tar, .tar.gz, or .tgz files
+              </span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".tar,.tar.gz,.tgz"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+            </label>
+          )}
+        </div>
+        </div>
+      </div>
+
+      {/* Unattached Backups Section */}
+      {unattachedBackups.length > 0 && (
+        <div
+          className="bg-secondary rounded-large-element overflow-hidden transition-all ease-[var(--motion-easing-emphasized-decelerate)]"
+          style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+        >
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
+            <HardDrive size={18} className="text-accent" />
+            <h2 className="font-mono font-normal text-primary">Unattached Backups</h2>
+            <InfoPopover>
+              These backups are not linked to any installed app. They may have been uploaded manually, or the original app was deleted. Restore them to any installed app.
+            </InfoPopover>
+          </div>
+
+          <div
+            className="animate-in fade-in slide-in-from-bottom-2 divide-y divide-primary/10"
+            style={{ animationDuration: "var(--motion-duration-medium2)" }}
+          >
+            {unattachedBackups.map((backup) => (
+              <div key={backup.id} className="px-4 py-3 flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <div className="font-mono text-sm text-primary truncate">
+                    {backup.path?.split("/").pop() || "Unknown"}
+                  </div>
+                  <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
+                    <span>{formatDate(backup.created_at)}</span>
+                    <span>·</span>
+                    <span>{formatBytes(backup.size)}</span>
+                    {backup.source === "uploaded" && (
+                      <>
+                        <span>·</span>
+                        <span className="text-primary/40">Uploaded</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <a
+                    href={`/api/v1/backups/${backup.id}/download`}
+                    download
+                    className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                    title="Download"
+                  >
+                    <Download size={14} />
+                  </a>
+                  <button
+                    onClick={() => setShowAppSelector(backup)}
+                    className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                    title="Restore to App"
+                  >
+                    <Upload size={14} />
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteModal(backup)}
+                    className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
+                    title="Delete"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+              ))}
+            </div>
+        </div>
+      )}
+
+      {/* Database Backup Section */}
+      <div
+        ref={databaseCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      >
+        <div ref={databaseCard.innerRef}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
+          <DatabaseBackup size={18} className="text-accent" />
+          <h2 className="font-mono font-normal text-primary">Database Backup</h2>
+          <InfoPopover>
+            Database backups contain LibreServ&apos;s system configuration, user accounts, and app records. Restore with caution - this replaces the entire system state.
+          </InfoPopover>
+        </div>
+
+        <div
+          className="animate-in fade-in slide-in-from-bottom-2 p-4 flex flex-col sm:flex-row gap-3"
+          style={{ animationDuration: "var(--motion-duration-medium2)" }}
+        >
+          <button
+            onClick={handleSaveDatabase}
+            disabled={savingDb}
+            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-pill bg-primary text-secondary hover:opacity-90 transition-opacity disabled:opacity-40 font-mono text-sm"
+          >
+            {savingDb ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Save size={16} />
+            )}
+            {savingDb ? "Saving..." : "Save DB"}
+          </button>
+
+          <label className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-pill border border-primary/20 text-primary hover:bg-primary/5 cursor-pointer transition-colors font-mono text-sm">
+            {uploadingDb ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Restoring...
+              </>
+            ) : (
+              <>
+                <Upload size={16} />
+                Upload & Restore DB
+              </>
+            )}
+            <input
+              ref={dbFileInputRef}
+              type="file"
+              accept=".gz,.db"
+              className="hidden"
+              onChange={handleDbFileSelect}
+              disabled={uploadingDb}
+            />
+          </label>
+        </div>
+        </div>
       </div>
 
       {/* Backup Schedules Section */}
@@ -343,9 +670,11 @@ export default function BackupsCategory() {
 
       {/* Cloud Backup Section */}
       <div
-        className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300"
-        style={{ animationDelay: "50ms" }}
+        ref={cloudCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
       >
+        <div ref={cloudCard.innerRef}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
           <div className="flex items-center gap-2">
             <Cloud size={18} className="text-accent" />
@@ -360,16 +689,20 @@ export default function BackupsCategory() {
         </div>
 
         <div
-          className={`overflow-hidden transition-all duration-300 ease-in-out ${
+          className={`overflow-hidden transition-all ease-[var(--motion-easing-emphasized)] ${
             showCloudConfig ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
           }`}
+          style={{ transitionDuration: "var(--motion-duration-medium2)" }}
         >
           <div className="p-4">
             <CloudBackupConfig onConfigured={() => setShowCloudConfig(false)} />
           </div>
         </div>
         {!showCloudConfig && (
-          <div className="px-4 py-6 text-center">
+          <div
+            className="animate-in fade-in slide-in-from-bottom-2 px-4 py-6 text-center"
+            style={{ animationDuration: "var(--motion-duration-medium2)" }}
+          >
             <Cloud className="w-8 h-8 text-primary/30 mx-auto mb-2" />
              <p className="text-sm text-accent">
                Configure cloud backup for off-site storage
@@ -382,6 +715,7 @@ export default function BackupsCategory() {
              </button>
           </div>
         )}
+        </div>
       </div>
 
       {/* Create Backup Modal */}
@@ -559,6 +893,16 @@ export default function BackupsCategory() {
             </div>
           </Card>
         </div>
+      )}
+
+      {/* Restore App Selector Modal for Unattached Backups */}
+      {showAppSelector && (
+        <RestoreAppSelector
+          backup={showAppSelector}
+          apps={apps}
+          onRestore={handleRestoreUnattachedBackup}
+          onClose={() => setShowAppSelector(null)}
+        />
       )}
     </div>
   );

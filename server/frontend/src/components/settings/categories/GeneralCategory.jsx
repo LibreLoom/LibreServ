@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import { Server, Globe, FileText, ChevronDown } from "lucide-react";
 import SettingsRow from "../SettingsRow";
 import Dropdown from "../../common/Dropdown";
@@ -60,9 +61,16 @@ function StatusBadge({ children, variant = "default" }) {
 }
 
 export default function GeneralCategory({ settings }) {
+  const loggingCard = useAnimatedHeight();
+
   return (
     <div className="space-y-4">
-      <div className="bg-secondary rounded-large-element overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div
+        ref={loggingCard.outerRef}
+        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      >
+        <div ref={loggingCard.innerRef}>
         <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-primary/10">
           <FileText size={18} className="text-accent" />
           <h2 className="font-mono font-normal text-primary text-sm">Logging</h2>
@@ -129,6 +137,7 @@ export default function GeneralCategory({ settings }) {
               </SettingsRow>
             </ExtraInfoDropdown>
           )}
+        </div>
         </div>
       </div>
     </div>

@@ -30,6 +30,8 @@ export default defineConfig([
         "error",
         { argsIgnorePattern: "^[A-Z_]", varsIgnorePattern: "^[A-Z_]" },
       ],
+      // refs are intentionally accessed during render for the useAnimatedHeight hook pattern
+      "react-hooks/refs": "off",
     },
   },
   {
