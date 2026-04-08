@@ -935,7 +935,8 @@ List Users → Login as Alice → Setup Token No Longer Valid
 
 **File:** `scripts/hardware-detect.sh`  
 **Effort:** 1.5 hours  
-**Status:** 🔴  
+**Status:** 🟠
+**Claimed By**: Fluffy-Bunny-23
 **Completed By:**
 
 **Acceptance Criteria:**
