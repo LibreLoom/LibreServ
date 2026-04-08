@@ -118,6 +118,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/health", healthHandler.HealthCheck)
 		r.Get("/health/ready", healthHandler.ReadinessCheck)
 		r.Get("/health/live", healthHandler.LivenessCheck)
+		r.Get("/api/v1/health", healthHandler.HealthCheck)
 
 		// Prometheus metrics endpoint (public for scraping)
 		r.Get("/metrics", monitoringHandler.PrometheusMetrics)
@@ -362,11 +363,13 @@ func (s *Server) setupRoutes() {
 				r.Put("/", settingsHandler.Update)
 			})
 
-			// System updates (admin only)
+			// System updates and hardware (admin only)
 			r.Route("/system", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/updates/check", systemHandler.CheckUpdates)
 				r.Post("/updates/apply", systemHandler.ApplyUpdate)
+				r.Get("/hardware", systemHandler.DetectHardware)
+				r.Get("/hardware/report", systemHandler.HardwareReport)
 			})
 
 			// Audit logs (admin only)

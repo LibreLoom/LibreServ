@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/hardware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
 )
 
@@ -51,4 +52,27 @@ func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]string{"message": "update applied, restarting..."})
+}
+
+// DetectHardware handles GET /api/v1/system/hardware
+func (h *SystemHandler) DetectHardware(w http.ResponseWriter, r *http.Request) {
+	info, err := hardware.Detect()
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to detect hardware")
+		return
+	}
+
+	JSON(w, http.StatusOK, info)
+}
+
+// HardwareReport handles GET /api/v1/system/hardware/report
+func (h *SystemHandler) HardwareReport(w http.ResponseWriter, r *http.Request) {
+	report, err := hardware.GenerateReport()
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to generate report")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(report))
 }
