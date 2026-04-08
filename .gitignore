@@ -84,6 +84,8 @@ package-lock.json
 
 # CI
 .ci.conf
-./ci-results
-./test-results
+ci-results/
+test-results/
 .cache/
+.opencode/
+opencode.jsonc
