@@ -21,18 +21,21 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: "localhost",
-    open: true,
+    strictPort: true,
+    host: "0.0.0.0",
+    open: false,
+    allowedHosts: [".shares.zrok.io"],
+    origin: "https://zeder-codeserver.shares.zrok.io:3001",
     fs: {
       allow: ["../.."],
     },
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: "http://localhost:8081",
         changeOrigin: true,
       },
       "/health": {
-        target: "http://localhost:8080",
+        target: "http://localhost:8081",
         changeOrigin: true,
       },
     },

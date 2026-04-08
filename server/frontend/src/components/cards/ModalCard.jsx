@@ -7,6 +7,7 @@ export default function ModalCard({
   children,
   onClose,
   showCloseButton = true,
+  size = "md",
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const [isEntering, setIsEntering] = useState(true);
@@ -77,10 +78,10 @@ export default function ModalCard({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-w-md w-full"
+        className={`w-full transition-all flex flex-col mb-16 ${size === "fullscreen" ? "max-w-[95vw] max-h-[calc(95vh-4rem)]" : size === "lg" ? "max-w-3xl max-h-[calc(95vh-4rem)]" : size === "xl" ? "max-w-5xl max-h-[calc(95vh-4rem)]" : "max-w-md max-h-[calc(95vh-4rem)]"}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <Card className={`relative ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
+        <Card className={`relative flex-1 flex flex-col min-h-0 overflow-y-auto ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
           {showCloseButton && (
             <button
               type="button"

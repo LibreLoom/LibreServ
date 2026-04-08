@@ -177,6 +177,7 @@ func (s *Server) setupRoutes() {
 			})
 
 			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
+			logsHandler := handlers.NewLogsHandler(s.dockerClient)
 
 			// Apps management - installed apps
 			r.Route("/apps", func(r chi.Router) {
@@ -201,6 +202,7 @@ func (s *Server) setupRoutes() {
 				r.Post("/{instanceId}/actions/{actionName}/execute", scriptsHandler.ExecuteAction)
 				r.Get("/{instanceId}/actions/{actionName}/stream", scriptsHandler.StreamAction)
 				r.Get("/{instanceId}/install/stream", scriptsHandler.StreamInstall)
+				r.Get("/{instanceId}/logs/stream", logsHandler.StreamLogs)
 			})
 
 			// Monitoring - system health and metrics management

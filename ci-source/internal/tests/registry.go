@@ -266,18 +266,37 @@ func addE2ETests() {
 				-e LIBRESERV_NETWORK_CADDY_MODE=disabled \
 				-e LIBRESERV_INSECURE_DEV=true \
 				libreserv:e2e-test
-			
+
+			# Detect the port the server actually binds to from logs
+			echo "Waiting for server to start..."
+			for i in $(seq 1 30); do
+				SERVER_PORT=$(docker logs libreserv-e2e 2>&1 | grep -oP 'addr=0\.0\.0\.0:\K[0-9]+' | head -1)
+				if [ -n "$SERVER_PORT" ]; then
+					break
+				fi
+				sleep 1
+			done
+			if [ -z "$SERVER_PORT" ]; then
+				echo "ERROR: Could not detect server port from logs"
+				docker logs libreserv-e2e || true
+				docker stop libreserv-e2e || true
+				docker rm libreserv-e2e || true
+				docker network rm libreserv-e2e-net || true
+				exit 1
+			fi
+			echo "Server detected on port $SERVER_PORT"
+
 			# Wait for server to be ready (use container name as hostname on shared network)
 			echo "Waiting for server to be ready..."
 			for i in $(seq 1 60); do
-				if curl -s http://libreserv-e2e:8080/health >/dev/null 2>&1; then
+				if curl -s http://libreserv-e2e:$SERVER_PORT/health >/dev/null 2>&1; then
 					echo "Server is ready!"
 					break
 				fi
 				if [ $i -eq 60 ]; then
 					echo "ERROR: Server failed to start"
-					echo "Debug: Trying to reach http://libreserv-e2e:8080/health"
-					curl -v http://libreserv-e2e:8080/health 2>&1 || true
+					echo "Debug: Trying to reach http://libreserv-e2e:$SERVER_PORT/health"
+					curl -v http://libreserv-e2e:$SERVER_PORT/health 2>&1 || true
 					docker logs libreserv-e2e || true
 					docker stop libreserv-e2e || true
 					docker rm libreserv-e2e || true
@@ -286,12 +305,12 @@ func addE2ETests() {
 				fi
 				sleep 1
 			done
-			
+
 			# Run playwright tests (connect to server via container name)
 			echo "Running Playwright tests..."
 			cd /repo/e2e-tests
 			npm ci 2>/dev/null || npm install
-			E2E_BASE_URL=http://libreserv-e2e:8080 npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
+			E2E_BASE_URL=http://libreserv-e2e:$SERVER_PORT npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
 			
 			# Cleanup
 			docker stop libreserv-e2e || true
