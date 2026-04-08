@@ -27,11 +27,13 @@ import {
   XCircle,
   Wrench,
   Settings,
+  Terminal,
 } from "lucide-react";
 import StatusPill from "../components/ui/StatusPill";
 import { ActionCard } from "../components/app/actions/ActionCard";
 import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal";
 import { ExposedInfoCard } from "../components/app/ExposedInfoCard";
+import LogsViewer from "../components/app/LogsViewer";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");
@@ -132,6 +134,7 @@ export default function AppDetailPage() {
   const [actionsLoading, setActionsLoading] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
+  const [showLogsViewer, setShowLogsViewer] = useState(false);
   const appUrl = app?.url || app?.backends?.[0]?.url || "";
 
   useEffect(() => {
@@ -604,6 +607,14 @@ export default function AppDetailPage() {
                   {actionLoading === "restart" ? "Restarting..." : "Restart"}
                 </button>
 
+                <button
+                  onClick={() => setShowLogsViewer(true)}
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill border border-accent/40 bg-secondary/30 text-accent hover:bg-secondary transition-colors font-mono"
+                >
+                  <Terminal size={18} />
+                  View Logs
+                </button>
+
                 <div className="flex-1" />
 
                 <button
@@ -637,6 +648,10 @@ export default function AppDetailPage() {
                         action={action}
                         onExecute={() => {
                           setSelectedAction(action);
+                          if (action.name === "view-logs") {
+                            setShowLogsViewer(true);
+                            return;
+                          }
                           setShowActionModal(true);
                         }}
                         disabled={actionLoading !== null}
@@ -672,6 +687,13 @@ export default function AppDetailPage() {
           }}
           onExecute={handleActionExecute}
           actionLoading={actionLoading}
+        />
+      )}
+
+      {showLogsViewer && (
+        <LogsViewer
+          app={app}
+          onClose={() => setShowLogsViewer(false)}
         />
       )}
     </main>

@@ -79,9 +79,4 @@ scripts:
     repair: scripts/system-repair
     backup: scripts/system-backup
     restore: scripts/system-restore
-  actions:
-    - name: view-logs
-      label: "View Logs"
-      description: "View ConvertX application logs"
-      script: scripts/view-logs
 

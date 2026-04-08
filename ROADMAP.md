@@ -454,19 +454,19 @@ User sets "Backup every day at 3 AM" for Nextcloud.
 **File:** `server/frontend/src/components/app/LogsViewer.jsx`  
 **Effort:** 2.5 hours  
 **Dependencies:** None  
-**Status:** 🔴  
-**Completed By:**
+**Status:** ✅ Complete
+**Completed By:** Fluffy-Bunny-23
 
 **User Journey:**
 User sees "Something went wrong" → Clicks "View Logs" → Sees recent error messages
 
 **Acceptance Criteria:**
-- [ ] Modal or full-page log viewer
-- [ ] Auto-scroll to bottom (newest logs)
-- [ ] Pause/Resume scrolling
-- [ ] Search/filter logs
-- [ ] Download logs as text file
-- [ ] Show last 500 lines by default, load more on scroll
+- [x] Modal or full-page log viewer
+- [x] Auto-scroll to bottom (newest logs)
+- [x] Pause/Resume scrolling
+- [x] Search/filter logs
+- [x] Download logs as text file
+- [x] Show last 500 lines by default, load more on scroll
 
 **Backend API:** `GET /api/v1/apps/{id}/logs` (may need to add)
 

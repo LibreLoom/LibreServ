@@ -91,18 +91,18 @@ function LogoMark({ size = 64 }) {
           <rect x="174" y="174" width="164" height="22" rx="10"/>
         </clipPath>
         <mask id="ls-weftOverOdd" x="174" y="196" width="164" height="112" maskUnits="userSpaceOnUse">
-          <rect x="174" y="196" width="164" height="112" fill="black"/>
-          <rect x="186" y="196" width="16" height="112" fill="white"/>
-          <rect x="222" y="196" width="16" height="112" fill="white"/>
-          <rect x="258" y="196" width="16" height="112" fill="white"/>
-          <rect x="294" y="196" width="16" height="112" fill="white"/>
+          <rect x="174" y="196" width="164" height="112" fill="black"/> {/* color-scan: ignore-line SVG mask requires black */}
+          <rect x="186" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
+          <rect x="222" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
+          <rect x="258" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
+          <rect x="294" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
         </mask>
         <mask id="ls-weftOverEven" x="174" y="196" width="164" height="112" maskUnits="userSpaceOnUse">
-          <rect x="174" y="196" width="164" height="112" fill="black"/>
-          <rect x="204" y="196" width="16" height="112" fill="white"/>
-          <rect x="240" y="196" width="16" height="112" fill="white"/>
-          <rect x="276" y="196" width="16" height="112" fill="white"/>
-          <rect x="312" y="196" width="16" height="112" fill="white"/>
+          <rect x="174" y="196" width="164" height="112" fill="black"/> {/* color-scan: ignore-line SVG mask requires black */}
+          <rect x="204" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
+          <rect x="240" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
+          <rect x="276" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
+          <rect x="312" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
         </mask>
       </defs>
 

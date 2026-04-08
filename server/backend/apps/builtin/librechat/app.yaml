@@ -185,9 +185,4 @@ scripts:
     repair: scripts/system-repair
     backup: scripts/system-backup
     restore: scripts/system-restore
-  actions:
-    - name: view-logs
-      label: "View Logs"
-      description: "View LibreChat logs (API, MongoDB)"
-      script: scripts/view-logs
 

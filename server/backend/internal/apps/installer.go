@@ -94,19 +94,6 @@ func (i *Installer) removeInstallOutputChannel(instanceID string) {
 	i.installOutputsMu.Unlock()
 }
 
-// sendInstallOutput sends a ScriptOutput to the install stream channel if one exists.
-func (i *Installer) sendInstallOutput(instanceID string, output ScriptOutput) {
-	i.installOutputsMu.Lock()
-	ch, ok := i.installOutputs[instanceID]
-	i.installOutputsMu.Unlock()
-	if ok {
-		select {
-		case ch <- output:
-		default:
-		}
-	}
-}
-
 // InstallOptions contains options for app installation
 type InstallOptions struct {
 	AppID  string                 `json:"app_id"`
