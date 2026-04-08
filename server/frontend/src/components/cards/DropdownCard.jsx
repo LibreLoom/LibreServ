@@ -58,7 +58,7 @@ export default function DropdownCard({
         >
           <div className="grid grid-cols-2 gap-2 p-2">
             {breakdownItems.length === 0 ? (
-              <div className="col-span-2 text-center py-3 px-4 rounded-pill bg-accent text-primary font-medium">
+              <div className="col-span-2 text-center py-3 px-4 text-primary font-mono">
                 Loading...
               </div>
             ) : (

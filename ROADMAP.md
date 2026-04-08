@@ -166,11 +166,45 @@ Visual display of system checks from `/api/v1/setup/preflight`.
 ```
 
 **Acceptance Criteria:**
-- [ ] Shows each check with ✓/✗ icon
-- [ ] Shows disk space in human-readable format (GB)
-- [ ] Shows warnings (not errors) for optional things like SMTP
-- [ ] "Retry" button for failed checks
-- [ ] Blocks setup completion if critical checks fail
+- [x] Shows each check with ✓/✗ icon
+- [x] Shows disk space in human-readable format (GB)
+- [x] Shows warnings (not errors) for optional things like SMTP
+- [x] "Retry" button for failed checks
+- [x] Blocks setup completion if critical checks fail
+
+---
+
+#### T1.1.5. Enhanced Preflight Permission Checks
+
+**File:** `server/backend/internal/api/handlers/setup.go`  
+**Effort:** 1.5 hours  
+**Dependencies:** T1.1.4  
+**Status:** ✅ Complete
+**Completed By:** @opencode
+
+**Why:** Users should be informed of permission issues before attempting operations. Non-technical users cannot diagnose "permission denied" errors during app install.
+
+**User Journey:**
+1. User sees preflight check failure: "App storage - cannot write to storage"
+2. Friendly hint: "Try restarting your device. If this persists, contact support."
+3. User can retry checks after external fix
+4. Technical details logged server-side for support
+
+**Implementation:**
+- Enhanced `checkPathWritable` tests subdir creation (catches root-owned directories)
+- Added new checks: `database_writable`, `caddy_config_writable`, `caddy_certs_writable`, `acme_data_writable`, `acme_certs_writable`
+- Plain-language error messages (no exposed paths)
+- Server logs capture technical details (path, uid, gid, error)
+- Checks categorized: `system` (database, docker, disk_space), `storage` (paths for db/apps/logs), `network` (caddy/acme paths)
+- Frontend displays checks grouped by category with section headers
+
+**Acceptance Criteria:**
+- [x] Detects read-only or root-owned directories
+- [x] Plain-language error messages for users
+- [x] Technical details logged server-side
+- [x] Retry button allows re-checking
+- [x] All writable paths checked (database, apps, logs, caddy, acme)
+- [x] Checks grouped by category (system, storage, network)
 
 ---
 
@@ -425,6 +459,47 @@ User sets "Backup every day at 3 AM" for Nextcloud.
 - `POST /api/v1/backups/{id}/upload` - Upload to cloud ✅
 - `GET /api/v1/backups/{id}/status` - Get upload status ✅
 - `GET /api/v1/backups/{id}/cloud-status` - Get cloud backup status ✅
+
+---
+
+#### T2.2.4. Backup Download/Upload & Database Backup UI
+
+**Files:** `server/frontend/src/components/settings/categories/BackupsCategory.jsx`, `server/backend/internal/api/handlers/backups.go`
+**Effort:** 4 hours
+**Dependencies:** T2.2.1
+**Status:** ✅ Complete
+**Completed By:** @opencode
+
+**Why:** Non-technical users (hardware delivery model) should be able to manage backups entirely from the web UI without touching a terminal. This includes downloading backups for off-site storage, uploading existing backups, and managing database backups.
+
+**User Journey:**
+1. User clicks download icon on any backup to save it locally
+2. User drags/drops a `.tar.gz` backup file to upload it (stored as "unattached")
+3. User restores an unattached backup by selecting which installed app to target
+4. User clicks "Save DB" to create a database backup
+5. User uploads a database backup file to restore the system database
+
+**Implementation:**
+- Added `source` column to backups table (migration 012) tracking 'local', 'uploaded', 'cloud'
+- Modified `RestoreApp` to accept optional `targetAppID` for flexible restore
+- Added database backup upload-restore endpoint with automatic page refresh after restore
+- Upload progress shows percentage and bytes with TypewriterLoader animation
+- Unattached backups shown in separate section with InfoPopover explaining their origin
+
+**Acceptance Criteria:**
+- [x] Download backup files from web UI
+- [x] Upload backup files with progress indicator
+- [x] Unattached backups section (deleted apps + uploaded backups)
+- [x] Restore unattached backup to any installed app via modal selector
+- [x] "Save DB" button to create database backup
+- [x] "Upload & Restore DB" button with file picker
+- [x] Page refreshes automatically after database restore
+
+**Backend API:**
+- `GET /api/v1/backups/{id}/download` - Download backup file ✅
+- `POST /api/v1/backups/upload` - Upload backup file ✅
+- `GET /api/v1/backups/unattached` - List unattached backups ✅
+- `POST /api/v1/backups/database/upload-restore` - Upload and restore database ✅
 
 ---
 
@@ -1053,6 +1128,7 @@ curl http://localhost:8080/api/v1/setup/preflight
 
 | Date | Change |
 |------|--------|
+| 2026-04-05 | T1.1.5: Enhanced preflight permission checks - detects root-owned/read-only dirs, plain-language errors |
 | 2026-02-28 | T2.2.3: Cloud backup integration with Backblaze B2, S3-compatible, and manual setup guide |
 | 2026-02-28 | T2.2.1: Backups page with create/restore/delete functionality and cloud status |
 | 2026-02-27 | T2.3.1: Enhanced AppDetailPage with resource metrics, health icon, update notifications |

@@ -560,3 +560,143 @@ func (s *BackupService) DeleteSchedule(ctx context.Context, scheduleID string) e
 	log.Printf("Backup schedule deleted: %s", scheduleID)
 	return nil
 }
+
+// BasePath returns the base path for backups
+func (s *BackupService) BasePath() string {
+	return s.basePath
+}
+
+// StoreUploadedBackup stores an uploaded backup file
+func (s *BackupService) StoreUploadedBackup(ctx context.Context, filename string, content io.Reader, size int64) (*Backup, error) {
+	uploadID := uuid.New().String()
+	uploadDir := filepath.Join(s.basePath, "uploads", uploadID)
+
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create upload directory: %w", err)
+	}
+
+	destPath := filepath.Join(uploadDir, filename)
+
+	f, err := os.Create(destPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create backup file: %w", err)
+	}
+
+	hash := sha256.New()
+	multiWriter := io.MultiWriter(f, hash)
+
+	written, err := io.Copy(multiWriter, content)
+	if err != nil {
+		f.Close()
+		os.Remove(destPath)
+		return nil, fmt.Errorf("failed to write backup file: %w", err)
+	}
+	f.Close()
+
+	checksum := hex.EncodeToString(hash.Sum(nil))
+
+	backup := &Backup{
+		ID:        uuid.New().String(),
+		Type:      BackupTypeApp,
+		Path:      destPath,
+		Size:      written,
+		CreatedAt: time.Now(),
+		Checksum:  checksum,
+		Source:    "uploaded",
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO backups (id, type, path, size, created_at, checksum, source)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, backup.ID, string(backup.Type), backup.Path, backup.Size, backup.CreatedAt, backup.Checksum, backup.Source)
+	if err != nil {
+		os.Remove(destPath)
+		return nil, fmt.Errorf("failed to save backup record: %w", err)
+	}
+
+	log.Printf("Uploaded backup stored: %s (%d bytes)", backup.ID, backup.Size)
+	return backup, nil
+}
+
+// ListUnattachedBackups lists backups not linked to any installed app
+func (s *BackupService) ListUnattachedBackups(ctx context.Context) ([]*Backup, error) {
+	rows, err := s.db.Query(`
+		SELECT id, app_id, type, path, size, created_at, checksum, source
+		FROM backups
+		WHERE app_id IS NULL OR app_id NOT IN (SELECT id FROM apps)
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unattached backups: %w", err)
+	}
+	defer rows.Close()
+
+	var backups []*Backup
+	for rows.Next() {
+		var b Backup
+		var appID, source sql.NullString
+		if err := rows.Scan(&b.ID, &appID, &b.Type, &b.Path, &b.Size, &b.CreatedAt, &b.Checksum, &source); err != nil {
+			log.Printf("failed to scan unattached backup: %v", err)
+			continue
+		}
+		if appID.Valid {
+			b.AppID = appID.String
+		}
+		if source.Valid {
+			b.Source = source.String
+		}
+		backups = append(backups, &b)
+	}
+
+	return backups, nil
+}
+
+// StoreUploadedDatabaseBackup stores an uploaded database backup file
+func (s *BackupService) StoreUploadedDatabaseBackup(ctx context.Context, filename string, content io.Reader, size int64) (*DatabaseBackup, error) {
+	backupID := uuid.New().String()
+	backupDir := filepath.Join(s.basePath, "database")
+
+	if err := os.MkdirAll(backupDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create database backup directory: %w", err)
+	}
+
+	destPath := filepath.Join(backupDir, filename)
+
+	f, err := os.Create(destPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database backup file: %w", err)
+	}
+
+	hash := sha256.New()
+	multiWriter := io.MultiWriter(f, hash)
+
+	written, err := io.Copy(multiWriter, content)
+	if err != nil {
+		f.Close()
+		os.Remove(destPath)
+		return nil, fmt.Errorf("failed to write database backup file: %w", err)
+	}
+	f.Close()
+
+	checksum := hex.EncodeToString(hash.Sum(nil))
+
+	backup := &DatabaseBackup{
+		ID:        backupID,
+		Path:      destPath,
+		Size:      written,
+		CreatedAt: time.Now(),
+		Checksum:  checksum,
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO database_backups (id, path, size, created_at, checksum)
+		VALUES (?, ?, ?, ?, ?)
+	`, backup.ID, backup.Path, backup.Size, backup.CreatedAt, backup.Checksum)
+	if err != nil {
+		os.Remove(destPath)
+		return nil, fmt.Errorf("failed to save database backup record: %w", err)
+	}
+
+	log.Printf("Uploaded database backup stored: %s (%d bytes)", backup.ID, backup.Size)
+	return backup, nil
+}

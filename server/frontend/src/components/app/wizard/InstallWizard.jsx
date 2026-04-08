@@ -1,6 +1,7 @@
 import { memo, useState, useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../../hooks/useAuth";
+import { useInvalidateApps } from "../../../hooks/useApps";
 import WizardStepper from "./WizardStepper";
 import OverviewStep from "./OverviewStep";
 import ConfigureStep from "./ConfigureStep";
@@ -10,6 +11,7 @@ import CompleteStep from "./CompleteStep";
 function InstallWizard({ appId }) {
   const navigate = useNavigate();
   const { request } = useAuth();
+  const invalidateApps = useInvalidateApps();
 
   const [step, setStep] = useState(1);
   const [app, setApp] = useState(null);
@@ -130,8 +132,9 @@ function InstallWizard({ appId }) {
   );
 
   const handleDone = useCallback(() => {
+    invalidateApps();
     navigate("/apps");
-  }, [navigate]);
+  }, [navigate, invalidateApps]);
 
   const handleBack = useCallback(() => {
     navigate("/apps");

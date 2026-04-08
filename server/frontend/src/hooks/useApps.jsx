@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "./useAuth";
 
 export function useApps(refreshInterval) {
@@ -13,4 +13,9 @@ export function useApps(refreshInterval) {
     },
     refetchInterval: refreshInterval ?? 30_000,
   });
+}
+
+export function useInvalidateApps() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: ["apps"] });
 }

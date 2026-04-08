@@ -239,7 +239,10 @@ func (s *Server) setupRoutes() {
 			r.Route("/backups", func(r chi.Router) {
 				r.Get("/", backupHandler.ListBackups)
 				r.Post("/", backupHandler.CreateBackup)
+				r.Post("/upload", backupHandler.UploadBackup)
+				r.Get("/unattached", backupHandler.ListUnattachedBackups)
 				r.Get("/{backupID}", backupHandler.GetBackup)
+				r.Get("/{backupID}/download", backupHandler.DownloadBackup)
 				r.Post("/{backupID}/restore", backupHandler.RestoreBackup)
 				r.Delete("/{backupID}", backupHandler.DeleteBackup)
 
@@ -253,6 +256,7 @@ func (s *Server) setupRoutes() {
 				// Database backups
 				r.Get("/database", backupHandler.ListDatabaseBackups)
 				r.Post("/database", backupHandler.CreateDatabaseBackup)
+				r.Post("/database/upload-restore", backupHandler.UploadDatabaseBackup)
 				r.Post("/database/{backupID}/restore", backupHandler.RestoreDatabaseBackup)
 
 				// Cloud backup routes

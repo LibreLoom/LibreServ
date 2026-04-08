@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/ui/ErrorDisplay";
-import LoadingFast from "./LoadingFast";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { getSettings, updateSettings } from "../lib/settings-api.js";
@@ -33,7 +32,6 @@ export default function SettingsPage() {
   } = useTheme();
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState(() => {
     const hash = window.location.hash.slice(1);
@@ -46,20 +44,8 @@ export default function SettingsPage() {
   const pendingSettingsRef = useRef(null);
   const pendingSecurityRef = useRef(null);
 
-  useEffect(() => {
-    loadData();
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    window.history.replaceState(null, "", `#${activeCategory}`);
-  }, [activeCategory]);
-
   const loadData = async () => {
     try {
-      setLoading(true);
       setError(null);
       const [settingsData, securityData] = await Promise.all([
         getSettings(),
@@ -72,10 +58,20 @@ export default function SettingsPage() {
         err?.message || err?.response?.data?.message || "Failed to load settings.";
       setError(errorMessage);
       console.error("Error loading settings:", err);
-    } finally {
-      setLoading(false);
     }
   };
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadData();
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    window.history.replaceState(null, "", `#${activeCategory}`);
+  }, [activeCategory]);
 
   const performSave = useCallback(async () => {
     const promises = [];
@@ -146,10 +142,6 @@ export default function SettingsPage() {
     setShowMobileContent(false);
   };
 
-  if (loading) {
-    return <LoadingFast label="Loading settings" />;
-  }
-
   return (
     <main className="bg-primary text-secondary min-h-screen">
       {error && (
@@ -158,35 +150,34 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="hidden md:flex md:gap-6 md:p-6 md:pt-8 pb-20">
+      <div className="hidden md:flex md:gap-6 md:p-6 md:pt-8 pb-20 h-[calc(100vh-4rem)] overflow-hidden">
         <div className="w-[20%] min-w-[200px] max-w-[280px] flex-shrink-0">
           <SettingsSidebar
             user={user}
             activeCategory={activeCategory}
             onCategoryChange={setActiveCategory}
-            className="sticky top-6"
           />
         </div>
-        <div className="flex-1 animate-in fade-in slide-in-from-right-2 duration-300">
-        <SettingsContent
-          category={activeCategory}
-          settings={settings}
-          theme={theme}
-          onThemeChange={handleThemeChange}
-          resolvedTheme={resolvedTheme}
-          securitySettings={securitySettings}
-          onSecuritySettingsChange={handleSecuritySettingsChange}
-          onTestNotification={handleTestNotification}
-          onLoggingChange={handleLoggingChange}
-          colors={colors}
-          setColors={setColors}
-          darkColors={darkColors}
-          setDarkColors={setDarkColors}
-          useSeparateDarkColors={useSeparateDarkColors}
-          setUseSeparateDarkColors={setUseSeparateDarkColors}
-          resetColors={resetColors}
-          isCustomTheme={isCustomTheme}
-        />
+        <div className="flex-1 overflow-y-auto pr-2 animate-in fade-in slide-in-from-right-2 duration-300">
+          <SettingsContent
+            category={activeCategory}
+            settings={settings}
+            theme={theme}
+            onThemeChange={handleThemeChange}
+            resolvedTheme={resolvedTheme}
+            securitySettings={securitySettings}
+            onSecuritySettingsChange={handleSecuritySettingsChange}
+            onTestNotification={handleTestNotification}
+            onLoggingChange={handleLoggingChange}
+            colors={colors}
+            setColors={setColors}
+            darkColors={darkColors}
+            setDarkColors={setDarkColors}
+            useSeparateDarkColors={useSeparateDarkColors}
+            setUseSeparateDarkColors={setUseSeparateDarkColors}
+            resetColors={resetColors}
+            isCustomTheme={isCustomTheme}
+          />
         </div>
       </div>
 
@@ -211,25 +202,25 @@ export default function SettingsPage() {
               <ArrowLeft size={18} />
               <span>Back</span>
             </button>
-        <SettingsContent
-          category={activeCategory}
-          settings={settings}
-          theme={theme}
-          onThemeChange={handleThemeChange}
-          resolvedTheme={resolvedTheme}
-          securitySettings={securitySettings}
-          onSecuritySettingsChange={handleSecuritySettingsChange}
-          onTestNotification={handleTestNotification}
-          onLoggingChange={handleLoggingChange}
-          colors={colors}
-          setColors={setColors}
-          darkColors={darkColors}
-          setDarkColors={setDarkColors}
-          useSeparateDarkColors={useSeparateDarkColors}
-          setUseSeparateDarkColors={setUseSeparateDarkColors}
-          resetColors={resetColors}
-          isCustomTheme={isCustomTheme}
-        />
+            <SettingsContent
+              category={activeCategory}
+              settings={settings}
+              theme={theme}
+              onThemeChange={handleThemeChange}
+              resolvedTheme={resolvedTheme}
+              securitySettings={securitySettings}
+              onSecuritySettingsChange={handleSecuritySettingsChange}
+              onTestNotification={handleTestNotification}
+              onLoggingChange={handleLoggingChange}
+              colors={colors}
+              setColors={setColors}
+              darkColors={darkColors}
+              setDarkColors={setDarkColors}
+              useSeparateDarkColors={useSeparateDarkColors}
+              setUseSeparateDarkColors={setUseSeparateDarkColors}
+              resetColors={resetColors}
+              isCustomTheme={isCustomTheme}
+            />
           </div>
         )}
       </div>

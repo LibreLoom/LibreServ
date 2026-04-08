@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useInvalidateApps } from "../hooks/useApps";
 import HeaderCard from "../components/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
 import CardButton from "../components/cards/CardButton";
@@ -118,6 +119,7 @@ export default function AppDetailPage() {
   const { instanceId } = useParams();
   const navigate = useNavigate();
   const { request } = useAuth();
+  const invalidateApps = useInvalidateApps();
 
   const [app, setApp] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -288,6 +290,7 @@ export default function AppDetailPage() {
           "X-CSRF-Token": csrfData.csrf_token,
         },
       });
+      invalidateApps();
       navigate("/apps");
     } catch (err) {
       setError(err.message || "Failed to uninstall app");
@@ -295,7 +298,7 @@ export default function AppDetailPage() {
     } finally {
       setIsUninstalling(false);
     }
-  }, [app, isUninstalling, request, navigate]);
+  }, [app, isUninstalling, request, navigate, invalidateApps]);
 
   const formatDate = (dateString) => {
     if (!dateString) return "Unknown";

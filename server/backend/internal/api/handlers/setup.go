@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -218,16 +221,23 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	check := func(name string, fn func() error) {
+	check := func(name, category string, fn func() error) {
 		if err := fn(); err != nil {
-			results[name] = map[string]interface{}{"status": "failed", "error": "check failed"}
+			results[name] = map[string]interface{}{
+				"status":   "failed",
+				"error":    err.Error(),
+				"category": category,
+			}
 			allHealthy = false
 		} else {
-			results[name] = map[string]interface{}{"status": "ok"}
+			results[name] = map[string]interface{}{
+				"status":   "ok",
+				"category": category,
+			}
 		}
 	}
 
-	check("docker", func() error {
+	check("docker", "system", func() error {
 		if h.docker == nil {
 			return nil
 		}
@@ -238,19 +248,49 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	check("database", func() error {
+	check("database", "system", func() error {
 		return h.authService.DBHealth()
 	})
 
-	check("data_path_writable", func() error {
+	check("database_writable", "storage", func() error {
+		return checkPathWritable(filepath.Dir(cfg.Database.Path))
+	})
+
+	check("data_path_writable", "storage", func() error {
 		return touchPath(cfg.Apps.DataPath)
 	})
-	check("logs_path_writable", func() error {
+	check("logs_path_writable", "storage", func() error {
 		return touchPath(cfg.Logging.Path)
 	})
 
+	if cfg.Network.Caddy.Mode != "disabled" && cfg.Network.Caddy.Mode != "noop" {
+		if cfg.Network.Caddy.ConfigPath != "" {
+			check("caddy_config_writable", "network", func() error {
+				return checkPathWritable(cfg.Network.Caddy.ConfigPath)
+			})
+		}
+		if cfg.Network.Caddy.CertsPath != "" {
+			check("caddy_certs_writable", "network", func() error {
+				return checkPathWritable(cfg.Network.Caddy.CertsPath)
+			})
+		}
+	}
+
+	if cfg.Network.ACME.External.Enabled {
+		if cfg.Network.ACME.External.DataPath != "" {
+			check("acme_data_writable", "network", func() error {
+				return checkPathWritable(cfg.Network.ACME.External.DataPath)
+			})
+		}
+		if cfg.Network.ACME.External.CertsPath != "" {
+			check("acme_certs_writable", "network", func() error {
+				return checkPathWritable(cfg.Network.ACME.External.CertsPath)
+			})
+		}
+	}
+
 	var diskFree uint64
-	check("disk_space", func() error {
+	check("disk_space", "system", func() error {
 		resolvedPath, err := resolveConfigPath(cfg.Apps.DataPath)
 		if err != nil {
 			return err
@@ -260,8 +300,8 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		diskFree = stat.Bavail * uint64(stat.Bsize)
-		if diskFree < 512*1024*1024 { // 512MB
-			return fmt.Errorf("low disk space: %d bytes available", diskFree)
+		if diskFree < 512*1024*1024 {
+			return fmt.Errorf("low disk space")
 		}
 		return nil
 	})
@@ -284,21 +324,58 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 }
 
 func touchPath(path string) error {
-	path, err := resolveConfigPath(path)
+	return checkPathWritable(path)
+}
+
+func checkPathWritable(path string) error {
+	resolved, err := resolveConfigPath(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("not configured")
 	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return err
+
+	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
+		testDir := filepath.Join(resolved, ".perm-check-"+randomSuffix(8))
+		if err := os.Mkdir(testDir, 0755); err != nil {
+			slog.Error("preflight permission check failed",
+				"path", resolved,
+				"error", err,
+				"uid", os.Getuid(),
+				"gid", os.Getgid())
+			return fmt.Errorf("cannot write to storage")
+		}
+		_ = os.Remove(testDir)
+
+		f, err := os.CreateTemp(resolved, ".probe")
+		if err != nil {
+			slog.Error("preflight write check failed", "path", resolved, "error", err)
+			return fmt.Errorf("cannot write to storage")
+		}
+		name := f.Name()
+		_ = f.Close()
+		_ = os.Remove(name)
+		return nil
 	}
-	f, err := os.CreateTemp(path, ".probe")
+
+	if err := os.MkdirAll(resolved, 0755); err != nil {
+		slog.Error("preflight directory creation failed", "path", resolved, "error", err)
+		return fmt.Errorf("cannot create storage")
+	}
+
+	f, err := os.CreateTemp(resolved, ".probe")
 	if err != nil {
-		return err
+		slog.Error("preflight write check failed", "path", resolved, "error", err)
+		return fmt.Errorf("cannot write to storage")
 	}
 	name := f.Name()
 	_ = f.Close()
 	_ = os.Remove(name)
 	return nil
+}
+
+func randomSuffix(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)[:n]
 }
 
 func resolveConfigPath(path string) (string, error) {

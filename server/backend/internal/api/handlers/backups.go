@@ -1,11 +1,16 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -133,9 +138,10 @@ func (h *BackupHandlers) CreateBackup(w http.ResponseWriter, r *http.Request) {
 
 // RestoreBackupRequest is the request body for restoring a backup
 type RestoreBackupRequest struct {
-	StopBeforeRestore   bool `json:"stop_before_restore"`
-	RestartAfterRestore bool `json:"restart_after_restore"`
-	VerifyChecksum      bool `json:"verify_checksum"`
+	TargetAppID         string `json:"target_app_id,omitempty"`
+	StopBeforeRestore   bool   `json:"stop_before_restore"`
+	RestartAfterRestore bool   `json:"restart_after_restore"`
+	VerifyChecksum      bool   `json:"verify_checksum"`
 }
 
 // RestoreBackup restores from a backup
@@ -149,7 +155,6 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	var req RestoreBackupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		// Use defaults if no body provided
 		req = RestoreBackupRequest{
 			StopBeforeRestore:   true,
 			RestartAfterRestore: true,
@@ -163,7 +168,7 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 		VerifyChecksum:      req.VerifyChecksum,
 	}
 
-	result, err := h.backupService.RestoreApp(r.Context(), backupID, opts)
+	result, err := h.backupService.RestoreApp(r.Context(), backupID, req.TargetAppID, opts)
 	if err != nil {
 		errMsg := "restore failed"
 		if result != nil && result.Error != nil {
@@ -434,4 +439,139 @@ func (h *BackupHandlers) DeleteSchedule(w http.ResponseWriter, r *http.Request) 
 		"status":  "deleted",
 		"message": "Backup schedule deleted successfully",
 	})
+}
+
+// DownloadBackup downloads a backup file
+// GET /api/v1/backups/{backupID}/download
+func (h *BackupHandlers) DownloadBackup(w http.ResponseWriter, r *http.Request) {
+	backupID := chi.URLParam(r, "backupID")
+	if backupID == "" {
+		JSONError(w, http.StatusBadRequest, "backup ID required")
+		return
+	}
+
+	backup, err := h.backupService.GetBackup(r.Context(), backupID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, "backup not found")
+		return
+	}
+
+	if _, err := os.Stat(backup.Path); os.IsNotExist(err) {
+		JSONError(w, http.StatusNotFound, "backup file not found")
+		return
+	}
+
+	filename := filepath.Base(backup.Path)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(backup.Size, 10))
+
+	http.ServeFile(w, r, backup.Path)
+}
+
+// UploadBackup uploads a backup file
+// POST /api/v1/backups/upload
+func (h *BackupHandlers) UploadBackup(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(0); err != nil {
+		JSONError(w, http.StatusBadRequest, "failed to parse upload")
+		return
+	}
+
+	file, header, err := r.FormFile("backup")
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, "no backup file provided")
+		return
+	}
+	defer file.Close()
+
+	filename := filepath.Base(header.Filename)
+	ext := filepath.Ext(filename)
+	for ext != "" {
+		if ext == ".tar" || ext == ".gz" || ext == ".tgz" {
+			break
+		}
+		oldExt := ext
+		ext = filepath.Ext(filename[:len(filename)-len(ext)])
+		if ext == oldExt {
+			break
+		}
+	}
+
+	isValid := false
+	buf := make([]byte, 512)
+	n, _ := file.Read(buf)
+	if n >= 2 && buf[0] == 0x1f && buf[1] == 0x8b {
+		isValid = true
+	}
+	if !isValid && n >= 263 {
+		if string(buf[257:262]) == "ustar" {
+			isValid = true
+		}
+	}
+
+	if !isValid {
+		JSONError(w, http.StatusBadRequest, "invalid backup file format (must be .tar, .tar.gz, or .tgz)")
+		return
+	}
+
+	backup, err := h.backupService.StoreUploadedBackup(r.Context(), filename, io.MultiReader(bytes.NewReader(buf[:n]), file), header.Size)
+	if err != nil {
+		log.Printf("UploadBackup: failed to store: %v", err)
+		JSONError(w, http.StatusInternalServerError, "failed to store backup")
+		return
+	}
+
+	JSON(w, http.StatusCreated, backup)
+}
+
+// ListUnattachedBackups lists backups not linked to any installed app
+// GET /api/v1/backups/unattached
+func (h *BackupHandlers) ListUnattachedBackups(w http.ResponseWriter, r *http.Request) {
+	backups, err := h.backupService.ListUnattachedBackups(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to list unattached backups")
+		return
+	}
+
+	for i := range backups {
+		if backups[i].CloudStatus == nil {
+			backups[i].CloudStatus = map[string]interface{}{"has_cloud_copy": false}
+		}
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"backups": backups,
+		"count":   len(backups),
+	})
+}
+
+// UploadDatabaseBackup uploads and restores a database backup
+// POST /api/v1/backups/database/upload-restore
+func (h *BackupHandlers) UploadDatabaseBackup(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(0); err != nil {
+		JSONError(w, http.StatusBadRequest, "failed to parse upload")
+		return
+	}
+
+	file, header, err := r.FormFile("backup")
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, "no backup file provided")
+		return
+	}
+	defer file.Close()
+
+	filename := filepath.Base(header.Filename)
+	if filepath.Ext(filename) != ".gz" && filepath.Ext(filename) != ".db" {
+		JSONError(w, http.StatusBadRequest, "invalid database backup file (must be .gz or .db)")
+		return
+	}
+
+	backup, err := h.backupService.StoreUploadedDatabaseBackup(r.Context(), filename, file, header.Size)
+	if err != nil {
+		log.Printf("UploadDatabaseBackup: failed to store: %v", err)
+		JSONError(w, http.StatusInternalServerError, "failed to store database backup")
+		return
+	}
+
+	JSON(w, http.StatusCreated, backup)
 }

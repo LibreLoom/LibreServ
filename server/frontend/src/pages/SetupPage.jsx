@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff } from "lucide-react";
 import PropTypes from "prop-types";
@@ -207,18 +207,33 @@ function WelcomeStep({ onBegin }) {
 WelcomeStep.propTypes = { onBegin: PropTypes.func.isRequired };
 
 // ─── STEP: Preflight ──────────────────────────────────────────────────────────
-// Only these keys in the checks response are actual checks (not metadata like disk_space_bytes_free)
 const KNOWN_CHECKS = new Set([
-  "database", "data_path_writable", "logs_path_writable", "disk_space", "docker",
+  "database", "database_writable", "data_path_writable", "logs_path_writable",
+  "caddy_config_writable", "caddy_certs_writable",
+  "acme_data_writable", "acme_certs_writable",
+  "disk_space", "docker",
 ]);
 
 const CHECK_LABELS = {
-  database:           "Database",
-  data_path_writable: "Data storage",
-  logs_path_writable: "Log storage",
-  disk_space:         "Disk space",
-  docker:             "Docker",
+  database:              "Database",
+  database_writable:     "Database storage",
+  data_path_writable:   "App storage",
+  logs_path_writable:   "Log storage",
+  caddy_config_writable: "Proxy config",
+  caddy_certs_writable:  "SSL certificates",
+  acme_data_writable:   "Certificate data",
+  acme_certs_writable:  "Certificate storage",
+  disk_space:           "Disk space",
+  docker:               "Docker",
 };
+
+const CATEGORY_LABELS = {
+  system:   "System",
+  storage:  "Storage Permissions",
+  network:  "Network Storage Permissions",
+};
+
+const CATEGORY_ORDER = ["system", "storage", "network"];
 
 function PreflightRow({ name, check, index, done, rerunning }) {
   const label  = CHECK_LABELS[name] ?? name.replace(/_/g, " ");
@@ -255,7 +270,14 @@ function PreflightRow({ name, check, index, done, rerunning }) {
       <div className="flex-1 min-w-0">
         <span className="text-sm text-primary capitalize">{label}</span>
         {isFail && check.error && (
-          <p className="text-xs text-error/75 mt-0.5 truncate">{check.error}</p>
+          <p className="text-xs text-error/75 mt-0.5">
+            {check.error}
+            {check.error.includes("cannot") && (
+              <span className="block mt-1 text-primary/40">
+                Try restarting your device. If this persists, contact support.
+              </span>
+            )}
+          </p>
         )}
         {name === "disk_space" && isOk && check.disk_space_bytes_free && (
           <p className="text-xs text-primary/35 mt-0.5">
@@ -311,17 +333,29 @@ function PreflightStep({ onPass }) {
   // Run on mount
   useEffect(() => { runChecks(); }, [runChecks]);
 
-  const checkEntries = checks
-    ? Object.entries(checks).filter(([name]) => KNOWN_CHECKS.has(name))
-    : [];
+  const checkEntries = useMemo(() =>
+    checks
+      ? Object.entries(checks).filter(([name]) => KNOWN_CHECKS.has(name))
+      : [],
+    [checks]);
   const hasCheckResults = checkEntries.length > 0;
   const showSkeleton = !hasCheckResults && running && !error;
   const rerunning = running && hasCheckResults;
   const done      = checks !== null && !running;
-  // Keep these stable during a re-run so the status line doesn't jump
   const hasFailed = done && healthy === false;
   const allPassed = done && healthy === true;
   const showRerunButton = hasFailed || error || rerunning;
+
+  const checksByCategory = useMemo(() => {
+    if (!hasCheckResults) return {};
+    const grouped = {};
+    for (const [name, check] of checkEntries) {
+      const cat = check?.category || "system";
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push([name, check]);
+    }
+    return grouped;
+  }, [checkEntries, hasCheckResults]);
 
   return (
     <SetupShell>
@@ -361,17 +395,28 @@ function PreflightStep({ onPass }) {
             </div>
           )}
 
-          {/* Real rows */}
-          {hasCheckResults && checkEntries.map(([name, check], i) => (
-            <PreflightRow
-              key={name}
-              name={name}
-              check={check}
-              index={i}
-              done={done || rerunning}
-              rerunning={rerunning}
-            />
-          ))}
+          {/* Grouped check rows */}
+          {hasCheckResults && CATEGORY_ORDER.map((category) => {
+            const catChecks = checksByCategory[category];
+            if (!catChecks || catChecks.length === 0) return null;
+            return (
+              <div key={category}>
+                <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-primary/70 mt-5 mb-1 first:mt-0">
+                  {CATEGORY_LABELS[category] || category}
+                </p>
+                {catChecks.map(([name, check], i) => (
+                  <PreflightRow
+                    key={name}
+                    name={name}
+                    check={check}
+                    index={i}
+                    done={done || rerunning}
+                    rerunning={rerunning}
+                  />
+                ))}
+              </div>
+            );
+          })}
 
           {/* Network error */}
           {error && (
