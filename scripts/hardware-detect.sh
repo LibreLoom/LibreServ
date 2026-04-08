@@ -271,6 +271,8 @@ main() {
     fi
     cores=$(lscpu 2>/dev/null | grep -E '^CPU\(s\)' | grep -oE '[0-9]+' | head -1 || echo "0")
     [ "$cores" -eq 0 ] && cores=$(grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "0")
+    ram_gb=$(echo "scale=2; $(grep MemTotal /proc/meminfo | awk '{print $2}') / 1024 / 1024" | bc 2>/dev/null || echo "0")
+    disk_gb=$(df -BG / | tail -1 | awk '{print $2}' | tr -d 'BG' || echo "0")
     
     if [ "$json_only" = false ]; then
         echo ""
