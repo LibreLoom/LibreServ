@@ -23,6 +23,7 @@ type Backup struct {
 	Size        int64                  `json:"size"`
 	CreatedAt   time.Time              `json:"created_at"`
 	Checksum    string                 `json:"checksum,omitempty"`
+	Source      string                 `json:"source,omitempty"` // 'local', 'uploaded', 'cloud'
 	CloudStatus map[string]interface{} `json:"cloud_status,omitempty"`
 }
 

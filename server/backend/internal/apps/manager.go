@@ -605,7 +605,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 		rolledBack := false
 		if backupID != "" {
 			m.logger.Warn("Update failed during recreation, attempting rollback", "error", err)
-			if _, rErr := m.backupService.RestoreApp(ctx, backupID, storage.RestoreOptions{
+			if _, rErr := m.backupService.RestoreApp(ctx, backupID, "", storage.RestoreOptions{
 				StopBeforeRestore:   true,
 				RestartAfterRestore: true,
 			}); rErr != nil {
@@ -627,7 +627,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 		m.logger.Error("App unhealthy after update, initiating rollback", "instance_id", instanceID)
 		rolledBack := false
 		if backupID != "" {
-			if _, rErr := m.backupService.RestoreApp(ctx, backupID, storage.RestoreOptions{
+			if _, rErr := m.backupService.RestoreApp(ctx, backupID, "", storage.RestoreOptions{
 				StopBeforeRestore:   true,
 				RestartAfterRestore: true,
 			}); rErr != nil {

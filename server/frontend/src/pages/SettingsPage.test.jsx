@@ -49,10 +49,6 @@ vi.mock("../components/settings/SettingsContent", () => ({
   ),
 }));
 
-vi.mock("./LoadingFast", () => ({
-  default: ({ label }) => <div data-testid="loading">{label}</div>,
-}));
-
 import { getSettings } from "../lib/settings-api.js";
 import { getSecuritySettings } from "../lib/security-api.js";
 
@@ -61,16 +57,7 @@ beforeEach(() => {
 });
 
 describe("SettingsPage", () => {
-  it("shows loading state initially", () => {
-    getSettings.mockReturnValue(new Promise(() => {}));
-    getSecuritySettings.mockReturnValue(new Promise(() => {}));
-
-    renderWithProviders(<SettingsPage />);
-    expect(screen.getByTestId("loading")).toBeInTheDocument();
-    expect(screen.getByText("Loading settings")).toBeInTheDocument();
-  });
-
-  it("renders settings content after loading", async () => {
+  it("renders settings immediately without loading state", async () => {
     getSettings.mockResolvedValue({ logging: { level: "info" } });
     getSecuritySettings.mockResolvedValue({});
 

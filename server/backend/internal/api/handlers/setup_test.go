@@ -124,6 +124,19 @@ func TestPreflightAllowsMissingDocker(t *testing.T) {
 		t.Fatalf("expected disk_space status ok, got %#v", diskCheck["status"])
 	}
 
+	if cat, _ := diskCheck["category"].(string); cat != "system" {
+		t.Fatalf("expected disk_space category 'system', got %#v", diskCheck["category"])
+	}
+
+	dataPathCheck, ok := checks["data_path_writable"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected data_path_writable check in response")
+	}
+
+	if cat, _ := dataPathCheck["category"].(string); cat != "storage" {
+		t.Fatalf("expected data_path_writable category 'storage', got %#v", dataPathCheck["category"])
+	}
+
 	if _, exists := checks["disk_space_bytes_free"]; exists {
 		t.Fatalf("did not expect disk_space_bytes_free at top level")
 	}
@@ -258,5 +271,44 @@ func TestTouchPathResolvesRelativePathsFromConfigLocation(t *testing.T) {
 	resolvedPath := filepath.Join(filepath.Dir(configPath), relPath)
 	if _, err := os.Stat(resolvedPath); err != nil {
 		t.Fatalf("expected resolved path to exist: %v", err)
+	}
+}
+
+func TestCheckPathWritableDetectsReadOnlyDirectory(t *testing.T) {
+	dir := t.TempDir()
+	roDir := filepath.Join(dir, "readonly")
+	if err := os.Mkdir(roDir, 0555); err != nil {
+		t.Fatalf("mkdir readonly: %v", err)
+	}
+
+	err := checkPathWritable(roDir)
+	if err == nil {
+		t.Fatal("expected error for read-only directory, got nil")
+	}
+	if err.Error() != "cannot write to storage" {
+		t.Fatalf("expected friendly error message, got: %v", err)
+	}
+}
+
+func TestCheckPathWritableSucceedsForWritableDirectory(t *testing.T) {
+	dir := t.TempDir()
+
+	err := checkPathWritable(dir)
+	if err != nil {
+		t.Fatalf("expected no error for writable directory, got: %v", err)
+	}
+}
+
+func TestCheckPathWritableCreatesNonexistentDirectory(t *testing.T) {
+	dir := t.TempDir()
+	newDir := filepath.Join(dir, "new", "nested", "path")
+
+	err := checkPathWritable(newDir)
+	if err != nil {
+		t.Fatalf("expected no error creating directory, got: %v", err)
+	}
+
+	if _, err := os.Stat(newDir); err != nil {
+		t.Fatalf("expected directory to exist, got: %v", err)
 	}
 }

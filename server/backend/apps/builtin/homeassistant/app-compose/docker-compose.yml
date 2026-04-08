@@ -12,7 +12,6 @@ services:
     ports:
       - "{{.port}}:8123"
     restart: unless-stopped
-    network_mode: host
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.name={{.app_name}}"

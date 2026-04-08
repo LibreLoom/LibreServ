@@ -14,28 +14,35 @@ import (
 )
 
 // RestoreApp restores an app from a backup
-func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts RestoreOptions) (*RestoreResult, error) {
+// If targetAppID is provided, restore to that app instead of the backup's original app
+func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetAppID string, opts RestoreOptions) (*RestoreResult, error) {
 	startTime := time.Now()
 	result := &RestoreResult{BackupID: backupID}
 
 	log.Printf("RestoreApp: starting restore for backup %s", backupID)
 
-	// Get backup info
 	backup, err := s.GetBackup(ctx, backupID)
 	if err != nil {
 		result.Error = fmt.Errorf("backup not found: %w", err)
 		log.Printf("RestoreApp: backup not found: %v", err)
 		return result, result.Error
 	}
-	log.Printf("RestoreApp: found backup for app %s at %s", backup.AppID, backup.Path)
 
-	// Verify backup file exists
+	if targetAppID == "" {
+		targetAppID = backup.AppID
+	}
+	if targetAppID == "" {
+		result.Error = fmt.Errorf("no target app specified - select an app to restore to")
+		return result, result.Error
+	}
+
+	log.Printf("RestoreApp: found backup for app %s at %s, restoring to app %s", backup.AppID, backup.Path, targetAppID)
+
 	if _, err := os.Stat(backup.Path); os.IsNotExist(err) {
 		result.Error = fmt.Errorf("backup file not found: %s", backup.Path)
 		return result, result.Error
 	}
 
-	// Verify checksum if requested or when available
 	if (opts.VerifyChecksum || backup.Checksum != "") && backup.Checksum != "" {
 		checksum, err := fileChecksum(backup.Path)
 		if err != nil {
@@ -48,28 +55,26 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 		}
 	}
 
-	// Get app info
 	var appPath, appStatus string
-	err = s.db.QueryRow("SELECT path, status FROM apps WHERE id = ?", backup.AppID).Scan(&appPath, &appStatus)
+	err = s.db.QueryRow("SELECT path, status FROM apps WHERE id = ?", targetAppID).Scan(&appPath, &appStatus)
 	if err != nil {
-		result.Error = fmt.Errorf("app not found (id=%s): %w", backup.AppID, err)
-		log.Printf("RestoreApp: app not found (id=%s): %v", backup.AppID, err)
+		result.Error = fmt.Errorf("app not found (id=%s): %w", targetAppID, err)
+		log.Printf("RestoreApp: app not found (id=%s): %v", targetAppID, err)
 		return result, result.Error
 	}
 	log.Printf("RestoreApp: found app at path %s with status %s", appPath, appStatus)
 
-	// Stop app if required and running
 	if opts.StopBeforeRestore && appStatus == "running" {
-		log.Printf("Stopping app %s for restore", backup.AppID)
+		log.Printf("Stopping app %s for restore", targetAppID)
 		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		if err := s.docker.ComposeStop(stopCtx, appPath); err != nil {
 			cancel()
-			result.Error = fmt.Errorf("failed to stop app %s before restore: %w", backup.AppID, err)
-			log.Printf("RestoreApp: failed to stop app %s: %v", backup.AppID, err)
+			result.Error = fmt.Errorf("failed to stop app %s before restore: %w", targetAppID, err)
+			log.Printf("RestoreApp: failed to stop app %s: %v", targetAppID, err)
 			return result, result.Error
 		}
-		log.Printf("App %s stopped successfully", backup.AppID)
+		log.Printf("App %s stopped successfully", targetAppID)
 	}
 
 	// Create backup of current state before restoring
@@ -106,19 +111,15 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, opts Re
 		return result, result.Error
 	}
 
-	// Restart app if requested
 	if opts.RestartAfterRestore {
-		log.Printf("Starting app %s after restore", backup.AppID)
+		log.Printf("Starting app %s after restore", targetAppID)
 		startCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		if err := s.docker.ComposeUp(startCtx, appPath); err != nil {
-			log.Printf("Warning: failed to start app %s after restore: %v", backup.AppID, err)
-			// Continue anyway - the data was restored
-			// Update app status to stopped since we couldn't start it
-			_, _ = s.db.Exec("UPDATE apps SET status = 'stopped', updated_at = ? WHERE id = ?", time.Now(), backup.AppID)
+			log.Printf("Warning: failed to start app %s after restore: %v", targetAppID, err)
+			_, _ = s.db.Exec("UPDATE apps SET status = 'stopped', updated_at = ? WHERE id = ?", time.Now(), targetAppID)
 		} else {
-			// Update app status to running
-			_, _ = s.db.Exec("UPDATE apps SET status = 'running', updated_at = ? WHERE id = ?", time.Now(), backup.AppID)
+			_, _ = s.db.Exec("UPDATE apps SET status = 'running', updated_at = ? WHERE id = ?", time.Now(), targetAppID)
 		}
 	}
 
