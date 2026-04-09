@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
-import { Info, Heart, ChevronDown } from "lucide-react";
+import { useSystemHardware } from "../../../hooks/useSystemHardware";
+import { Info, Heart, ChevronDown, RefreshCw, Cpu, HardDrive, MemoryStick, Wifi } from "lucide-react";
 import SettingsRow from "../SettingsRow";
 
 const APP_VERSION = "1.0.0";
@@ -32,7 +33,7 @@ function ExtraInfoDropdown({ title, children, defaultOpen = false }) {
         }`}
         aria-hidden={!isOpen}
       >
-        <div className="bg-primary/5 rounded-card p-3 space-y-0">
+        <div className="bg-primary/5 rounded-card rounded-b-card p-3 space-y-0 pb-6">
           {children}
         </div>
       </div>
@@ -45,6 +46,100 @@ function ValueDisplay({ children, mono = false }) {
     <span className={`${mono ? "font-mono" : ""} text-sm text-primary`}>
       {children}
     </span>
+  );
+}
+
+function HardwareInfo() {
+  const { data: hardware, isLoading, refetch, isFetching } = useSystemHardware();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-accent">
+        <RefreshCw size={14} className="animate-spin" />
+        <span>Loading hardware info...</span>
+      </div>
+    );
+  }
+
+  if (!hardware) {
+    return (
+      <button
+        onClick={() => refetch()}
+        className="flex items-center gap-2 text-sm text-accent hover:text-primary transition-colors"
+      >
+        <RefreshCw size={14} />
+        <span>Click to load hardware info</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-accent">Hardware Detection</span>
+        <button
+          onClick={() => refetch()}
+          disabled={isFetching}
+          className="flex items-center gap-1 text-xs text-accent hover:text-primary transition-colors disabled:opacity-50"
+          title="Refresh hardware info"
+        >
+          <RefreshCw size={12} className={isFetching ? "animate-spin" : ""} />
+          <span>Refresh</span>
+        </button>
+      </div>
+      
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+        <div className="flex items-center gap-1.5 text-accent">
+          <Cpu size={12} />
+          <span>CPU</span>
+        </div>
+        <ValueDisplay mono>{hardware.cpu?.cores || "?"} cores</ValueDisplay>
+        
+        <div className="flex items-center gap-1.5 text-accent">
+          <MemoryStick size={12} />
+          <span>RAM</span>
+        </div>
+        <ValueDisplay mono>{hardware.ram?.total_gb?.toFixed(1) || "?"} GB</ValueDisplay>
+        
+        <div className="flex items-center gap-1.5 text-accent">
+          <HardDrive size={12} />
+          <span>Disk</span>
+        </div>
+        <ValueDisplay mono>{hardware.disk?.total_gb || "?"} GB</ValueDisplay>
+        
+        <div className="flex items-center gap-1.5 text-accent">
+          <Wifi size={12} />
+          <span>Network</span>
+        </div>
+        <ValueDisplay mono>{hardware.network?.interfaces?.length || 0} interfaces</ValueDisplay>
+        
+        <div className="flex items-center gap-1.5 text-accent">
+          <span>GPU</span>
+        </div>
+        <ValueDisplay mono className="truncate max-w-[120px]">
+          {hardware.gpu?.description?.split(":")[1]?.trim() || "None"}
+        </ValueDisplay>
+        
+        <div className="flex items-center gap-1.5 text-accent">
+          <span>OS</span>
+        </div>
+        <ValueDisplay mono className="truncate max-w-[120px]">
+          {hardware.os?.name?.replace(/"/g, "") || "Unknown"}
+        </ValueDisplay>
+        
+        <div className="flex items-center gap-1.5 text-accent">
+          <span>Virt</span>
+        </div>
+        <ValueDisplay mono>{hardware.virtualization?.type || "None"}</ValueDisplay>
+        
+        <div className="flex items-center gap-1.5 text-accent">
+          <span>Meets Min</span>
+        </div>
+        <span className={`text-sm ${hardware.meets_minimums ? "text-success" : "text-error"}`}>
+          {hardware.meets_minimums ? "✓ Yes" : "✗ No"}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -80,6 +175,10 @@ export default function AboutCategory({ settings }) {
             <SettingsRow mono label="Proxy Type" hideDivider compact>
               <ValueDisplay mono>{settings?.proxy?.type || "None"}</ValueDisplay>
             </SettingsRow>
+            
+            <div className="mt-4 pt-3 border-t border-primary/10">
+              <HardwareInfo />
+            </div>
           </ExtraInfoDropdown>
         </div>
         </div>
