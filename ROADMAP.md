@@ -933,10 +933,10 @@ List Users → Login as Alice → Setup Token No Longer Valid
 
 #### T4.3.4. Create Hardware Detection Script
 
-**File:** `server/backend/internal/hardware/detect.go`, `scripts/hardware-detect.sh`  
+**File:** `server/backend/internal/hardware/detect.go`  
 **Effort:** 1.5 hours  
-**Status:** ✅ Complete  
-**Completed By:** @opencode
+**Status:** 🟠
+**Completed By:** @Fluffy-Bunny-23, Big-Pickle
 
 **Acceptance Criteria:**
 - [x] Detect CPU, RAM, disk, GPU
@@ -946,19 +946,12 @@ List Users → Login as Alice → Setup Token No Longer Valid
 **Implementation:**
 - Native Go implementation in `internal/hardware/detect.go`
 - API endpoints: `GET /api/v1/system/hardware` (JSON), `GET /api/v1/system/hardware/report` (text)
-- Bash script now wraps API calls (works remotely via `LIBRESERV_API_URL`)
 
 **Usage:**
 ```bash
 # Backend API
 curl http://localhost:8081/api/v1/system/hardware
 curl http://localhost:8081/api/v1/system/hardware/report
-
-# Bash wrapper (can run remotely)
-./scripts/hardware-detect.sh                    # Interactive display
-./scripts/hardware-detect.sh --json            # JSON output
-./scripts/hardware-detect.sh --report           # Generate report
-LIBRESERV_API_URL=https://your-server ./scripts/hardware-detect.sh  # Remote
 ```
 
 ---
