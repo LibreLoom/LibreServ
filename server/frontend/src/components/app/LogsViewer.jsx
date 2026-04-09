@@ -194,17 +194,17 @@ export default function LogsViewer({
           </div>
         </div>
 
-        <div className="flex flex-col flex-1 min-h-0 rounded-[12px] border border-primary/15 bg-[#1e1e1e] overflow-hidden">
+        <div className="flex flex-col flex-1 min-h-0 rounded-[12px] border border-primary/15 bg-[var(--color-bg-secondary)] overflow-hidden">
           <div
             ref={outputRef}
-            className="flex-1 overflow-auto px-4 py-3 font-mono text-xs leading-6 text-gray-300 min-h-[300px]"
+            className="flex-1 overflow-auto px-4 py-3 font-mono text-xs leading-6 text-[var(--color-muted-2x)] min-h-[300px]"
           >
             {filteredLines.length === 0 && streamError ? (
-              <div className="py-10 text-center text-gray-500">
+              <div className="py-10 text-center text-[var(--color-muted)]">
                 Failed to load logs.
               </div>
             ) : filteredLines.length === 0 ? (
-              <div className="py-10 text-center text-gray-500">
+              <div className="py-10 text-center text-[var(--color-muted)]">
                 No logs found for this app yet.
               </div>
             ) : (

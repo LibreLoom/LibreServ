@@ -42,6 +42,9 @@
   --color-primary: var(--primary);
   --color-secondary: var(--secondary);
   --color-accent: var(--accent);
+  --color-muted: var(--text-muted);
+  --color-muted-2x: var(--text-muted-2x);
+  --color-bg-secondary: var(--bg-secondary);
 
   /* Status Colors - Standard colors independent of theme */
   --color-success: var(--palette-success, #22c55e);
@@ -89,12 +92,22 @@
   --primary: var(--palette-light);
   --secondary: var(--palette-dark);
   --accent: var(--palette-accent);
+
+  /* Text colors for light mode */
+  --text-muted: #6b7280;     /* gray-500 */ /* color-scan: ignore-line */
+  --text-muted-2x: #9ca3af;  /* gray-400 */ /* color-scan: ignore-line */
+  --bg-secondary: #f3f4f6;    /* gray-100 */ /* color-scan: ignore-line */
 }
 
 .dark {
   /* Dark Mode Mapping - Invert primary and secondary */
   --primary: var(--palette-dark);
   --secondary: var(--palette-light);
+
+  /* Text colors for dark mode */
+  --text-muted: #9ca3af;    /* gray-400 */ /* color-scan: ignore-line */
+  --text-muted-2x: #6b7280; /* gray-500 */ /* color-scan: ignore-line */
+  --bg-secondary: #1e1e1e;   /* dark gray */ /* color-scan: ignore-line */
 }
 
 /* Custom color theme support */
