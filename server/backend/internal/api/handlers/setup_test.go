@@ -275,6 +275,10 @@ func TestTouchPathResolvesRelativePathsFromConfigLocation(t *testing.T) {
 }
 
 func TestCheckPathWritableDetectsReadOnlyDirectory(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping: root bypasses Unix permission bits, so read-only dir test is unreliable")
+	}
+
 	dir := t.TempDir()
 	roDir := filepath.Join(dir, "readonly")
 	if err := os.Mkdir(roDir, 0555); err != nil {
