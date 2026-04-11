@@ -1,42 +1,8 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { User, Mail, Shield, Lock, ArrowRight } from "lucide-react";
-
-function PasswordStrengthIndicator({ password }) {
-  const strength = useMemo(() => {
-    if (!password) return { score: 0, label: "", color: "" };
-
-    let score = 0;
-    if (password.length >= 12) score += 1;
-    if (password.length >= 16) score += 1;
-    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
-    if (/[0-9]/.test(password)) score += 1;
-    if (/[^a-zA-Z0-9]/.test(password)) score += 1;
-
-    if (score <= 2) return { score, label: "Weak", color: "bg-error" };
-    if (score <= 3) return { score, label: "Fair", color: "bg-warning" };
-    if (score <= 4) return { score, label: "Good", color: "bg-success" };
-    return { score, label: "Strong", color: "bg-success" };
-  }, [password]);
-
-  if (!password) return null;
-
-  return (
-    <div className="mt-2 px-5">
-      <div className="flex gap-1 mb-1">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <div
-            key={i}
-            className={`h-1 flex-1 rounded-full transition-colors ${
-              i <= strength.score ? strength.color : "bg-primary/20"
-            }`}
-          />
-        ))}
-      </div>
-      <p className="text-xs text-primary/60">{strength.label}</p>
-    </div>
-  );
-}
+import PropTypes from "prop-types";
+import PasswordStrengthIndicator from "../../forms/PasswordStrengthIndicator";
 
 export default function AddUserForm({ onSuccess }) {
   const { request } = useAuth();
@@ -135,13 +101,13 @@ export default function AddUserForm({ onSuccess }) {
               id="username"
               type="text"
               value={formData.username}
-onChange={handleChange("username")}
-               placeholder="e.g. johndoe"
-               className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 ${
-                 errors.username
-                   ? "border-accent"
-                   : "border-primary/30 focus:border-accent"
-               }`}
+              onChange={handleChange("username")}
+              placeholder="e.g. johndoe"
+              className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                errors.username
+                  ? "border-error"
+                  : "border-primary/30 focus-visible:border-accent"
+              }`}
               disabled={loading}
               aria-invalid={Boolean(errors.username)}
               aria-describedby={errors.username ? "username-error" : undefined}
@@ -173,7 +139,7 @@ onChange={handleChange("username")}
               value={formData.email}
               onChange={handleChange("email")}
               placeholder="e.g. john@example.com"
-              className="w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
+              className="w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-primary/30 focus-visible:border-accent"
               disabled={loading}
             />
         </div>
@@ -198,11 +164,11 @@ onChange={handleChange("username")}
               value={formData.password}
               onChange={handleChange("password")}
               placeholder="Minimum 12 characters (letters and numbers)"
-className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 ${
-                 errors.password
-                   ? "border-accent"
-                   : "border-primary/30 focus:border-accent"
-               }`}
+              className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
+                errors.password
+                  ? "border-error"
+                  : "border-primary/30 focus-visible:border-accent"
+              }`}
               disabled={loading}
               aria-invalid={Boolean(errors.password)}
               aria-describedby={errors.password ? "password-error" : undefined}
@@ -233,7 +199,7 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 fo
             id="role"
             value={formData.role}
             onChange={handleChange("role")}
-            className="w-full pl-11 pr-10 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent bg-secondary cursor-pointer"
+            className="w-full pl-11 pr-10 py-2 border-2 rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-primary/30 focus-visible:border-accent bg-secondary cursor-pointer"
             disabled={loading}
           >
             <option value="user">User</option>
@@ -267,3 +233,7 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 fo
     </form>
   );
 }
+
+AddUserForm.propTypes = {
+  onSuccess: PropTypes.func,
+};

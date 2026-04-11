@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
-import ErrorDisplay from "../components/ui/ErrorDisplay";
+import ErrorDisplay from "../components/common/ErrorDisplay";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { getSettings, updateSettings } from "../lib/settings-api.js";
@@ -74,21 +74,23 @@ export default function SettingsPage() {
   }, [activeCategory]);
 
   const performSave = useCallback(async () => {
+    const pendingSettings = pendingSettingsRef.current;
+    const pendingSecurity = pendingSecurityRef.current;
     const promises = [];
     
-    if (pendingSettingsRef.current) {
-      promises.push(updateSettings(pendingSettingsRef.current));
-      pendingSettingsRef.current = null;
+    if (pendingSettings) {
+      promises.push(updateSettings(pendingSettings));
     }
     
-    if (pendingSecurityRef.current) {
-      promises.push(updateSecuritySettings(pendingSecurityRef.current));
-      pendingSecurityRef.current = null;
+    if (pendingSecurity) {
+      promises.push(updateSecuritySettings(pendingSecurity));
     }
 
     if (promises.length > 0) {
       try {
         await Promise.all(promises);
+        pendingSettingsRef.current = null;
+        pendingSecurityRef.current = null;
         goeyToast.success("Settings saved", {
           description: "Your changes have been applied.",
           timing: { displayDuration: 2500 },
@@ -111,10 +113,13 @@ export default function SettingsPage() {
   }, [performSave]);
 
   const handleLoggingChange = (level) => {
-    setSettings((prev) => ({
-      ...prev,
-      logging: { ...prev?.logging, level },
-    }));
+    setSettings((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        logging: { ...prev?.logging, level },
+      };
+    });
     pendingSettingsRef.current = { logging: { level } };
     scheduleSave();
   };
@@ -146,7 +151,13 @@ export default function SettingsPage() {
     <main className="bg-primary text-secondary min-h-screen">
       {error && (
         <div className="px-4 pt-4">
-          <ErrorDisplay message={error} />
+          <ErrorDisplay message={error} onDismiss={() => setError(null)} />
+          <button
+            onClick={loadData}
+            className="mt-2 px-4 py-2 text-sm font-mono rounded-pill border-2 border-secondary text-secondary hover:bg-secondary hover:text-primary motion-safe:transition-colors"
+          >
+            Retry
+          </button>
         </div>
       )}
 

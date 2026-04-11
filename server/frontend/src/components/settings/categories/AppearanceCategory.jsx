@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check } from "lucide-react";
 import SettingsRow from "../SettingsRow";
@@ -12,6 +12,13 @@ const THEME_OPTIONS = [
 function ColorInput({ label, value, onChange, description }) {
   const [inputValue, setInputValue] = useState(value || "#000000"); // color-scan: ignore-line default hex
   const [isValid, setIsValid] = useState(true);
+  const lastExternalValue = useRef(value);
+
+  if (value !== lastExternalValue.current) {
+    lastExternalValue.current = value;
+    setInputValue(value || "#000000");
+    setIsValid(true);
+  }
 
   const validateHex = (hex) => /^#[0-9A-Fa-f]{6}$/.test(hex);
 
@@ -46,7 +53,7 @@ function ColorInput({ label, value, onChange, description }) {
           type="color"
           value={value || "#000000"} // color-scan: ignore-line default hex
           onChange={handleColorPickerChange}
-          className="w-8 h-8 rounded-lg cursor-pointer border border-primary/20 bg-transparent"
+          className="w-8 h-8 rounded-large-element cursor-pointer border border-primary/20 bg-transparent"
           aria-label={`Choose ${label} color`}
         />
         <input
@@ -54,9 +61,9 @@ function ColorInput({ label, value, onChange, description }) {
           value={inputValue}
           onChange={handleChange}
           placeholder="#000000" // color-scan: ignore-line placeholder hex
-          className={`w-24 px-2 py-1 text-sm font-mono rounded-lg bg-primary/10 border ${
+          className={`w-24 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 ${
             isValid ? "border-primary/20" : "border-error"
-          } text-primary focus-visible:ring-2 focus:ring-accent`}
+          } text-primary focus-visible:ring-2 focus-visible:ring-accent`}
           aria-label={`${label} hex value`}
         />
       </div>

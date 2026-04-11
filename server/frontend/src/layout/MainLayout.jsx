@@ -1,6 +1,6 @@
 import { Outlet } from "react-router-dom";
 import Navbar from "../components/ui/Navbar";
-import LoadingBar from "../components/ui/LoadingBar";
+import LoadingBar from "../components/common/LoadingBar";
 
 export default function MainLayout() {
   return (

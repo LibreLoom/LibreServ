@@ -464,15 +464,51 @@ func (s *Service) ListEvents(ctx context.Context, filter EventFilter) (*Paginate
 		filter.Offset = 0
 	}
 
-	query := `
-		SELECT id, timestamp, event_type, severity, actor_id, actor_username, 
+	var conditions []string
+	var args []interface{}
+	argIdx := 1
+
+	if filter.ActorID != "" {
+		conditions = append(conditions, fmt.Sprintf("actor_id = $%d", argIdx))
+		args = append(args, filter.ActorID)
+		argIdx++
+	}
+	if filter.EventType != "" {
+		conditions = append(conditions, fmt.Sprintf("event_type = $%d", argIdx))
+		args = append(args, string(filter.EventType))
+		argIdx++
+	}
+	if filter.Severity != "" {
+		conditions = append(conditions, fmt.Sprintf("severity = $%d", argIdx))
+		args = append(args, string(filter.Severity))
+		argIdx++
+	}
+	if !filter.Since.IsZero() {
+		conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", argIdx))
+		args = append(args, filter.Since)
+		argIdx++
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + conditions[0]
+		for _, cond := range conditions[1:] {
+			whereClause += " AND " + cond
+		}
+	}
+
+	query := fmt.Sprintf(`
+		SELECT id, timestamp, event_type, severity, actor_id, actor_username,
 		       ip_address, user_agent, details, metadata, notified
 		FROM security_events
+		%s
 		ORDER BY timestamp DESC
-		LIMIT $1 OFFSET $2
-	`
+		LIMIT $%d OFFSET $%d
+	`, whereClause, argIdx, argIdx+1)
 
-	rows, err := s.db.Query(query, filter.Limit, filter.Offset)
+	args = append(args, filter.Limit, filter.Offset)
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
 	}
@@ -483,9 +519,12 @@ func (s *Service) ListEvents(ctx context.Context, filter EventFilter) (*Paginate
 		return nil, err
 	}
 
-	// Get total count
+	// Get filtered total count
 	var totalCount int
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM security_events`).Scan(&totalCount)
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM security_events %s`, whereClause)
+	countArgs := make([]interface{}, len(args)-2)
+	copy(countArgs, args[:len(args)-2])
+	err = s.db.QueryRow(countQuery, countArgs...).Scan(&totalCount)
 	if err != nil {
 		s.logger.Error("Failed to get total event count", "error", err)
 	}
@@ -500,7 +539,7 @@ func (s *Service) ListEvents(ctx context.Context, filter EventFilter) (*Paginate
 }
 
 func (s *Service) scanEvents(rows *sql.Rows) ([]Event, error) {
-	var events []Event
+	events := make([]Event, 0)
 
 	for rows.Next() {
 		var event Event

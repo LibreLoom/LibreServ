@@ -2,10 +2,10 @@ import { useCallback, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import HeaderCard from "../components/cards/HeaderCard";
 import Card from "../components/common/cards/Card";
-import Dropdown from "../components/ui/Dropdown";
-import AppIcon from "../components/ui/AppIcon";
+import Dropdown from "../components/common/Dropdown";
+import AppIcon from "../components/common/AppIcon";
 import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink } from "lucide-react";
-import StatusPill from "../components/ui/StatusPill";
+import StatusPill from "../components/common/StatusPill";
 import { useApps } from "../hooks/useApps";
 import { useCatalog } from "../hooks/useCatalog";
 
@@ -96,7 +96,7 @@ export default function AppsPage() {
   const { data: installedApps = [], isLoading: appsLoading, error: appsError } = useApps();
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState("");
 
   const loading = catalogLoading || appsLoading;
   const error = catalogError || appsError;
@@ -187,7 +187,7 @@ export default function AppsPage() {
             placeholder="All Categories"
             width={160}
             options={[
-              { value: null, label: "All Categories" },
+              { value: "", label: "All Categories" },
               ...categories.map((cat) => ({
                 value: cat,
                 label: cat.charAt(0).toUpperCase() + cat.slice(1),
@@ -234,7 +234,7 @@ export default function AppsPage() {
 
               return (
                 <Card key={app.id} className="relative flex flex-col">
-                  <StatusPill status={app.status} />
+                  <StatusPill status={app.status} className="absolute top-3 right-3" />
                   <div className="flex items-start gap-4">
                     <AppIcon appId={app.app_id} size={48} className="shrink-0" />
                     <div className="flex-1 min-w-0">
