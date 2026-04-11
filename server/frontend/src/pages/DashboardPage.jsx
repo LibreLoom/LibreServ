@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Clock, Server, CheckCircle, RefreshCw } from "lucide-react";
 
 import StatCard from "../components/cards/StatCard";
@@ -81,23 +81,32 @@ export default function Dashboard() {
   const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
   const { data: resources } = useMonitoring(refreshInterval);
 
-  // Local uptime counter for smooth display between API syncs
-  const uptimeRef = useRef(uptimeSeconds);
+  // Store server uptime and fetch timestamp for drift-free calculation
+  const uptimeDataRef = useRef({ serverUptime: 0, fetchTime: 0 });
 
-  // Sync ref when API provides new value
+  // Update stored uptime when API returns new data
   useEffect(() => {
-    uptimeRef.current = uptimeSeconds;
+    uptimeDataRef.current = {
+      serverUptime: uptimeSeconds,
+      fetchTime: Date.now(),
+    };
   }, [uptimeSeconds]);
 
-  // Increment local counter every second
-  const [displayUptime, setDisplayUptime] = useState(formatUptime(uptimeSeconds));
+  // Calculate display uptime: server uptime + elapsed time since last fetch
+  const getDisplayUptime = useCallback(() => {
+    const { serverUptime, fetchTime } = uptimeDataRef.current;
+    if (fetchTime === 0) return formatUptime(serverUptime);
+    const elapsed = (Date.now() - fetchTime) / 1000;
+    return formatUptime(Math.floor(serverUptime + elapsed));
+  }, []);
+
+  const [displayUptime, setDisplayUptime] = useState(getDisplayUptime);
   useEffect(() => {
     const interval = setInterval(() => {
-      uptimeRef.current += 1;
-      setDisplayUptime(formatUptime(uptimeRef.current));
+      setDisplayUptime(getDisplayUptime());
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [getDisplayUptime]);
 
   // Persist user-selected refresh interval
   useEffect(() => {
