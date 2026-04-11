@@ -4,8 +4,8 @@ services:
     image: lscr.io/linuxserver/homeassistant:latest
     container_name: "{{.instance_id}}-homeassistant"
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID={{.puid}}
+      - PGID={{.pgid}}
       - TZ={{.timezone}}
     volumes:
       - "{{ dataPath }}/config:/config"

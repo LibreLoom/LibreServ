@@ -3,6 +3,7 @@ services:
     image: ghcr.io/danny-avila/librechat-dev-api:latest
     container_name: "{{.instance_id}}-librechat"
     restart: always
+    user: "{{.puid}}:{{.pgid}}"
     ports:
       - "{{.http_port}}:3080"
     depends_on:
@@ -52,6 +53,7 @@ services:
     image: mongo:latest
     container_name: "{{.instance_id}}-mongodb"
     restart: always
+    user: "{{.puid}}:{{.pgid}}"
     command: mongod --noauth
     volumes:
       - "{{ dataPath }}/mongodb:/data/db"
@@ -66,6 +68,7 @@ services:
     image: getmeili/meilisearch:latest
     container_name: "{{.instance_id}}-meilisearch"
     restart: always
+    user: "{{.puid}}:{{.pgid}}"
     environment:
       - "MEILI_HOST=http://meilisearch:7700"
       - "MEILI_NO_ANALYTICS=true"

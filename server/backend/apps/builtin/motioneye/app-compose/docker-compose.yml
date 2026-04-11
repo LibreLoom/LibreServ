@@ -4,6 +4,9 @@ services:
     container_name: "{{.instance_id}}-motioneye"
     restart: unless-stopped
     privileged: {{.enable_usb_cameras}}
+{{- if not .enable_usb_cameras }}
+    user: "{{.puid}}:{{.pgid}}"
+{{- end }}
     ports:
       - "{{.http_port}}:8765"
 {{- if .enable_network_cameras }}

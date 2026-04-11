@@ -9,6 +9,7 @@ services:
         VERSION: ${VERSION:-dev}
     container_name: libreserv
     restart: unless-stopped
+    user: "1000:1000"
     ports:
       - "8080:8080"
     volumes:

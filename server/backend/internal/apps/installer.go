@@ -142,6 +142,8 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	config["instance_id"] = instanceID
 	config["install_path"] = installPath
 	config["app_name"] = appName
+	config["puid"] = os.Getuid()
+	config["pgid"] = os.Getgid()
 
 	config = i.generateAutoValues(appDef, config)
 
@@ -425,7 +427,12 @@ func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string)
 	}
 
 	// Remove the installation directory
-	_ = os.RemoveAll(installPath)
+	if err := os.RemoveAll(installPath); err != nil {
+		i.logger.Warn("Failed to remove install directory (may contain root-owned files from container)",
+			"path", installPath, "error", err,
+			"hint", "You may need to run: sudo rm -rf "+installPath,
+		)
+	}
 
 	// Keep the app record with StatusError so frontend can retrieve the error message
 	// Do NOT delete from DB - this allows the user to see what went wrong
