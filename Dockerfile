@@ -23,6 +23,9 @@ RUN VERSION=${VERSION} make build
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates docker-cli docker-compose
 
+# Create non-root user
+RUN adduser -D -u 1000 libreserv
+
 WORKDIR /app
 # Copy backend binary
 COPY --from=backend-builder /app/backend/bin/libreserv /app/libreserv
@@ -32,6 +35,11 @@ COPY --from=frontend-builder /app/backend/OS/dist /app/OS/dist
 COPY server/backend/configs /app/configs
 # Copy apps catalog
 COPY server/backend/apps /app/apps
+
+# Ensure data directories are writable by libreserv user
+RUN mkdir -p /app/data /app/configs && chown -R libreserv:libreserv /app
+
+USER libreserv
 
 EXPOSE 8080
 ENTRYPOINT ["/app/libreserv"]

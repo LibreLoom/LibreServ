@@ -158,6 +158,11 @@ func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath st
 				} else {
 					s["security_opt"] = []string{"no-new-privileges:true"}
 				}
+
+				// Run as host user to prevent root-owned files in volumes
+				if _, hasUser := s["user"]; !hasUser {
+					s["user"] = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+				}
 			}
 		}
 	}

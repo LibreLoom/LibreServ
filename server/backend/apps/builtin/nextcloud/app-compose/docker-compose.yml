@@ -1,9 +1,6 @@
-version: "3.8"
-
-# Based on the official Nextcloud AIO installation documentation:
-# https://github.com/nextcloud/all-in-one/blob/main/compose.yml
-# NOTE: Docker socket access is required for AppAPI functionality
-# (allows Nextcloud to manage app containers dynamically)
+# NOTE: Nextcloud AIO requires root to manage sub-containers internally.
+# The AIO mastercontainer spawns additional containers (nginx, redis, etc.)
+# that handle their own user mapping. Do NOT add user: directive here.
 services:
   nextcloud-aio-mastercontainer:
     image: nextcloud/all-in-one:latest

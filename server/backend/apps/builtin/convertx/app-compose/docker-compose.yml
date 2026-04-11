@@ -3,6 +3,7 @@ services:
     image: ghcr.io/c4illin/convertx:latest
     container_name: "{{.instance_id}}-convertx"
     restart: unless-stopped
+    user: "{{.puid}}:{{.pgid}}"
     ports:
       - "{{.http_port}}:3000"
     environment:
