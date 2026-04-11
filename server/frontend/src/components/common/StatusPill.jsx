@@ -24,8 +24,8 @@ const statusConfig = {
   unknown: {
     icon: Circle,
     label: "Unknown",
-    colorVar: "var(--color-secondary)",
-    bgVar: "var(--bg-info)",
+    colorVar: "--color-secondary",
+    bgVar: "--bg-info",
   },
 };
 
@@ -35,7 +35,7 @@ export default function StatusPill({ status, className = "" }) {
 
   return (
     <div
-      className={`absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-pill ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill ${className}`}
         style={{
           backgroundColor: `var(${config.bgVar})`,
           color: `var(--color-primary)`,

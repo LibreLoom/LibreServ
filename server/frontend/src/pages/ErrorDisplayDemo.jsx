@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ErrorDisplay, InlineError, FormErrorSummary, ApiError } from '../components/ui/ErrorDisplay';
+import { ErrorDisplay, InlineError, FormErrorSummary, ApiError } from '../components/common/ErrorDisplay';
 
 export default function ErrorDisplayDemo() {
   const [showError, setShowError] = useState(false);

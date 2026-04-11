@@ -5,7 +5,7 @@ import StatCard from "../components/cards/StatCard";
 import HeaderCard from "../components/cards/HeaderCard";
 import AppCards from "../components/cards/AppCards";
 import DropdownCard from "../components/cards/DropdownCard";
-import RefreshDropdown, { REFRESH_INTERVALS } from "../components/ui/RefreshDropdown";
+import RefreshDropdown, { REFRESH_INTERVALS } from "../components/common/RefreshDropdown";
 import WelcomeCard from "../components/onboarding/WelcomeCard";
 
 import { dashboard as greetingMessages } from "../assets/greetings";

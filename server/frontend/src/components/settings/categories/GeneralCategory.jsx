@@ -1,8 +1,17 @@
 import { useState } from "react";
 import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
-import { Server, Globe, FileText, ChevronDown } from "lucide-react";
+import { FileText, ChevronDown } from "lucide-react";
 import SettingsRow from "../SettingsRow";
 import Dropdown from "../../common/Dropdown";
+import StatusBadge from "../../common/StatusBadge";
+
+function InlineValue({ children, mono = false }) {
+  return (
+    <span className={`${mono ? "font-mono" : ""} text-sm text-primary`}>
+      {children}
+    </span>
+  );
+}
 
 function ExtraInfoDropdown({ title, children, defaultOpen = false }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -13,7 +22,7 @@ function ExtraInfoDropdown({ title, children, defaultOpen = false }) {
       <button
         onClick={() => setIsOpen(!isOpen)}
         type="button"
-        className="flex items-center gap-1.5 font-mono text-xs text-accent hover:text-primary transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 font-mono text-xs text-accent hover:text-primary motion-safe:transition-colors cursor-pointer"
         aria-expanded={isOpen}
         aria-controls={dropdownId}
       >
@@ -36,27 +45,6 @@ function ExtraInfoDropdown({ title, children, defaultOpen = false }) {
         </div>
       </div>
     </div>
-  );
-}
-
-function ValueDisplay({ children, mono = false }) {
-  return (
-    <span className={`${mono ? "font-mono" : ""} text-sm text-primary`}>
-      {children}
-    </span>
-  );
-}
-
-function StatusBadge({ children, variant = "default" }) {
-  const variants = {
-    default: "bg-primary/10 text-primary",
-    warning: "bg-warning/20 text-warning",
-    accent: "bg-accent/20 text-accent",
-  };
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-pill text-xs font-medium ${variants[variant]}`}>
-      {children}
-    </span>
   );
 }
 
@@ -90,16 +78,16 @@ export default function GeneralCategory({ settings }) {
             />
           </SettingsRow>
           <SettingsRow label="Log Path" hideDivider>
-            <ValueDisplay mono>{settings?.logging?.path || "N/A"}</ValueDisplay>
+            <InlineValue mono>{settings?.logging?.path || "N/A"}</InlineValue>
           </SettingsRow>
 
           <div className="border-t border-primary/10 pt-3" />
           <ExtraInfoDropdown title="backend info">
             <SettingsRow mono label="Host" compact>
-              <ValueDisplay mono>{settings?.backend?.host || "N/A"}</ValueDisplay>
+              <InlineValue mono>{settings?.backend?.host || "N/A"}</InlineValue>
             </SettingsRow>
             <SettingsRow mono label="Port" compact>
-              <ValueDisplay mono>{settings?.backend?.port || "N/A"}</ValueDisplay>
+              <InlineValue mono>{settings?.backend?.port || "N/A"}</InlineValue>
             </SettingsRow>
             <SettingsRow mono label="Mode" hideDivider compact>
               <StatusBadge variant={settings?.backend?.mode === "production" ? "default" : "warning"}>
@@ -111,7 +99,7 @@ export default function GeneralCategory({ settings }) {
           {settings?.proxy && (
             <ExtraInfoDropdown title="proxy info">
               <SettingsRow mono label="Type" compact>
-                <ValueDisplay mono>{settings?.proxy?.type || "N/A"}</ValueDisplay>
+                <InlineValue mono>{settings?.proxy?.type || "N/A"}</InlineValue>
               </SettingsRow>
               {settings?.proxy?.mode && (
                 <SettingsRow mono label="Mode" compact>
@@ -122,12 +110,12 @@ export default function GeneralCategory({ settings }) {
               )}
               {settings?.proxy?.admin_api && (
                 <SettingsRow mono label="Admin API" compact>
-                  <ValueDisplay mono>{settings?.proxy?.admin_api}</ValueDisplay>
+                  <InlineValue mono>{settings?.proxy?.admin_api}</InlineValue>
                 </SettingsRow>
               )}
               {settings?.proxy?.default_domain && (
                 <SettingsRow mono label="Default Domain" compact>
-                  <ValueDisplay mono>{settings?.proxy?.default_domain}</ValueDisplay>
+                  <InlineValue mono>{settings?.proxy?.default_domain}</InlineValue>
                 </SettingsRow>
               )}
               <SettingsRow mono label="Auto HTTPS" hideDivider compact>

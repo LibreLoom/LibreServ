@@ -39,7 +39,7 @@ function AppCardInner({ app }) {
 
   return (
     <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start relative">
-      <StatusPill status={app.status} className="absolute top-3 right-3" />
+      <StatusPill status={app.status} className="absolute top-3 right-3 z-10" />
 
       <div className="flex items-center gap-4">
         <AppIcon appId={app.app_id} size={48} />

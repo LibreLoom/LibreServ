@@ -7,7 +7,7 @@ import Card from "../components/common/cards/Card";
 import CardButton from "../components/cards/CardButton";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
-import AppIcon from "../components/ui/AppIcon";
+import AppIcon from "../components/common/AppIcon";
 import api from "../lib/api";
 import {
   Grid2X2,
@@ -30,7 +30,7 @@ import {
   Settings,
   Terminal,
 } from "lucide-react";
-import StatusPill from "../components/ui/StatusPill";
+import StatusPill from "../components/common/StatusPill";
 import { ActionCard } from "../components/app/actions/ActionCard";
 import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal";
 import { ExposedInfoCard } from "../components/app/ExposedInfoCard";
@@ -391,7 +391,7 @@ export default function AppDetailPage() {
           }
           rightContent={
             app && (
-              <StatusPill status={app.status} className="relative !static" />
+              <StatusPill status={app.status} />
             )
           }
         />
