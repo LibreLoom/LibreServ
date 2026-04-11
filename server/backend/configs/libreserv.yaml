@@ -1,6 +1,6 @@
 server:
     host: 0.0.0.0
-    port: 8081
+    port: 8080
     mode: development
 database:
     path: ./dev/data/libreserv.db
