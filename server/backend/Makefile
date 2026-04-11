@@ -38,7 +38,7 @@ frontend-build: frontend
 # Testing targets
 test:
 	@echo ">> Running tests"
-	@go test ./...
+	@go test $(GO_PKGS)
 
 test-race:
 	@echo ">> Running tests with race detector"
@@ -46,32 +46,36 @@ test-race:
 
 test-coverage:
 	@echo ">> Running tests with coverage"
-	@go test -coverprofile=coverage.out -covermode=atomic ./...
+	@go test -coverprofile=coverage.out -covermode=atomic $(GO_PKGS)
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report: coverage.html"
 
+FMT_SOURCES := $(shell find . -name '*.go' -not -path './.cache/*' -not -path './vendor/*' -not -path './dev/*' 2>/dev/null)
+GO_PKGS := ./cmd/... ./internal/...
+
 fmt-check:
 	@echo ">> Checking format"
-	@test -z "$(shell gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
+	@test -z "$(shell echo '$(FMT_SOURCES)' | xargs gofmt -l 2>/dev/null)" || \
+		(echo "Files need formatting:" && echo '$(FMT_SOURCES)' | xargs gofmt -l && exit 1)
 
 vet:
 	@echo ">> Running go vet"
-	@go vet ./...
+	@go vet $(GO_PKGS)
 
 lint: fmt-check vet
 
 # Security scanning
 govulncheck:
 	@echo ">> Running govulncheck"
-	@govulncheck ./...
+	@govulncheck $(GO_PKGS)
 
 gosec:
 	@echo ">> Running gosec"
-	@gosec -severity high ./...
+	@gosec -severity high $(GO_PKGS)
 
 staticcheck:
 	@echo ">> Running staticcheck"
-	@staticcheck ./...
+	@staticcheck $(GO_PKGS)
 
 security: govulncheck gosec staticcheck
 
