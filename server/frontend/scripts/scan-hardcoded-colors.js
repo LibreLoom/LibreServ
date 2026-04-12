@@ -311,6 +311,17 @@ function walkDir(dirPath, files) {
 }
 
 function shouldIgnoreFile(filePath) {
+  const fileName = path.basename(filePath).toLowerCase();
+  if (
+    fileName === "themecontext.jsx" ||
+    fileName === "themecontext.tsx" ||
+    fileName === "appearancecategory.jsx" ||
+    fileName === "appearancecategory.tsx" ||
+    fileName === "colorinput.jsx" ||
+    fileName === "colorinput.tsx"
+  ) {
+    return true;
+  }
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".svg") {
     const segments = filePath.split(path.sep);
