@@ -8,9 +8,9 @@ import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import api from "../lib/api";
 import { User, Mail, Shield, Calendar, Edit2, Clock } from "lucide-react";
-import ChangeEmailForm from "../components/forms/ChangeEmailForm";
-import RoleChangeForm from "../components/forms/RoleChangeForm";
-import ResetPasswordForm from "../components/forms/ResetPasswordForm";
+import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
+import RoleChangeForm from "../components/common/forms/RoleChangeForm";
+import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
 
 export default function UserDetailPage() {
   const { userId } = useParams();
@@ -241,34 +241,30 @@ export default function UserDetailPage() {
               </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-                <div onClick={() => setShowEditModal(true)}>
-                  <CardButton
-                    action="#"
-                    actionLabel="Change Email"
-                    variant="inverted"
-                  />
-                </div>
-                <div onClick={() => setShowRoleModal(true)}>
-                  <CardButton
-                    action="#"
-                    actionLabel="Change Role"
-                    variant="inverted"
-                  />
-                </div>
-                <div onClick={() => setShowResetPasswordModal(true)}>
-                  <CardButton
-                    action="#"
-                    actionLabel="Reset Password"
-                    variant="inverted"
-                  />
-                </div>
-                <div onClick={() => setShowDeleteConfirm(true)}>
-                  <CardButton
-                    action="#"
-                    actionLabel="Delete User"
-                    variant="danger"
-                  />
-                </div>
+                <button
+                  onClick={() => setShowEditModal(true)}
+                  className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                >
+                  <span className="text-sm font-medium">Change Email</span>
+                </button>
+                <button
+                  onClick={() => setShowRoleModal(true)}
+                  className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                >
+                  <span className="text-sm font-medium">Change Role</span>
+                </button>
+                <button
+                  onClick={() => setShowResetPasswordModal(true)}
+                  className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                >
+                  <span className="text-sm font-medium">Reset Password</span>
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                >
+                  <span className="text-sm font-medium">Delete User</span>
+                </button>
               </div>
             </Card>
           </section>

@@ -165,7 +165,7 @@ export default function Login() {
             type="submit"
             className={`bg-secondary text-primary rounded-pill p-2 mt-6 transition-all duration-300 ease-out hover:bg-primary hover:text-secondary hover:ring-accent hover:ring-2 disabled:bg-accent disabled:cursor-not-allowed disabled:ring-0`}
             disabled={loading}
-            aria-pressed={loading}
+            aria-busy={loading}
           >
             <span className="flex items-center justify-center">
               <span className="sr-only">{loading ? "Logging in, please wait" : ""}</span>

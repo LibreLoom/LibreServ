@@ -14,6 +14,7 @@ import Card from "../../cards/Card";
 import Toggle from "../../common/Toggle";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
+import Dropdown from "../../common/Dropdown";
 import TypewriterLoader from "../../ui/TypewriterLoader";
 import ErrorDisplay from "../../common/ErrorDisplay";
 import SettingsRow from "../SettingsRow";
@@ -179,7 +180,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
               : "bg-error/20 text-error"
           }`}
         >
-          {testResult.success ? <Check size={16} /> : <AlertCircle size={16} />}
+          {testResult.success ? <Check size={16} aria-hidden="true" /> : <AlertCircle size={16} aria-hidden="true" />}
           {testResult.message}
         </div>
       )}
@@ -203,16 +204,17 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Filter size={14} className="text-accent" />
-              <select
+              <Dropdown
                 value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                className="text-xs px-2 py-1 border rounded bg-primary focus-visible:ring-2 focus:ring-accent"
-              >
-                <option value="24h">24h</option>
-                <option value="7d">7d</option>
-                <option value="30d">30d</option>
-                <option value="all">All</option>
-              </select>
+                onChange={setFilter}
+                width={80}
+                options={[
+                  { value: "24h", label: "24h" },
+                  { value: "7d", label: "7d" },
+                  { value: "30d", label: "30d" },
+                  { value: "all", label: "All" },
+                ]}
+              />
             </div>
             {lastUpdated && (
               <span className="text-xs text-accent hidden sm:inline">
@@ -223,9 +225,9 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
               onClick={loadActivityData}
               disabled={activityLoading}
               className="p-1.5 rounded hover:bg-primary/10 disabled:opacity-50 transition-colors"
-              title="Refresh"
+              aria-label="Refresh activity log"
             >
-              <RefreshCw size={14} className={`text-accent ${activityLoading ? "animate-spin" : ""}`} />
+              <RefreshCw size={14} className={`text-accent ${activityLoading ? "animate-spin" : ""}`} aria-hidden="true" />
             </button>
           </div>
         }
@@ -245,10 +247,10 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-secondary">
                 <tr className="border-b border-primary/10">
-                  <th className="text-left py-2 px-4 font-medium text-accent">Time</th>
-                  <th className="text-left py-2 px-4 font-medium text-accent">Event</th>
-                  <th className="text-left py-2 px-4 font-medium text-accent hidden sm:table-cell">User</th>
-                  <th className="text-left py-2 px-4 font-medium text-accent">Severity</th>
+                  <th scope="col" className="text-left py-2 px-4 font-medium text-accent">Time</th>
+                  <th scope="col" className="text-left py-2 px-4 font-medium text-accent">Event</th>
+                  <th scope="col" className="text-left py-2 px-4 font-medium text-accent hidden sm:table-cell">User</th>
+                  <th scope="col" className="text-left py-2 px-4 font-medium text-accent">Severity</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-primary/10">
@@ -400,7 +402,6 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         </div>
       </Card>
 
-      <div className="h-12 md:h-16" aria-hidden="true"></div>
     </div>
   );
 }

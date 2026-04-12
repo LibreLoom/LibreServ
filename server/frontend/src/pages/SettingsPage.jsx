@@ -165,14 +165,14 @@ export default function SettingsPage() {
       )}
 
       <div className="hidden md:flex md:gap-6 md:p-6 md:pt-8 pb-20 h-[calc(100vh-4rem)] overflow-hidden">
-        <div className="w-[20%] min-w-[200px] max-w-[280px] flex-shrink-0">
+        <div className="w-[28%] min-w-[260px] max-w-[360px] flex-shrink-0">
           <SettingsSidebar
             user={user}
             activeCategory={activeCategory}
             onCategoryChange={setActiveCategory}
           />
         </div>
-        <div className="flex-1 overflow-y-auto pr-2 animate-in fade-in slide-in-from-right-2 duration-300">
+        <div className="flex-1 overflow-y-auto pl-10 pr-12 animate-in fade-in slide-in-from-right-2 duration-300">
           <SettingsContent
             category={activeCategory}
             settings={settings}

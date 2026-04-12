@@ -86,7 +86,14 @@ function UploadProgress({ file, onUpload, onComplete, onError }) {
     <div className="space-y-3">
       <TypewriterLoader message="Uploading backup..." size="md" />
 
-      <div className="w-full bg-primary/10 rounded-full h-2 overflow-hidden">
+      <div
+        role="progressbar"
+        aria-valuenow={progress}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`Upload progress: ${progress}%`}
+        className="w-full bg-primary/10 rounded-full h-2 overflow-hidden"
+      >
         <div
           className="bg-primary h-full transition-all duration-300 ease-out"
           style={{ width: `${progress}%` }}
@@ -95,7 +102,7 @@ function UploadProgress({ file, onUpload, onComplete, onError }) {
 
       <div className="flex justify-between text-xs text-primary/50 font-mono">
         <span>{formatBytes(uploadedBytes)} / {formatBytes(file.size)}</span>
-        <span>{progress}%</span>
+        <span aria-hidden="true">{progress}%</span>
       </div>
     </div>
   );

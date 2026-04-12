@@ -14,9 +14,9 @@ import Toggle from "../common/Toggle";
 const DEFAULT_LINE_COUNT = 500;
 const LOAD_MORE_INCREMENT = 500;
 const CONTROL_BUTTON_CLASS =
-  "rounded-pill border border-accent bg-secondary px-4 py-2 text-sm font-sans text-primary transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+  "rounded-pill border-2 border-accent bg-secondary px-4 py-2 text-sm font-sans text-primary transition-all hover:scale-105 hover:bg-accent/20 hover:border-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 const ICON_BUTTON_CLASS =
-  "p-2 rounded-pill border border-primary/20 bg-secondary text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+  "p-2 rounded-pill border-2 border-primary/20 bg-secondary text-primary transition-all hover:scale-105 hover:bg-primary/10 hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 function normaliseLines(input) {
   if (!input) return [];
@@ -201,14 +201,13 @@ export default function LogsViewer({
             type="button"
             onClick={handleToggleSearch}
             className={`${ICON_BUTTON_CLASS} ${showSearch || filter ? "border-accent text-accent" : ""}`}
-            title="Search"
             aria-label="Toggle search"
           >
-            <Search size={18} />
+            <Search size={18} aria-hidden="true" />
           </button>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary">
-            <ArrowDownToLine size={14} className={`shrink-0 transition-colors ${autoScroll ? "text-accent" : "text-primary/40"}`} />
+            <ArrowDownToLine size={14} className={`shrink-0 transition-colors ${autoScroll ? "text-accent" : "text-primary/40"}`} aria-hidden="true" />
             <Toggle
               checked={autoScroll}
               onChange={setAutoScroll}
@@ -221,10 +220,9 @@ export default function LogsViewer({
             type="button"
             onClick={handleDownload}
             className={ICON_BUTTON_CLASS}
-            title="Download logs"
             aria-label="Download logs"
           >
-            <Download size={18} />
+            <Download size={18} aria-hidden="true" />
           </button>
         </div>
 

@@ -463,10 +463,11 @@ export default function AppDetailPage() {
                   href={appUrl}
                   target="_blank"
                   rel="noopener noreferrer"
+                  aria-label="Open app (opens in new tab)"
                   className="text-lg font-mono text-accent hover:underline flex items-center gap-1"
                 >
                   Open App
-                  <ExternalLink size={14} />
+                  <ExternalLink size={14} aria-hidden="true" />
                 </a>
               </Card>
             )}

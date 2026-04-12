@@ -15,7 +15,7 @@ export default function AboutCategory({ settings }) {
             <span className="font-mono text-sm text-primary">{APP_VERSION}</span>
           </div>
 
-          <CollapsibleSection title="server details" size="xs" background className="mt-3">
+          <CollapsibleSection title="Server Details" size="xs" background className="mt-3">
             <div className="space-y-2">
               <ValueDisplay label="Backend API" value={settings?.server?.host} />
               <ValueDisplay label="Server Port" value={settings?.server?.port} />

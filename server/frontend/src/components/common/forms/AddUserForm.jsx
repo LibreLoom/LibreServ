@@ -1,8 +1,45 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useAuth } from "../../../hooks/useAuth";
-import { User, Mail, Shield, Lock, ArrowRight } from "lucide-react";
+import { Shield, ArrowRight } from "lucide-react";
 import PropTypes from "prop-types";
-import PasswordStrengthIndicator from "../../forms/PasswordStrengthIndicator";
+import FormInput from "./FormInput";
+import Dropdown from "../Dropdown";
+
+function PasswordStrengthIndicator({ password }) {
+  const strength = useMemo(() => {
+    if (!password) return { score: 0, label: "", color: "" };
+
+    let score = 0;
+    if (password.length >= 12) score += 1;
+    if (password.length >= 16) score += 1;
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) score += 1;
+    if (/[0-9]/.test(password)) score += 1;
+    if (/[^a-zA-Z0-9]/.test(password)) score += 1;
+
+    if (score <= 2) return { score, label: "Weak", color: "bg-error" };
+    if (score <= 3) return { score, label: "Fair", color: "bg-warning" };
+    if (score <= 4) return { score, label: "Good", color: "bg-success" };
+    return { score, label: "Strong", color: "bg-success" };
+  }, [password]);
+
+  if (!password) return null;
+
+  return (
+    <div className="mt-2 px-5">
+      <div className="flex gap-1 mb-1">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className={`h-1 flex-1 rounded-full transition-colors ${
+              i <= strength.score ? strength.color : "bg-primary/20"
+            }`}
+          />
+        ))}
+      </div>
+      <p className="text-xs text-primary/60">{strength.label}</p>
+    </div>
+  );
+}
 
 export default function AddUserForm({ onSuccess }) {
   const { request } = useAuth();
@@ -84,101 +121,42 @@ export default function AddUserForm({ onSuccess }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label
-          htmlFor="username"
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          Username
-        </label>
-        <div className="relative">
-          <User
-            size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
-            aria-hidden="true"
-          />
-            <input
-              id="username"
-              type="text"
-              value={formData.username}
-              onChange={handleChange("username")}
-              placeholder="e.g. johndoe"
-              className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                errors.username
-                  ? "border-error"
-                  : "border-primary/30 focus-visible:border-accent"
-              }`}
-              disabled={loading}
-              aria-invalid={Boolean(errors.username)}
-              aria-describedby={errors.username ? "username-error" : undefined}
-            />
-        </div>
-        {errors.username && (
-          <p id="username-error" className="text-accent text-xs mt-1 px-5">
-            {errors.username}
-          </p>
-        )}
-      </div>
+      <FormInput
+        label="Username"
+        name="username"
+        value={formData.username}
+        onChange={handleChange("username")}
+        placeholder="e.g. johndoe"
+        error={errors.username}
+        icon="username"
+        required
+        disabled={loading}
+      />
+
+      <FormInput
+        label="Email (optional)"
+        name="email"
+        type="email"
+        value={formData.email}
+        onChange={handleChange("email")}
+        placeholder="e.g. john@example.com"
+        icon="email"
+        disabled={loading}
+      />
 
       <div>
-        <label
-          htmlFor="email"
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          Email (optional)
-        </label>
-        <div className="relative">
-          <Mail
-            size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
-            aria-hidden="true"
-          />
-            <input
-              id="email"
-              type="email"
-              value={formData.email}
-              onChange={handleChange("email")}
-              placeholder="e.g. john@example.com"
-              className="w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-primary/30 focus-visible:border-accent"
-              disabled={loading}
-            />
-        </div>
-      </div>
-
-      <div>
-        <label
-          htmlFor="password"
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          Password
-        </label>
-        <div className="relative">
-          <Lock
-            size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
-            aria-hidden="true"
-          />
-            <input
-              id="password"
-              type="password"
-              value={formData.password}
-              onChange={handleChange("password")}
-              placeholder="Minimum 12 characters (letters and numbers)"
-              className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-                errors.password
-                  ? "border-error"
-                  : "border-primary/30 focus-visible:border-accent"
-              }`}
-              disabled={loading}
-              aria-invalid={Boolean(errors.password)}
-              aria-describedby={errors.password ? "password-error" : undefined}
-            />
-        </div>
-        {errors.password && (
-          <p id="password-error" className="text-accent text-xs mt-1 px-5">
-            {errors.password}
-          </p>
-        )}
+        <FormInput
+          label="Password"
+          name="password"
+          type="password"
+          value={formData.password}
+          onChange={handleChange("password")}
+          placeholder="Minimum 12 characters (letters and numbers)"
+          error={errors.password}
+          icon="password"
+          required
+          disabled={loading}
+        />
         <PasswordStrengthIndicator password={formData.password} />
       </div>
 
@@ -189,23 +167,16 @@ export default function AddUserForm({ onSuccess }) {
         >
           Role
         </label>
-        <div className="relative">
-          <Shield
-            size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
-            aria-hidden="true"
-          />
-          <select
-            id="role"
-            value={formData.role}
-            onChange={handleChange("role")}
-            className="w-full pl-11 pr-10 py-2 border-2 rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 border-primary/30 focus-visible:border-accent bg-secondary cursor-pointer"
-            disabled={loading}
-          >
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
-        </div>
+        <Dropdown
+          value={formData.role}
+          onChange={(val) => { setFormData((prev) => ({ ...prev, role: val })); setErrors((prev) => ({ ...prev, role: "" })); }}
+          fullWidth
+          disabled={loading}
+          options={[
+            { value: "user", label: "User" },
+            { value: "admin", label: "Admin" },
+          ]}
+        />
       </div>
 
       {errors.form && (

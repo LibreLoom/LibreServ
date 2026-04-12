@@ -1,6 +1,6 @@
 import PropTypes from "prop-types";
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useState, useId } from "react";
 
 export default function CollapsibleSection({
   title,
@@ -12,7 +12,7 @@ export default function CollapsibleSection({
   className = "",
 }) {
   const [open, setOpen] = useState(defaultOpen);
-
+  const contentId = useId();
   const sizeClass = size === "xs" ? "text-xs" : "text-sm";
 
   return (
@@ -22,6 +22,7 @@ export default function CollapsibleSection({
         onClick={() => setOpen(!open)}
         className={`flex items-center gap-1.5 ${sizeClass} text-accent hover:text-primary motion-safe:transition-colors w-full py-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill ${mono ? "font-mono" : ""}`}
         aria-expanded={open}
+        aria-controls={contentId}
       >
         <ChevronDown
           size={size === "xs" ? 12 : 14}
@@ -33,6 +34,7 @@ export default function CollapsibleSection({
         <span>{title}</span>
       </button>
       <div
+        id={contentId}
         className={`overflow-hidden motion-safe:transition-all ease-[var(--motion-easing-emphasized)] ${
           open ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
         }`}

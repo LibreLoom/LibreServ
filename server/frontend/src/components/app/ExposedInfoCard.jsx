@@ -19,11 +19,15 @@ function AdvancedSection({ show, onToggle, advancedSortedGroups, advancedGrouped
     }
   }, [show, advancedSortedGroups]);
 
+  const contentId = "advanced-info-content";
+
   return (
     <div className="mt-8 pt-8 border-t border-dashed border-secondary/15">
       <button
         onClick={onToggle}
         className="group flex w-full items-center justify-between gap-3 rounded-large-element px-4 py-3 text-left font-mono text-sm text-secondary/50 hover:bg-secondary/5 motion-safe:transition-all"
+        aria-expanded={show}
+        aria-controls={contentId.current}
       >
         <span className="uppercase tracking-wider text-xs">Advanced Information</span>
         <ChevronDown
@@ -35,11 +39,14 @@ function AdvancedSection({ show, onToggle, advancedSortedGroups, advancedGrouped
       </button>
 
       <div
+        ref={contentRef}
+        id={contentId.current}
         className="overflow-hidden motion-safe:transition-[max-height,opacity] motion-safe:duration-500 motion-safe:ease-in-out"
         style={{ maxHeight: show ? `${height}px` : "0px", opacity: show ? 1 : 0 }}
+        role="region"
+        aria-label="Advanced information"
       >
         <div
-          ref={contentRef}
           className="mt-4 border-l-2 border-secondary/10 pl-6"
         >
           {advancedSortedGroups.map((gk) => renderGroup(gk, advancedGrouped, true))}
@@ -107,6 +114,12 @@ export function ExposedInfoCard({ info }) {
             field.copyable ? "cursor-copy" : "cursor-pointer"
           }`}
           onClick={handleMaskedValueClick}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setHoverReveal((prev) => ({ ...prev, [key]: !prev[key] }));
+            }
+          }}
           onMouseEnter={() => {
             if (window.matchMedia("(hover: hover)").matches) {
               setHoverReveal((prev) => ({ ...prev, [key]: true }));
@@ -117,6 +130,9 @@ export function ExposedInfoCard({ info }) {
               setHoverReveal((prev) => ({ ...prev, [key]: false }));
             }
           }}
+          role="button"
+          tabIndex={0}
+          aria-label={isVisible ? `Hide ${field.label || "value"}` : `Reveal ${field.label || "value"}`}
         >
           <span
             className={`
@@ -265,7 +281,7 @@ export function ExposedInfoCard({ info }) {
                   <button
                     onClick={() => toggleReveal(key)}
                     className="p-2 rounded-pill hover:bg-secondary/10 transition-colors text-secondary/60 hover:text-secondary"
-                    title={revealed[key] ? "Hide" : "Reveal"}
+                    aria-label={revealed[key] ? `Hide ${field.label}` : `Reveal ${field.label}`}
                   >
                     {revealed[key] ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -274,7 +290,7 @@ export function ExposedInfoCard({ info }) {
                   <button
                     onClick={() => copyToClipboard(key, field.value)}
                     className="p-2 rounded-pill hover:bg-secondary/10 transition-colors text-secondary/60 hover:text-secondary"
-                    title="Copy to clipboard"
+                    aria-label={`Copy ${field.label} to clipboard`}
                   >
                     {copied[key] ? (
                       <Check size={16} className="text-success" />

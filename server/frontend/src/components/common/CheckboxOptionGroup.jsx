@@ -11,17 +11,18 @@ export default function CheckboxOptionGroup({
       {options.map((opt) => (
         <label
           key={opt.key}
-          className={`flex items-center gap-3 p-2.5 rounded-large-element border cursor-pointer transition-all duration-200 ${
+          className={`flex peer items-center gap-3 p-2.5 rounded-large-element border cursor-pointer transition-all duration-200 ${
             values[opt.key]
               ? "border-accent bg-accent/10"
-              : "border-primary/10 hover:bg-primary/5"
+              : "border-primary/10 hover:bg-primary/5 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent"
           }`}
         >
           <input
             type="checkbox"
             checked={values[opt.key] || false}
             onChange={() => onChange(opt.key)}
-            className="sr-only"
+            className="sr-only peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2"
+            tabIndex={0}
           />
           <div
             className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${

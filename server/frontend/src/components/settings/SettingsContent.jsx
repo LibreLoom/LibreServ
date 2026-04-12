@@ -86,7 +86,7 @@ export default function SettingsContent({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="sticky top-0 z-10 bg-primary pt-1 flex items-center justify-between">
         <h1 className="text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-1 duration-200">
           {title}
         </h1>
@@ -96,7 +96,7 @@ export default function SettingsContent({
           onSavedComplete={onSavedComplete}
         />
       </div>
-      <div key={category} className="animate-in fade-in duration-200">
+      <div key={category} className="animate-in fade-in duration-200 pb-16 md:pb-20">
         <CategoryComponent {...getSettingsProps()} />
       </div>
     </div>

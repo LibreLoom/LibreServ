@@ -207,8 +207,8 @@ func (h *BackupHandlers) DeleteBackup(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// CreateDatabaseBackup creates a backup of the LibreServ database
-// POST /api/backups/database
+// CreateDatabaseBackup creates a backup of the LibreServ database and downloads it
+// POST /api/v1/backups/database
 func (h *BackupHandlers) CreateDatabaseBackup(w http.ResponseWriter, r *http.Request) {
 	backup, err := h.backupService.BackupDatabase(r.Context())
 	if err != nil {
@@ -216,7 +216,18 @@ func (h *BackupHandlers) CreateDatabaseBackup(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	JSON(w, http.StatusCreated, backup)
+	if _, err := os.Stat(backup.Path); os.IsNotExist(err) {
+		JSONError(w, http.StatusNotFound, "backup file not found")
+		return
+	}
+
+	filename := filepath.Base(backup.Path)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.FormatInt(backup.Size, 10))
+
+	http.ServeFile(w, r, backup.Path)
+	_ = os.Remove(backup.Path)
 }
 
 // ListDatabaseBackups returns all database backups
@@ -573,5 +584,15 @@ func (h *BackupHandlers) UploadDatabaseBackup(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	JSON(w, http.StatusCreated, backup)
+	if err := h.backupService.RestoreDatabase(r.Context(), backup.ID, storage.DatabaseRestoreOptions{
+		VerifyChecksum: true,
+	}); err != nil {
+		log.Printf("UploadDatabaseBackup: failed to restore: %v", err)
+		JSONError(w, http.StatusInternalServerError, "failed to restore database backup")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{
+		"message": "Database restored successfully",
+	})
 }

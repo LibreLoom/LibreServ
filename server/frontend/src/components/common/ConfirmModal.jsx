@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 import Card from "../cards/Card";
@@ -35,6 +36,10 @@ export default function ConfirmModal({
   const [isClosing, setIsClosing] = useState(false);
   const shouldRender = open || isClosing;
   const styles = VARIANTS[variant] || VARIANTS.default;
+  const titleId = useId();
+  const dialogRef = useRef(null);
+  const closeButtonRef = useRef(null);
+  const previousFocusRef = useRef(null);
 
   const handleClose = useCallback(() => {
     if (isClosing || loading) return;
@@ -53,42 +58,66 @@ export default function ConfirmModal({
   useEffect(() => {
     if (!open) return;
 
+    previousFocusRef.current = document.activeElement;
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
         handleClose();
       }
+
+      if (event.key === "Tab") {
+        const focusableElements = dialogRef.current?.querySelectorAll(
+          'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+        );
+        if (!focusableElements || focusableElements.length === 0) return;
+        const firstElement = focusableElements[0];
+        const lastElement = focusableElements[focusableElements.length - 1];
+
+        if (event.shiftKey && document.activeElement === firstElement) {
+          event.preventDefault();
+          lastElement.focus();
+        } else if (!event.shiftKey && document.activeElement === lastElement) {
+          event.preventDefault();
+          firstElement.focus();
+        }
+      }
     };
 
-    document.body.style.overflow = "hidden";
     document.addEventListener("keydown", handleKeyDown);
-
     return () => {
       document.body.style.overflow = "";
       document.removeEventListener("keydown", handleKeyDown);
+      previousFocusRef.current?.focus?.();
     };
   }, [open, handleClose]);
 
   if (!shouldRender) return null;
 
-  return (
+  return createPortal(
     <div
-      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 ${
-        isClosing ? "animate-out fade-out" : "animate-in fade-in"
-      }`}
+      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 ${isClosing ? "animate-out fade-out" : "animate-in fade-in"}`}
       onClick={handleClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className={`max-w-md w-full ${className}`}
         onClick={(event) => event.stopPropagation()}
       >
         <Card
-          className={`${isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95"}`}
+          noHeightAnim
+          noPopIn
+          className={isClosing ? "pop-out" : "pop-in"}
           padding={false}
         >
           <div className="flex items-start gap-3 p-6 pb-4">
             {Icon && (
-              <div className="flex-shrink-0 mt-0.5">
+              <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
                 {variant === "danger" ? (
                   <Icon size={24} className="text-error" />
                 ) : variant === "warning" ? (
@@ -99,7 +128,7 @@ export default function ConfirmModal({
               </div>
             )}
             <div className="flex-1">
-              <h2 className="font-mono text-lg text-primary">{title}</h2>
+              <h2 id={titleId} className="font-mono text-lg text-primary">{title}</h2>
               {message && (
                 <p className="font-mono text-sm text-primary/70 mt-1">{message}</p>
               )}
@@ -129,18 +158,20 @@ export default function ConfirmModal({
               onClick={handleConfirm}
               disabled={loading}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill transition-all font-mono text-sm disabled:opacity-50 ${styles.confirmClass}`}
+              ref={closeButtonRef}
             >
               {loading ? (
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 size={16} className="animate-spin" aria-hidden="true" />
               ) : ConfirmIcon ? (
-                <ConfirmIcon size={16} />
+                <ConfirmIcon size={16} aria-hidden="true" />
               ) : null}
               {loading ? "Processing..." : confirmLabel}
             </button>
           </div>
         </Card>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

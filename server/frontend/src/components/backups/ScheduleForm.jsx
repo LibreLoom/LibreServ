@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
 import Card from "../cards/Card";
+import Dropdown from "../common/Dropdown";
 import {
   Clock,
   Plus,
@@ -231,7 +232,7 @@ export default function ScheduleForm() {
             onClick={() => setShowForm(true)}
             className="flex items-center gap-1 text-xs text-accent hover:text-primary transition-colors"
           >
-            <Plus size={14} />
+            <Plus size={14} aria-hidden="true" />
             Add Schedule
           </button>
         ) : undefined
@@ -240,13 +241,13 @@ export default function ScheduleForm() {
     >
       {schedules.length === 0 && !showForm ? (
         <div className="px-4 py-6 text-center">
-          <Clock className="w-10 h-10 text-primary/30 mx-auto mb-2" />
+          <Clock className="w-10 h-10 text-primary/30 mx-auto mb-2" aria-hidden="true" />
           <p className="text-sm text-accent">No backup schedules configured</p>
           <button
             onClick={() => setShowForm(true)}
             className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
           >
-            <Plus size={16} />
+            <Plus size={16} aria-hidden="true" />
             Create Schedule
           </button>
         </div>
@@ -279,21 +280,23 @@ export default function ScheduleForm() {
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => handleEdit(schedule)}
+                    title="Edit schedule"
                     className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                    title="Edit"
+                    aria-label="Edit schedule"
                   >
-                    <Edit2 size={14} />
+                    <Edit2 size={14} aria-hidden="true" />
                   </button>
                   <button
                     onClick={() => handleDelete(schedule)}
                     disabled={deleting === schedule.id}
+                    title="Delete schedule"
                     className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all disabled:opacity-50"
-                    title="Delete"
+                    aria-label="Delete schedule"
                   >
                     {deleting === schedule.id ? (
-                      <Loader2 size={14} className="animate-spin" />
+                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
                     ) : (
-                      <Trash2 size={14} />
+                      <Trash2 size={14} aria-hidden="true" />
                     )}
                   </button>
                 </div>
@@ -311,53 +314,47 @@ export default function ScheduleForm() {
               <button
                 onClick={resetForm}
                 className="p-1 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                aria-label="Close form"
               >
-                <X size={16} />
+                <X size={16} aria-hidden="true" />
               </button>
             </div>
 
             <div>
-              <label className="block text-sm font-mono text-primary/70 mb-2">
+              <label htmlFor="schedule-app" className="block text-sm font-mono text-primary/70 mb-2">
                 Select App
               </label>
-              <select
+              <Dropdown
+                id="schedule-app"
                 value={formData.app_id}
-                onChange={(e) => setFormData({ ...formData, app_id: e.target.value })}
-                className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
+                onChange={(val) => setFormData({ ...formData, app_id: val })}
+                placeholder="Select an app..."
+                fullWidth
                 disabled={!!editingSchedule}
-              >
-                <option value="">Select an app...</option>
-                {apps.map((app) => (
-                  <option key={app.id} value={app.id}>
-                    {app.name}
-                  </option>
-                ))}
-              </select>
+                options={apps.map((app) => ({ value: app.id, label: app.name }))}
+              />
             </div>
 
             <div>
-              <label className="block text-sm font-mono text-primary/70 mb-2">
+              <label htmlFor="schedule-cron" className="block text-sm font-mono text-primary/70 mb-2">
                 Schedule
               </label>
-              <select
+              <Dropdown
+                id="schedule-cron"
                 value={formData.cron_expr}
-                onChange={(e) => setFormData({ ...formData, cron_expr: e.target.value })}
-                className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
-              >
-                {SCHEDULE_PRESETS.map((preset) => (
-                  <option key={preset.value} value={preset.value}>
-                    {preset.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setFormData({ ...formData, cron_expr: val })}
+                fullWidth
+                options={SCHEDULE_PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}
+              />
             </div>
 
             {formData.cron_expr === "custom" && (
               <div>
-                <label className="block text-sm font-mono text-primary/70 mb-2">
+                <label htmlFor="schedule-custom-cron" className="block text-sm font-mono text-primary/70 mb-2">
                   Cron Expression
                 </label>
                 <input
+                  id="schedule-custom-cron"
                   type="text"
                   value={formData.custom_cron}
                   onChange={(e) => setFormData({ ...formData, custom_cron: e.target.value })}
@@ -371,10 +368,11 @@ export default function ScheduleForm() {
             )}
 
             <div>
-              <label className="block text-sm font-mono text-primary/70 mb-2">
+              <label htmlFor="schedule-retention" className="block text-sm font-mono text-primary/70 mb-2">
                 Retention (keep last N backups)
               </label>
               <input
+                id="schedule-retention"
                 type="number"
                 value={formData.retention}
                 onChange={(e) => setFormData({ ...formData, retention: parseInt(e.target.value) || 7 })}
@@ -385,8 +383,9 @@ export default function ScheduleForm() {
             </div>
 
             <div className="space-y-2">
-              <label className="flex items-center gap-2">
+              <label htmlFor="schedule-enabled" className="flex items-center gap-2">
                 <input
+                  id="schedule-enabled"
                   type="checkbox"
                   checked={formData.enabled}
                   onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
@@ -394,8 +393,9 @@ export default function ScheduleForm() {
                 />
                 <span className="font-mono text-sm text-primary">Enabled</span>
               </label>
-              <label className="flex items-center gap-2">
+              <label htmlFor="schedule-stop-before" className="flex items-center gap-2">
                 <input
+                  id="schedule-stop-before"
                   type="checkbox"
                   checked={formData.stop_before_backup}
                   onChange={(e) => setFormData({ ...formData, stop_before_backup: e.target.checked })}
@@ -403,8 +403,9 @@ export default function ScheduleForm() {
                 />
                 <span className="font-mono text-sm text-primary">Stop app before backup (safer)</span>
               </label>
-              <label className="flex items-center gap-2">
+              <label htmlFor="schedule-compress" className="flex items-center gap-2">
                 <input
+                  id="schedule-compress"
                   type="checkbox"
                   checked={formData.compress}
                   onChange={(e) => setFormData({ ...formData, compress: e.target.checked })}

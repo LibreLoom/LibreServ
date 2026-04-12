@@ -9,6 +9,8 @@ export default function Dropdown({
   placeholder = "Select...",
   label,
   width,
+  fullWidth = false,
+  disabled = false,
   className = "",
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -93,6 +95,7 @@ export default function Dropdown({
   };
 
   const handleToggle = () => {
+    if (disabled) return;
     if (!isOpen) {
       updatePosition();
     }
@@ -100,18 +103,19 @@ export default function Dropdown({
   };
 
   return (
-    <div className={`relative ${className}`} ref={containerRef}>
+    <div className={`relative ${fullWidth ? "w-full" : ""} ${className}`} ref={containerRef}>
       <button
         ref={buttonRef}
         type="button"
         onClick={handleToggle}
-        className="inline-flex flex-col items-start gap-0 px-3 py-1.5 bg-primary text-secondary text-xs font-medium motion-safe:transition-colors cursor-pointer rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary"
+        disabled={disabled}
+        className={`${fullWidth ? "w-full" : "inline-flex"} flex-col items-start gap-0 px-3 py-1.5 bg-primary text-secondary text-xs font-medium motion-safe:transition-colors cursor-pointer rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary disabled:opacity-50 disabled:cursor-not-allowed`}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label={label ? `${label}: ${selectedOption?.label || "select"}` : undefined}
       >
         {label && <span className="text-accent">{label}</span>}
-        <span className="inline-flex items-center gap-1 font-mono">
+        <span className={`inline-flex items-center gap-1 font-mono ${fullWidth ? "justify-between w-full" : ""}`}>
           {selectedOption?.label || placeholder}
           <ChevronDown
             size={14}
