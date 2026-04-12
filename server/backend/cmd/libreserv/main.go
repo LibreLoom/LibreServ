@@ -74,7 +74,8 @@ func main() {
 
 	// Initialize settings service and load DB-backed settings into memory.
 	// On first run (empty table), seed from YAML config values.
-	settingsRepo := settings.NewRepository(db.SQL())
+	settingsService := settings.NewService(db.SQL())
+	settingsRepo := settingsService.Repository()
 	isEmpty, err := settingsRepo.IsEmpty()
 	if err != nil {
 		slog.Warn("failed to check settings table", "error", err)
@@ -87,8 +88,6 @@ func main() {
 	if err := settingsRepo.LoadIntoConfig(); err != nil {
 		slog.Warn("failed to load settings from database", "error", err)
 	}
-
-	settingsService := settings.NewService(db.SQL())
 
 	lic, err := license.Load(cfg.License.EntitlementFile, cfg.License.PublicKeyFile)
 	if err != nil {

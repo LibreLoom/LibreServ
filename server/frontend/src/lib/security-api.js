@@ -72,44 +72,6 @@ export async function sendTestNotification() {
   return res.json();
 }
 
-/**
- * Update security settings
- * @param {Object} settings - Security settings to update
- * @param {boolean} settings.notifications_enabled - Whether notifications are enabled
- * @param {string} settings.notification_frequency - Notification frequency (instant, normal, digest)
- * @param {boolean} settings.notify_on_login - Notify on successful logins
- * @param {boolean} settings.notify_on_failed_login - Notify on failed login attempts
- * @param {boolean} settings.notify_on_password_change - Notify on password changes
- * @param {boolean} settings.notify_on_admin_action - Notify on admin actions
- * @returns {Promise<Object>} Update result
- */
-export async function updateSecuritySettings(settings) {
-  const res = await api("/security/settings", {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(settings),
-  });
-  return res.json();
-}
-
-/**
- * Send a test security notification
- * @returns {Promise<Object>} Test result
- */
-export async function sendTestNotification() {
-  const res = await api("/security/test-notification", {
-    method: "POST",
-  });
-  return res.json();
-}
-
-/**
- * Get user-friendly event type display name
- * @param {string} eventType - Event type from API
- * @returns {string} Display name
- */
 export function getEventTypeDisplayName(eventType) {
   const names = {
     login_success: "Successful Login",

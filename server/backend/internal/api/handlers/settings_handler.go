@@ -24,12 +24,29 @@ type SettingsHandler struct {
 }
 
 func NewSettingsHandler(settingsService *settings.Service, securityService *security.Service) *SettingsHandler {
-	return &SettingsHandler{
+	h := &SettingsHandler{
 		settingsService:           settingsService,
 		securityService:           securityService,
 		testNotificationLastTime:  make(map[string]time.Time),
 		testNotificationRateLimit: time.Minute,
 	}
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.testNotificationMu.Lock()
+			cutoff := time.Now().Add(-h.testNotificationRateLimit * 2)
+			for k, t := range h.testNotificationLastTime {
+				if t.Before(cutoff) {
+					delete(h.testNotificationLastTime, k)
+				}
+			}
+			h.testNotificationMu.Unlock()
+		}
+	}()
+
+	return h
 }
 
 func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +213,19 @@ func (h *SettingsHandler) UpdateNotifications(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := h.settingsService.UpdateSettings(r.Context(), updates); err != nil {
+	filtered := map[string]interface{}{}
+	if v, ok := updates["smtp"]; ok {
+		filtered["smtp"] = v
+	}
+	if v, ok := updates["notify"]; ok {
+		filtered["notify"] = v
+	}
+	if len(filtered) == 0 {
+		JSONError(w, http.StatusBadRequest, "no notification settings provided")
+		return
+	}
+
+	if err := h.settingsService.UpdateSettings(r.Context(), filtered); err != nil {
 		JSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}

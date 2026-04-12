@@ -8,5 +8,3 @@ CREATE TABLE IF NOT EXISTS app_settings (
     type  TEXT NOT NULL DEFAULT 'string',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_app_settings_key ON app_settings(key);
