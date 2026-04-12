@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import {
   Shield,
   Bell,
@@ -11,10 +10,13 @@ import {
   RefreshCw,
   Filter,
 } from "lucide-react";
-import SettingsRow from "../SettingsRow";
 import Card from "../../common/cards/Card";
+import Toggle from "../../common/Toggle";
+import RadioOptionGroup from "../../common/RadioOptionGroup";
+import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import TypewriterLoader from "../../ui/TypewriterLoader";
 import ErrorDisplay from "../../common/ErrorDisplay";
+import SettingsRow from "../SettingsRow";
 import {
   getSecurityEvents,
   getSecurityStats,
@@ -22,7 +24,7 @@ import {
   getSeverityColor,
   formatTimestamp,
 } from "../../../lib/security-api.js";
-import { sanitizeEvent, stripHTML } from "../../../lib/sanitize.js";
+import { stripHTML } from "../../../lib/sanitize.js";
 
 const FREQUENCY_OPTIONS = [
   { value: "instant", label: "Instant", description: "Send emails immediately" },
@@ -37,6 +39,16 @@ const NOTIFICATION_OPTIONS = [
   { key: "notify_on_admin_action", label: "Admin actions", description: "When settings or apps are modified" },
 ];
 
+function StatCard({ value, label, variant = "accent" }) {
+  const colorClass = variant === "warning" ? "text-warning" : variant === "error" ? "text-error" : "text-accent";
+  return (
+    <Card className="text-center py-3">
+      <div className={`text-2xl font-bold ${colorClass}`}>{value}</div>
+      <div className="text-xs text-accent mt-1">{label}</div>
+    </Card>
+  );
+}
+
 export default function SecurityCategory({ settings, onSettingsChange, onTestNotification }) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -49,11 +61,6 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
   const [filter, setFilter] = useState("7d");
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const activityCard = useAnimatedHeight();
-  const notificationsCard = useAnimatedHeight();
-  const accountCard = useAnimatedHeight();
-  const tipsCard = useAnimatedHeight();
-
   useEffect(() => {
     loadActivityData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -65,6 +72,10 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
 
   const handleFrequencyChange = (frequency) => {
     onSettingsChange?.({ ...settings, notification_frequency: frequency });
+  };
+
+  const handleNotificationChange = (key) => {
+    onSettingsChange?.({ ...settings, [key]: !settings[key] });
   };
 
   const handleTestNotification = async () => {
@@ -132,8 +143,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         }
       }
 
-      const sanitizedEvents = rawEvents.map((event) => sanitizeEvent(event));
-      setEvents(sanitizedEvents);
+      setEvents(rawEvents);
       setStats(statsData);
       setLastUpdated(new Date());
     } catch (err) {
@@ -178,35 +188,19 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
 
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <Card className="text-center py-3">
-            <div className="text-2xl font-bold text-accent">{stats.total_events}</div>
-            <div className="text-xs text-accent mt-1">Total Events</div>
-          </Card>
-          <Card className="text-center py-3">
-            <div className="text-2xl font-bold text-accent">{stats.successful_logins}</div>
-            <div className="text-xs text-accent mt-1">Successful Logins</div>
-          </Card>
-          <Card className="text-center py-3">
-            <div className="text-2xl font-bold text-warning">{stats.failed_logins}</div>
-            <div className="text-xs text-accent mt-1">Failed Attempts</div>
-          </Card>
-          <Card className="text-center py-3">
-            <div className="text-2xl font-bold text-error">{stats.critical_events}</div>
-            <div className="text-xs text-accent mt-1">Critical Events</div>
-          </Card>
+          <StatCard value={stats.total_events} label="Total Events" />
+          <StatCard value={stats.successful_logins} label="Successful Logins" />
+          <StatCard value={stats.failed_logins} label="Failed Attempts" variant="warning" />
+          <StatCard value={stats.critical_events} label="Critical Events" variant="error" />
         </div>
       )}
 
-      <div
-        ref={activityCard.outerRef}
-        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
-        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
-      >
-        <div ref={activityCard.innerRef}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-          <Activity size={18} className="text-accent" />
-          <h2 className="font-mono font-normal text-primary">Activity Log</h2>
-          <div className="ml-auto flex items-center gap-3">
+      <Card
+        icon={Activity}
+        title="Activity Log"
+        padding={false}
+        headerActions={
+          <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Filter size={14} className="text-accent" />
               <select
@@ -234,8 +228,9 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
               <RefreshCw size={14} className={`text-accent ${activityLoading ? "animate-spin" : ""}`} />
             </button>
           </div>
-        </div>
-
+        }
+        className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+      >
         <div className="max-h-64 overflow-y-auto">
           {activityLoading ? (
             <div className="flex justify-center items-center py-8">
@@ -288,154 +283,95 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </table>
           )}
         </div>
-        </div>
-      </div>
+      </Card>
 
-      <div
-        ref={notificationsCard.outerRef}
-        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
-        style={{ transitionDuration: "var(--motion-duration-medium2)", animationDelay: "50ms" }}
+      <Card
+        icon={Bell}
+        title="Notifications"
+        padding={false}
+        className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ animationDelay: "50ms" }}
       >
-        <div ref={notificationsCard.innerRef}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-          <Bell size={18} className="text-accent" />
-          <h2 className="font-mono font-normal text-primary">Notifications</h2>
-        </div>
+        <div className="px-4 py-3 space-y-4">
+          <Toggle
+            checked={settings?.notifications_enabled || false}
+            onChange={() => handleToggle("notifications_enabled")}
+            label="Enable Notifications"
+            description="Receive security alerts"
+          />
 
-        <SettingsRow label="Enable Notifications" description="Receive security alerts">
-          <button
-            onClick={() => handleToggle("notifications_enabled")}
-            className={`relative inline-flex h-7 w-12 items-center rounded-pill transition-all duration-300 ease-out focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-              settings?.notifications_enabled ? "bg-accent" : "bg-primary/20"
+          <div
+            className={`overflow-hidden transition-all duration-300 ease-in-out ${
+              settings?.notifications_enabled ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
             }`}
-            role="switch"
-            aria-checked={settings?.notifications_enabled}
           >
-            <span
-              className={`inline-block h-5 w-5 transform rounded-full bg-primary transition-all duration-300 ease-out ${
-                settings?.notifications_enabled ? "translate-x-6" : "translate-x-1"
-              }`}
-            />
-          </button>
-        </SettingsRow>
+            <div className="pt-3 border-t border-primary/10">
+              <div className="font-medium text-primary mb-3">Frequency</div>
+              <RadioOptionGroup
+                name="frequency"
+                options={FREQUENCY_OPTIONS}
+                value={settings?.notification_frequency || "normal"}
+                onChange={handleFrequencyChange}
+              />
+            </div>
 
-        <div
-          className={`overflow-hidden transition-all duration-300 ease-in-out ${
-            settings?.notifications_enabled ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
-          }`}
-        >
-          <div className="px-4 py-3 border-b border-primary/10">
-            <div className="font-medium text-primary mb-3">Frequency</div>
-            <div className="space-y-2">
-              {FREQUENCY_OPTIONS.map((opt) => (
-                <label
-                  key={opt.value}
-                  className={`flex items-center gap-3 p-2.5 rounded-large-element border cursor-pointer transition-all duration-200 ${
-                    settings?.notification_frequency === opt.value
-                      ? "border-accent bg-accent/10"
-                      : "border-primary/10 hover:bg-primary/5"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="frequency"
-                    value={opt.value}
-                    checked={settings?.notification_frequency === opt.value}
-                    onChange={() => handleFrequencyChange(opt.value)}
-                    className="sr-only"
-                  />
-                  <div
-                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors duration-200 ${
-                      settings?.notification_frequency === opt.value
-                        ? "border-accent"
-                        : "border-accent/40"
-                    }`}
-                  >
-                    {settings?.notification_frequency === opt.value && (
-                      <div className="w-2 h-2 rounded-full bg-accent" />
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-medium text-primary text-sm">{opt.label}</div>
-                    <div className="text-xs text-accent">{opt.description}</div>
-                  </div>
-                </label>
-              ))}
+            <div className="pt-4 mt-4 border-t border-primary/10">
+              <div className="font-medium text-primary mb-3">Notify Me About</div>
+              <CheckboxOptionGroup
+                options={NOTIFICATION_OPTIONS}
+                values={{
+                  notify_on_login: settings?.notify_on_login || false,
+                  notify_on_failed_login: settings?.notify_on_failed_login || false,
+                  notify_on_password_change: settings?.notify_on_password_change || false,
+                  notify_on_admin_action: settings?.notify_on_admin_action || false,
+                }}
+                onChange={handleNotificationChange}
+              />
             </div>
           </div>
+        </div>
+      </Card>
+
+      <Card
+        icon={Shield}
+        title="Account Security"
+        padding={false}
+        className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ animationDelay: "100ms" }}
+      >
+        <div className="px-4 py-3">
+          <SettingsRow label="Account Lockout" description="Lock after 5 failed attempts">
+            <div className="flex items-center gap-1.5 text-primary text-sm">
+              <Check size={14} className="text-success" />
+              <span>Enabled</span>
+            </div>
+          </SettingsRow>
+
+          <SettingsRow label="Password Requirements">
+            <div className="text-sm text-accent">12+ chars, letters + numbers</div>
+          </SettingsRow>
 
           <div className="px-4 py-3">
-            <div className="font-medium text-primary mb-3">Notify Me About</div>
-            <div className="space-y-2">
-              {NOTIFICATION_OPTIONS.map((opt) => (
-                <label
-                  key={opt.key}
-                  className="flex items-center gap-3 p-2.5 rounded-large-element border border-primary/10 hover:bg-primary/5 cursor-pointer transition-all duration-200"
-                >
-                  <input
-                    type="checkbox"
-                    checked={settings?.[opt.key] || false}
-                    onChange={() => handleToggle(opt.key)}
-                    className="w-4 h-4 rounded border-accent/40 text-accent focus:ring-accent focus:ring-offset-0 accent-accent"
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-primary text-sm">{opt.label}</div>
-                    <div className="text-xs text-accent">{opt.description}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
+            <div className="text-sm text-accent mb-2">Test Email</div>
+            <button
+              onClick={handleTestNotification}
+              disabled={testing || !settings?.notifications_enabled}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-secondary rounded-pill hover:bg-accent hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm"
+            >
+              <Mail size={16} />
+              {testing ? "Sending..." : "Send Test"}
+            </button>
           </div>
         </div>
-        </div>
-      </div>
+      </Card>
 
-      <div
-        ref={accountCard.outerRef}
-        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
-        style={{ transitionDuration: "var(--motion-duration-medium2)", animationDelay: "100ms" }}
+      <Card
+        icon={Shield}
+        title="Security Tips"
+        padding={false}
+        className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+        style={{ animationDelay: "150ms" }}
       >
-        <div ref={accountCard.innerRef}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-          <Shield size={18} className="text-accent" />
-          <h2 className="font-mono font-normal text-primary">Account Security</h2>
-        </div>
-
-        <SettingsRow label="Account Lockout" description="Lock after 5 failed attempts">
-          <div className="flex items-center gap-1.5 text-primary text-sm">
-            <Check size={14} className="text-success" />
-            <span>Enabled</span>
-          </div>
-        </SettingsRow>
-
-        <SettingsRow label="Password Requirements">
-          <div className="text-sm text-accent">12+ chars, letters + numbers</div>
-        </SettingsRow>
-
-        <div className="px-4 py-3">
-          <div className="text-sm text-accent mb-2">Test Email</div>
-          <button
-            onClick={handleTestNotification}
-            disabled={testing || !settings?.notifications_enabled}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-secondary rounded-pill hover:bg-accent hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm"
-          >
-            <Mail size={16} />
-            {testing ? "Sending..." : "Send Test"}
-          </button>
-        </div>
-        </div>
-      </div>
-
-      <div
-        ref={tipsCard.outerRef}
-        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2 duration-300"
-        style={{ transitionDuration: "var(--motion-duration-medium2)", animationDelay: "150ms" }}
-      >
-        <div ref={tipsCard.innerRef}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-          <Shield size={18} className="text-accent" />
-          <h2 className="font-mono font-normal text-primary">Security Tips</h2>
-        </div>
         <div className="p-4 grid md:grid-cols-2 gap-3">
           <div className="p-3 bg-primary/5 rounded-large-element">
             <h4 className="font-medium text-primary mb-1 text-sm">Use a Strong Password</h4>
@@ -462,8 +398,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </p>
           </div>
         </div>
-        </div>
-      </div>
+      </Card>
 
       <div className="h-12 md:h-16" aria-hidden="true"></div>
     </div>

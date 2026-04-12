@@ -10,7 +10,6 @@ import {
   updateSecuritySettings,
   sendTestNotification,
 } from "../lib/security-api.js";
-import { goeyToast } from "goey-toast";
 import { ArrowLeft } from "lucide-react";
 
 const DEBOUNCE_MS = 500;
@@ -39,6 +38,7 @@ export default function SettingsPage() {
     return validCategories.includes(hash) ? hash : "general";
   });
   const [showMobileContent, setShowMobileContent] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("idle");
 
   const saveTimeoutRef = useRef(null);
   const pendingSettingsRef = useRef(null);
@@ -87,22 +87,15 @@ export default function SettingsPage() {
     }
 
     if (promises.length > 0) {
+      setSaveStatus("saving");
       try {
         await Promise.all(promises);
         pendingSettingsRef.current = null;
         pendingSecurityRef.current = null;
-        goeyToast.success("Settings saved", {
-          description: "Your changes have been applied.",
-          timing: { displayDuration: 2500 },
-        });
+        setSaveStatus("saved");
       } catch (err) {
         console.error("Error saving settings:", err);
-        const errorMsg = typeof err?.message === "string" 
-          ? err.message.split("\n")[0]
-          : "Please try again.";
-        goeyToast.error("Failed to save", {
-          description: errorMsg,
-        });
+        setSaveStatus("error");
       }
     }
   }, []);
@@ -121,6 +114,7 @@ export default function SettingsPage() {
       };
     });
     pendingSettingsRef.current = { logging: { level } };
+    setSaveStatus("unsaved");
     scheduleSave();
   };
 
@@ -131,11 +125,20 @@ export default function SettingsPage() {
   const handleSecuritySettingsChange = (newSettings) => {
     setSecuritySettings(newSettings);
     pendingSecurityRef.current = newSettings;
+    setSaveStatus("unsaved");
     scheduleSave();
   };
 
   const handleTestNotification = async () => {
     return sendTestNotification();
+  };
+
+  const handleRetrySave = () => {
+    performSave();
+  };
+
+  const handleSavedComplete = () => {
+    setSaveStatus("idle");
   };
 
   const handleCategoryChange = (category) => {
@@ -188,6 +191,9 @@ export default function SettingsPage() {
             setUseSeparateDarkColors={setUseSeparateDarkColors}
             resetColors={resetColors}
             isCustomTheme={isCustomTheme}
+            saveStatus={saveStatus}
+            onRetrySave={handleRetrySave}
+            onSavedComplete={handleSavedComplete}
           />
         </div>
       </div>
@@ -231,6 +237,9 @@ export default function SettingsPage() {
               setUseSeparateDarkColors={setUseSeparateDarkColors}
               resetColors={resetColors}
               isCustomTheme={isCustomTheme}
+              saveStatus={saveStatus}
+              onRetrySave={handleRetrySave}
+              onSavedComplete={handleSavedComplete}
             />
           </div>
         )}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
-import { goeyToast } from "goey-toast";
+import { useToast } from "../../context/ToastContext";
 import Card from "../common/cards/Card";
 import {
   Cloud,
@@ -52,6 +52,7 @@ function ProviderIcon({ provider, className = "w-6 h-6" }) {
 
 export default function CloudBackupConfig({ onConfigured }) {
   const { request } = useAuth();
+  const { addToast } = useToast();
 
   const [selectedProvider, setSelectedProvider] = useState("backblaze");
   const [bucket, setBucket] = useState("");
@@ -128,10 +129,7 @@ export default function CloudBackupConfig({ onConfigured }) {
       setTestResult(result);
 
       if (result.success) {
-        goeyToast.success("Connection successful", {
-          description: "Your cloud storage is properly configured.",
-          timing: { displayDuration: 3000 },
-        });
+        addToast({ type: "success", message: "Connection successful", description: "Your cloud storage is properly configured." });
       }
     } catch (err) {
       setTestResult({
@@ -139,9 +137,7 @@ export default function CloudBackupConfig({ onConfigured }) {
         message: "Connection test failed",
         error: err.message,
       });
-      goeyToast.error("Connection failed", {
-        description: err.message,
-      });
+      addToast({ type: "error", message: "Connection failed", description: err.message });
     } finally {
       setTesting(false);
     }
@@ -177,19 +173,14 @@ export default function CloudBackupConfig({ onConfigured }) {
 
     try {
       await saveConfig(enabled);
-      goeyToast.success("Configuration saved", {
-        description: "Your cloud backup settings have been saved.",
-        timing: { displayDuration: 3000 },
-      });
+      addToast({ type: "success", message: "Configuration saved", description: "Your cloud backup settings have been saved." });
 
       if (onConfigured) {
         onConfigured();
       }
     } catch (err) {
       console.error("Failed to save config:", err);
-      goeyToast.error("Failed to save", {
-        description: err.message,
-      });
+      addToast({ type: "error", message: "Failed to save", description: err.message });
     } finally {
       setSaving(false);
     }
@@ -202,7 +193,7 @@ export default function CloudBackupConfig({ onConfigured }) {
 
   function copyToClipboard(text) {
     navigator.clipboard.writeText(text);
-    goeyToast.success("Copied to clipboard");
+    addToast({ type: "success", message: "Copied to clipboard" });
   }
 
   if (loading) {

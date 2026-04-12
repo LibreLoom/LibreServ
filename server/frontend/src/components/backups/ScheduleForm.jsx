@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
-import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 import { useAuth } from "../../hooks/useAuth";
-import { goeyToast } from "goey-toast";
+import { useToast } from "../../context/ToastContext";
 import Card from "../common/cards/Card";
 import {
   Clock,
@@ -53,6 +52,7 @@ function formatNextRun(cronExpr) {
 
 export default function ScheduleForm() {
   const { request } = useAuth();
+  const { addToast } = useToast();
   const [schedules, setSchedules] = useState([]);
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -60,8 +60,6 @@ export default function ScheduleForm() {
   const [showForm, setShowForm] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [deleting, setDeleting] = useState(null);
-
-  const { outerRef, innerRef } = useAnimatedHeight();
 
   const [formData, setFormData] = useState({
     app_id: "",
@@ -95,7 +93,7 @@ export default function ScheduleForm() {
       setSchedules(schedulesData.schedules || []);
       setApps(appsData.apps || []);
     } catch (err) {
-      goeyToast.error("Failed to load schedules", { description: err.message });
+      addToast({ type: "error", message: "Failed to load schedules", description: err.message });
     } finally {
       setLoading(false);
     }
@@ -117,13 +115,13 @@ export default function ScheduleForm() {
 
   async function handleSave() {
     if (!formData.app_id) {
-      goeyToast.error("Please select an app");
+      addToast({ type: "error", message: "Please select an app" });
       return;
     }
 
     const cronExpr = formData.cron_expr === "custom" ? formData.custom_cron : formData.cron_expr;
     if (!cronExpr) {
-      goeyToast.error("Please enter a schedule");
+      addToast({ type: "error", message: "Please enter a schedule" });
       return;
     }
 
@@ -158,11 +156,11 @@ export default function ScheduleForm() {
         throw new Error(err.error || "Failed to save schedule");
       }
 
-      goeyToast.success(editingSchedule ? "Schedule updated" : "Schedule created");
+      addToast({ type: "success", message: editingSchedule ? "Schedule updated" : "Schedule created" });
       resetForm();
       loadData();
     } catch (err) {
-      goeyToast.error("Failed to save schedule", { description: err.message });
+      addToast({ type: "error", message: "Failed to save schedule", description: err.message });
     } finally {
       setSaving(false);
     }
@@ -180,10 +178,10 @@ export default function ScheduleForm() {
         throw new Error(err.error || "Failed to delete schedule");
       }
 
-      goeyToast.success("Schedule deleted");
+      addToast({ type: "success", message: "Schedule deleted" });
       loadData();
     } catch (err) {
-      goeyToast.error("Failed to delete schedule", { description: err.message });
+      addToast({ type: "error", message: "Failed to delete schedule", description: err.message });
     } finally {
       setDeleting(null);
     }
@@ -223,41 +221,36 @@ export default function ScheduleForm() {
   }
 
   return (
-    <div
-      ref={outerRef}
-      className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
-      style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+    <Card
+      icon={Calendar}
+      title="Backup Schedules"
+      padding={false}
+      headerActions={
+        !showForm ? (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex items-center gap-1 text-xs text-accent hover:text-primary transition-colors"
+          >
+            <Plus size={14} />
+            Add Schedule
+          </button>
+        ) : undefined
+      }
+      className="animate-in fade-in slide-in-from-bottom-2"
     >
-      <div ref={innerRef}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
-          <div className="flex items-center gap-2">
-            <Calendar size={18} className="text-accent" />
-            <h2 className="font-mono font-normal text-primary">Backup Schedules</h2>
-          </div>
-          {!showForm && (
-            <button
-              onClick={() => setShowForm(true)}
-              className="flex items-center gap-1 text-xs text-accent hover:text-secondary transition-colors"
-            >
-              <Plus size={14} />
-              Add Schedule
-            </button>
-          )}
+      {schedules.length === 0 && !showForm ? (
+        <div className="px-4 py-6 text-center">
+          <Clock className="w-10 h-10 text-primary/30 mx-auto mb-2" />
+          <p className="text-sm text-accent">No backup schedules configured</p>
+          <button
+            onClick={() => setShowForm(true)}
+            className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
+          >
+            <Plus size={16} />
+            Create Schedule
+          </button>
         </div>
-
-        {schedules.length === 0 && !showForm ? (
-          <div className="px-4 py-6 text-center">
-            <Clock className="w-10 h-10 text-primary/30 mx-auto mb-2" />
-            <p className="text-sm text-accent">No backup schedules configured</p>
-            <button
-              onClick={() => setShowForm(true)}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
-            >
-              <Plus size={16} />
-              Create Schedule
-            </button>
-          </div>
-        ) : (
+      ) : (
           <div className="p-4 space-y-3">
             {schedules.map((schedule) => (
               <div
@@ -443,7 +436,6 @@ export default function ScheduleForm() {
             </div>
           </div>
         )}
-        </div>
-      </div>
-    );
-  }
+    </Card>
+  );
+}

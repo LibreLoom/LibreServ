@@ -30,8 +30,13 @@ vi.mock("../lib/security-api.js", () => ({
   sendTestNotification: vi.fn(),
 }));
 
-vi.mock("goey-toast", () => ({
-  goeyToast: { success: vi.fn(), error: vi.fn() },
+vi.mock("../context/ToastContext", () => ({
+  useToast: () => ({
+    addToast: vi.fn(),
+    dismissToast: vi.fn(),
+    clearToasts: vi.fn(),
+    toasts: [],
+  }),
 }));
 
 vi.mock("../components/settings/SettingsSidebar", () => ({

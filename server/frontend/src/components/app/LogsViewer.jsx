@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDownToLine,
   ChevronDown,
+  Download,
   Loader2,
   Search,
   Terminal,
-  Maximize2,
-  Minimize2,
+  X,
 } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
+import Toggle from "../common/Toggle";
 
 const DEFAULT_LINE_COUNT = 500;
 const LOAD_MORE_INCREMENT = 500;
 const CONTROL_BUTTON_CLASS =
-  "rounded-pill border border-accent bg-secondary px-4 py-2 text-sm font-mono text-primary transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+  "rounded-pill border border-accent bg-secondary px-4 py-2 text-sm font-sans text-primary transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+const ICON_BUTTON_CLASS =
+  "p-2 rounded-pill border border-primary/20 bg-secondary text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 function normaliseLines(input) {
   if (!input) return [];
@@ -32,11 +36,12 @@ export default function LogsViewer({
   const [filter, setFilter] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const [lineLimit, setLineLimit] = useState(DEFAULT_LINE_COUNT);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [hasMoreToLoad, setHasMoreToLoad] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   const eventSourceRef = useRef(null);
   const outputRef = useRef(null);
+  const searchInputRef = useRef(null);
   const isLoadingMoreRef = useRef(false);
 
   const streamUrl = useMemo(() => {
@@ -121,6 +126,12 @@ export default function LogsViewer({
     outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [lines, autoScroll]);
 
+  useEffect(() => {
+    if (showSearch && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [showSearch]);
+
   const handleLoadMore = useCallback(() => {
     const newLimit = lineLimit + LOAD_MORE_INCREMENT;
     isLoadingMoreRef.current = true;
@@ -136,81 +147,166 @@ export default function LogsViewer({
     return lines.filter((line) => line.toLowerCase().includes(lower));
   }, [filter, lines]);
 
+  const handleDownload = useCallback(() => {
+    const text = filteredLines.join("\n");
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${app?.name || "app"}-logs.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [filteredLines, app?.name]);
+
+  const handleToggleSearch = useCallback(() => {
+    setShowSearch((prev) => !prev);
+    if (showSearch) {
+      setFilter("");
+    }
+  }, [showSearch]);
+
   return (
     <ModalCard
       title={
-        <div className="flex items-center gap-3">
-          <span>Log Viewer • {app?.name || "App"}</span>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <span className="sm:hidden">Logs</span>
+          <span className="hidden sm:inline">Log Viewer &bull; {app?.name || "App"}</span>
           {isStreaming && (
-            <div className="inline-flex items-center gap-1 rounded border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent font-sans">
-              <span className="relative flex h-2 w-2 mr-1">
+            <>
+              <span className="sm:hidden relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
               </span>
-              Live Stream
-            </div>
+              <div className="hidden sm:inline-flex items-center gap-1 rounded-pill border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent font-sans">
+                <span className="relative flex h-2 w-2 mr-1">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-accent"></span>
+                </span>
+                Live Stream
+              </div>
+            </>
           )}
         </div>
       }
       onClose={onClose}
-      size={isFullscreen ? "fullscreen" : "xl"}
+      size="xl"
+      mobileFullscreen
     >
-      <div className="flex flex-col h-full min-h-0 space-y-4 max-h-full">
-        <div className="flex items-center justify-between shrink-0 gap-3">
-          <div className="relative flex-1 min-w-[200px] w-full bg-secondary rounded-pill border-2 border-primary/20 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent transition-colors">
+      <div className="flex flex-col h-full min-h-0 space-y-2 sm:space-y-4 max-h-[100vh] sm:max-h-[75vh]">
+        {/* Mobile toolbar */}
+        <div className="flex sm:hidden items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleToggleSearch}
+            className={`${ICON_BUTTON_CLASS} ${showSearch || filter ? "border-accent text-accent" : ""}`}
+            title="Search"
+            aria-label="Toggle search"
+          >
+            <Search size={18} />
+          </button>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary">
+            <ArrowDownToLine size={14} className={`shrink-0 transition-colors ${autoScroll ? "text-accent" : "text-primary/40"}`} />
+            <Toggle
+              checked={autoScroll}
+              onChange={setAutoScroll}
+              aria-label="Auto Scroll"
+              className="[&>div]:hidden"
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDownload}
+            className={ICON_BUTTON_CLASS}
+            title="Download logs"
+            aria-label="Download logs"
+          >
+            <Download size={18} />
+          </button>
+        </div>
+
+        {/* Mobile collapsible search */}
+        {showSearch && (
+          <div className="sm:hidden shrink-0 animate-fade-in-up">
+            <div className="relative bg-secondary rounded-pill border border-primary/20 focus-within:border-accent transition-colors">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-primary/50" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+                placeholder="Filter logs"
+                className="w-full bg-transparent pl-10 pr-10 py-2 text-primary placeholder:text-primary/40 focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline"
+              />
+              <button
+                type="button"
+                onClick={handleToggleSearch}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-primary/50 hover:text-primary transition-colors"
+                aria-label="Close search"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Desktop toolbar */}
+        <div className="hidden sm:flex items-center justify-between shrink-0 gap-3">
+          <div className="relative flex-1 min-w-0 w-full bg-secondary rounded-pill border-2 border-primary/20 focus-within:border-accent transition-colors">
             <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/50" />
             <input
               type="text"
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
               placeholder="Filter logs"
-              className="w-full bg-transparent pl-11 pr-4 py-2 text-primary placeholder:text-primary/40 focus:outline-none font-mono text-sm"
+              className="w-full bg-transparent pl-11 pr-4 py-2 text-primary placeholder:text-primary/40 focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline"
             />
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center gap-3 px-4 py-1.5 rounded-pill border-2 border-primary/20 bg-secondary transition-colors focus-within:border-accent focus-within:ring-1 focus-within:ring-accent">
-              <span className="text-sm font-mono text-primary/80">Auto Scroll</span>
-              <label className="relative flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="sr-only"
-                  checked={autoScroll}
-                  onChange={(e) => setAutoScroll(e.target.checked)}
-                />
-                <div className={`block w-9 h-5 rounded-full transition-colors ${autoScroll ? "bg-accent" : "bg-primary/20"}`}></div>
-                <div className={`dot absolute left-1 top-1 bg-primary w-3 h-3 rounded-full transition-transform ${autoScroll ? "transform translate-x-4 bg-secondary" : ""}`}></div>
-              </label>
+            <div className="flex items-center gap-3 px-4 py-1.5 rounded-pill border-2 border-primary/20 bg-secondary transition-colors focus-within:border-accent">
+              <Toggle
+                label="Auto Scroll"
+                checked={autoScroll}
+                onChange={setAutoScroll}
+                iconOn={ArrowDownToLine}
+                iconOff={ArrowDownToLine}
+                className="gap-2 [&>div]:pr-0 [&>div>div]:text-xs"
+              />
             </div>
 
             <button
               type="button"
-              onClick={() => setIsFullscreen((prev) => !prev)}
-              className="p-2 rounded-pill border-2 border-primary/20 bg-secondary text-primary hover:bg-primary/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              onClick={handleDownload}
+              className={CONTROL_BUTTON_CLASS}
+              title="Download logs"
             >
-              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              <Download size={16} className="inline -mt-0.5 mr-1.5" />
+              Download
             </button>
           </div>
         </div>
 
-        <div className="flex flex-col flex-1 min-h-0 rounded-[12px] border border-primary/15 bg-[#1e1e1e] overflow-hidden">
+        <div className="flex flex-col flex-1 min-h-0 rounded-[12px] border border-primary/15 bg-secondary/90 overflow-hidden">
           <div
             ref={outputRef}
-            className="flex-1 overflow-auto px-4 py-3 font-mono text-xs leading-6 text-gray-300 min-h-[300px]"
+            className="flex-1 overflow-auto px-2 sm:px-4 py-3 font-sans text-[11px] sm:text-xs leading-6 text-primary/80 min-h-[200px] sm:min-h-[300px]"
           >
             {filteredLines.length === 0 && streamError ? (
-              <div className="py-10 text-center text-gray-500">
+              <div className="py-10 text-center text-primary/50">
                 Failed to load logs.
               </div>
             ) : filteredLines.length === 0 ? (
-              <div className="py-10 text-center text-gray-500">
+              <div className="py-10 text-center text-primary/50">
                 No logs found for this app yet.
               </div>
             ) : (
               <pre className="whitespace-pre-wrap break-words m-0">
                 {filteredLines.map((line, i) => (
-                  <div key={i} className={line.toLowerCase().includes("error") ? "text-red-400" : ""}> {/* color-scan: ignore-line dynamic error highlighting */}
+                  <div key={i} className={line.toLowerCase().includes("error") ? "text-error" : ""}>
                     {line}
                   </div>
                 ))}
@@ -218,29 +314,31 @@ export default function LogsViewer({
             )}
           </div>
 
-          <div className="flex items-center justify-between shrink-0 border-t border-primary/15 bg-secondary/50 px-4 py-2">
-            <div className="flex items-center gap-2 text-xs font-mono text-primary/60">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between shrink-0 border-t border-primary/15 bg-secondary/50 px-3 sm:px-4 py-2">
+            <div className="flex items-center gap-2 text-xs font-sans text-primary/60">
               <Terminal size={14} />
               <span>Showing last {lines.length} lines</span>
             </div>
 
-            {hasMoreToLoad && !filter && (
-              <button
-                type="button"
-                onClick={handleLoadMore}
-                className="inline-flex items-center gap-1.5 rounded-pill border border-primary/20 bg-secondary px-3 py-1.5 text-xs font-mono text-primary/80 transition-colors hover:border-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                <ChevronDown size={14} />
-                Load {LOAD_MORE_INCREMENT} more
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {hasMoreToLoad && !filter && (
+                <button
+                  type="button"
+                  onClick={handleLoadMore}
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-pill border border-primary/20 bg-secondary px-3 py-1.5 text-xs font-sans text-primary/80 transition-colors hover:border-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  <ChevronDown size={14} />
+                  Load {LOAD_MORE_INCREMENT} more
+                </button>
+              )}
 
-            {isStreaming && filteredLines.length === 0 && (
-              <div className="flex items-center gap-2 text-xs font-mono text-accent">
-                <Loader2 size={14} className="animate-spin" />
-                <span>Streaming...</span>
-              </div>
-            )}
+              {isStreaming && filteredLines.length === 0 && (
+                <div className="flex items-center gap-2 text-xs font-sans text-accent">
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Streaming...</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
