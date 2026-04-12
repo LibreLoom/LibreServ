@@ -513,6 +513,9 @@ function shouldIgnoreLine(filePath, lineText) {
     if (/^\s*--color-(primary|secondary|accent)\s*:/.test(lineText)) {
       return true;
     }
+    if (/^\s*--(primary|secondary|accent)\s*:/.test(lineText)) {
+      return true;
+    }
     if (
       /^\s*--color-(success|warning|error|info)\s*:/.test(lineText) ||
       /^\s*--bg-(success|warning|error|info)\s*:/.test(lineText)
@@ -522,6 +525,14 @@ function shouldIgnoreLine(filePath, lineText) {
   }
   if (ext === ".svg") {
     if (/\b(pagecolor|bordercolor|inkscape:deskcolor)\s*=/.test(lineText)) {
+      return true;
+    }
+  }
+  if (ext === ".js" || ext === ".jsx" || ext === ".ts" || ext === ".tsx") {
+    if (/^\s*const\s+DEFAULT_(LIGHT|DARK)_COLORS\s*=/.test(lineText)) {
+      return true;
+    }
+    if (/^\s*const\s+presets\s*=/.test(lineText)) {
       return true;
     }
   }
