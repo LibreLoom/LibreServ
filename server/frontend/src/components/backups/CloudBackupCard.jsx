@@ -1,5 +1,5 @@
 import { Cloud } from "lucide-react";
-import Card from "../common/cards/Card";
+import Card from "../cards/Card";
 import CloudBackupConfig from "./CloudBackupConfig";
 
 export default function CloudBackupCard({

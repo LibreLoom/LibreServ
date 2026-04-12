@@ -1,5 +1,5 @@
 import { HardDrive, Download, Upload, Trash2 } from "lucide-react";
-import Card from "../common/cards/Card";
+import Card from "../cards/Card";
 import InfoPopover from "../common/InfoPopover";
 import { formatDate, formatBytes } from "../../lib/backups-utils";
 

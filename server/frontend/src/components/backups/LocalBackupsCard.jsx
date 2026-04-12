@@ -9,7 +9,7 @@ import {
   Trash2,
   AlertTriangle,
 } from "lucide-react";
-import Card from "../common/cards/Card";
+import Card from "../cards/Card";
 import { formatDate, formatBytes } from "../../lib/backups-utils";
 
 export default function LocalBackupsCard({

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import Card from "../common/cards/Card";
+import Card from "../cards/Card";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
 
 const GROUP_LABELS = {

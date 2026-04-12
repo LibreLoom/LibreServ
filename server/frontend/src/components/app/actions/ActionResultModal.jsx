@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Copy, Check } from "lucide-react";
-import ModalCard from "../../common/cards/ModalCard";
+import ModalCard from "../../cards/ModalCard";
 
 export function ActionResultModal({ result, onClose }) {
   const [showVerbose, setShowVerbose] = useState(false);

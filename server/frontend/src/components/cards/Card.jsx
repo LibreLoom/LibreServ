@@ -1,6 +1,6 @@
 import { memo } from "react";
 import PropTypes from "prop-types";
-import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
+import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 
 function Card({
   children,

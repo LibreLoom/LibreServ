@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import Card from "../common/cards/Card";
+import Card from "./Card";
 
 /* ======================================================================
    Alignment utilities

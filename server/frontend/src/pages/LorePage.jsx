@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import Card from "../components/common/cards/Card";
+import Card from "../components/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
 import TypewriterLoader from "../components/ui/TypewriterLoader";
 

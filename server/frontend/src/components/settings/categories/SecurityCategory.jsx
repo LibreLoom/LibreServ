@@ -10,7 +10,7 @@ import {
   RefreshCw,
   Filter,
 } from "lucide-react";
-import Card from "../../common/cards/Card";
+import Card from "../../cards/Card";
 import Toggle from "../../common/Toggle";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";

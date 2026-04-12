@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
-import Card from "../common/cards/Card";
+import Card from "../cards/Card";
 import {
   Clock,
   Plus,

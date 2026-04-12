@@ -1,5 +1,5 @@
 import { Upload } from "lucide-react";
-import Card from "../common/cards/Card";
+import Card from "../cards/Card";
 import UploadProgress from "./UploadProgress";
 
 export default function UploadBackupCard({

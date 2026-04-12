@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useInvalidateApps } from "../hooks/useApps";
 import HeaderCard from "../components/cards/HeaderCard";
-import Card from "../components/common/cards/Card";
+import Card from "../components/cards/Card";
 import CardButton from "../components/cards/CardButton";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";

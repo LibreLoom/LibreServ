@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { X } from "lucide-react";
-import Card from "../common/cards/Card";
+import Card from "./Card";
 
 export default function ModalCard({
   title,

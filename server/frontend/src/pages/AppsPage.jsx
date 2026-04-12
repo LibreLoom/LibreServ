@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import HeaderCard from "../components/cards/HeaderCard";
-import Card from "../components/common/cards/Card";
+import Card from "../components/cards/Card";
 import Dropdown from "../components/common/Dropdown";
 import AppIcon from "../components/common/AppIcon";
 import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink } from "lucide-react";
