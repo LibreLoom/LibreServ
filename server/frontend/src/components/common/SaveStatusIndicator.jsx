@@ -81,7 +81,7 @@ export default function SaveStatusIndicator({
       {config.showRetry && onRetry && (
         <button
           onClick={onRetry}
-          className="ml-1 underline underline-offset-2 hover:no-underline text-accent hover:text-primary transition-colors"
+          className="ml-1 underline underline-offset-2 hover:no-underline text-accent hover:text-accent/80 motion-safe:transition-colors"
         >
           Retry
         </button>
