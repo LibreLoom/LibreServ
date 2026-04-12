@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
-import Card from "./cards/Card";
+import Card from "../cards/Card";
 
 const VARIANTS = {
   default: {
