@@ -195,7 +195,7 @@ func (h *SecurityHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 
 	// Validate request
 	if err := req.Validate(); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid notification frequency")
+		JSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 

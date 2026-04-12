@@ -186,7 +186,7 @@ func (s *Service) getNotificationRecipients(event *Event) ([]string, error) {
 		SELECT u.email 
 		FROM users u
 		JOIN user_security_settings s ON u.id = s.user_id
-		WHERE u.role = 'admin' AND s.security_alerts = true
+		WHERE u.role = 'admin' AND s.notifications_enabled = true
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("query admins: %w", err)
@@ -209,7 +209,7 @@ func (s *Service) getNotificationRecipients(event *Event) ([]string, error) {
 			SELECT u.email 
 			FROM users u
 			JOIN user_security_settings s ON u.id = s.user_id
-			WHERE u.id = $1 AND s.security_alerts = true
+			WHERE u.id = $1 AND s.notifications_enabled = true
 		`, event.ActorID).Scan(&userEmail)
 		if err == nil {
 			recipients = append(recipients, userEmail)
@@ -600,15 +600,15 @@ func (s *Service) GetUserSettings(ctx context.Context, userID string) (*UserSett
 	)
 
 	if err == sql.ErrNoRows {
-		// Return default settings
 		return &UserSettings{
 			UserID:                 userID,
 			NotificationsEnabled:   true,
 			NotificationFrequency:  string(FrequencyNormal),
-			NotifyOnLogin:          false,
+			NotifyOnLogin:          true,
 			NotifyOnFailedLogin:    true,
 			NotifyOnPasswordChange: true,
 			NotifyOnAdminAction:    true,
+			UpdatedAt:              time.Now().UTC(),
 		}, nil
 	}
 
