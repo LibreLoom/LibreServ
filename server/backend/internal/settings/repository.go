@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
@@ -33,6 +34,21 @@ func (r *Repository) Get(key string) (string, error) {
 
 func (r *Repository) Set(key, value, typ string) error {
 	_, err := r.db.Exec(`
+		INSERT INTO app_settings (key, value, type, updated_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (key) DO UPDATE SET
+			value = EXCLUDED.value,
+			type = EXCLUDED.type,
+			updated_at = EXCLUDED.updated_at
+	`, key, value, typ, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("set setting %s: %w", key, err)
+	}
+	return nil
+}
+
+func (r *Repository) SetTx(tx *sql.Tx, key, value, typ string) error {
+	_, err := tx.Exec(`
 		INSERT INTO app_settings (key, value, type, updated_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (key) DO UPDATE SET
@@ -241,6 +257,7 @@ func (r *Repository) IsEmpty() (bool, error) {
 
 type Service struct {
 	repo *Repository
+	mu   sync.RWMutex
 }
 
 func NewService(db *sql.DB) *Service {
@@ -252,6 +269,8 @@ func (s *Service) Repository() *Repository {
 }
 
 func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	cfg := config.Get()
 	if cfg == nil {
 		return nil, fmt.Errorf("config not loaded")
@@ -269,6 +288,7 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 			"from":        cfg.SMTP.From,
 			"use_tls":     cfg.SMTP.UseTLS,
 			"skip_verify": cfg.SMTP.SkipVerify,
+			"configured":  cfg.SMTP.Password != "",
 		},
 		"notify": map[string]interface{}{
 			"enabled":            cfg.Notify.Enabled,
@@ -309,10 +329,19 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 }
 
 func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interface{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	cfg := config.Get()
 	if cfg == nil {
 		return fmt.Errorf("config not loaded")
 	}
+
+	type mutation struct {
+		apply  func()
+		commit func(tx *sql.Tx) error
+	}
+	var mutations []mutation
 
 	if loggingRaw, ok := updates["logging"]; ok {
 		logging, _ := loggingRaw.(map[string]interface{})
@@ -326,17 +355,16 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			if !validLevels[level] {
 				return fmt.Errorf("invalid logging level: must be one of debug, info, warn, error")
 			}
-			cfg.Logging.Level = level
-			if err := s.repo.Set("logging.level", level, "string"); err != nil {
-				return err
-			}
-			logger.Init(cfg.Logging)
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Logging.Level = level },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "logging.level", level, "string") },
+			})
 		}
 		if path, ok := logging["path"].(string); ok {
-			cfg.Logging.Path = path
-			if err := s.repo.Set("logging.path", path, "string"); err != nil {
-				return err
-			}
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Logging.Path = path },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "logging.path", path, "string") },
+			})
 		}
 	}
 
@@ -346,32 +374,52 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			return fmt.Errorf("invalid smtp format")
 		}
 		if host, ok := smtp["host"].(string); ok {
-			cfg.SMTP.Host = host
-			s.repo.Set("smtp.host", host, "string")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.SMTP.Host = host },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.host", host, "string") },
+			})
 		}
 		if port, ok := toInt(smtp["port"]); ok {
-			cfg.SMTP.Port = port
-			s.repo.Set("smtp.port", strconv.Itoa(port), "int")
+			if port < 1 || port > 65535 {
+				return fmt.Errorf("invalid smtp port: must be between 1 and 65535")
+			}
+			p := port
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.SMTP.Port = p },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.port", strconv.Itoa(p), "int") },
+			})
 		}
 		if username, ok := smtp["username"].(string); ok {
-			cfg.SMTP.Username = username
-			s.repo.Set("smtp.username", username, "string")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.SMTP.Username = username },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.username", username, "string") },
+			})
 		}
 		if password, ok := smtp["password"].(string); ok && password != "" {
-			cfg.SMTP.Password = password
-			s.repo.Set("smtp.password", password, "string")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.SMTP.Password = password },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.password", password, "string") },
+			})
 		}
 		if from, ok := smtp["from"].(string); ok {
-			cfg.SMTP.From = from
-			s.repo.Set("smtp.from", from, "string")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.SMTP.From = from },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.from", from, "string") },
+			})
 		}
 		if useTLS, ok := toBool(smtp["use_tls"]); ok {
-			cfg.SMTP.UseTLS = useTLS
-			s.repo.Set("smtp.use_tls", strconv.FormatBool(useTLS), "bool")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.SMTP.UseTLS = useTLS },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.use_tls", strconv.FormatBool(useTLS), "bool") },
+			})
 		}
 		if skipVerify, ok := toBool(smtp["skip_verify"]); ok {
-			cfg.SMTP.SkipVerify = skipVerify
-			s.repo.Set("smtp.skip_verify", strconv.FormatBool(skipVerify), "bool")
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.SMTP.SkipVerify = skipVerify },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "smtp.skip_verify", strconv.FormatBool(skipVerify), "bool")
+				},
+			})
 		}
 	}
 
@@ -381,29 +429,71 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			return fmt.Errorf("invalid notify format")
 		}
 		if enabled, ok := toBool(notify["enabled"]); ok {
-			cfg.Notify.Enabled = enabled
-			s.repo.Set("notify.enabled", strconv.FormatBool(enabled), "bool")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Notify.Enabled = enabled },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.enabled", strconv.FormatBool(enabled), "bool") },
+			})
 		}
 		if recipients, ok := toStringSlice(notify["support_recipients"]); ok {
-			cfg.Notify.SupportRecipients = recipients
-			s.repo.Set("notify.support_recipients", stringSliceToCSV(recipients), "json")
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Notify.SupportRecipients = recipients },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "notify.support_recipients", stringSliceToCSV(recipients), "json")
+				},
+			})
 		}
 		if subject, ok := notify["support_subject"].(string); ok {
-			cfg.Notify.SupportSubject = subject
-			s.repo.Set("notify.support_subject", subject, "string")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Notify.SupportSubject = subject },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.support_subject", subject, "string") },
+			})
 		}
 		if body, ok := notify["support_body"].(string); ok {
-			cfg.Notify.SupportBody = body
-			s.repo.Set("notify.support_body", body, "string")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Notify.SupportBody = body },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.support_body", body, "string") },
+			})
 		}
 		if subject, ok := notify["welcome_subject"].(string); ok {
-			cfg.Notify.WelcomeSubject = subject
-			s.repo.Set("notify.welcome_subject", subject, "string")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Notify.WelcomeSubject = subject },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.welcome_subject", subject, "string") },
+			})
 		}
 		if body, ok := notify["welcome_body"].(string); ok {
-			cfg.Notify.WelcomeBody = body
-			s.repo.Set("notify.welcome_body", body, "string")
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Notify.WelcomeBody = body },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.welcome_body", body, "string") },
+			})
 		}
+	}
+
+	if len(mutations) == 0 {
+		return nil
+	}
+
+	tx, err := s.repo.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	for _, m := range mutations {
+		if err := m.commit(tx); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	for _, m := range mutations {
+		m.apply()
+	}
+
+	if _, ok := updates["logging"]; ok {
+		logger.Init(cfg.Logging)
 	}
 
 	return nil

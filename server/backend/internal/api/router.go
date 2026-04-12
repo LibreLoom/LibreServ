@@ -358,7 +358,9 @@ func (s *Server) setupRoutes() {
 			// Settings - unified application configuration
 			r.Route("/settings", func(r chi.Router) {
 				r.Get("/", settingsHandler.Get)
-				r.Put("/", settingsHandler.Update)
+
+				// General settings update requires admin
+				r.With(middleware.RequireRole("admin")).Put("/", settingsHandler.Update)
 
 				// Security settings - per-user notification preferences
 				r.Get("/security", settingsHandler.GetSecurity)
