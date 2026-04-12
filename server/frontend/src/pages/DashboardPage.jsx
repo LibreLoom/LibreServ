@@ -77,30 +77,33 @@ function clamp01(value) {
 export default function Dashboard() {
   const greeting = useMemo(() => getGreeting(), []);
   const { data: user } = useUser();
-  const { data: uptimeSeconds = 0 } = useUptime();
+  const { data: uptimeSeconds } = useUptime();
   const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
   const { data: resources } = useMonitoring(refreshInterval);
 
   // Store server uptime and fetch timestamp for drift-free calculation
   const uptimeDataRef = useRef({ serverUptime: 0, fetchTime: 0 });
 
-  // Update stored uptime when API returns new data
-  useEffect(() => {
-    uptimeDataRef.current = {
-      serverUptime: uptimeSeconds,
-      fetchTime: Date.now(),
-    };
-  }, [uptimeSeconds]);
-
   // Calculate display uptime: server uptime + elapsed time since last fetch
   const getDisplayUptime = useCallback(() => {
     const { serverUptime, fetchTime } = uptimeDataRef.current;
-    if (fetchTime === 0) return formatUptime(serverUptime);
+    if (fetchTime === 0) return "...";
     const elapsed = (Date.now() - fetchTime) / 1000;
     return formatUptime(Math.floor(serverUptime + elapsed));
   }, []);
 
   const [displayUptime, setDisplayUptime] = useState(getDisplayUptime);
+
+  // Update stored uptime when API returns new data
+  useEffect(() => {
+    if (uptimeSeconds == null) return;
+    uptimeDataRef.current = {
+      serverUptime: uptimeSeconds,
+      fetchTime: Date.now(),
+    };
+    setDisplayUptime(getDisplayUptime());
+  }, [uptimeSeconds, getDisplayUptime]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setDisplayUptime(getDisplayUptime());
