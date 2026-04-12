@@ -64,6 +64,11 @@ func (d *DB) Path() string {
 	return d.path
 }
 
+// SQL returns the underlying *sql.DB for direct access.
+func (d *DB) SQL() *sql.DB {
+	return d.db
+}
+
 // Close closes the underlying database connection.
 func (d *DB) Close() error {
 	return d.db.Close()

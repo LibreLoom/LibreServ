@@ -1,5 +1,5 @@
 import { Info, Heart } from "lucide-react";
-import Card from "../../common/cards/Card";
+import Card from "../../cards/Card";
 import CollapsibleSection from "../../common/CollapsibleSection";
 import ValueDisplay from "../../common/ValueDisplay";
 
@@ -17,8 +17,8 @@ export default function AboutCategory({ settings }) {
 
           <CollapsibleSection title="server details" size="xs" background className="mt-3">
             <div className="space-y-2">
-              <ValueDisplay label="Backend API" value={settings?.backend?.host} />
-              <ValueDisplay label="Server Port" value={settings?.backend?.port} />
+              <ValueDisplay label="Backend API" value={settings?.server?.host} />
+              <ValueDisplay label="Server Port" value={settings?.server?.port} />
               <ValueDisplay label="Proxy Type" value={settings?.proxy?.type || "None"} />
             </div>
           </CollapsibleSection>

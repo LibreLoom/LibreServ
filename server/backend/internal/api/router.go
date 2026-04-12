@@ -28,7 +28,7 @@ func (s *Server) setupRoutes() {
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient, s.appManager.GetMetricsCache())
 	backupHandler := handlers.NewBackupHandlers(s.backupService, s.cloudService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
-	settingsHandler := handlers.NewSettingsHandler()
+	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService)
 	csrfSecret := config.Get().Auth.CSRFSecret
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
 	networkProbeHandler := handlers.NewNetworkProbeHandler()
@@ -96,7 +96,6 @@ func (s *Server) setupRoutes() {
 	supportSessionValidator := handlers.NewSupportSessionValidationHandler(s.supportService)
 	supportFileHandler := handlers.NewSupportFileHandler(s.supportService)
 	supportCommandHandler := handlers.NewSupportCommandHandler(s.supportService)
-	notifyHandler := handlers.NewNotifyHandler()
 	licenseHandler := handlers.NewLicenseHandler(s.licenseService)
 	systemHandler := handlers.NewSystemHandler(s.sysChecker)
 	systemHandler.SetAuditLogger(s)
@@ -215,9 +214,9 @@ func (s *Server) setupRoutes() {
 			// Notification configuration (admin only)
 			r.Route("/notify", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
-				r.Get("/config", notifyHandler.Get)
-				r.Put("/config", notifyHandler.Update)
-				r.Post("/preview", notifyHandler.Preview)
+				r.Get("/config", settingsHandler.GetNotifications)
+				r.Put("/config", settingsHandler.UpdateNotifications)
+				r.Post("/preview", settingsHandler.PreviewTemplate)
 			})
 
 			// License management (admin only)
@@ -356,10 +355,15 @@ func (s *Server) setupRoutes() {
 				r.Post("/command", supportCommandHandler.Run)
 			})
 
-			// Settings - application configuration
+			// Settings - unified application configuration
 			r.Route("/settings", func(r chi.Router) {
 				r.Get("/", settingsHandler.Get)
 				r.Put("/", settingsHandler.Update)
+
+				// Security settings - per-user notification preferences
+				r.Get("/security", settingsHandler.GetSecurity)
+				r.Put("/security", settingsHandler.UpdateSecurity)
+				r.Post("/security/test", settingsHandler.TestNotification)
 			})
 
 			// System updates (admin only)
@@ -381,11 +385,6 @@ func (s *Server) setupRoutes() {
 				r.Use(middleware.RateLimit([]middleware.RateRule{
 					{Prefix: "/api/v1/security", Limit: 60, Window: time.Minute},
 				}))
-
-				// Settings - available to all authenticated users
-				r.Get("/settings", securityHandler.GetSettings)
-				r.Put("/settings", securityHandler.UpdateSettings)
-				r.Post("/test-notification", securityHandler.TestNotification)
 
 				// Events - users can see their own events, admins see all
 				r.Get("/events", securityHandler.ListEvents)

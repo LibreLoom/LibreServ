@@ -30,6 +30,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
@@ -70,6 +71,24 @@ func main() {
 		slog.Error("database migration failed", "error", err)
 		os.Exit(1)
 	}
+
+	// Initialize settings service and load DB-backed settings into memory.
+	// On first run (empty table), seed from YAML config values.
+	settingsRepo := settings.NewRepository(db.SQL())
+	isEmpty, err := settingsRepo.IsEmpty()
+	if err != nil {
+		slog.Warn("failed to check settings table", "error", err)
+	}
+	if isEmpty {
+		if err := settingsRepo.SeedFromConfig(); err != nil {
+			slog.Warn("failed to seed settings from config", "error", err)
+		}
+	}
+	if err := settingsRepo.LoadIntoConfig(); err != nil {
+		slog.Warn("failed to load settings from database", "error", err)
+	}
+
+	settingsService := settings.NewService(db.SQL())
 
 	lic, err := license.Load(cfg.License.EntitlementFile, cfg.License.PublicKeyFile)
 	if err != nil {
@@ -218,22 +237,23 @@ func main() {
 	defer scheduler.Stop()
 
 	server := api.NewServer(api.ServerConfig{
-		Host:           cfg.Server.Host,
-		Port:           cfg.Server.Port,
-		DevMode:        cfg.Server.Mode == "development",
-		DB:             db,
-		AppManager:     appManager,
-		AuthService:    authService,
-		Monitor:        monitor,
-		BackupService:  backupService,
-		CloudService:   cloudService,
-		DockerClient:   dockerClient,
-		CaddyManager:   caddyManager,
-		SetupService:   setupService,
-		SupportService: supportService,
-		LicenseService: lic,
-		SysChecker:     sysChecker,
-		AuditService:   auditService,
+		Host:            cfg.Server.Host,
+		Port:            cfg.Server.Port,
+		DevMode:         cfg.Server.Mode == "development",
+		DB:              db,
+		AppManager:      appManager,
+		AuthService:     authService,
+		Monitor:         monitor,
+		BackupService:   backupService,
+		CloudService:    cloudService,
+		DockerClient:    dockerClient,
+		CaddyManager:    caddyManager,
+		SetupService:    setupService,
+		SupportService:  supportService,
+		LicenseService:  lic,
+		SysChecker:      sysChecker,
+		AuditService:    auditService,
+		SettingsService: settingsService,
 	}).WithJobQueue(jobQueue)
 
 	errCh := make(chan error, 1)

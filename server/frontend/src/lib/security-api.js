@@ -50,7 +50,25 @@ export async function getSecurityStats(options = {}) {
  * @returns {Promise<Object>} Security settings
  */
 export async function getSecuritySettings() {
-  const res = await api("/security/settings");
+  const res = await api("/settings/security");
+  return res.json();
+}
+
+export async function updateSecuritySettings(settings) {
+  const res = await api("/settings/security", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(settings),
+  });
+  return res.json();
+}
+
+export async function sendTestNotification() {
+  const res = await api("/settings/security/test", {
+    method: "POST",
+  });
   return res.json();
 }
 

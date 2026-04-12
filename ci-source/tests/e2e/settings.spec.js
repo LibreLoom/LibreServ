@@ -20,17 +20,16 @@ test.describe('LibreServ Settings', () => {
     console.log('Settings response:', JSON.stringify(settings, null, 2));
     
     // Verify backend settings exist and have values
-    expect(settings.backend).toBeDefined();
-    expect(settings.backend.host).toBeDefined();
-    expect(settings.backend.port).toBeDefined();
-    expect(settings.backend.mode).toBeDefined();
+    expect(settings.server).toBeDefined();
+    expect(settings.server.host).toBeDefined();
+    expect(settings.server.port).toBeDefined();
+    expect(settings.server.mode).toBeDefined();
     
-    // Backend should have actual values, not empty
-    expect(settings.backend.host).not.toBe('');
-    expect(settings.backend.port).toBeGreaterThan(0);
-    expect(settings.backend.mode).not.toBe('');
+    expect(settings.server.host).not.toBe('');
+    expect(settings.server.port).toBeGreaterThan(0);
+    expect(settings.server.mode).not.toBe('');
     
-    console.log('✓ Backend settings:', settings.backend);
+    console.log('✓ Server settings:', settings.server);
   });
 
   test('should show proxy settings when caddy is configured', async ({ request }) => {

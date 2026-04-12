@@ -1,5 +1,5 @@
 import { FileText } from "lucide-react";
-import Card from "../../common/cards/Card";
+import Card from "../../cards/Card";
 import CollapsibleSection from "../../common/CollapsibleSection";
 import ValueDisplay from "../../common/ValueDisplay";
 import Dropdown from "../../common/Dropdown";
@@ -31,12 +31,12 @@ export default function GeneralCategory({ settings }) {
           <div className="border-t border-primary/10 pt-3" />
           <CollapsibleSection title="backend info" mono size="xs" background className="mt-3">
             <div className="space-y-2">
-              <ValueDisplay label="Host" value={settings?.backend?.host || "N/A"} />
-              <ValueDisplay label="Port" value={settings?.backend?.port || "N/A"} />
+              <ValueDisplay label="Host" value={settings?.server?.host || "N/A"} />
+              <ValueDisplay label="Port" value={settings?.server?.port || "N/A"} />
               <div className="flex items-center justify-between py-2 px-3 border border-primary/10 rounded-large-element bg-primary/5">
                 <span className="text-sm text-accent">Mode</span>
-                <StatusBadge variant={settings?.backend?.mode === "production" ? "default" : "warning"}>
-                  {settings?.backend?.mode || "N/A"}
+                <StatusBadge variant={settings?.server?.mode === "production" ? "default" : "warning"}>
+                  {settings?.server?.mode || "N/A"}
                 </StatusBadge>
               </div>
             </div>
