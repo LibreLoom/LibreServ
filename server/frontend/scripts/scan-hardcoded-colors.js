@@ -311,17 +311,6 @@ function walkDir(dirPath, files) {
 }
 
 function shouldIgnoreFile(filePath) {
-  const fileName = path.basename(filePath).toLowerCase();
-  if (
-    fileName === "themecontext.jsx" ||
-    fileName === "themecontext.tsx" ||
-    fileName === "appearancecategory.jsx" ||
-    fileName === "appearancecategory.tsx" ||
-    fileName === "colorinput.jsx" ||
-    fileName === "colorinput.tsx"
-  ) {
-    return true;
-  }
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".svg") {
     const segments = filePath.split(path.sep);
@@ -544,6 +533,18 @@ function shouldIgnoreLine(filePath, lineText) {
       return true;
     }
     if (/^\s*const\s+presets\s*=/.test(lineText)) {
+      return true;
+    }
+    if (/\|\|\s*["']#(?:[0-9a-fA-F]{3,6})["']/.test(lineText)) {
+      return true;
+    }
+    if (/^\s+\w+:\s*["']#(?:[0-9a-fA-F]{3,6})["']/.test(lineText)) {
+      return true;
+    }
+    if (lineText.includes("placeholder=") && lineText.includes('"#')) {
+      return true;
+    }
+    if (/\{\s*label:\s*"/.test(lineText) && lineText.includes("colors:")) {
       return true;
     }
   }
