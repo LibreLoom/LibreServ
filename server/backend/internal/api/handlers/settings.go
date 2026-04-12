@@ -77,9 +77,19 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.Logging.Level != "" {
+		validLevels := map[string]bool{
+			"debug": true, "info": true, "warn": true, "error": true,
+		}
+		if !validLevels[body.Logging.Level] {
+			JSONError(w, http.StatusBadRequest, "invalid logging level: must be one of debug, info, warn, error")
+			return
+		}
 		cfg.Logging.Level = body.Logging.Level
-		// Re-init logger with new level (stdout only for now)
 		logger.Init(cfg.Logging)
+		if err := config.SaveConfig(""); err != nil {
+			JSONError(w, http.StatusInternalServerError, "failed to persist settings")
+			return
+		}
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
