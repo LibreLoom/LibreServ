@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check } from "lucide-react";
-import Card from "../../common/cards/Card";
+import Card from "../../cards/Card";
 import Toggle from "../../common/Toggle";
 import SegmentedControl from "../../common/SegmentedControl";
 import SettingsRow from "../SettingsRow";

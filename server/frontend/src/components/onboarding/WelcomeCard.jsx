@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Sparkles, Download, Shield, BookOpen, X, CircleCheck } from "lucide-react";
-import Card from "../common/cards/Card";
+import Card from "../cards/Card";
 
 const STORAGE_KEY = "libreserv_welcome_dismissed";
 

@@ -1,5 +1,5 @@
 import { DatabaseBackup, Loader2, Save, Upload } from "lucide-react";
-import Card from "../common/cards/Card";
+import Card from "../cards/Card";
 import InfoPopover from "../common/InfoPopover";
 
 export default function DatabaseBackupCard({

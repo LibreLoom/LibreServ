@@ -1,5 +1,5 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
-import ModalCard from "../../common/cards/ModalCard";
+import ModalCard from "../../cards/ModalCard";
 
 export function ActionConfirmModal({ action, onConfirm, onCancel, isConfirming }) {
   return (
