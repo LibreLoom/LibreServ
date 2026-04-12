@@ -269,6 +269,15 @@ body {
     }
 }
 
+@keyframes fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
 @keyframes slide-in-from-bottom-1 {
     from {
         transform: translateY(4px);
@@ -347,8 +356,18 @@ body {
     animation-fill-mode: both;
 }
 
+.animate-out {
+    animation-duration: 200ms;
+    animation-timing-function: ease-in;
+    animation-fill-mode: both;
+}
+
 .fade-in {
     animation-name: fade-in;
+}
+
+.fade-out {
+    animation-name: fade-out;
 }
 
 .slide-in-from-bottom-1 {
@@ -468,7 +487,8 @@ body {
         opacity: 1;
         transform: none;
     }
-    .animate-in {
+    .animate-in,
+    .animate-out {
         animation: none !important;
         opacity: 1;
         transform: none;

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AlertTriangle, Upload } from "lucide-react";
 import PropTypes from "prop-types";
 import ConfirmModal from "../common/ConfirmModal";
+import Dropdown from "../common/Dropdown";
 
 export default function RestoreAppSelector({ backup, apps, onRestore, onClose }) {
   const [selectedAppId, setSelectedAppId] = useState("");
@@ -34,18 +35,13 @@ export default function RestoreAppSelector({ backup, apps, onRestore, onClose })
       loading={restoring}
     >
       <div className="mt-3">
-        <select
+        <Dropdown
           value={selectedAppId}
-          onChange={(e) => setSelectedAppId(e.target.value)}
-          className="w-full px-3 py-2 bg-primary/10 border border-primary/20 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-        >
-          <option value="">Select an app...</option>
-          {apps.map((app) => (
-            <option key={app.id} value={app.id}>
-              {app.name || app.id}
-            </option>
-          ))}
-        </select>
+          onChange={setSelectedAppId}
+          placeholder="Select an app..."
+          fullWidth
+          options={apps.map((app) => ({ value: app.id, label: app.name || app.id }))}
+        />
 
         {selectedApp && (
           <div className="mt-3 flex items-start gap-2 p-3 rounded-large-element bg-warning/10 border border-warning/20">

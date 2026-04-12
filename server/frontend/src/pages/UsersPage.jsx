@@ -194,11 +194,11 @@ export default function UsersPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-primary/20 text-left text-sm text-primary/60">
-                    <th className="px-4 py-3 font-medium">User</th>
-                    <th className="px-4 py-3 font-medium">Email</th>
-                    <th className="px-4 py-3 font-medium">Role</th>
-                    <th className="px-4 py-3 font-medium">Last Login</th>
-                    <th className="px-4 py-3 font-medium w-12">
+                    <th scope="col" className="px-4 py-3 font-medium">User</th>
+                    <th scope="col" className="px-4 py-3 font-medium">Email</th>
+                    <th scope="col" className="px-4 py-3 font-medium">Role</th>
+                    <th scope="col" className="px-4 py-3 font-medium">Last Login</th>
+                    <th scope="col" className="px-4 py-3 font-medium w-12">
                       <span className="sr-only">Actions</span>
                     </th>
                   </tr>

@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
+import Dropdown from "../../common/Dropdown";
 
 function ConfigFieldRenderer({ field, value, onChange, disabled }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -87,27 +88,17 @@ const inputBaseClasses = `
 
       case "select":
         return (
-          <select
-            id={field.name}
+          <Dropdown
             value={value ?? field.default ?? ""}
-            onChange={(e) => handleChange(e.target.value)}
+            onChange={handleChange}
             disabled={disabled}
-            className={`${inputBaseClasses} ${errorClasses} cursor-pointer`}
-          >
-            {field.options?.length > 0 && field.options[0]?.value !== undefined ? (
-              field.options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label || option.value}
-                </option>
-              ))
-            ) : (
-              field.options?.map((option) => (
-                <option key={String(option)} value={String(option)}>
-                  {option === "" ? "— None —" : String(option)}
-                </option>
-              ))
-            )}
-          </select>
+            fullWidth
+            options={
+              field.options?.length > 0 && field.options[0]?.value !== undefined
+                ? field.options.map((option) => ({ value: option.value, label: option.label || option.value }))
+                : (field.options || []).map((option) => ({ value: String(option), label: option === "" ? "— None —" : String(option) }))
+            }
+          />
         );
 
       case "port":

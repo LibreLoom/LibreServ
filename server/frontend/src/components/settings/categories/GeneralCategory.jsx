@@ -29,7 +29,7 @@ export default function GeneralCategory({ settings }) {
           </SettingsRow>
 
           <div className="border-t border-primary/10 pt-3" />
-          <CollapsibleSection title="backend info" mono size="xs" background className="mt-3">
+          <CollapsibleSection title="Backend Info" mono size="xs" background className="mt-3">
             <div className="space-y-2">
               <ValueDisplay label="Host" value={settings?.server?.host || "N/A"} />
               <ValueDisplay label="Port" value={settings?.server?.port || "N/A"} />
@@ -43,7 +43,7 @@ export default function GeneralCategory({ settings }) {
           </CollapsibleSection>
 
           {settings?.proxy && (
-            <CollapsibleSection title="proxy info" mono size="xs" background className="mt-3">
+            <CollapsibleSection title="Proxy Info" mono size="xs" background className="mt-3">
               <div className="space-y-2">
                 <ValueDisplay label="Type" value={settings?.proxy?.type || "N/A"} />
                 {settings?.proxy?.mode && (

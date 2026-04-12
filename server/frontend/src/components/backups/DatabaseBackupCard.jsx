@@ -1,6 +1,5 @@
-import { DatabaseBackup, Loader2, Save, Upload } from "lucide-react";
+import { DatabaseBackup, Loader2, Save, Upload, Info } from "lucide-react";
 import Card from "../cards/Card";
-import InfoPopover from "../common/InfoPopover";
 
 export default function DatabaseBackupCard({
   savingDb,
@@ -14,13 +13,16 @@ export default function DatabaseBackupCard({
       icon={DatabaseBackup}
       title="Database Backup"
       padding={false}
-      headerActions={
-        <InfoPopover>
-          Database backups contain LibreServ&apos;s system configuration, user accounts, and app records. Restore with caution - this replaces the entire system state.
-        </InfoPopover>
-      }
       className="animate-in fade-in slide-in-from-bottom-2"
     >
+      <div className="p-4 pb-0">
+        <div className="bg-primary/5 border border-primary/10 rounded-large-element p-3 flex items-start gap-2">
+          <Info size={16} className="text-accent flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <p className="text-xs text-accent">
+            Contains system configuration, user accounts, and app records. Restore with caution — this replaces the entire system state.
+          </p>
+        </div>
+      </div>
       <div
         className="animate-in fade-in slide-in-from-bottom-2 p-4 flex flex-col sm:flex-row gap-3"
         style={{ animationDuration: "var(--motion-duration-medium2)" }}

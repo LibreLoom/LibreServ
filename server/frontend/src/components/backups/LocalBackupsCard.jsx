@@ -5,11 +5,14 @@ import {
   DatabaseBackup,
   Cloud,
   Download,
-  Upload,
+  CloudUpload,
   Trash2,
+  RotateCcw,
   AlertTriangle,
+  HelpCircle,
 } from "lucide-react";
 import Card from "../cards/Card";
+import AppIcon from "../common/AppIcon";
 import { formatDate, formatBytes } from "../../lib/backups-utils";
 
 export default function LocalBackupsCard({
@@ -26,7 +29,18 @@ export default function LocalBackupsCard({
 }) {
   function getAppDisplayName(backup) {
     const app = apps.find((a) => a.id === backup.app_id);
-    return app?.name || backup.app_id || "System";
+    if (app) return app.name;
+    if (!backup.app_id) return "?";
+    return backup.app_id;
+  }
+
+  function isOrphaned(backup) {
+    return !backup.app_id || !apps.find((a) => a.id === backup.app_id);
+  }
+
+  function getAppCatalogId(backup) {
+    const app = apps.find((a) => a.id === backup.app_id);
+    return app?.app_id || null;
   }
 
   const recentBackups = backups.slice(0, 5);
@@ -41,7 +55,7 @@ export default function LocalBackupsCard({
           onClick={onCreate}
           className="flex items-center gap-1 text-xs text-accent hover:text-primary transition-colors"
         >
-          <Plus size={14} />
+          <Plus size={14} aria-hidden="true" />
           Create
         </button>
       }
@@ -85,14 +99,26 @@ export default function LocalBackupsCard({
               const isUploading = uploadingId === backup.id;
               return (
                 <div key={backup.id} className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-mono text-sm text-primary truncate">
-                      {getAppDisplayName(backup)}
-                    </div>
-                    <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
-                      <span>{formatDate(backup.created_at)}</span>
-                      <span>·</span>
-                      <span>{formatBytes(backup.size)}</span>
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {isOrphaned(backup) ? (
+                      <div
+                        className="rounded-large-element bg-primary/10 flex items-center justify-center"
+                        style={{ width: 28, height: 28 }}
+                      >
+                        <HelpCircle size={16} className="text-primary/50" />
+                      </div>
+                    ) : (
+                      <AppIcon appId={getAppCatalogId(backup)} size={28} />
+                    )}
+                    <div className="min-w-0">
+                      <div className="font-mono text-sm text-primary truncate">
+                        {getAppDisplayName(backup)}
+                      </div>
+                      <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
+                        <span>{formatDate(backup.created_at)}</span>
+                        <span>·</span>
+                        <span>{formatBytes(backup.size)}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
@@ -102,41 +128,47 @@ export default function LocalBackupsCard({
                         Cloud
                       </span>
                     ) : (
-                      <button
-                        onClick={() => onUploadToCloud(backup)}
-                        disabled={isUploading}
-                        className={`p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all mr-1 ${isUploading ? "opacity-50 cursor-wait" : ""}`}
-                        title="Upload to Cloud"
-                      >
-                        {isUploading ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <Upload size={14} />
-                        )}
-                      </button>
+                      <>
+                        <button
+                          onClick={() => onUploadToCloud(backup)}
+                          disabled={isUploading}
+                          title="Upload to cloud"
+                          className={`p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all mr-1 ${isUploading ? "opacity-50 cursor-wait" : ""}`}
+                          aria-label="Upload to cloud"
+                        >
+                          {isUploading ? (
+                            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                          ) : (
+                            <CloudUpload size={14} aria-hidden="true" />
+                          )}
+                        </button>
+                        <a
+                          href={`/api/v1/backups/${backup.id}/download`}
+                          download
+                          title="Download backup"
+                          className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                          aria-label="Download backup"
+                        >
+                          <Download size={14} aria-hidden="true" />
+                        </a>
+                        <button
+                          onClick={() => onRestore(backup)}
+                          title="Restore backup"
+                          className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                          aria-label="Restore backup"
+                        >
+                          <RotateCcw size={14} aria-hidden="true" />
+                        </button>
+                        <button
+                          onClick={() => onDelete(backup)}
+                          title="Delete backup"
+                          className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
+                          aria-label="Delete backup"
+                        >
+                          <Trash2 size={14} aria-hidden="true" />
+                        </button>
+                      </>
                     )}
-                    <a
-                      href={`/api/v1/backups/${backup.id}/download`}
-                      download
-                      className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                      title="Download"
-                    >
-                      <Download size={14} />
-                    </a>
-                    <button
-                      onClick={() => onRestore(backup)}
-                      className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                      title="Restore"
-                    >
-                      <Upload size={14} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(backup)}
-                      className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
                 </div>
               );

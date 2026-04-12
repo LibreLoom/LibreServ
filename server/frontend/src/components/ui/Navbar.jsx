@@ -33,12 +33,10 @@ const navButtonClasses =
   "aria-[current=page]:text-secondary " +
   "hover:aria-[current=page]:text-primary " +
   "hover:aria-[current=page]:bg-secondary " +
-  "hover:aria-[current=page]:ring-2 " +
+  "hover:aria-[current=page]:ring-3 " +
   "hover:aria-[current=page]:ring-accent " +
-  "hover:aria-[current=page]:ring-offset-2 " +
-  "focus-visible:ring-2 " +
-  "focus-visible:ring-accent " +
-  "focus-visible:ring-offset-2";
+  "focus-visible:ring-3 " +
+  "focus-visible:ring-accent ";
 
 const menuItemClasses = `flex items-center gap-2 px-3 py-2 rounded-pill ${TRANSITION.base}`;
 
@@ -333,17 +331,20 @@ export default function Navbar() {
               {navButtonsElements}
             </div>
             <div className="group flex items-center gap-2 relative">
-              <span
-                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate ${TRANSITION.full} ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"} translate-y-[-0.5px]`}
-                title={user?.username || ""}
+              <button
+                type="button"
+                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate text-left ${TRANSITION.full} ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"} translate-y-[-0.5px]`}
+                aria-label="User menu"
+                aria-haspopup="menu"
               >
                 {user?.username || ""}
-              </span>
-              <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center">
-                <User size={16} aria-hidden="true" />
+              </button>
+              <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center" aria-hidden="true">
+                <User size={16} />
               </div>
 
               <div
+                role="menu"
                 className={`absolute bottom-0 right-0 pb-16 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto ${TRANSITION.full}`}
               >
                 <div
@@ -351,27 +352,30 @@ export default function Navbar() {
                 >
                   <NavLink
                     to="/users"
+                    role="menuitem"
                     className={`${menuItemClasses} hover:bg-primary hover:text-secondary`}
                   >
-                    <Users size={16} />
+                    <Users size={16} aria-hidden="true" />
                     <span className="text-sm font-semibold">Manage Users</span>
                   </NavLink>
                   <NavLink
                     to={`/users/${user?.id || ""}`}
+                    role="menuitem"
                     className={`${menuItemClasses} hover:bg-primary hover:text-secondary`}
                   >
-                    <Settings size={16} />
+                    <Settings size={16} aria-hidden="true" />
                     <span className="text-sm font-semibold">
                       Manage Profile
                     </span>
                   </NavLink>
                   <button
+                    role="menuitem"
                     onClick={async () => {
                       await logout();
                     }}
                     className={`${menuItemClasses} hover:bg-accent hover:text-primary text-left`}
                   >
-                    <X size={16} />
+                    <X size={16} aria-hidden="true" />
                     <span className="text-sm font-semibold">Sign Out</span>
                   </button>
                 </div>

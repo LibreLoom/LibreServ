@@ -125,26 +125,28 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
               <p className="text-xs text-secondary/70">
                 Everyone who uses this app will sign in with these same credentials. Choose something memorable or let us generate secure defaults.
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                   <label className="block font-mono text-sm text-secondary">
-                     Username
+                   <label htmlFor="config-username" className="block font-mono text-sm text-secondary">
+                      Username
                    </label>
                    <input
-                     type="text"
-value={config._shared_username || "admin"}
+                      id="config-username"
+                      type="text"
+                      value={config._shared_username || "admin"}
                       onChange={(e) => handleFieldChange("_shared_username", e.target.value)}
                       placeholder="admin"
                       className="w-full px-3 py-2 border-2 border-secondary/30 rounded-large-element bg-primary text-secondary focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
                    />
                 </div>
                 <div className="space-y-1">
-                   <label className="block font-mono text-sm text-secondary">
-                     Password <span className="text-secondary">*</span>
+                   <label htmlFor="config-password" className="block font-mono text-sm text-secondary">
+                      Password <span className="text-secondary">*</span>
                    </label>
                    <input
-                     type="password"
-value={config._shared_password || ""}
+                      id="config-password"
+                      type="password"
+                      value={config._shared_password || ""}
                       onChange={(e) => handleFieldChange("_shared_password", e.target.value)}
                       placeholder="Leave empty to auto-generate"
                       className="w-full px-3 py-2 border-2 border-secondary/30 rounded-large-element bg-primary text-secondary focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"

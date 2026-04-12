@@ -44,6 +44,8 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
   if (failed || !svg) {
     return (
       <div
+        role="img"
+        aria-label={`${appId} icon`}
         className={`rounded-large-element bg-secondary/10 flex items-center justify-center ${className}`}
         style={{ width: size, height: size }}
       >
@@ -59,6 +61,8 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
 
   return (
     <span
+      role="img"
+      aria-label={`${appId} icon`}
       className={`inline-block align-middle ${className}`}
       style={{ width: size, height: size }}
       dangerouslySetInnerHTML={{ __html: svg }}

@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Shield } from "lucide-react";
+import Dropdown from "../Dropdown";
 
 export default function RoleChangeForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();
@@ -59,23 +60,16 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
         >
           New Role
         </label>
-        <div className="relative">
-          <Shield
-            size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/60"
-            aria-hidden="true"
-          />
-            <select
-              id="role"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full pl-11 pr-10 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent bg-secondary cursor-pointer"
-              disabled={loading}
-            >
-            <option value="user">User</option>
-            <option value="admin">Admin</option>
-          </select>
-        </div>
+        <Dropdown
+          value={role}
+          onChange={setRole}
+          fullWidth
+          disabled={loading}
+          options={[
+            { value: "user", label: "User" },
+            { value: "admin", label: "Admin" },
+          ]}
+        />
       </div>
 
       {error && (

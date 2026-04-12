@@ -48,6 +48,7 @@ function AppCardInner({ app }) {
               href={appUrl}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label={`${app.name} (opens in new tab)`}
               className="font-mono font-normal truncate hover:text-accent transition-colors"
             >
               {app.name}
@@ -62,26 +63,26 @@ function AppCardInner({ app }) {
 
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="flex items-center gap-2">
-          <Cpu size={14} className="text-primary/50" />
+          <Cpu size={14} className="text-primary/50" aria-hidden="true" />
           <span className="text-primary/70">CPU:</span>
           <span className="font-mono">
             {app.cpu_percent != null ? `${app.cpu_percent.toFixed(1)}%` : "-"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <MemoryStick size={14} className="text-primary/50" />
+          <MemoryStick size={14} className="text-primary/50" aria-hidden="true" />
           <span className="text-primary/70">RAM:</span>
           <span className="font-mono">
             {app.memory_usage != null ? formatBytes(app.memory_usage) : "-"}
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Clock size={14} className="text-primary/50" />
+          <Clock size={14} className="text-primary/50" aria-hidden="true" />
           <span className="text-primary/70">{uptimeLabel}:</span>
           <span className="font-mono">{formatDuration(uptime)}</span>
         </div>
         <div className="flex items-center gap-2">
-          <TrendingUp size={14} className="text-primary/50" />
+          <TrendingUp size={14} className="text-primary/50" aria-hidden="true" />
           <span className="text-primary/70">Avail:</span>
           <span className="font-mono">
             {app.availability_pct != null ? `${app.availability_pct.toFixed(0)}%` : "-"}
@@ -106,7 +107,7 @@ function NoAppsCard() {
   return (
     <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 flex flex-col items-center text-center">
       <div className="flex items-center gap-4 mb-4">
-        <div className="h-12 w-12 rounded-pill bg-primary/10 text-primary/30 flex items-center justify-center">
+        <div className="h-12 w-12 rounded-pill bg-primary/10 text-primary/30 flex items-center justify-center" aria-hidden="true">
           <Package size={22} />
         </div>
         <div className="text-left">
@@ -137,7 +138,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
     return (
       <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
         <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center animate-pulse">
+          <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center animate-pulse" aria-hidden="true">
             <Package size={22} className="text-primary/30" />
           </div>
           <div className="text-left">
@@ -156,7 +157,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
     return (
       <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
         <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center">
+          <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center" aria-hidden="true">
             <Package size={22} className="text-error" />
           </div>
           <div className="text-left">

@@ -103,22 +103,25 @@ export function ActionResultModal({ result, onClose }) {
                 <button
                   onClick={() => setShowVerbose(!showVerbose)}
                   className="flex items-center gap-1 text-sm text-accent hover:text-accent/80 transition-colors"
+                  aria-expanded={showVerbose}
+                  aria-controls="action-output"
                 >
-                  {showVerbose ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  {showVerbose ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
                   {showVerbose ? "Hide output" : "View output"}
                 </button>
 
                 <button
                   onClick={handleCopy}
                   className="inline-flex items-center gap-1 rounded-pill border border-secondary/20 px-3 py-1 text-xs font-mono text-primary hover:bg-primary/5 transition-colors"
-                  title="Copy output"
+                  aria-label="Copy output to clipboard"
                 >
-                  {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+                  {copied ? <Check size={14} className="text-success" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
                   {copied ? "Copied" : "Copy"}
                 </button>
               </div>
 
               <div
+                id="action-output"
                 className={`overflow-hidden motion-safe:transition-all duration-500 ease-out ${
                   showVerbose ? "max-h-96" : "max-h-0"
                 }`}

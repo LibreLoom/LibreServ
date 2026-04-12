@@ -69,7 +69,7 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
       {!isInstalled && (
         <button
           onClick={() => onInstall(app.id)}
-          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-accent hover:ring-2 transition-all font-mono font-medium text-sm"
+          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-primary hover:ring-2 transition-all font-mono font-medium text-sm"
         >
           <Download size={16} />
           Install
@@ -244,6 +244,7 @@ export default function AppsPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="font-mono text-lg text-primary truncate pr-20 hover:text-accent transition-colors block"
+                          aria-label={`${app.name} (opens in new tab)`}
                         >
                           {app.name}
                         </a>
@@ -297,9 +298,10 @@ export default function AppsPage() {
                         href={appUrl}
                         target="_blank"
                         rel="noopener noreferrer"
+                        aria-label={`${app.name} (opens in new tab)`}
                         className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
                       >
-                        <ExternalLink size={16} />
+                        <ExternalLink size={16} aria-hidden="true" />
                         Open
                       </a>
                     )}

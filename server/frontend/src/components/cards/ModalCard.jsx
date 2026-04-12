@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import Card from "./Card";
 
@@ -11,7 +12,6 @@ export default function ModalCard({
   mobileFullscreen = false,
 }) {
   const [isClosing, setIsClosing] = useState(false);
-  const [isEntering, setIsEntering] = useState(true);
   const titleId = useId();
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
@@ -22,13 +22,8 @@ export default function ModalCard({
     setIsClosing(true);
     setTimeout(() => {
       onClose?.();
-    }, 300);
+    }, 200);
   }, [isClosing, onClose]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setIsEntering(false), 200);
-    return () => clearTimeout(timer);
-  }, []);
 
   const content = typeof children === "function" ? children({ close: handleClose }) : children;
 
@@ -82,9 +77,9 @@ export default function ModalCard({
     ? "p-0 sm:p-4 [&>div]:rounded-none [&>div]:max-h-[100vh] sm:[&>div]:rounded-[24px] sm:[&>div]:max-h-[calc(95vh-4rem)] [&>div>div]:rounded-none sm:[&>div>div]:rounded-[24px]"
     : "p-4";
 
-  return (
+  return createPortal(
     <div
-      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 ${mobileFsClasses} ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}
+      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 ${mobileFsClasses} ${isClosing ? "animate-out fade-out" : "animate-in fade-in"}`}
       onClick={handleClose}
     >
       <div
@@ -92,10 +87,10 @@ export default function ModalCard({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`w-full transition-all flex flex-col ${sizeClasses}`}
+        className={`w-full flex flex-col ${sizeClasses}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <Card noHeightAnim className={`relative flex-1 flex flex-col min-h-0 h-full overflow-hidden ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
+        <Card noHeightAnim noPopIn className={`relative flex-1 flex flex-col min-h-0 h-full overflow-hidden ${isClosing ? "pop-out" : "pop-in"}`}>
           {showCloseButton && (
             <button
               type="button"
@@ -117,6 +112,7 @@ export default function ModalCard({
           {content}
         </Card>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

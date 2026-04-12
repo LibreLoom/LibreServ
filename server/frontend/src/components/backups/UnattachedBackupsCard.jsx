@@ -1,4 +1,4 @@
-import { HardDrive, Download, Upload, Trash2 } from "lucide-react";
+import { HardDrive, Download, RotateCcw, Trash2 } from "lucide-react";
 import Card from "../cards/Card";
 import InfoPopover from "../common/InfoPopover";
 import { formatDate, formatBytes } from "../../lib/backups-utils";
@@ -48,24 +48,27 @@ export default function UnattachedBackupsCard({
               <a
                 href={`/api/v1/backups/${backup.id}/download`}
                 download
+                title="Download backup"
                 className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                title="Download"
+                aria-label="Download backup"
               >
-                <Download size={14} />
+                <Download size={14} aria-hidden="true" />
               </a>
               <button
                 onClick={() => onRestore(backup)}
+                title="Restore backup to app"
                 className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                title="Restore to App"
+                aria-label="Restore backup to app"
               >
-                <Upload size={14} />
+                <RotateCcw size={14} aria-hidden="true" />
               </button>
               <button
                 onClick={() => onDelete(backup)}
+                title="Delete backup"
                 className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
-                title="Delete"
+                aria-label="Delete backup"
               >
-                <Trash2 size={14} />
+                <Trash2 size={14} aria-hidden="true" />
               </button>
             </div>
           </div>

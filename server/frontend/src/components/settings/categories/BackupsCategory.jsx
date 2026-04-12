@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
-import { DatabaseBackup, Download, Trash2, AlertTriangle } from "lucide-react";
+import { DatabaseBackup, Download, Trash2, AlertTriangle, RotateCcw } from "lucide-react";
 import LocalBackupsCard from "../../backups/LocalBackupsCard";
 import UploadBackupCard from "../../backups/UploadBackupCard";
 import UnattachedBackupsCard from "../../backups/UnattachedBackupsCard";
@@ -10,6 +10,7 @@ import CloudBackupCard from "../../backups/CloudBackupCard";
 import ScheduleForm from "../../backups/ScheduleForm";
 import RestoreAppSelector from "../../backups/RestoreAppSelector";
 import ConfirmModal from "../../common/ConfirmModal";
+import Dropdown from "../../common/Dropdown";
 
 export default function BackupsCategory() {
   const { request } = useAuth();
@@ -32,6 +33,7 @@ export default function BackupsCategory() {
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadingDb, setUploadingDb] = useState(false);
   const [savingDb, setSavingDb] = useState(false);
+  const [pendingDbFile, setPendingDbFile] = useState(null);
   const fileInputRef = useRef(null);
   const dbFileInputRef = useRef(null);
 
@@ -216,7 +218,16 @@ export default function BackupsCategory() {
         const err = await res.json();
         throw new Error(err.error || "Failed to save database");
       }
-      showSuccess("Database saved", "Database backup created successfully.");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `libreserv-db-${new Date().toISOString().slice(0, 10)}.db.gz`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+      showSuccess("Database saved", "Database backup downloaded successfully.");
     } catch (err) {
       showError("Failed to save database", err.message);
     } finally {
@@ -232,7 +243,13 @@ export default function BackupsCategory() {
       showError("Invalid file", "Only .gz and .db files are supported.");
       return;
     }
-    uploadAndRestoreDatabase(file);
+    setPendingDbFile(file);
+  }
+
+  async function handleConfirmDbRestore() {
+    if (!pendingDbFile) return;
+    await uploadAndRestoreDatabase(pendingDbFile);
+    setPendingDbFile(null);
   }
 
   async function uploadAndRestoreDatabase(file) {
@@ -240,10 +257,9 @@ export default function BackupsCategory() {
     try {
       const formData = new FormData();
       formData.append("backup", file);
-      const res = await fetch("/api/v1/backups/database/upload-restore", {
+      const res = await request("/backups/database/upload-restore", {
         method: "POST",
         body: formData,
-        credentials: "include",
       });
       if (!res.ok) {
         const err = await res.json();
@@ -323,16 +339,13 @@ export default function BackupsCategory() {
           <label className="block text-sm font-mono text-primary/70 mb-2">
             Select App
           </label>
-          <select
+          <Dropdown
             value={selectedApp}
-            onChange={(e) => setSelectedApp(e.target.value)}
-            className="w-full px-3 py-2 bg-primary/10 border border-primary/20 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-          >
-            <option value="">Select an app...</option>
-            {apps.map((app) => (
-              <option key={app.id} value={app.id}>{app.name}</option>
-            ))}
-          </select>
+            onChange={setSelectedApp}
+            placeholder="Select an app..."
+            fullWidth
+            options={apps.map((app) => ({ value: app.id, label: app.name }))}
+          />
         </div>
       </ConfirmModal>
 
@@ -360,6 +373,19 @@ export default function BackupsCategory() {
         confirmLabel="Delete"
         confirmIcon={Trash2}
         loading={deleting}
+      />
+
+      <ConfirmModal
+        open={!!pendingDbFile}
+        onClose={() => { setPendingDbFile(null); if (dbFileInputRef.current) dbFileInputRef.current.value = ""; }}
+        onConfirm={handleConfirmDbRestore}
+        icon={RotateCcw}
+        title="Restore Database"
+        message={pendingDbFile ? `This will replace the current database with ${pendingDbFile.name}. All current data will be lost.` : ""}
+        variant="danger"
+        confirmLabel="Restore"
+        confirmIcon={RotateCcw}
+        loading={uploadingDb}
       />
 
       {showAppSelector && (
