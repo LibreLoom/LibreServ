@@ -3,6 +3,7 @@ import AppearanceCategory from "./categories/AppearanceCategory";
 import SecurityCategory from "./categories/SecurityCategory";
 import AboutCategory from "./categories/AboutCategory";
 import BackupsCategory from "./categories/BackupsCategory";
+import SaveStatusIndicator from "../common/SaveStatusIndicator";
 
 const CATEGORY_TITLES = {
 	general: "General Settings",
@@ -38,6 +39,9 @@ export default function SettingsContent({
   setUseSeparateDarkColors,
   resetColors,
   isCustomTheme,
+  saveStatus = "idle",
+  onRetrySave,
+  onSavedComplete,
 }) {
   const CategoryComponent = CATEGORY_COMPONENTS[category] || GeneralCategory;
   const title = CATEGORY_TITLES[category] || "Settings";
@@ -82,9 +86,16 @@ export default function SettingsContent({
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-1 duration-200">
-        {title}
-      </h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-1 duration-200">
+          {title}
+        </h1>
+        <SaveStatusIndicator
+          status={saveStatus}
+          onRetry={onRetrySave}
+          onSavedComplete={onSavedComplete}
+        />
+      </div>
       <div key={category} className="animate-in fade-in duration-200">
         <CategoryComponent {...getSettingsProps()} />
       </div>

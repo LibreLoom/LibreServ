@@ -13,6 +13,9 @@
         <title>LibreServ</title>
         <!-- Content Security Policy - strict for XSS protection -->
         <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://gt.plainskill.net; base-uri 'self'; form-action 'self'">
+        <script>
+            (function(){try{var t=localStorage.getItem("theme");var isDark=false;if(t==="dark")isDark=true;else if(t==="system"&&window.matchMedia&&window.matchMedia("(prefers-color-scheme:dark)").matches)isDark=true;var r=document.documentElement;var cc=null;try{var s=localStorage.getItem("theme-colors");if(s)cc=JSON.parse(s)}catch(e){}var dc=null;var sep=false;try{var s2=localStorage.getItem("theme-dark-colors");if(s2)dc=JSON.parse(s2);sep=JSON.parse(localStorage.getItem("theme-separate-dark")||"false")}catch(e){}function hex(v,fallback){return v&&typeof v==="string"&&/^#[0-9A-Fa-f]{6}$/.test(v)?v:fallback}var p,s,a;if(isDark&&cc){if(sep&&dc){p=hex(dc.primary,"#000000");s=hex(dc.secondary,"#ffffff");a=hex(dc.accent,"#767676")}else{p=hex(cc.secondary,"#000000");s=hex(cc.primary,"#ffffff");a=hex(cc.accent,"#767676")}}else if(cc){p=hex(cc.primary,"#ffffff");s=hex(cc.secondary,"#000000");a=hex(cc.accent,"#767676")}else if(isDark){p="#000000";s="#ffffff";a="#767676"}else{p="#ffffff";s="#000000";a="#767676"}r.style.setProperty("--primary",p);r.style.setProperty("--secondary",s);r.style.setProperty("--accent",a);if(isDark)r.classList.add("dark")}catch(e){}})();
+        </script>
     </head>
     <body>
         <!-- React mounts into this root node -->

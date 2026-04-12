@@ -264,11 +264,12 @@ export default function NotFoundPage({ includeMain = true }) {
 
   return (
      <Wrapper
-       className="bg-primary text-secondary px-8 pt-10 pb-32 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+       className="bg-primary text-secondary px-8 pt-10 pb-32"
        aria-labelledby={regionTitleId}
        aria-describedby={detailsId}
        id="main-content"
        tabIndex={-1}
+       style={{ outline: 'none' }}
      >
       {/* Reliable region label (does not depend on HeaderCard internals). */}
       <span id={regionTitleId} className="sr-only">

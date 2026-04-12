@@ -612,7 +612,7 @@ export default function AppDetailPage() {
 
                 <button
                   onClick={() => setShowLogsViewer(true)}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill border border-accent/40 bg-secondary/30 text-accent hover:bg-secondary transition-colors font-mono"
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-accent/20 text-secondary border border-accent/50 hover:bg-accent/30 transition-colors font-mono"
                 >
                   <Terminal size={18} />
                   View Logs

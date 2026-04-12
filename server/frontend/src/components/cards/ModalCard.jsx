@@ -8,6 +8,7 @@ export default function ModalCard({
   onClose,
   showCloseButton = true,
   size = "md",
+  mobileFullscreen = false,
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const [isEntering, setIsEntering] = useState(true);
@@ -68,9 +69,22 @@ export default function ModalCard({
     };
   }, [handleClose]);
 
+  const sizeClasses =
+    size === "fullscreen"
+      ? "max-w-[95vw] h-[95vh]"
+      : size === "lg"
+        ? "sm:max-w-3xl max-h-full sm:max-h-[calc(95vh-4rem)]"
+        : size === "xl"
+          ? "sm:max-w-5xl max-h-full sm:max-h-[calc(95vh-4rem)]"
+          : "sm:max-w-md max-h-full sm:max-h-[calc(95vh-4rem)]";
+
+  const mobileFsClasses = mobileFullscreen
+    ? "p-0 sm:p-4 [&>div]:rounded-none [&>div]:max-h-[100vh] sm:[&>div]:rounded-[24px] sm:[&>div]:max-h-[calc(95vh-4rem)] [&>div>div]:rounded-none sm:[&>div>div]:rounded-[24px]"
+    : "p-4";
+
   return (
     <div
-      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}
+      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 ${mobileFsClasses} ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}
       onClick={handleClose}
     >
       <div
@@ -78,10 +92,10 @@ export default function ModalCard({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`w-full transition-all flex flex-col mb-16 ${size === "fullscreen" ? "max-w-[95vw] max-h-[calc(95vh-4rem)]" : size === "lg" ? "max-w-3xl max-h-[calc(95vh-4rem)]" : size === "xl" ? "max-w-5xl max-h-[calc(95vh-4rem)]" : "max-w-md max-h-[calc(95vh-4rem)]"}`}
+        className={`w-full transition-all flex flex-col ${sizeClasses}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <Card className={`relative flex-1 flex flex-col min-h-0 overflow-y-auto ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
+        <Card noHeightAnim className={`relative flex-1 flex flex-col min-h-0 h-full overflow-hidden ${isClosing ? "pop-out" : isEntering ? "pop-in" : ""}`}>
           {showCloseButton && (
             <button
               type="button"

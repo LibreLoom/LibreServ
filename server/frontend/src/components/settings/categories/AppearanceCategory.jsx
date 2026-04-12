@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
-import { useAnimatedHeight } from "../../../hooks/useAnimatedHeight";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check } from "lucide-react";
+import Card from "../../common/cards/Card";
+import Toggle from "../../common/Toggle";
+import SegmentedControl from "../../common/SegmentedControl";
 import SettingsRow from "../SettingsRow";
 
 const THEME_OPTIONS = [
@@ -10,7 +12,7 @@ const THEME_OPTIONS = [
 ];
 
 function ColorInput({ label, value, onChange, description }) {
-  const [inputValue, setInputValue] = useState(value || "#000000"); // color-scan: ignore-line default hex
+  const [inputValue, setInputValue] = useState(value || "#000000");
   const [isValid, setIsValid] = useState(true);
   const lastExternalValue = useRef(value);
 
@@ -51,7 +53,7 @@ function ColorInput({ label, value, onChange, description }) {
       <div className="flex items-center gap-2">
         <input
           type="color"
-          value={value || "#000000"} // color-scan: ignore-line default hex
+          value={value || "#000000"}
           onChange={handleColorPickerChange}
           className="w-8 h-8 rounded-large-element cursor-pointer border border-primary/20 bg-transparent"
           aria-label={`Choose ${label} color`}
@@ -60,7 +62,7 @@ function ColorInput({ label, value, onChange, description }) {
           type="text"
           value={inputValue}
           onChange={handleChange}
-          placeholder="#000000" // color-scan: ignore-line placeholder hex
+          placeholder="#000000"
           className={`w-24 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 ${
             isValid ? "border-primary/20" : "border-error"
           } text-primary focus-visible:ring-2 focus-visible:ring-accent`}
@@ -117,7 +119,6 @@ function getContrastRatio(hex1, hex2) {
 }
 
 function createValidatedPresets() {
-  // color-scan: ignore-file preset color definitions
   const presets = [
     { label: "Classic", colors: { primary: "#ffffff", secondary: "#000000", accent: "#767676" } },
     { label: "Ocean", colors: { primary: "#cce7f5", secondary: "#0c4a6e", accent: "#1888b8" } },
@@ -133,11 +134,11 @@ function createValidatedPresets() {
     const contrastPrimary = getContrastRatio(preset.colors.primary, preset.colors.accent);
     const contrastSecondary = getContrastRatio(preset.colors.secondary, preset.colors.accent);
     const isCompliant = contrastPrimary >= MIN_CONTRAST && contrastSecondary >= MIN_CONTRAST;
-    return { 
-      ...preset, 
-      contrastPrimary: contrastPrimary.toFixed(2), 
+    return {
+      ...preset,
+      contrastPrimary: contrastPrimary.toFixed(2),
       contrastSecondary: contrastSecondary.toFixed(2),
-      isCompliant 
+      isCompliant
     };
   });
 }
@@ -160,9 +161,6 @@ export default function AppearanceCategory({
   const [showCustomColors, setShowCustomColors] = useState(isCustomTheme);
 
   const darkMode = resolvedTheme === "dark";
-
-  const themeCard = useAnimatedHeight();
-  const colorsCard = useAnimatedHeight();
 
   const handleColorChange = (key, value) => {
     setColors({ ...colors, [key]: value });
@@ -192,85 +190,26 @@ export default function AppearanceCategory({
 
   return (
     <div className="space-y-4">
-      <div
-        ref={themeCard.outerRef}
-        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2"
-        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
-      >
-        <div ref={themeCard.innerRef}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-primary/10">
-          <Palette size={18} className="text-accent" />
-          <h2 className="font-mono font-normal text-primary">Theme</h2>
-        </div>
+      <Card icon={Palette} title="Theme" padding={false} className="animate-in fade-in slide-in-from-bottom-2">
         <SettingsRow label="Color Scheme" description="Choose light, dark, or follow system preference" stack>
-          <div className="relative inline-grid grid-cols-3 bg-primary/10 rounded-pill p-[3px]" role="radiogroup" aria-label="Color scheme">
-            <div
-              className="absolute top-[3px] bottom-[3px] left-[3px] rounded-pill bg-accent shadow-sm transition-transform ease-[var(--motion-easing-emphasized)]"
-              style={{
-                width: "calc((100% - 6px) / 3)",
-                transform: `translateX(${THEME_OPTIONS.findIndex((o) => o.value === theme) * 100}%)`,
-                transitionDuration: "var(--motion-duration-short4)",
-              }}
-            />
-            {THEME_OPTIONS.map(({ value, icon: Icon, label }) => (
-              <button
-                key={value}
-                onClick={() => onThemeChange(value)}
-                className={`relative z-10 flex w-20 items-center justify-center gap-1.5 px-3 py-1.5 rounded-pill text-xs font-medium transition-[color] ease-[var(--motion-easing-standard)] ${
-                  theme === value ? "text-primary" : "text-accent hover:text-secondary"
-                }`}
-                style={{ transitionDuration: "var(--motion-duration-short2)" }}
-                role="radio"
-                aria-checked={theme === value}
-                aria-label={label}
-              >
-                <Icon size={14} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            options={THEME_OPTIONS}
+            value={theme}
+            onChange={onThemeChange}
+          />
         </SettingsRow>
-        </div>
-      </div>
+      </Card>
 
-      <div
-        ref={colorsCard.outerRef}
-        className="bg-secondary rounded-large-element overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)] animate-in fade-in slide-in-from-bottom-2"
-        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
-      >
-        <div ref={colorsCard.innerRef}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
-          <div className="flex items-center gap-2">
-            <Palette size={18} className="text-accent" />
-            <h2 className="font-mono font-normal text-primary">Custom Colors</h2>
-          </div>
-        </div>
+      <Card icon={Palette} title="Custom Colors" padding={false} className="animate-in fade-in slide-in-from-bottom-2">
         <div className="px-4 pt-4">
-          <div className={`flex items-center justify-between ${showCustomColors ? "" : "pb-4"}`}>
-            <div className="flex-1 min-w-0 pr-4">
-              <div className="font-medium text-primary">Enable Custom Colors</div>
-              <div className="text-sm text-accent mt-0.5">Customize the primary, secondary, and accent colors</div>
-            </div>
-            <button
-onClick={handleToggleCustomColors}
-               className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all ease-[var(--motion-easing-emphasized)] focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-                 showCustomColors ? "bg-accent" : "bg-primary/20"
-               }`}
-               style={{ transitionDuration: "var(--motion-duration-short4)" }}
-              role="switch"
-              aria-checked={showCustomColors}
-              aria-label="Enable custom colors"
-            >
-              <span
-                className={`inline-flex items-center justify-center h-5 w-5 transform rounded-full bg-primary transition-all ease-[var(--motion-easing-emphasized)] ${
-                  showCustomColors ? "translate-x-6" : "translate-x-1"
-                }`}
-                style={{ transitionDuration: "var(--motion-duration-short4)" }}
-              >
-                {showCustomColors ? <Check size={12} className="text-accent" /> : <Palette size={12} className="text-accent" />}
-              </span>
-            </button>
-          </div>
+          <Toggle
+            checked={showCustomColors}
+            onChange={handleToggleCustomColors}
+            label="Enable Custom Colors"
+            description="Customize the primary, secondary, and accent colors"
+            iconOn={Check}
+            iconOff={Palette}
+          />
 
           <div
             className={`overflow-hidden transition-all ease-[var(--motion-easing-emphasized)] ${
@@ -300,51 +239,34 @@ onClick={handleToggleCustomColors}
               <ColorInput
                 label="Primary"
                 description="Main background color"
-                value={colors?.primary || "#ffffff"} // color-scan: ignore-line default
+                value={colors?.primary || "#ffffff"}
                 onChange={(v) => handleColorChange("primary", v)}
               />
               <ColorInput
                 label="Secondary"
                 description="Main text and elements"
-                value={colors?.secondary || "#000000"} // color-scan: ignore-line default
+                value={colors?.secondary || "#000000"}
                 onChange={(v) => handleColorChange("secondary", v)}
               />
               <ColorInput
                 label="Accent"
                 description="Highlights and emphasis"
-                value={colors?.accent || "#767676"} // color-scan: ignore-line default
+                value={colors?.accent || "#767676"}
                 onChange={(v) => handleColorChange("accent", v)}
               />
             </div>
 
             <div className="mt-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex-1 min-w-0 pr-4">
-                  <div className="font-medium text-primary text-sm">Separate Dark Mode Colors</div>
-                  <div className="text-xs text-accent mt-0.5">Use different colors when dark mode is active</div>
-                </div>
-                <button
-                  onClick={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
-                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all ease-[var(--motion-easing-emphasized)] focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-secondary ${
-                    useSeparateDarkColors ? "bg-accent" : "bg-primary/20"
-                  }`}
-                  style={{ transitionDuration: "var(--motion-duration-short4)" }}
-                  role="switch"
-                  aria-checked={useSeparateDarkColors}
-                  aria-label="Use separate dark mode colors"
-                >
-                  <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-primary transition-all ease-[var(--motion-easing-emphasized)] ${
-                      useSeparateDarkColors ? "translate-x-6" : "translate-x-1"
-                    }`}
-                    style={{ transitionDuration: "var(--motion-duration-short4)" }}
-                  />
-                </button>
-              </div>
+              <Toggle
+                checked={useSeparateDarkColors}
+                onChange={() => setUseSeparateDarkColors(!useSeparateDarkColors)}
+                label="Separate Dark Mode Colors"
+                description="Use different colors when dark mode is active"
+              />
 
               <div
                 className={`overflow-hidden transition-all ease-[var(--motion-easing-emphasized)] ${
-                  useSeparateDarkColors ? "max-h-[500px] opacity-100 pb-4" : "max-h-0 opacity-0"
+                  useSeparateDarkColors ? "max-h-[500px] opacity-100 pb-4 mt-4" : "max-h-0 opacity-0"
                 }`}
                 style={{ transitionDuration: "var(--motion-duration-medium2)" }}
               >
@@ -355,19 +277,19 @@ onClick={handleToggleCustomColors}
                   <ColorInput
                     label="Primary (Dark)"
                     description="Background in dark mode"
-                    value={darkColors?.primary || "#000000"} // color-scan: ignore-line default
+                    value={darkColors?.primary || "#000000"}
                     onChange={(v) => handleDarkColorChange("primary", v)}
                   />
                   <ColorInput
                     label="Secondary (Dark)"
                     description="Text in dark mode"
-                    value={darkColors?.secondary || "#ffffff"} // color-scan: ignore-line default
+                    value={darkColors?.secondary || "#ffffff"}
                     onChange={(v) => handleDarkColorChange("secondary", v)}
                   />
                   <ColorInput
                     label="Accent (Dark)"
                     description="Highlights in dark mode"
-                    value={darkColors?.accent || "#767676"} // color-scan: ignore-line default
+                    value={darkColors?.accent || "#767676"}
                     onChange={(v) => handleDarkColorChange("accent", v)}
                   />
                 </div>
@@ -387,8 +309,7 @@ onClick={handleToggleCustomColors}
             </div>
           </div>
         </div>
-        </div>
-      </div>
+      </Card>
     </div>
   );
 }
