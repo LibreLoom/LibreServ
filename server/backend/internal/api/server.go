@@ -28,6 +28,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
@@ -58,27 +59,29 @@ type Server struct {
 	sysChecker      *system.UpdateChecker
 	audit           *audit.Service
 	securityService *security.Service
+	settingsService *settings.Service
 	jobQueue        JobQueue
 }
 
 // ServerConfig holds configuration for creating a new Server
 type ServerConfig struct {
-	Host           string
-	Port           int
-	DevMode        bool
-	DB             *database.DB
-	AppManager     *apps.Manager
-	AuthService    *auth.Service
-	Monitor        *monitoring.Monitor
-	BackupService  *storage.BackupService
-	CloudService   *cloud.Service
-	DockerClient   *docker.Client
-	CaddyManager   *network.CaddyManager
-	SetupService   *setup.Service
-	SupportService *support.Service
-	LicenseService middleware.LicenseChecker
-	SysChecker     *system.UpdateChecker
-	AuditService   *audit.Service
+	Host            string
+	Port            int
+	DevMode         bool
+	DB              *database.DB
+	AppManager      *apps.Manager
+	AuthService     *auth.Service
+	Monitor         *monitoring.Monitor
+	BackupService   *storage.BackupService
+	CloudService    *cloud.Service
+	DockerClient    *docker.Client
+	CaddyManager    *network.CaddyManager
+	SetupService    *setup.Service
+	SupportService  *support.Service
+	LicenseService  middleware.LicenseChecker
+	SysChecker      *system.UpdateChecker
+	AuditService    *audit.Service
+	SettingsService *settings.Service
 }
 
 // JobQueue interface for job queue operations
@@ -140,6 +143,7 @@ func NewServer(cfg ServerConfig) *Server {
 		sysChecker:      cfg.SysChecker,
 		audit:           cfg.AuditService,
 		securityService: securityService,
+		settingsService: cfg.SettingsService,
 	}
 
 	staticFS, staticSource, err := loadStaticFS()
