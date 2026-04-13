@@ -194,7 +194,7 @@ export default function LogsViewer({
       size="xl"
       mobileFullscreen
     >
-      <div className="flex flex-col h-full min-h-0 space-y-2 sm:space-y-4 max-h-[100vh] sm:max-h-[75vh]">
+      <div className="flex flex-col h-full min-h-0 space-y-2 sm:space-y-4 max-h-[100dvh] sm:max-h-[75vh]">
         {/* Mobile toolbar */}
         <div className="flex sm:hidden items-center gap-2 shrink-0">
           <button
