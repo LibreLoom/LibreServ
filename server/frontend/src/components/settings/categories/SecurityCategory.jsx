@@ -14,6 +14,8 @@ import Toggle from "../../common/Toggle";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import Dropdown from "../../common/Dropdown";
+import Table from "../../common/Table";
+import Pill from "../../common/Pill";
 import TypewriterLoader from "../../ui/TypewriterLoader";
 import SettingsRow from "../SettingsRow";
 import { useToast } from "../../../context/ToastContext";
@@ -21,10 +23,55 @@ import {
   getSecurityEvents,
   getSecurityStats,
   getEventTypeDisplayName,
-  getSeverityColor,
   formatTimestamp,
 } from "../../../lib/security-api.js";
 import { stripHTML } from "../../../lib/sanitize.js";
+
+const SEVERITY_PILL_VARIANT = {
+  info: "default",
+  warning: "warning",
+  critical: "error",
+};
+
+const activityColumns = [
+  {
+    key: "timestamp",
+    label: "Time",
+    render: (row) => <Pill variant="muted">{formatTimestamp(row.timestamp)}</Pill>,
+  },
+  {
+    key: "event_type",
+    label: "Event",
+    render: (row) => (
+      <Pill>
+        {getSeverityIcon(row.severity)}
+        <span className="font-medium truncate">{getEventTypeDisplayName(row.event_type)}</span>
+      </Pill>
+    ),
+  },
+  {
+    key: "actor_username",
+    label: "User",
+    hidden: "sm",
+    render: (row) => <Pill>{stripHTML(row.actor_username) || "System"}</Pill>,
+  },
+  {
+    key: "severity",
+    label: "Severity",
+    render: (row) => <Pill variant={SEVERITY_PILL_VARIANT[row.severity] || "default"} className="font-medium">{row.severity}</Pill>,
+  },
+];
+
+function getSeverityIcon(severity) {
+  switch (severity) {
+    case "critical":
+      return <AlertTriangle size={12} className="text-error" />;
+    case "warning":
+      return <AlertTriangle size={12} className="text-warning" />;
+    default:
+      return <Check size={12} className="text-accent" />;
+  }
+}
 
 const FREQUENCY_OPTIONS = [
   { value: "instant", label: "Instant", description: "Send emails immediately" },
@@ -152,17 +199,6 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
     }
   };
 
-  const getSeverityIcon = (severity) => {
-    switch (severity) {
-      case "critical":
-        return <AlertTriangle size={18} className="text-error" />;
-      case "warning":
-        return <AlertTriangle size={18} className="text-warning" />;
-      default:
-        return <Check size={18} className="text-accent" />;
-    }
-  };
-
   return (
     <div className="space-y-4">
       {stats && (
@@ -212,62 +248,24 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         className="animate-in fade-in slide-in-from-bottom-2 duration-300"
       >
         <div className="px-4 pb-4 pt-3">
-          <div className="bg-primary/5 rounded-card p-3">
-            <div className="max-h-96 overflow-y-auto">
-              {activityLoading ? (
-                <div className="flex justify-center items-center py-12">
-                  <TypewriterLoader size="md" />
-                </div>
-              ) : events.length === 0 ? (
-                <div className="text-center py-12">
-                  <Shield size={40} className="mx-auto text-accent/30 mb-3" />
-                  <p className="text-sm text-accent">No security events found</p>
-                </div>
-              ) : (
-                <table className="w-full text-sm border-separate border-spacing-y-2">
-                  <thead>
-                    <tr>
-                      <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Time</th>
-                      <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Event</th>
-                      <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70 hidden sm:table-cell">User</th>
-                      <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Severity</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {events.map((event) => (
-                      <tr key={event.id} className="group transition-colors">
-                        <td className="py-2.5 pl-3 bg-secondary rounded-l-large-element group-hover:bg-primary/5 transition-colors">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-xs text-accent whitespace-nowrap">
-                            {formatTimestamp(event.timestamp)}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill bg-primary/10">
-                            {getSeverityIcon(event.severity)}
-                            <span className="font-medium text-xs text-primary truncate">
-                              {getEventTypeDisplayName(event.event_type)}
-                            </span>
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors hidden sm:table-cell">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-xs text-primary">
-                            {stripHTML(event.actor_username) || "System"}
-                          </span>
-                        </td>
-                        <td className="py-2.5 pr-3 bg-secondary rounded-r-large-element group-hover:bg-primary/5 transition-colors">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-1 rounded-pill text-xs font-medium ${getSeverityColor(event.severity)}`}
-                          >
-                            {event.severity}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+          {activityLoading ? (
+            <div className="flex justify-center items-center py-12">
+              <TypewriterLoader size="md" />
             </div>
-          </div>
+          ) : events.length === 0 ? (
+            <div className="text-center py-12">
+              <Shield size={40} className="mx-auto text-accent/30 mb-3" />
+              <p className="text-sm text-accent">No security events found</p>
+            </div>
+          ) : (
+            <Table
+              columns={activityColumns}
+              data={events}
+              rowKey="id"
+              scrollable
+              maxHeight="24rem"
+            />
+          )}
         </div>
       </Card>
 

@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import Card from "../components/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
 import VerificationCard from "../components/cards/VerificationCard";
+import Table from "../components/common/Table";
+import Pill from "../components/common/Pill";
 import api from "../lib/api";
 
 function formatLastLogin(dateString) {
@@ -192,80 +194,79 @@ export default function UsersPage() {
 {/* Desktop: Table */}
             <Card className="overflow-hidden p-0 hidden lg:block">
               <div className="p-4">
-                <div className="bg-primary/5 rounded-card p-3">
-                  <table className="w-full text-sm border-separate border-spacing-y-2">
-                    <thead>
-                      <tr>
-                        <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">User</th>
-                        <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Email</th>
-                        <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Role</th>
-                        <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Last Login</th>
-                        <th scope="col" className="px-3 py-1.5 text-xs font-medium text-accent/70 w-12">
-                          <span className="sr-only">Actions</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map((user) => (
-                        <tr key={user.id} className="group transition-colors">
-                          <td className="py-2.5 pl-3 bg-secondary rounded-l-large-element group-hover:bg-primary/5 transition-colors">
-                            <Link
-                              to={`/users/${user.id}`}
-                              className="inline-flex items-center gap-2"
-                            >
-                              <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                <User size={14} aria-hidden="true" className="text-accent" />
-                              </span>
-                              <span className="font-semibold text-sm">
-                                {user.username}
-                              </span>
-                            </Link>
-                          </td>
-                          <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors">
-                            <Link
-                              to={`/users/${user.id}`}
-                              className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-primary/70"
-                            >
-                              {user.email}
-                            </Link>
-                          </td>
-                          <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors">
-                            <span className={`inline-flex items-center px-2.5 py-1 rounded-pill text-sm ${user.role === "admin" ? "bg-accent/20 text-accent" : "bg-primary/10 text-primary/70"}`}>
-                              <Shield size={12} aria-hidden="true" className="mr-1" />
-                              {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors">
-                            <span className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-primary/70">
-                              {formatLastLogin(user.last_login)}
-                            </span>
-                          </td>
-                          <td className="py-2.5 pr-3 bg-secondary rounded-r-large-element group-hover:bg-primary/5 transition-colors">
-                            <div className="inline-flex items-center gap-1">
-                              <Link
-                                to={`/users/${user.id}`}
-                                className="p-1.5 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:ring-2 focus:ring-primary focus:ring-offset-2"
-                                aria-label={`Manage ${user.username}`}
-                              >
-                                <Settings size={16} />
-                              </Link>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleDeleteClick(user.id, user.username)
-                                }
-                                className="p-1.5 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
-                                aria-label={`Delete ${user.username}`}
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <Table
+                  columns={[
+                    {
+                      key: "username",
+                      label: "User",
+                      render: (row) => (
+                        <Link
+                          to={`/users/${row.id}`}
+                          className="inline-flex items-center gap-2"
+                        >
+                          <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                            <User size={14} className="text-accent" />
+                          </span>
+                          <span className="font-semibold text-sm">{row.username}</span>
+                        </Link>
+                      ),
+                    },
+                    {
+                      key: "email",
+                      label: "Email",
+                      render: (row) => (
+                        <Link
+                          to={`/users/${row.id}`}
+                          className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-primary/70"
+                        >
+                          {row.email}
+                        </Link>
+                      ),
+                    },
+                    {
+                      key: "role",
+                      label: "Role",
+                      render: (row) => (
+                        <Pill variant={row.role === "admin" ? "accent" : "default"}>
+                          <Shield size={12} className="mr-1" />
+                          {row.role.charAt(0).toUpperCase() + row.role.slice(1)}
+                        </Pill>
+                      ),
+                    },
+                    {
+                      key: "last_login",
+                      label: "Last Login",
+                      render: (row) => <Pill variant="muted">{formatLastLogin(row.last_login)}</Pill>,
+                    },
+                    {
+                      key: "actions",
+                      label: "Actions",
+                      srOnly: true,
+                      width: "w-12",
+                      render: (row) => (
+                        <span className="inline-flex items-center gap-1">
+                          <Link
+                            to={`/users/${row.id}`}
+                            className="p-1.5 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                            aria-label={`Manage ${row.username}`}
+                          >
+                            <Settings size={16} />
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteClick(row.id, row.username)}
+                            className="p-1.5 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+                            aria-label={`Delete ${row.username}`}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </span>
+                      ),
+                    },
+                  ]}
+                  data={users}
+                  rowKey="id"
+                />
               </div>
             </Card>
           </section>

@@ -13,7 +13,7 @@ export default function CollapsibleSection({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const contentId = useId();
-  const sizeClass = size === "xs" ? "text-xs" : "text-sm";
+  const sizeClass = size === "xs" ? "text-xs" : size === "md" ? "text-base" : "text-sm";
 
   return (
     <div className={className}>
@@ -25,7 +25,7 @@ export default function CollapsibleSection({
         aria-controls={contentId}
       >
         <ChevronDown
-          size={size === "xs" ? 12 : 14}
+          size={size === "xs" ? 12 : size === "md" ? 18 : 14}
           className={`motion-safe:transition-transform duration-200 ${
             open ? "rotate-180" : "rotate-0"
           }`}
@@ -53,7 +53,7 @@ CollapsibleSection.propTypes = {
   children: PropTypes.node,
   defaultOpen: PropTypes.bool,
   mono: PropTypes.bool,
-  size: PropTypes.oneOf(["sm", "xs"]),
+  size: PropTypes.oneOf(["sm", "md", "xs"]),
   background: PropTypes.bool,
   className: PropTypes.string,
 };
