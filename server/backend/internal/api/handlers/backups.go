@@ -228,6 +228,7 @@ func (h *BackupHandlers) CreateDatabaseBackup(w http.ResponseWriter, r *http.Req
 
 	http.ServeFile(w, r, backup.Path)
 	_ = os.Remove(backup.Path)
+	_ = h.backupService.DeleteDatabaseBackupRecord(r.Context(), backup.ID)
 }
 
 // ListDatabaseBackups returns all database backups

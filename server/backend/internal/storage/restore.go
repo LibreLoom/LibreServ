@@ -111,6 +111,15 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 		return result, result.Error
 	}
 
+	// If restoring to a different app instance, rewrite the old instance ID to the new one
+	if backup.AppID != "" && targetAppID != "" && backup.AppID != targetAppID {
+		log.Printf("RestoreApp: rewriting instance ID %s -> %s in config files", backup.AppID, targetAppID)
+		if err := rewriteInstanceID(appPath, backup.AppID, targetAppID); err != nil {
+			result.Error = fmt.Errorf("failed to rewrite instance ID: %w", err)
+			return result, result.Error
+		}
+	}
+
 	if opts.RestartAfterRestore {
 		log.Printf("Starting app %s after restore", targetAppID)
 		startCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -125,6 +134,15 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 
 	result.Duration = time.Since(startTime)
 	log.Printf("Restore completed for %s from backup %s in %v", backup.AppID, backupID, result.Duration)
+
+	// Update backup's app_id to point to the target app (if different)
+	if backup.AppID != "" && targetAppID != "" && backup.AppID != targetAppID {
+		if _, err := s.db.Exec("UPDATE backups SET app_id = ? WHERE id = ?", targetAppID, backupID); err != nil {
+			log.Printf("Warning: failed to update backup app_id: %v", err)
+		} else {
+			log.Printf("RestoreApp: updated backup app_id to %s", targetAppID)
+		}
+	}
 
 	return result, nil
 }
@@ -334,5 +352,107 @@ func (s *BackupService) CleanupOldDatabaseBackups(ctx context.Context, retention
 		_, _ = s.db.Exec("DELETE FROM database_backups WHERE id = ?", backups[i].ID)
 	}
 
+	return nil
+}
+
+// DeleteDatabaseBackupRecord deletes only the database backup record (not the file)
+func (s *BackupService) DeleteDatabaseBackupRecord(ctx context.Context, id string) error {
+	_, err := s.db.Exec("DELETE FROM database_backups WHERE id = ?", id)
+	return err
+}
+
+// CleanupGhostDatabaseBackups removes database_backups records where the file no longer exists
+func (s *BackupService) CleanupGhostDatabaseBackups(ctx context.Context) error {
+	backups, err := s.ListDatabaseBackups(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, b := range backups {
+		if _, err := os.Stat(b.Path); os.IsNotExist(err) {
+			log.Printf("Cleaning up ghost database backup record: %s (file missing)", b.ID)
+			if err := s.DeleteDatabaseBackupRecord(ctx, b.ID); err != nil {
+				log.Printf("warning: failed to delete ghost backup record %s: %v", b.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
+// rewriteInstanceID replaces the old instance ID with a new one in config files
+// This is needed when restoring an orphaned backup to a different app instance
+func rewriteInstanceID(appPath, oldInstanceID, newInstanceID string) error {
+	if oldInstanceID == "" || newInstanceID == "" || oldInstanceID == newInstanceID {
+		return nil
+	}
+
+	log.Printf("rewriteInstanceID: replacing %s -> %s in %s", oldInstanceID, newInstanceID, appPath)
+
+	// Rewrite .libreserv.yaml
+	libreservPath := filepath.Join(appPath, ".libreserv.yaml")
+	if _, err := os.Stat(libreservPath); err == nil {
+		if err := rewriteFileInstanceID(libreservPath, oldInstanceID, newInstanceID); err != nil {
+			return fmt.Errorf("failed to rewrite .libreserv.yaml: %w", err)
+		}
+		log.Printf("rewriteInstanceID: rewritten .libreserv.yaml")
+	}
+
+	// Rewrite docker-compose.yml
+	composePath := filepath.Join(appPath, "docker-compose.yml")
+	if _, err := os.Stat(composePath); err == nil {
+		if err := rewriteFileInstanceID(composePath, oldInstanceID, newInstanceID); err != nil {
+			return fmt.Errorf("failed to rewrite docker-compose.yml: %w", err)
+		}
+		log.Printf("rewriteInstanceID: rewritten docker-compose.yml")
+	}
+
+	// Rewrite any additional YAML files in app-compose/ subdirectory
+	appComposeDir := filepath.Join(appPath, "app-compose")
+	if entries, err := os.ReadDir(appComposeDir); err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() && (strings.HasSuffix(entry.Name(), ".yml") || strings.HasSuffix(entry.Name(), ".yaml")) {
+				fullPath := filepath.Join(appComposeDir, entry.Name())
+				if err := rewriteFileInstanceID(fullPath, oldInstanceID, newInstanceID); err != nil {
+					log.Printf("rewriteInstanceID: warning: failed to rewrite %s: %v", entry.Name(), err)
+				} else {
+					log.Printf("rewriteInstanceID: rewritten %s", entry.Name())
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// rewriteFileInstanceID performs string replacement of instance IDs in a file
+func rewriteFileInstanceID(filePath, oldID, newID string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+
+	content := string(data)
+	if !strings.Contains(content, oldID) {
+		log.Printf("rewriteFileInstanceID: %s does not contain old instance ID, skipping", filePath)
+		return nil
+	}
+
+	newContent := strings.ReplaceAll(content, oldID, newID)
+
+	// Also replace any paths that contain the old instance ID
+	// e.g., /path/to/apps/oldID/ -> /path/to/apps/newID/
+	oldPathPrefix := filepath.Join("apps", oldID)
+	newPathPrefix := filepath.Join("apps", newID)
+	newContent = strings.ReplaceAll(newContent, oldPathPrefix, newPathPrefix)
+
+	if newContent == content {
+		return nil
+	}
+
+	if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+		return err
+	}
+
+	log.Printf("rewriteFileInstanceID: replaced instance ID in %s", filePath)
 	return nil
 }

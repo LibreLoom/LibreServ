@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -92,6 +93,11 @@ func (d *DB) Migrate() error {
 
 			return fmt.Errorf("migration %s failed: %w (database rolled back to pre-migration state)", file, err)
 		}
+	}
+
+	// Clean up pre-migration backup on success
+	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+		slog.Warn("Failed to remove pre-migration backup", "path", backupPath, "error", err)
 	}
 
 	// 6. Legacy/Cleanup migrations (best effort to ensure schema is correct if initial was already run)

@@ -72,6 +72,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Clean up stale safety-net backup files from previous interrupted operations.
+	if err := db.CleanupStaleBackups(); err != nil {
+		slog.Warn("failed to cleanup stale database backups", "error", err)
+	}
+
 	// Initialize settings service and load DB-backed settings into memory.
 	// On first run (empty table), seed from YAML config values.
 	settingsService := settings.NewService(db.SQL())
@@ -110,6 +115,11 @@ func main() {
 	// Initialize cloud backup service
 	cloudService := cloud.NewService(db, cfg.Auth.CSRFSecret)
 	backupService.SetCloudService(cloudService)
+
+	// Clean up ghost database backup records from previous "Save DB" downloads.
+	if err := backupService.CleanupGhostDatabaseBackups(context.Background()); err != nil {
+		slog.Warn("failed to cleanup ghost database backups", "error", err)
+	}
 
 	caddyManager := network.NewCaddyManager(db, network.CaddyConfig{
 		Mode:          cfg.Network.Caddy.Mode,
