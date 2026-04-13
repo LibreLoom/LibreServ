@@ -649,6 +649,13 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 		`, updateID)
 	}
 
+	// Clean up pre-update backup on success (no longer needed after successful update)
+	if backupID != "" {
+		if err := m.backupService.DeleteBackup(ctx, backupID); err != nil {
+			m.logger.Warn("Failed to cleanup pre-update backup", "backup_id", backupID, "error", err)
+		}
+	}
+
 	return m.updateStatus(ctx, instanceID, StatusRunning)
 }
 

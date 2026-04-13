@@ -253,10 +253,10 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 	var args []interface{}
 
 	if appID != "" {
-		query = `SELECT id, app_id, type, path, size, created_at, checksum FROM backups WHERE app_id = ? ORDER BY created_at DESC`
+		query = `SELECT b.id, b.app_id, b.type, b.path, b.size, b.created_at, b.checksum FROM backups b WHERE b.app_id = ? ORDER BY b.created_at DESC`
 		args = []interface{}{appID}
 	} else {
-		query = `SELECT id, app_id, type, path, size, created_at, checksum FROM backups WHERE app_id IS NOT NULL ORDER BY created_at DESC`
+		query = `SELECT b.id, b.app_id, b.type, b.path, b.size, b.created_at, b.checksum FROM backups b INNER JOIN apps a ON b.app_id = a.id ORDER BY b.created_at DESC`
 	}
 
 	rows, err := s.db.Query(query, args...)

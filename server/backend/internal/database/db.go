@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
@@ -150,8 +152,12 @@ func (d *DB) ReplaceFile(ctx context.Context, replacementPath string) error {
 		return err
 	}
 
-	// If everything succeeded, we can optionally keep rollbackPath as a safety net.
-	_ = ctx // reserved for future timeouts/cancellation during restore pipeline
+	// Clean up the rollback safety net on success.
+	if rollbackPath != "" {
+		if err := os.Remove(rollbackPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("warning: failed to remove pre-restore rollback file %s: %v", rollbackPath, err)
+		}
+	}
 	return nil
 }
 
@@ -191,6 +197,34 @@ func CopyFile(src, dst string) error {
 
 	_, err = io.Copy(destination, source)
 	return err
+}
+
+// CleanupStaleBackups removes stale pre-restore and pre-migration backup files
+// that may have been left behind from previous interrupted operations.
+func (d *DB) CleanupStaleBackups() error {
+	if d.path == "" {
+		return nil
+	}
+
+	dir := filepath.Dir(d.path)
+	base := filepath.Base(d.path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("failed to read backup directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, base+".pre-restore-") ||
+			strings.HasPrefix(name, base+".pre-migration-") {
+			path := filepath.Join(dir, name)
+			log.Printf("Cleaning up stale safety-net file: %s", path)
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				log.Printf("warning: failed to remove stale file %s: %v", path, err)
+			}
+		}
+	}
+	return nil
 }
 
 // Exec executes a query without returning rows
