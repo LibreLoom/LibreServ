@@ -201,7 +201,7 @@ export default function AppearanceCategory({
       </Card>
 
       <Card icon={Palette} title="Custom Colors" padding={false} className="animate-in fade-in slide-in-from-bottom-2">
-        <div className="px-4 pt-4">
+        <div className={`px-4 pt-4 ${showCustomColors ? "" : "pb-4"}`}>
           <Toggle
             checked={showCustomColors}
             onChange={handleToggleCustomColors}
