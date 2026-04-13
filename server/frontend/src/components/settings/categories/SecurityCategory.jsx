@@ -1,10 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   Shield,
   Bell,
   Mail,
   Check,
-  AlertCircle,
   Activity,
   AlertTriangle,
   RefreshCw,
@@ -16,8 +15,8 @@ import RadioOptionGroup from "../../common/RadioOptionGroup";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import Dropdown from "../../common/Dropdown";
 import TypewriterLoader from "../../ui/TypewriterLoader";
-import ErrorDisplay from "../../common/ErrorDisplay";
 import SettingsRow from "../SettingsRow";
+import { useToast } from "../../../context/ToastContext";
 import {
   getSecurityEvents,
   getSecurityStats,
@@ -51,14 +50,13 @@ function StatCard({ value, label, variant = "accent" }) {
 }
 
 export default function SecurityCategory({ settings, onSettingsChange, onTestNotification }) {
+  const { addToast } = useToast();
+
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState(null);
-  const testTimeoutRef = useRef(null);
 
   const [events, setEvents] = useState([]);
   const [stats, setStats] = useState(null);
   const [activityLoading, setActivityLoading] = useState(true);
-  const [activityError, setActivityError] = useState(null);
   const [filter, setFilter] = useState("7d");
   const [lastUpdated, setLastUpdated] = useState(null);
 
@@ -80,25 +78,20 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
   };
 
   const handleTestNotification = async () => {
-    if (testTimeoutRef.current) clearTimeout(testTimeoutRef.current);
-
     try {
       setTesting(true);
-      setTestResult(null);
       await onTestNotification?.();
-      setTestResult({ success: true, message: "Test notification sent!" });
+      addToast({ type: "success", message: "Test notification sent!" });
     } catch (err) {
-      setTestResult({ success: false, message: err?.message || "Failed to send test" });
+      addToast({ type: "error", message: err?.message || "Failed to send test" });
     } finally {
       setTesting(false);
-      testTimeoutRef.current = setTimeout(() => setTestResult(null), 5000);
     }
   };
 
   const loadActivityData = async () => {
     try {
       setActivityLoading(true);
-      setActivityError(null);
 
       let since;
       switch (filter) {
@@ -152,7 +145,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         err?.message ||
         err?.response?.data?.message ||
         "Failed to load security activity.";
-      setActivityError(errorMessage);
+      addToast({ type: "error", message: errorMessage });
       console.error("Error loading security data:", err);
     } finally {
       setActivityLoading(false);
@@ -172,21 +165,6 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
 
   return (
     <div className="space-y-4">
-      {testResult && (
-        <div
-          className={`p-3 rounded-large-element flex items-center gap-2 text-sm animate-in fade-in slide-in-from-top-2 duration-200 ${
-            testResult.success
-              ? "bg-primary/10 text-primary"
-              : "bg-error/20 text-error"
-          }`}
-        >
-          {testResult.success ? <Check size={16} aria-hidden="true" /> : <AlertCircle size={16} aria-hidden="true" />}
-          {testResult.message}
-        </div>
-      )}
-
-      {activityError && <ErrorDisplay message={activityError} />}
-
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <StatCard value={stats.total_events} label="Total Events" />
@@ -233,57 +211,63 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         }
         className="animate-in fade-in slide-in-from-bottom-2 duration-300"
       >
-        <div className="max-h-64 overflow-y-auto">
-          {activityLoading ? (
-            <div className="flex justify-center items-center py-8">
-              <TypewriterLoader size="md" />
+        <div className="px-4 pb-4 pt-3">
+          <div className="bg-primary/5 rounded-card p-3">
+            <div className="max-h-96 overflow-y-auto">
+              {activityLoading ? (
+                <div className="flex justify-center items-center py-12">
+                  <TypewriterLoader size="md" />
+                </div>
+              ) : events.length === 0 ? (
+                <div className="text-center py-12">
+                  <Shield size={40} className="mx-auto text-accent/30 mb-3" />
+                  <p className="text-sm text-accent">No security events found</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm border-separate border-spacing-y-2">
+                  <thead>
+                    <tr>
+                      <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Time</th>
+                      <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Event</th>
+                      <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70 hidden sm:table-cell">User</th>
+                      <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Severity</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {events.map((event) => (
+                      <tr key={event.id} className="group transition-colors">
+                        <td className="py-2.5 pl-3 bg-secondary rounded-l-large-element group-hover:bg-primary/5 transition-colors">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-xs text-accent whitespace-nowrap">
+                            {formatTimestamp(event.timestamp)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill bg-primary/10">
+                            {getSeverityIcon(event.severity)}
+                            <span className="font-medium text-xs text-primary truncate">
+                              {getEventTypeDisplayName(event.event_type)}
+                            </span>
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors hidden sm:table-cell">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-xs text-primary">
+                            {stripHTML(event.actor_username) || "System"}
+                          </span>
+                        </td>
+                        <td className="py-2.5 pr-3 bg-secondary rounded-r-large-element group-hover:bg-primary/5 transition-colors">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-1 rounded-pill text-xs font-medium ${getSeverityColor(event.severity)}`}
+                          >
+                            {event.severity}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
-          ) : events.length === 0 ? (
-            <div className="text-center py-8">
-              <Shield size={32} className="mx-auto text-secondary/30 mb-2" />
-              <p className="text-sm text-accent">No security events found</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-secondary">
-                <tr className="border-b border-primary/10">
-                  <th scope="col" className="text-left py-2 px-4 font-medium text-accent">Time</th>
-                  <th scope="col" className="text-left py-2 px-4 font-medium text-accent">Event</th>
-                  <th scope="col" className="text-left py-2 px-4 font-medium text-accent hidden sm:table-cell">User</th>
-                  <th scope="col" className="text-left py-2 px-4 font-medium text-accent">Severity</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-primary/10">
-                {events.map((event) => (
-                  <tr key={event.id} className="hover:bg-primary/5 transition-colors">
-                    <td className="py-2 px-4 whitespace-nowrap text-xs text-primary">
-                      {formatTimestamp(event.timestamp)}
-                    </td>
-                    <td className="py-2 px-4">
-                      <div className="flex items-center gap-1.5">
-                        {getSeverityIcon(event.severity)}
-                        <span className="font-medium text-xs text-primary">
-                          {getEventTypeDisplayName(event.event_type)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-2 px-4 text-xs text-primary hidden sm:table-cell">
-                      {stripHTML(event.actor_username) || "System"}
-                    </td>
-                    <td className="py-2 px-4">
-                      <span
-                        className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium ${getSeverityColor(
-                          event.severity
-                        )}`}
-                      >
-                        {event.severity}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          </div>
         </div>
       </Card>
 
@@ -294,7 +278,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         className="animate-in fade-in slide-in-from-bottom-2 duration-300"
         style={{ animationDelay: "50ms" }}
       >
-        <div className="px-4 py-3 space-y-4">
+        <div className="px-4 py-3">
           <Toggle
             checked={settings?.notifications_enabled || false}
             onChange={() => handleToggle("notifications_enabled")}
@@ -307,7 +291,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
               settings?.notifications_enabled ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
             }`}
           >
-            <div className="pt-3 border-t border-primary/10">
+            <div className="pt-3 mt-3 border-t border-primary/10">
               <div className="font-medium text-primary mb-3">Frequency</div>
               <RadioOptionGroup
                 name="frequency"
@@ -317,7 +301,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
               />
             </div>
 
-            <div className="pt-4 mt-4 border-t border-primary/10">
+            <div className="pt-4 mt-4 border-t border-primary/10 pb-3">
               <div className="font-medium text-primary mb-3">Notify Me About</div>
               <CheckboxOptionGroup
                 options={NOTIFICATION_OPTIONS}

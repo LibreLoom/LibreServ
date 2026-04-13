@@ -189,86 +189,84 @@ export default function UsersPage() {
               ))}
             </div>
 
-            {/* Desktop: Table */}
+{/* Desktop: Table */}
             <Card className="overflow-hidden p-0 hidden lg:block">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-primary/20 text-left text-sm text-primary/60">
-                    <th scope="col" className="px-4 py-3 font-medium">User</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Email</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Role</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Last Login</th>
-                    <th scope="col" className="px-4 py-3 font-medium w-12">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-primary/20">
-                  {users.map((user) => (
-                    <tr
-                      key={user.id}
-                      className="hover:bg-primary/5 motion-safe:transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <Link
-                          to={`/users/${user.id}`}
-                          className="flex items-center gap-3"
-                        >
-                          <div className="h-8 w-8 shrink-0 rounded-full bg-primary text-secondary flex items-center justify-center">
-                            <User size={16} aria-hidden="true" />
-                          </div>
-                          <span className="font-semibold truncate">
-                            {user.username}
-                          </span>
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-primary/60">
-                        <Link
-                          to={`/users/${user.id}`}
-                          className="truncate block"
-                        >
-                          {user.email}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center gap-1.5 text-sm ${user.role === "admin" ? "text-accent" : "text-primary/60"}`}
-                        >
-                          <Shield size={14} aria-hidden="true" />
-                          <span>
-                            {user.role.charAt(0).toUpperCase() +
-                              user.role.slice(1)}
-                          </span>
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-primary/60 text-sm">
-                        {formatLastLogin(user.last_login)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                           <Link
-                             to={`/users/${user.id}`}
-                             className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:ring-2 focus:ring-primary focus:ring-offset-2"
-                             aria-label={`Manage ${user.username}`}
-                           >
-                            <Settings size={18} />
-                          </Link>
-                           <button
-                             type="button"
-                             onClick={() =>
-                               handleDeleteClick(user.id, user.username)
-                             }
-                             className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
-                             aria-label={`Delete ${user.username}`}
-                           >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="p-4">
+                <div className="bg-primary/5 rounded-card p-3">
+                  <table className="w-full text-sm border-separate border-spacing-y-2">
+                    <thead>
+                      <tr>
+                        <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">User</th>
+                        <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Email</th>
+                        <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Role</th>
+                        <th scope="col" className="text-left px-3 py-1.5 text-xs font-medium text-accent/70">Last Login</th>
+                        <th scope="col" className="px-3 py-1.5 text-xs font-medium text-accent/70 w-12">
+                          <span className="sr-only">Actions</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((user) => (
+                        <tr key={user.id} className="group transition-colors">
+                          <td className="py-2.5 pl-3 bg-secondary rounded-l-large-element group-hover:bg-primary/5 transition-colors">
+                            <Link
+                              to={`/users/${user.id}`}
+                              className="inline-flex items-center gap-2"
+                            >
+                              <span className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                <User size={14} aria-hidden="true" className="text-accent" />
+                              </span>
+                              <span className="font-semibold text-sm">
+                                {user.username}
+                              </span>
+                            </Link>
+                          </td>
+                          <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors">
+                            <Link
+                              to={`/users/${user.id}`}
+                              className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-primary/70"
+                            >
+                              {user.email}
+                            </Link>
+                          </td>
+                          <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-pill text-sm ${user.role === "admin" ? "bg-accent/20 text-accent" : "bg-primary/10 text-primary/70"}`}>
+                              <Shield size={12} aria-hidden="true" className="mr-1" />
+                              {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-1 bg-secondary group-hover:bg-primary/5 transition-colors">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-primary/70">
+                              {formatLastLogin(user.last_login)}
+                            </span>
+                          </td>
+                          <td className="py-2.5 pr-3 bg-secondary rounded-r-large-element group-hover:bg-primary/5 transition-colors">
+                            <div className="inline-flex items-center gap-1">
+                              <Link
+                                to={`/users/${user.id}`}
+                                className="p-1.5 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:ring-2 focus:ring-primary focus:ring-offset-2"
+                                aria-label={`Manage ${user.username}`}
+                              >
+                                <Settings size={16} />
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleDeleteClick(user.id, user.username)
+                                }
+                                className="p-1.5 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
+                                aria-label={`Delete ${user.username}`}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </Card>
           </section>
         )}
