@@ -74,7 +74,7 @@ export default function ModalCard({
           : "sm:max-w-md max-h-full sm:max-h-[calc(95vh-4rem)]";
 
   const mobileFsClasses = mobileFullscreen
-    ? "p-0 sm:p-4 [&>div]:rounded-none [&>div]:max-h-[100vh] sm:[&>div]:rounded-[24px] sm:[&>div]:max-h-[calc(95vh-4rem)] [&>div>div]:rounded-none sm:[&>div>div]:rounded-[24px]"
+    ? "p-0 sm:p-4 [&>div]:rounded-none [&>div]:max-h-[100dvh] sm:[&>div]:rounded-[24px] sm:[&>div]:max-h-[calc(95vh-4rem)] [&>div>div]:rounded-none sm:[&>div>div]:rounded-[24px]"
     : "p-4";
 
   return createPortal(
