@@ -160,17 +160,16 @@ export default function AddUserForm({ onSuccess }) {
         <PasswordStrengthIndicator password={formData.password} />
       </div>
 
-      <div>
+      <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">
         <label
           htmlFor="role"
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-accent font-sans text-sm motion-safe:transition-all shrink-0"
         >
-          Role
+          Role:
         </label>
         <Dropdown
           value={formData.role}
           onChange={(val) => { setFormData((prev) => ({ ...prev, role: val })); setErrors((prev) => ({ ...prev, role: "" })); }}
-          fullWidth
           disabled={loading}
           options={[
             { value: "user", label: "User" },
