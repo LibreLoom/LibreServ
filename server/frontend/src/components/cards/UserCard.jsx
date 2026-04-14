@@ -1,16 +1,7 @@
 import { User, Mail, Shield, Calendar } from "lucide-react";
 import BaseCard from "./BaseCard";
 import Button from "../ui/Button";
-
-function formatDate(dateString) {
-  if (!dateString) return "Unknown";
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
+import { formatDateOnly } from "../../lib/time-utils.js";
 
 export default function UserCard({
   id,
@@ -39,7 +30,7 @@ export default function UserCard({
 
         <div className="flex items-center gap-2 text-sm">
           <Calendar size={14} className="text-accent" aria-hidden="true" />
-          <span className="text-accent">Created: {formatDate(createdAt)}</span>
+          <span className="text-accent">Created: {formatDateOnly(createdAt)}</span>
         </div>
       </div>
 

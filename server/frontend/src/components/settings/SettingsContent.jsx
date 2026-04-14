@@ -72,8 +72,6 @@ export default function SettingsContent({
           setUseSeparateDarkColors,
           resetColors,
           isCustomTheme,
-          use12HourTime,
-          on12HourTimeChange,
         };
       case "backups":
         return {};

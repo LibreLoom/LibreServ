@@ -1,15 +1,5 @@
 import api from "./api.js";
 
-let use12HourTimeGlobal = false;
-
-export function setUse12HourTime(value) {
-  use12HourTimeGlobal = value;
-}
-
-export function getUse12HourTime() {
-  return use12HourTimeGlobal;
-}
-
 /**
  * Security API client for the LibreServ security monitoring system.
  * Provides methods for fetching security events, stats, and managing settings.
@@ -135,9 +125,10 @@ export function getSeverityColor(severity) {
 /**
  * Format timestamp for display
  * @param {string} timestamp - ISO timestamp
+ * @param {boolean} use12Hour - Use 12-hour format
  * @returns {string} Formatted timestamp
  */
-export function formatTimestamp(timestamp) {
+export function formatTimestamp(timestamp, use12Hour = false) {
   const date = new Date(timestamp);
   const now = new Date();
   const diffMs = now - date;
@@ -150,9 +141,15 @@ export function formatTimestamp(timestamp) {
   if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
   if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
 
-  return date.toLocaleDateString("en-US", {
+  const dateStr = date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
   });
+  const timeStr = date.toLocaleTimeString(use12Hour ? "en-US" : "en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: use12Hour,
+  });
+  return `${dateStr} ${timeStr}`;
 }

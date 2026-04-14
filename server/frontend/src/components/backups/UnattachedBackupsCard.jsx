@@ -2,12 +2,14 @@ import { HardDrive, Download, RotateCcw, Trash2 } from "lucide-react";
 import Card from "../cards/Card";
 import InfoPopover from "../common/InfoPopover";
 import { formatDate, formatBytes } from "../../lib/backups-utils";
+import { useTimeFormat } from "../../hooks/useTimeFormat";
 
 export default function UnattachedBackupsCard({
   backups,
   onRestore,
   onDelete,
 }) {
+  const { use12HourTime } = useTimeFormat();
   if (backups.length === 0) return null;
 
   return (
@@ -33,7 +35,7 @@ export default function UnattachedBackupsCard({
                 {backup.path?.split("/").pop() || "Unknown"}
               </div>
               <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
-                <span>{formatDate(backup.created_at)}</span>
+                <span>{formatDate(backup.created_at, use12HourTime)}</span>
                 <span>·</span>
                 <span>{formatBytes(backup.size)}</span>
                 {backup.source === "uploaded" && (

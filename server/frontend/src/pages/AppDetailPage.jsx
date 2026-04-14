@@ -2,6 +2,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useInvalidateApps } from "../hooks/useApps";
+import { useTimeFormat } from "../hooks/useTimeFormat";
 import HeaderCard from "../components/cards/HeaderCard";
 import Card from "../components/cards/Card";
 import CardButton from "../components/cards/CardButton";
@@ -120,6 +121,7 @@ export default function AppDetailPage() {
   const navigate = useNavigate();
   const { request } = useAuth();
   const invalidateApps = useInvalidateApps();
+  const { formatDateTime } = useTimeFormat();
 
   const [app, setApp] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -302,15 +304,7 @@ export default function AppDetailPage() {
 
   const formatDate = (dateString) => {
     if (!dateString) return "Unknown";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-GB", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
+    return formatDateTime(dateString);
   };
 
   const formatBytes = (bytes, decimals = 2) => {
