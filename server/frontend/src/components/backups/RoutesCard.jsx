@@ -6,6 +6,7 @@ import {
   Trash2,
   HelpCircle,
 } from "lucide-react";
+import PropTypes from "prop-types";
 import Card from "../cards/Card";
 import Toggle from "../common/Toggle";
 import StatusBadge from "../common/StatusBadge";
@@ -28,7 +29,7 @@ function formatFullDomain(route) {
 
 export default function RoutesCard({
   routes,
-  appNameMap,
+  apps,
   loading,
   error,
   onRetry,
@@ -38,6 +39,14 @@ export default function RoutesCard({
   onToggle,
   togglingId,
 }) {
+  const appNameMap = {};
+  if (Array.isArray(apps)) {
+    for (const app of apps) {
+      if (app?.id) {
+        appNameMap[app.id] = app.name;
+      }
+    }
+  }
   return (
     <Card
       icon={Globe}
@@ -109,7 +118,7 @@ export default function RoutesCard({
                         {formatFullDomain(route)}
                       </div>
                       <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
-                        <span>{formatBackend(route.backend)}</span>
+                        <span>{appName || formatBackend(route.backend)}</span>
                         {route.ssl && (
                           <StatusBadge variant="success" className="text-[10px] py-0">SSL</StatusBadge>
                         )}
@@ -148,3 +157,16 @@ export default function RoutesCard({
     </Card>
   );
 }
+
+RoutesCard.propTypes = {
+  routes: PropTypes.array.isRequired,
+  apps: PropTypes.array,
+  loading: PropTypes.bool,
+  error: PropTypes.string,
+  onRetry: PropTypes.func,
+  onAdd: PropTypes.func,
+  onEdit: PropTypes.func,
+  onDelete: PropTypes.func,
+  onToggle: PropTypes.func,
+  togglingId: PropTypes.string,
+};

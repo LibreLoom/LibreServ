@@ -15,9 +15,12 @@ vi.mock("../../../../hooks/useAuth", () => ({
       if (path === "/apps") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve([
-            { id: "app-nextcloud", name: "Nextcloud" },
-          ]),
+          json: () => Promise.resolve({
+            apps: [
+              { id: "app-nextcloud", name: "Nextcloud", status: "running", backends: [{ name: "ui", url: "http://localhost:8080" }] },
+            ],
+            total: 1,
+          }),
         });
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
@@ -115,10 +118,12 @@ describe("NetworkCategory", () => {
 
     expect(RoutesCardProps).toMatchObject({
       routes: mockRoutes,
+      apps: expect.arrayContaining([
+        expect.objectContaining({ id: "app-nextcloud", name: "Nextcloud" }),
+      ]),
       loading: false,
       error: null,
     });
-    expect(RoutesCardProps.appNameMap).toEqual({ "app-nextcloud": "Nextcloud" });
   });
 
   it("passes loading and error state to RoutesCard", async () => {
