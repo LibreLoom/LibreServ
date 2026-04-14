@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS user_security_settings (
     notify_on_failed_login BOOLEAN DEFAULT 1,
     notify_on_password_change BOOLEAN DEFAULT 1,
     notify_on_admin_action BOOLEAN DEFAULT 1,
+    use_12_hour_time BOOLEAN DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );

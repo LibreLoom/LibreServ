@@ -1,5 +1,15 @@
 import api from "./api.js";
 
+let use12HourTimeGlobal = false;
+
+export function setUse12HourTime(value) {
+  use12HourTimeGlobal = value;
+}
+
+export function getUse12HourTime() {
+  return use12HourTimeGlobal;
+}
+
 /**
  * Security API client for the LibreServ security monitoring system.
  * Provides methods for fetching security events, stats, and managing settings.
@@ -54,20 +64,22 @@ export async function getSecuritySettings() {
   return res.json();
 }
 
-export async function updateSecuritySettings(settings) {
+export async function updateSecuritySettings(settings, csrfToken) {
   const res = await api("/settings/security", {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
     },
     body: JSON.stringify(settings),
   });
   return res.json();
 }
 
-export async function sendTestNotification() {
+export async function sendTestNotification(csrfToken) {
   const res = await api("/settings/security/test", {
     method: "POST",
+    headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
   });
   return res.json();
 }

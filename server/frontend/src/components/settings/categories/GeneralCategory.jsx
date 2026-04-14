@@ -1,14 +1,26 @@
-import { FileText } from "lucide-react";
+import { FileText, Clock } from "lucide-react";
 import Card from "../../cards/Card";
 import CollapsibleSection from "../../common/CollapsibleSection";
 import ValueDisplay from "../../common/ValueDisplay";
 import Dropdown from "../../common/Dropdown";
+import Toggle from "../../common/Toggle";
 import StatusBadge from "../../common/StatusBadge";
 import SettingsRow from "../SettingsRow";
 
-export default function GeneralCategory({ settings }) {
+export default function GeneralCategory({ settings, use12HourTime, on12HourTimeChange }) {
   return (
     <div className="space-y-4">
+      <Card icon={Clock} title="Time" padding={false} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div className="px-5 py-3">
+          <Toggle
+            checked={use12HourTime || false}
+            onChange={on12HourTimeChange}
+            label="12-hour Time"
+            description="Show times in 12-hour format (e.g., 2:30 PM instead of 14:30)"
+          />
+        </div>
+      </Card>
+
       <Card icon={FileText} title="Logging" padding={false} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div className="px-5 py-3">
           <SettingsRow label="Log Level" description="Verbosity of logged messages">
@@ -29,7 +41,7 @@ export default function GeneralCategory({ settings }) {
           </SettingsRow>
 
           <div className="border-t border-primary/10 pt-3" />
-          <CollapsibleSection title="Backend Info" mono size="md" background className="mt-3">
+          <CollapsibleSection title="Backend Info" mono size="sm" background className="mt-3">
             <div className="space-y-2">
               <ValueDisplay label="Host" value={settings?.server?.host || "N/A"} />
               <ValueDisplay label="Port" value={settings?.server?.port || "N/A"} />
@@ -43,7 +55,7 @@ export default function GeneralCategory({ settings }) {
           </CollapsibleSection>
 
           {settings?.proxy && (
-            <CollapsibleSection title="Proxy Info" mono size="md" background className="mt-3">
+            <CollapsibleSection title="Proxy Info" mono size="sm" background className="mt-3">
               <div className="space-y-2">
                 <ValueDisplay label="Type" value={settings?.proxy?.type || "N/A"} />
                 {settings?.proxy?.mode && (

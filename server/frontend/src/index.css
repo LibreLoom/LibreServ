@@ -83,14 +83,21 @@
   --primary: #ffffff;
   --secondary: #000000;
   --accent: #767676;
+  --theme-transition: 0ms;
 }
 
-.dark {}
+.dark {
+  --primary: #000000;
+  --secondary: #ffffff;
+  --accent: #767676;
+  --theme-transition: 0ms;
+}
 
 body {
-    background-color: var(--color-primary);
-    color: var(--color-secondary);
-    font-family: var(--font-sans);
+  background-color: var(--color-primary);
+  color: var(--color-secondary);
+  font-family: var(--font-sans);
+  transition: background-color var(--theme-transition) ease-out, color var(--theme-transition) ease-out;
 }
 
 :focus-visible:not(.no-focus-outline) {

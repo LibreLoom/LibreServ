@@ -39,6 +39,8 @@ export default function SettingsContent({
   setUseSeparateDarkColors,
   resetColors,
   isCustomTheme,
+  use12HourTime,
+  on12HourTimeChange,
   saveStatus = "idle",
   onRetrySave,
   onSavedComplete,
@@ -54,6 +56,8 @@ export default function SettingsContent({
             ...settings,
             onLoggingChange,
           },
+          use12HourTime,
+          on12HourTimeChange,
         };
       case "appearance":
         return {
@@ -68,6 +72,8 @@ export default function SettingsContent({
           setUseSeparateDarkColors,
           resetColors,
           isCustomTheme,
+          use12HourTime,
+          on12HourTimeChange,
         };
       case "backups":
         return {};
