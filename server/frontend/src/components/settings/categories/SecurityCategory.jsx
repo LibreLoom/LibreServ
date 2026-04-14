@@ -26,6 +26,7 @@ import {
   formatTimestamp,
 } from "../../../lib/security-api.js";
 import { stripHTML } from "../../../lib/sanitize.js";
+import { useTimeFormat } from "../../../hooks/useTimeFormat.jsx";
 
 const SEVERITY_PILL_VARIANT = {
   info: "default",
@@ -33,34 +34,36 @@ const SEVERITY_PILL_VARIANT = {
   critical: "error",
 };
 
-const activityColumns = [
-  {
-    key: "timestamp",
-    label: "Time",
-    render: (row) => <Pill variant="muted">{formatTimestamp(row.timestamp)}</Pill>,
-  },
-  {
-    key: "event_type",
-    label: "Event",
-    render: (row) => (
-      <Pill>
-        {getSeverityIcon(row.severity)}
-        <span className="font-medium truncate">{getEventTypeDisplayName(row.event_type)}</span>
-      </Pill>
-    ),
-  },
-  {
-    key: "actor_username",
-    label: "User",
-    hidden: "sm",
-    render: (row) => <Pill>{stripHTML(row.actor_username) || "System"}</Pill>,
-  },
-  {
-    key: "severity",
-    label: "Severity",
-    render: (row) => <Pill variant={SEVERITY_PILL_VARIANT[row.severity] || "default"} className="font-medium">{row.severity}</Pill>,
-  },
-];
+function getActivityColumns(use12HourTime) {
+  return [
+    {
+      key: "timestamp",
+      label: "Time",
+      render: (row) => <Pill variant="muted">{formatTimestamp(row.timestamp, use12HourTime)}</Pill>,
+    },
+    {
+      key: "event_type",
+      label: "Event",
+      render: (row) => (
+        <Pill>
+          {getSeverityIcon(row.severity)}
+          <span className="font-medium truncate">{getEventTypeDisplayName(row.event_type)}</span>
+        </Pill>
+      ),
+    },
+    {
+      key: "actor_username",
+      label: "User",
+      hidden: "sm",
+      render: (row) => <Pill>{stripHTML(row.actor_username) || "System"}</Pill>,
+    },
+    {
+      key: "severity",
+      label: "Severity",
+      render: (row) => <Pill variant={SEVERITY_PILL_VARIANT[row.severity] || "default"} className="font-medium">{row.severity}</Pill>,
+    },
+  ];
+}
 
 function getSeverityIcon(severity) {
   switch (severity) {
@@ -98,6 +101,8 @@ function StatCard({ value, label, variant = "accent" }) {
 
 export default function SecurityCategory({ settings, onSettingsChange, onTestNotification }) {
   const { addToast } = useToast();
+  const { use12HourTime } = useTimeFormat();
+  const activityColumns = getActivityColumns(use12HourTime);
 
   const [testing, setTesting] = useState(false);
 
@@ -232,7 +237,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </div>
             {lastUpdated && (
               <span className="text-xs text-accent hidden sm:inline">
-                {formatTimestamp(lastUpdated.toISOString())}
+                {formatTimestamp(lastUpdated.toISOString(), use12HourTime)}
               </span>
             )}
             <button

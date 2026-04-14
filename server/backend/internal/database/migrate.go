@@ -107,6 +107,9 @@ func (d *DB) Migrate() error {
 	if err := d.ensureUpdatesBackupID(); err != nil {
 		return err
 	}
+	if err := d.ensure12HourTimeColumn(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -252,6 +255,39 @@ func (d *DB) ensureUpdatesBackupID() error {
 	}
 	if _, err := d.db.Exec(`ALTER TABLE updates ADD COLUMN backup_id TEXT`); err != nil {
 		return fmt.Errorf("add updates.backup_id: %w", err)
+	}
+	return nil
+}
+
+// ensure12HourTimeColumn backfills the use_12_hour_time column for user_security_settings if missing.
+func (d *DB) ensure12HourTimeColumn() error {
+	rows, err := d.db.Query(`PRAGMA table_info(user_security_settings)`)
+	if err != nil {
+		return fmt.Errorf("check user_security_settings schema: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
+
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notnull   int
+			dfltValue interface{}
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+			if strings.EqualFold(name, "use_12_hour_time") {
+				return nil
+			}
+		}
+	}
+	if _, err := d.db.Exec(`ALTER TABLE user_security_settings ADD COLUMN use_12_hour_time BOOLEAN DEFAULT 0`); err != nil {
+		return fmt.Errorf("add user_security_settings.use_12_hour_time: %w", err)
 	}
 	return nil
 }

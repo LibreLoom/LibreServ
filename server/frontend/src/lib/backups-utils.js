@@ -1,4 +1,4 @@
-export function formatDate(dateStr) {
+export function formatDate(dateStr, use12Hour = false) {
   if (!dateStr) return "-";
   const date = new Date(dateStr);
   return (
@@ -8,10 +8,10 @@ export function formatDate(dateStr) {
       year: "numeric",
     }) +
     " " +
-    date.toLocaleTimeString("en-GB", {
+    date.toLocaleTimeString(use12Hour ? "en-US" : "en-GB", {
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false,
+      hour12: use12Hour,
     })
   );
 }

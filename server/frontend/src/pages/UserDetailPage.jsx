@@ -11,10 +11,12 @@ import { User, Mail, Shield, Calendar, Edit2, Clock } from "lucide-react";
 import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
 import RoleChangeForm from "../components/common/forms/RoleChangeForm";
 import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
+import { useTimeFormat } from "../hooks/useTimeFormat";
 
 export default function UserDetailPage() {
   const { userId } = useParams();
   const navigate = useNavigate();
+  const { formatDateLong } = useTimeFormat();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
@@ -94,15 +96,7 @@ export default function UserDetailPage() {
 
   const formatDate = (dateString) => {
     if (!dateString) return "Unknown";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-GB", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
+    return formatDateLong(dateString);
   };
   const showName = Boolean(user?.username || user?.email);
   const nameValue = user?.username || user?.email || "";

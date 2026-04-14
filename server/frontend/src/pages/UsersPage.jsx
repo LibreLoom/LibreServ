@@ -7,6 +7,7 @@ import VerificationCard from "../components/cards/VerificationCard";
 import Table from "../components/common/Table";
 import Pill from "../components/common/Pill";
 import api from "../lib/api";
+import { useTimeFormat } from "../hooks/useTimeFormat";
 
 function formatLastLogin(dateString) {
   if (!dateString) return "Never";
@@ -21,10 +22,15 @@ function formatLastLogin(dateString) {
   if (diffMins < 60) return `${diffMins} min ago`;
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 export default function UsersPage() {
+  const { use12HourTime } = useTimeFormat();
   // Track server results + UI state for loading and destructive actions.
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -163,7 +169,7 @@ export default function UsersPage() {
                         </div>
                         <div className="text-xs text-primary/40 flex items-center gap-1">
                           <Clock size={10} aria-hidden="true" />
-                          {formatLastLogin(user.last_login)}
+                          {formatLastLogin(user.last_login, use12HourTime)}
                         </div>
                       </div>
                     </Link>
@@ -236,7 +242,7 @@ export default function UsersPage() {
                     {
                       key: "last_login",
                       label: "Last Login",
-                      render: (row) => <Pill variant="muted">{formatLastLogin(row.last_login)}</Pill>,
+                      render: (row) => <Pill variant="muted">{formatLastLogin(row.last_login, use12HourTime)}</Pill>,
                     },
                     {
                       key: "actions",

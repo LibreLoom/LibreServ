@@ -117,7 +117,7 @@ export function ThemeProvider({ children }) {
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  function animateColors(root, target, onComplete) {
+  function animateColors(root, target) {
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
@@ -132,7 +132,6 @@ export function ThemeProvider({ children }) {
       root.style.setProperty("--secondary", target.secondary);
       root.style.setProperty("--accent", target.accent);
       renderedColorsRef.current = { ...target };
-      if (onComplete) onComplete();
       return;
     }
 
@@ -178,7 +177,6 @@ export function ThemeProvider({ children }) {
       } else {
         renderedColorsRef.current = { ...target };
         animFrameRef.current = null;
-        if (onComplete) onComplete();
       }
     }
 
@@ -196,8 +194,6 @@ export function ThemeProvider({ children }) {
       root.classList.remove("dark");
     }
 
-    root.style.setProperty("--theme-transition", "1500ms");
-
     if (!initializedRef.current) {
       initializedRef.current = true;
       root.style.setProperty("--primary", target.primary);
@@ -205,9 +201,7 @@ export function ThemeProvider({ children }) {
       root.style.setProperty("--accent", target.accent);
       renderedColorsRef.current = { ...target };
     } else {
-      animateColors(root, target, () => {
-        root.style.setProperty("--theme-transition", "0ms");
-      });
+      animateColors(root, target);
     }
 
     localStorage.setItem("theme", theme);

@@ -14,6 +14,7 @@ import {
 import Card from "../cards/Card";
 import AppIcon from "../common/AppIcon";
 import { formatDate, formatBytes } from "../../lib/backups-utils";
+import { useTimeFormat } from "../../hooks/useTimeFormat";
 
 export default function LocalBackupsCard({
   backups,
@@ -27,6 +28,7 @@ export default function LocalBackupsCard({
   onUploadToCloud,
   uploadingId,
 }) {
+  const { use12HourTime } = useTimeFormat();
   function getAppDisplayName(backup) {
     const app = apps.find((a) => a.id === backup.app_id);
     if (app) return app.name;
@@ -115,7 +117,7 @@ export default function LocalBackupsCard({
                         {getAppDisplayName(backup)}
                       </div>
                       <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
-                        <span>{formatDate(backup.created_at)}</span>
+                        <span>{formatDate(backup.created_at, use12HourTime)}</span>
                         <span>·</span>
                         <span>{formatBytes(backup.size)}</span>
                       </div>

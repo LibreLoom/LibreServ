@@ -55,6 +55,9 @@ export default function SettingsPage() {
       ]);
       setSettings(settingsData);
       setSecuritySettings(securityData);
+      if (securityData && typeof securityData.use_12_hour_time === "boolean") {
+        setUse12HourTime(securityData.use_12_hour_time);
+      }
     } catch (err) {
       const errorMessage =
         err?.message || err?.response?.data?.message || "Failed to load settings.";
@@ -73,7 +76,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     window.history.replaceState(null, "", `#${activeCategory}`);
-  }, [csrfToken, activeCategory]);
+  }, [activeCategory]);
 
   const performSave = useCallback(async () => {
     const pendingSettings = pendingSettingsRef.current;
