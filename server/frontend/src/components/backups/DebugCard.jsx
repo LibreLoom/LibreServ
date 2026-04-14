@@ -25,20 +25,22 @@ export default function DebugCard({ content, onReload }) {
         <CollapsibleSection
           title="Configuration File"
           defaultOpen={false}
-          background={true}
+          pill={true}
         >
-          <p className="text-xs text-accent mb-3">
-            This file is generated automatically by LibreServ.
-          </p>
-          {isEmpty ? (
-            <p className="text-sm text-primary/50 italic">
-              No configuration generated yet
+          <div className="bg-primary/5 rounded-card p-3">
+            <p className="text-xs text-accent mb-3">
+              This file is generated automatically by LibreServ.
             </p>
-          ) : (
-            <pre className="text-xs font-mono text-primary/80 overflow-x-auto whitespace-pre-wrap">
-              {content}
-            </pre>
-          )}
+            {isEmpty ? (
+              <p className="text-sm text-primary/50 italic">
+                No configuration generated yet
+              </p>
+            ) : (
+              <pre className="text-xs font-mono text-primary/80 overflow-x-auto whitespace-pre-wrap">
+                {content}
+              </pre>
+            )}
+          </div>
         </CollapsibleSection>
       </div>
     </Card>
