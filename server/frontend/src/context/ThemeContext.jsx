@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useState, useEffect, useCallback, useRef } from "react";
+import { createContext, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 
 export const ThemeContext = createContext(undefined);
 
@@ -62,22 +62,6 @@ function resolveColors(isDark, customColors, darkColors, useSeparateDarkColors) 
   return isDark ? DEFAULT_DARK_COLORS : DEFAULT_LIGHT_COLORS;
 }
 
-function hexToRgb(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-function rgbToHex(r, g, b) {
-  return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
-}
-
-function easeOutCubic(t) {
-  return 1 - Math.pow(1 - t, 3);
-}
-
-const THEME_TRANSITION_MS = 1500;
-const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
-
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
     if (typeof window !== "undefined") {
@@ -106,8 +90,6 @@ export function ThemeProvider({ children }) {
   );
 
   const initializedRef = useRef(false);
-  const animFrameRef = useRef(null);
-  const renderedColorsRef = useRef(null);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
@@ -117,93 +99,42 @@ export function ThemeProvider({ children }) {
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  function animateColors(root, target) {
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
-
-    const from = renderedColorsRef.current || target;
-    const prefersReduced = window.matchMedia(REDUCED_MOTION_QUERY).matches;
-    const duration = prefersReduced ? 0 : THEME_TRANSITION_MS;
-
-    if (duration === 0) {
-      root.style.setProperty("--primary", target.primary);
-      root.style.setProperty("--secondary", target.secondary);
-      root.style.setProperty("--accent", target.accent);
-      renderedColorsRef.current = { ...target };
-      return;
-    }
-
-    const fromRgb = {
-      primary: hexToRgb(from.primary),
-      secondary: hexToRgb(from.secondary),
-      accent: hexToRgb(from.accent),
-    };
-    const toRgb = {
-      primary: hexToRgb(target.primary),
-      secondary: hexToRgb(target.secondary),
-      accent: hexToRgb(target.accent),
-    };
-
-    const startTime = performance.now();
-
-    function step(now) {
-      const t = Math.min((now - startTime) / duration, 1);
-      const e = easeOutCubic(t);
-
-      const primary = rgbToHex(
-        Math.round(fromRgb.primary[0] + (toRgb.primary[0] - fromRgb.primary[0]) * e),
-        Math.round(fromRgb.primary[1] + (toRgb.primary[1] - fromRgb.primary[1]) * e),
-        Math.round(fromRgb.primary[2] + (toRgb.primary[2] - fromRgb.primary[2]) * e),
-      );
-      const secondary = rgbToHex(
-        Math.round(fromRgb.secondary[0] + (toRgb.secondary[0] - fromRgb.secondary[0]) * e),
-        Math.round(fromRgb.secondary[1] + (toRgb.secondary[1] - fromRgb.secondary[1]) * e),
-        Math.round(fromRgb.secondary[2] + (toRgb.secondary[2] - fromRgb.secondary[2]) * e),
-      );
-      const accent = rgbToHex(
-        Math.round(fromRgb.accent[0] + (toRgb.accent[0] - fromRgb.accent[0]) * e),
-        Math.round(fromRgb.accent[1] + (toRgb.accent[1] - fromRgb.accent[1]) * e),
-        Math.round(fromRgb.accent[2] + (toRgb.accent[2] - fromRgb.accent[2]) * e),
-      );
-
-      root.style.setProperty("--primary", primary);
-      root.style.setProperty("--secondary", secondary);
-      root.style.setProperty("--accent", accent);
-
-      if (t < 1) {
-        animFrameRef.current = requestAnimationFrame(step);
-      } else {
-        renderedColorsRef.current = { ...target };
-        animFrameRef.current = null;
-      }
-    }
-
-    animFrameRef.current = requestAnimationFrame(step);
-  }
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.documentElement;
     const isDark = resolvedTheme === "dark";
     const target = resolveColors(isDark, customColors, darkColors, useSeparateDarkColors);
 
-    if (isDark) {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
-
     if (!initializedRef.current) {
       initializedRef.current = true;
-      root.style.setProperty("--primary", target.primary);
-      root.style.setProperty("--secondary", target.secondary);
-      root.style.setProperty("--accent", target.accent);
-      renderedColorsRef.current = { ...target };
-    } else {
-      animateColors(root, target);
+      root.dataset.noThemeTransition = "";
+      root.classList.toggle("dark", isDark);
     }
 
+    root.dataset.themeTransitioning = "";
+    root.style.colorScheme = isDark ? "dark" : "light";
+    root.style.setProperty("--primary", target.primary);
+    root.style.setProperty("--secondary", target.secondary);
+    root.style.setProperty("--accent", target.accent);
+
+    let rafId;
+    if ("noThemeTransition" in root.dataset) {
+      rafId = requestAnimationFrame(() => {
+        delete root.dataset.noThemeTransition;
+      });
+    }
+
+    const timerId = setTimeout(() => {
+      delete root.dataset.themeTransitioning;
+    }, 1500);
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      clearTimeout(timerId);
+      delete root.dataset.themeTransitioning;
+    };
+  }, [resolvedTheme, customColors, darkColors, useSeparateDarkColors]);
+
+  useEffect(() => {
     localStorage.setItem("theme", theme);
     if (customColors) {
       localStorage.setItem("theme-colors", JSON.stringify(customColors));
@@ -258,9 +189,9 @@ export function ThemeProvider({ children }) {
     setUseSeparateDarkColors(false);
   };
 
-  const setUse12Hour = (value) => {
+  const setUse12Hour = useCallback((value) => {
     setUse12HourTime(Boolean(value));
-  };
+  }, []);
 
   const currentColors = customColors || (resolvedTheme === "dark" ? DEFAULT_DARK_COLORS : DEFAULT_LIGHT_COLORS);
   const currentDarkColors = (useSeparateDarkColors && darkColors) ? darkColors : (useSeparateDarkColors ? DEFAULT_DARK_COLORS : null);
