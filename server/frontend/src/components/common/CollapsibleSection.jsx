@@ -9,18 +9,25 @@ export default function CollapsibleSection({
   mono = false,
   size = "sm",
   background = false,
+  pill = false,
   className = "",
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const contentId = useId();
   const sizeClass = size === "xs" ? "text-xs" : size === "md" ? "text-base" : "text-sm";
 
+  const wrapperClass = pill
+    ? `border border-primary/10 rounded-large-element bg-primary/5 overflow-hidden ${className}`
+    : className;
+
   return (
-    <div className={className}>
+    <div className={wrapperClass}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1.5 ${sizeClass} text-accent hover:text-primary motion-safe:transition-colors w-full py-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill ${mono ? "font-mono" : ""}`}
+        className={`flex items-center gap-1.5 ${sizeClass} text-accent hover:text-primary motion-safe:transition-colors w-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill ${
+          pill ? "py-2 px-3" : "py-1"
+        } ${mono ? "font-mono" : ""}`}
         aria-expanded={open}
         aria-controls={contentId}
       >
@@ -40,7 +47,7 @@ export default function CollapsibleSection({
         }`}
         style={{ transitionDuration: "var(--motion-duration-medium1)" }}
       >
-        <div className={background ? "mt-3 bg-primary/5 rounded-card p-3" : "pt-2 pl-6"}>
+        <div className={pill ? "px-3 pb-3 space-y-2" : background ? "mt-3 bg-primary/5 rounded-card p-3" : "pt-2 pl-6"}>
           {children}
         </div>
       </div>
@@ -55,5 +62,6 @@ CollapsibleSection.propTypes = {
   mono: PropTypes.bool,
   size: PropTypes.oneOf(["sm", "md", "xs"]),
   background: PropTypes.bool,
+  pill: PropTypes.bool,
   className: PropTypes.string,
 };

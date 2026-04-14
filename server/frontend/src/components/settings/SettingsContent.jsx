@@ -3,6 +3,7 @@ import AppearanceCategory from "./categories/AppearanceCategory";
 import SecurityCategory from "./categories/SecurityCategory";
 import AboutCategory from "./categories/AboutCategory";
 import BackupsCategory from "./categories/BackupsCategory";
+import NetworkCategory from "./categories/NetworkCategory";
 import SaveStatusIndicator from "../common/SaveStatusIndicator";
 
 const CATEGORY_TITLES = {
@@ -10,6 +11,7 @@ const CATEGORY_TITLES = {
 	appearance: "Appearance",
 	backups: "Backups",
 	security: "Security",
+	network: "Network",
 	about: "About",
 };
 
@@ -18,6 +20,7 @@ const CATEGORY_COMPONENTS = {
 	appearance: AppearanceCategory,
 	backups: BackupsCategory,
 	security: SecurityCategory,
+	network: NetworkCategory,
 	about: AboutCategory,
 };
 
@@ -81,6 +84,8 @@ export default function SettingsContent({
           onSettingsChange: onSecuritySettingsChange,
           onTestNotification,
         };
+      case "network":
+        return { settings };
       case "about":
         return { settings };
       default:
@@ -91,7 +96,7 @@ export default function SettingsContent({
   return (
     <div className="space-y-4">
       <div className="sticky top-0 z-10 bg-primary pt-1 flex items-center justify-between">
-        <h1 className="text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-1 duration-200">
+        <h1 className="text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-2 duration-300">
           {title}
         </h1>
         <SaveStatusIndicator
@@ -100,7 +105,7 @@ export default function SettingsContent({
           onSavedComplete={onSavedComplete}
         />
       </div>
-      <div key={category} className="animate-in fade-in duration-200 pb-16 md:pb-20">
+      <div key={category} className="animate-in fade-in duration-300 pb-16 md:pb-20">
         <CategoryComponent {...getSettingsProps()} />
       </div>
     </div>
