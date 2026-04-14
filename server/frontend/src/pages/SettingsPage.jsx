@@ -46,7 +46,7 @@ export default function SettingsPage() {
   const pendingSettingsRef = useRef(null);
   const pendingSecurityRef = useRef(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setError(null);
       const [settingsData, securityData] = await Promise.all([
@@ -64,7 +64,7 @@ export default function SettingsPage() {
       setError(errorMessage);
       console.error("Error loading settings:", err);
     }
-  };
+  }, [setUse12HourTime]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -72,7 +72,7 @@ export default function SettingsPage() {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, []);
+  }, [loadData]);
 
   useEffect(() => {
     window.history.replaceState(null, "", `#${activeCategory}`);
