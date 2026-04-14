@@ -1,45 +1,46 @@
 # LibreServ Development Roadmap
 
-**Target Audience:** General users who shouldn't need a terminal  
-**MVP Target:** April 30, 2026  
+**Target Audience:** General users who shouldn't need a terminal
 **Delivery Method:** Hardware with software pre-installed
 
-This roadmap is organized by **user journey** so developers understand what matters most for MVP.
+This roadmap is organized by **user journey** so developers understand what matters most.
 
 ---
 
 ## Quick Navigation
 
-- [Critical Path](#critical-path-what-must-work-for-mvp)
-- [Phase 1: First-Run Experience](#phase-1-first-run-experience)
-- [Phase 2: Daily User Flows](#phase-2-daily-user-flows)
-- [Phase 3: Admin Operations](#phase-3-admin-operations)
-- [Phase 4: Production Readiness](#phase-4-production-readiness)
-- [Phase 5: Advanced Features](#phase-5-advanced-features)
+- [Critical Path](#critical-path)
+- [Phase 1: First-Run Experience](#phase-1-first-run-experience) — DONE
+- [Phase 2: Daily User Flows](#phase-2-daily-user-flows) — IN PROGRESS
+- [Phase 3: Admin Operations](#phase-3-admin-operations) — IN PROGRESS
+- [Phase 4: Production Readiness](#phase-4-production-readiness) — IN PROGRESS
+- [Phase 5: App Ecosystem](#phase-5-app-ecosystem) — PLANNED
+- [Phase 6: Infrastructure Scale](#phase-6-infrastructure-scale) — PLANNED
+- [Phase 7: Advanced Features](#phase-7-advanced-features) — PLANNED
 
 ---
 
-## Critical Path: What MUST Work for MVP
+## Critical Path
 
 ```
-User receives hardware → Powers on → Opens browser → 
-Sees Setup Wizard → Creates admin account → 
-Installs an app → It works → Creates backup → Done
+User receives hardware -> Powers on -> Opens browser ->
+Sees Setup Wizard -> Creates admin account ->
+Installs an app -> It works -> Creates backup -> Done
 ```
 
-**If any step in this flow is broken, MVP fails.**
+**If any step in this flow is broken, nothing else matters.**
 
 ### Must-Have Features (Priority Order)
 
 | Priority | Feature | Why | Current State |
 |----------|---------|-----|---------------|
-| P0 | Setup Wizard Frontend | No terminal = must have GUI setup | ✅ Backend + UI complete with preflight checks |
-| P0 | App Install Flow | Core value proposition | ✅ Backend + Wizard UI complete |
-| P0 | Backup/Restore UI | "Actions should be reversible" | ✅ Backend + Settings UI complete |
-| P1 | HTTPS/Domain Setup | Production requirement | ⚠️ Backend exists, no UI |
-| P1 | Domain Provider Integration | Remote access requires domain | ❌ MISSING |
-| P1 | Cloud Backup Integration | Off-site backup for safety | ❌ MISSING |
-| P1 | System Health Display | User confidence | ✅ Dashboard exists |
+| P0 | Setup Wizard | No terminal = must have GUI setup | Done |
+| P0 | App Install Flow | Core value proposition | Done |
+| P0 | Backup/Restore | "Actions should be reversible" | Done (basic) |
+| P1 | HTTPS/Domain Setup | Production requirement | Backend done, no UI |
+| P1 | Domain Provider Integration | Remote access requires domain | Not started |
+| P1 | System Health Display | User confidence | Done |
+| P2 | Network Routes UI | Manage app access | Not started |
 
 ---
 
@@ -47,503 +48,235 @@ Installs an app → It works → Creates backup → Done
 
 **Goal:** User powers on and completes setup without terminal
 
-### 1.1 Setup Wizard (CRITICAL - MISSING)
+### T1.1.1. Setup Wizard Page
 
-**Current State:** Backend has `/api/v1/setup/*` endpoints, but NO frontend page exists.
+**Status:** Done
+**File:** `server/frontend/src/pages/SetupPage.jsx`
 
-#### T1.1.1. Create Setup Wizard Page
+- Welcome screen with plain-language intro
+- Admin account creation (username, password, email)
+- Preflight checks (Docker, DB, disk space, permissions)
+- Auto-redirect to dashboard on completion
 
-**File:** `server/frontend/src/pages/SetupPage.jsx`  
-**Effort:** 4 hours  
-**Dependencies:** None  
-**Status:** ✅  
-**Completed By:** SetupPage.jsx exists with preflight integration
+### T1.1.2. Setup Route
 
-**User Journey:**
-1. User opens browser to device IP
-2. Sees welcome screen with plain-language intro
-3. Enters admin username, password, email
-4. Sees preflight checks (Docker OK, Disk OK, etc.)
-5. Clicks "Complete Setup"
-6. Redirects to dashboard, logged in
+**Status:** Done
+- Route `/setup` shows SetupPage
+- SetupPage redirects to root if already configured
 
-**Backend API (Already Exists):**
-- `GET /api/v1/setup/status` - Check if setup complete
-- `GET /api/v1/setup/preflight` - Check Docker, DB, disk space, SMTP
-- `POST /api/v1/setup/complete` - Create admin user
+### T1.1.3. Welcome/Onboarding Component
 
-**Acceptance Criteria:**
-- [ ] Page checks `/api/v1/setup/status` on load
-- [ ] If setup complete, redirects to login
-- [ ] Shows preflight check results with icons (✓/✗)
-- [ ] Form validates password strength
-- [ ] Shows plain-language errors (not JSON dumps)
-- [ ] Success redirects to dashboard with auto-login
-- [ ] Works on mobile/tablet
-
-**Example Code:**
-- Backend handler: `server/backend/internal/api/handlers/setup.go:1-280`
-- Existing login: `server/frontend/src/pages/Login.jsx` - Form patterns
-- Router config: `server/backend/internal/api/router.go:132-136` - Setup routes
-
-**Testing:**
-```bash
-# Reset setup state (testing only)
-rm /var/lib/libreserv/setup.json  # or wherever state lives
-
-# Open browser to http://localhost:8080
-# Should see setup wizard, not login
-```
-
----
-
-#### T1.1.2. Add Setup Route to Frontend Router
-
-**File:** `server/frontend/src/App.jsx` (or router file)  
-**Effort:** 1 hour  
-**Dependencies:** T1.1.1  
-**Status:** ✅  
-**Completed By:** Route exists at `/setup`
-
-**Acceptance Criteria:**
-- [x] Route `/setup` shows SetupPage
-- [ ] Root `/` redirects to `/setup` if not configured (handled by SetupPage status check)
-- [x] Route protected after setup (SetupPage redirects to root if complete)
-
----
-
-#### T1.1.3. Create Welcome/Onboarding Component
-
+**Status:** Done
 **File:** `server/frontend/src/components/onboarding/WelcomeCard.jsx`
-**Effort:** 2 hours
-**Dependencies:** T1.1.1
-**Status:** ✅ Complete
-**Completed By:** @opencode
 
-**User Journey:**
-After first login, show friendly welcome:
-- "Your LibreServ is ready! Here's what you can do:"
-- Quick links: Install an app, Set up HTTPS, Create backup
+- Shows after first login only (localStorage)
+- 3 quick action cards (Install App, Configure Settings, Read Docs)
+- Dismissible with "Don't show again"
 
-**Acceptance Criteria:**
-- [x] Shows after first login only (track in localStorage)
-- [x] 3 quick action cards (Install App, Configure Settings, Read Docs)
-- [x] "Don't show again" checkbox
-- [x] Dismissible with X button
+### T1.1.4. Preflight Checks UI
 
-**Implementation Notes:**
-- Created `WelcomeCard.jsx` in `src/components/onboarding/`
-- Uses lazy initializer to check localStorage on mount (no useEffect needed)
-- Integrated into DashboardPage between header and metrics section
-- Quick actions link to `/apps`, `/settings`, `/help` (existing routes)
+**Status:** Done
 
----
+- Each check with pass/fail icon
+- Disk space in human-readable format
+- Warnings for optional things (SMTP)
+- Retry button for failed checks
+- Blocks setup if critical checks fail
 
-### 1.2 Preflight Checks UI
+### T1.1.5. Enhanced Preflight Permission Checks
 
-#### T1.1.4. Create Preflight Checks Component
+**Status:** Done
 
-**File:** `server/frontend/src/pages/SetupPage.jsx`  
-**Effort:** 2 hours  
-**Dependencies:** T1.1.1  
-**Status:** ✅  
-**Completed By:** Integrated into SetupPage.jsx
-
-**What to Build:**
-Visual display of system checks from `/api/v1/setup/preflight`.
-
-**Backend Returns:**
-```json
-{
-  "checks": {
-    "docker": {"status": "ok"},
-    "database": {"status": "ok"},
-    "disk_space": {"status": "ok", "disk_space_bytes_free": 1073741824},
-    "smtp": {"status": "ok", "smtp_configured": false}
-  },
-  "healthy": true
-}
-```
-
-**Acceptance Criteria:**
-- [x] Shows each check with ✓/✗ icon
-- [x] Shows disk space in human-readable format (GB)
-- [x] Shows warnings (not errors) for optional things like SMTP
-- [x] "Retry" button for failed checks
-- [x] Blocks setup completion if critical checks fail
-
----
-
-#### T1.1.5. Enhanced Preflight Permission Checks
-
-**File:** `server/backend/internal/api/handlers/setup.go`  
-**Effort:** 1.5 hours  
-**Dependencies:** T1.1.4  
-**Status:** ✅ Complete
-**Completed By:** @opencode
-
-**Why:** Users should be informed of permission issues before attempting operations. Non-technical users cannot diagnose "permission denied" errors during app install.
-
-**User Journey:**
-1. User sees preflight check failure: "App storage - cannot write to storage"
-2. Friendly hint: "Try restarting your device. If this persists, contact support."
-3. User can retry checks after external fix
-4. Technical details logged server-side for support
-
-**Implementation:**
-- Enhanced `checkPathWritable` tests subdir creation (catches root-owned directories)
-- Added new checks: `database_writable`, `caddy_config_writable`, `caddy_certs_writable`, `acme_data_writable`, `acme_certs_writable`
-- Plain-language error messages (no exposed paths)
-- Server logs capture technical details (path, uid, gid, error)
-- Checks categorized: `system` (database, docker, disk_space), `storage` (paths for db/apps/logs), `network` (caddy/acme paths)
-- Frontend displays checks grouped by category with section headers
-
-**Acceptance Criteria:**
-- [x] Detects read-only or root-owned directories
-- [x] Plain-language error messages for users
-- [x] Technical details logged server-side
-- [x] Retry button allows re-checking
-- [x] All writable paths checked (database, apps, logs, caddy, acme)
-- [x] Checks grouped by category (system, storage, network)
+- Detects root-owned/read-only directories
+- Plain-language error messages
+- Technical details logged server-side
+- Checks grouped by category (system, storage, network)
 
 ---
 
 ## Phase 2: Daily User Flows
 
-**Goal:** User can install apps, create backups, check status - all from web UI
+**Goal:** User can install apps, create backups, check status — all from web UI
 
-### 2.1 App Installation Flow
+### 2.1 App Installation
 
-**Current State:** Backend complete, frontend has install wizard and catalog page
+#### T2.1.0. App Feature Matrix Schema
 
-#### T2.1.0. Add App Feature Matrix Schema (Backend)
+**Status:** Done
 
-**File:** `server/backend/internal/apps/types.go`  
-**Effort:** 3 hours  
-**Dependencies:** None  
-**Status:** ✅ Complete
-**Completed By:** @plainskill
+- `AccessModel` types: `shared_account`, `integrated_users`, `external_auth`, `public`
+- `FeatureSupport`, `UpdateBehavior`, `ResourceHints` types
+- `GET /api/v1/catalog/{app_id}/features` endpoint
 
-**Why:** Apps need to declare capabilities so LibreServ can adapt UI and set user expectations.
+#### T2.1.1. App Install Wizard
 
-**Schema:**
-```go
-type AppFeatures struct {
-    AccessModel    AccessModel    `yaml:"access_model" json:"access_model"`
-    Backup         FeatureSupport `yaml:"backup" json:"backup"`
-    UpdateBehavior UpdateBehavior `yaml:"update_behavior" json:"update_behavior"`
-    SSO            bool           `yaml:"sso" json:"sso"`
-    CustomDomains  bool           `yaml:"custom_domains" json:"custom_domains"`
-}
+**Status:** Done
 
-type AccessModel string
-const (
-    AccessModelSharedAccount   AccessModel = "shared_account"   // Single shared admin
-    AccessModelIntegratedUsers AccessModel = "integrated_users" // Per-user accounts (default)
-    AccessModelExternalAuth    AccessModel = "external_auth"    // App manages its own users
-    AccessModelPublic          AccessModel = "public"           // No auth required
-)
-```
+- Multi-step wizard (Select -> Configure -> Install -> Done)
+- Feature warnings based on access model
+- Shared credentials input for shared_account apps
+- Real-time install progress
+- "Open App" button on success
 
-**Acceptance Criteria:**
-- [x] Add `Features AppFeatures` field to `AppDefinition` struct
-- [x] Add YAML parsing for `features:` section
-- [x] Implement `GetDefaultFeatures()` for backward compatibility
-- [x] Add `GET /api/v1/catalog/{app_id}/features` endpoint
-- [x] Update `motioneye/app.yaml` with `access_model: shared_account`
+#### T2.1.2. App Catalog Page
 
-**Implementation Notes:**
-- Extended existing AppFeatures struct (was basic flags, now includes Feature Matrix v2)
-- Added new types: AccessModel, FeatureSupport, UpdateBehavior, ResourceHints
-- MotionEye now declares: access_model=shared_account, sso=false, backup=supported
+**Status:** Done
 
-**Testing:**
-```bash
-curl http://localhost:8080/api/v1/catalog/motioneye/features
-# Should return {"access_model": "shared_account", "backup": "supported", ...}
-```
+- Live API data from `/api/v1/catalog`
+- Category grouping, search/filter
+- "Installed" badge on already-installed apps
 
----
+#### T2.1.3. App Uninstall with Confirmation
 
-#### T2.1.1. Create App Install Wizard
+**Status:** Done
 
-**File:** `server/frontend/src/components/app/InstallWizard.jsx`  
-**Effort:** 4 hours  
-**Dependencies:** T2.1.0 (Feature Matrix Schema)
-**Status:** ✅ Complete
-**Completed By:** @plainskill
+- Confirmation modal with typing requirement
+- Shows what will be deleted (volumes, config)
+- Progress indicator during uninstall
+- Start/Stop/Restart buttons
 
-**User Journey:**
-1. Browse app catalog → Click "Install"
-2. See plain-language description ("Search the web privately")
-3. **See feature warnings** (e.g., "Shared Account - all users share one login")
-4. Configure any required settings (domain, password, etc.)
-5. See install progress with logs
-6. Get success message with "Open App" button
+#### T2.1.4. Custom App Instance Names
 
-**Backend API:**
-- `GET /api/v1/catalog` - List available apps
-- `GET /api/v1/catalog/{app_id}/features` - Get app capabilities
-- `POST /api/v1/apps` - Install app
-- `GET /api/v1/apps/{id}/status` - Check status
-
-**Acceptance Criteria:**
-- [x] Multi-step wizard (Select → Configure → Install → Done)
-- [x] Shows app logo, description in plain language
-- [x] Form fields generated from app.yaml configuration
-- [x] **Shows feature warnings based on access_model:**
-  - `shared_account` → "Shared Account - All users access with same credentials"
-  - `external_auth` → "External Auth - App manages its own users"
-  - `public` → "Public Access - No login required"
-- [x] **Shows shared credentials input for shared_account apps**
-- [x] Shows real-time install progress
-- [x] Error messages in plain language
-- [x] "Open App" button on success
-- [x] Can go back to previous steps
-
-**Example Code:**
-- App definitions: `server/backend/apps/builtin/*/app.yaml`
-- Catalog handler: `server/backend/internal/api/handlers/catalog.go`
-- Install handler: `server/backend/internal/api/handlers/apps.go`
-
----
-
-#### T2.1.2. Create App Catalog Page (Enhance Existing)
-
-**File:** `server/frontend/src/pages/AppsPage.jsx` (EXISTS - enhance)  
-**Effort:** 2 hours  
-**Dependencies:** T2.1.1  
-**Status:** ✅ Complete
-**Completed By:** @plainskill
-
-**Current State:** Page exists but uses mock data from `services.js`
-
-**Acceptance Criteria:**
-- [x] Replace mock data with live API call to `/api/v1/catalog`
-- [x] Group apps by category
-- [x] Show "Installed" badge on already-installed apps
-- [x] "Install" button opens wizard (T2.1.1)
-- [x] Search/filter functionality
-
----
-
-#### T2.1.3. Add App Uninstall with Confirmation
-
-**File:** Update `server/frontend/src/pages/AppDetailPage.jsx`  
-**Effort:** 1.5 hours  
-**Dependencies:** None  
-**Status:** ✅ Complete  
-**Completed By:** @plainskill
-
-**Acceptance Criteria:**
-- [x] Confirmation modal with typing requirement
-- [x] Shows what will be deleted (volumes, config)
-- [x] Progress indicator during uninstall
-- [x] Cannot uninstall if backup in progress
-
-**Implementation Notes:**
-- Completely rewrote AppDetailPage to fetch live app data from `/api/apps/{instanceId}`
-- Added UninstallConfirmModal component requiring user to type app name
-- Added display of what will be deleted (volumes, config, container images)
-- Added progress indicator during uninstall operation
-- Added Start/Stop/Restart buttons with status-aware enabling
-- Updated route parameter from `:appName` to `:instanceId` for API consistency
-- Added "Installed Apps" section to AppsPage with Manage links
-
----
-
-### 2.2 Backup & Restore Flow
-
-**Current State:** Backend complete (`/api/v1/backups/*`), no frontend
-
-#### T2.2.1. Create Backups Page
-
-**File:** `server/frontend/src/pages/BackupsPage.jsx`
-**Effort:** 3 hours
+**Status:** Not started
+**Effort:** 3h
 **Dependencies:** None
-**Status:** ✅ Complete
-**Completed By:** @opencode
 
-**User Journey:**
-1. See list of all backups (app name, date, size)
-2. Click "Create Backup" for specific app
-3. See backup progress
-4. Click "Restore" to restore from backup
-5. Confirmation: "This will replace current data"
-
-**Backend API:**
-- `GET /api/v1/backups` - List all backups
-- `POST /api/v1/backups` - Create backup
-- `POST /api/v1/backups/{id}/restore` - Restore
-- `DELETE /api/v1/backups/{id}` - Delete
+Allow installing multiple instances of the same app, each with a custom name.
 
 **Acceptance Criteria:**
-- [x] List backups sorted by date (newest first)
-- [x] Show app name, date, size, status
-- [x] "Create Backup" dropdown to select app
-- [x] Restore requires confirmation
-- [x] Show warning: "Current data will be replaced"
-- [x] Progress indicator during backup/restore
-- [x] Auto-refresh during operations
-- [x] Cloud backup status display
-- [x] Upload to cloud button per backup
+- [ ] Install wizard allows naming each instance
+- [ ] Instance name shown in app list and detail page
+- [ ] Port conflicts detected and resolved automatically
+- [ ] Each instance has independent config, volumes, and state
 
----
+#### T2.1.5. Implement Remaining App Scripts
 
-#### T2.2.2. Create Backup Schedule UI
+**Status:** Not started
+**Effort:** 8h (total for all apps)
+**Dependencies:** None
 
-**File:** `server/frontend/src/components/backups/ScheduleForm.jsx`  
-**Effort:** 2 hours  
-**Dependencies:** T2.2.1  
-**Status:** ✅ Complete
-**Completed By:** @opencode
+Implement missing lifecycle scripts (update, repair, backup, restore) for each builtin app. The install, start, and stop lifecycle operations already work — this task covers the remaining four operations.
 
-**User Journey:**
-User sets "Backup every day at 3 AM" for Nextcloud.
+**Apps needing scripts:**
 
-**Acceptance Criteria:**
-- [x] Cron-like schedule picker (or presets: daily/weekly)
-- [x] Select which apps to backup
-- [x] Retention policy (keep last N backups)
-- [x] Show next scheduled backup time
-- [ ] Email notification on backup complete/fail
+| App | system-update | system-repair | system-backup | system-restore |
+|-----|:---:|:---:|:---:|:---:|
+| ConvertX | - | - | - | - |
+| LibreChat | - | - | - | - |
+| Nextcloud AIO | - | - | - | - |
+| Ollama | - | - | - | - |
+| SearXNG | - | - | - | - |
 
-**Implementation Notes:**
-- Created ScheduleForm.jsx component with preset schedules (Daily 2AM/3AM, Every 6 hours, Weekly)
-- Added custom cron expression support
-- Integrated into BackupsCategory.jsx settings page
-- Added backend API endpoints: GET/POST/PUT/DELETE /api/v1/backups/schedules
-- Added database migration 011_backup_schedules.sql
-- Added schedule CRUD methods to BackupService
+**Note:** This likely requires extensive headless interaction work for each app.
 
----
+#### T2.1.6. Custom App Upload and URL Install
 
-#### T2.2.3. Add Cloud Backup Integration
+**Status:** Not started
+**Effort:** 6h
+**Dependencies:** T2.1.0
 
-**Files:** `server/backend/internal/backup/cloud/`, `server/frontend/src/components/backups/CloudBackupConfig.jsx`
-**Effort:** 4 hours
-**Dependencies:** T2.2.1
-**Status:** ✅ Complete
-**Completed By:** @opencode
-
-**Why:** Local backups protect against app failure, but not hardware failure, theft, or disaster. Users need off-site backup for true data safety.
+Allow users to install apps beyond the builtin catalog.
 
 **User Journey:**
-1. User goes to Backups → Cloud Storage
-2. Chooses provider (Backblaze B2, S3-compatible, or "Manual Setup")
-3. Enters credentials or follows setup guide
-4. Tests connection
-5. Enables "Upload backups to cloud after creation"
-6. Sees cloud backup status on each backup entry
-
-**Implementation:**
-- Implemented both Backblaze B2 and S3-compatible providers
-- Added manual setup guide option for advanced users
-- Credentials encrypted with AES-256-GCM before storage
-- Automatic cloud upload after backup creation when enabled
+1. User clicks "Install Custom App" in catalog
+2. Chooses: upload a `.tar.xz` package OR paste a URL
+3. LibreServ validates the package against LibreServ App Format
+4. Shows app metadata from `app.yaml`
+5. Proceeds through normal install wizard
 
 **Acceptance Criteria:**
-- [x] Cloud provider selection UI (Backblaze, S3, Manual)
-- [x] Credential input form with validation
-- [x] "Test Connection" button
-- [x] Toggle: "Upload backups to cloud automatically"
-- [x] Show cloud upload status on backup list
-- [x] Restore from cloud backup option
-- [x] Plain-language setup guide for manual option
+- [ ] Upload `.tar.xz` containing `app.yaml` + `docker-compose.yml` + optional scripts
+- [ ] Paste URL to `.tar.xz` (HTTP/HTTPS, git repo archive)
+- [ ] Validate `app.yaml` schema (required fields, no malicious content)
+- [ ] Validate `docker-compose.yml` (no privileged by default, no host network)
+- [ ] Security scanning for shell scripts in package
+- [ ] Size limits (configurable, default 50MB)
+- [ ] Custom apps tagged as `AppTypeCustom` in database
+- [ ] Custom apps appear in catalog with "Custom" badge
+- [ ] Uninstall removes custom app files
 
-**Backend API:**
-- `GET /api/v1/backups/cloud/providers` - List supported providers ✅
-- `GET /api/v1/backups/cloud/config` - Get current config ✅
-- `POST /api/v1/backups/cloud/config` - Save cloud config ✅
-- `POST /api/v1/backups/cloud/test` - Test connection ✅
-- `POST /api/v1/backups/{id}/upload` - Upload to cloud ✅
-- `GET /api/v1/backups/{id}/status` - Get upload status ✅
-- `GET /api/v1/backups/{id}/cloud-status` - Get cloud backup status ✅
+**Backend API (to add):**
+- `POST /api/v1/catalog/upload` — Upload custom app package
+- `POST /api/v1/catalog/install-url` — Install from URL
+- `GET /api/v1/catalog/custom` — List custom apps
 
----
+### 2.2 Backup & Restore
 
-#### T2.2.4. Backup Download/Upload & Database Backup UI
+#### T2.2.1. Backups Page
 
-**Files:** `server/frontend/src/components/settings/categories/BackupsCategory.jsx`, `server/backend/internal/api/handlers/backups.go`
-**Effort:** 4 hours
-**Dependencies:** T2.2.1
-**Status:** ✅ Complete
-**Completed By:** @opencode
+**Status:** Done
+**File:** `server/frontend/src/pages/BackupsPage.jsx`
 
-**Why:** Non-technical users (hardware delivery model) should be able to manage backups entirely from the web UI without touching a terminal. This includes downloading backups for off-site storage, uploading existing backups, and managing database backups.
+- List backups sorted by date (newest first)
+- Create/restore/delete with progress indicators
+- Cloud backup status display
 
-**User Journey:**
-1. User clicks download icon on any backup to save it locally
-2. User drags/drops a `.tar.gz` backup file to upload it (stored as "unattached")
-3. User restores an unattached backup by selecting which installed app to target
-4. User clicks "Save DB" to create a database backup
-5. User uploads a database backup file to restore the system database
+#### T2.2.2. Backup Schedule UI
 
-**Implementation:**
-- Added `source` column to backups table (migration 012) tracking 'local', 'uploaded', 'cloud'
-- Modified `RestoreApp` to accept optional `targetAppID` for flexible restore
-- Added database backup upload-restore endpoint with automatic page refresh after restore
-- Upload progress shows percentage and bytes with TypewriterLoader animation
-- Unattached backups shown in separate section with InfoPopover explaining their origin
+**Status:** Done
+**File:** `server/frontend/src/components/backups/ScheduleForm.jsx`
 
-**Acceptance Criteria:**
-- [x] Download backup files from web UI
-- [x] Upload backup files with progress indicator
-- [x] Unattached backups section (deleted apps + uploaded backups)
-- [x] Restore unattached backup to any installed app via modal selector
-- [x] "Save DB" button to create database backup
-- [x] "Upload & Restore DB" button with file picker
-- [x] Page refreshes automatically after database restore
+- Preset schedules (Daily, Every 6h, Weekly)
+- Custom cron support
+- Retention policy (keep last N)
+- Shows next scheduled run time
 
-**Backend API:**
-- `GET /api/v1/backups/{id}/download` - Download backup file ✅
-- `POST /api/v1/backups/upload` - Upload backup file ✅
-- `GET /api/v1/backups/unattached` - List unattached backups ✅
-- `POST /api/v1/backups/database/upload-restore` - Upload and restore database ✅
+#### T2.2.3. Cloud Backup Integration
 
----
+**Status:** Done
+
+- Backblaze B2 and S3-compatible providers
+- Credential encryption (AES-256-GCM)
+- Auto-upload after backup creation when enabled
+- "Test Connection" button
+
+#### T2.2.4. Backup Download/Upload & Database Backup
+
+**Status:** Done
+
+- Download backup files from web UI
+- Upload `.tar.gz` backup files with progress
+- Unattached backups section (deleted apps + uploaded)
+- Restore unattached backup to any installed app
+- "Save DB" and "Upload & Restore DB" buttons
 
 ### 2.3 App Status & Monitoring
 
-**Current State:** Dashboard exists with health display
+#### T2.3.1. App Detail Page (Enhanced)
 
-#### T2.3.1. Enhance App Detail Page
+**Status:** Done
 
-**File:** `server/frontend/src/pages/AppDetailPage.jsx` (EXISTS - enhance)
-**Effort:** 2 hours
+- Resource usage (CPU, RAM, disk) from `/api/v1/apps/{id}/metrics`
+- Health status icon
+- Start/Stop/Restart with confirmation
+- Link to app's web interface
+- Installed version and available updates
+
+#### T2.3.2. App Logs Viewer
+
+**Status:** Done
+**File:** `server/frontend/src/components/app/LogsViewer.jsx`
+
+- Full-page log viewer with auto-scroll
+- Pause/Resume scrolling
+- Search/filter logs
+- Download logs as text file
+- Last 500 lines by default, load more on scroll
+
+#### T2.3.3. Improve Availability Tracking
+
+**Status:** Not started
+**Effort:** 4h
 **Dependencies:** None
-**Status:** ✅ Complete
-**Completed By:** @opencode
+
+Implement a global system to track uptime and availability of apps and the server itself.
 
 **Acceptance Criteria:**
-- [x] Show resource usage (CPU, RAM, disk) from `/api/v1/apps/{id}/metrics`
-- [x] Show app health status prominently
-- [x] Start/Stop/Restart buttons with confirmation
-- [x] Link to app's web interface (if applicable)
-- [x] Show installed version and available updates
-
----
-
-#### T2.3.2. Create App Logs Viewer
-
-**File:** `server/frontend/src/components/app/LogsViewer.jsx`  
-**Effort:** 2.5 hours  
-**Dependencies:** None  
-**Status:** ✅ Complete
-**Completed By:** Fluffy-Bunny-23
-
-**User Journey:**
-User sees "Something went wrong" → Clicks "View Logs" → Sees recent error messages
-
-**Acceptance Criteria:**
-- [x] Modal or full-page log viewer
-- [x] Auto-scroll to bottom (newest logs)
-- [x] Pause/Resume scrolling
-- [x] Search/filter logs
-- [x] Download logs as text file
-- [x] Show last 500 lines by default, load more on scroll
-
-**Backend API:** `GET /api/v1/apps/{id}/logs` (may need to add)
+- [ ] Per-app uptime/downtime tracking (already partially in `InstalledApp`)
+- [ ] Server-level uptime tracking
+- [ ] Availability percentage calculation (rolling 7d/30d)
+- [ ] Dashboard widget showing overall system health
+- [ ] Historical availability data persisted in database
 
 ---
 
@@ -553,26 +286,22 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 
 ### 3.1 Network & HTTPS
 
-**Current State:** Backend complete, no frontend
+#### T3.1.1. Network Routes Page
 
-#### T3.1.1. Create Network Routes Page
-
-**File:** `server/frontend/src/pages/NetworkRoutesPage.jsx`  
-**Effort:** 3 hours  
-**Dependencies:** None  
-**Status:** 🔴  
-**Completed By:**
+**Status:** Not started
+**Effort:** 3h
+**Dependencies:** None
 
 **User Journey:**
-1. Admin clicks "Network" → "Routes"
+1. Admin clicks "Network" -> "Routes"
 2. Sees all domains pointing to apps
-3. Adds new domain: "blog.example.com" → "wordpress:8080"
+3. Adds new domain: "blog.example.com" -> "wordpress:8080"
 4. System requests HTTPS certificate automatically
 
-**Backend API:**
-- `GET /api/v1/network/routes` - List routes
-- `POST /api/v1/network/routes` - Create route
-- `DELETE /api/v1/network/routes/{id}` - Delete route
+**Backend API (exists):**
+- `GET /api/v1/network/routes` — List routes
+- `POST /api/v1/network/routes` — Create route
+- `DELETE /api/v1/network/routes/{id}` — Delete route
 
 **Acceptance Criteria:**
 - [ ] List routes with domain, target, HTTPS status
@@ -581,15 +310,11 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 - [ ] Delete with confirmation
 - [ ] Show Caddy status
 
----
+#### T3.1.2. HTTPS/Certificate Page
 
-#### T3.1.2. Create HTTPS/Certificate Page
-
-**File:** `server/frontend/src/pages/CertificatesPage.jsx`  
-**Effort:** 2.5 hours  
-**Dependencies:** T3.1.1  
-**Status:** 🔴  
-**Completed By:**
+**Status:** Not started
+**Effort:** 2.5h
+**Dependencies:** T3.1.1
 
 **User Journey:**
 1. Admin sees certificate status for each domain
@@ -597,9 +322,9 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 3. Clicks "Renew" to manually renew
 4. Can request new certificate for domain
 
-**Backend API:**
-- `GET /api/v1/network/acme/status` - Certificate status
-- `POST /api/v1/network/acme/request` - Request new cert
+**Backend API (exists):**
+- `GET /api/v1/network/acme/status` — Certificate status
+- `POST /api/v1/network/acme/request` — Request new cert
 
 **Acceptance Criteria:**
 - [ ] List certificates with domain, expiry, issuer
@@ -608,97 +333,58 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 - [ ] Show ACME challenge progress
 - [ ] Renew button for existing certs
 
----
+#### T3.1.3. Domain Provider Integration
 
-#### T3.1.3. Add Domain Provider Integration
-
-**Files:** `server/backend/internal/network/dns/`, `server/frontend/src/components/network/DomainProviderConfig.jsx`  
-**Effort:** 4 hours  
-**Dependencies:** T3.1.1  
-**Status:** 🔴  
-**Completed By:**
-
-**Why:** Users need remote access to their server. This requires a domain name pointing to their home IP. Non-technical users cannot manually configure DNS records or dynamic DNS.
+**Status:** Not started
+**Effort:** 4h
+**Dependencies:** T3.1.1
 
 **User Journey:**
-1. User goes to Network → Domain Setup
-2. Sees options: "Buy new domain", "Use existing domain", or "Use free subdomain"
+1. User goes to Network -> Domain Setup
+2. Sees options: "Use existing domain", "Use free subdomain", or "Manual"
 3. For existing domain: enters domain + provider credentials
 4. System configures DNS automatically
 5. System sets up Dynamic DNS (for home connections)
 6. HTTPS certificate requested automatically
 
-**Implementation Options:**
-| Option | Effort | Pros | Cons |
-|--------|--------|------|------|
-| DDNS with libreserv.com subdomain | 4h | Zero config for user | Requires our infrastructure |
-| Namecheap API | 3h | Popular, cheap | Single provider |
-| Cloudflare API | 3h | Free DNS, popular | Single provider |
-| DuckDNS integration | 2h | Free, simple | Limited to duckdns.org |
-| Manual setup guide | 1h | Zero code | User must use terminal |
-
-**Recommended:** Start with "Manual Setup Guide", then add DuckDNS (free) and Namecheap/Cloudflare APIs.
+**Recommended approach:** Manual setup guide first, then DuckDNS (free), then Cloudflare/Namecheap APIs.
 
 **Acceptance Criteria:**
 - [ ] Domain setup wizard UI
-- [ ] Provider selection (DuckDNS, Namecheap, Cloudflare, Manual)
+- [ ] Provider selection (DuckDNS, Cloudflare, Namecheap, Manual)
 - [ ] Credential input form with validation
 - [ ] "Test DNS Configuration" button
-- [ ] Dynamic DNS update service (for changing IPs)
+- [ ] Dynamic DNS update service
 - [ ] Auto-detect public IP
-- [ ] Show current IP and last update time
 - [ ] Plain-language setup guide for manual option
 
 **Backend API (to add):**
-- `GET /api/v1/network/dns/providers` - List supported providers
-- `POST /api/v1/network/dns/config` - Save DNS config
-- `POST /api/v1/network/dns/test` - Test DNS resolution
-- `POST /api/v1/network/dns/update` - Force DDNS update
-- `GET /api/v1/network/dns/status` - Current IP, last update
-
-**Example Code:**
-- Similar pattern to ACME handler: `server/backend/internal/api/handlers/acme.go`
-
----
+- `GET /api/v1/network/dns/providers`
+- `POST /api/v1/network/dns/config`
+- `POST /api/v1/network/dns/test`
+- `POST /api/v1/network/dns/update`
+- `GET /api/v1/network/dns/status`
 
 ### 3.2 User Management
 
-**Current State:** Pages exist, need verification
+#### T3.2.1. User Management
 
-#### T3.2.1. Verify & Enhance User Management
+**Status:** Done
 
-**File:** `server/frontend/src/pages/UsersPage.jsx` (EXISTS)  
-**Effort:** 1.5 hours  
-**Dependencies:** None  
-**Status:** ✅ Complete  
-**Completed By:** @plainskill
-
-**Acceptance Criteria:**
-- [x] List all users with role, last login
-- [x] Create user with role selection
-- [x] Edit user (change password, role)
-- [x] Delete user with confirmation
-- [x] Cannot delete last admin
-- [x] Password strength indicator
-
-**Implementation Notes:**
-- Added `last_login` field to User model with migration 008
-- Added `ErrLastAdmin` error and protection in DeleteUser
-- Added password strength indicator to AddUserForm
-- Updated UsersPage and UserDetailPage to show last login
-- Updated delete handlers to show friendly error for last admin
-
----
+- List all users with role, last login
+- Create user with role selection
+- Edit user (change password, role)
+- Delete user with confirmation
+- Cannot delete last admin
+- Password strength indicator
 
 ### 3.3 System Administration
 
-#### T3.3.1. Create System Updates Page
+#### T3.3.1. System Updates Page
 
-**File:** `server/frontend/src/pages/SystemUpdatesPage.jsx`  
-**Effort:** 2 hours  
-**Dependencies:** None  
-**Status:** 🔴  
-**Completed By:**
+**Status:** Not started
+**Effort:** 2h
+**Dependencies:** None
 
 **User Journey:**
 1. Admin sees "Update Available" badge
@@ -707,9 +393,9 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 4. Sees progress, system restarts
 5. Logs back in to updated system
 
-**Backend API:**
-- `GET /api/v1/system/updates/check` - Check for updates
-- `POST /api/v1/system/updates/apply` - Apply update
+**Backend API (exists):**
+- `GET /api/v1/system/updates/check` — Check for updates
+- `POST /api/v1/system/updates/apply` — Apply update
 
 **Acceptance Criteria:**
 - [ ] Show current version
@@ -719,15 +405,26 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 - [ ] Progress during update
 - [ ] Handle update failure gracefully
 
----
+#### T3.3.2. Update Scheduling and Orchestration UI
 
-#### T3.3.2. Create Job Queue Monitor
+**Status:** Not started
+**Effort:** 3h
+**Dependencies:** T3.3.1
 
-**File:** `server/frontend/src/pages/JobQueuePage.jsx`  
-**Effort:** 2 hours  
-**Dependencies:** None  
-**Status:** 🔴  
-**Completed By:**
+Scheduled updates for both the platform and individual apps.
+
+**Acceptance Criteria:**
+- [ ] Schedule app updates (daily, weekly, manual)
+- [ ] Pre-update backup option
+- [ ] Rollback on failure
+- [ ] Update orchestration (update multiple apps in sequence)
+- [ ] Notification on update completion/failure
+
+#### T3.3.3. Job Queue Monitor
+
+**Status:** Not started
+**Effort:** 2h
+**Dependencies:** None
 
 **Acceptance Criteria:**
 - [ ] List background jobs (type, status, created, duration)
@@ -742,106 +439,41 @@ User sees "Something went wrong" → Clicks "View Logs" → Sees recent error me
 
 **Goal:** System is secure, tested, installable
 
-### 4.1 Testing Coverage
+### 4.1 Testing
 
-#### T4.1.1. Test Platform Self-Update
+#### T4.1.1. Platform Self-Update Tests
 
-**File:** `server/backend/internal/system/update_test.go`  
-**Effort:** 2 hours  
-**Dependencies:** None  
-**Status:** ✅  
-**Completed By:** Cursor/Opencode (March 2026)
+**Status:** Done — 13 tests covering version checking, caching, API errors
 
-**Acceptance Criteria:**
-- [x] Test `CheckForUpdates()` returns version info (no releases, update available, same version, dev version, v-prefix stripping)
-- [x] Test API error handling (non-200 status, network error, invalid JSON)
-- [x] Test caching behavior (cache hit, cache expiration, cache clear, SetCacheDuration)
-- [x] Test `ApplyUpdate()` when no update available (returns error)
-- [x] 13 tests total
+#### T4.1.2. Security Validator Tests
 
----
+**Status:** Done — 21 tests across 2 files (config validation, secrets, CORS, event types)
 
-#### T4.1.2. Test Security Validator
+#### T4.1.3. Audit Logging Tests
 
-**File:** `server/backend/internal/security/validator_test.go`  
-**Effort:** 2 hours  
-**Dependencies:** None  
-**Status:** ✅  
-**Completed By:** Cursor/Opencode (March 2026)
+**Status:** Done — 7 tests (CRUD round-trip, ordering, limits, nil metadata)
 
-**Acceptance Criteria:**
-- [x] Test `ValidateConfig()` for production secure config (passes)
-- [x] Test dev mode flags (mode, dev token implicit/explicit)
-- [x] Test secrets validation (empty JWT, empty CSRF, short CSRF, hardcoded secrets)
-- [x] Test CORS validation (wildcard, empty)
-- [x] Test Docker TCP, debug logging detection
-- [x] Test `IsLoopback()` with various hosts
-- [x] Test `isLikelyHardcoded()` pattern detection
-- [x] Also created `types_test.go`: Event.Validate, truncation, Severity ordering, ShouldNotify logic
-- [x] 21 tests total across 2 files
+#### T4.1.4. Job Scheduler Tests
 
----
-
-#### T4.1.3. Test Audit Logging
-
-**File:** `server/backend/internal/audit/service_test.go`  
-**Effort:** 1.5 hours  
-**Dependencies:** None  
-**Status:** ✅  
-**Completed By:** Cursor/Opencode (March 2026)
-
-**Acceptance Criteria:**
-- [x] Test Record + List round-trip with all fields
-- [x] Test default limit (100) and custom limit
-- [x] Test newest-first ordering
-- [x] Test empty table returns no entries
-- [x] Test nil metadata handling
-- [x] Test multiple entries
-- [x] 7 tests total
-
----
-
-#### T4.1.4. Test Job Scheduler
-
-**File:** `server/backend/internal/jobs/scheduler_test.go`  
-**Effort:** 2 hours  
-**Dependencies:** None  
-**Status:** ✅  
-**Completed By:** Cursor/Opencode (March 2026)
-
-**Acceptance Criteria:**
-- [x] Test `NewScheduler()` constructor
-- [x] Test `Start()`/`Stop()` lifecycle (no deadlock)
-- [x] Test double `Stop()` behavior (documents single-use pattern)
-- [x] 3 tests total
-
----
+**Status:** Done — 3 tests (constructor, lifecycle, double-stop)
 
 #### T4.1.5. Integration Test: Full User Flow
 
-**File:** `server/backend/tests/integration/user_flow_test.go`  
-**Effort:** 4 hours  
-**Dependencies:** T4.1.1-4  
-**Status:** ✅  
-**Completed By:** Cursor/Opencode (March 2026)
+**Status:** Done — Full flow from setup through login, registration, and token invalidation
 
-**Test Flow:**
-```
-Setup Status (pending) → Complete Setup → 
-Setup Status (complete) → Setup Blocked After Complete →
-Login as Admin → Login Wrong Password →
-Register Second User → Register Duplicate (blocked) →
-List Users → Login as Alice → Setup Token No Longer Valid
-```
+#### T4.1.6. Improve Test Coverage
 
----
+**Status:** In progress
+**Effort:** Ongoing
 
-### 4.2 Security Hardening
+General test coverage improvement across the codebase.
+
+### 4.2 Security
 
 #### T4.2.1. Security Audit: Authentication
 
-**Effort:** 2 hours  
-**Status:** 🔴  
+**Status:** Not started
+**Effort:** 2h
 
 **Checklist:**
 - [ ] JWT uses secure algorithm (RS256 or HS256 with 32+ byte secret)
@@ -850,62 +482,81 @@ List Users → Login as Alice → Setup Token No Longer Valid
 - [ ] Brute force protection on login
 - [ ] CSRF protection on state-changing requests
 
----
+#### T4.2.2. Rate Limiting Middleware
 
-#### T4.2.2. Add Rate Limiting Middleware
+**Status:** Done
 
-**File:** `server/backend/internal/api/middleware/ratelimit.go` (verify exists)
-**Effort:** 2 hours
-**Status:** ✅ Complete
-**Completed By:** @opencode
+- Rate limit by IP on public endpoints
+- Rate limit by user on authenticated endpoints
+- Stricter limits on auth endpoints
+- 429 with Retry-After header
 
-**Acceptance Criteria:**
-- [x] Rate limit by IP on public endpoints
-- [x] Rate limit by user on authenticated endpoints
-- [x] Stricter limits on auth endpoints
-- [x] Return 429 with Retry-After header
+#### T4.2.3. Security Headers
 
----
+**Status:** Done
 
-#### T4.2.3. Add Security Headers
-
-**File:** `server/backend/internal/api/middleware/security_headers.go`
-**Effort:** 1 hour
-**Status:** ✅ Complete
-**Completed By:** @opencode
-
-**Headers to Add:**
 - X-Content-Type-Options: nosniff
 - X-Frame-Options: DENY
 - X-XSS-Protection: 1; mode=block
 - Strict-Transport-Security (when HTTPS)
 
----
+#### T4.2.4. Container Image Security Scanning
 
-### 4.3 Installer & Hardware Delivery
+**Status:** Not started
+**Effort:** 3h
 
-#### T4.3.1. Enhance Install Script
-
-**File:** `install.sh` (EXISTS)
-**Effort:** 2 hours
-**Status:** ✅ Complete
-**Completed By:** @opencode
+Integrate Trivy or Grype to scan app container images before/after install.
 
 **Acceptance Criteria:**
-- [x] Installs systemd service
-- [x] Verifies service starts successfully
-- [x] Shows post-install instructions
-- [x] Supports upgrade (preserve data)
-- [x] Has uninstall option
+- [ ] Scan images on install/pull
+- [ ] Report vulnerabilities in UI (app detail page)
+- [ ] Configurable severity threshold for blocking
+- [ ] Periodic re-scan of installed images
 
----
+#### T4.2.5. Threat Modeling
 
-#### T4.3.2. Create Systemd Service File
+**Status:** Not started
+**Effort:** 4h
 
-**File:** `libreserv.service`  
-**Effort:** 1 hour  
-**Status:** 🔴  
-**Completed By:**
+Create a formal threat model for LibreServ.
+
+**Deliverables:**
+- [ ] STRIDE analysis
+- [ ] Attack surface documentation
+- [ ] Risk assessment with mitigations
+- [ ] Security architecture diagram
+
+#### T4.2.6. Docker Security Hardening
+
+**Status:** Not started
+**Effort:** 3h
+
+Document and enforce Docker security best practices.
+
+**Acceptance Criteria:**
+- [ ] App sandboxing documentation
+- [ ] Default container security policies (no privileged, no host network)
+- [ ] Resource limits enforcement
+- [ ] Network isolation between apps
+
+### 4.3 Configuration & Deployment
+
+#### T4.3.1. Enhanced Install Script
+
+**Status:** Done
+
+- Installs systemd service
+- Verifies service starts successfully
+- Shows post-install instructions
+- Supports upgrade (preserve data)
+- Has uninstall option
+
+#### T4.3.2. Systemd Service File
+
+**Status:** Not started
+**Effort:** 1h
+
+Production-grade systemd service file. The install script (T4.3.1) creates a basic working service; this task hardens it for production deployment.
 
 **Acceptance Criteria:**
 - [ ] Correct user/group
@@ -913,15 +564,24 @@ List Users → Login as Alice → Setup Token No Longer Valid
 - [ ] Restart policy (always, 10s delay)
 - [ ] Environment file support
 
----
+#### T4.3.3. Configurable Server Port
 
-#### T4.3.3. Create Debian ISO Builder
+**Status:** Not started
+**Effort:** 1h
 
-**File:** `scripts/create-iso.sh`  
-**Effort:** 4 hours  
-**Dependencies:** T4.3.1, T4.3.2  
-**Status:** 🔴  
-**Completed By:**
+Make the backend server port configurable via environment variable.
+
+**Acceptance Criteria:**
+- [ ] `LIBRESERV_PORT` env var (or config yaml key)
+- [ ] Default remains current port
+- [ ] Caddy config updated to match
+- [ ] Documented in configuration docs
+
+#### T4.3.4. Debian ISO Builder
+
+**Status:** Not started
+**Effort:** 4h
+**Dependencies:** T4.3.1, T4.3.2, T4.3.3
 
 **Acceptance Criteria:**
 - [ ] Downloads Debian netinstall
@@ -929,98 +589,213 @@ List Users → Login as Alice → Setup Token No Longer Valid
 - [ ] Creates preseed for automated install
 - [ ] Results in bootable ISO
 
----
+#### T4.3.5. Hardware Detection Script
 
-#### T4.3.4. Create Hardware Detection Script
-
-**File:** `scripts/hardware-detect.sh`  
-**Effort:** 1.5 hours  
-**Status:** 🟠
-**Claimed By**: Fluffy-Bunny-23
-**Completed By:**
+**Status:** In progress (claimed by Fluffy-Bunny-23)
+**Effort:** 1.5h
 
 **Acceptance Criteria:**
 - [ ] Detect CPU, RAM, disk, GPU
 - [ ] Warn if below minimum specs
 - [ ] Generate hardware report for support
 
----
-
 ### 4.4 Documentation
 
-#### T4.4.1. Create SECURITY.md
+#### T4.4.1. Security Documentation
 
-**Effort:** 1.5 hours  
-**Status:** 🔴  
+**Status:** Partially done (SECURITY.md exists)
+**Effort:** 2h
+
+Expand SECURITY.md with full security documentation.
+
+**Acceptance Criteria:**
+- [ ] Responsible disclosure policy
+- [ ] Supported versions policy
+- [ ] Security update process
+- [ ] Known security considerations
+
+#### T4.4.2. Caddy/ACME Operator Documentation
+
+**Status:** Not started
+**Effort:** 3h
+
+Document Caddy reverse proxy and ACME certificate management for operators.
+
+#### T4.4.3. OpenAPI Spec
+
+**Status:** Not started
+**File:** `docs/openapi.yaml`
+**Effort:** 4h
+
+#### T4.4.4. Architecture Diagrams
+
+**Status:** Not started
+**Effort:** 2h
 
 ---
 
-#### T4.4.2. Create OpenAPI Spec
+## Phase 5: App Ecosystem
 
-**File:** `docs/openapi.yaml`  
-**Effort:** 4 hours  
-**Status:** 🔴  
+**Goal:** LibreServ becomes an identity provider and supports custom/community apps
 
----
+### 5.1 OIDC Identity Provider
 
-#### T4.4.3. Update Architecture Diagrams
+**Status:** Not started
+**Effort:** 12h (estimated)
+**Dependencies:** T3.1.2 (HTTPS required for OIDC redirect URIs and secure cookies)
 
-**Effort:** 2 hours  
-**Status:** 🔴  
+LibreServ acts as an OIDC provider so apps that support OIDC can use LibreServ's user accounts for login.
 
----
+**User Journey:**
+1. Admin enables OIDC in settings
+2. Apps with `sso: true` in their `app.yaml` auto-configure to use LibreServ as IdP
+3. Users log into an app using their LibreServ credentials
+4. Admin can manage which apps/users have SSO access
 
-## Phase 5: Advanced Features
+**Implementation Notes:**
+- LibreServ issues JWTs that apps validate
+- Standard OIDC discovery endpoint (`/.well-known/openid-configuration`)
+- Support for Authorization Code flow
+- Apps need to declare `sso: true` and provide their redirect URIs in `app.yaml`
+- Not all apps support OIDC; those with `external_auth` or `shared_account` access models won't use it
+- JIT user provisioning for apps that need local accounts
 
-**Post-MVP features for competitive parity**
+**Acceptance Criteria:**
+- [ ] OIDC discovery endpoint
+- [ ] Authorization Code flow
+- [ ] ID tokens with user claims
+- [ ] Client registration (auto for builtin apps, manual for custom)
+- [ ] Admin UI: enable/disable OIDC, manage clients
+- [ ] Login page redirect for SSO-enabled apps
+- [ ] Logout propagation (optional)
+- [ ] At least one builtin app integrated as proof of concept
 
-### 5.1 Multi-User System
+### 5.2 Custom App Ecosystem
+
+#### T5.2.1. Custom App Upload and URL Install
+
+**Moved to T2.1.6** — elevated to Phase 2 priority. See above.
+
+#### T5.2.2. Community App Submission — Future
+
+**Status:** Not started
+**Effort:** 6h
+
+- Community app submission API
+- App review workflow
+- Rating/reviews system
+
+### 5.3 App Marketplace — Future
 
 | Task | Effort | Status |
 |------|--------|--------|
-| Role definitions (admin/operator/viewer) | 2h | 🔴 |
-| Role-based access middleware | 2h | 🔴 |
-| User invite system | 2.5h | 🔴 |
-| Role management UI | 2h | 🔴 |
+| Community app submission API | 3h | Not started |
+| App review workflow | 3h | Not started |
+| Rating/reviews system | 2h | Not started |
 
 ---
 
-### 5.2 App Marketplace
+## Phase 6: Infrastructure Scale
 
-| Task | Effort | Status |
-|------|--------|--------|
-| Community app submission API | 3h | 🔴 |
-| App review workflow | 3h | 🔴 |
-| Rating/reviews system | 2h | 🔴 |
+**Goal:** LibreServ handles real workloads — terabytes of data, multiple storage devices, robust backups
+
+### 6.1 Backup System Revamp
+
+**Status:** Not started
+**Effort:** 16h (estimated)
+
+The current backup system duplicates entire app volumes as tar archives. This does not scale beyond development use. A user running Nextcloud with terabytes of data cannot "just tar it up."
+
+**User Journey:**
+1. User sets up backup schedule for Nextcloud (2TB of data)
+2. First backup runs overnight (full)
+3. Subsequent backups run in minutes (incremental)
+4. User can browse backup contents and restore individual files
+5. Backup storage is deduplicated across all apps
+
+**Approach:**
+- Evaluate borg/restic as backup engines (incremental, dedup, encryption)
+- Volume-level snapshots where filesystem supports it (btrfs, zfs)
+- App-aware backup scripts (database dumps before snapshot)
+- Configurable retention policies per app
+- Backup storage management (quota, pruning)
+- Bandwidth limiting for cloud uploads
+
+**Acceptance Criteria:**
+- [ ] Incremental backups (only changed data)
+- [ ] Deduplication across backups
+- [ ] Scales to terabytes without excessive time/space
+- [ ] Individual file restore from backup
+- [ ] Backup size reporting (actual vs deduplicated)
+- [ ] Backward compatible with existing backup UI
+- [ ] Migration path for existing full backups
+
+### 6.2 Advanced Storage Management
+
+**Status:** Not started
+**Effort:** 12h (estimated)
+
+Support for users with multiple storage devices, RAID, and mounted volumes.
+
+**User Journey:**
+1. Admin connects a second SSD via USB
+2. LibreServ detects the new device
+3. Admin assigns it as app storage for Nextcloud
+4. Nextcloud data lives on the SSD, other apps stay on main disk
+
+**Acceptance Criteria:**
+- [ ] Detect and list available storage devices
+- [ ] Mount/unmount disks from UI
+- [ ] Assign storage pools to apps (app X goes to disk Y)
+- [ ] Storage health monitoring (SMART data, disk space)
+- [ ] RAID configuration (at least RAID 0/1 guidance)
+- [ ] Storage migration (move app from one disk to another)
+- [ ] Disk encryption support (LUKS)
+- [ ] Warning when disk is near capacity
 
 ---
 
-### 5.3 Remote Access
+## Phase 7: Advanced Features
+
+**Post-scale features for competitive parity and power users**
+
+### 7.1 Multi-User System
 
 | Task | Effort | Status |
 |------|--------|--------|
-| Tailscale integration | 3h | 🔴 |
-| Cloudflare Tunnel support | 3h | 🔴 |
+| Role definitions (admin/operator/viewer) | 2h | Not started |
+| Role-based access middleware | 2h | Not started |
+| User invite system | 2.5h | Not started |
+| Role management UI | 2h | Not started |
 
----
-
-### 5.4 Notifications
-
-| Task | Effort | Status |
-|------|--------|--------|
-| Email notification templates | 2h | 🔴 |
-| Webhook notifications | 2h | 🔴 |
-| Push notifications | 3h | 🔴 |
-
----
-
-### 5.5 Enterprise
+### 7.2 Remote Access
 
 | Task | Effort | Status |
 |------|--------|--------|
-| OIDC/SSO integration | 4h | 🔴 |
-| LDAP support | 4h | 🔴 |
-| Multi-server clustering | 6h | 🔴 |
+| Tailscale integration | 3h | Not started |
+| Cloudflare Tunnel support | 3h | Not started |
+
+### 7.3 Notifications
+
+| Task | Effort | Status |
+|------|--------|--------|
+| Email notification templates | 2h | Not started |
+| Webhook notifications | 2h | Not started |
+| Push notifications | 3h | Not started |
+
+### 7.4 AI-Powered Help
+
+**Status:** Not started
+**Effort:** Exploratory
+
+Explore offering human support for subscription users. Open-source makes AI-as-a-service complex. Consider subscription for human help.
+
+### 7.5 Enterprise
+
+| Task | Effort | Status |
+|------|--------|--------|
+| LDAP support | 4h | Not started |
+| Multi-server clustering | 6h | Not started |
 
 ---
 
@@ -1028,22 +803,20 @@ List Users → Login as Alice → Setup Token No Longer Valid
 
 ```mermaid
 flowchart TB
-    subgraph P1["Phase 1: First-Run (CRITICAL)"]
-        T111[T1.1.1: Setup Wizard Page]
+    subgraph P1["Phase 1: First-Run (DONE)"]
+        T111[T1.1.1: Setup Wizard]
         T112[T1.1.2: Setup Route]
         T113[T1.1.3: Welcome Card]
         T114[T1.1.4: Preflight UI]
+        T115[T1.1.5: Enhanced Preflight]
     end
 
     subgraph P2["Phase 2: Daily Flows"]
-        T210[T2.1.0: Feature Matrix Schema]
-        T211[T2.1.1: App Install Wizard]
-        T212[T2.1.2: Catalog Page]
-        T221[T2.2.1: Backups Page]
-        T222[T2.2.2: Schedule Form]
-        T223[T2.2.3: Cloud Backup]
-        T231[T2.3.1: App Detail]
-        T232[T2.3.2: Logs Viewer]
+        T210[T2.1.0: Feature Matrix]
+        T214[T2.1.4: Instance Names]
+        T215[T2.1.5: App Scripts]
+        T216[T2.1.6: Custom App Upload]
+        T233[T2.3.3: Availability Tracking]
     end
 
     subgraph P3["Phase 3: Admin Ops"]
@@ -1051,43 +824,54 @@ flowchart TB
         T312[T3.1.2: Certificates]
         T313[T3.1.3: Domain Provider]
         T331[T3.3.1: System Updates]
+        T332[T3.3.2: Update Scheduling]
+        T333[T3.3.3: Job Queue Monitor]
     end
 
     subgraph P4["Phase 4: Production"]
-        T411[T4.1.x: Tests]
-        T421[T4.2.x: Security]
-        T431[T4.3.x: Installer]
+        T421[T4.2.1: Auth Audit]
+        T424[T4.2.4: Container Scanning]
+        T425[T4.2.5: Threat Model]
+        T426[T4.2.6: Docker Security]
+        T432[T4.3.2: Systemd Service]
+        T433[T4.3.3: Configurable Port]
+        T434[T4.3.4: Debian ISO Builder]
+        T441[T4.4.1: Security Docs]
+        T442[T4.4.2: Caddy Docs]
     end
 
-    T111 --> T112
-    T111 --> T113
-    T111 --> T114
-    
-    T210 --> T211
-    T211 --> T212
-    T211 --> T232
-    
-    T221 --> T222
-    T221 --> T223
-    
+    subgraph P5["Phase 5: App Ecosystem"]
+        T51[T5.1: OIDC Provider]
+    end
+
+    subgraph P6["Phase 6: Infrastructure Scale"]
+        T61[T6.1: Backup Revamp]
+        T62[T6.2: Storage Management]
+    end
+
+    T210 --> T216
     T311 --> T312
     T311 --> T313
-
-    P1 --> P2 --> P3 --> P4
+    T312 --> T51
+    T331 --> T332
+    T432 --> T434
+    T433 --> T434
 ```
 
 ---
 
 ## Summary Statistics
 
-| Phase | Tasks | Effort | Critical? |
-|-------|-------|--------|-----------|
-| Phase 1: First-Run | 4 | 9h | **YES** |
-| Phase 2: Daily Flows | 8 | 22h | **YES** |
-| Phase 3: Admin Ops | 6 | 15h | YES |
-| Phase 4: Production | 14 | 24h | YES |
-| Phase 5: Advanced | 14 | 38h | NO |
-| **Total** | **46** | **~108h** | |
+| Phase | Tasks | Remaining Effort | Status |
+|-------|-------|------------------|--------|
+| Phase 1: First-Run | 5 | 9h (historical) | Done |
+| Phase 2: Daily Flows | 14 | 21h | In progress |
+| Phase 3: Admin Ops | 7 | 16.5h | In progress |
+| Phase 4: Production | 21 | 30.5h | In progress |
+| Phase 5: App Ecosystem | 5 | 26h | Not started |
+| Phase 6: Infrastructure Scale | 2 | 28h | Not started |
+| Phase 7: Advanced | 12 | 31.5h | Not started |
+| **Total** | **66** | **~162h** | |
 
 ---
 
@@ -1101,27 +885,7 @@ For every task:
 - [ ] Works on mobile/tablet (for UI)
 - [ ] Error messages are plain-language (no JSON dumps to users)
 - [ ] Actions are reversible or have confirmation
-
----
-
-## Getting Started
-
-**Start with T1.1.1 (Setup Wizard Page)** - This is the most critical missing piece.
-
-The backend API exists. The frontend page does not. Creating this unblocks the entire first-run experience.
-
-```bash
-# Quick start for T1.1.1
-cd server/frontend
-npm run dev
-
-# Create the page
-touch src/pages/SetupWizardPage.jsx
-
-# Check backend API
-curl http://localhost:8080/api/v1/setup/status
-curl http://localhost:8080/api/v1/setup/preflight
-```
+- [ ] Documentation updated where applicable
 
 ---
 
@@ -1129,18 +893,16 @@ curl http://localhost:8080/api/v1/setup/preflight
 
 | Date | Change |
 |------|--------|
-| 2026-04-05 | T1.1.5: Enhanced preflight permission checks - detects root-owned/read-only dirs, plain-language errors |
-| 2026-02-28 | T2.2.3: Cloud backup integration with Backblaze B2, S3-compatible, and manual setup guide |
-| 2026-02-28 | T2.2.1: Backups page with create/restore/delete functionality and cloud status |
-| 2026-02-27 | T2.3.1: Enhanced AppDetailPage with resource metrics, health icon, update notifications |
-| 2026-02-27 | T4.2.2: Rate limiting by user on authenticated endpoints, by IP on public, fixed Retry-After header |
-| 2026-02-27 | T4.3.1: Enhanced install.sh with upgrade/uninstall, post-install instructions, service verification |
-| 2026-02-19 | T2.1.3: App uninstall with confirmation modal, typing requirement, and progress indicator |
-| 2026-02-19 | T3.2.1: Enhanced user management with last_login, last admin protection, password strength indicator |
-| 2026-02-17 | T2.2.3: Cloud Backup Integration, T3.1.3: Domain Provider Integration |
-| 2026-02-17 | Restructured around user journeys, added missing Setup Wizard |
-| 2026-02-17 | Added T2.1.0: App Feature Matrix Schema (from feature request) |
-| 2026-02-17 | T2.1.0: Implemented types.go, motioneye/app.yaml with access_model=shared_account |
-| 2026-02-18 | T2.1.0: Marked complete; T2.1.1: Started App Install Wizard |
-| 2026-02-18 | T2.1.1: App Install Wizard complete with multi-step flow, feature warnings, dynamic config |
-| 2026-02-19 | T2.1.2: Enhanced App Catalog Page with live API, category filter, search, installed badges |
+| 2026-04-14 | Major rewrite: consolidated all issues into roadmap, removed deadline, added Phase 5 (OIDC + custom apps), Phase 6 (backup revamp + storage management), Phase 7 (advanced features) |
+| 2026-04-05 | T1.1.5: Enhanced preflight permission checks |
+| 2026-02-28 | T2.2.3: Cloud backup integration |
+| 2026-02-28 | T2.2.1: Backups page |
+| 2026-02-27 | T2.3.1: Enhanced AppDetailPage |
+| 2026-02-27 | T4.2.2: Rate limiting middleware |
+| 2026-02-27 | T4.3.1: Enhanced install.sh |
+| 2026-02-19 | T2.1.3: App uninstall with confirmation |
+| 2026-02-19 | T3.2.1: Enhanced user management |
+| 2026-02-17 | Restructured around user journeys |
+| 2026-02-17 | T2.1.0: App Feature Matrix Schema |
+| 2026-02-18 | T2.1.1: App Install Wizard |
+| 2026-02-18 | T2.1.2: Enhanced App Catalog Page |
