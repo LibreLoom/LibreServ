@@ -87,6 +87,8 @@ export function ThemeProvider({ children }) {
     return "system";
   });
 
+  const [use12HourTime, setUse12HourTime] = useState(() => getStoredValue("use12HourTime", false));
+
   const [systemTheme, setSystemTheme] = useState(() => getSystemTheme());
 
   const resolvedTheme = theme === "system" ? systemTheme : theme;
@@ -115,7 +117,7 @@ export function ThemeProvider({ children }) {
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  function animateColors(root, target) {
+  function animateColors(root, target, onComplete) {
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
@@ -130,6 +132,7 @@ export function ThemeProvider({ children }) {
       root.style.setProperty("--secondary", target.secondary);
       root.style.setProperty("--accent", target.accent);
       renderedColorsRef.current = { ...target };
+      if (onComplete) onComplete();
       return;
     }
 
@@ -175,6 +178,7 @@ export function ThemeProvider({ children }) {
       } else {
         renderedColorsRef.current = { ...target };
         animFrameRef.current = null;
+        if (onComplete) onComplete();
       }
     }
 
@@ -192,6 +196,8 @@ export function ThemeProvider({ children }) {
       root.classList.remove("dark");
     }
 
+    root.style.setProperty("--theme-transition", "1500ms");
+
     if (!initializedRef.current) {
       initializedRef.current = true;
       root.style.setProperty("--primary", target.primary);
@@ -199,7 +205,9 @@ export function ThemeProvider({ children }) {
       root.style.setProperty("--accent", target.accent);
       renderedColorsRef.current = { ...target };
     } else {
-      animateColors(root, target);
+      animateColors(root, target, () => {
+        root.style.setProperty("--theme-transition", "0ms");
+      });
     }
 
     localStorage.setItem("theme", theme);
@@ -216,7 +224,8 @@ export function ThemeProvider({ children }) {
     }
 
     localStorage.setItem("theme-separate-dark", JSON.stringify(useSeparateDarkColors));
-  }, [theme, resolvedTheme, customColors, darkColors, useSeparateDarkColors]);
+    localStorage.setItem("use12HourTime", JSON.stringify(use12HourTime));
+  }, [theme, resolvedTheme, customColors, darkColors, useSeparateDarkColors, use12HourTime]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => {
@@ -255,6 +264,10 @@ export function ThemeProvider({ children }) {
     setUseSeparateDarkColors(false);
   };
 
+  const setUse12Hour = (value) => {
+    setUse12HourTime(Boolean(value));
+  };
+
   const currentColors = customColors || (resolvedTheme === "dark" ? DEFAULT_DARK_COLORS : DEFAULT_LIGHT_COLORS);
   const currentDarkColors = (useSeparateDarkColors && darkColors) ? darkColors : (useSeparateDarkColors ? DEFAULT_DARK_COLORS : null);
 
@@ -273,6 +286,8 @@ export function ThemeProvider({ children }) {
         setUseSeparateDarkColors: setUseSeparateDarkModeColors,
         resetColors,
         isCustomTheme: !!customColors,
+        use12HourTime,
+        setUse12HourTime: setUse12Hour,
       }}
     >
       {children}

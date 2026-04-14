@@ -15,7 +15,7 @@ import { ArrowLeft } from "lucide-react";
 const DEBOUNCE_MS = 500;
 
 export default function SettingsPage() {
-  const { me: user } = useAuth();
+  const { me: user, csrfToken } = useAuth();
   const {
     theme,
     setTheme,
@@ -28,6 +28,8 @@ export default function SettingsPage() {
     setUseSeparateDarkColors,
     resetColors,
     isCustomTheme,
+    use12HourTime,
+    setUse12HourTime,
   } = useTheme();
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
@@ -71,7 +73,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     window.history.replaceState(null, "", `#${activeCategory}`);
-  }, [activeCategory]);
+  }, [csrfToken, activeCategory]);
 
   const performSave = useCallback(async () => {
     const pendingSettings = pendingSettingsRef.current;
@@ -79,11 +81,11 @@ export default function SettingsPage() {
     const promises = [];
     
     if (pendingSettings) {
-      promises.push(updateSettings(pendingSettings));
+      promises.push(updateSettings(pendingSettings, csrfToken));
     }
     
     if (pendingSecurity) {
-      promises.push(updateSecuritySettings(pendingSecurity));
+      promises.push(updateSecuritySettings(pendingSecurity, csrfToken));
     }
 
     if (promises.length > 0) {
@@ -98,7 +100,7 @@ export default function SettingsPage() {
         setSaveStatus("error");
       }
     }
-  }, []);
+  }, [csrfToken]);
 
   const scheduleSave = useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -122,6 +124,14 @@ export default function SettingsPage() {
     setTheme(value);
   };
 
+  const handle12HourTimeChange = (value) => {
+    setUse12HourTime(value);
+    if (securitySettings) {
+      const updated = { ...securitySettings, use_12_hour_time: value };
+      handleSecuritySettingsChange(updated);
+    }
+  };
+
   const handleSecuritySettingsChange = (newSettings) => {
     setSecuritySettings(newSettings);
     pendingSecurityRef.current = newSettings;
@@ -130,7 +140,7 @@ export default function SettingsPage() {
   };
 
   const handleTestNotification = async () => {
-    return sendTestNotification();
+    return sendTestNotification(csrfToken);
   };
 
   const handleRetrySave = () => {
@@ -191,6 +201,8 @@ export default function SettingsPage() {
             setUseSeparateDarkColors={setUseSeparateDarkColors}
             resetColors={resetColors}
             isCustomTheme={isCustomTheme}
+            use12HourTime={use12HourTime}
+            on12HourTimeChange={handle12HourTimeChange}
             saveStatus={saveStatus}
             onRetrySave={handleRetrySave}
             onSavedComplete={handleSavedComplete}
@@ -237,6 +249,8 @@ export default function SettingsPage() {
               setUseSeparateDarkColors={setUseSeparateDarkColors}
               resetColors={resetColors}
               isCustomTheme={isCustomTheme}
+              use12HourTime={use12HourTime}
+              on12HourTimeChange={handle12HourTimeChange}
               saveStatus={saveStatus}
               onRetrySave={handleRetrySave}
               onSavedComplete={handleSavedComplete}

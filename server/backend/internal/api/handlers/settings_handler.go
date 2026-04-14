@@ -167,6 +167,7 @@ func (h *SettingsHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request)
 		NotifyOnFailedLogin:    req.NotifyOnFailedLogin,
 		NotifyOnPasswordChange: req.NotifyOnPasswordChange,
 		NotifyOnAdminAction:    req.NotifyOnAdminAction,
+		Use12HourTime:          req.Use12HourTime,
 	}
 
 	if err := h.securityService.UpdateUserSettings(r.Context(), s); err != nil {
@@ -184,6 +185,7 @@ type securitySettingsRequest struct {
 	NotifyOnFailedLogin    bool   `json:"notify_on_failed_login"`
 	NotifyOnPasswordChange bool   `json:"notify_on_password_change"`
 	NotifyOnAdminAction    bool   `json:"notify_on_admin_action"`
+	Use12HourTime          bool   `json:"use_12_hour_time"`
 }
 
 func (h *SettingsHandler) GetNotifications(w http.ResponseWriter, r *http.Request) {

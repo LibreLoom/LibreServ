@@ -1,9 +1,19 @@
 import { Info, Heart } from "lucide-react";
 import Card from "../../cards/Card";
-import CollapsibleSection from "../../common/CollapsibleSection";
-import ValueDisplay from "../../common/ValueDisplay";
+import Table from "../../common/Table";
 
 const APP_VERSION = "1.0.0";
+
+const serverDetailsColumns = [
+  { key: "label", label: "Property", align: "left" },
+  { key: "value", label: "Value", align: "left" },
+];
+
+const serverDetailsData = (settings) => [
+  { label: "Backend API", value: settings?.server?.host || "N/A" },
+  { label: "Server Port", value: settings?.server?.port || "N/A" },
+  { label: "Proxy Type", value: settings?.proxy?.type || "None" },
+];
 
 export default function AboutCategory({ settings }) {
   return (
@@ -15,13 +25,12 @@ export default function AboutCategory({ settings }) {
             <span className="font-mono text-sm text-primary">{APP_VERSION}</span>
           </div>
 
-          <CollapsibleSection title="Server Details" size="xs" background className="mt-3">
-            <div className="space-y-2">
-              <ValueDisplay label="Backend API" value={settings?.server?.host} />
-              <ValueDisplay label="Server Port" value={settings?.server?.port} />
-              <ValueDisplay label="Proxy Type" value={settings?.proxy?.type || "None"} />
-            </div>
-          </CollapsibleSection>
+          <Table
+            columns={serverDetailsColumns}
+            data={serverDetailsData(settings)}
+            rowKey="label"
+            className="mt-3"
+          />
         </div>
       </Card>
 
