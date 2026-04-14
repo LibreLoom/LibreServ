@@ -36,7 +36,7 @@ export default function SettingsPage() {
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState(() => {
     const hash = window.location.hash.slice(1);
-    const validCategories = ["general", "appearance", "backups", "security", "about"];
+    const validCategories = ["general", "appearance", "backups", "security", "network", "about"];
     return validCategories.includes(hash) ? hash : "general";
   });
   const [showMobileContent, setShowMobileContent] = useState(false);

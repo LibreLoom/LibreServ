@@ -1,4 +1,4 @@
-import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup } from "lucide-react";
+import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup, Globe } from "lucide-react";
 import SettingsUserCard from "./SettingsUserCard";
 
 const CATEGORIES = [
@@ -6,6 +6,7 @@ const CATEGORIES = [
 	{ id: "appearance", label: "Appearance", icon: Palette },
 	{ id: "backups", label: "Backups", icon: DatabaseBackup },
 	{ id: "security", label: "Security", icon: Shield },
+	{ id: "network", label: "Network", icon: Globe },
 	{ id: "about", label: "About", icon: Info },
 ];
 

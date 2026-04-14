@@ -1,9 +1,9 @@
 import { useState, useRef } from "react";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check } from "lucide-react";
-import Card from "../../cards/Card";
 import Toggle from "../../common/Toggle";
 import SegmentedControl from "../../common/SegmentedControl";
 import SettingsRow from "../SettingsRow";
+import SettingsCard from "../SettingsCard";
 
 const THEME_OPTIONS = [
   { value: "system", icon: Monitor, label: "System" },
@@ -190,7 +190,7 @@ export default function AppearanceCategory({
 
   return (
     <div className="space-y-4">
-      <Card icon={Palette} title="Theme" padding={false} className="animate-in fade-in slide-in-from-bottom-2">
+      <SettingsCard icon={Palette} title="Theme" padding={false} index={0}>
         <SettingsRow label="Color Scheme" description="Choose light, dark, or follow system preference" stack>
           <SegmentedControl
             options={THEME_OPTIONS}
@@ -198,9 +198,9 @@ export default function AppearanceCategory({
             onChange={onThemeChange}
           />
         </SettingsRow>
-      </Card>
+      </SettingsCard>
 
-      <Card icon={Palette} title="Custom Colors" padding={false} className="animate-in fade-in slide-in-from-bottom-2">
+      <SettingsCard icon={Palette} title="Custom Colors" padding={false} index={1}>
         <div className={`px-4 pt-4 ${showCustomColors ? "" : "pb-4"}`}>
           <Toggle
             checked={showCustomColors}
@@ -309,7 +309,7 @@ export default function AppearanceCategory({
             </div>
           </div>
         </div>
-      </Card>
+      </SettingsCard>
     </div>
   );
 }

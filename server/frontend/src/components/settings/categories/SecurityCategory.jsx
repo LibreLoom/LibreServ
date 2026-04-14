@@ -9,7 +9,6 @@ import {
   RefreshCw,
   Filter,
 } from "lucide-react";
-import Card from "../../cards/Card";
 import Toggle from "../../common/Toggle";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
@@ -18,6 +17,7 @@ import Table from "../../common/Table";
 import Pill from "../../common/Pill";
 import TypewriterLoader from "../../ui/TypewriterLoader";
 import SettingsRow from "../SettingsRow";
+import SettingsCard from "../SettingsCard";
 import { useToast } from "../../../context/ToastContext";
 import {
   getSecurityEvents,
@@ -92,10 +92,10 @@ const NOTIFICATION_OPTIONS = [
 function StatCard({ value, label, variant = "accent" }) {
   const colorClass = variant === "warning" ? "text-warning" : variant === "error" ? "text-error" : "text-accent";
   return (
-    <Card className="text-center py-3">
+    <div className="bg-secondary text-primary rounded-large-element text-center py-3 p-5">
       <div className={`text-2xl font-bold ${colorClass}`}>{value}</div>
       <div className="text-xs text-accent mt-1">{label}</div>
-    </Card>
+    </div>
   );
 }
 
@@ -207,7 +207,9 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
   return (
     <div className="space-y-4">
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div
+          className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300"
+        >
           <StatCard value={stats.total_events} label="Total Events" />
           <StatCard value={stats.successful_logins} label="Successful Logins" />
           <StatCard value={stats.failed_logins} label="Failed Attempts" variant="warning" />
@@ -215,10 +217,11 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
         </div>
       )}
 
-      <Card
+      <SettingsCard
         icon={Activity}
         title="Activity Log"
         padding={false}
+        index={0}
         headerActions={
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
@@ -250,7 +253,6 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </button>
           </div>
         }
-        className="animate-in fade-in slide-in-from-bottom-2 duration-300"
       >
         <div className="px-4 pb-4 pt-3">
           {activityLoading ? (
@@ -272,14 +274,13 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             />
           )}
         </div>
-      </Card>
+      </SettingsCard>
 
-      <Card
+      <SettingsCard
         icon={Bell}
         title="Notifications"
         padding={false}
-        className="animate-in fade-in slide-in-from-bottom-2 duration-300"
-        style={{ animationDelay: "50ms" }}
+        index={1}
       >
         <div className="px-4 py-3">
           <Toggle
@@ -319,14 +320,13 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </div>
           </div>
         </div>
-      </Card>
+      </SettingsCard>
 
-      <Card
+      <SettingsCard
         icon={Shield}
         title="Account Security"
         padding={false}
-        className="animate-in fade-in slide-in-from-bottom-2 duration-300"
-        style={{ animationDelay: "100ms" }}
+        index={2}
       >
         <div className="px-4 py-3">
           <SettingsRow label="Account Lockout" description="Lock after 5 failed attempts">
@@ -352,14 +352,13 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </button>
           </div>
         </div>
-      </Card>
+      </SettingsCard>
 
-      <Card
+      <SettingsCard
         icon={Shield}
         title="Security Tips"
         padding={false}
-        className="animate-in fade-in slide-in-from-bottom-2 duration-300"
-        style={{ animationDelay: "150ms" }}
+        index={3}
       >
         <div className="p-4 grid md:grid-cols-2 gap-3">
           <div className="p-3 bg-primary/5 rounded-large-element">
@@ -387,7 +386,7 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
             </p>
           </div>
         </div>
-      </Card>
+      </SettingsCard>
 
     </div>
   );
