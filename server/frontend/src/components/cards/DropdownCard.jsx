@@ -13,7 +13,7 @@ export default function DropdownCard({
 }) {
   return (
     <div className="transition-transform duration-200 ease-[var(--motion-easing-emphasized)] hover:scale-[1.02] w-full h-fit self-start">
-    <Card padding={false} noPopIn>
+    <Card padding={false}>
       <div className="p-6">
         <div className="flex items-center gap-5">
           <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
