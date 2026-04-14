@@ -2,7 +2,6 @@ import { FileText, Clock } from "lucide-react";
 import ValueDisplay from "../../common/ValueDisplay";
 import Dropdown from "../../common/Dropdown";
 import Toggle from "../../common/Toggle";
-import SettingsRow from "../SettingsRow";
 import SettingsCard from "../SettingsCard";
 
 export default function GeneralCategory({ settings, use12HourTime, on12HourTimeChange }) {
@@ -20,8 +19,12 @@ export default function GeneralCategory({ settings, use12HourTime, on12HourTimeC
       </SettingsCard>
 
       <SettingsCard icon={FileText} title="Logging" padding={false} index={1}>
-        <div className="px-5 py-4 space-y-4">
-          <SettingsRow label="Log Level" description="Verbosity of logged messages">
+        <div className="px-5 py-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-primary">Log Level</div>
+              <div className="text-sm text-accent mt-0.5">Verbosity of logged messages</div>
+            </div>
             <Dropdown
               value={settings?.logging?.level || "info"}
               onChange={(val) => settings?.onLoggingChange?.(val)}
@@ -33,7 +36,7 @@ export default function GeneralCategory({ settings, use12HourTime, on12HourTimeC
                 { value: "error", label: "Error" },
               ]}
             />
-          </SettingsRow>
+          </div>
           <ValueDisplay label="Log Path" value={settings?.logging?.path || "N/A"} />
         </div>
       </SettingsCard>
