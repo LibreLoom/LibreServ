@@ -90,6 +90,9 @@ func (s *Server) setupRoutes() {
 		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager).WithACME(acmeHandler)
 	}
 
+	// Initialize DNS provider manager
+	s.dnsProviderMgr = network.NewDNSProviderManager(s.db)
+
 	// Initialize support and system handlers
 	supportHandler := handlers.NewSupportHandler(s.supportService, s.licenseService)
 	supportDiagHandler := handlers.NewSupportDiagnosticsHandler(s.authService, s.dockerClient)

@@ -118,6 +118,13 @@ type Notifications struct {
 type NetworkConfig struct {
 	Caddy CaddyConfig `mapstructure:"caddy"`
 	ACME  ACMEConfig  `mapstructure:"acme"`
+	DNS   DNSConfig   `mapstructure:"dns"`
+}
+
+// DNSConfig holds DNS provider settings for domain record management.
+type DNSConfig struct {
+	Provider string `mapstructure:"provider"` // "cloudflare"
+	APIToken string `mapstructure:"api_token"`
 }
 
 // ACMEConfig defines ACME-related settings.

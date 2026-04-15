@@ -61,6 +61,7 @@ type Server struct {
 	securityService *security.Service
 	settingsService *settings.Service
 	jobQueue        JobQueue
+	dnsProviderMgr  *network.DNSProviderManager
 }
 
 // ServerConfig holds configuration for creating a new Server

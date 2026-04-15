@@ -12,7 +12,7 @@ This roadmap is organized by **user journey** so developers understand what matt
 - [Critical Path](#critical-path)
 - [Phase 1: First-Run Experience](#phase-1-first-run-experience) — DONE
 - [Phase 2: Daily User Flows](#phase-2-daily-user-flows) — IN PROGRESS
-- [Phase 3: Admin Operations](#phase-3-admin-operations) — IN PROGRESS
+- [Phase 3: Admin Operations](#phase-3-admin-operations) — IN PROGRESS (Domain & Network Setup major rewrite 2026-04-15)
 - [Phase 4: Production Readiness](#phase-4-production-readiness) — IN PROGRESS
 - [Phase 5: App Ecosystem](#phase-5-app-ecosystem) — PLANNED
 - [Phase 6: Infrastructure Scale](#phase-6-infrastructure-scale) — PLANNED
@@ -37,10 +37,11 @@ Installs an app -> It works -> Creates backup -> Done
 | P0 | Setup Wizard | No terminal = must have GUI setup | Done |
 | P0 | App Install Flow | Core value proposition | Done |
 | P0 | Backup/Restore | "Actions should be reversible" | Done (basic) |
+| P1 | Domain Setup in Setup Wizard | NPM-style domain onboarding | Not started |
 | P1 | HTTPS/Domain Setup | Production requirement | Backend done, no UI |
-| P1 | Domain Provider Integration | Remote access requires domain | Not started |
+| P1 | DNS Provider Integration | Remote access requires domain | Done (Cloudflare) |
 | P1 | System Health Display | User confidence | Done |
-| P2 | Network Routes UI | Manage app access | Not started |
+| P2 | Network Routes UI | Manage app access | Mostly done, needs polish |
 
 ---
 
@@ -284,12 +285,14 @@ Implement a global system to track uptime and availability of apps and the serve
 
 **Goal:** Admin can manage users, domains, and system from web UI
 
-### 3.1 Network & HTTPS
+### 3.1 Domain & Network Setup
+
+**Overview:** LibreServ's domain system gives every app its own subdomain under the user's domain. During setup, users connect their domain through one of three natively-supported providers (Cloudflare, Porkbun, Spaceship) or via the universal Cloudflare nameserver fallback (works with any registrar). Wildcard certificates are requested via DNS-01 ACME challenges, and a background service keeps DNS records in sync as the user's public IP changes.
 
 #### T3.1.1. Network Routes Page
 
-**Status:** Needs polish
-**Effort:** 3h
+**Status:** Mostly done, needs polish
+**Effort:** 1h
 **Dependencies:** None
 
 **User Journey:**
@@ -304,43 +307,218 @@ Implement a global system to track uptime and availability of apps and the serve
 - `DELETE /api/v1/network/routes/{id}` — Delete route
 
 **Acceptance Criteria:**
-- [ ] List routes with domain, target, HTTPS status
-- [ ] Add route form (domain, backend address)
-- [ ] Test connectivity before saving
-- [ ] Delete with confirmation
-- [ ] Show Caddy status
+- [x] List routes with domain, target, HTTPS status
+- [x] Add route form (domain, backend address)
+- [ ] Test connectivity before saving (frontend wiring)
+- [x] Delete with confirmation
+- [x] Show Caddy status
 
-#### T3.1.3. Domain Provider Integration
+#### T3.1.2. HTTPS/Certificate Page
 
-**Status:** Not started
-**Effort:** 4h
+**Status:** Backend done, needs frontend UI
+**Effort:** 2.5h
 **Dependencies:** T3.1.1
 
 **User Journey:**
-1. User goes to Network -> Domain Setup
-2. Sees options: "Use existing domain", "Use free subdomain", or "Manual"
-3. For existing domain: enters domain + provider credentials
-4. System configures DNS automatically
-5. System sets up Dynamic DNS (for home connections)
-6. HTTPS certificate requested automatically
+1. Admin goes to Network -> Certificates
+2. Sees all active certificates with expiry dates
+3. Can manually request or renew a certificate
+4. Clear warning shown for expiring certs
 
-**Recommended approach:** Manual setup guide first, then DuckDNS (free), then Cloudflare/Namecheap APIs.
+**Backend API (exists):**
+- `GET /api/v1/network/acme/certificates` — List certificates
+- `POST /api/v1/network/acme/request` — Request a certificate
+- `GET /api/v1/network/acme/status/{job_id}` — Check request job status
 
 **Acceptance Criteria:**
-- [ ] Domain setup wizard UI
-- [ ] Provider selection (DuckDNS, Cloudflare, Namecheap, Manual)
-- [ ] Credential input form with validation
-- [ ] "Test DNS Configuration" button
-- [ ] Dynamic DNS update service
-- [ ] Auto-detect public IP
-- [ ] Plain-language setup guide for manual option
+- [ ] Certificate list with domain, issuer, expiry, status
+- [ ] Expiry countdown (red warning < 30 days, green > 60 days)
+- [ ] Manual renew button
+- [ ] Request new certificate form
+- [ ] Job status polling UI during request
+
+#### T3.1.3. Domain Setup in First-Run Wizard
+
+**Status:** Not started
+**Effort:** 4h
+**Dependencies:** T3.1.4
+
+Adds a domain configuration step to the setup wizard (required, with "Skip (not recommended)" override). Appears after account creation.
+
+**User Journey:**
+1. After account creation, user sees "Connect your domain" step
+2. Four options presented: Cloudflare / Porkbun / Spaceship / Use Cloudflare Nameservers
+3. For provider options: credential input + test connection
+4. For "Use Cloudflare Nameservers": guided walkthrough to switch nameservers, then credential input
+5. Wildcard DNS record (`*`) created automatically for supported providers
+6. First HTTPS certificate requested
+
+**Acceptance Criteria:**
+- [ ] New wizard step between account creation and redirect
+- [ ] "Skip (not recommended)" override with warning
+- [ ] Four provider options with plain-language descriptions
+- [ ] Provider-specific credential forms with validation
+- [ ] Connection test before proceeding
+- [ ] "Use Cloudflare Nameservers" walkthrough (nameserver switch guide + Cloudflare account setup)
+- [ ] Wildcard DNS record creation on provider confirmation
+- [ ] First certificate requested automatically
+- [ ] Success confirmation before proceeding
+
+#### T3.1.4. DNS Provider Integration
+
+**Status:** Done (Cloudflare)
+**Effort:** 6h
+**Dependencies:** None
+
+Provider-agnostic DNS management via a `DNSProvider` Go interface with three native implementations plus one universal fallback.
+
+**Provider Architecture:**
+
+```
+Native providers (direct DNS API):
+  ├── Cloudflare  → cloudflare-go SDK
+  ├── Porkbun     → simple REST client
+  └── Spaceship   → simple REST client
+
+Cloudflare delegation (universal fallback):
+  └── User changes nameservers at their registrar
+      → Falls through to Cloudflare path
+```
+
+**Supported registrars via native API:**
+| Provider | DNS API | Wildcard records | DNS-01 ACME |
+|---|---|---|---|
+| Cloudflare | Yes (official SDK) | Yes | Yes |
+| Porkbun | Yes (simple REST) | Yes | Yes |
+| Spaceship | Yes (REST, libdns) | Yes | Yes |
+
+**"Use Cloudflare Nameservers" fallback:** Works with any registrar (Namecheap, GoDaddy, Dynadot, Gandi, etc.). User does a one-time manual nameserver switch to Cloudflare, then all DNS management happens via Cloudflare's API.
 
 **Backend API (to add):**
-- `GET /api/v1/network/dns/providers`
-- `POST /api/v1/network/dns/config`
-- `POST /api/v1/network/dns/test`
-- `POST /api/v1/network/dns/update`
-- `GET /api/v1/network/dns/status`
+- `GET /api/v1/network/dns/providers` — List supported providers
+- `POST /api/v1/network/dns/config` — Save provider + credentials
+- `POST /api/v1/network/dns/test` — Test connection
+- `POST /api/v1/network/dns/update` — Trigger DDNS update
+- `GET /api/v1/network/dns/status` — Current DNS status
+- `GET /api/v1/network/dns/records` — List current records
+- `POST /api/v1/network/dns/records` — Create/update records (wildcard + root)
+
+**Acceptance Criteria:**
+- [x] `DNSProvider` Go interface (abstract, provider-agnostic)
+- [x] Cloudflare implementation (via `libdns/cloudflare`)
+- [x] Credential validation on save
+- [x] SQLite persistence (`dns_provider_configs` table)
+- [x] Config file support (`network.dns` in `libreserv.yaml`)
+- [x] Wired into DI chain (`router.go`)
+- [ ] Porkbun implementation — deferred
+- [ ] Spaceship implementation — deferred
+- [ ] Wildcard A/AAAA record creation (`*` subdomain + root `@`) — T3.1.5
+- [ ] Universal Cloudflare nameserver fallback (nameserver change guide, Cloudflare account flow) — T3.1.3
+- [ ] API endpoints for DNS management — T3.1.3
+
+#### T3.1.5. Wildcard Domain Support
+
+**Status:** Done
+**Effort:** 3h
+**Dependencies:** T3.1.1
+
+Adds wildcard record support to Caddy and the certificate system.
+
+**Acceptance Criteria:**
+- [x] Caddyfile template generates wildcard catch-all blocks (`*.example.com { respond 404 }`)
+- [x] Wildcard cert via DNS-01 (lego with stored DNS provider credentials)
+- [x] Single SAN cert covers both `*.example.com` and `example.com` in one lego invocation
+- [x] Certs stored in `wildcard.example.com/` dir, apex in `example.com/` dir
+- [x] Wildcard cert auto-discovered for subdomain routes (fallback in `manualTLSPaths`)
+- [x] `SetupWildcardDNS()` creates apex + wildcard A records via libdns
+- [x] `DetectPublicIP()` for public IP detection in wizard + DDNS
+
+#### T3.1.6. DDNS Auto-Update Service
+
+**Status:** Not started
+**Effort:** 3h
+**Dependencies:** T3.1.4
+
+Background goroutine that monitors the public IP address and updates DNS records when it changes.
+
+**Acceptance Criteria:**
+- [ ] Background goroutine runs on configurable interval (default: 5 min)
+- [ ] Detects public IP via STUN or external service
+- [ ] Updates wildcard A/AAAA record via provider API on IP change
+- [ ] Logs DDNS events to audit log
+- [ ] Toggle to enable/disable from Settings
+- [ ] Manual "Update now" button
+- [ ] Respects provider rate limits (Porkbun: min 600s TTL)
+
+#### T3.1.7. Subdomain Selection in App Install
+
+**Status:** Not started
+**Effort:** 3h
+**Dependencies:** T3.1.3
+
+Adds a subdomain picker step to the app install wizard, shown only when a domain is configured.
+
+**User Journey:**
+1. During app install, after configuration step
+2. If domain is configured: "Choose a subdomain for this app"
+3. Auto-suggests based on app name (e.g., "nextcloud" for Nextcloud)
+4. Each backend gets its own subdomain (e.g., "nextcloud-ui", "nextcloud-admin")
+5. User confirms or customizes the subdomain
+6. Shown during install progress: "Creating subdomain..." alongside "Pulling image..."
+
+**Acceptance Criteria:**
+- [ ] New wizard step (only when domain configured)
+- [ ] Auto-suggest from app name + backend name
+- [ ] Validation: lowercase, no spaces, no special chars
+- [ ] Conflict detection (warn if subdomain taken)
+- [ ] Custom subdomain input with validation
+- [ ] Per-backend subdomain fields for multi-backend apps
+- [ ] Subdomain creation via DNS provider API on confirmation
+
+#### T3.1.8. Auto-Route Creation on App Install
+
+**Status:** Not started
+**Effort:** 2h
+**Dependencies:** T3.1.7
+
+Wires the install completion → Caddy route creation → certificate request into one seamless flow.
+
+**Acceptance Criteria:**
+- [ ] On install completion, create Caddy route for each chosen subdomain
+- [ ] Trigger wildcard or per-subdomain cert request immediately
+- [ ] App available on subdomain within seconds of install completing
+- [ ] Route creation logged to audit log
+- [ ] Rollback: if route or cert creation fails, clean up and warn user
+- [ ] App appears in Network Routes page immediately after install
+
+#### T3.1.9. Domain Switching & Management
+
+**Status:** Not started
+**Effort:** 2h
+**Dependencies:** T3.1.3
+
+Settings UI to view and change the current domain configuration.
+
+**Acceptance Criteria:**
+- [ ] Settings -> Network: show current domain + provider
+- [ ] "Change domain" button → re-runs domain setup wizard
+- [ ] When domain changes: update all existing routes' domain suffix
+- [ ] Re-request certificates for updated routes
+- [ ] Warning before changing: "This will update all your app subdomains"
+- [ ] "Disconnect domain" option (removes DNS records, clears routes)
+
+---
+
+**Phase 3.1 Deferred:**
+
+| Task | Reason |
+|---|---|
+| Free subdomain service (`*.host.libreloom.org`) | Requires new LibreLoom DNS infrastructure |
+| NAT type detection (none / NAT / CGNAT) | STUN-based, separate from domain work |
+| Auto port forwarding (UPnP/NAT-PMP) | UPnP library, separate from domain work |
+| CGNAT guidance (VPS tunnels, Nord MeshNet) | Depends on NAT detection |
+| Guided domain purchase (link-out + guides) | Later phase |
+| In-app domain purchase (registrar reseller) | Way future |
 
 ### 3.2 User Management
 
@@ -778,7 +956,14 @@ flowchart TB
 
     subgraph P3["Phase 3: Admin Ops"]
         T311[T3.1.1: Network Routes]
-        T313[T3.1.3: Domain Provider]
+        T312[T3.1.2: HTTPS UI]
+        T314[T3.1.4: DNS Provider]
+        T313[T3.1.3: Setup Domain Step]
+        T315[T3.1.5: Wildcard Support]
+        T316[T3.1.6: DDNS Service]
+        T317[T3.1.7: Subdomain in Install]
+        T318[T3.1.8: Auto-Route on Install]
+        T319[T3.1.9: Domain Switching]
         T331[T3.3.1: System Updates]
         T332[T3.3.2: Update Scheduling]
         T333[T3.3.3: Job Queue Monitor]
@@ -806,7 +991,15 @@ flowchart TB
     end
 
     T210 --> T216
-    T311 --> T313
+    T311 --> T312
+    T311 --> T315
+    T312 --> T313
+    T314 --> T315
+    T314 --> T316
+    T314 --> T313
+    T313 --> T317
+    T317 --> T318
+    T313 --> T319
     T311 --> T51
     T331 --> T332
     T432 --> T434
@@ -821,12 +1014,12 @@ flowchart TB
 |-------|-------|------------------|--------|
 | Phase 1: First-Run | 5 | 9h (historical) | Done |
 | Phase 2: Daily Flows | 14 | 21h | In progress |
-| Phase 3: Admin Ops | 6 | 14h | In progress |
+| Phase 3: Admin Ops | 12 | 17.5h | In progress |
 | Phase 4: Production | 21 | 30.5h | In progress |
 | Phase 5: App Ecosystem | 5 | 26h | Not started |
 | Phase 6: Infrastructure Scale | 2 | 28h | Not started |
 | Phase 7: Advanced | 12 | 31.5h | Not started |
-| **Total** | **66** | **~162h** | |
+| **Total** | **72** | **~168h** | |
 
 ---
 
@@ -848,6 +1041,8 @@ For every task:
 
 | Date | Change |
 |------|--------|
+| 2026-04-15 | T3.1.4: Done (Cloudflare-only). Added DNSProvider interface, CloudflareProvider via libdns/cloudflare, DNSProviderManager with SQLite persistence, DNSConfig to config.go. Porkbun and Spaceship deferred. |
+| 2026-04-15 | T3.1.5: Done. Wildcard cert fallback in manualTLSPaths, wildcard catch-all Caddyfile blocks, RequestWildcardCert via lego (single SAN cert), SetupWildcardDNS, DetectPublicIP. Fixed baseDomain for single-label TLDs. |
 | 2026-04-15 | Verification update: T3.1.1→Needs polish, T3.1.2→Removed, T4.2.1→Done, T4.2.4→Approved, T4.3.2→Hopefully done, T4.3.3→Implemented(Untested), T4.1.1→Needs Updating |
 | 2026-04-14 | Major rewrite: consolidated all issues into roadmap, removed deadline, added Phase 5 (OIDC + custom apps), Phase 6 (backup revamp + storage management), Phase 7 (advanced features) |
 | 2026-04-05 | T1.1.5: Enhanced preflight permission checks |

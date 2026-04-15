@@ -47,6 +47,12 @@ type routeView struct {
 	TLSKey     string
 }
 
+type wildcardBlock struct {
+	Domain  string
+	TLSCert string
+	TLSKey  string
+}
+
 // NewCaddyManager creates a new Caddy manager
 func NewCaddyManager(db *database.DB, config CaddyConfig) *CaddyManager {
 	return &CaddyManager{
@@ -629,6 +635,19 @@ http:// {
 }
 {{end}}
 {{end}}
+
+{{range .WildcardBlocks}}
+# Catch-all for unconfigured subdomains of {{.Domain}}
+*.{{.Domain}} {
+	respond 404
+	tls {{.TLSCert}} {{.TLSKey}}
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}
+{{end}}
 `
 
 	t, err := template.New("caddyfile").Parse(tmpl)
@@ -660,6 +679,7 @@ http:// {
 		AutoHTTPS      bool
 		HasRealDomains bool
 		Routes         []routeView
+		WildcardBlocks []wildcardBlock
 		LogOutput      string
 		LogFormat      string
 		LogLevel       string
@@ -668,6 +688,7 @@ http:// {
 		AutoHTTPS:      cm.config.AutoHTTPS,
 		HasRealDomains: hasRealDomain(views),
 		Routes:         views,
+		WildcardBlocks: cm.wildcardBlocksLocked(),
 		LogOutput:      cm.loggingOutput(),
 		LogFormat:      cm.loggingFormat(),
 		LogLevel:       strings.TrimSpace(cm.config.Logging.Level),
@@ -716,6 +737,23 @@ func (cm *CaddyManager) manualTLSPaths(domain string) (certPath, keyPath string,
 	if base == "" {
 		return "", "", false
 	}
+	certPath, keyPath, ok = cm.certPathsForDomain(domain)
+	if ok {
+		return
+	}
+	parts := strings.SplitN(domain, ".", 2)
+	if len(parts) == 2 && !strings.HasPrefix(parts[0], "*") {
+		wildcard := "*." + parts[1]
+		certPath, keyPath, ok = cm.certPathsForDomain(wildcard)
+	}
+	return
+}
+
+func (cm *CaddyManager) certPathsForDomain(domain string) (certPath, keyPath string, ok bool) {
+	base := strings.TrimSpace(cm.config.CertsPath)
+	if base == "" {
+		return "", "", false
+	}
 	dir := filepath.Join(base, safeDomainDir(domain))
 	cert := filepath.Join(dir, "fullchain.pem")
 	key := filepath.Join(dir, "privkey.pem")
@@ -723,6 +761,50 @@ func (cm *CaddyManager) manualTLSPaths(domain string) (certPath, keyPath string,
 		return cert, key, true
 	}
 	return "", "", false
+}
+
+func (cm *CaddyManager) wildcardBlocksLocked() []wildcardBlock {
+	base := strings.TrimSpace(cm.config.CertsPath)
+	if base == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+	var blocks []wildcardBlock
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "wildcard.") {
+			continue
+		}
+		domain := strings.TrimPrefix(name, "wildcard.")
+		wildcard := "*." + domain
+		cert, key, ok := cm.certPathsForDomain(wildcard)
+		if !ok {
+			continue
+		}
+		blocks = append(blocks, wildcardBlock{
+			Domain:  domain,
+			TLSCert: cert,
+			TLSKey:  key,
+		})
+	}
+	return blocks
+}
+
+func baseDomain(fullDomain string) string {
+	parts := strings.SplitN(fullDomain, ".", 2)
+	if len(parts) != 2 {
+		return ""
+	}
+	if len(strings.SplitN(parts[1], ".", 2)) == 1 {
+		return ""
+	}
+	return parts[1]
 }
 
 func safeDomainDir(domain string) string {

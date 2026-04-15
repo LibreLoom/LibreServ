@@ -16,6 +16,16 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 )
 
+// legoProviderConfig maps a DNSProviderConfig to lego's DNS provider name and required environment variables.
+func legoProviderConfig(cfg *DNSProviderConfig) (provider string, env map[string]string, err error) {
+	switch cfg.Provider {
+	case ProviderCloudflare:
+		return "cloudflare", map[string]string{"CLOUDFLARE_DNS_API_TOKEN": cfg.APIToken}, nil
+	default:
+		return "", nil, fmt.Errorf("unsupported provider for lego: %s", cfg.Provider)
+	}
+}
+
 // ACMERequest holds data for requesting a certificate.
 type ACMERequest struct {
 	Domain  string `json:"domain"`
@@ -217,11 +227,11 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 
 	// Run lego to obtain/renew the cert into cfg.DataPath/certificates/.
 	if cfg.UseDocker {
-		if err := a.runLegoDocker(ctx, cfg, domain, email); err != nil {
+		if err := a.runLegoDocker(ctx, cfg, []string{domain}, email); err != nil {
 			return err
 		}
 	} else {
-		if err := a.runLegoBinary(ctx, cfg, domain, email); err != nil {
+		if err := a.runLegoBinary(ctx, cfg, []string{domain}, email); err != nil {
 			return err
 		}
 	}
@@ -248,7 +258,7 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 	return nil
 }
 
-func (a *ACMEManager) runLegoDocker(ctx context.Context, cfg ExternalACMEConfig, domain, email string) error {
+func (a *ACMEManager) runLegoDocker(ctx context.Context, cfg ExternalACMEConfig, domains []string, email string) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return fmt.Errorf("docker not found (required for external acme): %w", err)
 	}
@@ -267,9 +277,11 @@ func (a *ACMEManager) runLegoDocker(ctx context.Context, cfg ExternalACMEConfig,
 		"--accept-tos",
 		"--email", email,
 		"--dns", cfg.DNSProvider,
-		"-d", domain,
 		"--key-type", cfg.KeyType,
 	)
+	for _, d := range domains {
+		args = append(args, "-d", d)
+	}
 	if cfg.CADirURL != "" {
 		args = append(args, "--server", cfg.CADirURL)
 	} else if cfg.Staging {
@@ -285,7 +297,7 @@ func (a *ACMEManager) runLegoDocker(ctx context.Context, cfg ExternalACMEConfig,
 	return nil
 }
 
-func (a *ACMEManager) runLegoBinary(ctx context.Context, cfg ExternalACMEConfig, domain, email string) error {
+func (a *ACMEManager) runLegoBinary(ctx context.Context, cfg ExternalACMEConfig, domains []string, email string) error {
 	if _, err := exec.LookPath("lego"); err != nil {
 		return fmt.Errorf("lego binary not found (set use_docker=true or install lego): %w", err)
 	}
@@ -294,8 +306,10 @@ func (a *ACMEManager) runLegoBinary(ctx context.Context, cfg ExternalACMEConfig,
 		"--accept-tos",
 		"--email", email,
 		"--dns", cfg.DNSProvider,
-		"-d", domain,
 		"--key-type", cfg.KeyType,
+	}
+	for _, d := range domains {
+		args = append(args, "-d", d)
 	}
 	if cfg.CADirURL != "" {
 		args = append(args, "--server", cfg.CADirURL)
@@ -305,7 +319,6 @@ func (a *ACMEManager) runLegoBinary(ctx context.Context, cfg ExternalACMEConfig,
 	args = append(args, "run")
 
 	cmd := exec.CommandContext(ctx, "lego", args...)
-	// Apply DNS env variables for the provider.
 	if len(cfg.DNSEnv) > 0 {
 		cmd.Env = append(os.Environ(), envMapToList(cfg.DNSEnv)...)
 	}
@@ -362,4 +375,77 @@ func (a *ACMEManager) pollIssued(ctx context.Context, domain string) error {
 		}
 	}
 	return fmt.Errorf("acme issuance not confirmed for %s (timed out)", domain)
+}
+
+// RequestWildcardCert issues a wildcard certificate (*.domain + domain) via lego
+// using the provided DNS provider config, and stores it in the configured certs path.
+func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email string, providerCfg *DNSProviderConfig) error {
+	legoProvider, legoEnv, err := legoProviderConfig(providerCfg)
+	if err != nil {
+		return err
+	}
+	legoDomain := "*." + domain
+	cfg := ExternalACMEConfig{
+		Enabled:     true,
+		UseDocker:   a.external.UseDocker,
+		DockerImage: a.external.DockerImage,
+		DataPath:    a.external.DataPath,
+		DNSProvider: legoProvider,
+		DNSEnv:      legoEnv,
+		Email:       email,
+		Staging:     a.external.Staging,
+		CADirURL:    a.external.CADirURL,
+		KeyType:     a.external.KeyType,
+		CertsPath:   a.external.CertsPath,
+	}
+	if cfg.KeyType == "" {
+		cfg.KeyType = "rsa2048"
+	}
+	if strings.TrimSpace(email) == "" {
+		if strings.TrimSpace(cfg.Email) != "" {
+			email = cfg.Email
+		}
+	}
+	if email == "" {
+		return fmt.Errorf("email required")
+	}
+	if cfg.DataPath == "" {
+		cfg.DataPath = "./data/acme"
+	}
+	if cfg.CertsPath == "" {
+		return fmt.Errorf("certs_path is required")
+	}
+	_ = os.MkdirAll(cfg.DataPath, 0o755)
+	_ = os.MkdirAll(cfg.CertsPath, 0o755)
+
+	domains := []string{legoDomain, domain}
+	if cfg.UseDocker {
+		if err := a.runLegoDocker(ctx, cfg, domains, email); err != nil {
+			return fmt.Errorf("lego docker run: %w", err)
+		}
+	} else {
+		if err := a.runLegoBinary(ctx, cfg, domains, email); err != nil {
+			return fmt.Errorf("lego binary run: %w", err)
+		}
+	}
+
+	srcCrt := filepath.Join(cfg.DataPath, "certificates", domains[0]+".crt")
+	srcKey := filepath.Join(cfg.DataPath, "certificates", domains[0]+".key")
+	if !fileExists(srcCrt) || !fileExists(srcKey) {
+		return fmt.Errorf("lego did not produce expected cert files: %s / %s", srcCrt, srcKey)
+	}
+	for _, d := range domains {
+		dstDir := filepath.Join(cfg.CertsPath, safeDomainDir(d))
+		if err := os.MkdirAll(dstDir, 0o755); err != nil {
+			return fmt.Errorf("create cert dir for %s: %w", d, err)
+		}
+		if err := copyFile(srcCrt, filepath.Join(dstDir, "fullchain.pem"), 0o644); err != nil {
+			return fmt.Errorf("copy fullchain for %s: %w", d, err)
+		}
+		if err := copyFile(srcKey, filepath.Join(dstDir, "privkey.pem"), 0o600); err != nil {
+			return fmt.Errorf("copy privkey for %s: %w", d, err)
+		}
+	}
+	log.Printf("Wildcard certificate issued for %s and %s", legoDomain, domain)
+	return nil
 }
