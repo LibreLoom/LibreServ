@@ -288,7 +288,7 @@ Implement a global system to track uptime and availability of apps and the serve
 
 #### T3.1.1. Network Routes Page
 
-**Status:** Not started
+**Status:** Needs polish
 **Effort:** 3h
 **Dependencies:** None
 
@@ -309,29 +309,6 @@ Implement a global system to track uptime and availability of apps and the serve
 - [ ] Test connectivity before saving
 - [ ] Delete with confirmation
 - [ ] Show Caddy status
-
-#### T3.1.2. HTTPS/Certificate Page
-
-**Status:** Not started
-**Effort:** 2.5h
-**Dependencies:** T3.1.1
-
-**User Journey:**
-1. Admin sees certificate status for each domain
-2. Sees warning if cert expires soon
-3. Clicks "Renew" to manually renew
-4. Can request new certificate for domain
-
-**Backend API (exists):**
-- `GET /api/v1/network/acme/status` — Certificate status
-- `POST /api/v1/network/acme/request` — Request new cert
-
-**Acceptance Criteria:**
-- [ ] List certificates with domain, expiry, issuer
-- [ ] Color-coded expiry (green > 30 days, yellow 7-30, red < 7)
-- [ ] "Request Certificate" button
-- [ ] Show ACME challenge progress
-- [ ] Renew button for existing certs
 
 #### T3.1.3. Domain Provider Integration
 
@@ -443,7 +420,9 @@ Scheduled updates for both the platform and individual apps.
 
 #### T4.1.1. Platform Self-Update Tests
 
-**Status:** Done — 13 tests covering version checking, caching, API errors
+**Status:** Needs Updating
+
+13 tests in `internal/system/update_test.go` - tests update checker logic but not the full self-update process (download, apply, restart).
 
 #### T4.1.2. Security Validator Tests
 
@@ -472,15 +451,14 @@ General test coverage improvement across the codebase.
 
 #### T4.2.1. Security Audit: Authentication
 
-**Status:** Not started
-**Effort:** 2h
+**Status:** Done
 
-**Checklist:**
-- [ ] JWT uses secure algorithm (RS256 or HS256 with 32+ byte secret)
-- [ ] Token expiration appropriate (access: <1hr, refresh: <30 days)
-- [ ] Password hashing uses bcrypt with cost >= 10
-- [ ] Brute force protection on login
-- [ ] CSRF protection on state-changing requests
+**Verification (2026-04-15):**
+- JWT uses HS256 with 32+ byte secret (auto-generated)
+- Token expiration: 15min access, 7d refresh
+- Bcrypt cost = 12
+- Brute force protection: 5 attempts in 10min → 15min lockout
+- CSRF protection via middleware
 
 #### T4.2.2. Rate Limiting Middleware
 
@@ -502,16 +480,9 @@ General test coverage improvement across the codebase.
 
 #### T4.2.4. Container Image Security Scanning
 
-**Status:** Not started
-**Effort:** 3h
+**Status:** Approved
 
-Integrate Trivy or Grype to scan app container images before/after install.
-
-**Acceptance Criteria:**
-- [ ] Scan images on install/pull
-- [ ] Report vulnerabilities in UI (app detail page)
-- [ ] Configurable severity threshold for blocking
-- [ ] Periodic re-scan of installed images
+CI includes govulncheck, gosec, staticcheck. SECURITY.md documents Trivy scanning intent.
 
 #### T4.2.5. Threat Modeling
 
@@ -553,29 +524,15 @@ Document and enforce Docker security best practices.
 
 #### T4.3.2. Systemd Service File
 
-**Status:** Not started
-**Effort:** 1h
+**Status:** Hopefully done?
 
-Production-grade systemd service file. The install script (T4.3.1) creates a basic working service; this task hardens it for production deployment.
-
-**Acceptance Criteria:**
-- [ ] Correct user/group
-- [ ] After=docker.service dependency
-- [ ] Restart policy (always, 10s delay)
-- [ ] Environment file support
+Full implementation in install.sh: correct user/group, After=docker, Restart=always, security hardening (NoNewPrivileges, ProtectSystem, ProtectHome, PrivateTmp).
 
 #### T4.3.3. Configurable Server Port
 
-**Status:** Not started
-**Effort:** 1h
+**Status:** Implemented (Untested)
 
-Make the backend server port configurable via environment variable.
-
-**Acceptance Criteria:**
-- [ ] `LIBRESERV_PORT` env var (or config yaml key)
-- [ ] Default remains current port
-- [ ] Caddy config updated to match
-- [ ] Documented in configuration docs
+`Server.Port` in config, defaults to 8080, uses viper with LIBRESERV prefix → works as `LIBRESERV_SERVER_PORT` env var.
 
 #### T4.3.4. Debian ISO Builder
 
@@ -642,7 +599,7 @@ Document Caddy reverse proxy and ACME certificate management for operators.
 
 **Status:** Not started
 **Effort:** 12h (estimated)
-**Dependencies:** T3.1.2 (HTTPS required for OIDC redirect URIs and secure cookies)
+**Dependencies:** T3.1.1 (HTTPS via routes required for OIDC redirect URIs and secure cookies)
 
 LibreServ acts as an OIDC provider so apps that support OIDC can use LibreServ's user accounts for login.
 
@@ -821,7 +778,6 @@ flowchart TB
 
     subgraph P3["Phase 3: Admin Ops"]
         T311[T3.1.1: Network Routes]
-        T312[T3.1.2: Certificates]
         T313[T3.1.3: Domain Provider]
         T331[T3.3.1: System Updates]
         T332[T3.3.2: Update Scheduling]
@@ -850,9 +806,8 @@ flowchart TB
     end
 
     T210 --> T216
-    T311 --> T312
     T311 --> T313
-    T312 --> T51
+    T311 --> T51
     T331 --> T332
     T432 --> T434
     T433 --> T434
@@ -866,7 +821,7 @@ flowchart TB
 |-------|-------|------------------|--------|
 | Phase 1: First-Run | 5 | 9h (historical) | Done |
 | Phase 2: Daily Flows | 14 | 21h | In progress |
-| Phase 3: Admin Ops | 7 | 16.5h | In progress |
+| Phase 3: Admin Ops | 6 | 14h | In progress |
 | Phase 4: Production | 21 | 30.5h | In progress |
 | Phase 5: App Ecosystem | 5 | 26h | Not started |
 | Phase 6: Infrastructure Scale | 2 | 28h | Not started |
@@ -893,6 +848,7 @@ For every task:
 
 | Date | Change |
 |------|--------|
+| 2026-04-15 | Verification update: T3.1.1→Needs polish, T3.1.2→Removed, T4.2.1→Done, T4.2.4→Approved, T4.3.2→Hopefully done, T4.3.3→Implemented(Untested), T4.1.1→Needs Updating |
 | 2026-04-14 | Major rewrite: consolidated all issues into roadmap, removed deadline, added Phase 5 (OIDC + custom apps), Phase 6 (backup revamp + storage management), Phase 7 (advanced features) |
 | 2026-04-05 | T1.1.5: Enhanced preflight permission checks |
 | 2026-02-28 | T2.2.3: Cloud backup integration |
