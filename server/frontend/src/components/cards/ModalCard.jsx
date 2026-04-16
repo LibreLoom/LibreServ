@@ -10,6 +10,8 @@ export default function ModalCard({
   showCloseButton = true,
   size = "md",
   mobileFullscreen = false,
+  footer,
+  className = "",
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const titleId = useId();
@@ -90,7 +92,7 @@ export default function ModalCard({
         className={`w-full flex flex-col ${sizeClasses}`}
         onClick={(event) => event.stopPropagation()}
       >
-        <Card noHeightAnim noPopIn className={`relative flex-1 flex flex-col min-h-0 h-full overflow-hidden ${isClosing ? "pop-out" : "pop-in"}`}>
+        <Card noHeightAnim noPopIn className={`relative flex-1 flex flex-col min-h-0 h-full overflow-hidden ${className} ${isClosing ? "pop-out" : "pop-in"}`}>
           {showCloseButton && (
             <button
               type="button"
@@ -110,6 +112,12 @@ export default function ModalCard({
           )}
 
           {content}
+
+          {footer && (
+            <div className="mt-4 pt-4 border-t border-primary/10">
+              {footer}
+            </div>
+          )}
         </Card>
       </div>
     </div>,

@@ -60,6 +60,9 @@ network:
             ca_dir_url: ""
             key_type: ""
             certs_path: ""
+    dns:
+        provider: ""
+        api_token: ""
 cors:
     allowed_origins: []
 license:

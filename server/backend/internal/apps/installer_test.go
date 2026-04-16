@@ -34,7 +34,7 @@ func TestInstallerValidateConfig(t *testing.T) {
 		},
 	}}
 
-	inst := NewInstaller(catalog, docker.NewRuntimeAdapter(&docker.Client{}), db, dir, monitoring.NewMonitor(db, nil), NewAppMetricsCache(monitoring.NewMonitor(db, nil), slog.Default()), nil)
+	inst := NewInstaller(catalog, docker.NewRuntimeAdapter(&docker.Client{}), db, dir, monitoring.NewMonitor(db, nil, ""), NewAppMetricsCache(monitoring.NewMonitor(db, nil, ""), slog.Default()), nil)
 
 	err = inst.ValidateConfig("app1", map[string]interface{}{"required_field": "ok"})
 	if err != nil {

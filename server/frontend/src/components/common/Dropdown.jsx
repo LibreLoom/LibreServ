@@ -135,7 +135,7 @@ export default function Dropdown({
               top: position.top,
               left: position.left,
             }}
-            className="bg-secondary text-primary ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden min-w-[8rem] animate-dropdown-open"
+            className="bg-secondary text-primary ring-inset ring-2 ring-accent rounded-large-element py-0 z-50 pop-in overflow-hidden min-w-[8rem] animate-dropdown-open"
             tabIndex={-1}
           >
             {options.map((option) => (
