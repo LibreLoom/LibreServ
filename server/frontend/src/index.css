@@ -294,7 +294,6 @@ body {
 }
 
 /* GPU acceleration hints */
-.pop-in,
 .pop-out {
     will-change: transform, opacity;
 }
