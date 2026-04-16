@@ -24,7 +24,6 @@ func (s *Server) setupRoutes() {
 	appsHandler.SetAuditLogger(s)
 	authHandler := handlers.NewAuthHandler(s.authService, s.securityService)
 	securityHandler := handlers.NewSecurityHandler(s.securityService)
-	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService)
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient, s.appManager.GetMetricsCache())
 	backupHandler := handlers.NewBackupHandlers(s.backupService, s.cloudService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
@@ -66,7 +65,7 @@ func (s *Server) setupRoutes() {
 	}
 
 	// Initialize ACME manager for automated certificate management
-	acmeManager := network.NewACMEManager(adminAPI, configPath).WithAuto(true).WithExternal(extCfg)
+	s.acmeManager = network.NewACMEManager(adminAPI, configPath).WithAuto(true).WithExternal(extCfg)
 
 	// Initialize Caddy metrics collector
 	caddyMetrics := monitoring.NewCaddyMetrics()
@@ -75,9 +74,9 @@ func (s *Server) setupRoutes() {
 	if s.caddyManager != nil {
 		s.caddyManager.WithMetrics(caddyMetrics)
 	}
-	acmeManager.WithMetrics(caddyMetrics)
+	s.acmeManager.WithMetrics(caddyMetrics)
 
-	acmeHandler := handlers.NewACMEHandler(s.db, acmeManager, s.caddyManager, s.appManager)
+	acmeHandler := handlers.NewACMEHandler(s.db, s.acmeManager, s.caddyManager, s.appManager)
 	// Wire in job queue if available
 	if s.jobQueue != nil {
 		acmeHandler = acmeHandler.WithJobQueue(s.jobQueue)
@@ -89,6 +88,12 @@ func (s *Server) setupRoutes() {
 	if s.caddyManager != nil {
 		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager).WithACME(acmeHandler)
 	}
+
+	// Initialize DNS provider manager
+	s.dnsProviderMgr = network.NewDNSProviderManager(s.db)
+
+	// Initialize setup handler with all required dependencies
+	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService, s.dnsProviderMgr, s.acmeManager)
 
 	// Initialize support and system handlers
 	supportHandler := handlers.NewSupportHandler(s.supportService, s.licenseService)
@@ -132,6 +137,10 @@ func (s *Server) setupRoutes() {
 			r.Get("/status", setupHandler.GetStatus)
 			r.Post("/complete", setupHandler.CompleteSetup)
 			r.Get("/preflight", setupHandler.Preflight)
+			r.Put("/progress", setupHandler.SaveProgress)
+			r.Post("/dns/test", setupHandler.TestDNS)
+			r.Post("/dns/apply", setupHandler.ApplyDNS)
+			r.Get("/dns/status", setupHandler.GetDNSStatus)
 		})
 
 		// Public auth routes (login, register, refresh)

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Server, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import ConfirmModal from "../../common/ConfirmModal";
@@ -16,7 +16,7 @@ export default function NetworkCategory({ settings }) {
   const { addToast } = useToast();
   const [routes, setRoutes] = useState([]);
   const [caddyStatus, setCaddyStatus] = useState(null);
-  const [apps, setApps] = useState([]);
+  const [apps, setApps] = useState(null);
   const [caddyfileContent, setCaddyfileContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -30,18 +30,6 @@ export default function NetworkCategory({ settings }) {
 
   const defaultDomain = settings?.proxy?.default_domain || "";
 
-  const appNameMap = useMemo(() => {
-    const map = {};
-    if (Array.isArray(apps)) {
-      for (const app of apps) {
-        if (app?.id) {
-          map[app.id] = app.name;
-        }
-      }
-    }
-    return map;
-  }, [apps]);
-
   const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -54,9 +42,10 @@ export default function NetworkCategory({ settings }) {
       ]);
       setRoutes(Array.isArray(routesData) ? routesData : []);
       setCaddyStatus(statusData);
-      setApps(Array.isArray(appsData) ? appsData : []);
+      setApps(Array.isArray(appsData?.apps) ? appsData.apps : []);
       setCaddyfileContent(caddyData || "");
     } catch (err) {
+      setApps([]);
       setLoadError(err.message || "Failed to load network data");
     } finally {
       setLoading(false);
@@ -149,7 +138,9 @@ export default function NetworkCategory({ settings }) {
     }
   }, [routeToDelete, request, loadData, addToast]);
 
-  const appLinkedRoute = routeToDelete ? appNameMap[routeToDelete.app_id] : null;
+  const appLinkedRoute = routeToDelete?.app_id
+    ? apps?.find((a) => a.id === routeToDelete.app_id)?.name
+    : null;
 
   return (
     <div className="space-y-6">
@@ -173,7 +164,6 @@ export default function NetworkCategory({ settings }) {
                   ? <span className="text-success">Valid</span>
                   : <span className="text-warning">Invalid</span>
               }
-              mono={false}
             />
             <ValueDisplay label="Routes" value={String(caddyStatus.routes || routes.length)} />
             <ValueDisplay label="Domains" value={String(caddyStatus.domains?.length || 0)} />
@@ -198,7 +188,7 @@ export default function NetworkCategory({ settings }) {
 
       <RoutesCard
         routes={routes}
-        appNameMap={appNameMap}
+        apps={apps}
         loading={loading}
         error={loadError}
         onRetry={loadData}
@@ -217,6 +207,7 @@ export default function NetworkCategory({ settings }) {
         mode={routeModalMode}
         route={selectedRoute}
         defaultDomain={defaultDomain}
+        apps={apps}
         onSuccess={handleRouteSuccess}
       />
 

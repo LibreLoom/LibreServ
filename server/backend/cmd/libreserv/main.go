@@ -105,7 +105,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	monitor := monitoring.NewMonitor(db, dockerClient.GetRawClient())
+	monitor := monitoring.NewMonitor(db, dockerClient.GetRawClient(), cfg.Apps.DataPath)
 	monitor.Start()
 	defer monitor.Stop()
 

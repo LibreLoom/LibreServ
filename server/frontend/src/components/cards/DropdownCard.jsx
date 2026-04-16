@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { ChevronDown, Server } from "lucide-react";
+import { Server } from "lucide-react";
+import Card from "./Card";
 import MiniStatCard from "./MiniStatCard";
+import CollapsibleSection from "../common/CollapsibleSection";
 
 export default function DropdownCard({
   title,
@@ -9,19 +10,12 @@ export default function DropdownCard({
   breakdownItems = [],
   defaultOpen = false,
   Icon = Server,
-  forceHover = false,
 }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  const breakdownId = `dropdown-breakdown-${String(title)
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-_]/g, "")}`;
-
   return (
-    <div
-      className={`pop-in bg-secondary text-primary rounded-large-element p-6 transition-all duration-300 ease-in-out w-full h-fit self-start ${forceHover ? "scale-[1.02]" : "hover:scale-[1.02]"}`}
-    >
-      <div className="flex items-center gap-5">
+    <div className="transition-transform duration-200 ease-[var(--motion-easing-emphasized)] hover:scale-[1.02] w-full h-fit self-start">
+    <Card padding={false}>
+      <div className="p-6">
+        <div className="flex items-center gap-5">
           <div className="h-14 w-14 rounded-pill bg-primary text-secondary flex items-center justify-center">
             <Icon size={26} aria-hidden="true" />
           </div>
@@ -35,28 +29,10 @@ export default function DropdownCard({
             )}
           </div>
         </div>
-        <button
-          onClick={() => setIsOpen(!isOpen)}
-          type="button"
-          className="flex items-center gap-1 text-sm text-accent hover:text-primary mt-3 cursor-pointer"
-          aria-expanded={isOpen}
-          aria-controls={breakdownId}
-        >
-          <ChevronDown
-            size={16}
-            className={`motion-safe:transition-transform duration-300 ${isOpen ? "rotate-180" : "rotate-0"}`}
-            aria-hidden="true"
-          />
-          <span>{isOpen ? "Hide breakdown" : "Show breakdown"}</span>
-        </button>
-        <div
-          id={breakdownId}
-          className={`overflow-y-hidden overflow-x-visible motion-safe:transition-all duration-500 ease-out ${
-            isOpen ? "max-h-96" : "max-h-0"
-          }`}
-          aria-hidden={!isOpen}
-        >
-          <div className="grid grid-cols-2 gap-2 p-2">
+      </div>
+      <div className="px-6 pb-4">
+        <CollapsibleSection title="Breakdown" size="sm" pill defaultOpen={defaultOpen}>
+          <div className="grid grid-cols-2 gap-2">
             {breakdownItems.length === 0 ? (
               <div className="col-span-2 text-center py-3 px-4 text-primary font-mono">
                 Loading...
@@ -71,8 +47,10 @@ export default function DropdownCard({
                 />
               ))
             )}
-        </div>
+          </div>
+        </CollapsibleSection>
       </div>
+    </Card>
     </div>
   );
 }
