@@ -9,7 +9,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,27 +21,61 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 )
 
+// setupDNSState holds the async cert issuance result for DNS setup
+type setupDNSState struct {
+	mu        sync.RWMutex
+	domain    string
+	certDone  bool
+	certError string
+}
+
 // SetupHandler handles initial setup endpoints
 type SetupHandler struct {
-	authService  *auth.Service
-	setupService *setup.Service
-	docker       *docker.Client
-	mailer       func() (*email.Sender, error)
-	license      middleware.LicenseChecker
+	authService    *auth.Service
+	setupService   *setup.Service
+	docker         *docker.Client
+	mailer         func() (*email.Sender, error)
+	license        middleware.LicenseChecker
+	dnsProviderMgr *network.DNSProviderManager
+	acmeManager    *network.ACMEManager
+	dnsState       setupDNSState
 }
 
 // NewSetupHandler creates a new SetupHandler
-func NewSetupHandler(authService *auth.Service, setupService *setup.Service, dockerClient *docker.Client, license middleware.LicenseChecker) *SetupHandler {
+func NewSetupHandler(
+	authService *auth.Service,
+	setupService *setup.Service,
+	dockerClient *docker.Client,
+	license middleware.LicenseChecker,
+	dnsProviderMgr *network.DNSProviderManager,
+	acmeManager *network.ACMEManager,
+) *SetupHandler {
 	return &SetupHandler{
-		authService:  authService,
-		setupService: setupService,
-		docker:       dockerClient,
-		mailer:       email.NewSender,
-		license:      license,
+		authService:    authService,
+		setupService:   setupService,
+		docker:         dockerClient,
+		mailer:         email.NewSender,
+		license:        license,
+		dnsProviderMgr: dnsProviderMgr,
+		acmeManager:    acmeManager,
 	}
+}
+
+// checkCertCapability returns whether cert issuance is possible and the method to use.
+func (h *SetupHandler) checkCertCapability() (available bool, method string) {
+	if h.docker != nil {
+		if err := h.docker.HealthCheck(); err == nil {
+			return true, "docker"
+		}
+	}
+	if _, err := exec.LookPath("lego"); err == nil {
+		return true, "binary"
+	}
+	return false, ""
 }
 
 // GetStatus handles GET /api/v1/setup/status
@@ -55,10 +92,17 @@ func (h *SetupHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	state = h.reconcileSetupState(r.Context(), state, userStatus)
 	licenseStatus := LicenseSnapshot(h.license)
 
+	progress := map[string]interface{}{
+		"current_step":     state.CurrentStep,
+		"current_sub_step": state.CurrentSubStep,
+		"step_data":        state.StepData,
+	}
+
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"setup_state": state,
 		"user_status": userStatus,
 		"license":     licenseStatus,
+		"progress":    progress,
 	})
 }
 
@@ -379,23 +423,7 @@ func randomSuffix(n int) string {
 }
 
 func resolveConfigPath(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("path not configured")
-	}
-	if filepath.IsAbs(path) {
-		return path, nil
-	}
-
-	cfgPath := config.Path()
-	if cfgPath != "" {
-		return filepath.Join(filepath.Dir(cfgPath), path), nil
-	}
-
-	resolved, err := filepath.Abs(path)
-	if err != nil {
-		return "", err
-	}
-	return resolved, nil
+	return config.ResolveConfigPath(path)
 }
 
 func (h *SetupHandler) reconcileSetupState(ctx context.Context, state *setup.State, userStatus *auth.SetupStatus) *setup.State {
@@ -411,4 +439,254 @@ func (h *SetupHandler) reconcileSetupState(ctx context.Context, state *setup.Sta
 		return state
 	}
 	return updated
+}
+
+// TestDNS handles POST /api/v1/setup/dns/test
+// Validates DNS provider credentials without saving anything.
+func (h *SetupHandler) TestDNS(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider string `json:"provider"`
+		Domain   string `json:"domain"`
+		APIToken string `json:"api_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "" || req.Domain == "" || req.APIToken == "" {
+		JSONError(w, http.StatusBadRequest, "provider, domain, and api_token are required")
+		return
+	}
+	if req.Provider != "cloudflare" {
+		JSONError(w, http.StatusBadRequest, "unsupported provider: "+req.Provider)
+		return
+	}
+
+	if err := network.ValidateDomain(req.Domain); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid domain: "+err.Error())
+		return
+	}
+
+	cfg := &network.DNSProviderConfig{
+		Provider: network.ProviderCloudflare,
+		Domain:   req.Domain,
+		APIToken: req.APIToken,
+	}
+	if err := h.dnsProviderMgr.ValidateCredentials(r.Context(), cfg); err != nil {
+		JSON(w, http.StatusOK, map[string]interface{}{
+			"valid": false,
+			"error": "Invalid API token or zone not found",
+		})
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"valid":  true,
+		"zone":   cfg.Zone(),
+		"domain": req.Domain,
+	})
+}
+
+// ApplyDNS handles POST /api/v1/setup/dns/apply
+// Saves DNS config, creates DNS records, kicks off cert request asynchronously.
+func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Provider string `json:"provider"`
+		Domain   string `json:"domain"`
+		APIToken string `json:"api_token"`
+		Email    string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Provider == "" || req.Domain == "" || req.APIToken == "" || req.Email == "" {
+		JSONError(w, http.StatusBadRequest, "provider, domain, api_token, and email are required")
+		return
+	}
+
+	publicIP, err := network.DetectPublicIP(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to detect public IP")
+		return
+	}
+
+	cfg := &network.DNSProviderConfig{
+		Provider: network.ProviderCloudflare,
+		Domain:   req.Domain,
+		APIToken: req.APIToken,
+		Enabled:  true,
+	}
+	if err := h.dnsProviderMgr.SaveConfig(r.Context(), cfg); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to save DNS config: "+err.Error())
+		return
+	}
+
+	if err := h.dnsProviderMgr.SetupWildcardDNS(r.Context(), cfg, publicIP); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to set up DNS records: "+err.Error())
+		return
+	}
+
+	h.dnsState.mu.Lock()
+	h.dnsState.domain = req.Domain
+	h.dnsState.certDone = false
+	h.dnsState.certError = ""
+	h.dnsState.mu.Unlock()
+
+	go func() {
+		certAvail, certMethod := h.checkCertCapability()
+		if certAvail && certMethod == "docker" {
+			h.acmeManager.WithUseDocker(true)
+		}
+		err := h.acmeManager.RequestWildcardCert(context.Background(), req.Domain, req.Email, cfg)
+		h.dnsState.mu.Lock()
+		h.dnsState.certDone = true
+		if err != nil {
+			h.dnsState.certError = err.Error()
+		}
+		h.dnsState.mu.Unlock()
+		h.acmeManager.ClearUseDockerOverride()
+		if err != nil {
+			slog.Error("wildcard cert request failed", "domain", req.Domain, "error", err)
+		} else {
+			slog.Info("wildcard cert issued", "domain", req.Domain)
+		}
+	}()
+
+	JSON(w, http.StatusAccepted, map[string]interface{}{
+		"status":    "in_progress",
+		"public_ip": publicIP.String(),
+	})
+}
+
+// GetDNSStatus handles GET /api/v1/setup/dns/status
+// Polls the status of the DNS setup and cert issuance.
+func (h *SetupHandler) GetDNSStatus(w http.ResponseWriter, r *http.Request) {
+	cfg, err := h.dnsProviderMgr.GetConfig(r.Context())
+	if err != nil || cfg == nil {
+		JSONError(w, http.StatusNotFound, "no DNS config found")
+		return
+	}
+
+	publicIP, _ := network.DetectPublicIP(r.Context())
+
+	h.dnsState.mu.RLock()
+	certDone := h.dnsState.certDone
+	certError := h.dnsState.certError
+	h.dnsState.mu.RUnlock()
+
+	dnsStatus := "done"
+	certStatus := "pending"
+	if certDone && certError != "" {
+		certStatus = "failed"
+	} else if certDone && certError == "" {
+		certStatus = "done"
+	}
+
+	publicIPStr := ""
+	if publicIP.IsValid() {
+		publicIPStr = publicIP.String()
+	}
+
+	certAvail, certMethod := h.checkCertCapability()
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"dns_records":    dnsStatus,
+		"certificate":    certStatus,
+		"public_ip":      publicIPStr,
+		"domain":         cfg.Domain,
+		"error":          nil,
+		"cert_available": certAvail,
+		"cert_method":    certMethod,
+	})
+}
+
+const maxStepDataSize = 4096
+
+func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
+	state, err := h.setupService.Ensure(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		return
+	}
+	if state.Status == setup.StatusComplete {
+		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		return
+	}
+
+	var req struct {
+		CurrentStep    string                 `json:"current_step"`
+		CurrentSubStep string                 `json:"current_sub_step"`
+		StepData       map[string]interface{} `json:"step_data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if !setup.IsValidMainStep(req.CurrentStep) {
+		JSONError(w, http.StatusBadRequest, "invalid current_step: "+req.CurrentStep)
+		return
+	}
+	if req.CurrentSubStep != "" && !setup.IsValidSubStep(req.CurrentSubStep) {
+		JSONError(w, http.StatusBadRequest, "invalid current_sub_step: "+req.CurrentSubStep)
+		return
+	}
+
+	if req.StepData == nil {
+		req.StepData = map[string]interface{}{}
+	}
+	if !setup.ValidateStepData(req.StepData) {
+		JSONError(w, http.StatusBadRequest, "step_data contains disallowed keys")
+		return
+	}
+
+	encoded, err := json.Marshal(req.StepData)
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid step_data")
+		return
+	}
+	if len(encoded) > maxStepDataSize {
+		JSONError(w, http.StatusBadRequest, "step_data too large")
+		return
+	}
+
+	for _, v := range req.StepData {
+		switch v.(type) {
+		case string, bool, float64, int, int64, nil:
+		default:
+			if !isSimpleSlice(v) {
+				JSONError(w, http.StatusBadRequest, "step_data values must be strings, numbers, or booleans")
+				return
+			}
+		}
+	}
+
+	if err := h.setupService.SaveProgress(r.Context(), req.CurrentStep, req.CurrentSubStep, req.StepData); err != nil {
+		if strings.Contains(err.Error(), "stale timestamp") {
+			slog.Warn("setup progress save rejected due to stale timestamp",
+				"step", req.CurrentStep, "sub_step", req.CurrentSubStep)
+			JSON(w, http.StatusOK, map[string]interface{}{"ok": true, "stale": true})
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "failed to save progress")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
+func isSimpleSlice(v interface{}) bool {
+	arr, ok := v.([]interface{})
+	if !ok {
+		return false
+	}
+	for _, el := range arr {
+		switch el.(type) {
+		case string, bool, float64, int, int64, nil:
+		default:
+			return false
+		}
+	}
+	return true
 }

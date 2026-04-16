@@ -1,13 +1,17 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle } from "lucide-react";
 import PropTypes from "prop-types";
+import DomainWizard from "../components/setup/DomainWizard";
+import ConfirmModal from "../components/common/ConfirmModal";
+import useSetupProgress from "../hooks/useSetupProgress";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
   CHECKING:  "checking",
   WELCOME:   "welcome",
   PREFLIGHT: "preflight",
+  DOMAIN:    "domain",
   ACCOUNT:   "account",
   CREATING:  "creating",
   COMPLETE:  "complete",
@@ -29,7 +33,7 @@ SetupShell.propTypes = { children: PropTypes.node.isRequired };
 function SetupCard({ children, className = "" }) {
   return (
     <div
-      className={`w-full max-w-md bg-secondary rounded-[28px] px-10 py-10 shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden ${className}`}
+      className={`w-full max-w-md bg-secondary rounded-large-element px-10 py-10 shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden ${className}`}
     >
       {children}
     </div>
@@ -41,7 +45,7 @@ SetupCard.propTypes = {
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
-const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.COMPLETE];
+const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.DOMAIN, STEP.ACCOUNT, STEP.COMPLETE];
 
 function StepDots({ current }) {
   const idx = VISIBLE_STEPS.indexOf(current);
@@ -60,6 +64,9 @@ function StepDots({ current }) {
           }`}
         />
       ))}
+      <span className="ml-auto text-[11px] font-mono tracking-wider text-primary/30">
+        {idx + 1} / {VISIBLE_STEPS.length}
+      </span>
     </div>
   );
 }
@@ -364,9 +371,6 @@ function PreflightStep({ onPass }) {
 
         {/* Header */}
         <div className="mb-7">
-          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary/35 mb-3">
-            Step 1 of 3
-          </p>
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             System check
           </h2>
@@ -420,7 +424,7 @@ function PreflightStep({ onPass }) {
 
           {/* Network error */}
           {error && (
-            <div className="flex items-start gap-3 p-4 rounded-[16px] border border-error/25 bg-error/10 animate-in fade-in duration-300">
+            <div className="flex items-start gap-3 p-4 rounded-card border border-error/25 bg-error/10 animate-in fade-in duration-300">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
               <p className="text-sm text-primary/80">{error}</p>
             </div>
@@ -591,9 +595,6 @@ function AccountStep({ onSuccess, onError }) {
 
         {/* Header */}
         <div className="mb-8">
-          <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary/35 mb-3">
-            Step 2 of 3
-          </p>
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             Create your account
           </h2>
@@ -687,7 +688,7 @@ function AccountStep({ onSuccess, onError }) {
 
           {/* Inline error */}
           {fieldError && (
-            <div className="flex items-start gap-2.5 p-4 rounded-[18px] border border-error/25 bg-error/10 animate-in fade-in slide-in-from-bottom-1 duration-200">
+            <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 animate-in fade-in slide-in-from-bottom-1 duration-200">
               <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
               <p className="text-sm text-primary/80">{fieldError}</p>
             </div>
@@ -750,6 +751,84 @@ function CompleteStep() {
   );
 }
 
+// ─── STEP: Domain intro ───────────────────────────────────────────────────────
+function DomainIntroStep({ onStart, onSkip }) {
+  const [showSkipModal, setShowSkipModal] = useState(false);
+
+  return (
+    <SetupShell>
+      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <StepDots current={STEP.DOMAIN} />
+
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
+              <Globe className="w-5 h-5 text-primary/60" />
+            </div>
+            <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
+              Connect a domain
+            </h2>
+          </div>
+          <p className="text-primary/50 text-sm leading-relaxed">
+            A custom domain gives you a memorable address for your apps and a secure connection (HTTPS) — so your data stays private.
+          </p>
+        </div>
+
+        <div className="space-y-3 mb-8">
+          {[
+            { label: "Set up your DNS provider", desc: "We support Cloudflare for managing your domain\u2019s address book" },
+            { label: "Point your domain to this server", desc: "Create the addresses so visitors find your apps" },
+            { label: "Get a security certificate", desc: "Automatic HTTPS, for free, via Let\u2019s Encrypt" },
+          ].map((item, i) => (
+            <div key={i} className="flex items-start gap-3 py-2">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+                <span className="text-[10px] text-primary/50 font-mono">{i + 1}</span>
+              </div>
+              <div>
+                <p className="text-sm text-primary/80">{item.label}</p>
+                <p className="text-xs text-primary/35">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={onStart}
+            className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            Start Domain Setup
+            <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+          </button>
+          <div className="text-center">
+            <button
+              onClick={() => setShowSkipModal(true)}
+              className="text-primary/30 hover:text-primary/50 font-mono text-xs motion-safe:transition-colors motion-safe:duration-150"
+            >
+              Skip for now (Not recommended)
+            </button>
+          </div>
+        </div>
+      </SetupCard>
+
+      <ConfirmModal
+        open={showSkipModal}
+        onClose={() => setShowSkipModal(false)}
+        onConfirm={onSkip}
+        icon={AlertTriangle}
+        title="Skip domain setup?"
+        message="Without a domain name, you won't be able to access your apps when you're not home."
+        variant="danger"
+        confirmLabel="Skip anyway"
+      />
+    </SetupShell>
+  );
+}
+DomainIntroStep.propTypes = {
+  onStart: PropTypes.func.isRequired,
+  onSkip:  PropTypes.func.isRequired,
+};
+
 // ─── STEP: Error (fatal) ──────────────────────────────────────────────────────
 function ErrorStep({ message }) {
   return (
@@ -780,12 +859,33 @@ function ErrorStep({ message }) {
 ErrorStep.propTypes = { message: PropTypes.string };
 
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
+const RESUME_STEP_MAP = {
+  checking:  STEP.WELCOME,
+  welcome:   STEP.WELCOME,
+  preflight: STEP.PREFLIGHT,
+  domain:    STEP.DOMAIN,
+  account:   STEP.ACCOUNT,
+  complete:  STEP.COMPLETE,
+};
+
+const UNSAFE_SUB_STEPS = new Set(["connecting"]);
+
 export default function SetupPage() {
   const navigate        = useNavigate();
   const [step, setStep] = useState(STEP.CHECKING);
   const [error, setError] = useState(null);
+  const [showDomainWizard, setShowDomainWizard] = useState(false);
+  const [initialSubStep, setInitialSubStep] = useState(null);
+  const [initialStepData, setInitialStepData] = useState({});
+  const { saveProgress } = useSetupProgress();
+  const progressRef = useRef({});
 
-  // Initial status check
+  const advanceStep = useCallback((nextStep, subStep, stepData) => {
+    setStep(nextStep);
+    progressRef.current = { step: nextStep, subStep: subStep || "", stepData: stepData || progressRef.current.stepData || {} };
+    saveProgress(nextStep, subStep || "", progressRef.current.stepData);
+  }, [saveProgress]);
+
   useEffect(() => {
     const check = async () => {
       try {
@@ -793,20 +893,74 @@ export default function SetupPage() {
         const data = await res.json();
         if (data.setup_state?.status === "complete") {
           navigate("/");
-        } else {
-          setStep(STEP.WELCOME);
+          return;
         }
+
+        const saved = data.progress;
+        if (saved && saved.current_step) {
+          const resumeStep = RESUME_STEP_MAP[saved.current_step];
+          if (resumeStep && resumeStep !== STEP.WELCOME) {
+            const savedData = saved.step_data || {};
+
+            if (resumeStep === STEP.DOMAIN && saved.current_sub_step) {
+              if (savedData.domain_completed || savedData.domain_skipped) {
+                setStep(STEP.ACCOUNT);
+                saveProgress(STEP.ACCOUNT, "", { ...savedData });
+                return;
+              }
+              if (UNSAFE_SUB_STEPS.has(saved.current_sub_step)) {
+                setStep(STEP.DOMAIN);
+                setInitialSubStep("token_input");
+                setInitialStepData(savedData);
+                setShowDomainWizard(true);
+                saveProgress(STEP.DOMAIN, "token_input", savedData);
+                return;
+              }
+              setStep(STEP.DOMAIN);
+              setInitialSubStep(saved.current_sub_step);
+              setInitialStepData(savedData);
+              setShowDomainWizard(true);
+              progressRef.current = { step: STEP.DOMAIN, subStep: saved.current_sub_step, stepData: savedData };
+              return;
+            }
+
+            setStep(resumeStep);
+            setInitialStepData(savedData);
+            progressRef.current = { step: resumeStep, subStep: "", stepData: savedData };
+            return;
+          }
+        }
+
+        setStep(STEP.WELCOME);
       } catch {
         setError("Failed to connect to the server.");
         setStep(STEP.ERROR);
       }
     };
     check();
-  }, [navigate]);
+  }, [navigate, saveProgress]);
 
-  const handleBegin = useCallback(() => setStep(STEP.PREFLIGHT), []);
+  const handleBegin = useCallback(() => advanceStep(STEP.PREFLIGHT), [advanceStep]);
 
-  const handlePreflightPass = useCallback(() => setStep(STEP.ACCOUNT), []);
+  const handlePreflightPass = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), preflight_passed: true };
+    advanceStep(STEP.DOMAIN, "", data);
+  }, [advanceStep]);
+
+  const handleStartDomainWizard = useCallback(() => {
+    setShowDomainWizard(true);
+    setInitialSubStep(null);
+  }, []);
+
+  const handleDomainComplete = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), domain_completed: true };
+    advanceStep(STEP.ACCOUNT, "", data);
+  }, [advanceStep]);
+
+  const handleDomainSkip = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), domain_skipped: true };
+    advanceStep(STEP.ACCOUNT, "", data);
+  }, [advanceStep]);
 
   const handleAccountSuccess = useCallback(() => {
     setStep(STEP.COMPLETE);
@@ -814,11 +968,10 @@ export default function SetupPage() {
   }, []);
 
   const handleAccountError = useCallback((msg) => {
-    // AccountStep shows inline error; preserve step, just track message
     setError(msg);
   }, []);
 
-  void error; // may be used for future top-level error propagation
+  void error;
 
   if (step === STEP.CHECKING) {
     return (
@@ -838,6 +991,27 @@ export default function SetupPage() {
 
   if (step === STEP.PREFLIGHT) {
     return <PreflightStep onPass={handlePreflightPass} />;
+  }
+
+  if (step === STEP.DOMAIN) {
+    if (showDomainWizard) {
+      return (
+        <DomainWizard
+          onComplete={handleDomainComplete}
+          onSkip={handleDomainSkip}
+          onDismiss={() => setShowDomainWizard(false)}
+          initialSubStep={initialSubStep}
+          initialStepData={initialStepData}
+          saveProgress={saveProgress}
+        />
+      );
+    }
+    return (
+      <DomainIntroStep
+        onStart={handleStartDomainWizard}
+        onSkip={handleDomainSkip}
+      />
+    );
   }
 
   if (step === STEP.ACCOUNT || step === STEP.CREATING) {

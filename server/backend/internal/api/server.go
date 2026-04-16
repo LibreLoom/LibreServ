@@ -62,6 +62,7 @@ type Server struct {
 	settingsService *settings.Service
 	jobQueue        JobQueue
 	dnsProviderMgr  *network.DNSProviderManager
+	acmeManager     *network.ACMEManager
 }
 
 // ServerConfig holds configuration for creating a new Server

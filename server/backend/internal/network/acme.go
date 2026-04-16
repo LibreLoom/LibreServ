@@ -40,12 +40,13 @@ type ACMERequest struct {
 
 // ACMEManager is a placeholder for integrating with Caddy's API or acme.sh.
 type ACMEManager struct {
-	adminAPI   string
-	configPath string
-	client     *http.Client
-	auto       bool
-	external   ExternalACMEConfig
-	metrics    *monitoring.CaddyMetrics
+	adminAPI          string
+	configPath        string
+	client            *http.Client
+	auto              bool
+	external          ExternalACMEConfig
+	metrics           *monitoring.CaddyMetrics
+	useDockerOverride *bool
 }
 
 // NewACMEManager creates a new ACME manager.
@@ -84,6 +85,18 @@ func (a *ACMEManager) WithAuto(enable bool) *ACMEManager {
 func (a *ACMEManager) WithExternal(cfg ExternalACMEConfig) *ACMEManager {
 	a.external = cfg
 	return a
+}
+
+// WithUseDocker overrides the UseDocker setting for cert issuance.
+// Use ClearUseDockerOverride to remove the override.
+func (a *ACMEManager) WithUseDocker(useDocker bool) *ACMEManager {
+	a.useDockerOverride = &useDocker
+	return a
+}
+
+// ClearUseDockerOverride removes the UseDocker override, reverting to config-file setting.
+func (a *ACMEManager) ClearUseDockerOverride() {
+	a.useDockerOverride = nil
 }
 
 // WithMetrics sets the metrics collector for ACME operations
@@ -385,9 +398,13 @@ func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email str
 		return err
 	}
 	legoDomain := "*." + domain
+	useDocker := a.external.UseDocker
+	if a.useDockerOverride != nil {
+		useDocker = *a.useDockerOverride
+	}
 	cfg := ExternalACMEConfig{
 		Enabled:     true,
-		UseDocker:   a.external.UseDocker,
+		UseDocker:   useDocker,
 		DockerImage: a.external.DockerImage,
 		DataPath:    a.external.DataPath,
 		DNSProvider: legoProvider,

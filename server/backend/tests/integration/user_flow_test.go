@@ -53,7 +53,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	notifier := security.NewEmailNotifier()
 	secSvc := security.NewService(db, logger, notifier)
 
-	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*docker.Client)(nil), nil)
+	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*docker.Client)(nil), nil, nil, nil)
 	authH := handlers.NewAuthHandler(authSvc, secSvc)
 	usersH := handlers.NewUsersHandler(authSvc)
 

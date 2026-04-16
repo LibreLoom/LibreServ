@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime"
 	"sync"
 	"time"
 
@@ -16,13 +17,19 @@ type Monitor struct {
 	db               *database.DB
 	dockerClient     *client.Client
 	metricsCollector *MetricsCollector
+	hostCollector    *HostMetricsCollector
 
 	// Health check state
 	checkers   map[string]*HealthChecker
 	checkersMu sync.RWMutex
 
+	// System resources cache
+	systemCacheMu sync.RWMutex
+	systemCache   *CachedSystemResources
+
 	// Configuration
 	metricsInterval time.Duration
+	dataPath        string
 
 	// Control
 	stopCh chan struct{}
@@ -53,13 +60,15 @@ type HealthChecker struct {
 }
 
 // NewMonitor creates a new monitoring instance
-func NewMonitor(db *database.DB, dockerClient *client.Client) *Monitor {
+func NewMonitor(db *database.DB, dockerClient *client.Client, dataPath string) *Monitor {
 	return &Monitor{
 		db:               db,
 		dockerClient:     dockerClient,
 		metricsCollector: NewMetricsCollector(dockerClient),
+		hostCollector:    NewHostMetricsCollector(),
 		checkers:         make(map[string]*HealthChecker),
 		metricsInterval:  30 * time.Second,
+		dataPath:         dataPath,
 		stopCh:           make(chan struct{}),
 	}
 }
@@ -503,6 +512,7 @@ func (m *Monitor) collectMetricsLoop() {
 		select {
 		case <-ticker.C:
 			m.collectAllMetrics()
+			m.collectAndCacheSystemResources()
 		case <-m.stopCh:
 			return
 		}
@@ -550,6 +560,76 @@ func (m *Monitor) saveMetrics(metrics *Metrics) {
 	if err != nil {
 		log.Printf("Failed to save metrics for %s: %v", metrics.AppID, err)
 	}
+}
+
+func (m *Monitor) collectAndCacheSystemResources() {
+	ctx := context.Background()
+
+	systemMetrics, err := m.metricsCollector.CollectSystemMetrics(ctx)
+	if err != nil {
+		systemMetrics = &SystemMetrics{Timestamp: time.Now()}
+	}
+
+	diskTotal, diskFree := m.hostCollector.DiskUsage(m.dataPath)
+	cpuResource := clamp01(systemMetrics.CPUPercent / (float64(runtime.NumCPU()) * 100.0))
+	ramResource := normalizeUsage(systemMetrics.MemoryUsage, systemMetrics.MemoryLimit)
+	hostCPU := m.hostCollector.HostCPU()
+	if hostCPU == 0 {
+		hostCPU = m.hostCollector.HostCPULoad()
+	}
+	hostRAM := m.hostCollector.HostMemory()
+	if cpuResource == 0 {
+		cpuResource = hostCPU
+	}
+	if ramResource == 0 || hostRAM > ramResource {
+		ramResource = hostRAM
+	}
+
+	resources := map[string]float64{
+		"cpu":  cpuResource,
+		"ram":  ramResource,
+		"disk": normalizeUsage(diskTotal-diskFree, diskTotal),
+		"net":  0,
+	}
+
+	now := time.Now()
+	containerNet := m.hostCollector.NetworkLoad(systemMetrics.NetworkRx+systemMetrics.NetworkTx, now)
+	hostNet := m.hostCollector.HostNetworkLoad(now)
+	resources["net"] = maxFloat(containerNet, hostNet)
+
+	cached := &CachedSystemResources{
+		Timestamp: now,
+		Resources: resources,
+		SystemMetrics: map[string]interface{}{
+			"running_containers": systemMetrics.RunningContainers,
+			"cpu_percent":        systemMetrics.CPUPercent,
+			"memory_usage":       systemMetrics.MemoryUsage,
+			"memory_limit":       systemMetrics.MemoryLimit,
+			"network_rx":         systemMetrics.NetworkRx,
+			"network_tx":         systemMetrics.NetworkTx,
+			"disk_total":         diskTotal,
+			"disk_free":          diskFree,
+			"host_cpu_load":      hostCPU,
+			"host_memory_usage":  hostRAM,
+			"container_net_load": containerNet,
+			"host_net_load":      hostNet,
+		},
+		RunningContainers: systemMetrics.RunningContainers,
+	}
+
+	m.systemCacheMu.Lock()
+	m.systemCache = cached
+	m.systemCacheMu.Unlock()
+}
+
+func (m *Monitor) GetCachedSystemResources() *CachedSystemResources {
+	m.systemCacheMu.RLock()
+	defer m.systemCacheMu.RUnlock()
+	return m.systemCache
+}
+
+func (m *Monitor) CollectAndCacheSystemResourcesSync() {
+	m.collectAndCacheSystemResources()
 }
 
 // CleanupOldData removes old health checks and metrics
