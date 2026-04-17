@@ -525,7 +525,7 @@ PasswordStrengthBar.propTypes = { score: PropTypes.number.isRequired };
 function FormField({ id, label, hint, children }) {
   return (
     <div>
-      <label htmlFor={id} className="text-accent font-sans text-sm text-left translate-x-5 mb-1">
+      <label htmlFor={id} className="block text-accent font-sans text-sm text-left translate-x-5 mb-1">
         {label}
       </label>
       {children}
