@@ -201,14 +201,6 @@ Allow users to install apps beyond the builtin catalog.
 - `POST /api/v1/catalog/install-url` — Install from URL
 - `GET /api/v1/catalog/custom` — List custom apps
 
-### T2.1.7. Color Contrast Audit
-#### Status: In progress
-#### Effort: 8h
-#### Acceptance Criteria:
-- [ ] Scan all components for color usage
-- [ ] Verify contrast ratios meet WCAG AA
-- [ ] Fix any violations
-
 ### 2.2 Backup & Restore
 
 #### T2.2.1. Backups Page
@@ -808,6 +800,14 @@ Document Caddy reverse proxy and ACME certificate management for operators.
 #### Acceptance Criteria:
 - [ ] Test key pages with NVDA/VoiceOver
 - [ ] Fix any announced content issues
+
+### T4.5.6. Color Usage Scan
+#### Status: In progress
+#### Effort: 8h
+#### Acceptance Criteria:
+- [ ] Scan all components for color usage
+- [ ] Verify contrast ratios meet WCAG AA
+- [ ] Fix any violations
 
 
 **Status:** Not started
