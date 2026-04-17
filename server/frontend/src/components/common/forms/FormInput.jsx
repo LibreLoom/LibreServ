@@ -69,7 +69,7 @@ export default function FormInput({
         )}
       </div>
       {error && (
-        <p id={`${name}-error`} className="text-accent text-xs mt-1 px-5">
+        <p id={`${name}-error`} className="text-error text-xs mt-1 px-5">
           {error}
         </p>
       )}

@@ -1,13 +1,13 @@
 import PropTypes from "prop-types";
 
 const VARIANTS = {
-  default: "bg-primary/10 text-primary",
-  muted: "bg-primary/10 text-accent",
-  accent: "bg-accent/20 text-accent",
-  success: "bg-success/20 text-success",
-  warning: "bg-warning/20 text-warning",
-  error: "bg-error/20 text-error",
-  info: "bg-info/20 text-info",
+  default: "bg-primary/20 text-primary",
+  muted: "bg-primary/20 text-accent",
+  accent: "bg-accent/30 text-accent",
+  success: "bg-success/30 text-success",
+  warning: "bg-warning/30 text-warning",
+  error: "bg-error/30 text-error",
+  info: "bg-info/30 text-info",
   custom: "",
 };
 
