@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 )
 
 func TestSettingsGet(t *testing.T) {
@@ -186,5 +188,78 @@ func TestSettingsUpdateInvalidBody(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+}
+
+func TestSettingsUpdateProxy(t *testing.T) {
+	cfg := &config.Config{
+		Network: config.NetworkConfig{
+			Caddy: config.CaddyConfig{
+				Mode:          "enabled",
+				AdminAPI:      "localhost:2019",
+				DefaultDomain: "old.example.com",
+				Email:         "old@example.com",
+				AutoHTTPS:     false,
+			},
+		},
+	}
+	config.SetTestConfig(cfg)
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer db.Close()
+
+	// Migrate database to create tables
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		t.Fatalf("failed to enable foreign keys: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		type TEXT NOT NULL DEFAULT 'string',
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		t.Fatalf("failed to create app_settings table: %v", err)
+	}
+
+	svc := settings.NewService(db)
+	handler := NewSettingsHandler(svc, nil)
+	body := `{"default_domain":"new.example.com","ssl_email":"admin@example.com","auto_https":true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/proxy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.UpdateProxy(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	proxy, ok := response["proxy"].(map[string]interface{})
+	if !ok {
+		t.Fatal("proxy not found in response")
+	}
+
+	if proxy["default_domain"] != "new.example.com" {
+		t.Errorf("expected default_domain new.example.com, got %v", proxy["default_domain"])
+	}
+
+	if proxy["ssl_email"] != "admin@example.com" {
+		t.Logf("DEBUG: ssl_email value is %v (type: %T)", proxy["ssl_email"], proxy["ssl_email"])
+		t.Logf("DEBUG: Full proxy map: %+v", proxy)
+		t.Errorf("expected ssl_email admin@example.com, got %v", proxy["ssl_email"])
+	}
+
+	if proxy["auto_https"] != true {
+		t.Errorf("expected auto_https true, got %v", proxy["auto_https"])
 	}
 }

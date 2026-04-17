@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -239,6 +240,16 @@ func (r *Repository) LoadIntoConfig() error {
 		cfg.CORS.AllowedOrigins = csvToStringSlice(v)
 	}
 
+	if v, ok := changes["network.caddy.default_domain"]; ok {
+		cfg.Network.Caddy.DefaultDomain = v
+	}
+	if v, ok := changes["network.caddy.email"]; ok {
+		cfg.Network.Caddy.Email = v
+	}
+	if v, ok := changes["network.caddy.auto_https"]; ok {
+		cfg.Network.Caddy.AutoHTTPS, _ = strconv.ParseBool(v)
+	}
+
 	if _, ok := changes["logging.level"]; ok {
 		logger.Init(cfg.Logging)
 	}
@@ -320,6 +331,9 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 		}
 		if cfg.Network.Caddy.DefaultDomain != "" {
 			proxyInfo["default_domain"] = cfg.Network.Caddy.DefaultDomain
+		}
+		if cfg.Network.Caddy.Email != "" {
+			proxyInfo["ssl_email"] = cfg.Network.Caddy.Email
 		}
 		proxyInfo["auto_https"] = cfg.Network.Caddy.AutoHTTPS
 		settings["proxy"] = proxyInfo
@@ -468,6 +482,40 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 		}
 	}
 
+	if proxyRaw, ok := updates["proxy"]; ok {
+		proxy, _ := proxyRaw.(map[string]interface{})
+		if proxy == nil {
+			return fmt.Errorf("invalid proxy format")
+		}
+		if defaultDomain, ok := proxy["default_domain"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Network.Caddy.DefaultDomain = defaultDomain },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "network.caddy.default_domain", defaultDomain, "string")
+				},
+			})
+		}
+		if sslEmail, ok := proxy["ssl_email"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Network.Caddy.Email = sslEmail },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "network.caddy.email", sslEmail, "string")
+				},
+			})
+		}
+		if autoHTTPS, ok := toBool(proxy["auto_https"]); ok {
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Network.Caddy.AutoHTTPS = autoHTTPS },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "network.caddy.auto_https", strconv.FormatBool(autoHTTPS), "bool")
+				},
+			})
+		}
+	} else {
+		// Debug: print what updates we received
+		slog.Info("UpdateSettings: updates without proxy", "updates", updates)
+	}
+
 	if len(mutations) == 0 {
 		return nil
 	}
@@ -490,6 +538,12 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 
 	for _, m := range mutations {
 		m.apply()
+	}
+
+	// Reload settings from database to ensure GetSettings returns current values
+	if err := s.repo.LoadIntoConfig(); err != nil {
+		// Log error but don't fail - config was already updated in memory
+		return fmt.Errorf("failed to reload settings from database: %w", err)
 	}
 
 	if _, ok := updates["logging"]; ok {
