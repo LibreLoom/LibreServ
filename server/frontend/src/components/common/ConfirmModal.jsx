@@ -11,12 +11,17 @@ const VARIANTS = {
   },
   warning: {
     iconColor: "text-warning",
-    bannerClass: "bg-warning/10 border-warning/30 text-warning",
+    bannerClass: "bg-warning/10 border-warning/30",
     confirmClass: "bg-warning text-primary hover:ring-2 hover:ring-primary",
   },
   danger: {
     iconColor: "text-error",
-    bannerClass: "bg-error/10 border-error/30 text-error",
+    bannerClass: "bg-error/10 border-error/30",
+    confirmClass: "bg-error text-primary hover:ring-2 hover:ring-primary",
+  },
+  "danger-undoable": {
+    iconColor: "text-error",
+    bannerClass: "bg-error/10 border-error/30",
     confirmClass: "bg-error text-primary hover:ring-2 hover:ring-primary",
   },
 };
@@ -33,6 +38,8 @@ export default function ConfirmModal({
   confirmLabel = "Confirm",
   confirmIcon: ConfirmIcon,
   loading = false,
+  disabledConfirm = false,
+  initialFocusRef,
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const shouldRender = open || isClosing;
@@ -60,6 +67,7 @@ export default function ConfirmModal({
       onClose={handleClose}
       size="sm"
       className={isClosing ? "animate-out fade-out" : "animate-in fade-in"}
+      initialFocusRef={initialFocusRef}
     >
       <div className="flex items-start gap-3">
         {Icon && (
@@ -75,13 +83,14 @@ export default function ConfirmModal({
         </div>
       </div>
 
-      {variant !== "default" && (
+      {variant === "danger" && (
         <div className={`mt-4 border rounded-card p-3 ${styles.bannerClass}`}>
-          <p className="font-mono text-xs">
-            {variant === "danger"
-              ? "This action cannot be undone."
-              : "Please review before proceeding."}
-          </p>
+          <p className="font-mono text-xs">This action cannot be undone.</p>
+        </div>
+      )}
+      {variant === "warning" && (
+        <div className={`mt-4 border rounded-card p-3 ${styles.bannerClass}`}>
+          <p className="font-mono text-xs">Please review before proceeding.</p>
         </div>
       )}
 
@@ -95,7 +104,7 @@ export default function ConfirmModal({
         </button>
         <button
           onClick={handleConfirm}
-          disabled={loading}
+          disabled={loading || disabledConfirm}
           className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill transition-all font-mono text-sm disabled:opacity-50 ${styles.confirmClass}`}
         >
           {loading ? (
@@ -118,8 +127,10 @@ ConfirmModal.propTypes = {
   title: PropTypes.string.isRequired,
   children: PropTypes.node,
   message: PropTypes.string,
-  variant: PropTypes.oneOf(["default", "warning", "danger"]),
+  variant: PropTypes.oneOf(["default", "warning", "danger", "danger-undoable"]),
   confirmLabel: PropTypes.string,
   confirmIcon: PropTypes.elementType,
   loading: PropTypes.bool,
+  disabledConfirm: PropTypes.bool,
+  initialFocusRef: PropTypes.object,
 };

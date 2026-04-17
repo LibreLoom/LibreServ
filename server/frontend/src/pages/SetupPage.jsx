@@ -818,7 +818,7 @@ function DomainIntroStep({ onStart, onSkip }) {
         icon={AlertTriangle}
         title="Skip domain setup?"
         message="Without a domain name, you won't be able to access your apps when you're not home."
-        variant="danger"
+        variant="danger-undoable"
         confirmLabel="Skip anyway"
       />
     </SetupShell>

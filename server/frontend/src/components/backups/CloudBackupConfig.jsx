@@ -214,7 +214,7 @@ export default function CloudBackupConfig({ onConfigured }) {
             <p className="font-mono text-sm text-error mb-3">{loadError}</p>
           <button
             onClick={loadData}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
           >
             Retry
           </button>
@@ -280,11 +280,11 @@ export default function CloudBackupConfig({ onConfigured }) {
 
                 <div className="space-y-3">
                   <p className="font-mono text-sm text-primary">Example commands:</p>
-                  <div className="bg-primary/5 rounded-card p-3 font-mono text-xs text-primary/70">
+                    <div className="bg-primary/5 rounded-card p-3 font-mono text-xs text-primary/70">
                     <p className="mb-2"># Using rclone:</p>
                     <p className="text-primary">rclone sync {backupPath} remote:libreserv-backups/</p>
                   </div>
-                  <div className="bg-primary/5 rounded-card p-3 font-mono text-xs text-primary/70">
+                    <div className="bg-primary/5 rounded-card p-3 font-mono text-xs text-primary/70">
                     <p className="mb-2"># Using rsync:</p>
                     <p className="text-primary">rsync -avz {backupPath}/ user@server:/backup/libreserv/</p>
                   </div>

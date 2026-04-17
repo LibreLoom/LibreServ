@@ -12,6 +12,7 @@ export default function ModalCard({
   mobileFullscreen = false,
   footer,
   className = "",
+  initialFocusRef,
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const titleId = useId();
@@ -32,7 +33,11 @@ export default function ModalCard({
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
-    closeButtonRef.current?.focus();
+    if (initialFocusRef?.current) {
+      initialFocusRef.current.focus();
+    } else {
+      closeButtonRef.current?.focus();
+    }
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
@@ -64,7 +69,7 @@ export default function ModalCard({
       document.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus?.();
     };
-  }, [handleClose]);
+  }, [handleClose, initialFocusRef]);
 
   const sizeClasses =
     size === "fullscreen"
