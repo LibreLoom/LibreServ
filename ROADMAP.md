@@ -788,11 +788,13 @@ Document Caddy reverse proxy and ACME certificate management for operators.
 - [ ] Focus visible, visible focus outlines
 
 ### T4.5.4. Contrast Ratio
-#### Status: Not started
-#### Effort: 2h
+#### Status: In progress
+#### Effort: 10h
 #### Acceptance Criteria:
+- [ ] Scan all components for color usage
 - [ ] Verify color contrast meets WCAG AA
 - [ ] Update theme variables if needed
+- [ ] Fix any violations
 
 ### T4.5.5. Screen Reader Testing
 #### Status: Not started
