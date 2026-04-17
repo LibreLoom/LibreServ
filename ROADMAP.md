@@ -339,7 +339,7 @@ Implement a global system to track uptime and availability of apps and the serve
 
 #### T3.1.3. Domain Setup in First-Run Wizard
 
-**Status:** Not started
+**Status:** Done
 **Effort:** 4h
 **Dependencies:** T3.1.4
 
