@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Server, Trash2 } from "lucide-react";
+import { AlertCircle, Server, Trash2, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 import ConfirmModal from "../../common/ConfirmModal";
 import ValueDisplay from "../../common/ValueDisplay";
@@ -7,6 +7,7 @@ import SettingsCard from "../SettingsCard";
 import RoutesCard from "../../backups/RoutesCard";
 import DebugCard from "../../backups/DebugCard";
 import RouteModal from "../RouteModal";
+import FormInput from "../../common/forms/FormInput";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import { getCaddyStatus, listRoutes, getCaddyfile } from "../../../lib/network-api";
@@ -29,6 +30,8 @@ export default function NetworkCategory({ settings }) {
   const [togglingId, setTogglingId] = useState(null);
 
   const defaultDomain = settings?.proxy?.default_domain || "";
+  const [domainInput, setDomainInput] = useState(defaultDomain);
+  const [domainSaving, setDomainSaving] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -90,7 +93,7 @@ export default function NetworkCategory({ settings }) {
     const originalRoutes = [...routes];
     setTogglingId(route.id);
     setRoutes((prev) =>
-      prev.map((r) => (r.id === route.id ? { ...r, enabled: !r.enabled } : r)),
+      prev.map((r) => (r.id === route.id ? { ...r, enabled: !r.enabled } : r))
     );
     try {
       const response = await request(`/network/routes/${route.id}`, {
@@ -142,6 +145,28 @@ export default function NetworkCategory({ settings }) {
     ? apps?.find((a) => a.id === routeToDelete.app_id)?.name
     : null;
 
+  const handleDomainSave = useCallback(async () => {
+    if (!domainInput.trim()) return;
+    setDomainSaving(true);
+    try {
+      const res = await request("/api/v1/settings/proxy", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ default_domain: domainInput.trim() }),
+      });
+      if (res.ok) {
+        addToast({ type: "success", message: "Domain updated" });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        addToast({ type: "error", message: data.message || "Failed to update domain" });
+      }
+    } catch {
+      addToast({ type: "error", message: "Failed to update domain" });
+    } finally {
+      setDomainSaving(false);
+    }
+  }, [domainInput, request, addToast]);
+
   return (
     <div className="space-y-6">
       {caddyStatus && (
@@ -171,20 +196,34 @@ export default function NetworkCategory({ settings }) {
         </SettingsCard>
       )}
 
-      {!defaultDomain && (
-        <div
-          className="animate-in fade-in slide-in-from-bottom-2 duration-300 flex items-start gap-3 p-4 bg-info/10 border border-info/30 rounded-card"
-          style={{ animationDelay: caddyStatus ? "50ms" : undefined }}
-        >
-          <AlertCircle size={16} className="text-info mt-0.5 shrink-0" />
-          <div>
-            <p className="font-mono text-sm text-info">No default domain configured</p>
-            <p className="text-xs text-accent mt-0.5">
-              Each route requires a full domain (e.g. example.com). Configure a default domain in General settings or enter one when creating a route.
+      <SettingsCard icon={Server} title="Default Domain" index={1}>
+        <div className="p-4">
+          <FormInput
+            label="Default domain"
+            name="default-domain"
+            value={domainInput}
+            onChange={(e) => setDomainInput(e.target.value)}
+            placeholder="example.com"
+          />
+          <button
+            type="button"
+            onClick={handleDomainSave}
+            disabled={domainSaving || !domainInput.trim() || domainInput === defaultDomain}
+            className="mt-3 inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-5 py-2.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            {domainSaving ? (
+              <> <Loader2 size={16} className="animate-spin" /> Saving... </>
+            ) : (
+              "Save"
+            )}
+          </button>
+          {defaultDomain && (
+            <p className="mt-3 text-sm text-primary/70">
+              Current domain: <strong>{defaultDomain}</strong>
             </p>
-          </div>
+          )}
         </div>
-      )}
+      </SettingsCard>
 
       <RoutesCard
         routes={routes}

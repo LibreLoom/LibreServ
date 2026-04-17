@@ -315,3 +315,26 @@ func (h *SettingsHandler) TestNotification(w http.ResponseWriter, r *http.Reques
 		"settings": s,
 	})
 }
+
+func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
+	var updates map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if h.settingsService == nil {
+		JSONError(w, http.StatusInternalServerError, "settings service not available")
+		return
+	}
+
+	// Wrap updates in proxy object to match UpdateSettings expectations
+	proxyUpdates := map[string]interface{}{"proxy": updates}
+	if err := h.settingsService.UpdateSettings(r.Context(), proxyUpdates); err != nil {
+		JSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	result, _ := h.settingsService.GetSettings(r.Context())
+	JSON(w, http.StatusOK, result)
+}
