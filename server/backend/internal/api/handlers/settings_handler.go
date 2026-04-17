@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -323,6 +324,28 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate inputs
+	if defaultDomain, ok := updates["default_domain"].(string); ok && defaultDomain != "" {
+		if err := validateDomain(defaultDomain); err != nil {
+			JSONError(w, http.StatusBadRequest, "invalid default_domain: "+err.Error())
+			return
+		}
+	}
+
+	if sslEmail, ok := updates["ssl_email"].(string); ok && sslEmail != "" {
+		if err := validateEmail(sslEmail); err != nil {
+			JSONError(w, http.StatusBadRequest, "invalid ssl_email: "+err.Error())
+			return
+		}
+	}
+
+	if autoHTTPS, ok := updates["auto_https"]; ok {
+		if _, ok := autoHTTPS.(bool); !ok {
+			JSONError(w, http.StatusBadRequest, "auto_https must be a boolean")
+			return
+		}
+	}
+
 	if h.settingsService == nil {
 		JSONError(w, http.StatusInternalServerError, "settings service not available")
 		return
@@ -337,4 +360,59 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 
 	result, _ := h.settingsService.GetSettings(r.Context())
 	JSON(w, http.StatusOK, result)
+}
+
+// validateDomain validates a domain name format
+func validateDomain(domain string) error {
+	if domain == "" {
+		return nil
+	}
+	// Basic domain validation: letters, numbers, hyphens, dots
+	// Must not start or end with hyphen or dot
+	// Must have at least one dot for TLD
+	if len(domain) > 253 {
+		return fmt.Errorf("domain too long (max 253 characters)")
+	}
+	if domain[0] == '-' || domain[len(domain)-1] == '-' {
+		return fmt.Errorf("domain cannot start or end with a hyphen")
+	}
+	if domain[0] == '.' || domain[len(domain)-1] == '.' {
+		return fmt.Errorf("domain cannot start or end with a dot")
+	}
+	// Check for valid characters
+	for i, r := range domain {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '.') {
+			return fmt.Errorf("invalid character at position %d: %c", i, r)
+		}
+	}
+	// Must have at least one dot for TLD
+	if !strings.Contains(domain, ".") {
+		return fmt.Errorf("domain must include a TLD (e.g., .com, .org)")
+	}
+	return nil
+}
+
+// validateEmail validates an email address format
+func validateEmail(email string) error {
+	if email == "" {
+		return nil
+	}
+	// Basic email validation: must have @ and domain
+	if !strings.Contains(email, "@") {
+		return fmt.Errorf("email must contain @")
+	}
+	parts := strings.Split(email, "@")
+	if len(parts) != 2 {
+		return fmt.Errorf("email must have exactly one @")
+	}
+	if len(parts[0]) == 0 {
+		return fmt.Errorf("email username cannot be empty")
+	}
+	if len(parts[1]) == 0 {
+		return fmt.Errorf("email domain cannot be empty")
+	}
+	if !strings.Contains(parts[1], ".") {
+		return fmt.Errorf("email domain must include a TLD")
+	}
+	return nil
 }

@@ -35,7 +35,8 @@ type Installer struct {
 	metricsCache    *AppMetricsCache
 	portManager     *PortManager
 	registerBackend func(instanceID, backend, name string)
-	domainConfig    *DomainConfig // Temporary storage during install
+	cleanupRoute    func(ctx context.Context, appID string) error
+	domainConfig    *DomainConfig // Temporary storage during install (used synchronously in Install())
 
 	installOutputsMu sync.Mutex
 	installOutputs   map[string]chan ScriptOutput
@@ -64,6 +65,11 @@ func (i *Installer) SetCatalogPath(catalogPath string) {
 // SetBackendRegistrar wires a callback used to register the reachable backend for an app (for ACME).
 func (i *Installer) SetBackendRegistrar(fn func(instanceID, backend, name string)) {
 	i.registerBackend = fn
+}
+
+// SetRouteCleanup sets a callback to clean up routes on install failure
+func (i *Installer) SetRouteCleanup(fn func(ctx context.Context, appID string) error) {
+	i.cleanupRoute = fn
 }
 
 // SetDomainConfig sets the domain configuration for the current install (temporary)
@@ -323,7 +329,11 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		return &InstallResult{Success: false, Error: "failed to save app record"}, err
 	}
 
-	go i.completeInstall(appDef, installedApp, composePath, config)
+	// Capture domainConfig for the goroutine to avoid race condition
+	// The API handler will clear i.domainConfig immediately after Install() returns
+	domainConfigForInstall := i.domainConfig
+
+	go i.completeInstall(appDef, installedApp, composePath, config, domainConfigForInstall)
 
 	return &InstallResult{
 		Success: true,
@@ -356,28 +366,48 @@ func (i *Installer) resolveBackend(appDef *AppDefinition, installedApp *Installe
 	return "http://localhost:8080" // fallback
 }
 
+// createRoute stores domain config in the app's Config map and persists it to the database.
+// Route creation itself is handled by the Manager via the backend registration callback.
 func (i *Installer) createRoute(ctx context.Context, appDef *AppDefinition, installedApp *InstalledApp, domain *DomainConfig) error {
 	if domain == nil || domain.Domain == "" {
 		return nil
 	}
 
-	i.logger.Info("Creating route for app", "instance_id", installedApp.ID, "subdomain", domain.Subdomain, "domain", domain.Domain)
+	i.logger.Info("Storing domain config for app", "instance_id", installedApp.ID, "subdomain", domain.Subdomain, "domain", domain.Domain)
 
-	// Note: We don't have CaddyManager injected here due to architectural constraints.
-	// Route creation is deferred to the Manager level via backend registration callbacks.
-	// The Manager will handle route creation through its backend registration logic.
-
-	// Store domain info in metadata (using Config map)
+	// Store domain info in Config map
 	if installedApp.Config == nil {
 		installedApp.Config = make(map[string]interface{})
 	}
 	installedApp.Config["domain"] = domain.Domain
 	installedApp.Config["subdomain"] = domain.Subdomain
 
+	// Persist domain config to database so the Manager's backend registrar callback can access it
+	if err := i.updateAppConfigInDB(installedApp.ID, installedApp.Config); err != nil {
+		i.logger.Warn("Failed to persist domain config to database", "error", err)
+		return err
+	}
+
 	return nil
 }
 
-func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *InstalledApp, composePath string, config map[string]interface{}) {
+// updateAppConfigInDB updates an app's config in the database
+func (i *Installer) updateAppConfigInDB(instanceID string, config map[string]interface{}) error {
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	_, err = i.db.Exec(`
+		UPDATE apps
+		SET config = ?, updated_at = ?
+		WHERE id = ?
+	`, configJSON, time.Now(), instanceID)
+
+	return err
+}
+
+func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *InstalledApp, composePath string, config map[string]interface{}, domainConfig *DomainConfig) {
 	instanceID := installedApp.ID
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
@@ -397,7 +427,7 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 	outputCh <- ScriptOutput{Type: "stdout", Content: "Starting application services...\n"}
 	if err := i.runtime.ComposeUp(ctx, composePath); err != nil {
 		i.logger.Error("Failed to start containers", "error", err)
-		i.handleInstallFailure(instanceID, installedApp.Path, "failed to start containers: "+err.Error())
+		i.handleInstallFailure(instanceID, installedApp.Path, "failed to start containers: "+err.Error(), domainConfig)
 		outputCh <- ScriptOutput{Type: "error", Error: "failed to start containers: " + err.Error()}
 		return
 	}
@@ -405,7 +435,7 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 	outputCh <- ScriptOutput{Type: "stdout", Content: "Waiting for services to start...\n"}
 	if err := i.waitForContainers(ctx, instanceID); err != nil {
 		i.logger.Error("Containers failed to start", "error", err)
-		i.handleInstallFailure(instanceID, installedApp.Path, "containers failed to start: "+err.Error())
+		i.handleInstallFailure(instanceID, installedApp.Path, "containers failed to start: "+err.Error(), domainConfig)
 		outputCh <- ScriptOutput{Type: "error", Error: "containers failed to start: " + err.Error()}
 		return
 	}
@@ -417,6 +447,15 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 		i.metricsCache.UpdateStatus(instanceID, StatusRunning)
 	}
 
+	// Create route and persist domain config BEFORE backend registrar callback
+	// This ensures the Manager's callback can read domain config from the database
+	if domainConfig != nil {
+		if err := i.createRoute(ctx, appDef, installedApp, domainConfig); err != nil {
+			i.logger.Warn("Failed to store domain config (non-blocking)", "error", err)
+		}
+	}
+
+	// Register backends - Manager callback will create Caddy routes using persisted domain config
 	if i.registerBackend != nil && installedApp.URL != "" {
 		i.registerBackend(instanceID, installedApp.URL, "")
 	}
@@ -432,13 +471,6 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 				continue
 			}
 			i.registerBackend(instanceID, b.URL, b.Name)
-		}
-	}
-
-	// Create route if domain config provided
-	if i.domainConfig != nil {
-		if err := i.createRoute(ctx, appDef, installedApp, i.domainConfig); err != nil {
-			i.logger.Warn("Route creation failed (non-blocking)", "error", err)
 		}
 	}
 
@@ -474,18 +506,16 @@ func (i *Installer) updateAppStatus(instanceID string, status AppStatus, errMsg 
 }
 
 // handleInstallFailure cleans up after a failed install
-func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string) {
+func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string, domainConfig *DomainConfig) {
+	ctx := context.Background()
+
 	// Mark as error in DB (keep the record so frontend can show the error message)
 	i.updateAppStatus(instanceID, StatusError, errMsg)
 
 	// Cleanup route if it was created
-	if i.domainConfig != nil {
-		subdomain := i.domainConfig.Subdomain
-		domain := i.domainConfig.Domain
-		if subdomain != "" && domain != "" {
-			// Note: Route cleanup would happen in Manager level via backend registration
-			// For now, we just log it - the Manager's cleanup logic will handle it
-			i.logger.Info("Install failed, route may need cleanup", "instance_id", instanceID, "subdomain", subdomain, "domain", domain)
+	if i.cleanupRoute != nil && domainConfig != nil {
+		if err := i.cleanupRoute(ctx, instanceID); err != nil {
+			i.logger.Warn("Failed to cleanup route on install failure", "error", err)
 		}
 	}
 

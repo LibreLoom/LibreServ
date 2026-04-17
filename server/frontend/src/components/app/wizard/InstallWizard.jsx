@@ -81,7 +81,12 @@ function InstallWizard({ appId }) {
 
         // Auto-fill subdomain if domain is configured
         if (configuredDomain) {
-          const suggested = generateSuggestedSubdomain(appData.name);
+          const suggested = appData.name
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .replace(/-+/g, "-")
+            .substring(0, 50);
           setSubdomain(suggested);
         }
 
@@ -147,7 +152,7 @@ function InstallWizard({ appId }) {
       setError("Installation failed. Please check your settings and try again.");
       handleStepChange(2);
     }
-  }, [appId, config, features, request, handleStepChange, domainConfigured, domain, subdomain, app?.name]);
+  }, [appId, config, features, request, handleStepChange, domainConfigured, domain, subdomain, app]);
 
   const handleComplete = useCallback(
     (statusData) => {
@@ -168,17 +173,6 @@ function InstallWizard({ appId }) {
   const handleBack = useCallback(() => {
     navigate("/apps");
   }, [navigate]);
-
-  // Generate suggested subdomain from app name
-  const generateSuggestedSubdomain = useCallback((appName) => {
-    if (!appName) return "";
-    return appName
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .replace(/-+/g, "-")
-      .substring(0, 50);
-  }, []);
 
   if (loading) {
     return null;
