@@ -222,7 +222,15 @@ func main() {
 	defer renewalScheduler.Stop()
 
 	runtimeClient := docker.NewRuntimeAdapter(dockerClient)
-	appManager, err := apps.NewManager(cfg.Apps.CatalogPath, cfg.Apps.DataPath, runtimeClient, db, monitor, backupService)
+	appManager, err := apps.NewManager(
+		cfg.Apps.CatalogPath,
+		cfg.Apps.DataPath,
+		runtimeClient,
+		db,
+		monitor,
+		backupService,
+		caddyManager, // NEW: Pass CaddyManager for route creation
+	)
 	if err != nil {
 		slog.Error("failed to initialize app manager", "error", err)
 		os.Exit(1)

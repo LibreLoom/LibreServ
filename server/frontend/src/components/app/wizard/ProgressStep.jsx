@@ -9,6 +9,8 @@ const INSTALL_PHASES = [
   { id: "configuring", label: "Setting up configuration" },
   { id: "starting", label: "Starting services" },
   { id: "verifying", label: "Verifying installation" },
+  { id: "creating-route", label: "Creating subdomain route" },
+  { id: "requesting-cert", label: "Requesting HTTPS certificate" },
 ];
 
 function getErrorSummary(error) {
@@ -94,6 +96,10 @@ function ProgressStep({ instanceId, onComplete }) {
           setCurrentPhase((prev) => Math.max(prev, 3));
         } else if (/all containers running|verifying/i.test(content)) {
           setCurrentPhase((prev) => Math.max(prev, 4));
+        } else if (/route|subdomain|nginx|caddy/i.test(content)) {
+          setCurrentPhase((prev) => Math.max(prev, 5));
+        } else if (/certificate|https|ssl|letsencrypt/i.test(content)) {
+          setCurrentPhase((prev) => Math.max(prev, 6));
         }
       } catch {
         // Ignore parse errors for non-JSON SSE data
@@ -186,7 +192,36 @@ function ProgressStep({ instanceId, onComplete }) {
         setStatus(data.status);
 
         if (data.status === "running") {
-          handleComplete(data);
+          // Check if route was created
+          try {
+            const routesRes = await fetch("/api/v1/network/routes");
+            const routesData = await routesRes.json();
+            const route = routesData.routes.find(r => r.app_id === instanceId);
+
+            if (route) {
+              setCurrentPhase(6); // Requesting cert
+            }
+
+            // If we have a route, wait for certificate
+            if (route) {
+              // Check for certificate in Caddy status
+              const caddyRes = await fetch("/api/v1/network/status");
+              const caddyData = await caddyRes.json();
+
+              if (caddyData.domains && caddyData.domains.includes(`${route.subdomain}.${route.domain}`)) {
+                setCurrentPhase(5); // Completed
+                handleComplete({ status: "running", subdomain: route.subdomain, domain: route.domain });
+              } else {
+                // Wait and poll again
+                setTimeout(pollStatus, 2000);
+              }
+            } else {
+              handleComplete(data);
+            }
+          } catch (err) {
+            console.error("Route status poll error:", err);
+            handleComplete(data);
+          }
         } else if (data.status === "error") {
           if (!hasCompleted.current) {
             hasCompleted.current = true;

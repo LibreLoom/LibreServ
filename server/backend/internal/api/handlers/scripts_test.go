@@ -76,7 +76,15 @@ scripts:
 		t.Fatalf("insert app: %v", err)
 	}
 
-	manager, err := apps.NewManager(catalogRoot, installRoot, nil, db, nil, nil)
+	manager, err := apps.NewManager(
+		catalogRoot,
+		installRoot,
+		nil,
+		db,
+		nil,
+		nil,
+		nil, // caddyManager
+	)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
 	}

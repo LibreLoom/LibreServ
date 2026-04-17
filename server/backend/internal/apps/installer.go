@@ -35,6 +35,7 @@ type Installer struct {
 	metricsCache    *AppMetricsCache
 	portManager     *PortManager
 	registerBackend func(instanceID, backend, name string)
+	domainConfig    *DomainConfig // Temporary storage during install
 
 	installOutputsMu sync.Mutex
 	installOutputs   map[string]chan ScriptOutput
@@ -63,6 +64,16 @@ func (i *Installer) SetCatalogPath(catalogPath string) {
 // SetBackendRegistrar wires a callback used to register the reachable backend for an app (for ACME).
 func (i *Installer) SetBackendRegistrar(fn func(instanceID, backend, name string)) {
 	i.registerBackend = fn
+}
+
+// SetDomainConfig sets the domain configuration for the current install (temporary)
+func (i *Installer) SetDomainConfig(config *DomainConfig) {
+	i.domainConfig = config
+}
+
+// ClearDomainConfig clears the domain configuration after install
+func (i *Installer) ClearDomainConfig() {
+	i.domainConfig = nil
 }
 
 // GetInstallOutputChannel returns the output channel for an active install, or nil if none exists.
@@ -320,6 +331,52 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	}, nil
 }
 
+func (i *Installer) resolveBackend(appDef *AppDefinition, installedApp *InstalledApp) string {
+	// Try to find a backend URL in the app definition
+	for _, b := range appDef.Deployment.Backends {
+		if b.URL != "" {
+			return b.URL
+		}
+	}
+
+	// Fall back to HTTP protocol with allocated port from config
+	if installedApp.Config != nil {
+		for _, p := range appDef.Deployment.Ports {
+			if p.Name == "" {
+				continue
+			}
+			if portValue, ok := installedApp.Config[p.Name]; ok {
+				if port, ok := portValue.(int); ok && port > 0 {
+					return fmt.Sprintf("http://localhost:%d", port)
+				}
+			}
+		}
+	}
+
+	return "http://localhost:8080" // fallback
+}
+
+func (i *Installer) createRoute(ctx context.Context, appDef *AppDefinition, installedApp *InstalledApp, domain *DomainConfig) error {
+	if domain == nil || domain.Domain == "" {
+		return nil
+	}
+
+	i.logger.Info("Creating route for app", "instance_id", installedApp.ID, "subdomain", domain.Subdomain, "domain", domain.Domain)
+
+	// Note: We don't have CaddyManager injected here due to architectural constraints.
+	// Route creation is deferred to the Manager level via backend registration callbacks.
+	// The Manager will handle route creation through its backend registration logic.
+
+	// Store domain info in metadata (using Config map)
+	if installedApp.Config == nil {
+		installedApp.Config = make(map[string]interface{})
+	}
+	installedApp.Config["domain"] = domain.Domain
+	installedApp.Config["subdomain"] = domain.Subdomain
+
+	return nil
+}
+
 func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *InstalledApp, composePath string, config map[string]interface{}) {
 	instanceID := installedApp.ID
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
@@ -378,6 +435,13 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 		}
 	}
 
+	// Create route if domain config provided
+	if i.domainConfig != nil {
+		if err := i.createRoute(ctx, appDef, installedApp, i.domainConfig); err != nil {
+			i.logger.Warn("Route creation failed (non-blocking)", "error", err)
+		}
+	}
+
 	if err := i.saveInstalledApp(installedApp); err != nil {
 		i.logger.Error("Failed to update installed app", "error", err)
 	}
@@ -413,6 +477,17 @@ func (i *Installer) updateAppStatus(instanceID string, status AppStatus, errMsg 
 func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string) {
 	// Mark as error in DB (keep the record so frontend can show the error message)
 	i.updateAppStatus(instanceID, StatusError, errMsg)
+
+	// Cleanup route if it was created
+	if i.domainConfig != nil {
+		subdomain := i.domainConfig.Subdomain
+		domain := i.domainConfig.Domain
+		if subdomain != "" && domain != "" {
+			// Note: Route cleanup would happen in Manager level via backend registration
+			// For now, we just log it - the Manager's cleanup logic will handle it
+			i.logger.Info("Install failed, route may need cleanup", "instance_id", instanceID, "subdomain", subdomain, "domain", domain)
+		}
+	}
 
 	// Try to stop and remove any running containers
 	if i.runtime != nil {

@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
@@ -31,13 +33,21 @@ type Manager struct {
 	logger         *slog.Logger
 	monitor        *monitoring.Monitor
 	metricsCache   *AppMetricsCache
+	caddyManager   *network.CaddyManager
 	backendMap     map[string][]string            // appID -> backend URLs (primary first)
 	backendByName  map[string]map[string][]string // appID -> name -> backends
 	scriptExecutor *ScriptExecutor
 }
 
 // NewManager creates a new app Manager
-func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntime, db *database.DB, monitor *monitoring.Monitor, backupService *storage.BackupService) (*Manager, error) {
+func NewManager(
+	catalogPath, appsDataDir string,
+	runtime runtime.ContainerRuntime,
+	db *database.DB,
+	monitor *monitoring.Monitor,
+	backupService *storage.BackupService,
+	caddyManager *network.CaddyManager,
+) (*Manager, error) {
 	// Load catalog
 	catalog, err := NewCatalog(catalogPath)
 	if err != nil {
@@ -52,6 +62,7 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 		appsDataDir:    appsDataDir,
 		logger:         slog.Default().With("component", "apps-manager"),
 		monitor:        monitor,
+		caddyManager:   caddyManager,
 		backendMap:     make(map[string][]string),
 		backendByName:  make(map[string]map[string][]string),
 		scriptExecutor: NewScriptExecutorWithCatalog(slog.Default().With("component", "script-executor"), nil, appsDataDir, catalogPath),
@@ -76,12 +87,68 @@ func NewManager(catalogPath, appsDataDir string, runtime runtime.ContainerRuntim
 	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache, m.portManager)
 	m.installer.SetCatalogPath(catalogPath)
 	m.installer.SetBackendRegistrar(func(instanceID, backend, name string) {
+		// Existing: Register for ACME/monitoring
 		if name != "" {
 			m.RegisterNamedBackend(instanceID, name, backend)
-			return
+		} else {
+			m.RegisterBackend(instanceID, backend)
 		}
-		m.RegisterBackend(instanceID, backend)
+
+		// NEW: Check if this backend installation has domain config
+		// Only create route for the primary backend (empty name), not named backends
+		if m.caddyManager != nil && name == "" {
+			app, err := m.GetInstalledApp(context.Background(), instanceID)
+			if err == nil && app != nil && app.Config != nil {
+				if domain, ok := app.Config["domain"].(string); ok && domain != "" {
+					if subdomain, ok := app.Config["subdomain"].(string); ok && subdomain != "" {
+						// Create Caddy route for this app
+						route, err := m.caddyManager.AddRoute(
+							context.Background(),
+							subdomain,
+							domain,
+							backend,
+							instanceID,
+						)
+						if err != nil {
+							// Check if this is a duplicate error (expected on subsequent backend registrations)
+							if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "UNIQUE") {
+								m.logger.Debug("Route already exists (expected)", "instance_id", instanceID, "subdomain", subdomain)
+							} else {
+								m.logger.Warn("Failed to create route",
+									"instance_id", instanceID,
+									"subdomain", subdomain,
+									"domain", domain,
+									"error", err,
+								)
+							}
+							// Non-blocking - don't fail install
+						} else {
+							m.logger.Info("Created route for app",
+								"instance_id", instanceID,
+								"subdomain", subdomain,
+								"domain", domain,
+								"route_id", route.ID,
+							)
+							// Store route_id in app config for cleanup
+							if app.Config == nil {
+								app.Config = make(map[string]interface{})
+							}
+							app.Config["route_id"] = route.ID
+							// Update the app record in database (only update route_id, not entire config)
+							if err := m.updateRouteIDInConfig(instanceID, route.ID); err != nil {
+								m.logger.Warn("Failed to update route_id in app config",
+									"instance_id", instanceID,
+									"route_id", route.ID,
+									"error", err,
+								)
+							}
+						}
+					}
+				}
+			}
+		}
 	})
+
 	m.RebuildBackends(context.Background())
 
 	return m, nil
@@ -710,6 +777,20 @@ func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 		m.portManager.ReleaseAll(instanceID)
 	}
 
+	// Clean up routes for this app
+	if m.caddyManager != nil {
+		route, err := m.caddyManager.GetRouteByApp(instanceID)
+		if err == nil && route != nil {
+			m.logger.Info("Removing route during uninstall", "instance_id", instanceID, "route_id", route.ID)
+			if err := m.caddyManager.RemoveRoute(ctx, route.ID); err != nil {
+				m.logger.Warn("Failed to remove route", "instance_id", instanceID, "error", err)
+			}
+		}
+	}
+
+	// Clean up backend registrations
+	m.removeBackendRegistrations(instanceID)
+
 	if m.metricsCache != nil {
 		m.metricsCache.RemoveApp(instanceID)
 	}
@@ -860,8 +941,94 @@ func (m *Manager) RefreshCatalog() error {
 
 // Close cleans up manager resources
 func (m *Manager) Close() error {
-	// Cleanup any resources
+	return m.db.Close()
+}
+
+// updateAppConfigForInstall updates an app's config for install completion
+func (m *Manager) updateAppConfigForInstall(instanceID string, config map[string]interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Convert config map to JSON
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Update app config in database
+	_, err = m.db.Exec(`
+		UPDATE apps
+		SET config = ?, updated_at = ?
+		WHERE id = ?
+	`, configJSON, time.Now(), instanceID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update app config: %w", err)
+	}
+
 	return nil
+}
+
+// updateRouteIDInConfig updates only the route_id in an app's config
+func (m *Manager) updateRouteIDInConfig(instanceID, routeID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Fetch the current app config first
+	var currentConfigJSON []byte
+	err := m.db.QueryRow(`
+		SELECT config FROM apps WHERE id = ?
+	`, instanceID).Scan(&currentConfigJSON)
+
+	if err != nil {
+		return fmt.Errorf("failed to fetch app config: %w", err)
+	}
+
+	// Parse the current config
+	var currentConfig map[string]interface{}
+	if err := json.Unmarshal(currentConfigJSON, &currentConfig); err != nil {
+		return fmt.Errorf("failed to unmarshal config: %w", err)
+	}
+
+	// Update only the route_id field
+	if currentConfig == nil {
+		currentConfig = make(map[string]interface{})
+	}
+	currentConfig["route_id"] = routeID
+
+	// Serialize and update
+	newConfigJSON, err := json.Marshal(currentConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal new config: %w", err)
+	}
+
+	_, err = m.db.Exec(`
+		UPDATE apps
+		SET config = ?, updated_at = ?
+		WHERE id = ?
+	`, newConfigJSON, time.Now(), instanceID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update route_id: %w", err)
+	}
+
+	return nil
+}
+
+// removeBackendRegistrations removes backend registrations for an app
+func (m *Manager) removeBackendRegistrations(appID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Remove from backendMap
+	if _, ok := m.backendMap[appID]; ok {
+		delete(m.backendMap, appID)
+	}
+
+	// Remove from backendByName
+	if _, ok := m.backendByName[appID]; ok {
+		delete(m.backendByName, appID)
+	}
 }
 
 // updateStatus updates the status and updated_at fields for an app
