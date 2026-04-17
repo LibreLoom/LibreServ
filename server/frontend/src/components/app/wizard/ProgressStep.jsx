@@ -199,28 +199,25 @@ function ProgressStep({ instanceId, onComplete }) {
             const route = routesData.routes.find(r => r.app_id === instanceId);
 
             if (route) {
-              setCurrentPhase(6); // Requesting cert
-            }
-
-            // If we have a route, wait for certificate
-            if (route) {
+              setCurrentPhase(5); // Creating route
               // Check for certificate in Caddy status
               const caddyRes = await fetch("/api/v1/network/status");
               const caddyData = await caddyRes.json();
 
               if (caddyData.domains && caddyData.domains.includes(`${route.subdomain}.${route.domain}`)) {
-                setCurrentPhase(5); // Completed
+                setCurrentPhase(6); // Requesting cert (complete)
                 handleComplete({ status: "running", subdomain: route.subdomain, domain: route.domain });
-              } else {
-                // Wait and poll again
-                setTimeout(pollStatus, 2000);
+                return;
               }
+              // Certificate not ready yet - will poll again via interval
             } else {
-              handleComplete(data);
+              handleComplete({ status: "running" });
+              return;
             }
           } catch (err) {
             console.error("Route status poll error:", err);
-            handleComplete(data);
+            handleComplete({ status: "running" });
+            return;
           }
         } else if (data.status === "error") {
           if (!hasCompleted.current) {

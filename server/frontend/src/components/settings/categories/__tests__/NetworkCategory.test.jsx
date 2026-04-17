@@ -147,19 +147,21 @@ describe("NetworkCategory", () => {
     });
   });
 
-  it("shows no-default-domain banner when default domain is not set", async () => {
+  it("shows default domain input when default domain is not set", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
 
     await waitFor(() => {
-      expect(screen.getByText("No default domain configured")).toBeInTheDocument();
+      expect(screen.getByLabelText("Default domain")).toBeInTheDocument();
+      expect(screen.getByPlaceholderText("example.com")).toBeInTheDocument();
     });
   });
 
-  it("hides no-default-domain banner when default domain is set", async () => {
+  it("shows current domain when default domain is set", async () => {
     renderWithProviders(<NetworkCategory settings={{ proxy: { default_domain: "example.com" } }} />);
 
     await waitFor(() => {
-      expect(screen.queryByText("No default domain configured")).not.toBeInTheDocument();
+      expect(screen.getByText("Current domain:")).toBeInTheDocument();
+      expect(screen.getByText("example.com")).toBeInTheDocument();
     });
   });
 

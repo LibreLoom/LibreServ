@@ -60,7 +60,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
       if (!data.available) {
         setSubdomainError(data.error || "Subdomain is already in use");
       }
-    } catch (err) {
+    } catch {
       setSubdomainError("Failed to check availability");
     } finally {
       setChecking(false);

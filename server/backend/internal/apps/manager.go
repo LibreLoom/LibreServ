@@ -86,6 +86,19 @@ func NewManager(
 	// Create installer
 	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache, m.portManager)
 	m.installer.SetCatalogPath(catalogPath)
+
+	// Set route cleanup callback for install failures
+	if m.caddyManager != nil {
+		m.installer.SetRouteCleanup(func(ctx context.Context, appID string) error {
+			route, err := m.caddyManager.GetRouteByApp(appID)
+			if err != nil || route == nil {
+				return nil // No route to cleanup
+			}
+			m.logger.Info("Cleaning up route after install failure", "instance_id", appID, "route_id", route.ID)
+			return m.caddyManager.RemoveRoute(ctx, route.ID)
+		})
+	}
+
 	m.installer.SetBackendRegistrar(func(instanceID, backend, name string) {
 		// Existing: Register for ACME/monitoring
 		if name != "" {
@@ -971,10 +984,7 @@ func (m *Manager) updateAppConfigForInstall(instanceID string, config map[string
 
 // updateRouteIDInConfig updates only the route_id in an app's config
 func (m *Manager) updateRouteIDInConfig(instanceID, routeID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Fetch the current app config first
+	// Fetch the current app config (no lock needed - direct DB read)
 	var currentConfigJSON []byte
 	err := m.db.QueryRow(`
 		SELECT config FROM apps WHERE id = ?
@@ -996,12 +1006,13 @@ func (m *Manager) updateRouteIDInConfig(instanceID, routeID string) error {
 	}
 	currentConfig["route_id"] = routeID
 
-	// Serialize and update
+	// Serialize
 	newConfigJSON, err := json.Marshal(currentConfig)
 	if err != nil {
 		return fmt.Errorf("failed to marshal new config: %w", err)
 	}
 
+	// Update database (no lock needed - DB handles concurrency)
 	_, err = m.db.Exec(`
 		UPDATE apps
 		SET config = ?, updated_at = ?

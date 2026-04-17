@@ -145,14 +145,37 @@ export default function NetworkCategory({ settings }) {
     ? apps?.find((a) => a.id === routeToDelete.app_id)?.name
     : null;
 
+  const validateDomain = useCallback((domain) => {
+    if (!domain.trim()) return "Domain is required";
+    if (domain.length > 253) return "Domain is too long (max 253 characters)";
+    if (domain[0] === "-" || domain[domain.length - 1] === "-") {
+      return "Domain cannot start or end with a hyphen";
+    }
+    if (domain[0] === "." || domain[domain.length - 1] === ".") {
+      return "Domain cannot start or end with a dot";
+    }
+    if (!/^[a-zA-Z0-9.-]+$/.test(domain)) {
+      return "Domain can only contain letters, numbers, hyphens, and dots";
+    }
+    if (!domain.includes(".")) {
+      return "Domain must include a TLD (e.g., .com, .org)";
+    }
+    return null;
+  }, []);
+
   const handleDomainSave = useCallback(async () => {
-    if (!domainInput.trim()) return;
+    const trimmedDomain = domainInput.trim();
+    const validationError = validateDomain(trimmedDomain);
+    if (validationError) {
+      addToast({ type: "error", message: validationError });
+      return;
+    }
     setDomainSaving(true);
     try {
       const res = await request("/api/v1/settings/proxy", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ default_domain: domainInput.trim() }),
+        body: JSON.stringify({ default_domain: trimmedDomain }),
       });
       if (res.ok) {
         addToast({ type: "success", message: "Domain updated" });
@@ -165,7 +188,7 @@ export default function NetworkCategory({ settings }) {
     } finally {
       setDomainSaving(false);
     }
-  }, [domainInput, request, addToast]);
+  }, [domainInput, request, addToast, validateDomain]);
 
   return (
     <div className="space-y-6">

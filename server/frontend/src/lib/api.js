@@ -18,9 +18,6 @@ export default async function api(path, options = {}, retried = false) {
     ...fetchOptions,
     headers,
   });
-  console.log(`[api] ${path} -> ${res.status} (retried=${retried})`);
-  const responseText = await res.text();
-  console.log(`[api] ${path} response body:`, responseText.substring(0, 200));
   if (
     res.status === 401 &&
     !(

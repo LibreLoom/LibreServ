@@ -202,6 +202,9 @@ func TestSettingsUpdateProxy(t *testing.T) {
 				AutoHTTPS:     false,
 			},
 		},
+		Auth: config.AuthConfig{
+			CSRFSecret: "test-secret-for-testing-purposes-only",
+		},
 	}
 	config.SetTestConfig(cfg)
 
