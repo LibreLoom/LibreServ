@@ -1,20 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
-import {
-  createContext,
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useCallback,
-  useRef,
-} from "react";
+import { createContext, useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 
 export const ThemeContext = createContext(undefined);
 
 function getSystemTheme() {
   if (typeof window !== "undefined" && window.matchMedia) {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   return "light";
 }
@@ -27,8 +18,8 @@ const DEFAULT_LIGHT_COLORS = {
 
 const DEFAULT_DARK_COLORS = {
   primary: "#000000",
-  secondary: "#dddddd",
-  accent: "#686868",
+  secondary: "#ffffff",
+  accent: "#767676",
 };
 
 function isValidHexColor(color) {
@@ -38,12 +29,8 @@ function isValidHexColor(color) {
 
 function sanitizeColors(colors, defaults) {
   return {
-    primary: isValidHexColor(colors?.primary)
-      ? colors.primary
-      : defaults.primary,
-    secondary: isValidHexColor(colors?.secondary)
-      ? colors.secondary
-      : defaults.secondary,
+    primary: isValidHexColor(colors?.primary) ? colors.primary : defaults.primary,
+    secondary: isValidHexColor(colors?.secondary) ? colors.secondary : defaults.secondary,
     accent: isValidHexColor(colors?.accent) ? colors.accent : defaults.accent,
   };
 }
@@ -58,27 +45,16 @@ function getStoredValue(key, defaultValue) {
   return defaultValue;
 }
 
-function resolveColors(
-  isDark,
-  customColors,
-  darkColors,
-  useSeparateDarkColors,
-) {
+function resolveColors(isDark, customColors, darkColors, useSeparateDarkColors) {
   if (customColors) {
     if (isDark && useSeparateDarkColors && darkColors) {
       return sanitizeColors(darkColors, DEFAULT_DARK_COLORS);
     }
     if (isDark) {
       return {
-        primary: isValidHexColor(customColors.secondary)
-          ? customColors.secondary
-          : DEFAULT_DARK_COLORS.primary,
-        secondary: isValidHexColor(customColors.primary)
-          ? customColors.primary
-          : DEFAULT_DARK_COLORS.secondary,
-        accent: isValidHexColor(customColors.accent)
-          ? customColors.accent
-          : DEFAULT_DARK_COLORS.accent,
+        primary: isValidHexColor(customColors.secondary) ? customColors.secondary : DEFAULT_DARK_COLORS.primary,
+        secondary: isValidHexColor(customColors.primary) ? customColors.primary : DEFAULT_DARK_COLORS.secondary,
+        accent: isValidHexColor(customColors.accent) ? customColors.accent : DEFAULT_DARK_COLORS.accent,
       };
     }
     return sanitizeColors(customColors, DEFAULT_LIGHT_COLORS);
@@ -90,30 +66,27 @@ export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("theme");
-      if (stored === "system" || stored === "dark" || stored === "light")
-        return stored;
+      if (stored === "system" || stored === "dark" || stored === "light") return stored;
     }
     return "system";
   });
 
-  const [use12HourTime, setUse12HourTime] = useState(() =>
-    getStoredValue("use12HourTime", false),
-  );
+  const [use12HourTime, setUse12HourTime] = useState(() => getStoredValue("use12HourTime", false));
 
   const [systemTheme, setSystemTheme] = useState(() => getSystemTheme());
 
   const resolvedTheme = theme === "system" ? systemTheme : theme;
 
   const [customColors, setCustomColors] = useState(() =>
-    getStoredValue("theme-colors", null),
+    getStoredValue("theme-colors", null)
   );
 
   const [darkColors, setDarkColors] = useState(() =>
-    getStoredValue("theme-dark-colors", null),
+    getStoredValue("theme-dark-colors", null)
   );
 
   const [useSeparateDarkColors, setUseSeparateDarkColors] = useState(() =>
-    getStoredValue("theme-separate-dark", false),
+    getStoredValue("theme-separate-dark", false)
   );
 
   const initializedRef = useRef(false);
@@ -129,12 +102,7 @@ export function ThemeProvider({ children }) {
   useLayoutEffect(() => {
     const root = document.documentElement;
     const isDark = resolvedTheme === "dark";
-    const target = resolveColors(
-      isDark,
-      customColors,
-      darkColors,
-      useSeparateDarkColors,
-    );
+    const target = resolveColors(isDark, customColors, darkColors, useSeparateDarkColors);
 
     if (!initializedRef.current) {
       initializedRef.current = true;
@@ -180,19 +148,9 @@ export function ThemeProvider({ children }) {
       localStorage.removeItem("theme-dark-colors");
     }
 
-    localStorage.setItem(
-      "theme-separate-dark",
-      JSON.stringify(useSeparateDarkColors),
-    );
+    localStorage.setItem("theme-separate-dark", JSON.stringify(useSeparateDarkColors));
     localStorage.setItem("use12HourTime", JSON.stringify(use12HourTime));
-  }, [
-    theme,
-    resolvedTheme,
-    customColors,
-    darkColors,
-    useSeparateDarkColors,
-    use12HourTime,
-  ]);
+  }, [theme, resolvedTheme, customColors, darkColors, useSeparateDarkColors, use12HourTime]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => {
@@ -208,10 +166,7 @@ export function ThemeProvider({ children }) {
       setDarkColors(null);
       return;
     }
-    const sanitized = sanitizeColors(
-      colors,
-      resolvedTheme === "dark" ? DEFAULT_DARK_COLORS : DEFAULT_LIGHT_COLORS,
-    );
+    const sanitized = sanitizeColors(colors, resolvedTheme === "dark" ? DEFAULT_DARK_COLORS : DEFAULT_LIGHT_COLORS);
     setCustomColors(sanitized);
   };
 
@@ -238,15 +193,8 @@ export function ThemeProvider({ children }) {
     setUse12HourTime(Boolean(value));
   }, []);
 
-  const currentColors =
-    customColors ||
-    (resolvedTheme === "dark" ? DEFAULT_DARK_COLORS : DEFAULT_LIGHT_COLORS);
-  const currentDarkColors =
-    useSeparateDarkColors && darkColors
-      ? darkColors
-      : useSeparateDarkColors
-        ? DEFAULT_DARK_COLORS
-        : null;
+  const currentColors = customColors || (resolvedTheme === "dark" ? DEFAULT_DARK_COLORS : DEFAULT_LIGHT_COLORS);
+  const currentDarkColors = (useSeparateDarkColors && darkColors) ? darkColors : (useSeparateDarkColors ? DEFAULT_DARK_COLORS : null);
 
   return (
     <ThemeContext.Provider
