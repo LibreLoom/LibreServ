@@ -1,12 +1,12 @@
 import PropTypes from "prop-types";
 
 const VARIANTS = {
-  default: "bg-primary/10 text-primary",
-  success: "bg-success/20 text-success",
-  warning: "bg-warning/20 text-warning",
-  error: "bg-error/20 text-error",
-  accent: "bg-accent/20 text-accent",
-  info: "bg-info/20 text-info",
+  default: "bg-primary/20 text-primary",
+  success: "bg-success/30 text-success",
+  warning: "bg-warning/30 text-warning",
+  error: "bg-error/30 text-error",
+  accent: "bg-accent/30 text-accent",
+  info: "bg-info/30 text-info",
 };
 
 export default function StatusBadge({ children, variant = "default", className = "" }) {
