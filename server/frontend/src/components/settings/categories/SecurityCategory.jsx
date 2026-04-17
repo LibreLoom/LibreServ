@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import {
-  Shield,
   Bell,
   Mail,
   Check,
+  Shield,
   Activity,
   AlertTriangle,
   RefreshCw,
@@ -15,8 +15,8 @@ import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import Dropdown from "../../common/Dropdown";
 import Table from "../../common/Table";
 import Pill from "../../common/Pill";
+import Button from "../../ui/Button";
 import TypewriterLoader from "../../ui/TypewriterLoader";
-import SettingsRow from "../SettingsRow";
 import SettingsCard from "../SettingsCard";
 import { useToast } from "../../../context/ToastContext";
 import {
@@ -318,38 +318,24 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
                 onChange={handleNotificationChange}
               />
             </div>
+
           </div>
-        </div>
-      </SettingsCard>
 
-      <SettingsCard
-        icon={Shield}
-        title="Account Security"
-        padding={false}
-        index={2}
-      >
-        <div className="px-4 py-3">
-          <SettingsRow label="Account Lockout" description="Lock after 5 failed attempts">
-            <div className="flex items-center gap-1.5 text-primary text-sm">
-              <Check size={14} className="text-success" />
-              <span>Enabled</span>
-            </div>
-          </SettingsRow>
-
-          <SettingsRow label="Password Requirements">
-            <div className="text-sm text-accent">12+ chars, letters + numbers</div>
-          </SettingsRow>
-
-          <div className="px-4 py-3">
-            <div className="text-sm text-accent mb-2">Test Email</div>
-            <button
-              onClick={handleTestNotification}
-              disabled={testing || !settings?.notifications_enabled}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-secondary rounded-pill hover:bg-accent hover:text-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 text-sm"
-            >
-              <Mail size={16} />
-              {testing ? "Sending..." : "Send Test"}
-            </button>
+          <div className="pt-4 mt-4 border-t border-primary/10 pb-3">
+            <div className="font-medium text-primary mb-3">Test Email</div>
+            <Pill>
+              <Mail size={14} />
+              <span className="text-xs">Send a test notification to your email</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={handleTestNotification}
+                disabled={testing}
+                className="ml-2"
+              >
+                {testing ? "Sending..." : "Send Test"}
+              </Button>
+            </Pill>
           </div>
         </div>
       </SettingsCard>

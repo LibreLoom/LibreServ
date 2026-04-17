@@ -105,6 +105,7 @@ func (s *Server) setupRoutes() {
 	systemHandler := handlers.NewSystemHandler(s.sysChecker)
 	systemHandler.SetAuditLogger(s)
 	auditHandler := handlers.NewAuditHandler(s.audit)
+	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService)
 
 	// Configure authentication middleware with CSRF protection
 	authConfig := &middleware.AuthConfig{
@@ -388,6 +389,12 @@ func (s *Server) setupRoutes() {
 			r.Route("/audit", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", auditHandler.ListLogs)
+			})
+
+			// Factory reset (admin only - DANGEROUS!)
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Post("/factory-reset", factoryResetHandler.FactoryReset)
 			})
 
 			// Security monitoring (authenticated users)

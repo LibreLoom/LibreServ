@@ -3,6 +3,7 @@ import ValueDisplay from "../../common/ValueDisplay";
 import Dropdown from "../../common/Dropdown";
 import Toggle from "../../common/Toggle";
 import SettingsCard from "../SettingsCard";
+import FactoryResetCard from "./FactoryResetCard";
 
 export default function GeneralCategory({ settings, use12HourTime, on12HourTimeChange }) {
   return (
@@ -40,6 +41,8 @@ export default function GeneralCategory({ settings, use12HourTime, on12HourTimeC
           <ValueDisplay label="Log Path" value={settings?.logging?.path || "N/A"} />
         </div>
       </SettingsCard>
+
+      <FactoryResetCard settings={settings} />
     </div>
   );
 }
