@@ -43,7 +43,7 @@ function InstallWizard({ appId }) {
           request(`/catalog/${appId}`),
           request(`/catalog/${appId}/features`),
           request("/apps"),
-          fetch("/api/v1/settings/proxy").then((r) => r.json()),
+          request("/settings/proxy"),
         ]);
 
         const appData = await appRes.json();
@@ -74,7 +74,7 @@ function InstallWizard({ appId }) {
         setConfig(defaultConfig);
 
         // Check if domain is configured
-        const settings = await settingsRes;
+        const settings = await settingsRes.json();
         const configuredDomain = settings?.proxy?.default_domain;
         setDomain(configuredDomain);
         setDomainConfigured(!!configuredDomain);
