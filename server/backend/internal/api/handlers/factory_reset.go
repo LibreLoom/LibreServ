@@ -23,91 +23,55 @@ func NewFactoryResetHandler(db *database.DB, setupSvc *setup.Service) *FactoryRe
 
 func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Request) {
 	err := h.db.WithTransaction(r.Context(), func(tx *sql.Tx) error {
-		operations := []database.TransactionalOperation{
-			{Name: "delete_routes", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM routes")
+		rows, err := tx.Query(`
+			SELECT name FROM sqlite_master 
+			WHERE type='table' 
+			AND name NOT LIKE 'sqlite_%' 
+			AND name != 'schema_migrations'
+		`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		var tables []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err != nil {
 				return err
-			}},
-			{Name: "delete_backups", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM backups")
-				return err
-			}},
-			{Name: "delete_backup_schedules", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM backup_schedules")
-				return err
-			}},
-			{Name: "delete_cloud_backup_config", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM cloud_backup_config")
-				return err
-			}},
-			{Name: "delete_dns_provider_configs", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM dns_provider_configs")
-				return err
-			}},
-			{Name: "delete_apps", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM apps")
-				return err
-			}},
-			{Name: "delete_user_security_settings", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM user_security_settings")
-				return err
-			}},
-			{Name: "delete_app_settings", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM app_settings")
-				return err
-			}},
-			{Name: "delete_users", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM users")
-				return err
-			}},
-			{Name: "delete_revoked_tokens", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM revoked_tokens")
-				return err
-			}},
-			{Name: "delete_audit_log", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM audit_log")
-				return err
-			}},
-			{Name: "delete_security_events", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM security_events")
-				return err
-			}},
-			{Name: "delete_failed_login_attempts", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM failed_login_attempts")
-				return err
-			}},
-			{Name: "delete_metrics", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM metrics")
-				return err
-			}},
-			{Name: "delete_health_checks", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM health_checks")
-				return err
-			}},
-			{Name: "delete_updates", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM updates")
-				return err
-			}},
-			{Name: "delete_support_sessions", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM support_sessions")
-				return err
-			}},
-			{Name: "delete_support_audit", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("DELETE FROM support_audit")
-				return err
-			}},
-			{Name: "reset_setup_state_table", Fn: func(tx *sql.Tx) error {
-				_, err := tx.Exec("UPDATE setup_state SET status = ?", setup.StatusPending)
-				return err
-			}},
+			}
+			tables = append(tables, name)
 		}
 
-		for _, op := range operations {
-			if err := op.Fn(tx); err != nil {
-				slog.Error("factory reset operation failed", "operation", op.Name, "error", err)
+		for _, table := range tables {
+			if table == "setup_state" {
+				continue
+			}
+			if _, err := tx.Exec("DELETE FROM " + table); err != nil {
+				slog.Error("factory reset delete failed", "table", table, "error", err)
 				return err
 			}
 		}
+
+		if _, err := tx.Exec("DELETE FROM sqlite_sequence"); err != nil {
+			slog.Error("factory reset sqlite_sequence failed", "error", err)
+			return err
+		}
+
+		if _, err := tx.Exec(`
+			UPDATE setup_state 
+			SET status = ?, 
+			    completed_at = NULL,
+			    current_step = 'checking',
+			    current_sub_step = NULL,
+			    step_data = '{}',
+			    progress_updated_at = NULL
+			WHERE id = 1
+		`, setup.StatusPending); err != nil {
+			slog.Error("factory reset setup_state failed", "error", err)
+			return err
+		}
+
 		return nil
 	})
 

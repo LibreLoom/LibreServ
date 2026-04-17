@@ -113,8 +113,8 @@ export default function App() {
 />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/lore" element={<LorePage />} />
-            <Route path="/demo/error-boundary" element={<ErrorBoundaryDemo />} />
-            <Route path="/demo/error-display" element={<ErrorDisplayDemo />} />
+<Route path="/demo/error-boundary" element={<ErrorBoundaryDemo />} />
+          <Route path="/demo/error-display" element={<ErrorDisplayDemo />} />
           </Route>
           {/* Public routes outside auth requirement */}
           <Route path="/setup" element={<SetupPage />} />
