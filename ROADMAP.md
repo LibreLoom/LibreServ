@@ -201,6 +201,14 @@ Allow users to install apps beyond the builtin catalog.
 - `POST /api/v1/catalog/install-url` — Install from URL
 - `GET /api/v1/catalog/custom` — List custom apps
 
+### T2.1.7. Color Contrast Audit
+#### Status: In progress
+#### Effort: 8h
+#### Acceptance Criteria:
+- [ ] Scan all components for color usage
+- [ ] Verify contrast ratios meet WCAG AA
+- [ ] Fix any violations
+
 ### 2.2 Backup & Restore
 
 #### T2.2.1. Backups Page
