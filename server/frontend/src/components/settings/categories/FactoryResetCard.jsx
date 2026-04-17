@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
 import ConfirmModal from "../../common/ConfirmModal";
@@ -8,8 +9,9 @@ import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 
 function FactoryResetCard() {
-  const { request } = useAuth();
+  const { request, logout } = useAuth();
   const { addToast } = useToast();
+  const navigate = useNavigate();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
@@ -21,20 +23,22 @@ function FactoryResetCard() {
 
     setLoading(true);
     try {
-      await request("/api/v1/admin/factory-reset", { method: "POST" });
-      addToast({ type: "success", message: "Factory reset complete. Redirecting..." });
+      await request("/admin/factory-reset", { method: "POST" });
+      addToast({ type: "success", message: "Factory reset complete" });
+      await logout();
+      navigate("/setup");
     } catch (err) {
       addToast({ type: "error", message: err.message || "Factory reset failed" });
     } finally {
       setLoading(false);
     }
-  }, [confirmText, request, addToast]);
+  }, [confirmText, request, addToast, logout, navigate]);
 
   return (
     <>
       <SettingsCard icon={AlertTriangle} title="Factory Reset" index={2}>
         <p className="text-sm text-muted mb-4">
-          Reset this device to factory defaults. This will delete all data and settings.
+          Reset this device to factory defaults. <strong>This will delete all data and settings.</strong>
         </p>
         <Button
           variant="danger"
