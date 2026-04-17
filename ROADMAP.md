@@ -764,6 +764,44 @@ Document Caddy reverse proxy and ACME certificate management for operators.
 
 #### T4.4.4. Architecture Diagrams
 
+## Phase 4.5: Accessibility
+### T4.5.1. Accessibility Audit
+#### Status: Not started
+#### Effort: 5h
+#### Acceptance Criteria:
+- [ ] Perform automated accessibility audit (aXe)
+- [ ] Identify violations in UI components
+- [ ] Report findings
+
+### T4.5.2. ARIA Labels
+#### Status: Not started
+#### Effort: 3h
+#### Acceptance Criteria:
+- [ ] Add ARIA roles/labels to interactive elements
+- [ ] Ensure screen reader announces correct text
+
+### T4.5.3. Keyboard Navigation
+#### Status: Not started
+#### Effort: 4h
+#### Acceptance Criteria:
+- [ ] All interactive elements reachable via Tab
+- [ ] Focus visible, visible focus outlines
+
+### T4.5.4. Contrast Ratio
+#### Status: Not started
+#### Effort: 2h
+#### Acceptance Criteria:
+- [ ] Verify color contrast meets WCAG AA
+- [ ] Update theme variables if needed
+
+### T4.5.5. Screen Reader Testing
+#### Status: Not started
+#### Effort: 3h
+#### Acceptance Criteria:
+- [ ] Test key pages with NVDA/VoiceOver
+- [ ] Fix any announced content issues
+
+
 **Status:** Not started
 **Effort:** 2h
 
