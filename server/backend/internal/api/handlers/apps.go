@@ -30,9 +30,10 @@ func (h *AppsHandler) SetAuditLogger(logger AuditLogger) {
 
 // InstallRequest represents an app installation request
 type InstallRequest struct {
-	AppID  string                 `json:"app_id"`
-	Name   string                 `json:"name,omitempty"`
-	Config map[string]interface{} `json:"config,omitempty"`
+	AppID        string                 `json:"app_id"`
+	Name         string                 `json:"name"`
+	Config       map[string]interface{} `json:"config"`
+	DomainConfig *apps.DomainConfig     `json:"domain_config,omitempty"`
 }
 
 // AppsListResponse represents the list of installed apps
@@ -95,6 +96,12 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	if err := installer.ValidateConfig(req.AppID, req.Config); err != nil {
 		JSONError(w, http.StatusBadRequest, "invalid configuration")
 		return
+	}
+
+	// Set domain config for this install (temporary)
+	if req.DomainConfig != nil {
+		installer.SetDomainConfig(req.DomainConfig)
+		defer installer.ClearDomainConfig()
 	}
 
 	// Install the app

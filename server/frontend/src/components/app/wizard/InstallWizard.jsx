@@ -5,6 +5,7 @@ import { useInvalidateApps } from "../../../hooks/useApps";
 import WizardStepper from "./WizardStepper";
 import OverviewStep from "./OverviewStep";
 import ConfigureStep from "./ConfigureStep";
+import SubdomainStep from "./SubdomainStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
 
@@ -24,6 +25,9 @@ function InstallWizard({ appId }) {
   const [showWizard, setShowWizard] = useState(false);
   const [animationDirection, setAnimationDirection] = useState("initial");
   const prevStepRef = useRef(1);
+  const [subdomain, setSubdomain] = useState("");
+  const [domain, setDomain] = useState("");
+  const [domainConfigured, setDomainConfigured] = useState(false);
 
   useEffect(() => {
     if (!loading) {
@@ -35,10 +39,11 @@ function InstallWizard({ appId }) {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [appRes, featuresRes, installedRes] = await Promise.all([
+        const [appRes, featuresRes, installedRes, settingsRes] = await Promise.all([
           request(`/catalog/${appId}`),
           request(`/catalog/${appId}/features`),
           request("/apps"),
+          fetch("/api/v1/settings/proxy").then((r) => r.json()),
         ]);
 
         const appData = await appRes.json();
@@ -67,6 +72,19 @@ function InstallWizard({ appId }) {
           });
         }
         setConfig(defaultConfig);
+
+        // Check if domain is configured
+        const settings = await settingsRes;
+        const configuredDomain = settings?.proxy?.default_domain;
+        setDomain(configuredDomain);
+        setDomainConfigured(!!configuredDomain);
+
+        // Auto-fill subdomain if domain is configured
+        if (configuredDomain) {
+          const suggested = generateSuggestedSubdomain(appData.name);
+          setSubdomain(suggested);
+        }
+
         setLoading(false);
       } catch (err) {
         console.error("Failed to load app data:", err);
@@ -102,13 +120,24 @@ function InstallWizard({ appId }) {
         delete installConfig._shared_password;
       }
 
+      const installRequest = {
+        app_id: appId,
+        name: app?.name,
+        config: installConfig,
+      };
+
+      // Add domain config if available
+      if (domainConfigured && domain && subdomain) {
+        installRequest.domain_config = {
+          subdomain: subdomain,
+          domain: domain,
+        };
+      }
+
       const res = await request("/apps", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          app_id: appId,
-          config: installConfig,
-        }),
+        body: JSON.stringify(installRequest),
       });
 
       const data = await res.json();
@@ -118,7 +147,7 @@ function InstallWizard({ appId }) {
       setError("Installation failed. Please check your settings and try again.");
       handleStepChange(2);
     }
-  }, [appId, config, features, request, handleStepChange]);
+  }, [appId, config, features, request, handleStepChange, domainConfigured, domain, subdomain, app?.name]);
 
   const handleComplete = useCallback(
     (statusData) => {
@@ -139,6 +168,17 @@ function InstallWizard({ appId }) {
   const handleBack = useCallback(() => {
     navigate("/apps");
   }, [navigate]);
+
+  // Generate suggested subdomain from app name
+  const generateSuggestedSubdomain = useCallback((appName) => {
+    if (!appName) return "";
+    return appName
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .replace(/-+/g, "-")
+      .substring(0, 50);
+  }, []);
 
   if (loading) {
     return null;
@@ -206,14 +246,24 @@ function InstallWizard({ appId }) {
             key={`step-2-${animationDirection}`}
             className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
           >
-            <ConfigureStep
-              app={app}
-              features={features}
-              config={config}
-              onConfigChange={setConfig}
-              onContinue={handleInstall}
-              onBack={() => handleStepChange(1)}
-            />
+            {domainConfigured ? (
+              <SubdomainStep
+                app={app}
+                domain={domain}
+                onSubdomainChange={setSubdomain}
+                onContinue={handleInstall}
+                onBack={() => handleStepChange(1)}
+              />
+            ) : (
+              <ConfigureStep
+                app={app}
+                features={features}
+                config={config}
+                onConfigChange={setConfig}
+                onContinue={handleInstall}
+                onBack={() => handleStepChange(1)}
+              />
+            )}
           </div>
         )}
 
