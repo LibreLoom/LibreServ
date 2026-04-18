@@ -335,14 +335,31 @@ upload_assets() {
     
     BUILD_DIR=$(pwd)/release-build
     
+    # Verify all files exist before uploading
+    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
+        if [ ! -f "$BUILD_DIR/$file" ]; then
+            log_error "Missing file: $BUILD_DIR/$file"
+            exit 1
+        fi
+    done
+    
     for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
         log_info "Uploading $file..."
         
-        curl -s -X POST \
+        UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: token $GITEA_TOKEN" \
             -H "Content-Type: application/octet-stream" \
             --data-binary @"$BUILD_DIR/$file" \
-            "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file" > /dev/null
+            "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file")
+        
+        HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
+        RESPONSE_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
+        
+        if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
+            log_error "Failed to upload $file (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE_BODY"
+            exit 1
+        fi
         
         log_info "Uploaded $file"
     done
