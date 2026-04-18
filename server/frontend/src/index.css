@@ -77,8 +77,8 @@
   --radius-pill: 9999px;
   /* Setup Large Element Shape */
   --radius-large-element: 24px;
-  /* Setup Card Shape */
-  --radius-card: 12px;
+  --radius-button: 9999px;
+  --radius-card: 24px;
 
   /* M3 Motion Tokens */
   --motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);

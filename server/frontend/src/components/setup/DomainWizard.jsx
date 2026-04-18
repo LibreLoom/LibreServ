@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import PropTypes from "prop-types";
+import api from "../../lib/api";
 import SetupWizard from "../ui/SetupWizard";
 import { WIZ } from "./wiz-constants";
 import HasDomainStep     from "./steps/HasDomainStep";
@@ -22,7 +23,7 @@ function restoreString(val) {
   return typeof val === "string" ? val : "";
 }
 
-export default function DomainWizard({ onComplete, onSkip, onDismiss, initialSubStep, initialStepData, saveProgress }) {
+export default function DomainWizard({ onComplete, onSkip, onDismiss, initialSubStep, initialStepData, saveProgress, open = false }) {
   const initData = initialStepData || {};
 
   const [wizStep,       setWizStep]       = useState(initialSubStep || WIZ.HAS_DOMAIN);
@@ -80,7 +81,7 @@ export default function DomainWizard({ onComplete, onSkip, onDismiss, initialSub
     if (pollRef.current) return;
     pollRef.current = setInterval(async () => {
       try {
-        const res  = await fetch("/api/v1/setup/dns/status");
+        const res  = await api("/setup/dns/status");
         const data = await res.json();
         if (
           data.certificate === "done" ||
@@ -100,7 +101,7 @@ export default function DomainWizard({ onComplete, onSkip, onDismiss, initialSub
   const startApply = useCallback(async () => {
     setApplyError(null);
     try {
-      const res  = await fetch("/api/v1/setup/dns/apply", {
+      const res  = await api("/setup/dns/apply", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ provider: apiProvider, domain, api_token: token, email }),
@@ -123,7 +124,7 @@ export default function DomainWizard({ onComplete, onSkip, onDismiss, initialSub
 
   useEffect(() => {
     if (wizStep === WIZ.DOMAIN_INPUT && !publicIP) {
-      fetch("/api/v1/setup/dns/status")
+      api("/setup/dns/status")
         .then((r) => r.ok ? r.json() : null)
         .then((d) => { if (d?.public_ip) setPublicIP(d.public_ip); })
         .catch(() => {});
@@ -193,7 +194,7 @@ export default function DomainWizard({ onComplete, onSkip, onDismiss, initialSub
     setTestError(null);
     setTestLoading(true);
     try {
-      const res  = await fetch("/api/v1/setup/dns/test", {
+      const res  = await api("/setup/dns/test", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ provider: apiProvider, domain, api_token: token, email }),
@@ -262,6 +263,8 @@ export default function DomainWizard({ onComplete, onSkip, onDismiss, initialSub
   const nextDisabled =
     (wizStep === WIZ.DOMAIN_INPUT && !domain.trim()) ||
     (wizStep === WIZ.CF_NS_GUIDE && !cfNSConfirmed);
+
+  if (!open) return null;
 
   return (
     <SetupWizard
@@ -368,4 +371,5 @@ DomainWizard.propTypes = {
   initialSubStep:  PropTypes.string,
   initialStepData: PropTypes.object,
   saveProgress:    PropTypes.func,
+  open:            PropTypes.bool,
 };

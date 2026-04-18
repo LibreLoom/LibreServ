@@ -266,3 +266,50 @@ func TestSettingsUpdateProxy(t *testing.T) {
 		t.Errorf("expected auto_https true, got %v", proxy["auto_https"])
 	}
 }
+
+func TestSettingsGetProxy(t *testing.T) {
+	cfg := &config.Config{
+		Network: config.NetworkConfig{
+			Caddy: config.CaddyConfig{
+				Mode:          "enabled",
+				AdminAPI:      "localhost:2019",
+				ConfigPath:    "/etc/caddy/Caddyfile",
+				DefaultDomain: "libreserv.local",
+				AutoHTTPS:     false,
+			},
+		},
+	}
+	config.SetTestConfig(cfg)
+
+	handler := NewSettingsHandler(nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings/proxy", nil)
+	rec := httptest.NewRecorder()
+
+	handler.GetProxy(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to parse response: %v", err)
+	}
+
+	proxy, ok := response["proxy"].(map[string]interface{})
+	if !ok {
+		t.Fatal("proxy settings not found")
+	}
+	if proxy["type"] != "caddy" {
+		t.Errorf("expected proxy type caddy, got %v", proxy["type"])
+	}
+	if proxy["default_domain"] != "libreserv.local" {
+		t.Errorf("expected default_domain libreserv.local, got %v", proxy["default_domain"])
+	}
+	if proxy["auto_https"] != false {
+		t.Errorf("expected auto_https false, got %v", proxy["auto_https"])
+	}
+	if proxy["mode"] != "enabled" {
+		t.Errorf("expected mode enabled, got %v", proxy["mode"])
+	}
+}

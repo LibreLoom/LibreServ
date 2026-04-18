@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { AlertTriangle, Info, HardDrive, Cpu, MemoryStick } from "lucide-react";
 import AppIcon from "../../common/AppIcon";
+import FeatureMatrix from "../FeatureMatrix";
 
 const ACCESS_MODEL_INFO = {
   shared_account: {
@@ -101,17 +102,13 @@ function OverviewStep({ app, features, onContinue, onBack }) {
         </div>
       )}
 
-      {features?.sso === false && (
-        <div className="max-w-md mx-auto">
-          <FeatureWarning
-            info={{
-              icon: Info,
-              label: "No Single Sign-On",
-              message:
-                "This app doesn't connect to LibreServ's login system. You'll manage accounts separately.",
-              variant: "info",
-            }}
-          />
+      {features && (
+        <div className="max-w-2xl mx-auto">
+          <div className="border-t border-secondary/20 pt-6">
+            <div className="bg-secondary/80 rounded-large-element p-5">
+              <FeatureMatrix features={features} />
+            </div>
+          </div>
         </div>
       )}
 

@@ -106,6 +106,50 @@ func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, response)
 }
 
+func (h *SettingsHandler) GetProxy(w http.ResponseWriter, r *http.Request) {
+	// Get proxy settings - used by install wizard to check domain configuration
+	response := map[string]interface{}{}
+
+	// Try to get from settings service first
+	if h.settingsService != nil {
+		result, err := h.settingsService.GetSettings(r.Context())
+		if err == nil {
+			if proxySettings, ok := result["proxy"].(map[string]interface{}); ok {
+				response["proxy"] = proxySettings
+				JSON(w, http.StatusOK, response)
+				return
+			}
+		}
+	}
+
+	// Fallback to config
+	cfg := config.Get()
+	if cfg == nil {
+		JSONError(w, http.StatusInternalServerError, "configuration not loaded")
+		return
+	}
+
+	proxyInfo := map[string]interface{}{
+		"type": "caddy",
+	}
+	if cfg.Network.Caddy.Mode != "" {
+		proxyInfo["mode"] = cfg.Network.Caddy.Mode
+	}
+	if cfg.Network.Caddy.AdminAPI != "" {
+		proxyInfo["admin_api"] = cfg.Network.Caddy.AdminAPI
+	}
+	if cfg.Network.Caddy.ConfigPath != "" {
+		proxyInfo["config_path"] = cfg.Network.Caddy.ConfigPath
+	}
+	if cfg.Network.Caddy.DefaultDomain != "" {
+		proxyInfo["default_domain"] = cfg.Network.Caddy.DefaultDomain
+	}
+	proxyInfo["auto_https"] = cfg.Network.Caddy.AutoHTTPS
+
+	response["proxy"] = proxyInfo
+	JSON(w, http.StatusOK, response)
+}
+
 func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {

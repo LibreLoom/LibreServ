@@ -1,4 +1,5 @@
 import { useRef, useCallback } from "react";
+import api from "../lib/api";
 
 export default function useSetupProgress() {
   const seqRef = useRef(0);
@@ -12,7 +13,7 @@ export default function useSetupProgress() {
       step_data: stepData || {},
     };
 
-    fetch("/api/v1/setup/progress", {
+    api("/setup/progress", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

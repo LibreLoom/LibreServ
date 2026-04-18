@@ -8,6 +8,7 @@ import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp,
 import StatusPill from "../components/common/StatusPill";
 import { useApps } from "../hooks/useApps";
 import { useCatalog } from "../hooks/useCatalog";
+import FeatureMatrixPill from "../components/app/FeatureMatrixPill";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";
@@ -35,7 +36,7 @@ function formatBytes(bytes) {
 
 function AppCatalogCard({ app, isInstalled, onInstall }) {
   return (
-    <Card className="relative flex flex-col h-full">
+    <Card className="relative flex flex-col h-full" noHeightAnim>
       <div className="flex items-start gap-4">
         <AppIcon appId={app.id} size={48} className="flex-shrink-0" />
 
@@ -65,6 +66,8 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
       )}
 
       <div className="flex-1" />
+
+      <FeatureMatrixPill appId={app.id} className="mt-3" />
 
       {!isInstalled && (
         <button

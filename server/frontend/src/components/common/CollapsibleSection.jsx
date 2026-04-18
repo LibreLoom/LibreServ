@@ -43,11 +43,11 @@ export default function CollapsibleSection({
       <div
         id={contentId}
         className={`overflow-hidden motion-safe:transition-all ease-[var(--motion-easing-emphasized)] ${
-          open ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+          open ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
         }`}
         style={{ transitionDuration: "var(--motion-duration-medium1)" }}
       >
-        <div className={pill ? "px-3 pb-3 space-y-2" : background ? "mt-3 bg-primary/5 rounded-card p-3" : "pt-2 pl-6"}>
+        <div className={pill ? "px-3 pb-4" : background ? "mt-3 bg-primary/5 rounded-card p-3" : "pt-2 pl-6"}>
           {children}
         </div>
       </div>

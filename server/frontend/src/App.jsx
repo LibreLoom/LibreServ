@@ -22,6 +22,7 @@ const LorePage = lazy(() => import("./pages/LorePage"));
 const ErrorBoundaryDemo = lazy(() => import("./pages/ErrorBoundaryDemo"));
 const ErrorDisplayDemo = lazy(() => import("./pages/ErrorDisplayDemo"));
 
+
 function RequireAuth({ children }) {
   const { me, initialized } = useAuth();
   if (!initialized) return <LoadingFast label="Checking authentication..." />;

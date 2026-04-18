@@ -1,8 +1,10 @@
 import { memo, useState, useCallback, useMemo } from "react";
 import { Globe, Check, AlertTriangle, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
+import { useAuth } from "../../../hooks/useAuth.jsx";
 
 function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loading }) {
+  const { request } = useAuth();
   const [subdomain, setSubdomain] = useState("");
   const [subdomainError, setSubdomainError] = useState(null);
   const [checking, setChecking] = useState(false);
@@ -50,22 +52,31 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
     setSubdomainError(null);
 
     try {
-      const res = await fetch("/api/v1/network/routes/check", {
+      const res = await request("/network/routes/check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ subdomain, domain }),
       });
       const data = await res.json();
+
+      if (!res.ok) {
+        const errorMessage = data.message || data.error || "Failed to check availability";
+        setSubdomainError(typeof errorMessage === "string" ? errorMessage : JSON.stringify(errorMessage));
+        setAvailable(false);
+        return;
+      }
+
       setAvailable(data.available);
       if (!data.available) {
-        setSubdomainError(data.error || "Subdomain is already in use");
+        const errorMessage = data.error || "Subdomain is already in use";
+        setSubdomainError(typeof errorMessage === "string" ? errorMessage : JSON.stringify(errorMessage));
       }
     } catch {
       setSubdomainError("Failed to check availability");
     } finally {
       setChecking(false);
     }
-  }, [subdomain, domain]);
+  }, [subdomain, domain, request]);
 
   // Handle subdomain change
   const handleSubdomainChange = useCallback(
