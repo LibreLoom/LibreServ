@@ -35,8 +35,9 @@ prompt_token() {
     echo "Create a new API token:"
     echo "  1. Go to ${GITEA_INSTANCE}/user/settings/applications"
     echo "  2. Click 'Generate New Token'"
-    echo "  3. Name: release-script"
-    echo "  4. Scopes: write:repository, write:release"
+    echo "  3. Name: anything you want (e.g., release-script)"
+    echo "  4. Select scopes:"
+    echo "     - repository: Read and Write"
     echo "  5. Copy the generated token"
     echo ""
     
