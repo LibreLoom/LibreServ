@@ -300,8 +300,14 @@ create_gitea_release() {
     EXISTING=$(curl -s -H "Authorization: token $GITEA_TOKEN" \
         "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG")
     
-    if echo "$EXISTING" | grep -q '"id"'; then
-        EXISTING_ID=$(echo "$EXISTING" | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
+    # Use jq to parse ID if available, otherwise use grep with better regex
+    if command -v jq &> /dev/null; then
+        EXISTING_ID=$(echo "$EXISTING" | jq -r '.id // empty')
+    else
+        EXISTING_ID=$(echo "$EXISTING" | grep -oP '"id"\s*:\s*\K[0-9]+' | head -1)
+    fi
+    
+    if [ -n "$EXISTING_ID" ]; then
         log_warn "Release $VERSION_TAG already exists (ID: $EXISTING_ID)"
         echo ""
         echo "Existing release URL: ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
@@ -381,10 +387,14 @@ create_gitea_release() {
         exit 1
     fi
     
-    # Extract release ID
-    RELEASE_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
+    # Extract release ID using jq if available
+    if command -v jq &> /dev/null; then
+        RELEASE_ID=$(echo "$RESPONSE_BODY" | jq -r '.id')
+    else
+        RELEASE_ID=$(echo "$RESPONSE_BODY" | grep -oP '"id"\s*:\s*\K[0-9]+' | head -1)
+    fi
     
-    if [ -z "$RELEASE_ID" ]; then
+    if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
         log_error "Failed to parse release ID from response"
         echo "Response: $RESPONSE_BODY"
         exit 1
