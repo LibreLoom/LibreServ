@@ -202,27 +202,33 @@ build_binaries() {
     
     # Build Linux AMD64
     log_info "Building libreserv-linux-amd64..."
+    cd server/backend
     if ! GOOS=linux GOARCH=amd64 go build -tags "embedfront" \
         -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$BUILD_TIME" \
-        -o "$BUILD_DIR/libreserv-linux-amd64" ./server/backend/cmd/libreserv; then
+        -o "$BUILD_DIR/libreserv-linux-amd64" ./cmd/libreserv; then
         log_error "Failed to build AMD64 binary"
+        cd ../..
         rm -rf "$BUILD_DIR"
         exit 1
     fi
+    cd ../..
     
     # Build Linux ARM64
     log_info "Building libreserv-linux-arm64..."
+    cd server/backend
     if ! GOOS=linux GOARCH=arm64 go build -tags "embedfront" \
         -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$BUILD_TIME" \
-        -o "$BUILD_DIR/libreserv-linux-arm64" ./server/backend/cmd/libreserv; then
+        -o "$BUILD_DIR/libreserv-linux-arm64" ./cmd/libreserv; then
         log_error "Failed to build ARM64 binary"
+        cd ../..
         rm -rf "$BUILD_DIR"
         exit 1
     fi
+    cd ../..
     
     # Generate checksums
     log_info "Generating SHA256 checksums..."
