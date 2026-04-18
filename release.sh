@@ -22,15 +22,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_step() { echo -e "${BLUE}[STEP]${NC} $1"; }
 
 print_banner() {
-    echo -e "${BLUE}"
-    echo "  _     _ _                       _ "
-    echo " | |   (_| |______ _ __ ___   ___| |"
-    echo " | |   | | '_/ _  | '_ \` _ \\ / _ \\ |"
-    echo " | |___| | | | (_| | | | | | |  __/ |"
-    echo " |_____|_|_|  \\__,_|_| |_| |_|\\___|_|"
-    echo -e "${NC}"
-    echo ""
-    echo "Release Creation Script"
+    echo -e "${BLUE}LibreServ Release Script${NC}"
     echo "========================"
     echo ""
 }
