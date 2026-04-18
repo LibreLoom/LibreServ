@@ -89,50 +89,6 @@ check_root() {
     fi
 }
 
-# Install Go if needed
-install_go() {
-    if command -v go >/dev/null 2>&1; then
-        log_info "Go is already installed: $(go version)"
-        return
-    fi
-
-    log_info "Installing Go..."
-
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        DISTRO=$ID
-    else
-        log_error "Cannot detect Linux distribution"
-        exit 1
-    fi
-
-    case "$DISTRO" in
-        ubuntu|debian)
-            apt-get update -qq
-            apt-get install -y -qq golang-go
-            ;;
-        fedora|rhel|centos)
-            dnf install -y -q golang
-            ;;
-        arch)
-            pacman -Sy --noconfirm --quiet go
-            ;;
-        *)
-            log_warn "Installing Go from official source..."
-            GO_VERSION="1.25.0"
-            GO_TARBALL="go${GO_VERSION}.${OS}-${ARCH}.tar.gz"
-            curl -sL "https://go.dev/dl/${GO_TARBALL}" -o "/tmp/${GO_TARBALL}"
-            rm -rf /usr/local/go
-            tar -C /usr/local -xzf "/tmp/${GO_TARBALL}"
-            rm "/tmp/${GO_TARBALL}"
-            echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
-            export PATH=$PATH:/usr/local/go/bin
-            ;;
-    esac
-
-    log_info "Go installed successfully"
-}
-
 # Install Docker if needed
 install_docker() {
     if command -v docker >/dev/null 2>&1; then
@@ -404,7 +360,6 @@ do_install() {
     check_root
     detect_system
 
-    install_go
     install_docker
 
     create_user
