@@ -357,6 +357,9 @@ create_gitea_release() {
     
     log_info "Creating draft release..."
     
+    # Escape release notes for JSON (preserve newlines, escape quotes and backslashes)
+    ESCAPED_NOTES=$(echo "$RELEASE_NOTES" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+    
     # Create release with proper error handling
     HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
         -H "Authorization: token $GITEA_TOKEN" \
@@ -364,7 +367,7 @@ create_gitea_release() {
         -d "{
             \"tag_name\": \"$VERSION_TAG\",
             \"name\": \"Release $VERSION_TAG\",
-            \"body\": \"$(echo "$RELEASE_NOTES" | sed 's/"/\\"/g' | tr '\n' ' ')\",
+            \"body\": \"$ESCAPED_NOTES\",
             \"draft\": true
         }" \
         "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases")
