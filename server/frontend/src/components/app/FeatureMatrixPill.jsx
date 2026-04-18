@@ -1,60 +1,24 @@
-import { memo } from "react";
-import { Layers, Loader2 } from "lucide-react";
-import CollapsibleSection from "../common/CollapsibleSection";
-import FeatureMatrix from "./FeatureMatrix";
-import { useCatalogFeatures } from "../../hooks/useCatalogFeatures";
+import { memo, useState } from "react";
+import { Layers, ExternalLink } from "lucide-react";
+import FeatureMatrixModal from "./FeatureMatrixModal";
 
 function FeatureMatrixPill({ appId, className = "" }) {
-  const { data: features, isLoading, error } = useCatalogFeatures(appId);
-
-  const importantCount = features
-    ? [
-        features.access_model,
-        features.sso,
-        features.backup === "supported",
-        features.custom_domains,
-      ].filter(Boolean).length
-    : 0;
+  const [showModal, setShowModal] = useState(false);
 
   return (
-    <div className={className}>
-      <CollapsibleSection
-        title={
-          <span className="flex items-center gap-2">
-            <Layers size={14} />
-            Integration
-            {importantCount > 0 && (
-              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-accent/20 text-accent text-xs font-mono font-medium">
-                {importantCount}
-              </span>
-            )}
-          </span>
-        }
-        defaultOpen={false}
-        pill
-        mono
-        size="sm"
+    <>
+      <button
+        onClick={() => setShowModal(true)}
+        className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill border-2 border-accent/30 text-accent hover:bg-accent/10 motion-safe:transition-all font-mono text-sm ${className}`}
       >
-        {isLoading && (
-          <div className="flex items-center gap-2 py-3 text-primary/50">
-            <Loader2 size={14} className="animate-spin" />
-            <span className="text-xs font-mono">Loading capabilities...</span>
-          </div>
-        )}
+        <ExternalLink size={14} />
+        View Integration
+      </button>
 
-        {error && (
-          <div className="py-3 text-xs text-error">
-            Failed to load capabilities
-          </div>
-        )}
-
-        {!isLoading && !error && features && (
-          <div className="pt-2">
-            <FeatureMatrix features={features} compact />
-          </div>
-        )}
-      </CollapsibleSection>
-    </div>
+      {showModal && (
+        <FeatureMatrixModal appId={appId} onClose={() => setShowModal(false)} />
+      )}
+    </>
   );
 }
 

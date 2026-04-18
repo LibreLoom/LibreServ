@@ -8,10 +8,50 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
+
+// UpdateState tracks pending update verification
+type UpdateState struct {
+	OldVersion string    `json:"old_version"`
+	NewVersion string    `json:"new_version"`
+	BackupPath string    `json:"backup_path"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Verified   bool      `json:"verified"`
+}
+
+var (
+	updateStateFile        = "update_state.json"
+	updateStateDir         = "/var/lib/libreserv"
+	updateStateDirFallback = "" // Set to user-writable path if /var/lib/libreserv unavailable
+	verificationTimeout    = 5 * time.Minute
+	cleanupDelay           = 24 * time.Hour
+)
+
+func init() {
+	// Try to use /var/lib/libreserv, fallback to temp dir if not writable
+	if _, err := os.Stat(updateStateDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(updateStateDir, 0755); err != nil {
+			// Can't create /var/lib/libreserv, use fallback
+			if tmpDir, err := os.UserConfigDir(); err == nil {
+				updateStateDirFallback = tmpDir
+			} else {
+				updateStateDirFallback = os.TempDir()
+			}
+		}
+	}
+}
+
+func getStateDir() string {
+	if updateStateDirFallback != "" {
+		return updateStateDirFallback
+	}
+	return updateStateDir
+}
 
 // UpdateInfo represents information about a system update
 type UpdateInfo struct {
@@ -200,16 +240,25 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 
-	// 6. Signal for restart (systemd will handle the actual restart if configured)
-	// We exit with a special code or just exit and let systemd/docker restart us.
+	// 6. Save update state for post-restart verification
+	state := &UpdateState{
+		OldVersion: currentVersion,
+		NewVersion: info.LatestVersion,
+		BackupPath: oldPath,
+		UpdatedAt:  time.Now(),
+		Verified:   false,
+	}
+	if err := saveUpdateState(state); err != nil {
+		slog.Warn("Failed to save update state, rollback won't be available", "error", err)
+	}
+
+	// 7. Signal for restart (systemd will handle the actual restart if configured)
 	go func() {
 		slog.Info("Update applied successfully, restarting in 1 second",
 			"old_version", currentVersion,
 			"new_version", info.LatestVersion,
 		)
 		time.Sleep(1 * time.Second)
-		// Exit code 0 indicates successful update
-		// systemd/docker should be configured to restart on exit
 		os.Exit(0)
 	}()
 
@@ -223,4 +272,175 @@ type giteaRelease struct {
 	Body        string    `json:"body"`
 	PublishedAt time.Time `json:"published_at"`
 	HTMLURL     string    `json:"html_url"`
+}
+
+// saveUpdateState persists update state to disk
+func saveUpdateState(state *UpdateState) error {
+	dir := getStateDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create state directory: %w", err)
+	}
+	path := filepath.Join(dir, updateStateFile)
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal state: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write state file: %w", err)
+	}
+	return nil
+}
+
+// loadUpdateState loads update state from disk
+func loadUpdateState() (*UpdateState, error) {
+	dir := getStateDir()
+	path := filepath.Join(dir, updateStateFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var state UpdateState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
+	}
+	return &state, nil
+}
+
+// deleteUpdateState removes the state file after successful verification
+func deleteUpdateState() error {
+	dir := getStateDir()
+	path := filepath.Join(dir, updateStateFile)
+	return os.Remove(path)
+}
+
+// VerifyAndUpdate checks if we just updated and verifies health.
+// Returns true if rollback was performed, false otherwise.
+// Call this early in main() before starting the server.
+func VerifyAndUpdate(serverURL string) (rolledBack bool, err error) {
+	state, err := loadUpdateState()
+	if err != nil {
+		slog.Warn("Failed to load update state", "error", err)
+		return false, nil
+	}
+	if state == nil || state.Verified {
+		return false, nil
+	}
+
+	slog.Info("Post-update verification started",
+		"old_version", state.OldVersion,
+		"new_version", state.NewVersion,
+	)
+
+	// Check if we're still within the verification window
+	if time.Since(state.UpdatedAt) > verificationTimeout {
+		slog.Warn("Update verification timeout exceeded, marking as verified")
+		state.Verified = true
+		_ = saveUpdateState(state)
+		_ = scheduleCleanup(state.BackupPath)
+		return false, deleteUpdateState()
+	}
+
+	// Perform health check
+	healthy := checkHealth(serverURL)
+	if healthy {
+		slog.Info("Post-update health check passed", "new_version", state.NewVersion)
+		state.Verified = true
+		_ = saveUpdateState(state)
+		_ = scheduleCleanup(state.BackupPath)
+		return false, deleteUpdateState()
+	}
+
+	// Health check failed - rollback
+	slog.Error("Post-update health check failed, initiating rollback",
+		"new_version", state.NewVersion,
+		"old_version", state.OldVersion,
+	)
+
+	if err := rollback(state); err != nil {
+		slog.Error("Rollback failed", "error", err)
+		_ = deleteUpdateState()
+		return false, nil
+	}
+
+	slog.Info("Rollback completed successfully", "restored_version", state.OldVersion)
+	return true, nil
+}
+
+// checkHealth performs a simple health check against the API
+func checkHealth(serverURL string) bool {
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Normalize URL - ensure it has protocol
+	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+		serverURL = "http://" + serverURL
+	}
+	url := fmt.Sprintf("%s/api/v1/health", serverURL)
+
+	resp, err := client.Get(url)
+	if err != nil {
+		slog.Warn("Health check request failed", "error", err)
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	return resp.StatusCode == http.StatusOK
+}
+
+// rollback restores the previous binary version
+func rollback(state *UpdateState) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to find executable path: %w", err)
+	}
+
+	if _, err := os.Stat(state.BackupPath); os.IsNotExist(err) {
+		return fmt.Errorf("backup binary not found at %s", state.BackupPath)
+	}
+
+	// Move current (broken) binary to .failed
+	failedPath := execPath + ".failed"
+	if err := os.Rename(execPath, failedPath); err != nil {
+		return fmt.Errorf("failed to move broken binary: %w", err)
+	}
+
+	// Restore backup
+	if err := os.Rename(state.BackupPath, execPath); err != nil {
+		// Try to restore failed binary
+		_ = os.Rename(failedPath, execPath)
+		return fmt.Errorf("failed to restore backup: %w", err)
+	}
+
+	// Make sure it's executable
+	if err := os.Chmod(execPath, 0755); err != nil {
+		return fmt.Errorf("failed to set permissions: %w", err)
+	}
+
+	// Exit to let systemd restart with old version
+	go func() {
+		slog.Info("Rollback complete, restarting with old version",
+			"old_version", state.OldVersion,
+		)
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
+
+	return nil
+}
+
+// scheduleCleanup schedules cleanup of old backup files
+func scheduleCleanup(backupPath string) error {
+	go func() {
+		time.Sleep(cleanupDelay)
+		if _, err := os.Stat(backupPath); err == nil {
+			if err := os.Remove(backupPath); err != nil {
+				slog.Warn("Failed to cleanup old backup", "path", backupPath, "error", err)
+			} else {
+				slog.Info("Cleaned up old backup", "path", backupPath)
+			}
+		}
+	}()
+	return nil
 }

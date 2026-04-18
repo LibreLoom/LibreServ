@@ -306,3 +306,285 @@ func TestApplyUpdate_NoUpdateAvailable(t *testing.T) {
 		t.Errorf("error = %q, want 'no update available'", err.Error())
 	}
 }
+
+func TestUpdateState_SaveAndLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldStateDir := updateStateDir
+	oldStateFile := updateStateFile
+	updateStateDir = tmpDir
+	updateStateFile = "test_state.json"
+	defer func() {
+		updateStateDir = oldStateDir
+		updateStateFile = oldStateFile
+	}()
+
+	state := &UpdateState{
+		OldVersion: "1.0.0",
+		NewVersion: "2.0.0",
+		BackupPath: "/path/to/backup",
+		UpdatedAt:  time.Now(),
+		Verified:   false,
+	}
+
+	if err := saveUpdateState(state); err != nil {
+		t.Fatalf("saveUpdateState failed: %v", err)
+	}
+
+	loaded, err := loadUpdateState()
+	if err != nil {
+		t.Fatalf("loadUpdateState failed: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("loaded state is nil")
+	}
+	if loaded.OldVersion != "1.0.0" {
+		t.Errorf("old version = %q, want 1.0.0", loaded.OldVersion)
+	}
+	if loaded.NewVersion != "2.0.0" {
+		t.Errorf("new version = %q, want 2.0.0", loaded.NewVersion)
+	}
+	if loaded.BackupPath != "/path/to/backup" {
+		t.Errorf("backup path = %q, want /path/to/backup", loaded.BackupPath)
+	}
+	if loaded.Verified {
+		t.Error("expected verified to be false")
+	}
+}
+
+func TestUpdateState_LoadNonExistent(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldStateDir := updateStateDir
+	oldStateFile := updateStateFile
+	updateStateDir = tmpDir
+	updateStateFile = "nonexistent.json"
+	defer func() {
+		updateStateDir = oldStateDir
+		updateStateFile = oldStateFile
+	}()
+
+	state, err := loadUpdateState()
+	if err != nil {
+		t.Fatalf("expected nil error for non-existent file, got %v", err)
+	}
+	if state != nil {
+		t.Error("expected nil state for non-existent file")
+	}
+}
+
+func TestUpdateState_Delete(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldStateDir := updateStateDir
+	oldStateFile := updateStateFile
+	updateStateDir = tmpDir
+	updateStateFile = "test_delete.json"
+	defer func() {
+		updateStateDir = oldStateDir
+		updateStateFile = oldStateFile
+	}()
+
+	state := &UpdateState{OldVersion: "1.0.0", NewVersion: "2.0.0"}
+	_ = saveUpdateState(state)
+
+	if err := deleteUpdateState(); err != nil {
+		t.Fatalf("deleteUpdateState failed: %v", err)
+	}
+
+	loaded, err := loadUpdateState()
+	if err != nil {
+		t.Fatalf("unexpected error after delete: %v", err)
+	}
+	if loaded != nil {
+		t.Error("expected nil state after delete")
+	}
+}
+
+func TestCheckHealth_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	if !checkHealth(server.URL) {
+		t.Error("expected health check to succeed")
+	}
+}
+
+func TestCheckHealth_Failure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	if checkHealth(server.URL) {
+		t.Error("expected health check to fail")
+	}
+}
+
+func TestCheckHealth_NetworkError(t *testing.T) {
+	if checkHealth("http://127.0.0.1:1") {
+		t.Error("expected health check to fail on network error")
+	}
+}
+
+func TestVerifyAndUpdate_NoStateFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldStateDir := updateStateDir
+	oldStateFile := updateStateFile
+	updateStateDir = tmpDir
+	updateStateFile = "test_state.json"
+	defer func() {
+		updateStateDir = oldStateDir
+		updateStateFile = oldStateFile
+	}()
+
+	rolledBack, err := VerifyAndUpdate("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rolledBack {
+		t.Error("expected no rollback when no state file exists")
+	}
+}
+
+func TestVerifyAndUpdate_AlreadyVerified(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldStateDir := updateStateDir
+	oldStateFile := updateStateFile
+	updateStateDir = tmpDir
+	updateStateFile = "test_state.json"
+	defer func() {
+		updateStateDir = oldStateDir
+		updateStateFile = oldStateFile
+	}()
+
+	state := &UpdateState{
+		OldVersion: "1.0.0",
+		NewVersion: "2.0.0",
+		Verified:   true,
+	}
+	_ = saveUpdateState(state)
+
+	rolledBack, err := VerifyAndUpdate("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rolledBack {
+		t.Error("expected no rollback when already verified")
+	}
+}
+
+func TestVerifyAndUpdate_TimeoutExceeded(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldStateDir := updateStateDir
+	oldStateFile := updateStateFile
+	updateStateDir = tmpDir
+	updateStateFile = "test_state.json"
+	defer func() {
+		updateStateDir = oldStateDir
+		updateStateFile = oldStateFile
+	}()
+
+	state := &UpdateState{
+		OldVersion: "1.0.0",
+		NewVersion: "2.0.0",
+		UpdatedAt:  time.Now().Add(-10 * time.Minute),
+		Verified:   false,
+	}
+	_ = saveUpdateState(state)
+
+	rolledBack, err := VerifyAndUpdate("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rolledBack {
+		t.Error("expected no rollback when timeout exceeded")
+	}
+
+	loaded, _ := loadUpdateState()
+	if loaded != nil {
+		t.Error("expected state file to be deleted after timeout verification")
+	}
+}
+
+func TestVerifyAndUpdate_HealthCheckFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldStateDir := updateStateDir
+	oldStateFile := updateStateFile
+	updateStateDir = tmpDir
+	updateStateFile = "test_state.json"
+	defer func() {
+		updateStateDir = oldStateDir
+		updateStateFile = oldStateFile
+	}()
+
+	state := &UpdateState{
+		OldVersion: "1.0.0",
+		NewVersion: "2.0.0",
+		UpdatedAt:  time.Now(),
+		Verified:   false,
+	}
+	_ = saveUpdateState(state)
+
+	// Health check should fail (no server running)
+	rolledBack, err := VerifyAndUpdate("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatalf("VerifyAndUpdate should not return error on health check failure: %v", err)
+	}
+	if rolledBack {
+		t.Error("expected no rollback when backup doesn't exist")
+	}
+
+	// State should be deleted even on failure
+	loaded, _ := loadUpdateState()
+	if loaded != nil {
+		t.Error("expected state file to be deleted after failed verification")
+	}
+}
+
+func TestVerifyAndUpdate_HealthCheckSuccess(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldStateDir := updateStateDir
+	oldStateFile := updateStateFile
+	updateStateDir = tmpDir
+	updateStateFile = "test_state.json"
+	defer func() {
+		updateStateDir = oldStateDir
+		updateStateFile = oldStateFile
+	}()
+
+	// Create a mock health endpoint
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	state := &UpdateState{
+		OldVersion: "1.0.0",
+		NewVersion: "2.0.0",
+		UpdatedAt:  time.Now(),
+		Verified:   false,
+	}
+	_ = saveUpdateState(state)
+
+	rolledBack, err := VerifyAndUpdate(server.URL)
+	if err != nil {
+		t.Fatalf("VerifyAndUpdate should succeed on health check success: %v", err)
+	}
+	if rolledBack {
+		t.Error("expected no rollback when health check passes")
+	}
+
+	// State should be deleted after successful verification
+	loaded, _ := loadUpdateState()
+	if loaded != nil {
+		t.Error("expected state file to be deleted after successful verification")
+	}
+}
