@@ -3,7 +3,6 @@ package security
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 )
@@ -225,42 +224,4 @@ func anonymizeIPForEmail(ip string) string {
 		}
 	}
 	return "Hidden for privacy"
-}
-
-// TestNotifier is a mock notifier for testing
-type TestNotifier struct {
-	SentNotifications []Notification
-	configured        bool
-}
-
-// Notification represents a sent notification
-type Notification struct {
-	Recipients []string
-	Subject    string
-	Body       string
-	Timestamp  time.Time
-}
-
-// NewTestNotifier creates a test notifier
-func NewTestNotifier(configured bool) *TestNotifier {
-	return &TestNotifier{
-		SentNotifications: make([]Notification, 0),
-		configured:        configured,
-	}
-}
-
-// IsConfigured returns the configured state
-func (n *TestNotifier) IsConfigured() bool {
-	return n.configured
-}
-
-// SendNotification records the notification
-func (n *TestNotifier) SendNotification(recipients []string, subject, body string) error {
-	n.SentNotifications = append(n.SentNotifications, Notification{
-		Recipients: recipients,
-		Subject:    subject,
-		Body:       body,
-		Timestamp:  time.Now(),
-	})
-	return nil
 }

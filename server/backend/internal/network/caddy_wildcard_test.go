@@ -41,7 +41,7 @@ func TestManualTLSPathsWildcardFallback(t *testing.T) {
 		t.Error("expected cert and key paths")
 	}
 
-	cert, key, ok = cm.manualTLSPaths("app.example.com")
+	cert, _, ok = cm.manualTLSPaths("app.example.com")
 	if !ok {
 		t.Fatal("expected wildcard fallback for app.example.com")
 	}
@@ -50,7 +50,7 @@ func TestManualTLSPathsWildcardFallback(t *testing.T) {
 		t.Errorf("cert dir = %q, want %q", dir, wantDir)
 	}
 
-	cert, key, ok = cm.manualTLSPaths("other.example.com")
+	_, _, ok = cm.manualTLSPaths("other.example.com")
 	if !ok {
 		t.Fatal("expected wildcard fallback for other.example.com")
 	}

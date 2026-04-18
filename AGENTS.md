@@ -86,6 +86,7 @@ npm test                 # Vitest tests
 - **Read branding repo** before working on UI: https://gt.plainskill.net/LibreLoom/libreloom-branding
 - Colors via CSS variables (theme-aware)
 - Border radius: pill `9999px`, large `24px`, card `12px`
+- **CRITICAL: Color contrast** - Cards use `bg-secondary text-primary`. Always check parent container's background before choosing colors. Use `text-primary` on card backgrounds, `text-secondary` on `bg-primary` elements
 
 ---
 

@@ -253,6 +253,17 @@ Allow users to install apps beyond the builtin catalog.
 - Link to app's web interface
 - Installed version and available updates
 
+#### T2.3.2. System Health Display
+
+**Status:** Done
+**File:** `server/frontend/src/components/cards/SystemHealthCard.jsx`
+
+- Dashboard widget showing overall system health
+- Real-time CPU, Memory, and Disk usage bars with warning thresholds
+- Health indicators for API, Database, Docker, and SMTP services
+- Color-coded status (Healthy/Unhealthy/Warning/Unknown)
+- Auto-refresh with dashboard refresh interval
+
 #### T2.3.2. App Logs Viewer
 
 **Status:** Done
@@ -435,20 +446,22 @@ Adds wildcard record support to Caddy and the certificate system.
 
 #### T3.1.6. DDNS Auto-Update Service
 
-**Status:** Not started
+**Status:** Done
+**Files:** `server/backend/internal/network/ddns.go`, `server/backend/internal/api/handlers/ddns.go`, `server/frontend/src/components/settings/categories/DDNSCard.jsx`
 **Effort:** 3h
-**Dependencies:** T3.1.4
+**Dependencies:** T3.1.4 ✅
 
-Background goroutine that monitors the public IP address and updates DNS records when it changes.
+Background service that monitors the public IP address and updates DNS records when it changes.
 
 **Acceptance Criteria:**
-- [ ] Background goroutine runs on configurable interval (default: 5 min)
-- [ ] Detects public IP via STUN or external service
-- [ ] Updates wildcard A/AAAA record via provider API on IP change
-- [ ] Logs DDNS events to audit log
-- [ ] Toggle to enable/disable from Settings
-- [ ] Manual "Update now" button
-- [ ] Respects provider rate limits (Porkbun: min 600s TTL)
+- [x] Background goroutine runs on configurable interval (default: 5 min)
+- [x] Detects public IP via external services (ipify, icanhazip)
+- [x] Updates wildcard A/AAAA record via provider API on IP change
+- [x] Logs DDNS events to audit log
+- [x] Toggle to enable/disable from Settings → Network
+- [x] Manual "Update now" button
+- [x] Configurable update interval (1-60 minutes)
+- [x] Status display (current IP, last update, errors)
 
 #### T3.1.7. Subdomain Selection in App Install
 
@@ -491,21 +504,22 @@ Wires the install completion → Caddy route creation → certificate request in
 - [ ] Rollback: if route or cert creation fails, clean up and warn user
 - [ ] App appears in Network Routes page immediately after install
 
-#### T3.1.9. Domain Switching & Management
+#### T3.1.9. Domain Management in Settings
 
-**Status:** Not started
+**Status:** Done
+**Files:** `server/frontend/src/components/settings/categories/DomainManagementCard.jsx`, `server/backend/internal/api/handlers/network.go`
 **Effort:** 2h
-**Dependencies:** T3.1.3
+**Dependencies:** T3.1.3 ✅
 
-Settings UI to view and change the current domain configuration.
+Settings UI to view, change, and disconnect the current domain configuration.
 
 **Acceptance Criteria:**
-- [ ] Settings -> Network: show current domain + provider
-- [ ] "Change domain" button → re-runs domain setup wizard
-- [ ] When domain changes: update all existing routes' domain suffix
-- [ ] Re-request certificates for updated routes
-- [ ] Warning before changing: "This will update all your app subdomains"
-- [ ] "Disconnect domain" option (removes DNS records, clears routes)
+- [x] Settings → Network: show current domain prominently
+- [x] "Change domain" button → redirects to setup wizard
+- [x] "Disconnect domain" button with confirmation modal
+- [x] Warning about consequences (DNS records removed, routes cleared)
+- [x] Disconnect endpoint clears default domain from Caddy config
+- [x] Plain-language error messages
 
 ---
 
@@ -537,28 +551,31 @@ Settings UI to view and change the current domain configuration.
 
 #### T3.3.1. System Updates Page
 
-**Status:** Not started
+**Status:** Done
+**File:** `server/frontend/src/components/settings/categories/SystemCategory.jsx`
 **Effort:** 2h
 **Dependencies:** None
 
 **User Journey:**
-1. Admin sees "Update Available" badge
-2. Clicks to view changelog
-3. Clicks "Update Now"
-4. Sees progress, system restarts
-5. Logs back in to updated system
+1. Admin goes to Settings → System
+2. Clicks "Check for Updates"
+3. Sees current version and available update (if any)
+4. Clicks "Update Now" with confirmation modal
+5. System downloads, applies update, and restarts
+6. User logs back in to updated system
 
 **Backend API (exists):**
 - `GET /api/v1/system/updates/check` — Check for updates
 - `POST /api/v1/system/updates/apply` — Apply update
 
 **Acceptance Criteria:**
-- [ ] Show current version
-- [ ] Check for updates button
-- [ ] Show available version with changelog
-- [ ] Update button with warning
-- [ ] Progress during update
-- [ ] Handle update failure gracefully
+- [x] Show current version
+- [x] Check for updates button
+- [x] Show available version with changelog
+- [x] Update button with warning modal
+- [x] Loading states during check/update
+- [x] Handle update failure gracefully
+- [x] Auto-redirect to login after update
 
 #### T3.3.2. Update Scheduling and Orchestration UI
 
@@ -1061,13 +1078,13 @@ flowchart TB
 | Phase | Tasks | Remaining Effort | Status |
 |-------|-------|------------------|--------|
 | Phase 1: First-Run | 5 | 9h (historical) | Done |
-| Phase 2: Daily Flows | 14 | 21h | In progress |
-| Phase 3: Admin Ops | 12 | 17.5h | In progress |
-| Phase 4: Production | 21 | 30.5h | In progress |
+| Phase 2: Daily Flows | 14 | 15h | In progress |
+| Phase 3: Admin Ops | 12 | 10.5h | In progress |
+| Phase 4: Production | 21 | 28.5h | In progress |
 | Phase 5: App Ecosystem | 5 | 26h | Not started |
 | Phase 6: Infrastructure Scale | 2 | 28h | Not started |
 | Phase 7: Advanced | 12 | 31.5h | Not started |
-| **Total** | **72** | **~168h** | |
+| **Total** | **72** | **~149h** | |
 
 ---
 
@@ -1089,6 +1106,10 @@ For every task:
 
 | Date | Change |
 |------|--------|
+| 2026-04-17 | T3.1.9: Done. Domain Management UI with view/change/disconnect functionality |
+| 2026-04-17 | T3.1.6: Done. DDNS Auto-Update Service with configurable interval and manual update |
+| 2026-04-17 | T2.3.2: Done. System Health Display widget on Dashboard with real-time resource monitoring and service health indicators |
+| 2026-04-17 | T3.3.1: Done. System Updates UI in Settings → System with check/apply/update flow |
 | 2026-04-15 | T3.1.4: Done (Cloudflare-only). Added DNSProvider interface, CloudflareProvider via libdns/cloudflare, DNSProviderManager with SQLite persistence, DNSConfig to config.go. Porkbun and Spaceship deferred. |
 | 2026-04-15 | T3.1.5: Done. Wildcard cert fallback in manualTLSPaths, wildcard catch-all Caddyfile blocks, RequestWildcardCert via lego (single SAN cert), SetupWildcardDNS, DetectPublicIP. Fixed baseDomain for single-label TLDs. |
 | 2026-04-15 | Verification update: T3.1.1→Needs polish, T3.1.2→Removed, T4.2.1→Done, T4.2.4→Approved, T4.3.2→Hopefully done, T4.3.3→Implemented(Untested), T4.1.1→Needs Updating |

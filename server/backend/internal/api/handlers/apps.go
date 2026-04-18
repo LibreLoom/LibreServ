@@ -119,7 +119,7 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 
 	if !result.Success {
 		slog.Error("App install unsuccessful", "app_id", req.AppID, "error", result.Error)
-		JSONError(w, http.StatusInternalServerError, result.Error)
+		JSONError(w, http.StatusInternalServerError, "Installation failed")
 		return
 	}
 

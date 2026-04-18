@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,6 +44,16 @@ var allowedCommands = map[string]bool{
 	"top":        false, // disallow by default
 }
 
+var commandArgValidators = map[string]func([]string) error{
+	"docker":     validateDockerArgs,
+	"cat":        validateFileReadArgs,
+	"tail":       validateFileReadArgs,
+	"ls":         validateLsArgs,
+	"df":         validateDfArgs,
+	"ps":         validatePsArgs,
+	"journalctl": validateJournalctlArgs,
+}
+
 // Run executes an allowlisted command for a support session.
 func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 	var req commandRequest
@@ -67,9 +79,11 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusForbidden, "This command is not permitted for support sessions")
 		return
 	}
-	if req.Command == "docker" {
-		if err := support.ValidateDockerArgs(req.Args); err != nil {
-			JSONError(w, http.StatusForbidden, "invalid docker arguments")
+
+	// Validate arguments using command-specific validators
+	if validator, exists := commandArgValidators[req.Command]; exists {
+		if err := validator(req.Args); err != nil {
+			JSONError(w, http.StatusForbidden, "invalid command arguments")
 			return
 		}
 	}
@@ -150,4 +164,123 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func validateDockerArgs(args []string) error {
+	if err := support.ValidateDockerArgs(args); err != nil {
+		return err
+	}
+	for _, arg := range args {
+		if strings.Contains(arg, "$(") || strings.Contains(arg, "`") || strings.Contains(arg, "|") || strings.Contains(arg, ";") {
+			return fmt.Errorf("shell metacharacters not allowed")
+		}
+	}
+	return nil
+}
+
+func validateFileReadArgs(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("at least one file path required")
+	}
+	policy := support.NewDefaultPolicy(nil)
+	cfg := config.Get()
+	if cfg != nil {
+		policy.Allow = append(policy.Allow, cfg.Apps.DataPath, cfg.Logging.Path)
+	}
+	policy.Deny = append(policy.Deny, "/var/lib/docker")
+
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			if arg != "-n" && arg != "-f" && arg != "-F" && arg != "--follow" {
+				return fmt.Errorf("option %s not allowed", arg)
+			}
+			continue
+		}
+		cleanPath := filepath.Clean(arg)
+		if !filepath.IsAbs(cleanPath) {
+			return fmt.Errorf("path must be absolute")
+		}
+		allowed, err := policy.IsAllowed(cleanPath)
+		if err != nil || !allowed {
+			return fmt.Errorf("path not allowed: %s", arg)
+		}
+	}
+	return nil
+}
+
+func validateLsArgs(args []string) error {
+	allowedOpts := map[string]bool{
+		"-l": true, "-a": true, "-la": true, "-al": true,
+		"-h": true, "-lh": true, "-hl": true, "-lah": true,
+		"-d": true, "-1": true, "--color=never": true,
+	}
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			if !allowedOpts[arg] {
+				return fmt.Errorf("option %s not allowed", arg)
+			}
+		} else {
+			cleanPath := filepath.Clean(arg)
+			if !filepath.IsAbs(cleanPath) {
+				return fmt.Errorf("path must be absolute")
+			}
+		}
+	}
+	return nil
+}
+
+func validateDfArgs(args []string) error {
+	allowedOpts := map[string]bool{
+		"-h": true, "-i": true, "-T": true, "-t": true,
+		"--total": true, "-H": true,
+	}
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			if !allowedOpts[arg] && !strings.HasPrefix(arg, "-t") {
+				return fmt.Errorf("option %s not allowed", arg)
+			}
+		}
+	}
+	return nil
+}
+
+func validatePsArgs(args []string) error {
+	allowedOpts := map[string]bool{
+		"aux": true, "-ef": true, "-eo": true,
+	}
+	for _, arg := range args {
+		if !allowedOpts[arg] && !strings.HasPrefix(arg, "--") {
+			return fmt.Errorf("option %s not allowed", arg)
+		}
+	}
+	return nil
+}
+
+func validateJournalctlArgs(args []string) error {
+	allowedOpts := map[string]bool{
+		"-u": true, "--unit=": true, "-f": true, "--follow": true,
+		"-n": true, "--lines=": true, "-e": true, "--since=": true,
+		"--until=": true, "-p": true, "--priority=": true,
+		"--no-pager": true, "-o": true, "--output=": true,
+	}
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "-u") || strings.HasPrefix(arg, "--unit=") {
+			if i+1 >= len(args) {
+				return fmt.Errorf("-u requires a unit name")
+			}
+		}
+		if strings.HasPrefix(arg, "-") {
+			found := false
+			for opt := range allowedOpts {
+				if strings.HasPrefix(arg, opt) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("option %s not allowed", arg)
+			}
+		}
+	}
+	return nil
 }

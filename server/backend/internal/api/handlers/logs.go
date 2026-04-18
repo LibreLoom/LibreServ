@@ -76,14 +76,14 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 
 	// 3. Extract parameters
-	instanceId := chi.URLParam(r, "instanceId")
-	if instanceId == "" {
-		instanceId = r.URL.Query().Get("instanceId")
+	instanceID := chi.URLParam(r, "instanceId")
+	if instanceID == "" {
+		instanceID = r.URL.Query().Get("instanceId")
 	}
-	if instanceId == "" {
-		instanceId = r.PathValue("instanceId")
+	if instanceID == "" {
+		instanceID = r.PathValue("instanceId")
 	}
-	if instanceId == "" {
+	if instanceID == "" {
 		http.Error(w, "instanceId is required", http.StatusBadRequest)
 		return
 	}
@@ -111,20 +111,20 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	containerID := instanceId
+	containerID := instanceID
 	isTTY := false
 
 	// First try to find by libreserv.app label
 	containers, listErr := rawClient.ContainerList(ctx, container.ListOptions{
 		All:     true,
-		Filters: filters.NewArgs(filters.Arg("label", "libreserv.app="+instanceId)),
+		Filters: filters.NewArgs(filters.Arg("label", "libreserv.app="+instanceID)),
 	})
 
 	// Fallback to docker compose project label
 	if listErr != nil || len(containers) == 0 {
 		containers, listErr = rawClient.ContainerList(ctx, container.ListOptions{
 			All:     true,
-			Filters: filters.NewArgs(filters.Arg("label", "com.docker.compose.project="+instanceId)),
+			Filters: filters.NewArgs(filters.Arg("label", "com.docker.compose.project="+instanceID)),
 		})
 	}
 
@@ -132,7 +132,7 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	if listErr != nil || len(containers) == 0 {
 		containers, listErr = rawClient.ContainerList(ctx, container.ListOptions{
 			All:     true,
-			Filters: filters.NewArgs(filters.Arg("label", "com.docker.compose.project=libreserv-"+instanceId)),
+			Filters: filters.NewArgs(filters.Arg("label", "com.docker.compose.project=libreserv-"+instanceID)),
 		})
 	}
 
@@ -140,7 +140,7 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	if listErr != nil || len(containers) == 0 {
 		containers, listErr = rawClient.ContainerList(ctx, container.ListOptions{
 			All:     true,
-			Filters: filters.NewArgs(filters.Arg("name", "^"+instanceId+"-")),
+			Filters: filters.NewArgs(filters.Arg("name", "^"+instanceID+"-")),
 		})
 	}
 

@@ -1,4 +1,4 @@
-import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup, Globe } from "lucide-react";
+import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup, Globe, HardDrive } from "lucide-react";
 import SettingsUserCard from "./SettingsUserCard";
 
 const CATEGORIES = [

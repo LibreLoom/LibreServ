@@ -23,7 +23,7 @@ LibreServ has achieved MVP when ALL of the following are true:
 ### First-Run Experience
 - [ ] A user can setup the hardware shipped with LibreServ with no technical help
 - [x] Setup wizard guides user through creating admin account
-- [ ] Preflight checks verify Docker, disk space, database before first use
+- [x] Preflight checks verify Docker, disk space, database before first use
 
 ### App Management
 - [x] A user can install any app from the catalog without difficulty
@@ -31,20 +31,20 @@ LibreServ has achieved MVP when ALL of the following are true:
 - [x] User can start, stop, and restart installed apps
 - [x] User can uninstall apps with confirmation
 
-### Backups
-- [ ] User can create backups of any installed app
-- [ ] User can restore from an existing backup
-- [ ] User can configure automatic cloud backups (Backblaze B2 or S3)
+### Backups (Needs revamp in current state, technically functioning, not scalable)
+- [x] User can create backups of any app installed
+- [x] User can restore from an existing backup
+- [x] User can configure automatic cloud backups (Backblaze B2 or S3)
 
-### Remote Access
+### Remote Access (Untested, agent claims functional)
 - [ ] User can configure a domain for remote access
 - [ ] HTTPS is automatically configured and renewed
 - [ ] User can add custom domain routes to apps
 
-### System
+### System (Item 1 partially complete, number 3 complete, untested)
 - [ ] User can check system health and resource usage
 - [x] User can add and manage multiple users
-- [ ] User can update LibreServ from the web UI
+- [x] User can update LibreServ from the web UI
 
 ---
 

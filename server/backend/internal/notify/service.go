@@ -10,6 +10,7 @@ import (
 )
 
 // Service handles sending notifications to users
+// Note: For security-specific notifications with formatted alerts, use security.EmailNotifier
 type Service struct {
 	auth   *auth.Service
 	email  *email.Sender
@@ -23,6 +24,27 @@ func NewService(authSvc *auth.Service, emailSender *email.Sender) *Service {
 		email:  emailSender,
 		logger: slog.Default().With("component", "notify"),
 	}
+}
+
+// NotifySpecific sends a notification to specific recipients (not just admins)
+// This is useful for targeted notifications without admin lookup overhead
+func (s *Service) NotifySpecific(recipients []string, subject, body string) error {
+	if s.email == nil {
+		s.logger.Debug("Email sender not configured, skipping notification")
+		return nil
+	}
+
+	if len(recipients) == 0 {
+		s.logger.Warn("No recipients provided for notification")
+		return nil
+	}
+
+	if err := s.email.Send(recipients, subject, body); err != nil {
+		return fmt.Errorf("failed to send notification email: %w", err)
+	}
+
+	s.logger.Info("Notification sent", "recipients", len(recipients), "subject", subject)
+	return nil
 }
 
 // AdminNotify sends a notification to all administrators

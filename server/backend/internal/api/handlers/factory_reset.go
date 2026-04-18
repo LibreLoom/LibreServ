@@ -23,6 +23,30 @@ func NewFactoryResetHandler(db *database.DB, setupSvc *setup.Service) *FactoryRe
 
 func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Request) {
 	err := h.db.WithTransaction(r.Context(), func(tx *sql.Tx) error {
+		// Allowlist of tables that can be truncated during factory reset
+		// This prevents SQL injection and ensures only expected tables are cleared
+		allowedTables := map[string]bool{
+			"users":                  true,
+			"apps":                   true,
+			"backups":                true,
+			"backup_schedules":       true,
+			"security_events":        true,
+			"user_security_settings": true,
+			"revoked_tokens":         true,
+			"audit_logs":             true,
+			"app_update_history":     true,
+			"network_routes":         true,
+			"acme_jobs":              true,
+			"job_queue":              true,
+			"settings":               true,
+			"notifications":          true,
+			"dns_providers":          true,
+			"ddns_config":            true,
+			"cloud_backup_config":    true,
+			"support_sessions":       true,
+			"support_session_audits": true,
+		}
+
 		rows, err := tx.Query(`
 			SELECT name FROM sqlite_master 
 			WHERE type='table' 
@@ -40,13 +64,14 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 			if err := rows.Scan(&name); err != nil {
 				return err
 			}
-			tables = append(tables, name)
+			if allowedTables[name] {
+				tables = append(tables, name)
+			} else {
+				slog.Debug("Skipping unknown table during factory reset", "table", name)
+			}
 		}
 
 		for _, table := range tables {
-			if table == "setup_state" {
-				continue
-			}
 			if _, err := tx.Exec("DELETE FROM " + table); err != nil {
 				slog.Error("factory reset delete failed", "table", table, "error", err)
 				return err

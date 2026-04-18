@@ -617,7 +617,7 @@ export default function AppDetailPage() {
 
                 <button
                   onClick={() => setShowUninstallModal(true)}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-error text-primary hover:opacity-80 transition-colors font-mono"
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-error text-secondary hover:opacity-80 transition-colors font-mono"
                 >
                   <Trash2 size={18} />
                   Uninstall

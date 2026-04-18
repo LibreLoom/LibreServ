@@ -88,7 +88,7 @@ export default function RoutesCard({
             <p className="text-sm text-accent">No routes configured</p>
             <button
               onClick={onAdd}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary hover:ring-2 hover:ring-accent transition-all font-mono text-sm"
             >
               <Plus size={16} aria-hidden="true" />
               Add your first route

@@ -341,31 +341,6 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	}, nil
 }
 
-func (i *Installer) resolveBackend(appDef *AppDefinition, installedApp *InstalledApp) string {
-	// Try to find a backend URL in the app definition
-	for _, b := range appDef.Deployment.Backends {
-		if b.URL != "" {
-			return b.URL
-		}
-	}
-
-	// Fall back to HTTP protocol with allocated port from config
-	if installedApp.Config != nil {
-		for _, p := range appDef.Deployment.Ports {
-			if p.Name == "" {
-				continue
-			}
-			if portValue, ok := installedApp.Config[p.Name]; ok {
-				if port, ok := portValue.(int); ok && port > 0 {
-					return fmt.Sprintf("http://localhost:%d", port)
-				}
-			}
-		}
-	}
-
-	return "http://localhost:8080" // fallback
-}
-
 // createRoute stores domain config in the app's Config map and persists it to the database.
 // Route creation itself is handled by the Manager via the backend registration callback.
 func (i *Installer) createRoute(ctx context.Context, appDef *AppDefinition, installedApp *InstalledApp, domain *DomainConfig) error {
@@ -455,6 +430,11 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 		}
 	}
 
+	// Save installed app BEFORE backend registrar so callback can read domain config from DB
+	if err := i.saveInstalledApp(installedApp); err != nil {
+		i.logger.Error("Failed to update installed app", "error", err)
+	}
+
 	// Register backends - Manager callback will create Caddy routes using persisted domain config
 	if i.registerBackend != nil && installedApp.URL != "" {
 		i.registerBackend(instanceID, installedApp.URL, "")
@@ -472,10 +452,6 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 			}
 			i.registerBackend(instanceID, b.URL, b.Name)
 		}
-	}
-
-	if err := i.saveInstalledApp(installedApp); err != nil {
-		i.logger.Error("Failed to update installed app", "error", err)
 	}
 
 	if i.monitor != nil {
@@ -830,6 +806,10 @@ func validateField(field ConfigField, value interface{}) error {
 		var port int
 		switch v := value.(type) {
 		case float64:
+			// Reject non-integer floats to prevent truncation (e.g., 80.9 -> 80)
+			if v != float64(int(v)) {
+				return fmt.Errorf("port must be an integer, not a decimal")
+			}
 			port = int(v)
 		case int:
 			port = v
@@ -898,9 +878,22 @@ func generateInstanceID() string {
 func generateSecurePassword(length int) string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
 	bytes := make([]byte, length)
-	_, _ = rand.Read(bytes)
-	for i, b := range bytes {
-		bytes[i] = chars[int(b)%len(chars)]
+	for i := range bytes {
+		// Use rejection sampling to avoid modulo bias
+		for {
+			if _, err := rand.Read(bytes[i : i+1]); err != nil {
+				// Fall back to insecure random on error (should never happen)
+				bytes[i] = chars[0]
+				break
+			}
+			// Calculate the largest value that divides evenly into 256
+			maxValid := 256 - (256 % len(chars))
+			if int(bytes[i]) < maxValid {
+				bytes[i] = chars[int(bytes[i])%len(chars)]
+				break
+			}
+			// Otherwise, try again with a new random byte
+		}
 	}
 	return string(bytes)
 }

@@ -38,7 +38,7 @@ export default function StatusPill({ status, className = "" }) {
       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill ${className}`}
         style={{
           backgroundColor: `var(${config.bgVar})`,
-          color: `var(--color-primary)`,
+          color: `var(--color-secondary)`,
         }}
     >
       <span

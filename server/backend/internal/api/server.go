@@ -63,6 +63,7 @@ type Server struct {
 	jobQueue        JobQueue
 	dnsProviderMgr  *network.DNSProviderManager
 	acmeManager     *network.ACMEManager
+	ddnsService     *network.DDNSService
 }
 
 // ServerConfig holds configuration for creating a new Server
@@ -175,8 +176,14 @@ func NewServer(cfg ServerConfig) *Server {
 		logger.Warn("Static assets directory missing", "source", staticSource, "error", err)
 	}
 
+	// Initialize DDNS auto-update service
+	server.ddnsService = network.NewDDNSService(cfg.DB, server.dnsProviderMgr, cfg.AuditService)
+
 	// Setup routes
 	server.setupRoutes()
+
+	// Start DDNS service if enabled
+	server.ddnsService.Start()
 
 	return server
 }
@@ -198,6 +205,9 @@ func (s *Server) Start() error {
 // Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("Shutting down HTTP server")
+	if s.ddnsService != nil {
+		s.ddnsService.Stop()
+	}
 	return s.httpServer.Shutdown(ctx)
 }
 

@@ -283,7 +283,7 @@ func (s *Service) CreateUser(ctx context.Context, user *models.User) error {
 		INSERT INTO users (id, username, password_hash, email, role, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err := s.db.Exec(query, user.ID, user.Username, user.PasswordHash, user.Email, user.Role, user.CreatedAt, user.UpdatedAt)
+	_, err := s.db.ExecContext(ctx, query, user.ID, user.Username, user.PasswordHash, user.Email, user.Role, user.CreatedAt, user.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
 	}
@@ -293,7 +293,7 @@ func (s *Service) CreateUser(ctx context.Context, user *models.User) error {
 // GetUserByID retrieves a user by ID
 func (s *Service) GetUserByID(ctx context.Context, id string) (*models.User, error) {
 	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users WHERE id = ?`
-	row := s.db.QueryRow(query, id)
+	row := s.db.QueryRowContext(ctx, query, id)
 
 	user := &models.User{}
 	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
@@ -307,7 +307,7 @@ func (s *Service) GetUserByID(ctx context.Context, id string) (*models.User, err
 // GetUserByUsername retrieves a user by username
 func (s *Service) GetUserByUsername(ctx context.Context, username string) (*models.User, error) {
 	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users WHERE username = ?`
-	row := s.db.QueryRow(query, username)
+	row := s.db.QueryRowContext(ctx, query, username)
 
 	user := &models.User{}
 	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
@@ -321,7 +321,7 @@ func (s *Service) GetUserByUsername(ctx context.Context, username string) (*mode
 // GetUserByEmail retrieves a user by email
 func (s *Service) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users WHERE email = ?`
-	row := s.db.QueryRow(query, email)
+	row := s.db.QueryRowContext(ctx, query, email)
 
 	user := &models.User{}
 	err := row.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
@@ -340,7 +340,7 @@ func (s *Service) UpdateUser(ctx context.Context, user *models.User) error {
 		SET username = ?, email = ?, role = ?, updated_at = ?
 		WHERE id = ?
 	`
-	_, err := s.db.Exec(query, user.Username, user.Email, user.Role, user.UpdatedAt, user.ID)
+	_, err := s.db.ExecContext(ctx, query, user.Username, user.Email, user.Role, user.UpdatedAt, user.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
@@ -367,7 +367,7 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 
 	// Update password
 	query := `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`
-	_, err = s.db.Exec(query, hash, time.Now(), userID)
+	_, err = s.db.ExecContext(ctx, query, hash, time.Now(), userID)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
@@ -391,7 +391,7 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 
 	if user.Role == "admin" {
 		var adminCount int
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&adminCount); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&adminCount); err != nil {
 			return fmt.Errorf("failed to count admins: %w", err)
 		}
 		if adminCount <= 1 {
@@ -400,7 +400,7 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 	}
 
 	query := `DELETE FROM users WHERE id = ?`
-	result, err := s.db.Exec(query, id)
+	result, err := s.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
@@ -417,7 +417,7 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 // ListUsers returns all users
 func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
 	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users ORDER BY created_at DESC`
-	rows, err := s.db.Query(query)
+	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
@@ -448,7 +448,7 @@ func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
 func (s *Service) ListUsersPaginated(ctx context.Context, offset, limit int) ([]*models.User, int64, error) {
 	// Get total count
 	var total int64
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count users: %w", err)
 	}
 
@@ -457,7 +457,7 @@ func (s *Service) ListUsersPaginated(ctx context.Context, offset, limit int) ([]
 		FROM users 
 		ORDER BY created_at DESC 
 		LIMIT ? OFFSET ?`
-	rows, err := s.db.Query(query, limit, offset)
+	rows, err := s.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list users: %w", err)
 	}
@@ -487,7 +487,7 @@ func (s *Service) ListUsersPaginated(ctx context.Context, offset, limit int) ([]
 // UserCount returns the number of users
 func (s *Service) UserCount(ctx context.Context) (int, error) {
 	var count int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
 	if err != nil {
 		return 0, err
 	}
