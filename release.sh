@@ -187,7 +187,13 @@ build_binaries() {
     # Clean old build to avoid permission issues
     rm -rf OS/dist
     
-    make frontend-build
+    if ! make frontend-build; then
+        log_error "Frontend build failed"
+        log_info "Cleaning up..."
+        cd ../..
+        rm -rf "$BUILD_DIR"
+        exit 1
+    fi
     cd ../..
     
     # Get version info for ldflags
@@ -196,23 +202,27 @@ build_binaries() {
     
     # Build Linux AMD64
     log_info "Building libreserv-linux-amd64..."
-    cd server/backend
-    GOOS=linux GOARCH=amd64 go build -tags "embedfront" \
+    if ! GOOS=linux GOARCH=amd64 go build -tags "embedfront" \
         -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$BUILD_TIME" \
-        -o "$BUILD_DIR/libreserv-linux-amd64" ./cmd/libreserv
-    cd ../..
+        -o "$BUILD_DIR/libreserv-linux-amd64" ./server/backend/cmd/libreserv; then
+        log_error "Failed to build AMD64 binary"
+        rm -rf "$BUILD_DIR"
+        exit 1
+    fi
     
     # Build Linux ARM64
     log_info "Building libreserv-linux-arm64..."
-    cd server/backend
-    GOOS=linux GOARCH=arm64 go build -tags "embedfront" \
+    if ! GOOS=linux GOARCH=arm64 go build -tags "embedfront" \
         -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$BUILD_TIME" \
-        -o "$BUILD_DIR/libreserv-linux-arm64" ./cmd/libreserv
-    cd ../..
+        -o "$BUILD_DIR/libreserv-linux-arm64" ./server/backend/cmd/libreserv; then
+        log_error "Failed to build ARM64 binary"
+        rm -rf "$BUILD_DIR"
+        exit 1
+    fi
     
     # Generate checksums
     log_info "Generating SHA256 checksums..."
@@ -362,7 +372,19 @@ publish_release() {
 
 # Cleanup
 cleanup() {
+    EXIT_CODE=$?
     BUILD_DIR=$(pwd)/release-build
+    
+    # Always clean on error
+    if [ $EXIT_CODE -ne 0 ]; then
+        if [ -d "$BUILD_DIR" ]; then
+            log_warn "Cleaning up build directory after error..."
+            rm -rf "$BUILD_DIR"
+        fi
+        return
+    fi
+    
+    # Normal cleanup on success
     if [ -d "$BUILD_DIR" ]; then
         if [ "$PRESERVE_BUILD" = true ]; then
             log_info "Build directory preserved: $BUILD_DIR"
