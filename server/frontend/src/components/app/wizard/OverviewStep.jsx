@@ -105,7 +105,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
       {features && (
         <div className="max-w-2xl mx-auto">
           <div className="border-t border-secondary/20 pt-6">
-            <div className="bg-secondary/80 rounded-large-element p-5">
+            <div className="bg-secondary rounded-large-element p-5">
               <FeatureMatrix features={features} />
             </div>
           </div>
