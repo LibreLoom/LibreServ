@@ -117,12 +117,20 @@ check_git_status() {
 
 # Run CI suite
 run_ci() {
-    log_step "Running CI Suite"
+    log_step "Run CI Suite"
     echo ""
     
     if [ ! -f "./ci" ]; then
         log_error "CI script not found. Are you in the LibreServ root directory?"
         exit 1
+    fi
+    
+    echo "The CI suite takes 5-15 minutes to run."
+    echo ""
+    read -p "Run full CI suite before release? (Y/n): " run_ci
+    if [ "$run_ci" = "n" ] || [ "$run_ci" = "N" ]; then
+        log_warn "Skipping CI suite - ensure tests pass manually!"
+        return
     fi
     
     log_info "Running full CI profile (this may take a while)..."
