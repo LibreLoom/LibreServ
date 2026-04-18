@@ -359,6 +359,26 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 		return ErrInvalidCredentials
 	}
 
+	return s.setPasswordInternal(ctx, user, newPassword, "Password changed")
+}
+
+// ResetPasswordWithToken resets a user's password using a valid reset token (bypasses old password check).
+func (s *Service) ResetPasswordWithToken(ctx context.Context, userID, newPassword string) error {
+	user, err := s.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	return s.setPasswordInternal(ctx, user, newPassword, "Password reset via token")
+}
+
+// setPasswordInternal is a helper that sets a new password and revokes tokens.
+func (s *Service) setPasswordInternal(ctx context.Context, user *models.User, newPassword, reason string) error {
+	// Prevent reusing the current password
+	if err := VerifyPassword(user.PasswordHash, newPassword); err == nil {
+		return fmt.Errorf("new password must be different from current password")
+	}
+
 	// Hash new password
 	hash, err := HashPassword(newPassword)
 	if err != nil {
@@ -367,17 +387,25 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 
 	// Update password
 	query := `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`
-	_, err = s.db.ExecContext(ctx, query, hash, time.Now(), userID)
+	_, err = s.db.ExecContext(ctx, query, hash, time.Now(), user.ID)
 	if err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
-	// Revoke all tokens for this user (force re-login)
-	if err := s.RevokeAllTokens(userID, userID, "Password changed"); err != nil {
-		s.logger.Error("Failed to revoke tokens after password change", "user_id", userID, "error", err)
+	// Invalidate all password reset tokens for this user
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE password_reset_tokens SET used = TRUE WHERE user_id = ?
+	`, user.ID)
+	if err != nil {
+		s.logger.Warn("Failed to invalidate password reset tokens", "user_id", user.ID, "error", err)
 	}
 
-	s.logger.Info("Password changed", "user_id", userID)
+	// Revoke all tokens for this user (force re-login)
+	if err := s.RevokeAllTokens(user.ID, user.ID, reason); err != nil {
+		s.logger.Error("Failed to revoke tokens after password change", "user_id", user.ID, "error", err)
+	}
+
+	s.logger.Info("Password changed", "user_id", user.ID, "reason", reason)
 	return nil
 }
 

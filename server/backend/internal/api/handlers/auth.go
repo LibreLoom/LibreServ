@@ -54,11 +54,10 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 
 // AuthHandler handles authentication-related API endpoints
 type AuthHandler struct {
-	authService       *auth.Service
-	securityService   *security.Service
+	authService          *auth.Service
+	securityService      *security.Service
 	passwordResetService *auth.PasswordResetService
 }
-
 
 // NewAuthHandler creates a new AuthHandler
 func NewAuthHandler(authService *auth.Service, securityService *security.Service, db auth.DatabaseInterface) *AuthHandler {
@@ -262,7 +261,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	
+
 	if req.Email == "" {
 		JSONError(w, http.StatusBadRequest, "email is required")
 		return
@@ -285,9 +284,15 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	
+
 	if req.Token == "" || req.NewPassword == "" {
 		JSONError(w, http.StatusBadRequest, "token and new_password are required")
+		return
+	}
+
+	user, err := h.passwordResetService.ValidateToken(r.Context(), req.Token)
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -295,6 +300,19 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// Record security event
+	event := security.Event{
+		Timestamp:     time.Now(),
+		EventType:     security.EventPasswordReset,
+		Severity:      security.SeverityWarning,
+		ActorID:       user.ID,
+		ActorUsername: user.Username,
+		IPAddress:     getClientIP(r),
+		UserAgent:     r.UserAgent(),
+		Details:       fmt.Sprintf("Password reset completed for user %s", user.Username),
+	}
+	h.securityService.RecordEvent(r.Context(), &event)
 
 	JSON(w, http.StatusOK, map[string]string{
 		"message": "Password reset successfully",
@@ -309,17 +327,15 @@ func (h *AuthHandler) ValidateResetToken(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	user, err := h.passwordResetService.ValidateToken(r.Context(), token)
+	_, err := h.passwordResetService.ValidateToken(r.Context(), token)
 	if err != nil {
 		JSON(w, http.StatusOK, map[string]interface{}{
 			"valid": false,
-			"error": err.Error(),
 		})
 		return
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"valid": true,
-		"email": user.Email,
 	})
 }

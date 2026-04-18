@@ -77,7 +77,7 @@ func (s *PasswordResetService) RequestReset(ctx context.Context, reqEmail string
 	if err := row.Scan(&recentCount); err != nil {
 		return fmt.Errorf("rate limit check failed")
 	}
-	
+
 	if recentCount >= 3 {
 		return fmt.Errorf("too many requests, please try again later")
 	}
@@ -101,7 +101,7 @@ func (s *PasswordResetService) RequestReset(ctx context.Context, reqEmail string
 	if cfg.Network.Caddy.DefaultDomain != "" {
 		domain = cfg.Network.Caddy.DefaultDomain
 	}
-	
+
 	resetURL := &url.URL{
 		Scheme:   "https",
 		Host:     domain,
@@ -142,7 +142,7 @@ This link expires in 1 hour.
 	if err != nil {
 		return mailer.Send([]string{user.Email}, subject, body)
 	}
-	
+
 	return mailer.SendHTMLEmail([]string{user.Email}, subject, htmlBody)
 }
 
@@ -161,7 +161,7 @@ func (s *PasswordResetService) ValidateToken(ctx context.Context, token string) 
 		WHERE token_hash = ? AND used = FALSE AND expires_at > ?
 		LIMIT 1
 	`, tokenHash, time.Now())
-	
+
 	if err := row.Scan(&userID); err != nil {
 		return nil, fmt.Errorf("invalid or expired token")
 	}
@@ -176,7 +176,7 @@ func (s *PasswordResetService) ResetPassword(ctx context.Context, token, newPass
 		return err
 	}
 
-	err = s.authService.ChangePassword(ctx, user.ID, "", newPassword)
+	err = s.authService.ResetPasswordWithToken(ctx, user.ID, newPassword)
 	if err != nil {
 		return fmt.Errorf("failed to reset password: %w", err)
 	}
