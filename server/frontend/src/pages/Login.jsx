@@ -58,12 +58,16 @@ function ForgotPasswordModal({ isOpen, onClose }) {
             Enter your email address and we'll send you a link to reset your password.
           </p>
           <form onSubmit={handleSubmit}>
+            <label htmlFor="reset-email" className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
+              Email
+            </label>
             <input
+              id="reset-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
-              className="w-full border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent"
+              className="w-full border-2 border-accent rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent"
               required
             />
             {error && (

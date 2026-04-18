@@ -54,7 +54,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	secSvc := security.NewService(db, logger, notifier)
 
 	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*docker.Client)(nil), nil, nil, nil)
-	authH := handlers.NewAuthHandler(authSvc, secSvc)
+	authH := handlers.NewAuthHandler(authSvc, secSvc, db)
 	usersH := handlers.NewUsersHandler(authSvc)
 
 	return &testEnv{

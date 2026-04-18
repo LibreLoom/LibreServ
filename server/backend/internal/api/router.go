@@ -145,12 +145,17 @@ func (s *Server) setupRoutes() {
 			r.Get("/dns/status", setupHandler.GetDNSStatus)
 		})
 
-		// Public auth routes (login, register, refresh)
+		// Public auth routes (login, register, refresh, password reset)
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
 			r.Post("/auth/login", authHandler.Login)
 			r.Post("/auth/register", authHandler.Register)
 			r.Post("/auth/refresh", authHandler.RefreshToken)
+
+			// Password reset endpoints (no auth required - token-based authentication)
+			r.Post("/auth/password-reset/request", authHandler.RequestPasswordReset)
+			r.Post("/auth/password-reset/confirm", authHandler.ConfirmPasswordReset)
+			r.Get("/auth/password-reset/validate", authHandler.ValidateResetToken)
 
 			// Public catalog icon endpoint (for app icons)
 			r.Get("/catalog/{appId}/icon", catalogHandler.GetAppIcon)
@@ -175,9 +180,6 @@ func (s *Server) setupRoutes() {
 			// Auth - authenticated user endpoints
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
-			r.Post("/auth/password-reset/request", authHandler.RequestPasswordReset)
-			r.Post("/auth/password-reset/confirm", authHandler.ConfirmPasswordReset)
-			r.Get("/auth/password-reset/validate", authHandler.ValidateResetToken)
 			r.Get("/auth/csrf", csrfHandler.GetToken)
 
 			// Catalog - browse available apps
@@ -218,18 +220,18 @@ func (s *Server) setupRoutes() {
 				r.Get("/{instanceId}/logs/stream", logsHandler.StreamLogs)
 			})
 
-		// Monitoring - system health and metrics management
-		r.Route("/monitoring", func(r chi.Router) {
-			r.Get("/system", monitoringHandler.SystemHealth)
-			r.Post("/cleanup", monitoringHandler.CleanupMetrics)
-			r.Post("/email/test", monitoringHandler.SendTestEmail)
-		})
-		
-		// Comprehensive health check endpoint
-		r.Route("/system/health", func(r chi.Router) {
-			r.Get("/check", monitoringHandler.ComprehensiveHealthCheck)
-			r.Post("/check/refresh", monitoringHandler.ComprehensiveHealthCheck)
-		})
+			// Monitoring - system health and metrics management
+			r.Route("/monitoring", func(r chi.Router) {
+				r.Get("/system", monitoringHandler.SystemHealth)
+				r.Post("/cleanup", monitoringHandler.CleanupMetrics)
+				r.Post("/email/test", monitoringHandler.SendTestEmail)
+			})
+
+			// Comprehensive health check endpoint
+			r.Route("/system/health", func(r chi.Router) {
+				r.Get("/check", monitoringHandler.ComprehensiveHealthCheck)
+				r.Post("/check/refresh", monitoringHandler.ComprehensiveHealthCheck)
+			})
 
 			// Notification configuration (admin only)
 			r.Route("/notify", func(r chi.Router) {

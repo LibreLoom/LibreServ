@@ -1,6 +1,6 @@
 module gt.plainskill.net/LibreLoom/LibreServ/ci
 
-go 1.24.0
+go 1.26
 
 require (
 	github.com/charmbracelet/bubbles v0.20.0

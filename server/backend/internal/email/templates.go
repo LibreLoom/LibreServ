@@ -261,7 +261,7 @@ func RenderHTMLEmail(subject, plainTextBody string, data map[string]interface{})
 	if bodyStr == "" {
 		bodyStr = fmt.Sprintf("%v", data["body"])
 	}
-	
+
 	// Smart conversion: detect buttons/links and format accordingly
 	htmlContent := convertTextToHTML(bodyStr)
 	formattedData["Content"] = htmlContent
@@ -277,16 +277,16 @@ func RenderHTMLEmail(subject, plainTextBody string, data map[string]interface{})
 // convertTextToHTML converts plain text email body to HTML with smart formatting
 func convertTextToHTML(text string) string {
 	var html strings.Builder
-	
+
 	// Split by double newlines (paragraphs)
 	paragraphs := strings.Split(text, "\n\n")
-	
+
 	for _, p := range paragraphs {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
 		}
-		
+
 		// Check if paragraph contains a URL (for buttons)
 		if strings.Contains(p, "http") {
 			// Extract URL and text
@@ -313,7 +313,7 @@ func convertTextToHTML(text string) string {
 			html.WriteString(fmt.Sprintf("<p>%s</p>", strings.ReplaceAll(p, "\n", "<br>")))
 		}
 	}
-	
+
 	return html.String()
 }
 
@@ -324,13 +324,13 @@ func extractURL(text string) string {
 	if start == -1 {
 		return ""
 	}
-	
+
 	// Find end of URL (space or end of string)
 	end := strings.IndexAny(text[start:], " \n\t")
 	if end == -1 {
 		return text[start:]
 	}
-	
+
 	return text[start : start+end]
 }
 
@@ -364,6 +364,6 @@ func (s *Sender) buildHTMLMessage(from string, to []string, subject, htmlBody st
 		"Content-Type: text/html; charset=\"utf-8\"",
 		"",
 	}
-	
+
 	return strings.Join(headers, "\r\n") + htmlBody
 }
