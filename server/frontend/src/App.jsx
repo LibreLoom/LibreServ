@@ -16,6 +16,7 @@ const HelpPage = lazy(() => import("./pages/HelpPage"));
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
 const AppInstallPage = lazy(() => import("./pages/AppInstallPage"));
 const Login = lazy(() => import("./pages/Login"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const LorePage = lazy(() => import("./pages/LorePage"));

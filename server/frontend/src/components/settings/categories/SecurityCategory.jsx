@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
 import {
-  Bell,
-  Mail,
   Check,
   Shield,
   Activity,
@@ -76,19 +74,6 @@ function getSeverityIcon(severity) {
   }
 }
 
-const FREQUENCY_OPTIONS = [
-  { value: "instant", label: "Instant", description: "Send emails immediately" },
-  { value: "normal", label: "Normal", description: "Batch non-critical, instant for critical" },
-  { value: "digest", label: "Daily Digest", description: "Send daily summary" },
-];
-
-const NOTIFICATION_OPTIONS = [
-  { key: "notify_on_login", label: "Successful logins", description: "When someone logs in" },
-  { key: "notify_on_failed_login", label: "Failed login attempts", description: "When access is attempted" },
-  { key: "notify_on_password_change", label: "Password changes", description: "When password is changed" },
-  { key: "notify_on_admin_action", label: "Admin actions", description: "When settings or apps are modified" },
-];
-
 function StatCard({ value, label, variant = "accent" }) {
   const colorClass = variant === "warning" ? "text-warning" : variant === "error" ? "text-error" : "text-accent";
   return (
@@ -99,12 +84,10 @@ function StatCard({ value, label, variant = "accent" }) {
   );
 }
 
-export default function SecurityCategory({ settings, onSettingsChange, onTestNotification }) {
+export default function SecurityCategory({ settings, onSettingsChange }) {
   const { addToast } = useToast();
   const { use12HourTime } = useTimeFormat();
   const activityColumns = getActivityColumns(use12HourTime);
-
-  const [testing, setTesting] = useState(false);
 
   const [events, setEvents] = useState([]);
   const [stats, setStats] = useState(null);
@@ -116,30 +99,6 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
     loadActivityData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
-
-  const handleToggle = (key) => {
-    onSettingsChange?.({ ...settings, [key]: !settings[key] });
-  };
-
-  const handleFrequencyChange = (frequency) => {
-    onSettingsChange?.({ ...settings, notification_frequency: frequency });
-  };
-
-  const handleNotificationChange = (key) => {
-    onSettingsChange?.({ ...settings, [key]: !settings[key] });
-  };
-
-  const handleTestNotification = async () => {
-    try {
-      setTesting(true);
-      await onTestNotification?.();
-      addToast({ type: "success", message: "Test notification sent!" });
-    } catch (err) {
-      addToast({ type: "error", message: err?.message || "Failed to send test" });
-    } finally {
-      setTesting(false);
-    }
-  };
 
   const loadActivityData = async () => {
     try {
@@ -277,74 +236,10 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
       </SettingsCard>
 
       <SettingsCard
-        icon={Bell}
-        title="Notifications"
-        padding={false}
-        index={1}
-      >
-        <div className="px-4 py-3">
-          <Toggle
-            checked={settings?.notifications_enabled || false}
-            onChange={() => handleToggle("notifications_enabled")}
-            label="Enable Notifications"
-            description="Receive security alerts"
-          />
-
-          <div
-            className={`overflow-hidden transition-all duration-300 ease-in-out ${
-              settings?.notifications_enabled ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"
-            }`}
-          >
-            <div className="pt-3 mt-3 border-t border-primary/10">
-              <div className="font-medium text-primary mb-3">Frequency</div>
-              <RadioOptionGroup
-                name="frequency"
-                options={FREQUENCY_OPTIONS}
-                value={settings?.notification_frequency || "normal"}
-                onChange={handleFrequencyChange}
-              />
-            </div>
-
-            <div className="pt-4 mt-4 border-t border-primary/10 pb-3">
-              <div className="font-medium text-primary mb-3">Notify Me About</div>
-              <CheckboxOptionGroup
-                options={NOTIFICATION_OPTIONS}
-                values={{
-                  notify_on_login: settings?.notify_on_login || false,
-                  notify_on_failed_login: settings?.notify_on_failed_login || false,
-                  notify_on_password_change: settings?.notify_on_password_change || false,
-                  notify_on_admin_action: settings?.notify_on_admin_action || false,
-                }}
-                onChange={handleNotificationChange}
-              />
-            </div>
-
-          </div>
-
-          <div className="pt-4 mt-4 border-t border-primary/10 pb-3">
-            <div className="font-medium text-primary mb-3">Test Email</div>
-            <Pill>
-              <Mail size={14} />
-              <span className="text-xs">Send a test notification to your email</span>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={handleTestNotification}
-                disabled={testing}
-                className="ml-2"
-              >
-                {testing ? "Sending..." : "Send Test"}
-              </Button>
-            </Pill>
-          </div>
-        </div>
-      </SettingsCard>
-
-      <SettingsCard
         icon={Shield}
         title="Security Tips"
         padding={false}
-        index={3}
+        index={1}
       >
         <div className="p-4 grid md:grid-cols-2 gap-3">
           <div className="p-3 bg-primary/5 rounded-large-element">
@@ -373,7 +268,6 @@ export default function SecurityCategory({ settings, onSettingsChange, onTestNot
           </div>
         </div>
       </SettingsCard>
-
     </div>
   );
 }

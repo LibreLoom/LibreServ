@@ -4,6 +4,7 @@ import SecurityCategory from "./categories/SecurityCategory";
 import AboutCategory from "./categories/AboutCategory";
 import BackupsCategory from "./categories/BackupsCategory";
 import NetworkCategory from "./categories/NetworkCategory";
+import NotificationsCategory from "./categories/NotificationsCategory";
 import SaveStatusIndicator from "../common/SaveStatusIndicator";
 
 const CATEGORY_TITLES = {
@@ -12,6 +13,7 @@ const CATEGORY_TITLES = {
 	backups: "Backups",
 	security: "Security",
 	network: "Network",
+	notifications: "Notifications",
 	about: "About",
 };
 
@@ -21,6 +23,7 @@ const CATEGORY_COMPONENTS = {
 	backups: BackupsCategory,
 	security: SecurityCategory,
 	network: NetworkCategory,
+	notifications: NotificationsCategory,
 	about: AboutCategory,
 };
 
@@ -32,6 +35,9 @@ export default function SettingsContent({
   resolvedTheme,
   securitySettings,
   onSecuritySettingsChange,
+  notificationsSettings,
+  onNotificationsSettingsChange,
+  onNotificationsSettingsSaved,
   onTestNotification,
   onLoggingChange,
   colors,
@@ -86,6 +92,11 @@ export default function SettingsContent({
         };
       case "network":
         return { settings };
+      case "notifications":
+        return {
+          settings: notificationsSettings,
+          onSettingsChange: onNotificationsSettingsChange,
+        };
       case "about":
         return { settings };
       default:

@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 
 export default function AnimatedCheckbox({ checked, onChange, children, className = "" }) {
   return (
-    <label className={`flex items-start gap-3 cursor-pointer group ${className}`}>
+    <label className={`flex items-center gap-2 cursor-pointer group ${className}`}>
       <div
         className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
           checked
@@ -33,7 +33,7 @@ export default function AnimatedCheckbox({ checked, onChange, children, classNam
         onChange={(e) => onChange(e.target.checked)}
         className="sr-only"
       />
-      <span className="text-sm text-secondary leading-relaxed">{children}</span>
+      <span className="text-sm font-medium leading-relaxed">{children}</span>
     </label>
   );
 }

@@ -81,6 +81,47 @@ func (d *DB) Ping() error {
 	return d.db.Ping()
 }
 
+// GetAdminUsers retrieves all users with admin role
+func (d *DB) GetAdminUsers(ctx context.Context) ([]struct {
+	ID       string
+	Username string
+	Email    string
+}, error) {
+	rows, err := d.db.QueryContext(ctx, `
+		SELECT id, username, email 
+		FROM users 
+		WHERE role = 'admin' AND email IS NOT NULL AND email != ''
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var admins []struct {
+		ID       string
+		Username string
+		Email    string
+	}
+
+	for rows.Next() {
+		var admin struct {
+			ID       string
+			Username string
+			Email    string
+		}
+		if err := rows.Scan(&admin.ID, &admin.Username, &admin.Email); err != nil {
+			return nil, err
+		}
+		admins = append(admins, admin)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return admins, nil
+}
+
 // ReplaceFile atomically swaps the underlying SQLite database file with the provided replacement file.
 //
 // Requirements/assumptions:

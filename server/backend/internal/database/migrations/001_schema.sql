@@ -334,3 +334,83 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 
 -- Support sessions indexes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_support_sessions_code_unique ON support_sessions(code, token);
+-- =====================
+-- Password Reset & Notifications (from 003)
+-- =====================
+
+-- Password reset tokens table
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires ON password_reset_tokens(expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+
+-- Notification preferences (extends user_security_settings)
+ALTER TABLE user_security_settings ADD COLUMN notify_on_health_alert BOOLEAN DEFAULT TRUE;
+ALTER TABLE user_security_settings ADD COLUMN notify_on_disk_warning BOOLEAN DEFAULT TRUE;
+ALTER TABLE user_security_settings ADD COLUMN notify_on_docker_failure BOOLEAN DEFAULT TRUE;
+ALTER TABLE user_security_settings ADD COLUMN notify_on_database_issue BOOLEAN DEFAULT TRUE;
+
+-- Email templates table
+CREATE TABLE IF NOT EXISTS email_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_key TEXT UNIQUE NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    is_custom BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT
+);
+
+-- Insert default templates
+INSERT OR IGNORE INTO email_templates (template_key, subject, body, is_custom, updated_at, updated_by) VALUES
+('password_reset', 'Reset Your LibreServ Password', 'Hello {{.Username}},
+
+A password reset was requested for your LibreServ account.
+
+Click the link below to reset your password:
+{{.ResetLink}}
+
+This link expires in 1 hour.
+
+If you didn''t request this, you can safely ignore this email.
+
+— LibreServ', 0, CURRENT_TIMESTAMP, NULL),
+('welcome', 'Welcome to LibreServ!', 'Hello {{.Username}},
+
+Welcome to LibreServ! Your account has been created.
+
+You can now log in and start managing your self-hosted applications.
+
+— LibreServ', 0, CURRENT_TIMESTAMP, NULL),
+('health_alert', '⚠️ LibreServ Health Alert', 'Hello,
+
+LibreServ has detected a health issue:
+
+{{.HealthCheck}}
+
+Status: {{.Status}}
+Time: {{.Timestamp}}
+
+Please check your system as soon as possible.
+
+— LibreServ', 0, CURRENT_TIMESTAMP, NULL),
+('security_alert', 'LibreServ Security Alert', 'Hello {{.Username}},
+
+A security event occurred on your LibreServ:
+
+Event: {{.EventType}}
+Time: {{.Timestamp}}
+IP: {{.IPAddress}}
+
+If this wasn''t you, please secure your account immediately.
+
+— LibreServ', 0, CURRENT_TIMESTAMP, NULL);

@@ -11,6 +11,7 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
 )
@@ -53,12 +54,23 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 
 // AuthHandler handles authentication-related API endpoints
 type AuthHandler struct {
-	authService     *auth.Service
-	securityService *security.Service
+	authService       *auth.Service
+	securityService   *security.Service
+	passwordResetService *auth.PasswordResetService
 }
 
+
 // NewAuthHandler creates a new AuthHandler
-func NewAuthHandler(authService *auth.Service, securityService *security.Service) *AuthHandler {
+func NewAuthHandler(authService *auth.Service, securityService *security.Service, db auth.DatabaseInterface) *AuthHandler {
+	h := &AuthHandler{
+		authService:     authService,
+		securityService: securityService,
+	}
+	h.passwordResetService = auth.NewPasswordResetService(authService, email.NewSender, db)
+	return h
+}
+
+func NewAuthHandlerOld(authService *auth.Service, securityService *security.Service) *AuthHandler {
 	return &AuthHandler{
 		authService:     authService,
 		securityService: securityService,
@@ -241,4 +253,73 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Secure:   secure,
 	})
 	JSON(w, http.StatusOK, map[string]string{"message": "refreshed"})
+}
+
+// RequestPasswordReset handles POST /api/v1/auth/password-reset/request
+func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req auth.ResetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	
+	if req.Email == "" {
+		JSONError(w, http.StatusBadRequest, "email is required")
+		return
+	}
+
+	if err := h.passwordResetService.RequestReset(r.Context(), req.Email); err != nil {
+		JSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{
+		"message": "If an account exists with that email, a password reset link has been sent",
+	})
+}
+
+// ConfirmPasswordReset handles POST /api/v1/auth/password-reset/confirm
+func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Request) {
+	var req auth.ResetConfirm
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	
+	if req.Token == "" || req.NewPassword == "" {
+		JSONError(w, http.StatusBadRequest, "token and new_password are required")
+		return
+	}
+
+	if err := h.passwordResetService.ResetPassword(r.Context(), req.Token, req.NewPassword); err != nil {
+		JSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{
+		"message": "Password reset successfully",
+	})
+}
+
+// ValidateResetToken handles GET /api/v1/auth/password-reset/validate?token=...
+func (h *AuthHandler) ValidateResetToken(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		JSONError(w, http.StatusBadRequest, "token is required")
+		return
+	}
+
+	user, err := h.passwordResetService.ValidateToken(r.Context(), token)
+	if err != nil {
+		JSON(w, http.StatusOK, map[string]interface{}{
+			"valid": false,
+			"error": err.Error(),
+		})
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"valid": true,
+		"email": user.Email,
+	})
 }

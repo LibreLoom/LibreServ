@@ -22,7 +22,7 @@ func (s *Server) setupRoutes() {
 	catalogHandler := handlers.NewCatalogHandler(s.appManager)
 	appsHandler := handlers.NewAppsHandler(s.appManager)
 	appsHandler.SetAuditLogger(s)
-	authHandler := handlers.NewAuthHandler(s.authService, s.securityService)
+	authHandler := handlers.NewAuthHandler(s.authService, s.securityService, s.db)
 	securityHandler := handlers.NewSecurityHandler(s.securityService)
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient, s.appManager.GetMetricsCache())
 	backupHandler := handlers.NewBackupHandlers(s.backupService, s.cloudService)
@@ -175,6 +175,9 @@ func (s *Server) setupRoutes() {
 			// Auth - authenticated user endpoints
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
+			r.Post("/auth/password-reset/request", authHandler.RequestPasswordReset)
+			r.Post("/auth/password-reset/confirm", authHandler.ConfirmPasswordReset)
+			r.Get("/auth/password-reset/validate", authHandler.ValidateResetToken)
 			r.Get("/auth/csrf", csrfHandler.GetToken)
 
 			// Catalog - browse available apps
@@ -215,12 +218,18 @@ func (s *Server) setupRoutes() {
 				r.Get("/{instanceId}/logs/stream", logsHandler.StreamLogs)
 			})
 
-			// Monitoring - system health and metrics management
-			r.Route("/monitoring", func(r chi.Router) {
-				r.Get("/system", monitoringHandler.SystemHealth)
-				r.Post("/cleanup", monitoringHandler.CleanupMetrics)
-				r.Post("/email/test", monitoringHandler.SendTestEmail)
-			})
+		// Monitoring - system health and metrics management
+		r.Route("/monitoring", func(r chi.Router) {
+			r.Get("/system", monitoringHandler.SystemHealth)
+			r.Post("/cleanup", monitoringHandler.CleanupMetrics)
+			r.Post("/email/test", monitoringHandler.SendTestEmail)
+		})
+		
+		// Comprehensive health check endpoint
+		r.Route("/system/health", func(r chi.Router) {
+			r.Get("/check", monitoringHandler.ComprehensiveHealthCheck)
+			r.Post("/check/refresh", monitoringHandler.ComprehensiveHealthCheck)
+		})
 
 			// Notification configuration (admin only)
 			r.Route("/notify", func(r chi.Router) {
