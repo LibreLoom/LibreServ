@@ -31,9 +31,7 @@ frontend:
 frontend-build: frontend
 	@echo ">> Building frontend"
 	@cd ../frontend && npm run build
-	@rm -rf OS/dist
-	@mkdir -p OS/dist
-	@cp -R ../frontend/dist/. OS/dist/
+	@echo ">> Frontend built to OS/dist/"
 
 # Testing targets
 test:
