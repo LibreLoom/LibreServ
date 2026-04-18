@@ -10,6 +10,7 @@ REPO_OWNER="LibreLoom"
 REPO_NAME="LibreServ"
 DRY_RUN=false
 PRESERVE_BUILD=false
+FORCE=false
 
 # Parse arguments
 for arg in "$@"; do
@@ -23,12 +24,17 @@ for arg in "$@"; do
             PRESERVE_BUILD=true
             shift
             ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
         --help|-h)
-            echo "Usage: ./release.sh [--dry-run] [--keep-build]"
+            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force]"
             echo ""
             echo "Options:"
             echo "  --dry-run      Build binaries and release notes, but skip Gitea API calls"
             echo "  --keep-build   Keep release-build/ directory after completion"
+            echo "  --force        Delete existing release with same tag and recreate"
             echo "  --help, -h     Show this help message"
             exit 0
             ;;
@@ -296,11 +302,57 @@ create_gitea_release() {
     
     if echo "$EXISTING" | grep -q '"id"'; then
         EXISTING_ID=$(echo "$EXISTING" | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
-        log_error "Release $VERSION_TAG already exists (ID: $EXISTING_ID)"
+        log_warn "Release $VERSION_TAG already exists (ID: $EXISTING_ID)"
         echo ""
-        echo "Delete it first or use a different version tag."
-        echo "URL: ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
-        exit 1
+        echo "Existing release URL: ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
+        echo ""
+        
+        if [ "$FORCE" = true ]; then
+            log_info "--force specified, deleting existing release..."
+            DELETE_RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE \
+                -H "Authorization: token $GITEA_TOKEN" \
+                "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$EXISTING_ID")
+            
+            DELETE_CODE=$(echo "$DELETE_RESPONSE" | tail -n1)
+            if [ "$DELETE_CODE" != "204" ] && [ "$DELETE_CODE" != "200" ]; then
+                log_error "Failed to delete existing release (HTTP $DELETE_CODE)"
+                echo "Response: $(echo "$DELETE_RESPONSE" | sed '$d')"
+                exit 1
+            fi
+            log_info "Deleted existing release"
+        else
+            echo "Options:"
+            echo "  1. Delete existing release and recreate (release will be deleted now)"
+            echo "  2. Use a different version tag"
+            echo "  3. Cancel"
+            echo ""
+            read -p "Choose option (1/2/3): " choice
+            
+            case "$choice" in
+                1)
+                    log_info "Deleting existing release..."
+                    DELETE_RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE \
+                        -H "Authorization: token $GITEA_TOKEN" \
+                        "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$EXISTING_ID")
+                    
+                    DELETE_CODE=$(echo "$DELETE_RESPONSE" | tail -n1)
+                    if [ "$DELETE_CODE" != "204" ] && [ "$DELETE_CODE" != "200" ]; then
+                        log_error "Failed to delete existing release (HTTP $DELETE_CODE)"
+                        echo "Response: $(echo "$DELETE_RESPONSE" | sed '$d')"
+                        exit 1
+                    fi
+                    log_info "Deleted existing release"
+                    ;;
+                2)
+                    log_info "Please re-run with a different version tag"
+                    exit 0
+                    ;;
+                3|*)
+                    log_info "Cancelled"
+                    exit 0
+                    ;;
+            esac
+        fi
     fi
     
     log_info "Creating draft release..."
