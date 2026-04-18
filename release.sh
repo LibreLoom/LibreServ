@@ -3,11 +3,30 @@ set -e
 
 # LibreServ Release Script
 # Interactive script to create Gitea releases with binaries
-# Usage: ./release.sh
+# Usage: ./release.sh [--dry-run]
 
 GITEA_INSTANCE="${GITEA_INSTANCE:-https://gt.plainskill.net}"
 REPO_OWNER="LibreLoom"
 REPO_NAME="LibreServ"
+DRY_RUN=false
+
+# Parse arguments
+for arg in "$@"; do
+    case $arg in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: ./release.sh [--dry-run]"
+            echo ""
+            echo "Options:"
+            echo "  --dry-run    Build binaries and release notes, but skip Gitea API calls"
+            echo "  --help, -h   Show this help message"
+            exit 0
+            ;;
+    esac
+done
 
 # Colors
 RED='\033[0;31m'
@@ -351,6 +370,27 @@ main() {
     run_ci
     build_binaries
     create_release_notes
+    
+    if [ "$DRY_RUN" = true ]; then
+        echo ""
+        log_warn "Dry run mode - skipping Gitea API calls"
+        log_info "Release assets ready in: $(pwd)/release-build/"
+        echo ""
+        echo "To create the release manually:"
+        echo "  1. Go to ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/new"
+        echo "  2. Create tag: $VERSION_TAG"
+        echo "  3. Upload files from: $(pwd)/release-build/"
+        echo ""
+        
+        # Cleanup
+        cleanup
+        
+        echo ""
+        log_info "Release preparation complete!"
+        echo ""
+        exit 0
+    fi
+    
     create_gitea_release
     upload_assets
     publish_release

@@ -17,7 +17,8 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 ### 1. Run the Release Script
 
 ```bash
-./release.sh
+./release.sh              # Full release process
+./release.sh --dry-run    # Build binaries only, skip Gitea API calls
 ```
 
 ### 2. Follow the Prompts
