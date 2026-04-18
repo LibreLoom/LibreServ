@@ -305,7 +305,8 @@ create_gitea_release() {
     
     log_info "Creating draft release..."
     
-    RESPONSE=$(curl -s -X POST \
+    # Create release with proper error handling
+    HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
         -H "Authorization: token $GITEA_TOKEN" \
         -H "Content-Type: application/json" \
         -d "{
@@ -316,12 +317,21 @@ create_gitea_release() {
         }" \
         "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases")
     
+    HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+    RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+    
+    if [ "$HTTP_CODE" != "201" ]; then
+        log_error "Failed to create release (HTTP $HTTP_CODE)"
+        echo "Response: $RESPONSE_BODY"
+        exit 1
+    fi
+    
     # Extract release ID
-    RELEASE_ID=$(echo "$RESPONSE" | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
+    RELEASE_ID=$(echo "$RESPONSE_BODY" | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
     
     if [ -z "$RELEASE_ID" ]; then
-        log_error "Failed to create release"
-        echo "Response: $RESPONSE"
+        log_error "Failed to parse release ID from response"
+        echo "Response: $RESPONSE_BODY"
         exit 1
     fi
     
