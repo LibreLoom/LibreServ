@@ -10,7 +10,12 @@ import {
   updateSecuritySettings,
   sendTestNotification,
 } from "../lib/security-api.js";
+import {
+  getNotifications,
+  updateNotifications,
+} from "../lib/notifications-api.js";
 import { ArrowLeft } from "lucide-react";
+import NotificationsCategory from "../components/settings/categories/NotificationsCategory";
 
 const DEBOUNCE_MS = 500;
 
@@ -33,10 +38,11 @@ export default function SettingsPage() {
   } = useTheme();
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
+  const [notificationsSettings, setNotificationsSettings] = useState(null);
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState(() => {
     const hash = window.location.hash.slice(1);
-    const validCategories = ["general", "appearance", "backups", "security", "network", "about"];
+    const validCategories = ["general", "appearance", "backups", "security", "network", "notifications", "about"];
     return validCategories.includes(hash) ? hash : "general";
   });
   const [showMobileContent, setShowMobileContent] = useState(false);
@@ -49,12 +55,14 @@ export default function SettingsPage() {
   const loadData = useCallback(async () => {
     try {
       setError(null);
-      const [settingsData, securityData] = await Promise.all([
+      const [settingsData, securityData, notificationsData] = await Promise.all([
         getSettings(),
         getSecuritySettings(),
+        getNotifications(),
       ]);
       setSettings(settingsData);
       setSecuritySettings(securityData);
+      setNotificationsSettings(notificationsData);
       if (securityData && typeof securityData.use_12_hour_time === "boolean") {
         setUse12HourTime(securityData.use_12_hour_time);
       }
@@ -78,13 +86,21 @@ export default function SettingsPage() {
     window.history.replaceState(null, "", `#${activeCategory}`);
   }, [activeCategory]);
 
+  const handleTestNotification = async () => {
+    return sendTestNotification(csrfToken);
+  };
+
   const performSave = useCallback(async () => {
     const pendingSettings = pendingSettingsRef.current;
     const pendingSecurity = pendingSecurityRef.current;
     const promises = [];
     
     if (pendingSettings) {
-      promises.push(updateSettings(pendingSettings, csrfToken));
+      if (pendingSettings.smtp || pendingSettings.notify) {
+        promises.push(updateNotifications(pendingSettings, csrfToken));
+      } else {
+        promises.push(updateSettings(pendingSettings, csrfToken));
+      }
     }
     
     if (pendingSecurity) {
@@ -97,6 +113,12 @@ export default function SettingsPage() {
         await Promise.all(promises);
         pendingSettingsRef.current = null;
         pendingSecurityRef.current = null;
+        
+        if (pendingSettings && (pendingSettings.smtp || pendingSettings.notify)) {
+          const notificationsData = await getNotifications();
+          setNotificationsSettings(notificationsData);
+        }
+        
         setSaveStatus("saved");
       } catch (err) {
         console.error("Error saving settings:", err);
@@ -142,8 +164,11 @@ export default function SettingsPage() {
     scheduleSave();
   };
 
-  const handleTestNotification = async () => {
-    return sendTestNotification(csrfToken);
+  const handleNotificationsSettingsChange = (newSettings) => {
+    setNotificationsSettings(newSettings);
+    pendingSettingsRef.current = newSettings;
+    setSaveStatus("unsaved");
+    scheduleSave();
   };
 
   const handleRetrySave = () => {
@@ -194,6 +219,8 @@ export default function SettingsPage() {
             resolvedTheme={resolvedTheme}
             securitySettings={securitySettings}
             onSecuritySettingsChange={handleSecuritySettingsChange}
+            notificationsSettings={notificationsSettings}
+            onNotificationsSettingsChange={handleNotificationsSettingsChange}
             onTestNotification={handleTestNotification}
             onLoggingChange={handleLoggingChange}
             colors={colors}
@@ -242,6 +269,8 @@ export default function SettingsPage() {
               resolvedTheme={resolvedTheme}
               securitySettings={securitySettings}
               onSecuritySettingsChange={handleSecuritySettingsChange}
+              notificationsSettings={notificationsSettings}
+              onNotificationsSettingsChange={handleNotificationsSettingsChange}
               onTestNotification={handleTestNotification}
               onLoggingChange={handleLoggingChange}
               colors={colors}

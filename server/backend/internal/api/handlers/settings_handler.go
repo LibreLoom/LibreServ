@@ -252,6 +252,7 @@ func (h *SettingsHandler) GetNotifications(w http.ResponseWriter, r *http.Reques
 	smtp, _ := result["smtp"].(map[string]interface{})
 	if smtp != nil {
 		smtp["password"] = ""
+		smtp["configured"] = smtp["host"] != "" && smtp["host"] != nil
 	}
 
 	JSON(w, http.StatusOK, notifications)
