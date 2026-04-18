@@ -82,6 +82,10 @@ Building
 Running
 package-lock.json
 
+# Support module binaries
+support/support-relay/relay
+support/support-server/server
+
 # CI
 .ci.conf
 ci-results/

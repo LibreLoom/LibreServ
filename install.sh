@@ -89,50 +89,6 @@ check_root() {
     fi
 }
 
-# Install Go if needed
-install_go() {
-    if command -v go >/dev/null 2>&1; then
-        log_info "Go is already installed: $(go version)"
-        return
-    fi
-
-    log_info "Installing Go..."
-
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        DISTRO=$ID
-    else
-        log_error "Cannot detect Linux distribution"
-        exit 1
-    fi
-
-    case "$DISTRO" in
-        ubuntu|debian)
-            apt-get update -qq
-            apt-get install -y -qq golang-go
-            ;;
-        fedora|rhel|centos)
-            dnf install -y -q golang
-            ;;
-        arch)
-            pacman -Sy --noconfirm --quiet go
-            ;;
-        *)
-            log_warn "Installing Go from official source..."
-            GO_VERSION="1.25.0"
-            GO_TARBALL="go${GO_VERSION}.${OS}-${ARCH}.tar.gz"
-            curl -sL "https://go.dev/dl/${GO_TARBALL}" -o "/tmp/${GO_TARBALL}"
-            rm -rf /usr/local/go
-            tar -C /usr/local -xzf "/tmp/${GO_TARBALL}"
-            rm "/tmp/${GO_TARBALL}"
-            echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
-            export PATH=$PATH:/usr/local/go/bin
-            ;;
-    esac
-
-    log_info "Go installed successfully"
-}
-
 # Install Docker if needed
 install_docker() {
     if command -v docker >/dev/null 2>&1; then
@@ -221,9 +177,31 @@ get_latest_release() {
 download_binary() {
     BINARY_NAME="libreserv-${OS}-${ARCH}"
     DOWNLOAD_URL="${GITEA_URL}/libreloom/libreserv/releases/download/${LATEST_RELEASE}/${BINARY_NAME}"
+    CHECKSUM_URL="${GITEA_URL}/libreloom/libreserv/releases/download/${LATEST_RELEASE}/SHA256SUMS.txt"
 
     log_info "Downloading ${BINARY_NAME}..."
     curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
+    
+    log_info "Downloading checksums..."
+    curl -sL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt"
+    
+    log_info "Verifying checksum..."
+    EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
+    if [ -z "$EXPECTED_HASH" ]; then
+        log_warn "Checksum not found for ${BINARY_NAME}, skipping verification"
+    else
+        ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
+        if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+            log_error "Checksum verification failed!"
+            log_error "Expected: ${EXPECTED_HASH}"
+            log_error "Got:      ${ACTUAL_HASH}"
+            rm -f "${INSTALL_DIR}/libreserv"
+            exit 1
+        fi
+        log_info "Checksum verified"
+    fi
+    
+    rm -f /tmp/SHA256SUMS.txt
     chmod +x "${INSTALL_DIR}/libreserv"
     ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
 }
@@ -404,7 +382,6 @@ do_install() {
     check_root
     detect_system
 
-    install_go
     install_docker
 
     create_user
