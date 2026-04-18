@@ -18,7 +18,8 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 
 ```bash
 ./release.sh              # Full release process
-./release.sh --dry-run    # Build binaries only, skip Gitea API calls
+./release.sh --dry-run    # Build binaries only, skip Gitea API calls (keeps build dir)
+./release.sh --keep-build # Keep release-build/ directory after completion
 ```
 
 ### 2. Follow the Prompts
@@ -128,6 +129,17 @@ LibreServ uses semantic versioning: `vMAJOR.MINOR.PATCH`
 - **PATCH** - Bug fixes, backward compatible
 
 Pre-release versions: `v1.0.0-beta.1`, `v1.0.0-rc.1`
+
+## Re-running the Script
+
+**Yes, it's safe to re-run!** The script:
+
+- ✅ Deletes and recreates `release-build/` each run
+- ✅ Cleans `server/backend/OS/dist/` before frontend build
+- ✅ Checks if release tag already exists (prevents duplicates)
+- ✅ Cleans up temp files on exit (unless `--keep-build` or `--dry-run`)
+
+**If script fails mid-way:** Just re-run it. The only issue is if a draft release was created on Gitea - you'll need to delete it manually or use a different version tag.
 
 ## Troubleshooting
 
