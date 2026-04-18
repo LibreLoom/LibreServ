@@ -34,7 +34,7 @@ func newTestAuthHandler(t *testing.T) (*AuthHandler, context.Context) {
 	notifier := security.NewEmailNotifier()
 	secSvc := security.NewService(db, logger, notifier)
 
-	return NewAuthHandler(svc, secSvc), context.Background()
+	return NewAuthHandler(svc, secSvc, db), context.Background()
 }
 
 func TestAuthRegisterLogin(t *testing.T) {
