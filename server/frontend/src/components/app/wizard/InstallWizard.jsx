@@ -110,8 +110,13 @@ function InstallWizard({ appId }) {
     setStep(newStep);
   }, []);
 
+  // Calculate step numbers based on whether domain is configured
+  const hasSubdomainStep = domainConfigured;
+  const progressStep = hasSubdomainStep ? 4 : 3;
+  const completeStep = hasSubdomainStep ? 5 : 4;
+
   const handleInstall = useCallback(async () => {
-    handleStepChange(3);
+    handleStepChange(progressStep);
 
     try {
       const installConfig = { ...config };
@@ -150,9 +155,9 @@ function InstallWizard({ appId }) {
     } catch (err) {
       console.error("Install failed:", err);
       setError("Installation failed. Please check your settings and try again.");
-      handleStepChange(2);
+      handleStepChange(hasSubdomainStep ? 3 : 2);
     }
-  }, [appId, config, features, request, handleStepChange, domainConfigured, domain, subdomain, app]);
+  }, [appId, config, features, request, handleStepChange, domainConfigured, domain, subdomain, app, progressStep, hasSubdomainStep]);
 
   const handleComplete = useCallback(
     (statusData) => {
@@ -160,9 +165,9 @@ function InstallWizard({ appId }) {
         ...prev,
         status: statusData.status,
       }));
-      setStep(4);
+      setStep(completeStep);
     },
-    []
+    [completeStep]
   );
 
   const handleDone = useCallback(() => {
@@ -217,7 +222,7 @@ function InstallWizard({ appId }) {
   return (
     <div className="space-y-8">
       <div className={`transition-all duration-300 delay-75 ${showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
-        <WizardStepper currentStep={step} />
+        <WizardStepper currentStep={step} hasSubdomainStep={hasSubdomainStep} />
       </div>
 
       <div className="max-w-2xl mx-auto">
@@ -240,30 +245,36 @@ function InstallWizard({ appId }) {
             key={`step-2-${animationDirection}`}
             className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
           >
-            {domainConfigured ? (
-              <SubdomainStep
-                app={app}
-                domain={domain}
-                onSubdomainChange={setSubdomain}
-                onContinue={handleInstall}
-                onBack={() => handleStepChange(1)}
-              />
-            ) : (
-              <ConfigureStep
-                app={app}
-                features={features}
-                config={config}
-                onConfigChange={setConfig}
-                onContinue={handleInstall}
-                onBack={() => handleStepChange(1)}
-              />
-            )}
+            <ConfigureStep
+              app={app}
+              features={features}
+              config={config}
+              onConfigChange={setConfig}
+              onContinue={() => handleStepChange(hasSubdomainStep ? 3 : progressStep)}
+              onBack={() => handleStepChange(1)}
+            />
           </div>
         )}
 
-        {step === 3 && (
+        {step === 3 && hasSubdomainStep && (
           <div
             key={`step-3-${animationDirection}`}
+            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+          >
+            <SubdomainStep
+              app={app}
+              domain={domain}
+              onSubdomainChange={setSubdomain}
+              onContinue={handleInstall}
+              onBack={() => handleStepChange(2)}
+              loading={loading}
+            />
+          </div>
+        )}
+
+        {step === progressStep && (
+          <div
+            key={`step-${progressStep}-${animationDirection}`}
             className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
           >
             <ProgressStep
@@ -273,9 +284,9 @@ function InstallWizard({ appId }) {
           </div>
         )}
 
-        {step === 4 && (
+        {step === completeStep && (
           <div
-            key={`step-4-${animationDirection}`}
+            key={`step-${completeStep}-${animationDirection}`}
             className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
           >
             <CompleteStep app={app} instance={instance} onDone={handleDone} />

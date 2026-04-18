@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useInvalidateApps } from "../hooks/useApps";
 import { useTimeFormat } from "../hooks/useTimeFormat";
+import { useCatalogFeatures } from "../hooks/useCatalogFeatures";
 import HeaderCard from "../components/cards/HeaderCard";
 import Card from "../components/cards/Card";
 import CardButton from "../components/cards/CardButton";
@@ -35,6 +36,7 @@ import StatusPill from "../components/common/StatusPill";
 import { ActionCard } from "../components/app/actions/ActionCard";
 import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal";
 import { ExposedInfoCard } from "../components/app/ExposedInfoCard";
+import FeatureMatrix from "../components/app/FeatureMatrix";
 import LogsViewer from "../components/app/LogsViewer";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
@@ -124,6 +126,7 @@ export default function AppDetailPage() {
   const { formatDateTime } = useTimeFormat();
 
   const [app, setApp] = useState(null);
+  const { data: catalogFeatures } = useCatalogFeatures(app?.app_id);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -660,6 +663,16 @@ export default function AppDetailPage() {
               </Card>
             </section>
           )}
+
+          <section className="mt-8">
+            <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+              <div className="flex items-center gap-2 mb-6">
+                <Settings size={20} className="text-accent" />
+                <h2 className="text-2xl font-mono font-normal">Capabilities</h2>
+              </div>
+              <FeatureMatrix features={catalogFeatures} compact />
+            </Card>
+          </section>
 
           {app.exposed_info && Object.keys(app.exposed_info).length > 0 && (
             <ExposedInfoCard info={app.exposed_info} />

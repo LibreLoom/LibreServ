@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle } from "lucide-react";
 import PropTypes from "prop-types";
+import api from "../lib/api";
 import DomainWizard from "../components/setup/DomainWizard";
 import ConfirmModal from "../components/common/ConfirmModal";
 import useSetupProgress from "../hooks/useSetupProgress";
@@ -323,7 +324,7 @@ function PreflightStep({ onPass }) {
     setError(null);
 
     try {
-      const res = await fetch("/api/v1/setup/preflight");
+      const res = await api("/setup/preflight");
       const data = await res.json();
       setChecks(data.checks ?? {});
       setHealthy(data.healthy);
@@ -567,7 +568,7 @@ function AccountStep({ onSuccess, onError }) {
     setSubmitting(true);
     setFieldError(null);
     try {
-      const res = await fetch("/api/v1/setup/complete", {
+      const res = await api("/setup/complete", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify(form),
@@ -889,7 +890,7 @@ export default function SetupPage() {
   useEffect(() => {
     const check = async () => {
       try {
-        const res  = await fetch("/api/v1/setup/status");
+        const res  = await api("/setup/status");
         const data = await res.json();
         if (data.setup_state?.status === "complete") {
           navigate("/");
@@ -997,6 +998,7 @@ export default function SetupPage() {
     if (showDomainWizard) {
       return (
         <DomainWizard
+          open={showDomainWizard}
           onComplete={handleDomainComplete}
           onSkip={handleDomainSkip}
           onDismiss={() => setShowDomainWizard(false)}

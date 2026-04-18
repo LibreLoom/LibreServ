@@ -386,8 +386,9 @@ func (s *Server) setupRoutes() {
 				// General settings update requires admin
 				r.With(middleware.RequireRole("admin")).Put("/", settingsHandler.Update)
 
-				// Proxy settings
-				r.With(middleware.RequireRole("admin")).Put("/proxy", settingsHandler.UpdateProxy)
+			// Proxy settings
+			r.Get("/proxy", settingsHandler.GetProxy)
+			r.With(middleware.RequireRole("admin")).Put("/proxy", settingsHandler.UpdateProxy)
 
 				// Security settings - per-user notification preferences
 				r.Get("/security", settingsHandler.GetSecurity)

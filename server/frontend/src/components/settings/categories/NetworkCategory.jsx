@@ -6,6 +6,7 @@ import SettingsCard from "../SettingsCard";
 import RoutesCard from "../../backups/RoutesCard";
 import DebugCard from "../../backups/DebugCard";
 import RouteModal from "../RouteModal";
+import DomainWizard from "../../setup/DomainWizard";
 
 import DomainManagementCard from "./DomainManagementCard";
 import ValueDisplay from "../../common/ValueDisplay";
@@ -29,6 +30,7 @@ export default function NetworkCategory({ settings }) {
   const [routeToDelete, setRouteToDelete] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
+  const [domainWizardOpen, setDomainWizardOpen] = useState(false);
 
   const defaultDomain = useMemo(() => settings?.proxy?.default_domain || "", [settings]);
 
@@ -140,6 +142,16 @@ export default function NetworkCategory({ settings }) {
     }
   }, [routeToDelete, request, loadData, addToast]);
 
+  const handleDomainWizardComplete = useCallback(() => {
+    setDomainWizardOpen(false);
+    loadData();
+    addToast({ type: "success", message: "Domain configuration updated" });
+  }, [loadData, addToast]);
+
+  const handleDomainWizardSkip = useCallback(() => {
+    setDomainWizardOpen(false);
+  }, []);
+
   const appLinkedRoute = routeToDelete?.app_id
     ? apps?.find((a) => a.id === routeToDelete.app_id)?.name
     : null;
@@ -176,6 +188,7 @@ export default function NetworkCategory({ settings }) {
       <DomainManagementCard
         currentDomain={defaultDomain}
         onDomainChange={() => window.location.reload()}
+        onChangeDomain={() => setDomainWizardOpen(true)}
       />
 
       <RoutesCard
@@ -224,6 +237,14 @@ export default function NetworkCategory({ settings }) {
           </div>
         )}
       </ConfirmModal>
+
+      <DomainWizard
+        open={domainWizardOpen}
+        onClose={() => setDomainWizardOpen(false)}
+        onComplete={handleDomainWizardComplete}
+        onSkip={handleDomainWizardSkip}
+        onDismiss={() => setDomainWizardOpen(false)}
+      />
     </div>
   );
 }

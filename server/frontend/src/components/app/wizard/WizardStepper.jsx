@@ -1,14 +1,29 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Check } from "lucide-react";
+import PropTypes from "prop-types";
 
-const steps = [
-  { id: 1, label: "Overview" },
-  { id: 2, label: "Configure" },
-  { id: 3, label: "Installing" },
-  { id: 4, label: "Complete" },
-];
+function WizardStepper({ currentStep, hasSubdomainStep }) {
+  const steps = useMemo(() => {
+    const baseSteps = [
+      { id: 1, label: "Overview" },
+      { id: 2, label: "Configure" },
+    ];
 
-export default memo(function WizardStepper({ currentStep }) {
+    if (hasSubdomainStep) {
+      baseSteps.push({ id: 3, label: "Network" });
+    }
+
+    const progressId = hasSubdomainStep ? 4 : 3;
+    const completeId = hasSubdomainStep ? 5 : 4;
+
+    baseSteps.push(
+      { id: progressId, label: "Installing" },
+      { id: completeId, label: "Complete" }
+    );
+
+    return baseSteps;
+  }, [hasSubdomainStep]);
+
   return (
     <nav aria-label="Installation progress" className="w-full">
       <ol className="flex items-center justify-center gap-2 sm:gap-4">
@@ -37,7 +52,7 @@ export default memo(function WizardStepper({ currentStep }) {
                   {isComplete ? (
                     <Check size={16} aria-hidden="true" />
                   ) : (
-                    step.id
+                    index + 1
                   )}
                 </div>
                 <span
@@ -65,4 +80,15 @@ export default memo(function WizardStepper({ currentStep }) {
       </ol>
     </nav>
   );
-});
+}
+
+WizardStepper.propTypes = {
+  currentStep: PropTypes.number.isRequired,
+  hasSubdomainStep: PropTypes.bool,
+};
+
+WizardStepper.defaultProps = {
+  hasSubdomainStep: false,
+};
+
+export default memo(WizardStepper);

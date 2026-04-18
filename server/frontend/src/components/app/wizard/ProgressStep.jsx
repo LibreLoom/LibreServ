@@ -2,6 +2,7 @@ import { memo, useEffect, useState, useRef, useCallback } from "react";
 import { CheckCircle, XCircle, Copy, Check, ChevronDown } from "lucide-react";
 import TypewriterLoader from "../../../components/ui/TypewriterLoader";
 import Button from "../../../components/ui/Button";
+import { useAuth } from "../../../hooks/useAuth";
 
 const INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },
@@ -34,6 +35,7 @@ function getErrorHint(error) {
 }
 
 function ProgressStep({ instanceId, onComplete }) {
+  const { request } = useAuth();
   const [currentPhase, setCurrentPhase] = useState(0);
   const [status, setStatus] = useState("installing");
   const [error, setError] = useState(null);
@@ -132,9 +134,7 @@ function ProgressStep({ instanceId, onComplete }) {
       if (hasCompleted.current) return;
 
       try {
-        const res = await fetch(`/api/v1/apps/${instanceId}/status`, {
-          credentials: "include",
-        });
+        const res = await request(`/apps/${instanceId}/status`);
 
         if (res.status === 404) {
           consecutive404Count.current += 1;
@@ -151,9 +151,7 @@ function ProgressStep({ instanceId, onComplete }) {
 
           if (consecutive404Count.current >= 3) {
             try {
-              const appCheckRes = await fetch(`/api/v1/apps/${instanceId}`, {
-                credentials: "include",
-              });
+              const appCheckRes = await request(`/apps/${instanceId}`);
 
               if (appCheckRes.ok) {
                 console.warn(`App exists but status endpoint returns 404: ${errorMessage}, continuing to poll...`);
@@ -194,14 +192,14 @@ function ProgressStep({ instanceId, onComplete }) {
         if (data.status === "running") {
           // Check if route was created
           try {
-            const routesRes = await fetch("/api/v1/network/routes");
+            const routesRes = await request("/network/routes");
             const routesData = await routesRes.json();
             const route = routesData.routes.find(r => r.app_id === instanceId);
 
             if (route) {
               setCurrentPhase(5); // Creating route
               // Check for certificate in Caddy status
-              const caddyRes = await fetch("/api/v1/network/status");
+              const caddyRes = await request("/network/status");
               const caddyData = await caddyRes.json();
 
               if (caddyData.domains && caddyData.domains.includes(`${route.subdomain}.${route.domain}`)) {
