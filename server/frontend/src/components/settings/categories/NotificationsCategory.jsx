@@ -4,7 +4,6 @@ import Toggle from "../../common/Toggle";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import Alert from "../../common/Alert";
-import Pill from "../../common/Pill";
 import SettingsCard from "../SettingsCard";
 import ValueDisplay from "../../common/ValueDisplay";
 import { useToast } from "../../../context/ToastContext";
@@ -194,27 +193,40 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
           </div>
 
           <div className="pt-4 border-t border-primary/10">
-            <button
-              onClick={handleTestNotification}
-              disabled={testing || !smtpConfigured}
-              className={`w-full inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium motion-safe:transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary disabled:opacity-50 disabled:cursor-not-allowed ${
-                smtpConfigured
-                  ? 'bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary'
-                  : 'bg-primary text-secondary'
-              }`}
-            >
-              {testing ? (
-                <>
-                  <RefreshCw size={16} className="animate-spin mr-2" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <Mail size={16} className="mr-2" />
-                  Send Test Email
-                </>
-              )}
-            </button>
+            <div className="rounded-large-element border border-accent/30 bg-accent/5 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent/10 border border-accent/20">
+                    <Mail size={16} className="text-accent" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-primary text-sm">Send Test Notification</div>
+                    <div className="text-xs text-accent mt-0.5">Verify your SMTP configuration is working</div>
+                  </div>
+                </div>
+                <button
+                  onClick={handleTestNotification}
+                  disabled={testing || !smtpConfigured}
+                  className={`inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium motion-safe:transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary disabled:opacity-50 disabled:cursor-not-allowed ${
+                    smtpConfigured
+                      ? 'bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary'
+                      : 'bg-primary text-secondary'
+                  }`}
+                >
+                  {testing ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Mail size={14} />
+                      Send Test
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </SettingsCard>
@@ -233,7 +245,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
 
           <div
             className={`overflow-hidden transition-all duration-300 ${
-              settings?.notify?.enabled ? "max-h-[1000px] opacity-100" : "max-h-0 opacity-0"
+              settings?.notify?.enabled ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0"
             }`}
           >
             <div className="pt-4 mt-4 border-t border-primary/10 space-y-6">
@@ -273,25 +285,6 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                   }}
                   onChange={handleNotificationChange}
                 />
-              </div>
-
-              <div className="pt-4 border-t border-primary/10">
-                <div className="font-medium text-primary mb-3">Test Email</div>
-                <div className="flex items-center gap-3">
-                  <Mail size={16} className="text-accent" />
-                  <span className="text-sm text-accent">Send a test notification to your email</span>
-                  <button
-                    onClick={handleTestNotification}
-                    disabled={testing || !smtpConfigured}
-                    className={`inline-flex items-center justify-center gap-2 rounded-pill px-3 py-1.5 text-xs font-medium motion-safe:transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary disabled:opacity-50 disabled:cursor-not-allowed ${
-                      smtpConfigured
-                        ? 'bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary'
-                        : 'bg-primary text-secondary'
-                    }`}
-                  >
-                    {testing ? "Sending..." : "Send Test"}
-                  </button>
-                </div>
               </div>
             </div>
           </div>
