@@ -413,6 +413,19 @@ main() {
         exit 1
     fi
     
+    # Clean up any stale build artifacts from previous runs
+    if [ -d "./release-build" ]; then
+        log_warn "Found stale release-build/ directory from previous run"
+        read -p "Clean it up and continue? (Y/n): " confirm
+        if [ "$confirm" != "n" ] && [ "$confirm" != "N" ]; then
+            rm -rf "./release-build"
+            log_info "Cleaned up stale build directory"
+        else
+            log_error "Please remove ./release-build manually and re-run"
+            exit 1
+        fi
+    fi
+    
     prompt_token
     prompt_version
     check_git_status
@@ -462,7 +475,7 @@ main() {
     echo ""
 }
 
-# Trap to cleanup on exit
-trap cleanup EXIT
+# Trap to cleanup on exit, interrupt, or termination
+trap cleanup EXIT INT TERM
 
 main

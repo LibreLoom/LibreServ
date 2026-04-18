@@ -135,11 +135,23 @@ Pre-release versions: `v1.0.0-beta.1`, `v1.0.0-rc.1`
 **Yes, it's safe to re-run!** The script:
 
 - ✅ Deletes and recreates `release-build/` each run
-- ✅ Cleans `server/backend/OS/dist/` before frontend build
+- ✅ Cleans `server/backend/OS/dist/` before frontend build (no permission issues)
 - ✅ Checks if release tag already exists (prevents duplicates)
 - ✅ Cleans up temp files on exit (unless `--keep-build` or `--dry-run`)
+- ✅ Handles Ctrl+C gracefully (cleanup runs on interrupt)
+- ✅ Cleans stale `release-build/` from previous failed runs
 
-**If script fails mid-way:** Just re-run it. The only issue is if a draft release was created on Gitea - you'll need to delete it manually or use a different version tag.
+**If script fails mid-way:** Just re-run it. The script will offer to clean up the stale build directory automatically.
+
+## What Gets Created/Cleaned
+
+| Path | Created By | Cleaned When |
+|------|------------|--------------|
+| `release-build/` | Script (binaries) | Always on exit/error (unless `--keep-build`/`--dry-run`) |
+| `server/backend/OS/dist/` | Script (frontend) | **Never** - valid build output |
+| `server/backend/bin/` | Not created by script | **Never** - user's local builds |
+| Temp files (release notes) | Script (editor) | Immediately after use |
+| Draft release on Gitea | Script (API) | **Never** - manual delete if needed |
 
 ## Troubleshooting
 
