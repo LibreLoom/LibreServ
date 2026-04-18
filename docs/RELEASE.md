@@ -20,7 +20,13 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 ./release.sh              # Full release process
 ./release.sh --dry-run    # Build binaries only, skip Gitea API calls (keeps build dir)
 ./release.sh --keep-build # Keep release-build/ directory after completion
+./release.sh --force      # Auto-delete existing release with same tag (no prompt)
 ```
+
+If a release with the same tag already exists, the script will:
+1. Show the existing release URL
+2. Prompt you to: delete & recreate / use different tag / cancel
+3. Use `--force` to skip the prompt and always delete the old release
 
 ### 2. Follow the Prompts
 
