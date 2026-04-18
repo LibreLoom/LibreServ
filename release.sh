@@ -418,21 +418,40 @@ upload_assets() {
     for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
         log_info "Uploading $file..."
         
-        UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+        # Get file size for progress indication
+        FILE_SIZE=$(du -h "$BUILD_DIR/$file" | cut -f1)
+        log_info "File size: $FILE_SIZE"
+        
+        # Upload with timeout and progress
+        UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" \
+            --connect-timeout 30 \
+            --max-time 300 \
+            -X POST \
             -H "Authorization: token $GITEA_TOKEN" \
             -H "Content-Type: application/octet-stream" \
             --data-binary @"$BUILD_DIR/$file" \
             "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file" 2>&1)
         
+        CURL_EXIT=$?
+        
+        echo "DEBUG: curl exit code = $CURL_EXIT"
+        echo "DEBUG: Full response = $UPLOAD_RESPONSE"
+        
+        if [ $CURL_EXIT -ne 0 ]; then
+            log_error "curl failed with exit code $CURL_EXIT"
+            echo "This usually means a network timeout or connection error"
+            echo "File size: $FILE_SIZE"
+            exit 1
+        fi
+        
         HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
         RESPONSE_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
         
         echo "DEBUG: HTTP Code = $HTTP_CODE"
-        echo "DEBUG: Response = $RESPONSE_BODY"
         
         if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
             log_error "Failed to upload $file (HTTP $HTTP_CODE)"
-            echo "Full response: $RESPONSE_BODY"
+            echo "Response: $RESPONSE_BODY"
             exit 1
         fi
         
