@@ -38,6 +38,7 @@ prompt_token() {
     echo "  3. Name: anything you want (e.g., release-script)"
     echo "  4. Select scopes:"
     echo "     - repository: Read and Write"
+    echo "     - user: Read"
     echo "  5. Copy the generated token"
     echo ""
     
@@ -53,8 +54,14 @@ prompt_token() {
     
     # Validate token by making a test API call
     log_info "Validating token..."
-    if ! curl -s -H "Authorization: token $GITEA_TOKEN" "$GITEA_INSTANCE/api/v1/user" | grep -q "id"; then
-        log_error "Invalid token or cannot connect to Gitea"
+    VALIDATE_RESPONSE=$(curl -s -H "Authorization: token $GITEA_TOKEN" "$GITEA_INSTANCE/api/v1/user")
+    if ! echo "$VALIDATE_RESPONSE" | grep -q '"id"'; then
+        log_error "Token validation failed"
+        log_error "Response: $VALIDATE_RESPONSE"
+        echo ""
+        log_error "Make sure your token has these scopes:"
+        echo "  - repository: Read and Write"
+        echo "  - user: Read"
         exit 1
     fi
     log_info "Token validated successfully"

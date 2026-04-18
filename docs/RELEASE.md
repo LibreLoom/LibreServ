@@ -50,6 +50,7 @@ To create a Gitea API token:
 3. Name: anything you want (e.g., `release-script`, `libreserv-releases`)
 4. Select scopes:
    - **repository**: `Read and Write` - Required for creating releases and uploading assets
+   - **user**: `Read` - Required for token validation
 5. Click "Generate Token"
 6. **Copy the token immediately** - it won't be shown again
 
