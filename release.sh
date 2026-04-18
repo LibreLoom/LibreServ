@@ -400,10 +400,8 @@ upload_assets() {
     
     BUILD_DIR=$(pwd)/release-build
     
-    # Debug: show release ID and files
     log_info "Release ID: $RELEASE_ID"
     log_info "Build directory: $BUILD_DIR"
-    log_info "Files to upload:"
     ls -lh "$BUILD_DIR"
     echo ""
     
@@ -418,11 +416,9 @@ upload_assets() {
     for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
         log_info "Uploading $file..."
         
-        # Get file size for progress indication
         FILE_SIZE=$(du -h "$BUILD_DIR/$file" | cut -f1)
-        log_info "File size: $FILE_SIZE"
         
-        # Upload with timeout and progress
+        # Upload with timeout
         UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" \
             --connect-timeout 30 \
             --max-time 300 \
@@ -434,28 +430,22 @@ upload_assets() {
         
         CURL_EXIT=$?
         
-        echo "DEBUG: curl exit code = $CURL_EXIT"
-        echo "DEBUG: Full response = $UPLOAD_RESPONSE"
-        
         if [ $CURL_EXIT -ne 0 ]; then
             log_error "curl failed with exit code $CURL_EXIT"
-            echo "This usually means a network timeout or connection error"
-            echo "File size: $FILE_SIZE"
+            log_error "Network error uploading $file ($FILE_SIZE)"
             exit 1
         fi
         
         HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
         RESPONSE_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
         
-        echo "DEBUG: HTTP Code = $HTTP_CODE"
-        
         if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
             log_error "Failed to upload $file (HTTP $HTTP_CODE)"
-            echo "Response: $RESPONSE_BODY"
+            echo "$RESPONSE_BODY"
             exit 1
         fi
         
-        log_info "Uploaded $file"
+        log_info "Uploaded $file ($FILE_SIZE)"
     done
 }
 
@@ -554,13 +544,6 @@ main() {
     build_binaries
     create_release_notes
     
-    # Debug: show release ID before upload
-    echo ""
-    echo "DEBUG: About to upload assets"
-    echo "DEBUG: RELEASE_ID = $RELEASE_ID"
-    echo "DEBUG: DRY_RUN = $DRY_RUN"
-    echo ""
-    
     if [ "$DRY_RUN" = true ]; then
         echo ""
         log_warn "Dry run mode - skipping Gitea API calls"
@@ -582,6 +565,13 @@ main() {
     fi
     
     create_gitea_release
+    
+    # Debug: show release ID after creation
+    echo ""
+    echo "DEBUG: About to upload assets"
+    echo "DEBUG: RELEASE_ID = $RELEASE_ID"
+    echo ""
+    
     upload_assets
     publish_release
     
