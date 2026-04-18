@@ -47,10 +47,9 @@ To create a Gitea API token:
 
 1. Go to `https://gt.plainskill.net/user/settings/applications`
 2. Click "Generate New Token"
-3. Name: `release-script`
+3. Name: anything you want (e.g., `release-script`, `libreserv-releases`)
 4. Select scopes:
-   - `write:repository` - Upload release assets
-   - `write:release` - Create/edit releases
+   - **repository**: `Read and Write` - Required for creating releases and uploading assets
 5. Click "Generate Token"
 6. **Copy the token immediately** - it won't be shown again
 
