@@ -4,10 +4,10 @@ export default function AnimatedCheckbox({ checked, onChange, children, classNam
   return (
     <label className={`flex items-start gap-3 cursor-pointer group ${className}`}>
       <div
-        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${
+        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
           checked
             ? "border-accent bg-accent"
-            : "border-primary/30 group-hover:border-primary/50"
+            : "border-secondary/50 group-hover:border-secondary"
         }`}
       >
         <svg
@@ -33,7 +33,7 @@ export default function AnimatedCheckbox({ checked, onChange, children, classNam
         onChange={(e) => onChange(e.target.checked)}
         className="sr-only"
       />
-      <span className="text-sm text-primary/60 leading-relaxed">{children}</span>
+      <span className="text-sm text-secondary leading-relaxed">{children}</span>
     </label>
   );
 }

@@ -43,8 +43,8 @@ var Profiles = map[string]*Profile{
 	"backend": {
 		ID:          "backend",
 		Name:        "Backend",
-		Description: "Backend tests - format, vet, tests, build, coverage (5 tests)",
-		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-build", "coverage"},
+		Description: "Backend tests - format, vet, unit tests, build, rollback, coverage (6 tests)",
+		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-build", "go-rollback-test", "coverage"},
 	},
 	"frontend": {
 		ID:          "frontend",
@@ -55,9 +55,9 @@ var Profiles = map[string]*Profile{
 	"deep": {
 		ID:          "deep",
 		Name:        "Deep",
-		Description: "Comprehensive - race detection, all fuzz, e2e (23 tests)",
+		Description: "Comprehensive - race detection, rollback, all fuzz, e2e (24 tests)",
 		TestIDs: []string{
-			"go-fmt", "go-vet", "go-test", "go-race",
+			"go-fmt", "go-vet", "go-test", "go-race", "go-rollback-test",
 			"frontend-lint", "frontend-test", "frontend-build",
 			"fuzz-docker-unmarshal", "fuzz-docker-marshal",
 			"fuzz-apps-definition", "fuzz-apps-script",
@@ -86,9 +86,9 @@ var Profiles = map[string]*Profile{
 	"full": {
 		ID:          "full",
 		Name:        "Full",
-		Description: "Complete test suite - all 29 tests",
+		Description: "Complete test suite - all 30 tests",
 		TestIDs: []string{
-			"go-fmt", "go-vet", "go-test", "go-race", "go-build",
+			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
 			"frontend-lint", "frontend-test", "frontend-build", "frontend-colors",
 			"fuzz-docker-unmarshal", "fuzz-docker-marshal",
 			"fuzz-apps-definition", "fuzz-apps-script",

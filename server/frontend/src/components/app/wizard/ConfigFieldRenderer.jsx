@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import Dropdown from "../../common/Dropdown";
+import AnimatedCheckbox from "../../ui/AnimatedCheckbox";
 
 function ConfigFieldRenderer({ field, value, onChange, disabled }) {
   const [showPassword, setShowPassword] = useState(false);
@@ -67,23 +68,13 @@ const inputBaseClasses = `
 
       case "boolean":
         return (
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              id={field.name}
-               type="checkbox"
-               checked={value ?? field.default ?? false}
-               onChange={(e) => handleChange(e.target.checked)}
-               disabled={disabled}
-                className="
-                  h-5 w-5 rounded border-2 border-secondary/30
-                  bg-primary text-secondary
-                  focus-visible:ring-2 focus:ring-accent focus:ring-offset-2
-                  motion-safe:transition-all
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                "
-            />
-            <span className="text-sm text-secondary/70">{field.description}</span>
-          </label>
+          <AnimatedCheckbox
+            checked={value ?? field.default ?? false}
+            onChange={handleChange}
+            className="text-secondary/70"
+          >
+            {field.description}
+          </AnimatedCheckbox>
         );
 
       case "select":

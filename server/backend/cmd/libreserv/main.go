@@ -52,6 +52,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check if we need to rollback from a failed update
+	serverURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
+	if rolledBack, err := system.VerifyAndUpdate(serverURL); err != nil {
+		slog.Error("Post-update verification failed", "error", err)
+	} else if rolledBack {
+		slog.Info("System rolled back to previous version due to health check failure")
+		fmt.Fprintf(os.Stderr, "\n⚠️  Update failed - rolled back to previous version\n")
+		fmt.Fprintf(os.Stderr, "Check logs for details. Automatic rollback completed.\n\n")
+	}
+
 	logger.Init(cfg.Logging)
 	defer logger.Close()
 

@@ -111,6 +111,18 @@ func addGoTests() {
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "go-rollback-test",
+		Name:        "Platform Rollback Tests",
+		Description: "Test automatic rollback from failed platform updates",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.25-alpine",
+		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -v -run 'TestVerifyAndUpdate|TestUpdateState|TestCheckHealth' ./internal/system/...",
+		WorkDir:     "/repo/server/backend",
+		Timeout:     5 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
 }
 
 func addFrontendTests() {
