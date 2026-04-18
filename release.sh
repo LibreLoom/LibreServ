@@ -9,20 +9,27 @@ GITEA_INSTANCE="${GITEA_INSTANCE:-https://gt.plainskill.net}"
 REPO_OWNER="LibreLoom"
 REPO_NAME="LibreServ"
 DRY_RUN=false
+PRESERVE_BUILD=false
 
 # Parse arguments
 for arg in "$@"; do
     case $arg in
         --dry-run)
             DRY_RUN=true
+            PRESERVE_BUILD=true
+            shift
+            ;;
+        --keep-build)
+            PRESERVE_BUILD=true
             shift
             ;;
         --help|-h)
-            echo "Usage: ./release.sh [--dry-run]"
+            echo "Usage: ./release.sh [--dry-run] [--keep-build]"
             echo ""
             echo "Options:"
-            echo "  --dry-run    Build binaries and release notes, but skip Gitea API calls"
-            echo "  --help, -h   Show this help message"
+            echo "  --dry-run      Build binaries and release notes, but skip Gitea API calls"
+            echo "  --keep-build   Keep release-build/ directory after completion"
+            echo "  --help, -h     Show this help message"
             exit 0
             ;;
     esac
@@ -176,6 +183,10 @@ build_binaries() {
     # Build frontend first
     log_info "Building frontend..."
     cd server/backend
+    
+    # Clean old build to avoid permission issues
+    rm -rf OS/dist
+    
     make frontend-build
     cd ../..
     
@@ -262,6 +273,20 @@ create_gitea_release() {
     log_step "Creating Gitea Release"
     echo ""
     
+    # Check if release already exists
+    log_info "Checking for existing release..."
+    EXISTING=$(curl -s -H "Authorization: token $GITEA_TOKEN" \
+        "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG")
+    
+    if echo "$EXISTING" | grep -q '"id"'; then
+        EXISTING_ID=$(echo "$EXISTING" | grep -o '"id":[0-9]*' | grep -o '[0-9]*')
+        log_error "Release $VERSION_TAG already exists (ID: $EXISTING_ID)"
+        echo ""
+        echo "Delete it first or use a different version tag."
+        echo "URL: ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
+        exit 1
+    fi
+    
     log_info "Creating draft release..."
     
     RESPONSE=$(curl -s -X POST \
@@ -339,8 +364,14 @@ publish_release() {
 cleanup() {
     BUILD_DIR=$(pwd)/release-build
     if [ -d "$BUILD_DIR" ]; then
-        log_info "Cleaning up build directory..."
-        rm -rf "$BUILD_DIR"
+        if [ "$PRESERVE_BUILD" = true ]; then
+            log_info "Build directory preserved: $BUILD_DIR"
+            echo "  Binaries: $BUILD_DIR/libreserv-linux-{amd64,arm64}"
+            echo "  Checksums: $BUILD_DIR/SHA256SUMS.txt"
+        else
+            log_info "Cleaning up build directory..."
+            rm -rf "$BUILD_DIR"
+        fi
     fi
 }
 
