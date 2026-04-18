@@ -400,6 +400,13 @@ upload_assets() {
     
     BUILD_DIR=$(pwd)/release-build
     
+    # Debug: show release ID and files
+    log_info "Release ID: $RELEASE_ID"
+    log_info "Build directory: $BUILD_DIR"
+    log_info "Files to upload:"
+    ls -lh "$BUILD_DIR"
+    echo ""
+    
     # Verify all files exist before uploading
     for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
         if [ ! -f "$BUILD_DIR/$file" ]; then
@@ -415,14 +422,17 @@ upload_assets() {
             -H "Authorization: token $GITEA_TOKEN" \
             -H "Content-Type: application/octet-stream" \
             --data-binary @"$BUILD_DIR/$file" \
-            "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file")
+            "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file" 2>&1)
         
         HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
         RESPONSE_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
         
+        echo "DEBUG: HTTP Code = $HTTP_CODE"
+        echo "DEBUG: Response = $RESPONSE_BODY"
+        
         if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
             log_error "Failed to upload $file (HTTP $HTTP_CODE)"
-            echo "Response: $RESPONSE_BODY"
+            echo "Full response: $RESPONSE_BODY"
             exit 1
         fi
         
@@ -524,6 +534,13 @@ main() {
     run_ci
     build_binaries
     create_release_notes
+    
+    # Debug: show release ID before upload
+    echo ""
+    echo "DEBUG: About to upload assets"
+    echo "DEBUG: RELEASE_ID = $RELEASE_ID"
+    echo "DEBUG: DRY_RUN = $DRY_RUN"
+    echo ""
     
     if [ "$DRY_RUN" = true ]; then
         echo ""
