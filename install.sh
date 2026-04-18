@@ -177,9 +177,31 @@ get_latest_release() {
 download_binary() {
     BINARY_NAME="libreserv-${OS}-${ARCH}"
     DOWNLOAD_URL="${GITEA_URL}/libreloom/libreserv/releases/download/${LATEST_RELEASE}/${BINARY_NAME}"
+    CHECKSUM_URL="${GITEA_URL}/libreloom/libreserv/releases/download/${LATEST_RELEASE}/SHA256SUMS.txt"
 
     log_info "Downloading ${BINARY_NAME}..."
     curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
+    
+    log_info "Downloading checksums..."
+    curl -sL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt"
+    
+    log_info "Verifying checksum..."
+    EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
+    if [ -z "$EXPECTED_HASH" ]; then
+        log_warn "Checksum not found for ${BINARY_NAME}, skipping verification"
+    else
+        ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
+        if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+            log_error "Checksum verification failed!"
+            log_error "Expected: ${EXPECTED_HASH}"
+            log_error "Got:      ${ACTUAL_HASH}"
+            rm -f "${INSTALL_DIR}/libreserv"
+            exit 1
+        fi
+        log_info "Checksum verified"
+    fi
+    
+    rm -f /tmp/SHA256SUMS.txt
     chmod +x "${INSTALL_DIR}/libreserv"
     ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
 }
