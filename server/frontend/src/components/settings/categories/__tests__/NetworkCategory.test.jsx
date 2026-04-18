@@ -147,12 +147,11 @@ describe("NetworkCategory", () => {
     });
   });
 
-  it("shows default domain input when default domain is not set", async () => {
+  it("shows domain connection message when no domain is set", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Default domain")).toBeInTheDocument();
-      expect(screen.getByPlaceholderText("example.com")).toBeInTheDocument();
+      expect(screen.getByText(/No domain is currently connected/)).toBeInTheDocument();
     });
   });
 
@@ -160,7 +159,6 @@ describe("NetworkCategory", () => {
     renderWithProviders(<NetworkCategory settings={{ proxy: { default_domain: "example.com" } }} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Current domain:")).toBeInTheDocument();
       expect(screen.getByText("example.com")).toBeInTheDocument();
     });
   });

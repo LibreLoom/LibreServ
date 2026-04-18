@@ -957,31 +957,6 @@ func (m *Manager) Close() error {
 	return m.db.Close()
 }
 
-// updateAppConfigForInstall updates an app's config for install completion
-func (m *Manager) updateAppConfigForInstall(instanceID string, config map[string]interface{}) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Convert config map to JSON
-	configJSON, err := json.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	// Update app config in database
-	_, err = m.db.Exec(`
-		UPDATE apps
-		SET config = ?, updated_at = ?
-		WHERE id = ?
-	`, configJSON, time.Now(), instanceID)
-
-	if err != nil {
-		return fmt.Errorf("failed to update app config: %w", err)
-	}
-
-	return nil
-}
-
 // updateRouteIDInConfig updates only the route_id in an app's config
 func (m *Manager) updateRouteIDInConfig(instanceID, routeID string) error {
 	// Fetch the current app config (no lock needed - direct DB read)
@@ -1032,14 +1007,10 @@ func (m *Manager) removeBackendRegistrations(appID string) {
 	defer m.mu.Unlock()
 
 	// Remove from backendMap
-	if _, ok := m.backendMap[appID]; ok {
-		delete(m.backendMap, appID)
-	}
+	delete(m.backendMap, appID)
 
 	// Remove from backendByName
-	if _, ok := m.backendByName[appID]; ok {
-		delete(m.backendByName, appID)
-	}
+	delete(m.backendByName, appID)
 }
 
 // updateStatus updates the status and updated_at fields for an app

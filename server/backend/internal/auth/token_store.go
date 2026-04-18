@@ -139,27 +139,40 @@ func GetTokenJTI(claims *Claims) string {
 	return claims.ID
 }
 
-// RevokeTokenIfNotRevoked atomically checks and revokes a token.
+// RevokeTokenIfNotRevoked atomically checks and revokes a token using INSERT ... ON CONFLICT.
 // Returns true if the token was successfully revoked (was not already revoked).
 // Returns false if the token was already revoked.
-// This prevents race conditions in token rotation scenarios.
+// This prevents race conditions in token rotation scenarios by using database-level atomicity.
 func (s *TokenStore) RevokeTokenIfNotRevoked(jti, userID, tokenType, revokedBy, reason string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Check if already revoked
-	revoked, err := s.IsRevoked(jti, tokenType)
-	if err != nil {
-		return false, err
-	}
-	if revoked {
-		return false, nil
+	var expiresAt time.Time
+	if tokenType == "access" {
+		expiresAt = time.Now().Add(s.accessExpiry)
+	} else {
+		expiresAt = time.Now().Add(s.refreshExpiry)
 	}
 
-	// Token not revoked, so revoke it now
-	err = s.RevokeToken(jti, userID, tokenType, revokedBy, reason)
+	// Use INSERT OR IGNORE to atomically attempt insertion
+	// If the token_jti already exists, no rows will be inserted
+	query := `
+		INSERT OR IGNORE INTO revoked_tokens (token_jti, user_id, token_type, revoked_by, reason, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`
+	result, err := s.db.Exec(query, jti, userID, tokenType, revokedBy, reason, expiresAt)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to revoke token: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to check revocation result: %w", err)
+	}
+
+	// If no rows affected, token was already revoked (conflict occurred)
+	if rowsAffected == 0 {
+		return false, nil
 	}
 
 	return true, nil

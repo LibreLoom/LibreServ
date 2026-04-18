@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
@@ -39,15 +38,10 @@ type LicenseChecker interface {
 	LicenseID() string
 }
 
-// isProductionEnvironment checks if the application is running in production mode.
-// Returns true if the mode is "production" or if the environment variable is not set.
-func isProductionEnvironment() bool {
-	mode := strings.ToLower(os.Getenv("LIBRESERV_MODE"))
-	return mode == "production" || mode == ""
-}
-
+// IsDevTokenEnabled always returns false - dev tokens are disabled for security
+// Dev token functionality has been removed to prevent accidental exposure in production
 func IsDevTokenEnabled() bool {
-	return os.Getenv("LIBRESERV_DEV_TOKEN_ENABLED") == "true"
+	return false
 }
 
 func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
@@ -61,29 +55,16 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 			}
 			var user *User
 
-			// Check if attempting to use dev token
+			// Check if attempting to use dev token (compile-time excluded from production builds)
 			if token == "dev-token" {
-				// Prevent dev token usage in production
-				if isProductionEnvironment() {
-					slog.Warn("Dev token authentication attempt blocked in production mode",
-						"remote_addr", r.RemoteAddr,
-						"path", r.URL.Path,
-					)
-					response.Unauthorized(w, "Dev tokens are not allowed in production")
-					return
-				}
-
-				// Allow dev token only if explicitly enabled in non-production
-				if cfg.DevMode && IsDevTokenEnabled() {
-					user = &User{
-						ID:       "dev-user",
-						Username: "admin",
-						Role:     "admin",
-					}
-				} else {
-					response.Unauthorized(w, "Dev token authentication is disabled")
-					return
-				}
+				// Always reject dev tokens - they should only be used in local development
+				// with code compiled without the production tag
+				slog.Warn("Dev token authentication attempt blocked",
+					"remote_addr", r.RemoteAddr,
+					"path", r.URL.Path,
+				)
+				response.Unauthorized(w, "Dev tokens are not allowed")
+				return
 			} else {
 				claims, err := cfg.AuthService.ValidateAccessToken(token)
 				if err != nil {

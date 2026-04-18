@@ -500,13 +500,7 @@ function parseDirective(lineText) {
 
 function shouldIgnoreLine(filePath, lineText) {
   const ext = path.extname(filePath).toLowerCase();
-  if (
-    ext === ".css" ||
-    ext === ".scss" ||
-    ext === ".sass" ||
-    ext === ".less" ||
-    ext === ".styl"
-  ) {
+  if ([".css", ".scss", ".sass", ".less", ".styl"].includes(ext)) {
     if (/^\s*--palette-[a-z0-9-]+\s*:/.test(lineText)) {
       return true;
     }
@@ -520,6 +514,9 @@ function shouldIgnoreLine(filePath, lineText) {
       /^\s*--color-(success|warning|error|info)\s*:/.test(lineText) ||
       /^\s*--bg-(success|warning|error|info)\s*:/.test(lineText)
     ) {
+      return true;
+    }
+    if (/^\s*initial-value\s*:/.test(lineText)) {
       return true;
     }
   }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 )
@@ -18,16 +20,18 @@ import (
 type SettingsHandler struct {
 	settingsService *settings.Service
 	securityService *security.Service
+	caddyManager    *network.CaddyManager
 
 	testNotificationMu        sync.Mutex
 	testNotificationLastTime  map[string]time.Time
 	testNotificationRateLimit time.Duration
 }
 
-func NewSettingsHandler(settingsService *settings.Service, securityService *security.Service) *SettingsHandler {
+func NewSettingsHandler(settingsService *settings.Service, securityService *security.Service, caddyManager *network.CaddyManager) *SettingsHandler {
 	h := &SettingsHandler{
 		settingsService:           settingsService,
 		securityService:           securityService,
+		caddyManager:              caddyManager,
 		testNotificationLastTime:  make(map[string]time.Time),
 		testNotificationRateLimit: time.Minute,
 	}
@@ -356,6 +360,16 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 	if err := h.settingsService.UpdateSettings(r.Context(), proxyUpdates); err != nil {
 		JSONError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	// Propagate changes to CaddyManager if available
+	if h.caddyManager != nil {
+		defaultDomain, _ := updates["default_domain"].(string)
+		sslEmail, _ := updates["ssl_email"].(string)
+		autoHTTPS, _ := updates["auto_https"].(bool)
+		if err := h.caddyManager.UpdateDefaults(defaultDomain, sslEmail, autoHTTPS); err != nil {
+			slog.Warn("Failed to update Caddy defaults", "error", err)
+		}
 	}
 
 	result, _ := h.settingsService.GetSettings(r.Context())

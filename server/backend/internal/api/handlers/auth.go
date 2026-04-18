@@ -134,7 +134,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  time.Unix(response.Tokens.ExpiresAt, 0),
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -143,7 +143,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	JSON(w, http.StatusOK, response.User)
@@ -228,7 +228,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  time.Unix(tokens.ExpiresAt, 0),
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
@@ -237,7 +237,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
 	JSON(w, http.StatusOK, map[string]string{"message": "refreshed"})

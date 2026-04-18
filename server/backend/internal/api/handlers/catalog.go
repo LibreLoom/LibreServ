@@ -1,17 +1,16 @@
 package handlers
 
 import (
-  "log/slog"
-  "net/http"
-  "os"
-  "path/filepath"
-  "strings"
-  "sync"
-  "time"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
-  "github.com/go-chi/chi/v5"
-  "gt.plainskill.net/LibreLoom/LibreServ/internal/api/pagination"
-  "gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
+	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/pagination"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 )
 
 const iconCacheTTL = 1 * time.Hour
@@ -86,21 +85,20 @@ func (h *CatalogHandler) ListApps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *CatalogHandler) GetApp(w http.ResponseWriter, r *http.Request) {
-  appID := chi.URLParam(r, "appId")
-  if appID == "" {
-    JSONError(w, http.StatusBadRequest, "app ID is required")
-    return
-  }
+	appID := chi.URLParam(r, "appId")
+	if appID == "" {
+		JSONError(w, http.StatusBadRequest, "app ID is required")
+		return
+	}
 
-  catalog := h.manager.GetCatalog()
-  app, err := catalog.GetApp(appID)
-  if err != nil {
-    JSONError(w, http.StatusNotFound, "app not found")
-    return
-  }
+	catalog := h.manager.GetCatalog()
+	app, err := catalog.GetApp(appID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, "app not found")
+		return
+	}
 
-  slog.Info("GetApp response", "appID", appID, "name", app.Name)
-  JSON(w, http.StatusOK, app)
+	JSON(w, http.StatusOK, app)
 }
 
 func (h *CatalogHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
@@ -126,26 +124,25 @@ func (h *CatalogHandler) RefreshCatalog(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *CatalogHandler) GetAppFeatures(w http.ResponseWriter, r *http.Request) {
-  appID := chi.URLParam(r, "appId")
-  if appID == "" {
-    JSONError(w, http.StatusBadRequest, "app ID is required")
-    return
-  }
+	appID := chi.URLParam(r, "appId")
+	if appID == "" {
+		JSONError(w, http.StatusBadRequest, "app ID is required")
+		return
+	}
 
-  catalog := h.manager.GetCatalog()
-  app, err := catalog.GetApp(appID)
-  if err != nil {
-    JSONError(w, http.StatusNotFound, "app not found")
-    return
-  }
+	catalog := h.manager.GetCatalog()
+	app, err := catalog.GetApp(appID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, "app not found")
+		return
+	}
 
-  features := app.Features
-  if features.AccessModel == "" {
-    features = apps.GetDefaultFeatures()
-  }
+	features := app.Features
+	if features.AccessModel == "" {
+		features = apps.GetDefaultFeatures()
+	}
 
-  slog.Info("GetAppFeatures response", "appID", appID, "accessModel", features.AccessModel)
-  JSON(w, http.StatusOK, features)
+	JSON(w, http.StatusOK, features)
 }
 
 func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {

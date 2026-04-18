@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -88,9 +89,29 @@ func connectViaTCP(cfg config.TCPConfig) (*Client, error) {
 	}
 
 	if cfg.UseTLS {
-		// TODO: Implement TLS client config (requires CACert, Cert, Key)
-		// opts = append(opts, client.WithTLSClientConfig( ... ))
-		_ = opts // silence unused warning
+		// TLS requires certificate files to be configured
+		if cfg.CertPath == "" {
+			return nil, fmt.Errorf("docker TLS enabled but cert_path not configured")
+		}
+
+		// Check if certificate files exist
+		certFiles := []string{
+			filepath.Join(cfg.CertPath, "ca.pem"),
+			filepath.Join(cfg.CertPath, "cert.pem"),
+			filepath.Join(cfg.CertPath, "key.pem"),
+		}
+		for _, f := range certFiles {
+			if _, err := os.Stat(f); os.IsNotExist(err) {
+				return nil, fmt.Errorf("docker TLS certificate file not found: %s", f)
+			}
+		}
+
+		// Configure TLS with client certificates
+		opts = append(opts, client.WithTLSClientConfig(
+			filepath.Join(cfg.CertPath, "ca.pem"),
+			filepath.Join(cfg.CertPath, "cert.pem"),
+			filepath.Join(cfg.CertPath, "key.pem"),
+		))
 	}
 
 	cli, err := client.NewClientWithOpts(opts...)

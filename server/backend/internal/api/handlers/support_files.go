@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,8 +51,9 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusForbidden, "scope files-ro required")
 		return
 	}
-	allowed, err := policy.IsAllowed(req.Path)
-	if err != nil || !allowed {
+
+	cleanPath, err := validateAndResolvePath(req.Path, policy)
+	if err != nil {
 		JSONError(w, http.StatusForbidden, "path not allowed")
 		h.svc.LogAudit(r.Context(), &support.AuditEntry{
 			SessionID:  session.ID,
@@ -58,12 +61,13 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 			Action:     "read",
 			Target:     req.Path,
 			Success:    false,
-			Message:    "path denied",
+			Message:    "path denied: " + err.Error(),
 			OccurredAt: time.Now(),
 		})
 		return
 	}
-	data, err := os.ReadFile(req.Path)
+
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to read file")
 		h.svc.LogAudit(r.Context(), &support.AuditEntry{
@@ -85,7 +89,7 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 		SessionID:  session.ID,
 		Actor:      "support-session",
 		Action:     "read",
-		Target:     req.Path,
+		Target:     cleanPath,
 		Success:    true,
 		OccurredAt: time.Now(),
 	})
@@ -110,8 +114,9 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusForbidden, "scope files-rw required")
 		return
 	}
-	allowed, err := policy.IsAllowed(req.Path)
-	if err != nil || !allowed {
+
+	cleanPath, err := validateAndResolvePath(req.Path, policy)
+	if err != nil {
 		JSONError(w, http.StatusForbidden, "path not allowed")
 		h.svc.LogAudit(r.Context(), &support.AuditEntry{
 			SessionID:  session.ID,
@@ -119,11 +124,12 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 			Action:     "write",
 			Target:     req.Path,
 			Success:    false,
-			Message:    "path denied",
+			Message:    "path denied: " + err.Error(),
 			OccurredAt: time.Now(),
 		})
 		return
 	}
+
 	if req.Data == "" {
 		body, _ := io.ReadAll(r.Body)
 		req.Data = string(body)
@@ -132,13 +138,13 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusRequestEntityTooLarge, "payload too large")
 		return
 	}
-	if err := os.WriteFile(req.Path, []byte(req.Data), 0o644); err != nil {
+	if err := os.WriteFile(cleanPath, []byte(req.Data), 0o644); err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to write file")
 		h.svc.LogAudit(r.Context(), &support.AuditEntry{
 			SessionID:  session.ID,
 			Actor:      "support-session",
 			Action:     "write",
-			Target:     req.Path,
+			Target:     cleanPath,
 			Success:    false,
 			Message:    err.Error(),
 			OccurredAt: time.Now(),
@@ -149,7 +155,7 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 		SessionID:  session.ID,
 		Actor:      "support-session",
 		Action:     "write",
-		Target:     req.Path,
+		Target:     cleanPath,
 		Success:    true,
 		OccurredAt: time.Now(),
 	})
@@ -182,4 +188,31 @@ func hasScope(scopes []string, needed string) bool {
 		}
 	}
 	return false
+}
+
+func validateAndResolvePath(requestedPath string, policy *support.PathPolicy) (string, error) {
+	if requestedPath == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+
+	cleanPath := filepath.Clean(requestedPath)
+
+	if !filepath.IsAbs(cleanPath) {
+		return "", fmt.Errorf("path must be absolute")
+	}
+
+	realPath, err := filepath.EvalSymlinks(cleanPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("failed to resolve path: %w", err)
+		}
+		realPath = cleanPath
+	}
+
+	allowed, err := policy.IsAllowed(realPath)
+	if err != nil || !allowed {
+		return "", fmt.Errorf("path not in allowed list")
+	}
+
+	return realPath, nil
 }

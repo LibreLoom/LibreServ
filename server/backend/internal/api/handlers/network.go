@@ -383,3 +383,32 @@ func (h *NetworkHandlers) GetPortForwardingStatus(w http.ResponseWriter, r *http
 
 	JSON(w, http.StatusOK, status)
 }
+
+// DisconnectDomain handles disconnecting the current domain
+// POST /api/v1/network/domain/disconnect
+func (h *NetworkHandlers) DisconnectDomain(w http.ResponseWriter, r *http.Request) {
+	if h.caddyManager == nil {
+		JSONError(w, http.StatusInternalServerError, "Caddy not configured")
+		return
+	}
+
+	cfg := h.caddyManager.Config()
+	oldDomain := cfg.DefaultDomain
+
+	if oldDomain == "" {
+		JSON(w, http.StatusOK, map[string]string{
+			"message": "No domain connected",
+		})
+		return
+	}
+
+	if err := h.caddyManager.UpdateDefaults("", cfg.Email, cfg.AutoHTTPS); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to disconnect domain")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "Domain disconnected",
+		"domain":  oldDomain,
+	})
+}

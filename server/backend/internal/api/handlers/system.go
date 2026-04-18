@@ -27,7 +27,8 @@ func (h *SystemHandler) SetAuditLogger(logger AuditLogger) {
 // CheckUpdates handles GET /api/v1/system/updates/check
 func (h *SystemHandler) CheckUpdates(w http.ResponseWriter, r *http.Request) {
 	// We get the current version from the health package (where it is set at build time)
-	info, err := h.checker.CheckForUpdates(Version)
+	forceRefresh := r.URL.Query().Get("force") == "true"
+	info, err := h.checker.CheckForUpdates(Version, forceRefresh)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to check for updates")
 		return

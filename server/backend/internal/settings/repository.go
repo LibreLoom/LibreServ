@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -511,9 +510,6 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				},
 			})
 		}
-	} else {
-		// Debug: print what updates we received
-		slog.Info("UpdateSettings: updates without proxy", "updates", updates)
 	}
 
 	if len(mutations) == 0 {

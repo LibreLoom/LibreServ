@@ -94,6 +94,7 @@ func (cm *CaddyManager) isEnabled() bool {
 	return cm.mode() == "enabled"
 }
 
+//nolint:unused
 func (cm *CaddyManager) isDisabled() bool {
 	m := cm.mode()
 	return m == "disabled" || m == "noop"

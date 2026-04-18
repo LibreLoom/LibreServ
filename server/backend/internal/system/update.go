@@ -68,15 +68,20 @@ func (c *UpdateChecker) ClearCache() {
 
 // CheckForUpdates checks the Gitea API for the latest release
 // Results are cached for 1 hour to avoid excessive API calls
-func (c *UpdateChecker) CheckForUpdates(currentVersion string) (*UpdateInfo, error) {
-	// Check cache first
-	c.cacheMu.RLock()
-	if c.cachedInfo != nil && time.Since(c.cacheTimestamp) < c.cacheDuration {
-		cached := c.cachedInfo
+// If forceRefresh is true, bypasses the cache and fetches fresh data
+func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...bool) (*UpdateInfo, error) {
+	shouldForce := len(forceRefresh) > 0 && forceRefresh[0]
+
+	// Check cache first (skip if force refresh)
+	if !shouldForce {
+		c.cacheMu.RLock()
+		if c.cachedInfo != nil && time.Since(c.cacheTimestamp) < c.cacheDuration {
+			cached := c.cachedInfo
+			c.cacheMu.RUnlock()
+			return cached, nil
+		}
 		c.cacheMu.RUnlock()
-		return cached, nil
 	}
-	c.cacheMu.RUnlock()
 
 	url := fmt.Sprintf("%s/repos/%s/%s/releases?limit=1", c.baseURL, c.repoOwner, c.repoName)
 

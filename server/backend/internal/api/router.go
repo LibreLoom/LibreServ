@@ -27,7 +27,7 @@ func (s *Server) setupRoutes() {
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient, s.appManager.GetMetricsCache())
 	backupHandler := handlers.NewBackupHandlers(s.backupService, s.cloudService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
-	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService)
+	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService, s.caddyManager)
 	csrfSecret := config.Get().Auth.CSRFSecret
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
 	networkProbeHandler := handlers.NewNetworkProbeHandler()
@@ -106,6 +106,7 @@ func (s *Server) setupRoutes() {
 	systemHandler.SetAuditLogger(s)
 	auditHandler := handlers.NewAuditHandler(s.audit)
 	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService)
+	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
 
 	// Configure authentication middleware with CSRF protection
 	authConfig := &middleware.AuthConfig{
@@ -246,6 +247,9 @@ func (s *Server) setupRoutes() {
 
 			// Backups - system and database backup management
 			r.Route("/backups", func(r chi.Router) {
+				r.Use(middleware.RateLimit([]middleware.RateRule{
+					{Prefix: "/api/v1/backups", Limit: 20, Window: time.Minute, ByUser: true},
+				}))
 				r.Get("/", backupHandler.ListBackups)
 				r.Post("/", backupHandler.CreateBackup)
 				r.Post("/upload", backupHandler.UploadBackup)
@@ -296,6 +300,7 @@ func (s *Server) setupRoutes() {
 					r.Delete("/routes/{routeID}", networkHandler.DeleteRoute)
 					r.Get("/caddyfile", networkHandler.GetCaddyfile)
 					r.Post("/test-backend", networkHandler.TestBackend)
+					r.Post("/domain/disconnect", networkHandler.DisconnectDomain)
 				})
 			}
 
@@ -344,6 +349,9 @@ func (s *Server) setupRoutes() {
 			// Support sessions - remote support access management (admin only)
 			r.Route("/support/sessions", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
+				r.Use(middleware.RateLimit([]middleware.RateRule{
+					{Prefix: "/api/v1/support/sessions", Limit: 20, Window: time.Minute, ByUser: true},
+				}))
 				r.Get("/", supportHandler.ListSessions)
 				r.Post("/", supportHandler.CreateSession)
 				r.Get("/{sessionID}", supportHandler.GetSession)
@@ -353,12 +361,18 @@ func (s *Server) setupRoutes() {
 			// Support diagnostics - system diagnostics collection (admin only)
 			r.Route("/support/diagnostics", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
+				r.Use(middleware.RateLimit([]middleware.RateRule{
+					{Prefix: "/api/v1/support/diagnostics", Limit: 10, Window: time.Minute, ByUser: true},
+				}))
 				r.Get("/", supportDiagHandler.Get)
 			})
 
 			// Support session validation - file and command execution (admin only)
 			r.Route("/support/session", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
+				r.Use(middleware.RateLimit([]middleware.RateRule{
+					{Prefix: "/api/v1/support/session", Limit: 15, Window: time.Minute, ByUser: true},
+				}))
 				r.Post("/validate", supportSessionValidator.Validate)
 				r.Post("/files/read", supportFileHandler.Read)
 				r.Post("/files/write", supportFileHandler.Write)
@@ -386,6 +400,12 @@ func (s *Server) setupRoutes() {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/updates/check", systemHandler.CheckUpdates)
 				r.Post("/updates/apply", systemHandler.ApplyUpdate)
+			})
+
+			// DDNS auto-update service (admin only)
+			r.Route("/network/ddns", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/status", ddnsHandler.GetStatus)
 			})
 
 			// Audit logs (admin only)

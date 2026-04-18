@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
+import PropTypes from "prop-types";
 
 import ConfirmModal from "../../common/ConfirmModal";
 import Button from "../../ui/Button";
@@ -8,7 +9,7 @@ import SettingsCard from "../SettingsCard";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 
-function FactoryResetCard() {
+function FactoryResetCard({ index = 2 }) {
   const { request, logout } = useAuth();
   const { addToast } = useToast();
   const navigate = useNavigate();
@@ -36,7 +37,7 @@ function FactoryResetCard() {
 
   return (
     <>
-      <SettingsCard icon={AlertTriangle} title="Factory Reset" index={2}>
+      <SettingsCard icon={AlertTriangle} title="Factory Reset" index={index}>
         <p className="text-sm text-muted mb-4">
           Reset this device to factory defaults. <strong>This will delete all data and settings.</strong>
         </p>
@@ -98,5 +99,9 @@ function FactoryResetCard() {
     </>
   );
 }
+
+FactoryResetCard.propTypes = {
+  index: PropTypes.number,
+};
 
 export default FactoryResetCard;

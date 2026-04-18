@@ -4,11 +4,14 @@ import Dropdown from "../../common/Dropdown";
 import Toggle from "../../common/Toggle";
 import SettingsCard from "../SettingsCard";
 import FactoryResetCard from "./FactoryResetCard";
+import SystemUpdatesCard from "./SystemUpdatesCard";
 
 export default function GeneralCategory({ settings, use12HourTime, on12HourTimeChange }) {
   return (
     <div className="space-y-4">
-      <SettingsCard icon={Clock} title="Time" padding={false} index={0}>
+      <SystemUpdatesCard index={0} />
+
+      <SettingsCard icon={Clock} title="Time" padding={false} index={1}>
         <div className="px-5 py-3">
           <Toggle
             checked={use12HourTime || false}
@@ -19,7 +22,7 @@ export default function GeneralCategory({ settings, use12HourTime, on12HourTimeC
         </div>
       </SettingsCard>
 
-      <SettingsCard icon={FileText} title="Logging" padding={false} index={1}>
+      <SettingsCard icon={FileText} title="Logging" padding={false} index={2}>
         <div className="px-5 py-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
@@ -42,7 +45,7 @@ export default function GeneralCategory({ settings, use12HourTime, on12HourTimeC
         </div>
       </SettingsCard>
 
-      <FactoryResetCard settings={settings} />
+      <FactoryResetCard settings={settings} index={3} />
     </div>
   );
 }

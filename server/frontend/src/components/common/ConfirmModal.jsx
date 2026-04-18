@@ -12,17 +12,17 @@ const VARIANTS = {
   warning: {
     iconColor: "text-warning",
     bannerClass: "bg-warning/10 border-warning/30",
-    confirmClass: "bg-warning text-primary hover:ring-2 hover:ring-primary",
+    confirmClass: "bg-warning text-secondary hover:ring-2 hover:ring-primary",
   },
   danger: {
     iconColor: "text-error",
     bannerClass: "bg-error/10 border-error/30",
-    confirmClass: "bg-error text-primary hover:ring-2 hover:ring-primary",
+    confirmClass: "bg-error text-secondary hover:ring-2 hover:ring-primary",
   },
   "danger-undoable": {
     iconColor: "text-error",
     bannerClass: "bg-error/10 border-error/30",
-    confirmClass: "bg-error text-primary hover:ring-2 hover:ring-primary",
+    confirmClass: "bg-error text-secondary hover:ring-2 hover:ring-primary",
   },
 };
 

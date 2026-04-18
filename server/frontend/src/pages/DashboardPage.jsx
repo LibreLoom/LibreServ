@@ -16,7 +16,7 @@ import { useMonitoring } from "../hooks/useMonitoring";
 import {
   getBreakdownItems,
   totalResourceUsage,
-} from "../data/services";
+} from "../utils/resourceUtils";
 
 function getGreeting() {
   const today = new Date();

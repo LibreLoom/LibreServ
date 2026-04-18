@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Server, Trash2, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Server, Trash2 } from "lucide-react";
 import PropTypes from "prop-types";
 import ConfirmModal from "../../common/ConfirmModal";
-import ValueDisplay from "../../common/ValueDisplay";
 import SettingsCard from "../SettingsCard";
 import RoutesCard from "../../backups/RoutesCard";
 import DebugCard from "../../backups/DebugCard";
 import RouteModal from "../RouteModal";
-import FormInput from "../../common/forms/FormInput";
+
+import DomainManagementCard from "./DomainManagementCard";
+import ValueDisplay from "../../common/ValueDisplay";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import { getCaddyStatus, listRoutes, getCaddyfile } from "../../../lib/network-api";
@@ -29,9 +30,7 @@ export default function NetworkCategory({ settings }) {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
 
-  const defaultDomain = settings?.proxy?.default_domain || "";
-  const [domainInput, setDomainInput] = useState(defaultDomain);
-  const [domainSaving, setDomainSaving] = useState(false);
+  const defaultDomain = useMemo(() => settings?.proxy?.default_domain || "", [settings]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -145,51 +144,6 @@ export default function NetworkCategory({ settings }) {
     ? apps?.find((a) => a.id === routeToDelete.app_id)?.name
     : null;
 
-  const validateDomain = useCallback((domain) => {
-    if (!domain.trim()) return "Domain is required";
-    if (domain.length > 253) return "Domain is too long (max 253 characters)";
-    if (domain[0] === "-" || domain[domain.length - 1] === "-") {
-      return "Domain cannot start or end with a hyphen";
-    }
-    if (domain[0] === "." || domain[domain.length - 1] === ".") {
-      return "Domain cannot start or end with a dot";
-    }
-    if (!/^[a-zA-Z0-9.-]+$/.test(domain)) {
-      return "Domain can only contain letters, numbers, hyphens, and dots";
-    }
-    if (!domain.includes(".")) {
-      return "Domain must include a TLD (e.g., .com, .org)";
-    }
-    return null;
-  }, []);
-
-  const handleDomainSave = useCallback(async () => {
-    const trimmedDomain = domainInput.trim();
-    const validationError = validateDomain(trimmedDomain);
-    if (validationError) {
-      addToast({ type: "error", message: validationError });
-      return;
-    }
-    setDomainSaving(true);
-    try {
-      const res = await request("/api/v1/settings/proxy", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ default_domain: trimmedDomain }),
-      });
-      if (res.ok) {
-        addToast({ type: "success", message: "Domain updated" });
-      } else {
-        const data = await res.json().catch(() => ({}));
-        addToast({ type: "error", message: data.message || "Failed to update domain" });
-      }
-    } catch {
-      addToast({ type: "error", message: "Failed to update domain" });
-    } finally {
-      setDomainSaving(false);
-    }
-  }, [domainInput, request, addToast, validateDomain]);
-
   return (
     <div className="space-y-6">
       {caddyStatus && (
@@ -219,34 +173,10 @@ export default function NetworkCategory({ settings }) {
         </SettingsCard>
       )}
 
-      <SettingsCard icon={Server} title="Default Domain" index={1}>
-        <div className="p-4">
-          <FormInput
-            label="Default domain"
-            name="default-domain"
-            value={domainInput}
-            onChange={(e) => setDomainInput(e.target.value)}
-            placeholder="example.com"
-          />
-          <button
-            type="button"
-            onClick={handleDomainSave}
-            disabled={domainSaving || !domainInput.trim() || domainInput === defaultDomain}
-            className="mt-3 inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-5 py-2.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
-          >
-            {domainSaving ? (
-              <> <Loader2 size={16} className="animate-spin" /> Saving... </>
-            ) : (
-              "Save"
-            )}
-          </button>
-          {defaultDomain && (
-            <p className="mt-3 text-sm text-primary/70">
-              Current domain: <strong>{defaultDomain}</strong>
-            </p>
-          )}
-        </div>
-      </SettingsCard>
+      <DomainManagementCard
+        currentDomain={defaultDomain}
+        onDomainChange={() => window.location.reload()}
+      />
 
       <RoutesCard
         routes={routes}
