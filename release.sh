@@ -11,6 +11,7 @@ REPO_NAME="LibreServ"
 DRY_RUN=false
 PRESERVE_BUILD=false
 FORCE=false
+PRERELEASE=false
 
 # Parse arguments
 for arg in "$@"; do
@@ -28,13 +29,18 @@ for arg in "$@"; do
             FORCE=true
             shift
             ;;
+        --pre-release)
+            PRERELEASE=true
+            shift
+            ;;
         --help|-h)
-            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force]"
+            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force] [--pre-release]"
             echo ""
             echo "Options:"
             echo "  --dry-run      Build binaries and release notes, but skip Gitea API calls"
             echo "  --keep-build   Keep release-build/ directory after completion"
             echo "  --force        Delete existing release with same tag and recreate"
+            echo "  --pre-release  Mark release as pre-release/unstable (beta, rc, etc.)"
             echo "  --help, -h     Show this help message"
             exit 0
             ;;
@@ -113,6 +119,18 @@ prompt_version() {
         fi
         break
     done
+    
+    # Ask if this is a pre-release
+    if [ "$PRERELEASE" = false ]; then
+        echo ""
+        echo "Is this a pre-release (beta, rc, alpha)?"
+        echo "Pre-releases are marked as 'unstable' and won't be offered as latest."
+        read -p "Mark as pre-release? (y/N): " prerelease_confirm
+        if [ "$prerelease_confirm" = "y" ] || [ "$prerelease_confirm" = "Y" ]; then
+            PRERELEASE=true
+            log_info "Release will be marked as pre-release"
+        fi
+    fi
 }
 
 # Check git status
@@ -366,6 +384,14 @@ create_gitea_release() {
     # Escape release notes for JSON (preserve newlines, escape quotes and backslashes)
     ESCAPED_NOTES=$(echo "$RELEASE_NOTES" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
     
+    # Set prerelease flag
+    if [ "$PRERELEASE" = true ]; then
+        PRERELEASE_FLAG="true"
+        log_info "Marking as pre-release (unstable)"
+    else
+        PRERELEASE_FLAG="false"
+    fi
+    
     # Create release with proper error handling
     HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
         -H "Authorization: token $GITEA_TOKEN" \
@@ -374,7 +400,8 @@ create_gitea_release() {
             \"tag_name\": \"$VERSION_TAG\",
             \"name\": \"Release $VERSION_TAG\",
             \"body\": \"$ESCAPED_NOTES\",
-            \"draft\": true
+            \"draft\": true,
+            \"prerelease\": $PRERELEASE_FLAG
         }" \
         "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases")
     
