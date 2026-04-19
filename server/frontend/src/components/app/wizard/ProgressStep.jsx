@@ -248,7 +248,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
     return () => {
       clearInterval(interval);
     };
-  }, [instanceId, handleComplete, request]);
+  }, [instanceId, handleComplete, request, INSTALL_PHASES]);
 
   const handleCopyStream = async () => {
     const text = streamLines.join("");
