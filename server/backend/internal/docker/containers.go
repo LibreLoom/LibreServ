@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 // ContainerStats summarizes container resource usage.
@@ -22,19 +22,22 @@ func (c *Client) ListContainersByLabel(label string) ([]container.Summary, error
 	if c == nil || c.cli == nil {
 		return nil, errors.New("docker client not initialized")
 	}
-	args := filters.NewArgs()
-	args.Add("label", label)
+	f := make(client.Filters).Add("label", label)
 
-	return c.cli.ContainerList(c.ctx, container.ListOptions{
+	result, err := c.cli.ContainerList(c.ctx, client.ContainerListOptions{
 		All:     true,
-		Filters: args,
+		Filters: f,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return result.Items, nil
 }
 
 // GetContainerStats retrieves real-time stats
 // Note: This is a simplified implementation. Real stats calculation from the stream is complex.
 func (c *Client) GetContainerStats(containerID string) (*ContainerStats, error) {
-	stats, err := c.cli.ContainerStats(c.ctx, containerID, false)
+	stats, err := c.cli.ContainerStats(c.ctx, containerID, client.ContainerStatsOptions{})
 	if err != nil {
 		return nil, err
 	}

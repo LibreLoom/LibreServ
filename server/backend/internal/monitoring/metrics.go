@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 // MetricsCollector collects resource usage metrics from Docker containers
@@ -27,7 +27,7 @@ func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containe
 	if m.dockerClient == nil {
 		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
 	}
-	stats, err := m.dockerClient.ContainerStats(ctx, containerID, false)
+	stats, err := m.dockerClient.ContainerStats(ctx, containerID, client.ContainerStatsOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to get container stats: %v", ErrDockerUnavailable, err)
 	}
@@ -47,8 +47,8 @@ func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) 
 		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
 	}
 	// Find containers belonging to this app by label
-	containers, err := m.dockerClient.ContainerList(ctx, container.ListOptions{
-		All: false, // Only running containers
+	containers, err := m.dockerClient.ContainerList(ctx, client.ContainerListOptions{
+		All: false,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrDockerUnavailable, err)
@@ -60,7 +60,7 @@ func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) 
 	}
 
 	var found bool
-	for _, cont := range containers {
+	for _, cont := range containers.Items {
 		// Check if container belongs to this app
 		// Containers are typically named: appid_servicename_1 or appid-servicename-1
 		if matchesApp(cont, appID) {
@@ -92,8 +92,8 @@ func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMet
 		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
 	}
 
-	containers, err := m.dockerClient.ContainerList(ctx, container.ListOptions{
-		All: false, // Only running containers
+	containers, err := m.dockerClient.ContainerList(ctx, client.ContainerListOptions{
+		All: false,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrDockerUnavailable, err)
@@ -101,10 +101,10 @@ func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMet
 
 	out := &SystemMetrics{
 		Timestamp:         time.Now(),
-		RunningContainers: len(containers),
+		RunningContainers: len(containers.Items),
 	}
 
-	for _, cont := range containers {
+	for _, cont := range containers.Items {
 		stats, err := m.CollectContainerMetrics(ctx, cont.ID)
 		if err != nil {
 			continue

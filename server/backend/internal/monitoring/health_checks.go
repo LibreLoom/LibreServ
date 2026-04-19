@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
 )
 
 // HTTPCheck performs HTTP health checks
@@ -160,14 +160,14 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 	}
 
 	// List containers to find the one matching our name
-	containers, err := c.DockerClient.ContainerList(ctx, container.ListOptions{All: true})
+	containers, err := c.DockerClient.ContainerList(ctx, client.ContainerListOptions{All: true})
 	if err != nil {
 		result.Status = HealthStatusUnknown
 		result.Message = fmt.Sprintf("Failed to list containers: %v", err)
 		return result
 	}
 
-	targetContainer := pickContainer(containers, c.Config.ContainerName)
+	targetContainer := pickContainer(containers.Items, c.Config.ContainerName)
 
 	if targetContainer == nil {
 		result.Status = HealthStatusUnhealthy
@@ -176,19 +176,19 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 	}
 
 	// Check container state
-	state := strings.ToLower(targetContainer.State)
+	state := strings.ToLower(string(targetContainer.State))
 	switch state {
 	case "running":
 		// Check if container has a health check configured
-		inspect, err := c.DockerClient.ContainerInspect(ctx, targetContainer.ID)
+		inspect, err := c.DockerClient.ContainerInspect(ctx, targetContainer.ID, client.ContainerInspectOptions{})
 		if err != nil {
 			result.Status = HealthStatusHealthy
 			result.Message = "Container is running (health details unavailable)"
 			return result
 		}
 
-		if inspect.State.Health != nil {
-			switch inspect.State.Health.Status {
+		if inspect.Container.State.Health != nil {
+			switch inspect.Container.State.Health.Status {
 			case "healthy":
 				result.Status = HealthStatusHealthy
 				result.Message = "Container is healthy"
@@ -239,7 +239,7 @@ func pickContainer(containers []container.Summary, query string) *container.Summ
 		if !matchesContainerByLabels(*cont, query) {
 			continue
 		}
-		if strings.EqualFold(cont.State, "running") {
+		if strings.EqualFold(string(cont.State), "running") {
 			return cont
 		}
 		if bestLabelMatch == nil {
@@ -257,7 +257,7 @@ func pickContainer(containers []container.Summary, query string) *container.Summ
 		if !matchesContainerByName(*cont, query) {
 			continue
 		}
-		if strings.EqualFold(cont.State, "running") {
+		if strings.EqualFold(string(cont.State), "running") {
 			return cont
 		}
 		if bestNameMatch == nil {
