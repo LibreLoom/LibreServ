@@ -2,7 +2,7 @@
 set -e
 
 # LibreServ Installation Script
-# Usage: curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo sh
+# Usage: curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh -o install.sh && sudo bash install.sh && rm install.sh
 #
 # Options:
 #   --uninstall    Remove LibreServ (preserves data)
@@ -39,7 +39,7 @@ print_banner() {
 print_help() {
     echo "LibreServ Installation Script"
     echo ""
-    echo "Usage: curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo sh"
+    echo "Usage: curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh -o install.sh && sudo bash install.sh && rm install.sh"
     echo ""
     echo "Options:"
     echo "  --uninstall    Remove LibreServ (preserves data in ${DATA_DIR})"
@@ -170,7 +170,7 @@ prompt_version() {
     echo ""
     
     while true; do
-        read -p "Enter version to install [latest]: " version_input
+        read -p "Enter version to install [latest]: " version_input < /dev/tty
         version_input="${version_input:-latest}"
         
         if [ "$version_input" = "latest" ]; then
@@ -346,8 +346,8 @@ print_post_install() {
     echo -e "Data directory: ${DATA_DIR}"
     echo -e "Logs: ${LOG_DIR}"
     echo ""
-    echo -e "To upgrade: ${YELLOW}curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo sh -s -- --upgrade${NC}"
-    echo -e "To uninstall: ${YELLOW}curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo sh -s -- --uninstall${NC}"
+    echo -e "To upgrade: ${YELLOW}curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh -o install.sh && sudo bash install.sh --upgrade && rm install.sh${NC}"
+    echo -e "To uninstall: ${YELLOW}curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh -o install.sh && sudo bash install.sh --uninstall && rm install.sh${NC}"
     echo ""
 }
 
