@@ -167,7 +167,6 @@ prompt_version() {
     echo ""
     echo "Available options:"
     echo "  - latest: Install the latest stable release (recommended)"
-    echo "  - latest-dev: Install latest development build from main branch"
     echo "  - <version>: Install specific version (e.g., v0.0.0)"
     echo ""
     
@@ -179,16 +178,12 @@ prompt_version() {
             get_latest_release
             INSTALL_VERSION="$LATEST_RELEASE"
             return
-        elif [ "$version_input" = "latest-dev" ]; then
-            log_info "Installing latest development build from main branch"
-            INSTALL_VERSION="main"
-            return
         elif [[ "$version_input" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
             INSTALL_VERSION="$version_input"
             log_info "Installing version: ${INSTALL_VERSION}"
             return
         else
-            log_error "Invalid version format. Use 'latest', 'latest-dev', or a version like v0.0.0"
+            log_error "Invalid version format. Use 'latest' or a version like v0.0.0"
         fi
     done
 }
@@ -196,7 +191,7 @@ prompt_version() {
 # Get latest release version
 get_latest_release() {
     log_info "Fetching latest release information..."
-    LATEST_RELEASE=$(curl -s "${GITEA_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=1" | grep -oP '"tag_name": "\K[^"]+')
+    LATEST_RELEASE=$(curl -s "${GITEA_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=1&sort=created&direction=desc" | grep -oP '"tag_name": "\K[^"]+')
 
     if [ -z "$LATEST_RELEASE" ]; then
         log_error "Could not determine latest release version"
@@ -209,43 +204,32 @@ get_latest_release() {
 # Download and install binary
 download_binary() {
     BINARY_NAME="libreserv-${OS}-${ARCH}"
+    DOWNLOAD_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
+    CHECKSUM_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
     
-    if [ "$INSTALL_VERSION" = "main" ]; then
-        # latest-dev: download from main branch (no checksum available)
-        DOWNLOAD_URL="${GITEA_URL}/${GITHUB_REPO}/raw/branch/main/bin/${BINARY_NAME}"
-        log_info "Downloading development build from main branch..."
-        curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
-        log_warn "Development build - no checksum verification available"
+    log_info "Downloading ${BINARY_NAME}..."
+    curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
+    
+    log_info "Downloading checksums..."
+    curl -sL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt"
+    
+    log_info "Verifying checksum..."
+    EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
+    if [ -z "$EXPECTED_HASH" ]; then
+        log_warn "Checksum not found for ${BINARY_NAME}, skipping verification"
     else
-        # Release version
-        DOWNLOAD_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
-        CHECKSUM_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
-        
-        log_info "Downloading ${BINARY_NAME}..."
-        curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
-        
-        log_info "Downloading checksums..."
-        curl -sL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt"
-        
-        log_info "Verifying checksum..."
-        EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
-        if [ -z "$EXPECTED_HASH" ]; then
-            log_warn "Checksum not found for ${BINARY_NAME}, skipping verification"
-        else
-            ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
-            if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
-                log_error "Checksum verification failed!"
-                log_error "Expected: ${EXPECTED_HASH}"
-                log_error "Got:      ${ACTUAL_HASH}"
-                rm -f "${INSTALL_DIR}/libreserv"
-                exit 1
-            fi
-            log_info "Checksum verified"
+        ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
+        if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+            log_error "Checksum verification failed!"
+            log_error "Expected: ${EXPECTED_HASH}"
+            log_error "Got:      ${ACTUAL_HASH}"
+            rm -f "${INSTALL_DIR}/libreserv"
+            exit 1
         fi
-        
-        rm -f /tmp/SHA256SUMS.txt
+        log_info "Checksum verified"
     fi
     
+    rm -f /tmp/SHA256SUMS.txt
     chmod +x "${INSTALL_DIR}/libreserv"
     ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
 }
@@ -342,7 +326,7 @@ print_post_install() {
     echo -e "${GREEN}  LibreServ Installation Complete!${NC}"
     echo -e "${GREEN}========================================${NC}"
     echo ""
-    echo -e "Installed version: ${BLUE}${LATEST_RELEASE}${NC}"
+    echo -e "Installed version: ${BLUE}${INSTALL_VERSION}${NC}"
     echo ""
     echo -e "Next steps:"
     echo ""
