@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info } from "lucide-react";
@@ -170,9 +171,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
                     {updateInfo.latest_version}
                   </span>
                 </div>
-                <p className="text-sm text-secondary leading-relaxed">
-                  {updateInfo.release_notes || "No changelog available."}
-                </p>
+                <div className="text-sm text-secondary leading-relaxed prose prose-invert max-w-none">
+                  <ReactMarkdown>
+                    {updateInfo.release_notes || "No changelog available."}
+                  </ReactMarkdown>
+                </div>
               </div>
 
               <Button
