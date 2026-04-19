@@ -214,7 +214,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                     {updateInfo.latest_version}
                   </span>
                 </div>
-                <div className="text-sm text-secondary leading-relaxed">
+                <div className="text-sm text-primary leading-relaxed">
                   <ReactMarkdown
                     components={{
                       h1: (props) => (
@@ -226,38 +226,37 @@ export default function SystemUpdatesCard({ index = 0 }) {
                       h3: (props) => (
                         <h3 className="text-sm font-semibold text-primary mt-2 mb-1" {...props} />
                       ),
-                      p: (props) => <p className="mb-2" {...props} />,
+                      p: (props) => <p className="mb-2 text-primary/80" {...props} />,
                       ul: (props) => (
                         <ul className="list-disc list-inside mb-2 ml-2" {...props} />
                       ),
                       ol: (props) => (
-                        <ol className="list-decimal list-inside mb-2 ml-2" {...props} />
+                        <ul className="list-decimal list-inside mb-2 ml-2" {...props} />
                       ),
-                      li: (props) => <li className="mb-0.5" {...props} />,
+                      li: (props) => <li className="mb-0.5 text-primary/80" {...props} />,
                       code: ({ inline, ...props }) =>
                         inline ? (
                           <code
-                            className="bg-primary/20 px-1 py-0.5 rounded text-xs font-mono"
+                            className="bg-primary/10 px-1 py-0.5 rounded text-xs font-mono text-primary"
                             {...props}
                           />
                         ) : (
-                          <code
-                            className="block bg-primary/20 p-2 rounded mb-2 overflow-x-auto text-xs font-mono"
-                            {...props}
-                          />
+                          <pre className="bg-primary/10 p-2 rounded mb-2 overflow-x-auto">
+                            <code className="text-xs font-mono text-primary block" {...props} />
+                          </pre>
                         ),
                       blockquote: (props) => (
                         <blockquote
-                          className="border-l-2 border-accent pl-3 italic text-primary/70 mb-2"
+                          className="border-l-2 border-primary/30 pl-3 italic text-primary/70 mb-2"
                           {...props}
                         />
                       ),
                       hr: (props) => (
-                        <hr className="my-3 border-accent/30" {...props} />
+                        <hr className="my-3 border-primary/30" {...props} />
                       ),
                       a: (props) => (
                         <a
-                          className="text-info underline hover:no-underline"
+                          className="text-primary/90 underline hover:no-underline"
                           {...props}
                         />
                       ),
@@ -265,7 +264,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                         <strong className="font-semibold text-primary" {...props} />
                       ),
                       em: (props) => (
-                        <em className="italic" {...props} />
+                        <em className="italic text-primary/80" {...props} />
                       ),
                     }}
                   >
