@@ -118,7 +118,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
       const isShortTitle = trimmed.length > 0 && 
                            trimmed.length < 80 && 
                            trimmed.split(' ').length <= 6 &&
-                           /^[A-Z][A-Za-z0-9\s\!\-]*$/.test(trimmed);
+                           /^[A-Z][A-Za-z0-9\s!-]*$/.test(trimmed);
       
       // First line is often the title
       const isFirstLine = idx === 0;
