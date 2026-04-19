@@ -192,7 +192,7 @@ export default function Login() {
         <span className="text-primary font-mono text-xl font-normal block text-center">
           Hey there! Log in to continue.
         </span>
-        <p className="text-secondary/70 text-sm text-center mt-2">{loginQuip}</p>
+        <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
         <form
           onSubmit={handleSubmit}
           aria-busy={loading}

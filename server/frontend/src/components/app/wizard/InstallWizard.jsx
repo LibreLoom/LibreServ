@@ -115,8 +115,9 @@ function InstallWizard({ appId }) {
 
   // Calculate step numbers based on whether domain is configured
   const hasSubdomainStep = domainConfigured;
-  const progressStep = hasSubdomainStep ? 4 : 3;
-  const completeStep = hasSubdomainStep ? 5 : 4;
+  const warningStep = 3; // Warning screen when no domain
+  const progressStep = hasSubdomainStep ? 4 : 4; // Always 4 (or after warning)
+  const completeStep = hasSubdomainStep ? 5 : 5; // Always 5 (or after progress)
 
   const handleInstall = useCallback(async () => {
     handleStepChange(progressStep);
@@ -253,7 +254,7 @@ function InstallWizard({ appId }) {
               features={features}
               config={config}
               onConfigChange={setConfig}
-              onContinue={() => handleStepChange(hasSubdomainStep ? 3 : progressStep)}
+              onContinue={() => handleStepChange(3)}
               onBack={() => handleStepChange(1)}
             />
           </div>
@@ -267,7 +268,7 @@ function InstallWizard({ appId }) {
             <NoDomainWarningStep
               app={app}
               onBack={() => handleStepChange(2)}
-              onContinue={() => handleStepChange(progressStep)}
+              onContinue={handleInstall}
             />
           </div>
         )}
@@ -296,6 +297,7 @@ function InstallWizard({ appId }) {
             <ProgressStep
               instanceId={instance?.id}
               onComplete={handleComplete}
+              hasDomain={domainConfigured}
             />
           </div>
         )}

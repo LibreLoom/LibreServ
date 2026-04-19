@@ -1,10 +1,10 @@
-import { memo, useEffect, useState, useRef, useCallback } from "react";
+import { memo, useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { CheckCircle, XCircle, Copy, Check, ChevronDown } from "lucide-react";
 import TypewriterLoader from "../../../components/ui/TypewriterLoader";
 import Button from "../../../components/ui/Button";
 import { useAuth } from "../../../hooks/useAuth";
 
-const INSTALL_PHASES = [
+const ALL_INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },
   { id: "downloading", label: "Downloading application" },
   { id: "configuring", label: "Setting up configuration" },
@@ -34,7 +34,7 @@ function getErrorHint(error) {
   return "We couldn't finish bringing the app online.";
 }
 
-function ProgressStep({ instanceId, onComplete }) {
+function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
   const { request } = useAuth();
   const [currentPhase, setCurrentPhase] = useState(0);
   const [status, setStatus] = useState("installing");
@@ -47,6 +47,17 @@ function ProgressStep({ instanceId, onComplete }) {
   const consecutive404Count = useRef(0);
   const streamRef = useRef(null);
   const streamOutputRef = useRef(null);
+
+  // Filter phases based on whether domain is configured
+  const INSTALL_PHASES = useMemo(() => {
+    if (hasDomain) {
+      return ALL_INSTALL_PHASES;
+    }
+    // Exclude domain-related phases when no domain is configured
+    return ALL_INSTALL_PHASES.filter(
+      (phase) => phase.id !== "creating-route" && phase.id !== "requesting-cert"
+    );
+  }, [hasDomain]);
 
   const handleComplete = useCallback((data) => {
     if (hasCompleted.current) return;

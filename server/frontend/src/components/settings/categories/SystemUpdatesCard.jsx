@@ -15,10 +15,6 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    checkForUpdates(false, false);
-  }, [checkForUpdates]);
-
   const showSuccess = useCallback((message, description) => {
     addToast({ type: "success", message, description });
   }, [addToast]);
@@ -55,6 +51,10 @@ export default function SystemUpdatesCard({ index = 0 }) {
       setChecking(false);
     }
   }, [request, showSuccess, showError]);
+
+  useEffect(() => {
+    checkForUpdates(false, false);
+  }, [checkForUpdates]);
 
   const handleApplyUpdate = useCallback(async () => {
     setUpdating(true);
