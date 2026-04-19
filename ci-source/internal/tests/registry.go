@@ -58,10 +58,11 @@ func addGoTests() {
 		Name:        "Go Format Check",
 		Description: "Check that all Go files are properly formatted with gofmt",
 		Type:        TestTypeUnit,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "find . -name '*.go' -not -path './.cache/*' -not -path './vendor/*' -not -path './bin/*' -not -path '*/.git/*' | xargs gofmt -l | grep -q . && echo 'Files need formatting:' && find . -name '*.go' -not -path './.cache/*' -not -path './vendor/*' -not -path './bin/*' -not -path '*/.git/*' | xargs gofmt -l && exit 1 || echo 'All files formatted'",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     5 * time.Minute,
+		Env:         []string{"GOTOOLCHAIN=auto"},
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -69,7 +70,7 @@ func addGoTests() {
 		Name:        "Go Vet",
 		Description: "Run go vet to detect suspicious constructs",
 		Type:        TestTypeUnit,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "go vet ./...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     3 * time.Minute,
@@ -81,11 +82,11 @@ func addGoTests() {
 		Name:        "Go Unit Tests",
 		Description: "Run all Go unit tests",
 		Type:        TestTypeUnit,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -v ./...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     10 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -93,7 +94,7 @@ func addGoTests() {
 		Name:        "Race Detection",
 		Description: "Run tests with race detector enabled",
 		Type:        TestTypeUnit,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -race -v ./internal/api/middleware/... ./internal/auth/... ./internal/jobqueue/...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     20 * time.Minute,
@@ -105,7 +106,7 @@ func addGoTests() {
 		Name:        "Go Build",
 		Description: "Verify that the Go code compiles successfully",
 		Type:        TestTypeUnit,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache make && make build",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     5 * time.Minute,
@@ -117,11 +118,11 @@ func addGoTests() {
 		Name:        "Platform Rollback Tests",
 		Description: "Test automatic rollback from failed platform updates",
 		Type:        TestTypeUnit,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -v -run 'TestVerifyAndUpdate|TestUpdateState|TestCheckHealth' ./internal/system/...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     5 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 }
 
@@ -198,11 +199,11 @@ func addFuzzTests() {
 			Name:        ft.name,
 			Description: fmt.Sprintf("Fuzz %s for edge cases and panics", ft.fuzzFn),
 			Type:        TestTypeFuzz,
-			Container:   "golang:1.26.2-alpine",
+			Container:   "golang:1.26-alpine",
 			Command:     fmt.Sprintf(`go test -fuzz=%s -fuzztime=5m -run=^$ ./%s`, ft.fuzzFn, ft.pkg),
 			WorkDir:     "/repo/server/backend",
 			Timeout:     10 * time.Minute,
-			Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+			Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 			FuzzPackage: ft.pkg,
 		})
 	}
@@ -345,7 +346,7 @@ func addSecurityTests() {
 		Name:        "Vulnerability Check",
 		Description: "Check for known vulnerabilities in dependencies",
 		Type:        TestTypeSecurity,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "go install golang.org/x/vuln/cmd/govulncheck@latest && $(go env GOPATH)/bin/govulncheck ./...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     5 * time.Minute,
@@ -357,11 +358,11 @@ func addSecurityTests() {
 		Name:        "Security Scanner (gosec)",
 		Description: "Scan code for security problems",
 		Type:        TestTypeSecurity,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "CGO_ENABLED=0 go install github.com/securego/gosec/v2/cmd/gosec@latest && $(go env GOPATH)/bin/gosec -severity high -confidence high -exclude G104,G101,G702,G703,G704 ./internal/... ./cmd/... 2>&1",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     2 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -369,11 +370,11 @@ func addSecurityTests() {
 		Name:        "Static Analysis",
 		Description: "Run staticcheck for code quality issues",
 		Type:        TestTypeSecurity,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck -checks all,-ST1,-ST1000 ./internal/... ./cmd/...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     2 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 }
 
@@ -383,7 +384,7 @@ func addIntegrationTests() {
 		Name:        "Coverage Report",
 		Description: "Generate test coverage report",
 		Type:        TestTypeIntegration,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out && go tool cover -html=coverage.out -o coverage.html",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     10 * time.Minute,
@@ -409,7 +410,7 @@ func addSupportTests() {
 		Name:        "Support Relay Tests",
 		Description: "Run tests for support-relay module",
 		Type:        TestTypeUnit,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "go test -v ./...",
 		WorkDir:     "/repo/support/support-relay",
 		Timeout:     5 * time.Minute,
@@ -421,10 +422,10 @@ func addSupportTests() {
 		Name:        "Support Server Tests",
 		Description: "Run tests for support-server module",
 		Type:        TestTypeUnit,
-		Container:   "golang:1.26.2-alpine",
+		Container:   "golang:1.26-alpine",
 		Command:     "go test -v ./...",
 		WorkDir:     "/repo/support/support-server",
 		Timeout:     5 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 }
