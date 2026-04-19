@@ -46,7 +46,7 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
               {app.name}
             </h3>
             {isInstalled && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-pill bg-accent/20 text-accent text-xs font-mono">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-pill bg-accent/20 text-secondary/80 text-xs font-mono">
                 <Check size={12} />
                 Installed
               </span>

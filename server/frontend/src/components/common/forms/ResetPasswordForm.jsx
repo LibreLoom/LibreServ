@@ -99,7 +99,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
       <div>
         <label
           htmlFor="oldPassword"
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
         >
           Current Password
         </label>
@@ -128,7 +128,7 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 fo
             />
         </div>
         {errors.oldPassword && (
-          <p id="old-password-error" className="text-accent text-xs mt-1 px-5">
+          <p id="old-password-error" className="text-secondary/80 text-xs mt-1 px-5">
             {errors.oldPassword}
           </p>
         )}
@@ -137,7 +137,7 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 fo
       <div>
         <label
           htmlFor="newPassword"
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
         >
           New Password
         </label>
@@ -166,14 +166,14 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 fo
             />
         </div>
         {errors.newPassword && (
-          <p id="new-password-error" className="text-accent text-xs mt-1 px-5">
+          <p id="new-password-error" className="text-secondary/80 text-xs mt-1 px-5">
             {errors.newPassword}
           </p>
         )}
       </div>
 
       {errors.form && (
-        <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-accent text-sm text-center">
+        <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-secondary/80 text-sm text-center">
           {errors.form}
         </div>
       )}

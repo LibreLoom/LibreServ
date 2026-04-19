@@ -152,7 +152,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                   })
                 }
                 placeholder="smtp.example.com"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/25 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
+                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
               />
             </div>
 
@@ -170,7 +170,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                   })
                 }
                 placeholder="587"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/25 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
+                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
               />
             </div>
 
@@ -188,12 +188,12 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                   })
                 }
                 placeholder="username"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/25 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
+                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
               />
             </div>
 
             <div>
-              <label className="text-accent font-sans text-sm text-left translate-x-5 mb-1 block">
+              <label className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
                 Password
               </label>
               <input
@@ -206,7 +206,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                   })
                 }
                 placeholder="••••••••"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/25 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
+                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
               />
             </div>
 
@@ -224,7 +224,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                   })
                 }
                 placeholder="noreply@example.com"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/25 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
+                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
               />
             </div>
 

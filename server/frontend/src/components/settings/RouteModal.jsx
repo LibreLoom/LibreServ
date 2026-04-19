@@ -12,7 +12,7 @@ function InputField({ label, id, error, required, children }) {
       {label && (
         <label
           htmlFor={id}
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
         >
           {label}
           {required && <span className="text-error ml-1">*</span>}
@@ -283,7 +283,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         <form onSubmit={handleSubmit}>
           {mode === "create" && (
             <>
-              <p className="text-xs text-accent mb-4">
+              <p className="text-xs text-primary/70 mb-4">
                 Create a new network route to expose an app on a custom domain.
               </p>
               <InputField label="Subdomain" id="subdomain" error={errors.subdomain} required>
@@ -294,7 +294,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                   onChange={handleChange("subdomain")}
                   placeholder="e.g. nextcloud"
                   disabled={loading}
-                  className={`w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none ${errors.subdomain ? "border-error focus:border-error focus:ring-2 focus:ring-error/30" : "border-primary/30 focus:border-accent focus:ring-2 focus:ring-accent/30"}`}
+                  className={`w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/60 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none ${errors.subdomain ? "border-error focus:border-error focus:ring-2 focus:ring-error/30" : "border-primary/30 focus:border-accent focus:ring-2 focus:ring-accent/30"}`}
                 />
               </InputField>
 
@@ -371,8 +371,8 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
           )}
 
           {selectedBackend && !showBackendPicker && (
-            <p className="text-xs text-accent -mt-2 mb-4">
-              Route: {selectedBackend.url}
+            <p className="text-xs text-primary/70 -mt-2 mb-4">
+              Route: {selectedBackend?.url}
             </p>
           )}
 

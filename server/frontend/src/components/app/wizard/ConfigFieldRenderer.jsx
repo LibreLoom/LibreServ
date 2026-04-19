@@ -139,7 +139,7 @@ const inputBaseClasses = `
       )}
 
       {field.type !== "boolean" && field.description && (
-        <p className="text-xs text-secondary/50">{field.description}</p>
+        <p className="text-xs text-secondary/70">{field.description}</p>
       )}
 
       {renderInput()}

@@ -98,7 +98,7 @@ export default function ResetPassword() {
         <div className="w-full max-w-lg bg-secondary rounded-large-element p-8 text-center">
           <h1 className="text-2xl font-mono text-center mb-6">Reset Password</h1>
           <div className="animate-spin inline-block w-8 h-8 border-4 border-primary border-t-primary rounded-full"></div>
-          <p className="text-accent mt-4">Validating reset link...</p>
+          <p className="text-primary/70 mt-4">Validating reset link...</p>
         </div>
       </main>
     );
@@ -127,18 +127,18 @@ export default function ResetPassword() {
           <>
             <Alert variant="success" message="Password reset successfully! Redirecting to login..." />
             <div className="mt-6 text-center">
-              <a href="/login" className="text-accent underline">
+              <a href="/login" className="text-primary/80 underline">
                 Go to login now
               </a>
             </div>
           </>
         ) : (
           <form onSubmit={handleSubmit}>
-            <p className="text-accent text-sm mb-4">
+            <p className="text-primary/70 text-sm mb-4">
               Enter your new password below.
             </p>
             
-            <label className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
+            <label className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
               New Password
             </label>
             <input
@@ -151,7 +151,7 @@ export default function ResetPassword() {
               minLength={8}
             />
             
-            <label className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
+            <label className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
               Confirm Password
             </label>
             <input

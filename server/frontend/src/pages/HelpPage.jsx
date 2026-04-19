@@ -10,7 +10,7 @@ export default function HelpPage() {
     >
       {/* Simple placeholder until help content is wired to real docs. */}
       <HeaderCard id="help-title" title="Help" />
-      <p className="text-accent mt-2">Help is on the way!</p>
+      <p className="text-secondary/70 mt-2">Help is on the way!</p>
     </main>
   );
 }

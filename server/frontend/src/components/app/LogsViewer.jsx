@@ -260,7 +260,7 @@ export default function LogsViewer({
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
               placeholder="Filter logs"
-              className="w-full bg-transparent pl-11 pr-4 py-2 text-primary placeholder:text-primary/40 focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline"
+              className="w-full bg-transparent pl-11 pr-4 py-2 text-primary placeholder:text-primary/60 focus:outline-none focus-visible:outline-none font-sans text-sm no-focus-outline"
             />
           </div>
 

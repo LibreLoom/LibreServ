@@ -29,7 +29,7 @@ export default function FormInput({
       {label && (
         <label
           htmlFor={name}
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
         >
           {label}
           {required && <span className="text-error ml-1">*</span>}

@@ -57,7 +57,7 @@ export default function ChangeEmailForm({ user, onSuccess, onCancel }) {
       <div>
         <label
           htmlFor="email"
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
         >
           New Email
         </label>
@@ -85,9 +85,9 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus:ring-2 focus:ring
             />
         </div>
         {error && (
-          <p id="email-error" className="text-accent text-xs mt-1 px-5">
-            {error}
-          </p>
+        <p id="email-error" className="text-secondary/80 text-xs mt-1 px-5">
+          {error}
+        </p>
         )}
       </div>
 

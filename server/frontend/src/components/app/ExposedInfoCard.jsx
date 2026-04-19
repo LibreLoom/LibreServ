@@ -152,7 +152,7 @@ export function ExposedInfoCard({ info }) {
           >
             <span
               className={`
-                font-mono text-sm text-secondary/45 select-none whitespace-pre-wrap break-all
+                font-mono text-sm text-secondary/60 select-none whitespace-pre-wrap break-all
                 transition-[opacity,filter] duration-300 ease-out
                 ${isVisible ? "opacity-0 blur-md" : "opacity-100 blur-[8px]"}
               `}
@@ -229,11 +229,11 @@ export function ExposedInfoCard({ info }) {
     return (
       <div key={groupKey} className="mb-8 last:mb-0">
         <div className="flex items-center gap-2 mb-4">
-          <GroupIcon size={16} className={isAdvanced ? "text-secondary/40" : "text-accent"} />
+          <GroupIcon size={16} className={isAdvanced ? "text-secondary/60" : "text-accent"} />
           <h3
             className={`
               text-sm font-mono uppercase tracking-wider
-              ${isAdvanced ? "text-secondary/40" : "text-accent"}
+              ${isAdvanced ? "text-secondary/60" : "text-accent"}
             `}
           >
             {groupMeta.label}

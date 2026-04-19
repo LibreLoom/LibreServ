@@ -48,7 +48,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
     <ModalCard title="Uninstall App" onClose={onCancel}>
       <div className="space-y-4">
         <div className="flex items-center gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
-          <AlertTriangle className="text-accent shrink-0" size={24} />
+          <AlertTriangle className="text-secondary/80 shrink-0" size={24} />
           <p className="text-sm">
             This action <strong>cannot be undone</strong>. All data will be
             permanently deleted.
@@ -84,7 +84,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
              value={typedName}
              onChange={(e) => setTypedName(e.target.value)}
              placeholder={`Type "${appName}"`}
-             className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-primary/40 focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
+             className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/60 focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
              disabled={isUninstalling}
              autoFocus
            />
@@ -408,7 +408,7 @@ export default function AppDetailPage() {
         <div className="fixed inset-0 flex items-center justify-center z-40 bg-primary/60 backdrop-blur-sm">
           <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
             <div className="my-5 text-center" role="status" aria-live="polite">
-              <p className="text-accent">Error: {error}</p>
+              <p className="text-secondary/80">Error: {error}</p>
             </div>
           </Card>
         </div>
@@ -461,7 +461,7 @@ export default function AppDetailPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label="Open app (opens in new tab)"
-                  className="text-lg font-mono text-accent hover:underline flex items-center gap-1"
+                  className="text-lg font-mono text-secondary/80 hover:underline flex items-center gap-1"
                 >
                   Open App
                   <ExternalLink size={14} aria-hidden="true" />
@@ -474,16 +474,16 @@ export default function AppDetailPage() {
             <section className="mb-8">
               <Card className="bg-primary! text-secondary! border-2! border-secondary!">
                 <div className="flex items-center gap-2 mb-6">
-                  <Server size={20} className="text-accent" />
+                  <Server size={20} className="text-secondary/70" />
                   <h2 className="text-2xl font-mono font-normal">Resource Usage</h2>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <Cpu size={24} className="text-accent" />
+                      <Cpu size={24} className="text-secondary/70" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-accent font-bold">
+                      <p className="text-xs font-mono uppercase tracking-wider text-secondary/80 font-bold">
                         CPU
                       </p>
                       <p className="text-xl font-mono">
@@ -493,10 +493,10 @@ export default function AppDetailPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <Activity size={24} className="text-accent" />
+                      <Activity size={24} className="text-secondary/70" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-accent font-bold">
+                      <p className="text-xs font-mono uppercase tracking-wider text-secondary/80 font-bold">
                         Memory
                       </p>
                       <p className="text-xl font-mono">
@@ -506,10 +506,10 @@ export default function AppDetailPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <HardDrive size={24} className="text-accent" />
+                      <HardDrive size={24} className="text-secondary/70" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-accent font-bold">
+                      <p className="text-xs font-mono uppercase tracking-wider text-secondary/80 font-bold">
                         Network
                       </p>
                       <p className="text-xl font-mono">
@@ -526,14 +526,14 @@ export default function AppDetailPage() {
             <section className="mb-8">
               <Card className="bg-primary! text-secondary! border-2! border-accent!">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <ArrowUpCircle size={32} className="text-accent" />
-                    <div>
-                      <h2 className="text-xl font-mono font-normal">Update Available</h2>
-                      <p className="text-sm text-primary/70">
-                        {availableUpdate.current_version} to {availableUpdate.latest_version}
-                      </p>
-                    </div>
+                <div className="flex items-center gap-4">
+                  <ArrowUpCircle size={32} className="text-secondary/70" />
+                  <div>
+                    <h2 className="text-xl font-mono font-normal">Update Available</h2>
+                    <p className="text-sm text-primary/70">
+                      {availableUpdate.current_version} to {availableUpdate.latest_version}
+                    </p>
+                  </div>
                   </div>
                   <button
                     onClick={() => handleAppAction("update")}
@@ -560,7 +560,7 @@ export default function AppDetailPage() {
           <section>
             <Card className="bg-primary! text-secondary! border-2! border-secondary!">
               <div className="flex items-center gap-2 mb-6">
-                <Settings size={20} className="text-accent" />
+                <Settings size={20} className="text-secondary/70" />
                 <h2 className="text-2xl font-mono font-normal">Control</h2>
               </div>
 
@@ -598,7 +598,7 @@ export default function AppDetailPage() {
                 <button
                   onClick={() => handleAppAction("restart")}
                   disabled={actionLoading}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill border-2 border-accent text-accent hover:bg-accent/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill border-2 border-accent text-secondary/70 hover:bg-accent/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
                 >
                   {actionLoading === "restart" ? (
                     <Loader2 size={18} className="animate-spin" />
@@ -633,13 +633,13 @@ export default function AppDetailPage() {
             <section className="mt-8">
               <Card className="bg-primary! text-secondary! border-2! border-secondary!">
                 <div className="flex items-center gap-2 mb-6">
-                  <Wrench size={20} className="text-accent" />
+                  <Wrench size={20} className="text-secondary/70" />
                   <h2 className="text-2xl font-mono font-normal">Actions</h2>
                 </div>
 
                 {actionsLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 size={24} className="animate-spin text-accent" />
+                    <Loader2 size={24} className="animate-spin text-secondary/70" />
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -667,7 +667,7 @@ export default function AppDetailPage() {
           <section className="mt-8">
             <Card className="bg-primary! text-secondary! border-2! border-secondary!">
               <div className="flex items-center gap-2 mb-6">
-                <Settings size={20} className="text-accent" />
+                <Settings size={20} className="text-secondary/70" />
                 <h2 className="text-2xl font-mono font-normal">Capabilities</h2>
               </div>
               <FeatureMatrix features={catalogFeatures} compact />

@@ -114,7 +114,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
 
       {(requirements.min_ram || requirements.min_cpu || requirements.min_disk) && (
         <div className="space-y-2">
-          <p className="text-xs font-mono text-secondary/50 text-center uppercase tracking-wide">
+          <p className="text-xs font-mono text-secondary/70 text-center uppercase tracking-wide">
             Requirements
           </p>
           <div className="flex flex-wrap justify-center gap-2">

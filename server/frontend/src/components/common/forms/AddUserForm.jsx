@@ -163,7 +163,7 @@ export default function AddUserForm({ onSuccess }) {
       <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">
         <label
           htmlFor="role"
-          className="text-accent font-sans text-sm motion-safe:transition-all shrink-0"
+          className="text-secondary/80 font-sans text-sm motion-safe:transition-all shrink-0"
         >
           Role:
         </label>
@@ -179,7 +179,7 @@ export default function AddUserForm({ onSuccess }) {
       </div>
 
       {errors.form && (
-        <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-accent text-sm text-center">
+        <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-secondary/80 text-sm text-center">
           {errors.form}
         </div>
       )}

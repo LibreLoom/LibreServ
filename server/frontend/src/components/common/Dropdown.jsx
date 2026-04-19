@@ -114,7 +114,7 @@ export default function Dropdown({
         aria-haspopup="listbox"
         aria-label={label ? `${label}: ${selectedOption?.label || "select"}` : undefined}
       >
-        {label && <span className="text-accent">{label}</span>}
+        {label && <span className="text-secondary/70">{label}</span>}
         <span className={`inline-flex items-center gap-1 font-mono ${fullWidth ? "justify-between w-full" : ""}`}>
           {selectedOption?.label || placeholder}
           <ChevronDown

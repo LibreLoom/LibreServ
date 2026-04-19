@@ -293,16 +293,16 @@ export default function NotFoundPage({ includeMain = true }) {
             bottomContent={
               <div className="flex flex-col gap-6">
                 <div>
-                  <p className="font-mono text-sm font-normal uppercase tracking-widest text-accent">
+                  <p className="font-mono text-sm font-normal uppercase tracking-widest text-primary/70">
                     Error 404
                   </p>
-                  <p id={detailsId} className="mt-3 text-accent max-w-prose">
+                  <p id={detailsId} className="mt-3 text-primary/70 max-w-prose">
                     {quip}
                   </p>
                 </div>
 
                 <div>
-                  <p className="text-sm text-accent">You tried to visit</p>
+                  <p className="text-sm text-primary/70">You tried to visit</p>
                   <code className="mt-2 block w-full overflow-x-auto rounded-large-element bg-primary/10 p-4 font-mono text-sm text-primary">
                     {attemptedPath || "/"}
                   </code>
@@ -311,7 +311,7 @@ export default function NotFoundPage({ includeMain = true }) {
                 {suggestedPages.length > 0 && (
                   <div className="rounded-large-element bg-primary/10 p-6">
                     <h2 className="font-mono font-normal">Did you mean…</h2>
-                    <p className="mt-2 text-sm text-accent max-w-prose">
+                    <p className="mt-2 text-sm text-primary/70 max-w-prose">
                       We found a close match.
                     </p>
                     <ul className="mt-4 flex flex-wrap gap-3">
@@ -333,7 +333,7 @@ export default function NotFoundPage({ includeMain = true }) {
             <h2 className="text-xl font-mono font-normal block text-center">
               Quick Ways Out
             </h2>
-            <p className="mt-2 text-accent max-w-prose block text-center">
+            <p className="mt-2 text-primary/70 max-w-prose block text-center">
               Try a safe page. We won't judge! Well, the owl might...
             </p>
 
@@ -362,7 +362,7 @@ export default function NotFoundPage({ includeMain = true }) {
               <h3 className="font-mono font-normal">
                 If This Surprised You (Valid Reaction)
               </h3>
-              <ul className="mt-3 list-disc pl-5 text-accent space-y-2">
+              <ul className="mt-3 list-disc pl-5 text-primary/70 space-y-2">
                 <li>Check for a small typo (they’re sneaky).</li>
                 <li>Use the navigation to find what you need.</li>
                 <li>
@@ -401,7 +401,7 @@ export default function NotFoundPage({ includeMain = true }) {
                     : "max-h-0 pb-0 opacity-0 pointer-events-none select-none"
                 } motion-safe:transition-all motion-safe:duration-300 ease-out`}
               >
-                <div className="pt-2 text-accent">
+                <div className="pt-2 text-primary/70">
                   {bestMatch ? (
                     <p className="text-sm">
                       Close-Enough-O-Meter:{" "}
