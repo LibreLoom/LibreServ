@@ -6,6 +6,7 @@ import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info } from "lu
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import ConfirmModal from "../../common/ConfirmModal";
+import ModalCard from "../../cards/ModalCard";
 
 export default function SystemUpdatesCard({ index = 0 }) {
   const { request } = useAuth();
@@ -14,6 +15,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showReleaseNotesModal, setShowReleaseNotesModal] = useState(false);
   const [error, setError] = useState(null);
 
   const showSuccess = useCallback((message, description) => {
@@ -164,93 +166,14 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
           {hasUpdate && (
             <div className="space-y-3">
-              <div className="p-4 bg-primary rounded-large-element">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm font-medium text-secondary">What's New in</span>
-                  <span className="px-2 py-0.5 rounded-full text-xs font-mono font-semibold bg-secondary text-primary">
-                    {updateInfo.latest_version}
-                  </span>
-                </div>
-                <div className="markdown-content">
-                  <ReactMarkdown
-                    components={{
-                      h1: (props) => (
-                        <h1
-                          className="text-3xl font-mono font-normal mb-4 mt-6 text-secondary"
-                          {...props}
-                        />
-                      ),
-                      h2: (props) => (
-                        <h2
-                          className="text-2xl font-mono font-normal mb-3 mt-5 text-secondary"
-                          {...props}
-                        />
-                      ),
-                      h3: (props) => (
-                        <h3
-                          className="text-xl font-mono font-normal mb-2 mt-4 text-secondary"
-                          {...props}
-                        />
-                      ),
-                      h4: (props) => (
-                        <h4
-                          className="text-lg font-mono font-normal mb-2 mt-3 text-secondary"
-                          {...props}
-                        />
-                      ),
-                      h5: (props) => (
-                        <h5
-                          className="text-base font-mono font-normal mb-2 mt-3 text-secondary"
-                          {...props}
-                        />
-                      ),
-                      h6: (props) => (
-                        <h6
-                          className="text-sm font-mono font-normal mb-2 mt-2 text-secondary"
-                          {...props}
-                        />
-                      ),
-                      p: (props) => <p className="mb-4 text-secondary/90" {...props} />,
-                      ul: (props) => (
-                        <ul
-                          className="list-disc list-inside mb-4 ml-4"
-                          {...props}
-                        />
-                      ),
-                      ol: (props) => (
-                        <ol
-                          className="list-decimal list-inside mb-4 ml-4"
-                          {...props}
-                        />
-                      ),
-                      li: (props) => <li className="mb-1 text-secondary/90" {...props} />,
-                      code: ({ inline, ...props }) =>
-                        inline ? (
-                          <code
-                            className="bg-secondary/20 px-1 py-0.5 rounded text-sm text-secondary"
-                            {...props}
-                          />
-                        ) : (
-                          <code
-                            className="block bg-accent/30 text-secondary p-4 rounded mb-4 overflow-x-auto"
-                            {...props}
-                          />
-                        ),
-                      hr: (props) => (
-                        <hr className="my-6 border-secondary/30" {...props} />
-                      ),
-                      a: (props) => (
-                        <a
-                          className="text-secondary underline hover:no-underline"
-                          {...props}
-                        />
-                      ),
-                    }}
-                  >
-                    {updateInfo.release_notes || "No changelog available."}
-                  </ReactMarkdown>
-                </div>
-              </div>
+              <Button
+                variant="primary"
+                onClick={() => setShowReleaseNotesModal(true)}
+                className="w-full justify-start font-mono"
+              >
+                <Download size={16} />
+                See what's new in {updateInfo.latest_version}
+              </Button>
 
               <Button
                 variant="primary"
@@ -304,6 +227,94 @@ export default function SystemUpdatesCard({ index = 0 }) {
         confirmIcon={Download}
         loading={updating}
       />
+
+      {showReleaseNotesModal && (
+        <ModalCard
+          title={`What's New in ${updateInfo?.latest_version}`}
+          onClose={() => setShowReleaseNotesModal(false)}
+          size="lg"
+        >
+          <div className="markdown-content overflow-y-auto px-1">
+            <ReactMarkdown
+              components={{
+                h1: (props) => (
+                  <h1
+                    className="text-3xl font-mono font-normal mb-4 mt-6 text-secondary"
+                    {...props}
+                  />
+                ),
+                h2: (props) => (
+                  <h2
+                    className="text-2xl font-mono font-normal mb-3 mt-5 text-secondary"
+                    {...props}
+                  />
+                ),
+                h3: (props) => (
+                  <h3
+                    className="text-xl font-mono font-normal mb-2 mt-4 text-secondary"
+                    {...props}
+                  />
+                ),
+                h4: (props) => (
+                  <h4
+                    className="text-lg font-mono font-normal mb-2 mt-3 text-secondary"
+                    {...props}
+                  />
+                ),
+                h5: (props) => (
+                  <h5
+                    className="text-base font-mono font-normal mb-2 mt-3 text-secondary"
+                    {...props}
+                  />
+                ),
+                h6: (props) => (
+                  <h6
+                    className="text-sm font-mono font-normal mb-2 mt-2 text-secondary"
+                    {...props}
+                  />
+                ),
+                p: (props) => <p className="mb-4 text-secondary/90" {...props} />,
+                ul: (props) => (
+                  <ul
+                    className="list-disc list-inside mb-4 ml-4"
+                    {...props}
+                  />
+                ),
+                ol: (props) => (
+                  <ol
+                    className="list-decimal list-inside mb-4 ml-4"
+                    {...props}
+                  />
+                ),
+                li: (props) => <li className="mb-1 text-secondary/90" {...props} />,
+                code: ({ inline, ...props }) =>
+                  inline ? (
+                    <code
+                      className="bg-secondary/20 px-1 py-0.5 rounded text-sm text-secondary"
+                      {...props}
+                    />
+                  ) : (
+                    <code
+                      className="block bg-accent/30 text-secondary p-4 rounded mb-4 overflow-x-auto"
+                      {...props}
+                    />
+                  ),
+                hr: (props) => (
+                  <hr className="my-6 border-secondary/30" {...props} />
+                ),
+                a: (props) => (
+                  <a
+                    className="text-secondary underline hover:no-underline"
+                    {...props}
+                  />
+                ),
+              }}
+            >
+              {updateInfo?.release_notes || "No changelog available."}
+            </ReactMarkdown>
+          </div>
+        </ModalCard>
+      )}
     </>
   );
 }
