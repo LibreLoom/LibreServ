@@ -1,33 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Loader2, Network, XCircle } from "lucide-react";
+import { CheckCircle2, Globe, Loader2, Network, Server, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
+import Card from "../cards/Card";
 import Dropdown from "../common/Dropdown";
 import Toggle from "../common/Toggle";
 import { useAuth } from "../../hooks/useAuth";
 import { testBackend } from "../../lib/network-api";
-
-function InputField({ label, id, error, required, children }) {
-  return (
-    <div className="mb-4">
-      {label && (
-        <label
-          htmlFor={id}
-          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
-        >
-          {label}
-          {required && <span className="text-error ml-1">*</span>}
-        </label>
-      )}
-      {children}
-      {error && (
-        <p id={`${id}-error`} className="text-error text-xs mt-1 px-5">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
 
 export default function RouteModal({ open, onClose, mode, route, defaultDomain, apps, onSuccess }) {
   const { request } = useAuth();
@@ -312,18 +291,18 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
       )}
 
       {noAppsError ? (
-        <div className="text-center py-4">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Network size={18} className="text-accent" />
-            <p className="font-mono text-sm text-primary">No running apps available</p>
+        <div className="text-center py-12">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-4">
+            <Network size={24} className="text-primary/50" />
           </div>
-          <p className="text-xs text-accent mb-6">
-            Install and start an app before creating a network route.
+          <p className="font-mono text-sm text-primary mb-1">No running apps</p>
+          <p className="text-xs text-primary/50 mb-6">
+            Install and start an app before creating a route.
           </p>
           <button
             type="button"
             onClick={handleClose}
-            className="w-full px-4 py-2 rounded-pill border-2 border-accent/30 bg-secondary text-primary hover:bg-accent/20 transition-all font-mono text-sm"
+            className="w-full px-4 py-2 rounded-pill border-2 border-primary/20 text-primary hover:bg-primary/10 transition-all font-mono text-sm"
           >
             Close
           </button>
@@ -332,134 +311,153 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         <form onSubmit={handleSubmit}>
           {mode === "create" && (
             <>
-              <p className="text-xs text-primary/70 mb-4">
-                Create a new network route to expose an app on a custom domain.
+              <p className="text-xs text-primary/50 mb-6">
+                Create a network route to expose an app on a custom domain.
               </p>
-              <InputField label="Subdomain" id="subdomain" error={errors.subdomain} required>
-                <input
-                  id="subdomain"
-                  type="text"
-                  value={formData.subdomain}
-                  onChange={handleChange("subdomain")}
-                  placeholder="e.g. nextcloud"
-                  disabled={loading}
-                  className={`w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/60 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none ${errors.subdomain ? "border-error focus:border-error focus:ring-2 focus:ring-error/30" : "border-primary/30 focus:border-accent focus:ring-2 focus:ring-accent/30"}`}
-                />
-              </InputField>
-
-              <InputField label="Domain" id="domain" error={errors.domain} required>
-                <input
-                  id="domain"
-                  type="text"
-                  value={formData.domain}
-                  onChange={handleChange("domain")}
-                  placeholder={defaultDomain || "e.g. example.com"}
-                  disabled={loading}
-                  className={`w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/40 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none ${errors.domain ? "border-error focus:border-error focus:ring-2 focus:ring-error/30" : "border-primary/30 focus:border-accent focus:ring-2 focus:ring-accent/30"}`}
-                />
-              </InputField>
+              <div className="flex gap-2 mb-5">
+                <div className="flex-1">
+                  <label
+                    htmlFor="subdomain"
+                    className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
+                  >
+                    Subdomain<span className="text-error ml-0.5">*</span>
+                  </label>
+                  <input
+                    id="subdomain"
+                    type="text"
+                    value={formData.subdomain}
+                    onChange={handleChange("subdomain")}
+                    placeholder="e.g. nextcloud"
+                    disabled={loading}
+                    className={`w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none ${errors.subdomain ? "border-error focus:border-error focus:ring-2 focus:ring-error/30" : "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30"}`}
+                  />
+                  {errors.subdomain && (
+                    <p className="text-error text-xs mt-1">{errors.subdomain}</p>
+                  )}
+                </div>
+                <div className="flex items-end pb-2 text-primary font-mono text-lg font-black">.</div>
+                <div className="flex-1">
+                  <label
+                    htmlFor="domain"
+                    className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
+                  >
+                    Domain<span className="text-error ml-0.5">*</span>
+                  </label>
+                  <input
+                    id="domain"
+                    type="text"
+                    value={formData.domain}
+                    onChange={handleChange("domain")}
+                    placeholder={defaultDomain || "e.g. example.com"}
+                    disabled={loading}
+                    className={`w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none ${errors.domain ? "border-error focus:border-error focus:ring-2 focus:ring-error/30" : "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30"}`}
+                  />
+                  {errors.domain && (
+                    <p className="text-error text-xs mt-1">{errors.domain}</p>
+                  )}
+                </div>
+              </div>
             </>
           )}
 
           {mode === "edit" && route && (
-            <div className="mb-4">
-              <p className="text-xs text-accent mb-1">Domain</p>
-              <p className="font-mono text-sm text-primary bg-primary/10 rounded-pill px-4 py-2">
+            <div className="mb-5 flex items-center gap-2 px-4 py-2.5 rounded-card bg-primary/5">
+              <Globe size={16} className="text-primary/50 shrink-0" />
+              <p className="font-mono text-sm text-primary truncate">
                 {route.subdomain ? `${route.subdomain}.${route.domain}` : route.domain}
               </p>
             </div>
           )}
 
-          <div className="mb-4">
-            <label className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
-              App<span className="text-error ml-1">*</span>
-            </label>
-            <Dropdown
-              value={formData.appId}
-              onChange={(val) => handleChange("appId")({ target: { value: val } })}
-              placeholder="Select an app..."
-              fullWidth
-              disabled={loading}
-              options={runningApps.map((app) => ({ value: app.id, label: app.name }))}
-            />
-            {errors.appId && (
-              <p className="text-error text-xs mt-1 px-5">{errors.appId}</p>
-            )}
-          </div>
-
-          {selectedApp && (
-            <div className="mb-4">
-              {showBackendPicker ? (
-                <>
-                  <label className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
-                    Backend
-                  </label>
-                  <Dropdown
-                    value={formData.backendName}
-                    onChange={(val) => handleChange("backendName")({ target: { value: val } })}
-                    fullWidth
-                    disabled={loading}
-                    options={appBackends.map((backend) => ({
-                      value: backend.name,
-                      label: backend.name ? `${backend.name} — ${backend.url}` : backend.url,
-                    }))}
-                  />
-                  {errors.backendName && (
-                    <p className="text-error text-xs mt-1 px-5">{errors.backendName}</p>
-                  )}
-                </>
-              ) : (
-                <div>
-                  <p className="text-xs text-accent mb-1">Backend</p>
-                  <p className="font-mono text-sm text-primary bg-primary/10 rounded-pill px-4 py-2">
-                    {selectedBackend?.url || "No backend available"}
-                  </p>
-                </div>
-              )}
-              {selectedBackend?.url && (
-                <div className="mt-3 flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => doTestBackend(selectedBackend.url)}
-                    disabled={testingBackend || loading}
-                    className="px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                  >
-                    {testingBackend ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" />
-                        Testing...
-                      </>
-                    ) : (
-                      "Test Connection"
-                    )}
-                  </button>
-                  {backendTestResult && (
-                    <div className={`flex items-center gap-1.5 text-xs ${backendTestResult.reachable ? "text-success" : "text-error"}`}>
-                      {backendTestResult.reachable ? (
-                        <>
-                          <CheckCircle2 size={14} />
-                          <span className="font-mono">Backend reachable</span>
-                        </>
-                      ) : (
-                        <>
-                          <XCircle size={14} />
-                          <span className="font-mono">{backendTestResult.error || "Backend unreachable"}</span>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
+          <Card noPopIn className="mb-6 !bg-primary/5 !border !border-primary/10">
+            <div className="rounded-card bg-secondary border border-primary/10">
+              <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
+                App<span className="text-error ml-0.5">*</span>
+              </label>
+              <div className="px-3 pb-3">
+                <Dropdown
+                  value={formData.appId}
+                  onChange={(val) => handleChange("appId")({ target: { value: val } })}
+                  placeholder="Select an app..."
+                  fullWidth
+                  disabled={loading}
+                  options={runningApps.map((app) => ({ value: app.id, label: app.name }))}
+                />
+              </div>
+              {errors.appId && (
+                <p className="text-error text-xs mt-1 px-3 pb-3">{errors.appId}</p>
               )}
             </div>
-          )}
 
-          {selectedBackend && !showBackendPicker && (
-            <p className="text-xs text-primary/70 -mt-2 mb-4">
-              Route: {selectedBackend?.url}
-            </p>
-          )}
+            {selectedApp && (
+              <div className="rounded-card bg-secondary border border-primary/10 mt-2">
+                <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
+                  Backend
+                </label>
+                {showBackendPicker ? (
+                  <>
+                    <div className="px-3 pb-3">
+                      <Dropdown
+                        value={formData.backendName}
+                        onChange={(val) => handleChange("backendName")({ target: { value: val } })}
+                        fullWidth
+                        disabled={loading}
+                        options={appBackends.map((backend) => ({
+                          value: backend.name,
+                          label: backend.name ? `${backend.name} — ${backend.url}` : backend.url,
+                        }))}
+                      />
+                    </div>
+                    {errors.backendName && (
+                      <p className="text-error text-xs mt-1 px-3 pb-3">{errors.backendName}</p>
+                    )}
+                  </>
+                ) : (
+                  <div className="px-3 pb-3">
+                    <p className="font-mono text-sm text-primary bg-primary/10 rounded-pill px-4 py-2 truncate">
+                      {selectedBackend?.url || "No backend available"}
+                    </p>
+                  </div>
+                )}
+                {selectedBackend?.url && (
+                  <div className="mt-2 flex items-center gap-2 px-3 pb-3">
+                    <button
+                      type="button"
+                      onClick={() => doTestBackend(selectedBackend.url)}
+                      disabled={testingBackend || loading}
+                      className="px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      {testingBackend ? (
+                        <>
+                          <Loader2 size={12} className="animate-spin" />
+                          Testing...
+                        </>
+                      ) : (
+                        "Test Connection"
+                      )}
+                    </button>
+                    {backendTestResult && (
+                      <div className={`flex items-center gap-1 text-xs ${backendTestResult.reachable ? "text-success" : "text-error"}`}>
+                        {backendTestResult.reachable ? (
+                          <>
+                            <CheckCircle2 size={12} />
+                            <span className="font-mono">Reachable</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle size={12} />
+                            <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
 
-          <div className="space-y-3 mb-6">
+          <div className="space-y-3 mb-5 mt-4 p-4 rounded-card bg-primary/5 border border-primary/10">
             <Toggle
               checked={formData.enabled}
               onChange={(val) => setFormData((prev) => ({ ...prev, enabled: val }))}
@@ -482,12 +480,12 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 pt-2">
             <button
               type="button"
               onClick={handleClose}
               disabled={loading}
-              className="flex-1 px-4 py-2 rounded-pill border-2 border-accent/30 bg-secondary text-primary hover:bg-accent/20 transition-all font-mono text-sm disabled:opacity-50"
+              className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/20 bg-secondary text-primary hover:bg-primary/10 transition-all font-mono text-sm disabled:opacity-50"
             >
               Cancel
             </button>
