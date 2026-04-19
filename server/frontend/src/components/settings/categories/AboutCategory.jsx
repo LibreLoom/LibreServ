@@ -6,7 +6,6 @@ import StatusBadge from "../../common/StatusBadge";
 import SettingsCard from "../SettingsCard";
 import AnimatedCheckbox from "../../ui/AnimatedCheckbox";
 import { useAuth } from "../../../hooks/useAuth";
-import api from "../../../lib/api";
 
 const APP_VERSION = "1.0.0";
 
@@ -200,13 +199,13 @@ export default function AboutCategory({ settings }) {
                 </span>
               </div>
               {lastChecked && (
-                <span className="px-3 py-1.5 rounded-full bg-gray-200 text-xs font-medium border border-gray-300">
+                <span className="px-3 py-1.5 rounded-full bg-primary text-secondary text-xs font-medium border border-primary/20">
                   Last checked: {new Date(lastChecked).toLocaleTimeString()}
                 </span>
               )}
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-gray-200 border border-gray-300">
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-primary border border-primary/20">
                 <AnimatedCheckbox
                   checked={autoRefresh}
                   onChange={setAutoRefresh}

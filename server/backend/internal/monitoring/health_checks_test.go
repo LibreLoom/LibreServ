@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 )
 
 func TestPickContainer_PrefersComposeProjectLabelAndRunning(t *testing.T) {
-	containers := []types.Container{
+	containers := []container.Summary{
 		{
 			ID:    "a",
 			State: "exited",
@@ -32,7 +32,7 @@ func TestPickContainer_PrefersComposeProjectLabelAndRunning(t *testing.T) {
 }
 
 func TestPickContainer_FallsBackToNameMatch(t *testing.T) {
-	containers := []types.Container{
+	containers := []container.Summary{
 		{
 			ID:    "a",
 			State: "running",

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 )
@@ -19,7 +18,7 @@ type ContainerStats struct {
 }
 
 // ListContainersByLabel returns containers matching a label filter.
-func (c *Client) ListContainersByLabel(label string) ([]types.Container, error) {
+func (c *Client) ListContainersByLabel(label string) ([]container.Summary, error) {
 	if c == nil || c.cli == nil {
 		return nil, errors.New("docker client not initialized")
 	}

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Network } from "lucide-react";
+import { CheckCircle2, Loader2, Network, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
 import Toggle from "../common/Toggle";
 import { useAuth } from "../../hooks/useAuth";
+import { testBackend } from "../../lib/network-api";
 
 function InputField({ label, id, error, required, children }) {
   return (
@@ -42,8 +43,11 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
   const [errors, setErrors] = useState({});
   const [isClosing, setIsClosing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
+  const [testingBackend, setTestingBackend] = useState(false);
+  const [backendTestResult, setBackendTestResult] = useState(null);
   const abortRef = useRef(null);
   const prevFormKeyRef = useRef(null);
+  const testDebounceRef = useRef(null);
 
   const runningApps = useMemo(() => apps?.filter((app) => app.status === "running") || [], [apps]);
   const noAppsError = mode === "create" && apps !== null && runningApps.length === 0;
@@ -57,11 +61,15 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
     if (!open) {
       abortRef.current?.abort();
       abortRef.current = null;
-      /* eslint-disable react-hooks/set-state-in-effect */
+      if (testDebounceRef.current) {
+        clearTimeout(testDebounceRef.current);
+        testDebounceRef.current = null;
+      }
       setConfirmClose(false);
       setErrors({});
+      setTestingBackend(false);
+      setBackendTestResult(null);
       prevFormKeyRef.current = null;
-      /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
 
@@ -112,12 +120,53 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
 
   const handleForceClose = useCallback(() => {
     abortRef.current?.abort();
+    if (testDebounceRef.current) {
+      clearTimeout(testDebounceRef.current);
+      testDebounceRef.current = null;
+    }
     setIsClosing(true);
     setTimeout(() => {
       onClose?.();
       setIsClosing(false);
     }, 200);
   }, [onClose]);
+
+  const doTestBackend = useCallback(async (backendUrl) => {
+    if (!backendUrl) {
+      setBackendTestResult(null);
+      return;
+    }
+    setTestingBackend(true);
+    setBackendTestResult(null);
+    try {
+      const result = await testBackend(backendUrl);
+      setBackendTestResult(result);
+    } catch {
+      setBackendTestResult({ reachable: false, error: "Failed to connect" });
+    } finally {
+      setTestingBackend(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (testDebounceRef.current) {
+      clearTimeout(testDebounceRef.current);
+    }
+    const backendUrl = selectedBackend?.url;
+    if (backendUrl && open && !loading) {
+      testDebounceRef.current = setTimeout(() => {
+        doTestBackend(backendUrl);
+      }, 500);
+    } else {
+      setBackendTestResult(null);
+    }
+    return () => {
+      if (testDebounceRef.current) {
+        clearTimeout(testDebounceRef.current);
+        testDebounceRef.current = null;
+      }
+    };
+  }, [selectedBackend, open, loading, doTestBackend]);
 
   const handleChange = useCallback((field) => (e) => {
     const value = e.target.value;
@@ -365,6 +414,40 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                   <p className="font-mono text-sm text-primary bg-primary/10 rounded-pill px-4 py-2">
                     {selectedBackend?.url || "No backend available"}
                   </p>
+                </div>
+              )}
+              {selectedBackend?.url && (
+                <div className="mt-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => doTestBackend(selectedBackend.url)}
+                    disabled={testingBackend || loading}
+                    className="px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    {testingBackend ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Testing...
+                      </>
+                    ) : (
+                      "Test Connection"
+                    )}
+                  </button>
+                  {backendTestResult && (
+                    <div className={`flex items-center gap-1.5 text-xs ${backendTestResult.reachable ? "text-success" : "text-error"}`}>
+                      {backendTestResult.reachable ? (
+                        <>
+                          <CheckCircle2 size={14} />
+                          <span className="font-mono">Backend reachable</span>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle size={14} />
+                          <span className="font-mono">{backendTestResult.error || "Backend unreachable"}</span>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

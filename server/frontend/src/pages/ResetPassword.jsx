@@ -41,7 +41,7 @@ export default function ResetPassword() {
       } else {
         setError("This reset link is invalid or has expired");
       }
-    } catch (err) {
+    } catch {
       setError("Failed to validate reset link");
     } finally {
       setValidating(false);

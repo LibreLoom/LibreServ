@@ -237,7 +237,7 @@ function ProgressStep({ instanceId, onComplete }) {
     return () => {
       clearInterval(interval);
     };
-  }, [instanceId, handleComplete]);
+  }, [instanceId, handleComplete, request]);
 
   const handleCopyStream = async () => {
     const text = streamLines.join("");

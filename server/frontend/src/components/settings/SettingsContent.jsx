@@ -37,7 +37,6 @@ export default function SettingsContent({
   onSecuritySettingsChange,
   notificationsSettings,
   onNotificationsSettingsChange,
-  onNotificationsSettingsSaved,
   onTestNotification,
   onLoggingChange,
   colors,

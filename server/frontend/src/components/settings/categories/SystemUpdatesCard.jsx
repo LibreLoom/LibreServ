@@ -17,7 +17,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
   useEffect(() => {
     checkForUpdates(false, false);
-  }, []);
+  }, [checkForUpdates]);
 
   const showSuccess = useCallback((message, description) => {
     addToast({ type: "success", message, description });

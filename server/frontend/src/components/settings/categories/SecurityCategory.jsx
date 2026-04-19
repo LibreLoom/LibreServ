@@ -84,7 +84,7 @@ function StatCard({ value, label, variant = "accent" }) {
   );
 }
 
-export default function SecurityCategory({ settings, onSettingsChange }) {
+export default function SecurityCategory() {
   const { addToast } = useToast();
   const { use12HourTime } = useTimeFormat();
   const activityColumns = getActivityColumns(use12HourTime);

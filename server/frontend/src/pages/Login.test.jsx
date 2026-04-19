@@ -12,8 +12,8 @@ describe("Login", () => {
   it("renders login form with username and password fields", () => {
     renderWithProviders(<Login />);
 
-    expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    expect(screen.getByLabelText("Password")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /login/i }),
     ).toBeInTheDocument();
@@ -42,8 +42,8 @@ describe("Login", () => {
     const loginFn = vi.fn().mockResolvedValue(undefined);
     renderWithProviders(<Login />, { authOverrides: { login: loginFn } });
 
-    await user.type(screen.getByLabelText(/username/i), "admin");
-    await user.type(screen.getByLabelText(/password/i), "hunter2");
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "hunter2");
     await user.click(screen.getByRole("button", { name: /login/i }));
 
     expect(loginFn).toHaveBeenCalledWith("admin", "hunter2");
@@ -56,8 +56,8 @@ describe("Login", () => {
     });
     renderWithProviders(<Login />, { authOverrides: { login: loginFn } });
 
-    await user.type(screen.getByLabelText(/username/i), "admin");
-    await user.type(screen.getByLabelText(/password/i), "wrong");
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "wrong");
     await user.click(screen.getByRole("button", { name: /login/i }));
 
     expect(
@@ -72,8 +72,8 @@ describe("Login", () => {
     });
     renderWithProviders(<Login />, { authOverrides: { login: loginFn } });
 
-    await user.type(screen.getByLabelText(/username/i), "admin");
-    await user.type(screen.getByLabelText(/password/i), "pass");
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "pass");
     await user.click(screen.getByRole("button", { name: /login/i }));
 
     expect(
@@ -86,8 +86,8 @@ describe("Login", () => {
     const loginFn = vi.fn().mockRejectedValue(new Error("down"));
     renderWithProviders(<Login />, { authOverrides: { login: loginFn } });
 
-    await user.type(screen.getByLabelText(/username/i), "admin");
-    await user.type(screen.getByLabelText(/password/i), "pass");
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "pass");
     await user.click(screen.getByRole("button", { name: /login/i }));
 
     expect(

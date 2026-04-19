@@ -6,6 +6,7 @@ import WizardStepper from "./WizardStepper";
 import OverviewStep from "./OverviewStep";
 import ConfigureStep from "./ConfigureStep";
 import SubdomainStep from "./SubdomainStep";
+import NoDomainWarningStep from "./NoDomainWarningStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
 
@@ -77,7 +78,9 @@ function InstallWizard({ appId }) {
         const settings = await settingsRes.json();
         const configuredDomain = settings?.proxy?.default_domain;
         setDomain(configuredDomain);
-        setDomainConfigured(!!configuredDomain);
+        // Treat localhost/empty as "not configured"
+        const isDomainActuallyConfigured = configuredDomain && configuredDomain !== "localhost" && configuredDomain !== "127.0.0.1";
+        setDomainConfigured(isDomainActuallyConfigured);
 
         // Auto-fill subdomain if domain is configured
         if (configuredDomain) {
@@ -252,6 +255,19 @@ function InstallWizard({ appId }) {
               onConfigChange={setConfig}
               onContinue={() => handleStepChange(hasSubdomainStep ? 3 : progressStep)}
               onBack={() => handleStepChange(1)}
+            />
+          </div>
+        )}
+
+        {step === 3 && !hasSubdomainStep && (
+          <div
+            key={`step-3-${animationDirection}`}
+            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+          >
+            <NoDomainWarningStep
+              app={app}
+              onBack={() => handleStepChange(2)}
+              onContinue={() => handleStepChange(progressStep)}
             />
           </div>
         )}

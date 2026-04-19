@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
@@ -228,13 +227,13 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 	return result
 }
 
-func pickContainer(containers []types.Container, query string) *types.Container {
+func pickContainer(containers []container.Summary, query string) *container.Summary {
 	if query == "" {
 		return nil
 	}
 
 	// Prefer label-based matching (compose projects/services, LibreServ label), and prefer a running container.
-	var bestLabelMatch *types.Container
+	var bestLabelMatch *container.Summary
 	for i := range containers {
 		cont := &containers[i]
 		if !matchesContainerByLabels(*cont, query) {
@@ -252,7 +251,7 @@ func pickContainer(containers []types.Container, query string) *types.Container 
 	}
 
 	// Fallback: match by container name.
-	var bestNameMatch *types.Container
+	var bestNameMatch *container.Summary
 	for i := range containers {
 		cont := &containers[i]
 		if !matchesContainerByName(*cont, query) {
@@ -268,7 +267,7 @@ func pickContainer(containers []types.Container, query string) *types.Container 
 	return bestNameMatch
 }
 
-func matchesContainerByLabels(cont types.Container, query string) bool {
+func matchesContainerByLabels(cont container.Summary, query string) bool {
 	if query == "" {
 		return false
 	}
@@ -287,7 +286,7 @@ func matchesContainerByLabels(cont types.Container, query string) bool {
 	return false
 }
 
-func matchesContainerByName(cont types.Container, query string) bool {
+func matchesContainerByName(cont container.Summary, query string) bool {
 	if query == "" {
 		return false
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
@@ -121,7 +120,7 @@ func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMet
 }
 
 // matchesApp checks if a container belongs to the given app
-func matchesApp(cont types.Container, appID string) bool {
+func matchesApp(cont container.Summary, appID string) bool {
 	// Check labels first (preferred method)
 	if projectLabel, ok := cont.Labels["com.docker.compose.project"]; ok {
 		if projectLabel == appID {

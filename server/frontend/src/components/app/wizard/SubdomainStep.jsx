@@ -78,6 +78,13 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
     }
   }, [subdomain, domain, request]);
 
+  const noDomainConfigured = !domain || domain.trim() === "" || domain === "localhost" || domain === "127.0.0.1";
+
+  // When no domain is configured, subdomain is optional and availability check is skipped
+  const isNextEnabled = noDomainConfigured
+    ? subdomain.trim() && !subdomainError
+    : subdomain.trim() && !subdomainError && available === true;
+
   // Handle subdomain change
   const handleSubdomainChange = useCallback(
     (e) => {
@@ -109,17 +116,34 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
     }
   }, [subdomain, validateSubdomain, onSubdomainChange, onContinue]);
 
-  const isNextEnabled = subdomain.trim() && !subdomainError && available === true;
-
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <h2 className="font-mono text-2xl font-normal text-secondary">Choose Subdomain</h2>
-        <p className="text-secondary/70 text-sm">
-          Select a subdomain for your app. It will be accessible at{" "}
-          <span className="font-mono text-accent">{subdomain}.{domain}</span>
-        </p>
+        {noDomainConfigured ? (
+          <p className="text-secondary/70 text-sm">
+            No domain configured. App will be accessible locally only.
+          </p>
+        ) : (
+          <p className="text-secondary/70 text-sm">
+            Select a subdomain for your app. It will be accessible at{" "}
+            <span className="font-mono text-accent">{subdomain}.{domain}</span>
+          </p>
+        )}
       </div>
+
+      {noDomainConfigured && (
+        <div className="flex items-start gap-2 p-3 rounded-large-element bg-warning/10 border border-warning/30">
+          <AlertTriangle className="w-4 h-4 text-warning mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-warning/80 space-y-1">
+            <p className="font-mono">No domain configured</p>
+            <p>
+              Without a domain, this app will only be accessible from this device.
+              Set up a domain in Settings → Network to enable remote access.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         <div className="space-y-1">
@@ -141,6 +165,12 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
             <p className="text-xs text-error mt-1.5">{subdomainError}</p>
           )}
         </div>
+
+        {noDomainConfigured && subdomain.trim() && (
+          <p className="text-xs text-secondary/60 font-mono">
+            Accessible at: <span className="text-accent">http://localhost:PORT</span> (port assigned automatically)
+          </p>
+        )}
 
         {suggested && subdomain !== suggested && (
           <button

@@ -15,3 +15,12 @@ export async function getCaddyfile() {
   const data = await res.json();
   return data.content || "";
 }
+
+export async function testBackend(backendUrl) {
+  const res = await api("/network/test-backend", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ backend: backendUrl }),
+  });
+  return res.json();
+}
