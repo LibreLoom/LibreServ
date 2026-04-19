@@ -176,41 +176,41 @@ export default function SystemUpdatesCard({ index = 0 }) {
                     components={{
                       h1: (props) => (
                         <h1
-                          className="text-3xl font-mono font-normal mb-4 mt-6"
+                          className="text-3xl font-mono font-normal mb-4 mt-6 text-secondary"
                           {...props}
                         />
                       ),
                       h2: (props) => (
                         <h2
-                          className="text-2xl font-mono font-normal mb-3 mt-5"
+                          className="text-2xl font-mono font-normal mb-3 mt-5 text-secondary"
                           {...props}
                         />
                       ),
                       h3: (props) => (
                         <h3
-                          className="text-xl font-mono font-normal mb-2 mt-4"
+                          className="text-xl font-mono font-normal mb-2 mt-4 text-secondary"
                           {...props}
                         />
                       ),
                       h4: (props) => (
                         <h4
-                          className="text-lg font-mono font-normal mb-2 mt-3"
+                          className="text-lg font-mono font-normal mb-2 mt-3 text-secondary"
                           {...props}
                         />
                       ),
                       h5: (props) => (
                         <h5
-                          className="text-base font-mono font-normal mb-2 mt-3"
+                          className="text-base font-mono font-normal mb-2 mt-3 text-secondary"
                           {...props}
                         />
                       ),
                       h6: (props) => (
                         <h6
-                          className="text-sm font-mono font-normal mb-2 mt-2"
+                          className="text-sm font-mono font-normal mb-2 mt-2 text-secondary"
                           {...props}
                         />
                       ),
-                      p: (props) => <p className="mb-4" {...props} />,
+                      p: (props) => <p className="mb-4 text-secondary/90" {...props} />,
                       ul: (props) => (
                         <ul
                           className="list-disc list-inside mb-4 ml-4"
@@ -223,25 +223,25 @@ export default function SystemUpdatesCard({ index = 0 }) {
                           {...props}
                         />
                       ),
-                      li: (props) => <li className="mb-1" {...props} />,
+                      li: (props) => <li className="mb-1 text-secondary/90" {...props} />,
                       code: ({ inline, ...props }) =>
                         inline ? (
                           <code
-                            className="bg-secondary px-1 py-0.5 rounded text-sm"
+                            className="bg-secondary/20 px-1 py-0.5 rounded text-sm text-secondary"
                             {...props}
                           />
                         ) : (
                           <code
-                            className="block bg-accent text-secondary p-4 rounded mb-4 overflow-x-auto"
+                            className="block bg-accent/30 text-secondary p-4 rounded mb-4 overflow-x-auto"
                             {...props}
                           />
                         ),
                       hr: (props) => (
-                        <hr className="my-6 border-accent" {...props} />
+                        <hr className="my-6 border-secondary/30" {...props} />
                       ),
                       a: (props) => (
                         <a
-                          className="text-secondary/80 underline hover:no-underline"
+                          className="text-secondary underline hover:no-underline"
                           {...props}
                         />
                       ),
