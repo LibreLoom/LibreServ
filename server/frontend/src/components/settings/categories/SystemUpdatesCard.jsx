@@ -95,6 +95,43 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const isUpToDate = updateInfo && !hasUpdate;
   const notChecked = !updateInfo;
 
+  // Preprocess release notes to improve formatting
+  const formatReleaseNotes = (notes) => {
+    if (!notes) return "No changelog available.";
+    
+    // Split into lines and process
+    const lines = notes.split('\n');
+    const processedLines = lines.map((line, idx) => {
+      const trimmed = line.trim();
+      
+      // Detect likely headings (short lines, title case, common section headers)
+      const isHeading = trimmed.length < 60 && 
+        trimmed.length > 0 &&
+        (trimmed === "What's Changed" ||
+         trimmed === "New Features" ||
+         trimmed === "Bug Fixes" ||
+         trimmed === "Breaking Changes" ||
+         trimmed === "Upgrade Notes" ||
+         trimmed === "Commits Since Last Release" ||
+         trimmed === "Test release!!" ||
+         (/^[A-Z][a-zA-Z\s]*$/.test(trimmed) && trimmed.split(' ').length <= 4));
+      
+      // Add markdown heading syntax for detected headings
+      if (isHeading) {
+        return `## ${trimmed}`;
+      }
+      
+      // Add blank lines between sections for better readability
+      if (idx > 0 && lines[idx - 1].trim() === '' && trimmed.length > 0) {
+        return `\n${trimmed}`;
+      }
+      
+      return trimmed;
+    });
+    
+    return processedLines.join('\n');
+  };
+
   return (
     <>
       <SettingsCard
@@ -173,7 +210,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 </div>
                 <div className="text-sm text-secondary leading-relaxed prose prose-invert max-w-none">
                   <ReactMarkdown>
-                    {updateInfo.release_notes || "No changelog available."}
+                    {formatReleaseNotes(updateInfo.release_notes)}
                   </ReactMarkdown>
                 </div>
               </div>
