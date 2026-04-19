@@ -66,12 +66,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
 
 ### Install from release (one command)
 
-**Latest version:**
+**Latest version (from main branch):**
 ```bash
-curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/releases/download/v0.0.0/install.sh | sudo bash
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo bash
 ```
 
-*Replace `v0.0.0` with the desired version tag. See [releases](https://gt.plainskill.net/LibreLoom/LibreServ/releases) for available versions.*
+**Specific version:**
+```bash
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/tag/v0.0.0/install.sh | sudo bash
+```
 
 ### Development setup
 ```bash

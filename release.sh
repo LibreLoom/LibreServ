@@ -260,10 +260,6 @@ build_binaries() {
     sha256sum libreserv-linux-amd64 libreserv-linux-arm64 > SHA256SUMS.txt
     cd ..
     
-    # Copy install.sh to build directory
-    log_info "Copying install.sh..."
-    cp install.sh "$BUILD_DIR/"
-    
     log_info "Binaries built successfully"
     echo ""
     ls -lh "$BUILD_DIR"
@@ -447,14 +443,14 @@ upload_assets() {
     echo ""
     
     # Verify all files exist before uploading
-    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt install.sh; do
+    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
         if [ ! -f "$BUILD_DIR/$file" ]; then
             log_error "Missing file: $BUILD_DIR/$file"
             exit 1
         fi
     done
     
-    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt install.sh; do
+    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
         log_info "Uploading $file..."
         
         FILE_SIZE=$(du -h "$BUILD_DIR/$file" | cut -f1)
