@@ -150,25 +150,21 @@ Allow installing multiple instances of the same app, each with a custom name.
 - [ ] Port conflicts detected and resolved automatically
 - [ ] Each instance has independent config, volumes, and state
 
-#### T2.1.5. Implement Remaining App Scripts
+#### T2.1.5. Revamp App Templates for Production
 
 **Status:** Not started
-**Effort:** 8h (total for all apps)
+**Effort:** 20h
 **Dependencies:** None
 
-Implement missing lifecycle scripts (update, repair, backup, restore) for each builtin app. The install, start, and stop lifecycle operations already work — this task covers the remaining four operations.
+The current app templates are stubs only suitable for basic dev testing. All lifecycle scripts (update, repair, backup, restore) are placeholder echo-and-exit stubs. This task is a ground-up revamp: re-evaluate the app selection, replace stub scripts with production-grade implementations, and ensure each app is reliable enough for real use.
 
-**Apps needing scripts:**
+**Current state:** All builtin apps (ConvertX, LibreChat, Nextcloud AIO, Ollama, SearXNG, MotionEye) have non-functional lifecycle scripts. MotionEye has partial implementations but is incomplete. The app selection itself may change — some apps may be replaced or added based on production readiness.
 
-| App | system-update | system-repair | system-backup | system-restore |
-|-----|:---:|:---:|:---:|:---:|
-| ConvertX | - | - | - | - |
-| LibreChat | - | - | - | - |
-| Nextcloud AIO | - | - | - | - |
-| Ollama | - | - | - | - |
-| SearXNG | - | - | - | - |
-
-**Note:** This likely requires extensive headless interaction work for each app.
+**Scope:**
+- Audit and decide which apps to keep, replace, or add
+- Rewrite all lifecycle scripts from scratch with real logic
+- Implement proper update (image pull, data migration, restart), repair (health checks, config validation, container recovery), backup (data export, metadata), and restore (data import, validation) for each app
+- Test each script against real Docker containers
 
 #### T2.1.6. Custom App Upload and URL Install
 
