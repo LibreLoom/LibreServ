@@ -169,7 +169,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
               <Button
                 variant="primary"
                 onClick={() => setShowReleaseNotesModal(true)}
-                className="w-full justify-center font-mono"
+                className="w-full justify-center font-sans"
               >
                 <ExternalLink size={16} />
                 See what's new in {updateInfo.latest_version}
