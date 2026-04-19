@@ -148,7 +148,13 @@ create_user() {
     fi
 
     log_info "Creating system user: ${USER}"
-    useradd --system --home-dir ${DATA_DIR} --shell /bin/false ${USER}
+    useradd --system --home-dir ${DATA_DIR} --shell /bin/false --user-group ${USER}
+    
+    # Add user to docker group for container management
+    if getent group docker >/dev/null 2>&1; then
+        usermod -aG docker ${USER}
+        log_info "Added ${USER} to docker group"
+    fi
 }
 
 # Create directories
