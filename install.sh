@@ -160,6 +160,39 @@ create_directories() {
     chmod 700 ${DATA_DIR}
 }
 
+# Prompt for version
+prompt_version() {
+    echo ""
+    log_info "Version Selection"
+    echo ""
+    echo "Available options:"
+    echo "  - latest: Install the latest stable release (recommended)"
+    echo "  - latest-dev: Install latest development build from main branch"
+    echo "  - <version>: Install specific version (e.g., v0.0.0)"
+    echo ""
+    
+    while true; do
+        read -p "Enter version to install [latest]: " version_input
+        version_input="${version_input:-latest}"
+        
+        if [ "$version_input" = "latest" ]; then
+            get_latest_release
+            INSTALL_VERSION="$LATEST_RELEASE"
+            return
+        elif [ "$version_input" = "latest-dev" ]; then
+            log_info "Installing latest development build from main branch"
+            INSTALL_VERSION="main"
+            return
+        elif [[ "$version_input" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+            INSTALL_VERSION="$version_input"
+            log_info "Installing version: ${INSTALL_VERSION}"
+            return
+        else
+            log_error "Invalid version format. Use 'latest', 'latest-dev', or a version like v0.0.0"
+        fi
+    done
+}
+
 # Get latest release version
 get_latest_release() {
     log_info "Fetching latest release information..."
@@ -176,32 +209,43 @@ get_latest_release() {
 # Download and install binary
 download_binary() {
     BINARY_NAME="libreserv-${OS}-${ARCH}"
-    DOWNLOAD_URL="${GITEA_URL}/libreloom/libreserv/releases/download/${LATEST_RELEASE}/${BINARY_NAME}"
-    CHECKSUM_URL="${GITEA_URL}/libreloom/libreserv/releases/download/${LATEST_RELEASE}/SHA256SUMS.txt"
-
-    log_info "Downloading ${BINARY_NAME}..."
-    curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
     
-    log_info "Downloading checksums..."
-    curl -sL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt"
-    
-    log_info "Verifying checksum..."
-    EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
-    if [ -z "$EXPECTED_HASH" ]; then
-        log_warn "Checksum not found for ${BINARY_NAME}, skipping verification"
+    if [ "$INSTALL_VERSION" = "main" ]; then
+        # latest-dev: download from main branch (no checksum available)
+        DOWNLOAD_URL="${GITEA_URL}/${GITHUB_REPO}/raw/branch/main/bin/${BINARY_NAME}"
+        log_info "Downloading development build from main branch..."
+        curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
+        log_warn "Development build - no checksum verification available"
     else
-        ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
-        if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
-            log_error "Checksum verification failed!"
-            log_error "Expected: ${EXPECTED_HASH}"
-            log_error "Got:      ${ACTUAL_HASH}"
-            rm -f "${INSTALL_DIR}/libreserv"
-            exit 1
+        # Release version
+        DOWNLOAD_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
+        CHECKSUM_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
+        
+        log_info "Downloading ${BINARY_NAME}..."
+        curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
+        
+        log_info "Downloading checksums..."
+        curl -sL "${CHECKSUM_URL}" -o "/tmp/SHA256SUMS.txt"
+        
+        log_info "Verifying checksum..."
+        EXPECTED_HASH=$(grep "  ${BINARY_NAME}$" /tmp/SHA256SUMS.txt | awk '{print $1}')
+        if [ -z "$EXPECTED_HASH" ]; then
+            log_warn "Checksum not found for ${BINARY_NAME}, skipping verification"
+        else
+            ACTUAL_HASH=$(sha256sum "${INSTALL_DIR}/libreserv" | awk '{print $1}')
+            if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+                log_error "Checksum verification failed!"
+                log_error "Expected: ${EXPECTED_HASH}"
+                log_error "Got:      ${ACTUAL_HASH}"
+                rm -f "${INSTALL_DIR}/libreserv"
+                exit 1
+            fi
+            log_info "Checksum verified"
         fi
-        log_info "Checksum verified"
+        
+        rm -f /tmp/SHA256SUMS.txt
     fi
     
-    rm -f /tmp/SHA256SUMS.txt
     chmod +x "${INSTALL_DIR}/libreserv"
     ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
 }
@@ -337,6 +381,7 @@ do_upgrade() {
 
     create_directories
     get_latest_release
+    INSTALL_VERSION="$LATEST_RELEASE"
     download_binary
 
     log_info "Reloading systemd..."
@@ -387,7 +432,7 @@ do_install() {
     create_user
     create_directories
 
-    get_latest_release
+    prompt_version
     download_binary
     create_config
 
