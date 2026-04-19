@@ -95,49 +95,6 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const isUpToDate = updateInfo && !hasUpdate;
   const notChecked = !updateInfo;
 
-  // Preprocess release notes to improve formatting
-  const formatReleaseNotes = (notes) => {
-    if (!notes) return "No changelog available.";
-    
-    // Common section headers that should be headings
-    const commonHeaders = [
-      "what's changed", "new features", "bug fixes", 
-      "breaking changes", "upgrade notes", "commits since",
-      "changelog", "release notes", "changes", "features",
-      "fixes", "improvements", "security", "performance"
-    ];
-    
-    // Split into lines and process
-    const lines = notes.split('\n');
-    const processedLines = lines.map((line, idx) => {
-      const trimmed = line.trim();
-      
-      // Detect likely headings
-      const lowerTrimmed = trimmed.toLowerCase();
-      const isCommonHeader = commonHeaders.some(h => lowerTrimmed.includes(h));
-      const isShortTitle = trimmed.length > 0 && 
-                           trimmed.length < 80 && 
-                           trimmed.split(' ').length <= 6 &&
-                           /^[A-Z][A-Za-z0-9\s!-]*$/.test(trimmed);
-      
-      // First line is often the title
-      const isFirstLine = idx === 0;
-      
-      const isHeading = isCommonHeader || 
-                       (isShortTitle && trimmed.split(' ').length <= 5) ||
-                       isFirstLine;
-      
-      // Add markdown heading syntax for detected headings
-      if (isHeading) {
-        return `## ${trimmed}`;
-      }
-      
-      return trimmed;
-    });
-    
-    return processedLines.join('\n');
-  };
-
   return (
     <>
       <SettingsCard
@@ -214,61 +171,83 @@ export default function SystemUpdatesCard({ index = 0 }) {
                     {updateInfo.latest_version}
                   </span>
                 </div>
-                <div className="text-sm text-secondary leading-relaxed">
+                <div className="markdown-content">
                   <ReactMarkdown
                     components={{
                       h1: (props) => (
-                        <h1 className="text-lg font-bold text-secondary mt-4 mb-2" {...props} />
+                        <h1
+                          className="text-3xl font-mono font-normal mb-4 mt-6"
+                          {...props}
+                        />
                       ),
                       h2: (props) => (
-                        <h2 className="text-base font-bold text-secondary mt-3 mb-1.5" {...props} />
+                        <h2
+                          className="text-2xl font-mono font-normal mb-3 mt-5"
+                          {...props}
+                        />
                       ),
                       h3: (props) => (
-                        <h3 className="text-sm font-semibold text-secondary mt-2 mb-1" {...props} />
+                        <h3
+                          className="text-xl font-mono font-normal mb-2 mt-4"
+                          {...props}
+                        />
                       ),
-                      p: (props) => <p className="mb-2 text-secondary/90" {...props} />,
+                      h4: (props) => (
+                        <h4
+                          className="text-lg font-mono font-normal mb-2 mt-3"
+                          {...props}
+                        />
+                      ),
+                      h5: (props) => (
+                        <h5
+                          className="text-base font-mono font-normal mb-2 mt-3"
+                          {...props}
+                        />
+                      ),
+                      h6: (props) => (
+                        <h6
+                          className="text-sm font-mono font-normal mb-2 mt-2"
+                          {...props}
+                        />
+                      ),
+                      p: (props) => <p className="mb-4" {...props} />,
                       ul: (props) => (
-                        <ul className="list-disc list-inside mb-2 ml-2" {...props} />
+                        <ul
+                          className="list-disc list-inside mb-4 ml-4"
+                          {...props}
+                        />
                       ),
                       ol: (props) => (
-                        <ul className="list-decimal list-inside mb-2 ml-2" {...props} />
+                        <ol
+                          className="list-decimal list-inside mb-4 ml-4"
+                          {...props}
+                        />
                       ),
-                      li: (props) => <li className="mb-0.5 text-secondary/90" {...props} />,
+                      li: (props) => <li className="mb-1" {...props} />,
                       code: ({ inline, ...props }) =>
                         inline ? (
                           <code
-                            className="bg-secondary/10 px-1 py-0.5 rounded text-xs font-mono text-secondary"
+                            className="bg-secondary px-1 py-0.5 rounded text-sm"
                             {...props}
                           />
                         ) : (
-                          <pre className="bg-secondary/10 p-2 rounded mb-2 overflow-x-auto">
-                            <code className="text-xs font-mono text-secondary block" {...props} />
-                          </pre>
+                          <code
+                            className="block bg-accent text-secondary p-4 rounded mb-4 overflow-x-auto"
+                            {...props}
+                          />
                         ),
-                      blockquote: (props) => (
-                        <blockquote
-                          className="border-l-2 border-secondary/30 pl-3 italic text-secondary/70 mb-2"
-                          {...props}
-                        />
-                      ),
                       hr: (props) => (
-                        <hr className="my-3 border-secondary/30" {...props} />
+                        <hr className="my-6 border-accent" {...props} />
                       ),
                       a: (props) => (
                         <a
-                          className="text-secondary/90 underline hover:no-underline"
+                          className="text-secondary/80 underline hover:no-underline"
                           {...props}
                         />
                       ),
-                      strong: (props) => (
-                        <strong className="font-semibold text-secondary" {...props} />
-                      ),
-                      em: (props) => (
-                        <em className="italic text-secondary/90" {...props} />
-                      ),
                     }}
                   >
-                    {formatReleaseNotes(updateInfo.release_notes)}
+                    {updateInfo.release_notes || "No changelog available."}
                   </ReactMarkdown>
                 </div>
               </div>
