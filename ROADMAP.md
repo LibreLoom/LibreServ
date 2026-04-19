@@ -1096,29 +1096,4 @@ For every task:
 - [ ] Actions are reversible or have confirmation
 - [ ] Documentation updated where applicable
 
----
 
-## Changelog
-
-| Date | Change |
-|------|--------|
-| 2026-04-17 | T3.1.9: Done. Domain Management UI with view/change/disconnect functionality |
-| 2026-04-17 | T3.1.6: Done. DDNS Auto-Update Service with configurable interval and manual update |
-| 2026-04-17 | T2.3.2: Done. System Health Display widget on Dashboard with real-time resource monitoring and service health indicators |
-| 2026-04-17 | T3.3.1: Done. System Updates UI in Settings → System with check/apply/update flow |
-| 2026-04-15 | T3.1.4: Done (Cloudflare-only). Added DNSProvider interface, CloudflareProvider via libdns/cloudflare, DNSProviderManager with SQLite persistence, DNSConfig to config.go. Porkbun and Spaceship deferred. |
-| 2026-04-15 | T3.1.5: Done. Wildcard cert fallback in manualTLSPaths, wildcard catch-all Caddyfile blocks, RequestWildcardCert via lego (single SAN cert), SetupWildcardDNS, DetectPublicIP. Fixed baseDomain for single-label TLDs. |
-| 2026-04-15 | Verification update: T3.1.1→Needs polish, T3.1.2→Removed, T4.2.1→Done, T4.2.4→Approved, T4.3.2→Hopefully done, T4.3.3→Implemented(Untested), T4.1.1→Needs Updating |
-| 2026-04-14 | Major rewrite: consolidated all issues into roadmap, removed deadline, added Phase 5 (OIDC + custom apps), Phase 6 (backup revamp + storage management), Phase 7 (advanced features) |
-| 2026-04-05 | T1.1.5: Enhanced preflight permission checks |
-| 2026-02-28 | T2.2.3: Cloud backup integration |
-| 2026-02-28 | T2.2.1: Backups page |
-| 2026-02-27 | T2.3.1: Enhanced AppDetailPage |
-| 2026-02-27 | T4.2.2: Rate limiting middleware |
-| 2026-02-27 | T4.3.1: Enhanced install.sh |
-| 2026-02-19 | T2.1.3: App uninstall with confirmation |
-| 2026-02-19 | T3.2.1: Enhanced user management |
-| 2026-02-17 | Restructured around user journeys |
-| 2026-02-17 | T2.1.0: App Feature Matrix Schema |
-| 2026-02-18 | T2.1.1: App Install Wizard |
-| 2026-02-18 | T2.1.2: Enhanced App Catalog Page |
