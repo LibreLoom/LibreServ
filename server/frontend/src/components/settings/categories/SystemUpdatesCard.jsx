@@ -214,57 +214,57 @@ export default function SystemUpdatesCard({ index = 0 }) {
                     {updateInfo.latest_version}
                   </span>
                 </div>
-                <div className="text-sm text-primary leading-relaxed">
+                <div className="text-sm text-secondary leading-relaxed">
                   <ReactMarkdown
                     components={{
                       h1: (props) => (
-                        <h1 className="text-lg font-bold text-primary mt-4 mb-2" {...props} />
+                        <h1 className="text-lg font-bold text-secondary mt-4 mb-2" {...props} />
                       ),
                       h2: (props) => (
-                        <h2 className="text-base font-bold text-primary mt-3 mb-1.5" {...props} />
+                        <h2 className="text-base font-bold text-secondary mt-3 mb-1.5" {...props} />
                       ),
                       h3: (props) => (
-                        <h3 className="text-sm font-semibold text-primary mt-2 mb-1" {...props} />
+                        <h3 className="text-sm font-semibold text-secondary mt-2 mb-1" {...props} />
                       ),
-                      p: (props) => <p className="mb-2 text-primary/80" {...props} />,
+                      p: (props) => <p className="mb-2 text-secondary/90" {...props} />,
                       ul: (props) => (
                         <ul className="list-disc list-inside mb-2 ml-2" {...props} />
                       ),
                       ol: (props) => (
                         <ul className="list-decimal list-inside mb-2 ml-2" {...props} />
                       ),
-                      li: (props) => <li className="mb-0.5 text-primary/80" {...props} />,
+                      li: (props) => <li className="mb-0.5 text-secondary/90" {...props} />,
                       code: ({ inline, ...props }) =>
                         inline ? (
                           <code
-                            className="bg-primary/10 px-1 py-0.5 rounded text-xs font-mono text-primary"
+                            className="bg-secondary/10 px-1 py-0.5 rounded text-xs font-mono text-secondary"
                             {...props}
                           />
                         ) : (
-                          <pre className="bg-primary/10 p-2 rounded mb-2 overflow-x-auto">
-                            <code className="text-xs font-mono text-primary block" {...props} />
+                          <pre className="bg-secondary/10 p-2 rounded mb-2 overflow-x-auto">
+                            <code className="text-xs font-mono text-secondary block" {...props} />
                           </pre>
                         ),
                       blockquote: (props) => (
                         <blockquote
-                          className="border-l-2 border-primary/30 pl-3 italic text-primary/70 mb-2"
+                          className="border-l-2 border-secondary/30 pl-3 italic text-secondary/70 mb-2"
                           {...props}
                         />
                       ),
                       hr: (props) => (
-                        <hr className="my-3 border-primary/30" {...props} />
+                        <hr className="my-3 border-secondary/30" {...props} />
                       ),
                       a: (props) => (
                         <a
-                          className="text-primary/90 underline hover:no-underline"
+                          className="text-secondary/90 underline hover:no-underline"
                           {...props}
                         />
                       ),
                       strong: (props) => (
-                        <strong className="font-semibold text-primary" {...props} />
+                        <strong className="font-semibold text-secondary" {...props} />
                       ),
                       em: (props) => (
-                        <em className="italic text-primary/80" {...props} />
+                        <em className="italic text-secondary/90" {...props} />
                       ),
                     }}
                   >
