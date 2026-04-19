@@ -81,7 +81,7 @@ function AccessModel({ model, compact }) {
           <Icon size={18} className={style.text} />
         </div>
         <div className="flex-1">
-          <p className="text-xs font-mono uppercase tracking-wide text-primary/50 mb-1">Access Model</p>
+          <p className="text-xs font-mono uppercase tracking-wide text-primary/70 mb-1">Access Model</p>
           <p className={`text-base font-medium ${style.text}`}>{info.label}</p>
           <p className="text-sm text-primary/60 mt-1">{info.desc}</p>
         </div>
@@ -102,7 +102,7 @@ function BooleanFeature({ icon: Icon, label, value, compact }) {
           <DisplayIcon size={12} className={style.text} />
         </div>
         <div>
-          <p className="text-xs font-mono text-primary/50">{label}</p>
+          <p className="text-xs font-mono text-primary/70">{label}</p>
           <p className={`text-sm font-medium ${style.text}`}>{isActive ? "Yes" : "No"}</p>
         </div>
       </div>
@@ -275,7 +275,7 @@ function Requirements({ features, compact }) {
 
   return (
     <div>
-      <p className="text-xs font-mono uppercase tracking-wide text-primary/50 mb-2">Requirements</p>
+      <p className="text-xs font-mono uppercase tracking-wide text-primary/70 mb-2">Requirements</p>
       <div className="flex flex-wrap gap-2">
         {hasMinRam && (
           <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${TONE_STYLES.neutral.bg}`}>

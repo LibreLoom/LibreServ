@@ -162,7 +162,7 @@ export default function UsersPage() {
                           {user.username}
                         </div>
                         <div
-                          className={`text-sm ${user.role === "admin" ? "text-accent" : "text-primary/60"}`}
+                          className={`text-sm ${user.role === "admin" ? "text-secondary/80" : "text-primary/60"}`}
                         >
                           {user.role.charAt(0).toUpperCase() +
                             user.role.slice(1)}

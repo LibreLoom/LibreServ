@@ -266,7 +266,7 @@ function PreflightRow({ name, check, index, done, rerunning }) {
         :                         "bg-primary/10"
       }`}>
         {showEmpty ? (
-          <Loader2 className="w-3.5 h-3.5 text-primary/35 animate-spin" />
+          <Loader2 className="w-3.5 h-3.5 text-primary/60 animate-spin" />
         ) : isOk ? (
           <Check className="w-3.5 h-3.5 text-primary/70" />
         ) : (
@@ -288,7 +288,7 @@ function PreflightRow({ name, check, index, done, rerunning }) {
           </p>
         )}
         {name === "disk_space" && isOk && check.disk_space_bytes_free && (
-          <p className="text-xs text-primary/35 mt-0.5">
+          <p className="text-xs text-primary/70 mt-0.5">
             {Math.round((check.disk_space_bytes_free / (1024 * 1024 * 1024)) * 10) / 10} GB free
           </p>
         )}
@@ -526,11 +526,11 @@ PasswordStrengthBar.propTypes = { score: PropTypes.number.isRequired };
 function FormField({ id, label, hint, children }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-accent font-sans text-sm text-left translate-x-5 mb-1">
+      <label htmlFor={id} className="block text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1">
         {label}
       </label>
       {children}
-      {hint && <p className="text-xs text-accent/50 mt-1.5 translate-x-5">{hint}</p>}
+      {hint && <p className="text-xs text-secondary/70 mt-1.5 translate-x-5">{hint}</p>}
     </div>
   );
 }
@@ -587,7 +587,7 @@ function AccountStep({ onSuccess, onError }) {
 
   // Input on bg-secondary: border uses primary tones, text is primary
   const inputClass =
-    "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/25 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
+    "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
   return (
     <SetupShell>
@@ -675,7 +675,7 @@ function AccountStep({ onSuccess, onError }) {
                     <p className={`text-xs font-mono ${STRENGTH_TEXT[strength.score]}`}>
                       {STRENGTH_LABEL[strength.score]}
                     </p>
-                    <div className="flex gap-3 text-xs text-primary/30">
+                    <div className="flex gap-3 text-xs text-primary/70">
                       <span className={strength.hasLength  ? "text-primary/60" : ""}>12+ chars</span>
                       <span className={strength.hasLetter  ? "text-primary/60" : ""}>letters</span>
                       <span className={strength.hasDigit   ? "text-primary/60" : ""}>numbers</span>
@@ -838,7 +838,7 @@ function ErrorStep({ message }) {
         <div className="mb-6 w-14 h-14 rounded-full border border-error/25 bg-error/12 flex items-center justify-center">
           <AlertCircle className="w-6 h-6 text-error" strokeWidth={1.5} />
         </div>
-        <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary/35 mb-3">
+        <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-primary/70 mb-3">
           Setup interrupted
         </p>
         <h2 className="font-mono text-2xl font-normal text-primary mb-4 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
@@ -977,7 +977,7 @@ export default function SetupPage() {
   if (step === STEP.CHECKING) {
     return (
       <SetupShell>
-        <Loader2 className="w-8 h-8 animate-spin text-secondary/20" />
+        <Loader2 className="w-8 h-8 animate-spin text-secondary/60" />
       </SetupShell>
     );
   }

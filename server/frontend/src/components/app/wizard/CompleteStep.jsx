@@ -66,7 +66,7 @@ function CompleteStep({ app, instance, onDone }) {
               {copied ? <Check size={18} className="text-secondary" /> : <Copy size={18} />}
             </button>
           </div>
-          <p className="text-xs text-secondary/50 mt-2">
+          <p className="text-xs text-secondary/70 mt-2">
             Save this password. You'll need it to log in.
           </p>
         </div>

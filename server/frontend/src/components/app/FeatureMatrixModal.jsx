@@ -35,7 +35,7 @@ function FeatureMatrixModal({ appId, onClose }) {
       )}
 
       {!isLoading && !error && !features && (
-        <div className="text-center py-12 text-primary/50">
+        <div className="text-center py-12 text-primary/70">
           No capability information available
         </div>
       )}

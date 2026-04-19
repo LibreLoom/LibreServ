@@ -20,7 +20,7 @@ export default function EmptyState({
         <p className="font-mono text-primary mb-1">{title}</p>
       )}
       {description && (
-        <p className="text-sm text-accent max-w-xs">{description}</p>
+        <p className="text-sm text-secondary/70 max-w-xs">{description}</p>
       )}
       {action && <div className="mt-4">{action}</div>}
     </div>

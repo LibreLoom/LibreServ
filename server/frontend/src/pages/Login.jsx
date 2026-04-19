@@ -54,11 +54,11 @@ function ForgotPasswordModal({ isOpen, onClose }) {
     <ModalCard title="Reset Password" onClose={onClose}>
       {!sent ? (
         <>
-          <p className="text-accent text-sm mb-4">
+          <p className="text-secondary/70 text-sm mb-4">
             Enter your email address and we'll send you a link to reset your password.
           </p>
           <form onSubmit={handleSubmit}>
-            <label htmlFor="reset-email" className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
+            <label htmlFor="reset-email" className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
               Email
             </label>
             <input
@@ -192,13 +192,13 @@ export default function Login() {
         <span className="text-primary font-mono text-xl font-normal block text-center">
           Hey there! Log in to continue.
         </span>
-        <p className="text-accent text-sm text-center mt-2">{loginQuip}</p>
+        <p className="text-secondary/70 text-sm text-center mt-2">{loginQuip}</p>
         <form
           onSubmit={handleSubmit}
           aria-busy={loading}
           className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
         >
-          <label htmlFor="username" className={`text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1`}>
+          <label htmlFor="username" className={`text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1`}>
             Username
           </label>
           <input
@@ -212,7 +212,7 @@ export default function Login() {
             aria-invalid={Boolean(errorStatus)}
             aria-describedby={errorStatus ? "login-error" : undefined}
           ></input>
-          <label htmlFor="password" className={`text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1`}>
+          <label htmlFor="password" className={`text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1`}>
             Password
           </label>
           <input
@@ -229,7 +229,7 @@ export default function Login() {
           ></input>
           <a
             onClick={() => setShowResetModal(true)}
-            className="text-accent text-sm underline mt-2 text-right cursor-pointer"
+            className="text-secondary/80 text-sm underline mt-2 text-right cursor-pointer"
           >
             Forgot password?
           </a>
@@ -248,7 +248,7 @@ export default function Login() {
             </span>
           </button>
           <div
-            className={`text-accent overflow-hidden transition-all duration-300 ease-in-out ${errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0"}`}
+            className={`text-secondary/80 overflow-hidden transition-all duration-300 ease-in-out ${errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0"}`}
             role="alert"
             aria-live="assertive"
             ref={errorRef}

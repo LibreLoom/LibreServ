@@ -207,7 +207,7 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
         <div className="text-center py-8">
           <Info className="mx-auto text-secondary/50 mb-3" size={32} />
           <p className="text-secondary/70">No configuration needed.</p>
-          <p className="text-sm text-secondary/50 mt-1">
+          <p className="text-sm text-secondary/70 mt-1">
             This app is ready to install with default settings.
           </p>
         </div>

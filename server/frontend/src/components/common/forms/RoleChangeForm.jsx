@@ -56,7 +56,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
       <div>
         <label
           htmlFor="role"
-          className="text-accent font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
         >
           New Role
         </label>

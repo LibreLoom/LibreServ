@@ -134,7 +134,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
             onBlur={handleBlur}
             disabled={loading}
             placeholder={suggested || "e.g., myapp"}
-            className="w-full px-4 py-3 rounded-large-element border-2 border-secondary/30 bg-primary text-secondary placeholder:text-secondary/25 font-mono text-sm focus:outline-none focus:border-accent focus-visible:ring-2 focus:ring-accent focus-visible:ring-offset-2"
+            className="w-full px-4 py-3 rounded-large-element border-2 border-secondary/30 bg-primary text-secondary placeholder:text-secondary/50 font-mono text-sm focus:outline-none focus:border-accent focus-visible:ring-2 focus:ring-accent focus-visible:ring-offset-2"
             autoComplete="off"
           />
           {subdomainError && (
