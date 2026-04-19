@@ -274,7 +274,7 @@ func TestClearCache(t *testing.T) {
 
 	// Cache should have data
 	checker.cacheMu.RLock()
-	if checker.cachedInfo == nil {
+	if len(checker.cachedInfo) == 0 {
 		t.Fatal("expected cached info after CheckForUpdates")
 	}
 	checker.cacheMu.RUnlock()
@@ -282,8 +282,8 @@ func TestClearCache(t *testing.T) {
 	checker.ClearCache()
 
 	checker.cacheMu.RLock()
-	if checker.cachedInfo != nil {
-		t.Error("expected nil cached info after ClearCache")
+	if len(checker.cachedInfo) != 0 {
+		t.Error("expected empty cache after ClearCache")
 	}
 	checker.cacheMu.RUnlock()
 }

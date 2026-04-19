@@ -259,6 +259,8 @@ func main() {
 	notifyService := notify.NewService(authService, emailSender)
 
 	sysChecker := system.NewUpdateChecker("libreloom", "libreserv")
+	restartCh := make(chan system.RestartSignal, 1)
+	sysChecker.SetRestartChannel(restartCh)
 	scheduler := jobs.NewScheduler(appManager, sysChecker, notifyService, handlers.Version)
 	scheduler.Start()
 	defer scheduler.Stop()
@@ -303,6 +305,21 @@ func main() {
 	case err := <-errCh:
 		if err != nil {
 			slog.Error("server error", "error", err)
+		}
+	case <-restartCh:
+		slog.Info("restart signal received from update system")
+		// Perform graceful shutdown before restart
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+		_ = dockerClient.Close()
+
+		// Re-execute the current binary
+		execPath, _ := os.Executable()
+		slog.Info("Restarting application", "path", execPath)
+		if err := syscall.Exec(execPath, os.Args, os.Environ()); err != nil {
+			slog.Error("Failed to restart", "error", err)
+			os.Exit(1)
 		}
 	}
 

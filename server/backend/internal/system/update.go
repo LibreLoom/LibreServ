@@ -2,6 +2,8 @@ package system
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Masterminds/semver/v3"
+	"golang.org/x/sys/unix"
 )
 
 // UpdateState tracks pending update verification
@@ -25,23 +30,26 @@ type UpdateState struct {
 }
 
 var (
-	updateStateFile        = "update_state.json"
-	updateStateDir         = "/var/lib/libreserv"
-	updateStateDirFallback = "" // Set to user-writable path if /var/lib/libreserv unavailable
-	verificationTimeout    = 5 * time.Minute
-	cleanupDelay           = 24 * time.Hour
+	updateStateFile              = "update_state.json"
+	updateStateDir               = "/var/lib/libreserv"
+	updateStateDirFallback       = ""
+	verificationTimeout          = 5 * time.Minute
+	cleanupDelay                 = 24 * time.Hour
+	fileOpTimeout                = 30 * time.Second
+	minDiskSpace           int64 = 100 << 20 // 100 MB
 )
 
+// RestartSignal is used to signal that a restart is required
+type RestartSignal struct{}
+
+func (e RestartSignal) Error() string { return "restart required" }
+
 func init() {
-	// Try to use /var/lib/libreserv, fallback to temp dir if not writable
-	if _, err := os.Stat(updateStateDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(updateStateDir, 0755); err != nil {
-			// Can't create /var/lib/libreserv, use fallback
-			if tmpDir, err := os.UserConfigDir(); err == nil {
-				updateStateDirFallback = tmpDir
-			} else {
-				updateStateDirFallback = os.TempDir()
-			}
+	if err := os.MkdirAll(updateStateDir, 0755); err != nil {
+		if tmpDir, err := os.UserConfigDir(); err == nil {
+			updateStateDirFallback = tmpDir
+		} else {
+			updateStateDirFallback = os.TempDir()
 		}
 	}
 }
@@ -61,6 +69,7 @@ type UpdateInfo struct {
 	ReleaseNotes    string    `json:"release_notes,omitempty"`
 	PublishedAt     time.Time `json:"published_at,omitempty"`
 	URL             string    `json:"url,omitempty"`
+	Checksum        string    `json:"checksum,omitempty"`
 }
 
 // UpdateChecker handles checking for platform updates
@@ -70,12 +79,12 @@ type UpdateChecker struct {
 	baseURL        string
 	client         *http.Client
 	cacheMu        sync.RWMutex
-	cachedInfo     *UpdateInfo
-	cacheTimestamp time.Time
+	cachedInfo     map[string]*UpdateInfo
+	cacheTimestamp map[string]time.Time
 	cacheDuration  time.Duration
+	restartCh      chan<- RestartSignal
 }
 
-// defaultCacheDuration is how long to cache update check results
 const defaultCacheDuration = 1 * time.Hour
 
 // NewUpdateChecker creates a new update checker for Gitea
@@ -88,7 +97,14 @@ func NewUpdateChecker(owner, name string) *UpdateChecker {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		cachedInfo:     make(map[string]*UpdateInfo),
+		cacheTimestamp: make(map[string]time.Time),
 	}
+}
+
+// SetRestartChannel sets the channel to signal restarts
+func (c *UpdateChecker) SetRestartChannel(ch chan<- RestartSignal) {
+	c.restartCh = ch
 }
 
 // SetCacheDuration configures how long to cache update check results
@@ -102,23 +118,21 @@ func (c *UpdateChecker) SetCacheDuration(duration time.Duration) {
 func (c *UpdateChecker) ClearCache() {
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
-	c.cachedInfo = nil
-	c.cacheTimestamp = time.Time{}
+	c.cachedInfo = make(map[string]*UpdateInfo)
+	c.cacheTimestamp = make(map[string]time.Time)
 }
 
 // CheckForUpdates checks the Gitea API for the latest release
-// Results are cached for 1 hour to avoid excessive API calls
-// If forceRefresh is true, bypasses the cache and fetches fresh data
 func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...bool) (*UpdateInfo, error) {
 	shouldForce := len(forceRefresh) > 0 && forceRefresh[0]
+	cacheKey := currentVersion
 
 	// Check cache first (skip if force refresh)
 	if !shouldForce {
 		c.cacheMu.RLock()
-		if c.cachedInfo != nil && time.Since(c.cacheTimestamp) < c.cacheDuration {
-			cached := c.cachedInfo
+		if info, ok := c.cachedInfo[cacheKey]; ok && time.Since(c.cacheTimestamp[cacheKey]) < c.cacheDuration {
 			c.cacheMu.RUnlock()
-			return cached, nil
+			return info, nil
 		}
 		c.cacheMu.RUnlock()
 	}
@@ -141,41 +155,91 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 	}
 
 	if len(releases) == 0 {
-		return &UpdateInfo{
+		info := &UpdateInfo{
 			CurrentVersion:  currentVersion,
 			LatestVersion:   currentVersion,
 			UpdateAvailable: false,
-		}, nil
+		}
+		c.cacheMu.Lock()
+		c.cachedInfo[cacheKey] = info
+		c.cacheTimestamp[cacheKey] = time.Now()
+		c.cacheMu.Unlock()
+		return info, nil
 	}
 
 	latest := releases[0]
-	// Remove 'v' prefix if present for comparison
-	latestTag := latest.TagName
-	if len(latestTag) > 0 && latestTag[0] == 'v' {
-		latestTag = latestTag[1:]
+	latestTag := strings.TrimPrefix(latest.TagName, "v")
+	currentTag := strings.TrimPrefix(currentVersion, "v")
+
+	// Use semver for proper version comparison
+	var updateAvailable bool
+	if currentTag == "dev" {
+		updateAvailable = false
+	} else {
+		currentSemver, errCurr := semver.NewVersion(currentTag)
+		latestSemver, errLat := semver.NewVersion(latestTag)
+		if errCurr == nil && errLat == nil {
+			updateAvailable = latestSemver.GreaterThan(currentSemver)
+		} else {
+			// Fallback to string comparison if semver parsing fails
+			updateAvailable = latestTag != currentTag
+		}
 	}
 
-	currentTag := currentVersion
-	if len(currentTag) > 0 && currentTag[0] == 'v' {
-		currentTag = currentTag[1:]
-	}
+	// Fetch checksum from SHA256SUMS.txt
+	checksum := c.fetchChecksum(latest.TagName)
 
 	info := &UpdateInfo{
 		CurrentVersion:  currentVersion,
 		LatestVersion:   latest.TagName,
-		UpdateAvailable: latestTag != currentTag && currentTag != "dev",
+		UpdateAvailable: updateAvailable,
 		ReleaseNotes:    latest.Body,
 		PublishedAt:     latest.PublishedAt,
 		URL:             latest.HTMLURL,
+		Checksum:        checksum,
 	}
 
 	// Update cache
 	c.cacheMu.Lock()
-	c.cachedInfo = info
-	c.cacheTimestamp = time.Now()
+	c.cachedInfo[cacheKey] = info
+	c.cacheTimestamp[cacheKey] = time.Now()
 	c.cacheMu.Unlock()
 
 	return info, nil
+}
+
+// fetchChecksum retrieves the SHA256 checksum for a release
+func (c *UpdateChecker) fetchChecksum(tagName string) string {
+	checksumURL := fmt.Sprintf("https://gt.plainskill.net/libreloom/libreserv/releases/download/%s/SHA256SUMS.txt", tagName)
+	resp, err := c.client.Get(checksumURL)
+	if err != nil {
+		slog.Warn("Failed to fetch checksum file", "error", err)
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("Checksum file not found", "status", resp.StatusCode)
+		return ""
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		slog.Warn("Failed to read checksum file", "error", err)
+		return ""
+	}
+
+	// Parse SHA256SUMS.txt format: "checksum  filename"
+	lines := strings.Split(string(body), "\n")
+	binaryName := fmt.Sprintf("libreserv-%s-%s", runtime.GOOS, runtime.GOARCH)
+	for _, line := range lines {
+		parts := strings.Fields(line)
+		if len(parts) >= 2 && strings.Contains(parts[1], binaryName) {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+
+	return ""
 }
 
 // ApplyUpdate downloads and replaces the current binary with the latest one
@@ -193,12 +257,20 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	binaryName := fmt.Sprintf("libreserv-%s-%s", runtime.GOOS, runtime.GOARCH)
 	downloadURL := fmt.Sprintf("https://gt.plainskill.net/libreloom/libreserv/releases/download/%s/%s", info.LatestVersion, binaryName)
 
-	// 2. Download to temporary file
+	// 2. Check available disk space
+	if err := checkDiskSpace(minDiskSpace); err != nil {
+		return fmt.Errorf("insufficient disk space: %w", err)
+	}
+
+	// 3. Download to temporary file
 	tmpFile, err := os.CreateTemp("", "libreserv-update-*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
 
 	resp, err := c.client.Get(downloadURL)
 	if err != nil {
@@ -210,37 +282,54 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 		return fmt.Errorf("failed to download update: Gitea returned %d", resp.StatusCode)
 	}
 
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+	// Download with checksum verification
+	hasher := sha256.New()
+	teeReader := io.TeeReader(resp.Body, hasher)
+
+	if _, err := io.Copy(tmpFile, teeReader); err != nil {
 		return fmt.Errorf("failed to save update: %w", err)
 	}
 	_ = tmpFile.Close()
 
-	// 3. Make temporary file executable
-	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+	// 4. Verify checksum if available
+	if info.Checksum != "" {
+		actualChecksum := hex.EncodeToString(hasher.Sum(nil))
+		if actualChecksum != info.Checksum {
+			return fmt.Errorf("checksum mismatch: expected %s, got %s", info.Checksum, actualChecksum)
+		}
+		slog.Info("Checksum verification passed", "checksum", actualChecksum)
+	} else {
+		slog.Warn("No checksum available for verification")
+	}
+
+	// 5. Make temporary file executable
+	if err := os.Chmod(tmpPath, 0755); err != nil {
 		return fmt.Errorf("failed to set permissions on update: %w", err)
 	}
 
-	// 4. Find current executable path
+	// 6. Find current executable path
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to find current executable: %w", err)
 	}
 
-	// 5. Replace current binary (atomic rename)
-	// On Linux, you can rename over a running binary.
-	// We'll move the old one to a .old file first for safety.
+	// 7. Replace current binary with timeout
 	oldPath := execPath + ".old"
-	if err := os.Rename(execPath, oldPath); err != nil {
+	if err := timedRename(execPath, oldPath, fileOpTimeout); err != nil {
 		return fmt.Errorf("failed to backup current binary: %w", err)
 	}
 
-	if err := os.Rename(tmpFile.Name(), execPath); err != nil {
-		// Rollback backup
-		_ = os.Rename(oldPath, execPath)
+	if err := timedRename(tmpPath, execPath, fileOpTimeout); err != nil {
+		// Attempt rollback
+		if rbErr := timedRename(oldPath, execPath, fileOpTimeout); rbErr != nil {
+			slog.Error("Rollback failed after update failure", "error", rbErr)
+		} else {
+			slog.Info("Rollback successful")
+		}
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 
-	// 6. Save update state for post-restart verification
+	// 8. Save update state for post-restart verification
 	state := &UpdateState{
 		OldVersion: currentVersion,
 		NewVersion: info.LatestVersion,
@@ -252,15 +341,24 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 		slog.Warn("Failed to save update state, rollback won't be available", "error", err)
 	}
 
-	// 7. Signal for restart (systemd will handle the actual restart if configured)
-	go func() {
-		slog.Info("Update applied successfully, restarting in 1 second",
+	// 9. Signal for restart (use channel instead of os.Exit)
+	if c.restartCh != nil {
+		slog.Info("Update applied successfully, signaling restart",
 			"old_version", currentVersion,
 			"new_version", info.LatestVersion,
 		)
-		time.Sleep(1 * time.Second)
-		os.Exit(0)
-	}()
+		c.restartCh <- RestartSignal{}
+	} else {
+		// Fallback: exit directly (less graceful)
+		go func() {
+			slog.Info("Update applied successfully, restarting in 1 second",
+				"old_version", currentVersion,
+				"new_version", info.LatestVersion,
+			)
+			time.Sleep(1 * time.Second)
+			os.Exit(0)
+		}()
+	}
 
 	return nil
 }
@@ -274,7 +372,7 @@ type giteaRelease struct {
 	HTMLURL     string    `json:"html_url"`
 }
 
-// saveUpdateState persists update state to disk
+// saveUpdateState persists update state to disk with secure permissions
 func saveUpdateState(state *UpdateState) error {
 	dir := getStateDir()
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -285,7 +383,8 @@ func saveUpdateState(state *UpdateState) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// Use 0600 for secure permissions (owner read/write only)
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write state file: %w", err)
 	}
 	return nil
@@ -318,7 +417,6 @@ func deleteUpdateState() error {
 
 // VerifyAndUpdate checks if we just updated and verifies health.
 // Returns true if rollback was performed, false otherwise.
-// Call this early in main() before starting the server.
 func VerifyAndUpdate(serverURL string) (rolledBack bool, err error) {
 	state, err := loadUpdateState()
 	if err != nil {
@@ -361,6 +459,7 @@ func VerifyAndUpdate(serverURL string) (rolledBack bool, err error) {
 
 	if err := rollback(state); err != nil {
 		slog.Error("Rollback failed", "error", err)
+		// Delete state file even on rollback failure to avoid confusion
 		_ = deleteUpdateState()
 		return false, nil
 	}
@@ -377,16 +476,31 @@ func checkHealth(serverURL string) bool {
 	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
 		serverURL = "http://" + serverURL
 	}
-	url := fmt.Sprintf("%s/api/v1/health", serverURL)
 
-	resp, err := client.Get(url)
-	if err != nil {
-		slog.Warn("Health check request failed", "error", err)
-		return false
+	// Try HTTPS first if serverURL doesn't specify protocol
+	urls := []string{
+		fmt.Sprintf("%s/api/v1/health", serverURL),
 	}
-	defer func() { _ = resp.Body.Close() }()
 
-	return resp.StatusCode == http.StatusOK
+	// If using HTTP, also try HTTPS
+	if strings.HasPrefix(serverURL, "http://") {
+		httpsURL := strings.Replace(serverURL, "http://", "https://", 1)
+		urls = append(urls, fmt.Sprintf("%s/api/v1/health", httpsURL))
+	}
+
+	for _, url := range urls {
+		resp, err := client.Get(url)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			_ = resp.Body.Close()
+			return true
+		}
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}
+
+	slog.Warn("All health check URLs failed")
+	return false
 }
 
 // rollback restores the previous binary version
@@ -402,14 +516,16 @@ func rollback(state *UpdateState) error {
 
 	// Move current (broken) binary to .failed
 	failedPath := execPath + ".failed"
-	if err := os.Rename(execPath, failedPath); err != nil {
+	if err := timedRename(execPath, failedPath, fileOpTimeout); err != nil {
 		return fmt.Errorf("failed to move broken binary: %w", err)
 	}
 
 	// Restore backup
-	if err := os.Rename(state.BackupPath, execPath); err != nil {
+	if err := timedRename(state.BackupPath, execPath, fileOpTimeout); err != nil {
 		// Try to restore failed binary
-		_ = os.Rename(failedPath, execPath)
+		if rbErr := timedRename(failedPath, execPath, fileOpTimeout); rbErr != nil {
+			slog.Error("Failed to restore broken binary after rollback failure", "error", rbErr)
+		}
 		return fmt.Errorf("failed to restore backup: %w", err)
 	}
 
@@ -443,4 +559,36 @@ func scheduleCleanup(backupPath string) error {
 		}
 	}()
 	return nil
+}
+
+// checkDiskSpace verifies that there's enough free disk space
+func checkDiskSpace(requiredBytes int64) error {
+	var stat unix.Statfs_t
+	if err := unix.Statfs("/", &stat); err != nil {
+		return fmt.Errorf("failed to check disk space: %w", err)
+	}
+
+	// Available space = free blocks * block size
+	available := int64(stat.Bavail) * int64(stat.Bsize)
+
+	if available < requiredBytes {
+		return fmt.Errorf("only %d bytes available, need %d bytes", available, requiredBytes)
+	}
+
+	return nil
+}
+
+// timedRename performs a rename operation with a timeout
+func timedRename(oldPath, newPath string, timeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- os.Rename(oldPath, newPath)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		return fmt.Errorf("rename operation timed out after %v", timeout)
+	}
 }

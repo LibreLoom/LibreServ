@@ -171,7 +171,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
                   </span>
                 </div>
                 <p className="text-sm text-secondary leading-relaxed">
-                  {updateInfo.changelog || "No changelog available."}
+                  {updateInfo.release_notes || "No changelog available."}
                 </p>
               </div>
 
