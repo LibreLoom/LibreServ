@@ -28,11 +28,10 @@ NC='\033[0m' # No Color
 
 print_banner() {
     echo -e "${BLUE}"
-    echo "  _     _ _                       _ "
-    echo " | |   (_| |______ _ __ ___   ___| |"
-    echo " | |   | | '_/ _  | '_ \` _ \ / _ \ |"
-    echo " | |___| | | | (_| | | | | | |  __/ |"
-    echo " |_____|_|_|  \__,_|_| |_| |_| \___|_|"
+    echo "╔═══════════════════════════════════════╗"
+    echo "║   LibreServ - Your Home Server        ║"
+    echo "║   Taking back your privacy            ║"
+    echo "╚═══════════════════════════════════════╝"
     echo -e "${NC}"
     echo ""
 }
