@@ -472,11 +472,20 @@ publish_release() {
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         log_info "Publishing release..."
         
-        curl -s -X PATCH \
+        PUBLISH_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
             -H "Authorization: token $GITEA_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{"draft": false}' \
-            "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID" > /dev/null
+            "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
+        
+        PUBLISH_CODE=$(echo "$PUBLISH_RESPONSE" | tail -n1)
+        PUBLISH_BODY=$(echo "$PUBLISH_RESPONSE" | sed '$d')
+        
+        if [ "$PUBLISH_CODE" != "200" ] && [ "$PUBLISH_CODE" != "204" ]; then
+            log_error "Failed to publish release (HTTP $PUBLISH_CODE)"
+            echo "Response: $PUBLISH_BODY"
+            exit 1
+        fi
         
         log_info "Release published!"
         echo ""
@@ -573,6 +582,29 @@ main() {
         echo ""
         exit 0
     fi
+    
+    # Create and push git tag first
+    log_step "Creating Git Tag"
+    echo ""
+    log_info "Creating git tag $VERSION_TAG..."
+    
+    if git rev-parse "$VERSION_TAG" >/dev/null 2>&1; then
+        log_error "Git tag $VERSION_TAG already exists locally"
+        echo "Delete it with: git tag -d $VERSION_TAG"
+        exit 1
+    fi
+    
+    git tag -a "$VERSION_TAG" -m "Release $VERSION_TAG"
+    
+    log_info "Pushing tag to Gitea..."
+    if ! git push origin "$VERSION_TAG"; then
+        log_error "Failed to push tag to remote"
+        echo "Cleaning up local tag..."
+        git tag -d "$VERSION_TAG"
+        exit 1
+    fi
+    
+    log_info "Git tag created and pushed successfully"
     
     create_gitea_release
     
