@@ -66,14 +66,14 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
 
 ### Install from release (one command)
 
-**Interactive install (prompts for version):**
+**Quick install (prompts for version):**
 ```bash
-curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo bash
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh -o install.sh && sudo bash install.sh && rm install.sh
 ```
 
 **Specific version (non-interactive):**
 ```bash
-curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/tag/<version>/install.sh | sudo bash
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/tag/<version>/install.sh -o install.sh && sudo bash install.sh && rm install.sh
 ```
 
 *Replace `<version>` with the desired tag (e.g., `v0.0.0`). See [releases](https://gt.plainskill.net/LibreLoom/LibreServ/releases) for available versions.*
