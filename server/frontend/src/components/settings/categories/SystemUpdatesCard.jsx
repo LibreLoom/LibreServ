@@ -99,31 +99,37 @@ export default function SystemUpdatesCard({ index = 0 }) {
   const formatReleaseNotes = (notes) => {
     if (!notes) return "No changelog available.";
     
+    // Common section headers that should be headings
+    const commonHeaders = [
+      "what's changed", "new features", "bug fixes", 
+      "breaking changes", "upgrade notes", "commits since",
+      "changelog", "release notes", "changes", "features",
+      "fixes", "improvements", "security", "performance"
+    ];
+    
     // Split into lines and process
     const lines = notes.split('\n');
     const processedLines = lines.map((line, idx) => {
       const trimmed = line.trim();
       
-      // Detect likely headings (short lines, title case, common section headers)
-      const isHeading = trimmed.length < 60 && 
-        trimmed.length > 0 &&
-        (trimmed === "What's Changed" ||
-         trimmed === "New Features" ||
-         trimmed === "Bug Fixes" ||
-         trimmed === "Breaking Changes" ||
-         trimmed === "Upgrade Notes" ||
-         trimmed === "Commits Since Last Release" ||
-         trimmed === "Test release!!" ||
-         (/^[A-Z][a-zA-Z\s]*$/.test(trimmed) && trimmed.split(' ').length <= 4));
+      // Detect likely headings
+      const lowerTrimmed = trimmed.toLowerCase();
+      const isCommonHeader = commonHeaders.some(h => lowerTrimmed.includes(h));
+      const isShortTitle = trimmed.length > 0 && 
+                           trimmed.length < 80 && 
+                           trimmed.split(' ').length <= 6 &&
+                           /^[A-Z][A-Za-z0-9\s\!\-]*$/.test(trimmed);
+      
+      // First line is often the title
+      const isFirstLine = idx === 0;
+      
+      const isHeading = isCommonHeader || 
+                       (isShortTitle && trimmed.split(' ').length <= 5) ||
+                       isFirstLine;
       
       // Add markdown heading syntax for detected headings
       if (isHeading) {
         return `## ${trimmed}`;
-      }
-      
-      // Add blank lines between sections for better readability
-      if (idx > 0 && lines[idx - 1].trim() === '' && trimmed.length > 0) {
-        return `\n${trimmed}`;
       }
       
       return trimmed;
