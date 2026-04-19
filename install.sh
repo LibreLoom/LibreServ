@@ -172,7 +172,8 @@ prompt_version() {
     # Check if we have a TTY available
     if [ -t 0 ] || [ -c /dev/tty ]; then
         while true; do
-            read -p "Enter version to install [latest]: " version_input < /dev/tty 2>/dev/null || read -p "Enter version to install [latest]: " version_input
+            echo -n "Enter version to install [latest]: "
+            read version_input < /dev/tty 2>/dev/null || read version_input
             version_input="${version_input:-latest}"
             
             if [ "$version_input" = "latest" ]; then
