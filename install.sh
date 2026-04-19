@@ -169,31 +169,52 @@ prompt_version() {
     echo "  - <version>: Install specific version (e.g., v0.0.0)"
     echo ""
     
-    while true; do
-        read -p "Enter version to install [latest]: " version_input < /dev/tty
-        version_input="${version_input:-latest}"
-        
-        if [ "$version_input" = "latest" ]; then
-            get_latest_release
-            INSTALL_VERSION="$LATEST_RELEASE"
-            return
-        elif [[ "$version_input" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
-            INSTALL_VERSION="$version_input"
-            log_info "Installing version: ${INSTALL_VERSION}"
-            return
-        else
-            log_error "Invalid version format. Use 'latest' or a version like v0.0.0"
-        fi
-    done
+    # Check if we have a TTY available
+    if [ -t 0 ] || [ -c /dev/tty ]; then
+        while true; do
+            read -p "Enter version to install [latest]: " version_input < /dev/tty 2>/dev/null || read -p "Enter version to install [latest]: " version_input
+            version_input="${version_input:-latest}"
+            
+            if [ "$version_input" = "latest" ]; then
+                get_latest_release
+                INSTALL_VERSION="$LATEST_RELEASE"
+                return
+            elif [[ "$version_input" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+                INSTALL_VERSION="$version_input"
+                log_info "Installing version: ${INSTALL_VERSION}"
+                return
+            else
+                log_error "Invalid version format. Use 'latest' or a version like v0.0.0"
+            fi
+        done
+    else
+        # Non-interactive mode: default to latest
+        log_info "No TTY available, using latest release"
+        get_latest_release
+        INSTALL_VERSION="$LATEST_RELEASE"
+    fi
 }
 
 # Get latest release version
 get_latest_release() {
     log_info "Fetching latest release information..."
-    LATEST_RELEASE=$(curl -s "${GITEA_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=1&sort=created&direction=desc" | grep -oP '"tag_name": "\K[^"]+')
+    local response
+    response=$(curl -s "${GITEA_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=1&sort=created&direction=desc") || {
+        log_error "Failed to fetch releases from Gitea API"
+        exit 1
+    }
+    
+    if [ -z "$response" ] || [ "$response" = "[]" ]; then
+        log_error "No releases found"
+        exit 1
+    fi
+    
+    # Extract tag_name (handles both compact and pretty JSON)
+    LATEST_RELEASE=$(echo "$response" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
 
     if [ -z "$LATEST_RELEASE" ]; then
-        log_error "Could not determine latest release version"
+        log_error "Could not parse release version from API response"
+        log_error "Response: $response"
         exit 1
     fi
 
