@@ -65,9 +65,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
 ## Quick start
 
 ### Install from release (one command)
+
+**Latest version:**
 ```bash
-curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/releases/latest/download/install.sh | sudo bash
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/releases/download/v0.0.0/install.sh | sudo bash
 ```
+
+*Replace `v0.0.0` with the desired version tag. See [releases](https://gt.plainskill.net/LibreLoom/LibreServ/releases) for available versions.*
 
 ### Development setup
 ```bash
