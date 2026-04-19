@@ -234,6 +234,12 @@ download_binary() {
     DOWNLOAD_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
     CHECKSUM_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
     
+    # Stop service if running (prevents "text file busy" on upgrade)
+    if systemctl is-active --quiet ${SERVICE_NAME} 2>/dev/null; then
+        log_info "Stopping existing service..."
+        systemctl stop ${SERVICE_NAME}
+    fi
+    
     log_info "Downloading ${BINARY_NAME}..."
     curl -sL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/libreserv"
     
