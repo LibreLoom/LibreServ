@@ -58,8 +58,6 @@ LibreServ has achieved MVP when ALL of the following are true:
 
 **Developers:** See [ROADMAP.md](ROADMAP.md) for the task list organized by user journey.
 
-Start with [T1.1.1: Setup Wizard Page](ROADMAP.md#t111-create-setup-wizard-page) - the most critical missing piece for MVP.
-
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
 
 ## Quick start
