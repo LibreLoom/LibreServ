@@ -235,55 +235,55 @@ export default function SystemUpdatesCard({ index = 0 }) {
           size="lg"
         >
           <div className="markdown-content overflow-y-auto px-1">
-            <div className="bg-primary rounded-large-element px-5 py-4 overflow-hidden">
+            <div className="bg-primary rounded-large-element px-5 py-3">
               <ReactMarkdown
                 components={{
                   h1: (props) => (
                     <h1
-                      className="text-3xl font-mono font-normal mb-4 mt-0 text-secondary"
+                      className="text-3xl font-mono font-normal mb-3 mt-0 first:mt-0 text-secondary"
                       {...props}
                     />
                   ),
                   h2: (props) => (
                     <h2
-                      className="text-2xl font-mono font-normal mb-3 mt-3 text-secondary"
+                      className="text-2xl font-mono font-normal mb-3 mt-3 first:mt-0 text-secondary"
                       {...props}
                     />
                   ),
                   h3: (props) => (
                     <h3
-                      className="text-xl font-mono font-normal mb-2 mt-2 text-secondary"
+                      className="text-xl font-mono font-normal mb-2 mt-2 first:mt-0 text-secondary"
                       {...props}
                     />
                   ),
                   h4: (props) => (
                     <h4
-                      className="text-lg font-mono font-normal mb-2 mt-2 text-secondary"
+                      className="text-lg font-mono font-normal mb-2 mt-2 first:mt-0 text-secondary"
                       {...props}
                     />
                   ),
                   h5: (props) => (
                     <h5
-                      className="text-base font-mono font-normal mb-2 mt-2 text-secondary"
+                      className="text-base font-mono font-normal mb-2 mt-2 first:mt-0 text-secondary"
                       {...props}
                     />
                   ),
                   h6: (props) => (
                     <h6
-                      className="text-sm font-mono font-normal mb-2 mt-1 text-secondary"
+                      className="text-sm font-mono font-normal mb-2 mt-1 first:mt-0 text-secondary"
                       {...props}
                     />
                   ),
-                  p: (props) => <p className="mb-3 text-secondary/90" {...props} />,
+                  p: (props) => <p className="mb-3 last:mb-0 text-secondary/90" {...props} />,
                   ul: (props) => (
                     <ul
-                      className="list-disc list-inside mb-4 ml-4"
+                      className="list-disc list-inside mb-3 ml-4 last:mb-0"
                       {...props}
                     />
                   ),
                   ol: (props) => (
                     <ol
-                      className="list-decimal list-inside mb-4 ml-4"
+                      className="list-decimal list-inside mb-3 ml-4 last:mb-0"
                       {...props}
                     />
                   ),
@@ -295,13 +295,12 @@ export default function SystemUpdatesCard({ index = 0 }) {
                         {...props}
                       />
                     ) : (
-                      <code
-                        className="block bg-accent/30 text-secondary p-4 rounded mb-4 overflow-x-auto"
-                        {...props}
-                      />
+                      <pre className="block bg-accent/30 text-secondary p-4 rounded mb-3 overflow-x-auto last:mb-0">
+                        <code className="text-xs font-mono block" {...props} />
+                      </pre>
                     ),
                   hr: (props) => (
-                    <hr className="my-6 border-secondary/30" {...props} />
+                    <hr className="my-4 border-secondary/30" {...props} />
                   ),
                   a: (props) => (
                     <a
