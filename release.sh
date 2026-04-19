@@ -156,10 +156,10 @@ check_git_status() {
         fi
     fi
     
-    # Check if tag already exists
+    # Check if tag already exists locally
     if git rev-parse "$VERSION_TAG" >/dev/null 2>&1; then
-        log_error "Tag $VERSION_TAG already exists"
-        exit 1
+        log_warn "Tag $VERSION_TAG already exists locally"
+        log_info "Will handle existing tag/release in release creation step"
     fi
     
     log_info "Git status OK"
