@@ -235,12 +235,12 @@ export default function SystemUpdatesCard({ index = 0 }) {
           size="lg"
         >
           <div className="markdown-content overflow-y-auto px-1">
-            <div className="bg-primary rounded-large-element p-5 mb-4">
+            <div className="bg-primary rounded-large-element px-5 py-4 overflow-hidden">
               <ReactMarkdown
                 components={{
                   h1: (props) => (
                     <h1
-                      className="text-3xl font-mono font-normal mb-4 mt-2 text-secondary"
+                      className="text-3xl font-mono font-normal mb-4 mt-0 text-secondary"
                       {...props}
                     />
                   ),
