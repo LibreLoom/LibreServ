@@ -17,7 +17,7 @@ export default function CollapsibleSection({
   const sizeClass = size === "xs" ? "text-xs" : size === "md" ? "text-base" : "text-sm";
 
   const wrapperClass = pill
-    ? `border border-primary/10 rounded-large-element bg-primary/5 overflow-hidden ${className}`
+    ? `border border-primary/10 rounded-large-element bg-primary/5 ${className}`
     : className;
 
   return (
