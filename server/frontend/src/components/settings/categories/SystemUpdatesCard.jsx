@@ -240,41 +240,41 @@ export default function SystemUpdatesCard({ index = 0 }) {
                 components={{
                   h1: (props) => (
                     <h1
-                      className="text-3xl font-mono font-normal mb-4 mt-6 text-secondary"
+                      className="text-3xl font-mono font-normal mb-4 mt-2 text-secondary"
                       {...props}
                     />
                   ),
                   h2: (props) => (
                     <h2
-                      className="text-2xl font-mono font-normal mb-3 mt-5 text-secondary"
+                      className="text-2xl font-mono font-normal mb-3 mt-3 text-secondary"
                       {...props}
                     />
                   ),
                   h3: (props) => (
                     <h3
-                      className="text-xl font-mono font-normal mb-2 mt-4 text-secondary"
+                      className="text-xl font-mono font-normal mb-2 mt-2 text-secondary"
                       {...props}
                     />
                   ),
                   h4: (props) => (
                     <h4
-                      className="text-lg font-mono font-normal mb-2 mt-3 text-secondary"
+                      className="text-lg font-mono font-normal mb-2 mt-2 text-secondary"
                       {...props}
                     />
                   ),
                   h5: (props) => (
                     <h5
-                      className="text-base font-mono font-normal mb-2 mt-3 text-secondary"
+                      className="text-base font-mono font-normal mb-2 mt-2 text-secondary"
                       {...props}
                     />
                   ),
                   h6: (props) => (
                     <h6
-                      className="text-sm font-mono font-normal mb-2 mt-2 text-secondary"
+                      className="text-sm font-mono font-normal mb-2 mt-1 text-secondary"
                       {...props}
                     />
                   ),
-                  p: (props) => <p className="mb-4 text-secondary/90" {...props} />,
+                  p: (props) => <p className="mb-3 text-secondary/90" {...props} />,
                   ul: (props) => (
                     <ul
                       className="list-disc list-inside mb-4 ml-4"
