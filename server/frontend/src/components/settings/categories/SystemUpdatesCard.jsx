@@ -214,8 +214,61 @@ export default function SystemUpdatesCard({ index = 0 }) {
                     {updateInfo.latest_version}
                   </span>
                 </div>
-                <div className="text-sm text-secondary leading-relaxed prose prose-invert max-w-none">
-                  <ReactMarkdown>
+                <div className="text-sm text-secondary leading-relaxed">
+                  <ReactMarkdown
+                    components={{
+                      h1: (props) => (
+                        <h1 className="text-lg font-bold text-primary mt-4 mb-2" {...props} />
+                      ),
+                      h2: (props) => (
+                        <h2 className="text-base font-bold text-primary mt-3 mb-1.5" {...props} />
+                      ),
+                      h3: (props) => (
+                        <h3 className="text-sm font-semibold text-primary mt-2 mb-1" {...props} />
+                      ),
+                      p: (props) => <p className="mb-2" {...props} />,
+                      ul: (props) => (
+                        <ul className="list-disc list-inside mb-2 ml-2" {...props} />
+                      ),
+                      ol: (props) => (
+                        <ol className="list-decimal list-inside mb-2 ml-2" {...props} />
+                      ),
+                      li: (props) => <li className="mb-0.5" {...props} />,
+                      code: ({ inline, ...props }) =>
+                        inline ? (
+                          <code
+                            className="bg-primary/20 px-1 py-0.5 rounded text-xs font-mono"
+                            {...props}
+                          />
+                        ) : (
+                          <code
+                            className="block bg-primary/20 p-2 rounded mb-2 overflow-x-auto text-xs font-mono"
+                            {...props}
+                          />
+                        ),
+                      blockquote: (props) => (
+                        <blockquote
+                          className="border-l-2 border-accent pl-3 italic text-primary/70 mb-2"
+                          {...props}
+                        />
+                      ),
+                      hr: (props) => (
+                        <hr className="my-3 border-accent/30" {...props} />
+                      ),
+                      a: (props) => (
+                        <a
+                          className="text-info underline hover:no-underline"
+                          {...props}
+                        />
+                      ),
+                      strong: (props) => (
+                        <strong className="font-semibold text-primary" {...props} />
+                      ),
+                      em: (props) => (
+                        <em className="italic" {...props} />
+                      ),
+                    }}
+                  >
                     {formatReleaseNotes(updateInfo.release_notes)}
                   </ReactMarkdown>
                 </div>
