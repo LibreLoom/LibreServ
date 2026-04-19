@@ -17,7 +17,7 @@ export default function ValueDisplay({
 
   return (
     <div className={`flex items-center justify-between py-2 px-3 border border-primary/10 rounded-large-element bg-primary/5 ${className}`}>
-      <span className="text-sm text-accent">{label}</span>
+      <span className="text-sm text-primary font-medium">{label}</span>
       <span className={`text-sm text-primary px-2 py-0.5 rounded-pill bg-primary/10 ${mono ? "font-mono" : ""}`}>
         {value ?? fallback}
       </span>

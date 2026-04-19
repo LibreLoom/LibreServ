@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
-import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info } from "lucide-react";
+import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info, ExternalLink } from "lucide-react";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import ConfirmModal from "../../common/ConfirmModal";
@@ -169,9 +169,9 @@ export default function SystemUpdatesCard({ index = 0 }) {
               <Button
                 variant="primary"
                 onClick={() => setShowReleaseNotesModal(true)}
-                className="w-full justify-start font-mono"
+                className="w-full justify-center font-mono"
               >
-                <Download size={16} />
+                <ExternalLink size={16} />
                 See what's new in {updateInfo.latest_version}
               </Button>
 
@@ -234,9 +234,10 @@ export default function SystemUpdatesCard({ index = 0 }) {
           onClose={() => setShowReleaseNotesModal(false)}
           size="lg"
         >
-          <div className="markdown-content overflow-y-auto px-1">
-            <div className="bg-primary rounded-large-element px-5 py-3">
-              <ReactMarkdown
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="markdown-content overflow-y-auto flex-1 px-1">
+              <div className="bg-primary rounded-large-element px-5 py-3">
+                <ReactMarkdown
                 components={{
                   h1: (props) => (
                     <h1
@@ -314,7 +315,8 @@ export default function SystemUpdatesCard({ index = 0 }) {
               </ReactMarkdown>
             </div>
           </div>
-        </ModalCard>
+        </div>
+      </ModalCard>
       )}
     </>
   );
