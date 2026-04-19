@@ -63,6 +63,13 @@ Start with [T1.1.1: Setup Wizard Page](ROADMAP.md#t111-create-setup-wizard-page)
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
 
 ## Quick start
+
+### Install from release (one command)
+```bash
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/releases/latest/download/install.sh | sudo bash
+```
+
+### Development setup
 ```bash
 cd server/frontend
 npm install
