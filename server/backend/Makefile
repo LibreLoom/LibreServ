@@ -65,7 +65,7 @@ lint: fmt-check vet
 # Security scanning
 govulncheck:
 	@echo ">> Running govulncheck"
-	@govulncheck $(GO_PKGS)
+	@./govulncheck-with-exemptions.sh $(GO_PKGS)
 
 gosec:
 	@echo ">> Running gosec"

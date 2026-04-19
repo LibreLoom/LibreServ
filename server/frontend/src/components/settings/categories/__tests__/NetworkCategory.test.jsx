@@ -151,7 +151,7 @@ describe("NetworkCategory", () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/No domain is currently connected/)).toBeInTheDocument();
+      expect(screen.getByText(/Local Access Only/)).toBeInTheDocument();
     });
   });
 

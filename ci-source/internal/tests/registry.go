@@ -347,7 +347,7 @@ func addSecurityTests() {
 		Description: "Check for known vulnerabilities in dependencies",
 		Type:        TestTypeSecurity,
 		Container:   "golang:1.26-alpine",
-		Command:     "go install golang.org/x/vuln/cmd/govulncheck@latest && $(go env GOPATH)/bin/govulncheck ./...",
+		Command:     "go install golang.org/x/vuln/cmd/govulncheck@latest && chmod +x govulncheck-with-exemptions.sh && ./govulncheck-with-exemptions.sh ./...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},

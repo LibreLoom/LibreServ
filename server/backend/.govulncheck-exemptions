@@ -1,0 +1,13 @@
+# Known govulncheck exemptions
+# Format: one OSV ID per line, comments allowed
+# These are vulnerabilities with no available fix in the latest dependency version
+
+# GO-2026-4887: Moby AuthZ plugin bypass via oversized request bodies
+# Affects: github.com/docker/docker (all versions, no fix available)
+# Our code does not use AuthZ plugins; this is not exploitable in LibreServ
+GO-2026-4887
+
+# GO-2026-4883: Moby off-by-one error in plugin privilege validation
+# Affects: github.com/docker/docker (all versions, no fix available)
+# Our code does not use Docker plugins; this is not exploitable in LibreServ
+GO-2026-4883

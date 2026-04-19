@@ -8,6 +8,15 @@ vi.mock("../assets/greetings", () => ({
   login: ["Stay productive!"],
 }));
 
+vi.mock("../context/ToastContext", () => ({
+  useToast: () => ({
+    addToast: vi.fn(),
+    dismissToast: vi.fn(),
+    clearToasts: vi.fn(),
+    toasts: [],
+  }),
+}));
+
 describe("Login", () => {
   it("renders login form with username and password fields", () => {
     renderWithProviders(<Login />);
