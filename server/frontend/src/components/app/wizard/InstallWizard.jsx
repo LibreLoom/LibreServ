@@ -115,8 +115,8 @@ function InstallWizard({ appId }) {
 
   // Calculate step numbers based on whether domain is configured
   const hasSubdomainStep = domainConfigured;
-  const progressStep = 4; // Always 4 (warning or subdomain is step 3)
-  const completeStep = 5; // Always 5
+  const progressStep = 4;
+  const completeStep = 5;
 
   const handleInstall = useCallback(async () => {
     handleStepChange(progressStep);

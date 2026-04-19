@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { AlertTriangle, Globe, ArrowRight } from "lucide-react";
+import { AlertTriangle, Globe, ArrowRight, Check } from "lucide-react";
 import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
 
@@ -36,8 +36,11 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
           </div>
         </div>
 
-        <div className="p-4 rounded-large-element bg-primary/5 border border-primary/10">
-          <p className="text-sm text-secondary/80 text-center">
+        <div className="flex items-start gap-3 p-4 rounded-large-element bg-success/10 border border-success/30">
+          <div className="flex-shrink-0 w-5 h-5 rounded-full bg-success flex items-center justify-center mt-0.5">
+            <Check size={12} className="text-primary" strokeWidth={3} />
+          </div>
+          <p className="text-sm text-secondary/80">
             Setting up a domain takes just a few minutes and enables secure remote access to all your apps.
           </p>
         </div>
@@ -47,7 +50,7 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
         <button
           type="button"
           onClick={handleSetupDomain}
-          className="w-full px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono flex items-center justify-center gap-2"
+          className="w-full px-6 py-3 rounded-pill bg-secondary text-primary hover:ring-2 hover:ring-accent motion-safe:transition-all font-mono flex items-center justify-center gap-2"
         >
           <Globe size={18} />
           Set Up Domain Now
@@ -67,7 +70,7 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
             type="button"
             onClick={onContinue}
             disabled={false}
-            className="flex-1 px-6 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 motion-safe:transition-all font-mono"
+            className="flex-1 px-6 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-secondary motion-safe:transition-all font-mono"
           >
             Install Anyway (Local Only)
           </button>

@@ -147,7 +147,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
             {hasUpdate && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-warning text-primary">
                 <AlertCircle size={12} />
-                v{updateInfo.latest_version} available
+                {updateInfo.latest_version} available
               </span>
             )}
           </div>
@@ -163,11 +163,11 @@ export default function SystemUpdatesCard({ index = 0 }) {
 
           {hasUpdate && (
             <div className="space-y-3">
-              <div className="p-4 bg-primary rounded-lg border border-primary/20">
+              <div className="p-4 bg-primary rounded-large-element">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-sm font-medium text-secondary">What's New in</span>
                   <span className="px-2 py-0.5 rounded-full text-xs font-mono font-semibold bg-secondary text-primary">
-                    v{updateInfo.latest_version}
+                    {updateInfo.latest_version}
                   </span>
                 </div>
                 <p className="text-sm text-secondary leading-relaxed">

@@ -15,12 +15,9 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
       baseSteps.push({ id: 3, label: "Domain Required" });
     }
 
-    const progressId = hasSubdomainStep ? 4 : 3;
-    const completeId = hasSubdomainStep ? 5 : 4;
-
     baseSteps.push(
-      { id: progressId, label: "Installing" },
-      { id: completeId, label: "Complete" }
+      { id: 4, label: "Installing" },
+      { id: 5, label: "Complete" }
     );
 
     return baseSteps;
