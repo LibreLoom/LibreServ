@@ -25,7 +25,7 @@ export default function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1.5 ${sizeClass} text-secondary/70 hover:text-secondary motion-safe:transition-colors w-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill ${
+        className={`flex items-center gap-1.5 ${sizeClass} ${pill ? "text-secondary" : "text-secondary/70"} hover:text-secondary motion-safe:transition-colors w-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill ${
           pill ? "py-2 px-3" : "py-1"
         } ${mono ? "font-mono" : ""}`}
         aria-expanded={open}
