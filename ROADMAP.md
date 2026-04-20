@@ -52,6 +52,7 @@ Installs an app -> It works -> Creates backup -> Done
 ### T1.1.1. Setup Wizard Page
 
 **Status:** Done
+
 **File:** `server/frontend/src/pages/SetupPage.jsx`
 
 - Welcome screen with plain-language intro
@@ -62,12 +63,14 @@ Installs an app -> It works -> Creates backup -> Done
 ### T1.1.2. Setup Route
 
 **Status:** Done
+
 - Route `/setup` shows SetupPage
 - SetupPage redirects to root if already configured
 
 ### T1.1.3. Welcome/Onboarding Component
 
 **Status:** Done
+
 **File:** `server/frontend/src/components/onboarding/WelcomeCard.jsx`
 
 - Shows after first login only (localStorage)
@@ -139,7 +142,9 @@ Installs an app -> It works -> Creates backup -> Done
 #### T2.1.4. Custom App Instance Names
 
 **Status:** Not started
+
 **Effort:** 3h
+
 **Dependencies:** None
 
 Allow installing multiple instances of the same app, each with a custom name.
@@ -153,7 +158,9 @@ Allow installing multiple instances of the same app, each with a custom name.
 #### T2.1.5. Implement Remaining App Scripts
 
 **Status:** Not started
+
 **Effort:** 8h (total for all apps)
+
 **Dependencies:** None
 
 Implement missing lifecycle scripts (update, repair, backup, restore) for each builtin app. The install, start, and stop lifecycle operations already work — this task covers the remaining four operations.
@@ -173,7 +180,9 @@ Implement missing lifecycle scripts (update, repair, backup, restore) for each b
 #### T2.1.6. Custom App Upload and URL Install
 
 **Status:** Not started
+
 **Effort:** 6h
+
 **Dependencies:** T2.1.0
 
 Allow users to install apps beyond the builtin catalog.
@@ -186,15 +195,15 @@ Allow users to install apps beyond the builtin catalog.
 5. Proceeds through normal install wizard
 
 **Acceptance Criteria:**
-- [ ] Upload `.tar.xz` containing `app.yaml` + `docker-compose.yml` + optional scripts
-- [ ] Paste URL to `.tar.xz` (HTTP/HTTPS, git repo archive)
-- [ ] Validate `app.yaml` schema (required fields, no malicious content)
-- [ ] Validate `docker-compose.yml` (no privileged by default, no host network)
-- [ ] Security scanning for shell scripts in package
-- [ ] Size limits (configurable, default 50MB)
-- [ ] Custom apps tagged as `AppTypeCustom` in database
-- [ ] Custom apps appear in catalog with "Custom" badge
-- [ ] Uninstall removes custom app files
+ - [ ] Upload `.tar.xz` containing `app.yaml` + `docker-compose.yml` + optional scripts
+ - [ ] Paste URL to `.tar.xz` (HTTP/HTTPS, git repo archive)
+ - [ ] Validate `app.yaml` schema (required fields, no malicious content)
+ - [ ] Validate `docker-compose.yml` (no privileged by default, no host network)
+ - [ ] Security scanning for shell scripts in package
+ - [ ] Size limits (configurable, default 50MB)
+ - [ ] Custom apps tagged as `AppTypeCustom` in database
+ - [ ] Custom apps appear in catalog with "Custom" badge
+ - [ ] Uninstall removes custom app files
 
 **Backend API (to add):**
 - `POST /api/v1/catalog/upload` — Upload custom app package
@@ -206,6 +215,7 @@ Allow users to install apps beyond the builtin catalog.
 #### T2.2.1. Backups Page
 
 **Status:** Done
+
 **File:** `server/frontend/src/pages/BackupsPage.jsx`
 
 - List backups sorted by date (newest first)
@@ -215,6 +225,7 @@ Allow users to install apps beyond the builtin catalog.
 #### T2.2.2. Backup Schedule UI
 
 **Status:** Done
+
 **File:** `server/frontend/src/components/backups/ScheduleForm.jsx`
 
 - Preset schedules (Daily, Every 6h, Weekly)
@@ -256,6 +267,7 @@ Allow users to install apps beyond the builtin catalog.
 #### T2.3.2. System Health Display
 
 **Status:** Done
+
 **File:** `server/frontend/src/components/cards/SystemHealthCard.jsx`
 
 - Dashboard widget showing overall system health
@@ -267,6 +279,7 @@ Allow users to install apps beyond the builtin catalog.
 #### T2.3.2. App Logs Viewer
 
 **Status:** Done
+
 **File:** `server/frontend/src/components/app/LogsViewer.jsx`
 
 - Full-page log viewer with auto-scroll
@@ -278,7 +291,9 @@ Allow users to install apps beyond the builtin catalog.
 #### T2.3.3. Improve Availability Tracking
 
 **Status:** Not started
+
 **Effort:** 4h
+
 **Dependencies:** None
 
 Implement a global system to track uptime and availability of apps and the server itself.
@@ -303,7 +318,9 @@ Implement a global system to track uptime and availability of apps and the serve
 #### T3.1.1. Network Routes Page
 
 **Status:** Mostly done, needs polish
+
 **Effort:** 1h
+
 **Dependencies:** None
 
 **User Journey:**
@@ -327,7 +344,9 @@ Implement a global system to track uptime and availability of apps and the serve
 #### T3.1.2. HTTPS/Certificate Page
 
 **Status:** Backend done, needs frontend UI
+
 **Effort:** 2.5h
+
 **Dependencies:** T3.1.1
 
 **User Journey:**
@@ -351,7 +370,9 @@ Implement a global system to track uptime and availability of apps and the serve
 #### T3.1.3. Domain Setup in First-Run Wizard
 
 **Status:** Done
+
 **Effort:** 4h
+
 **Dependencies:** T3.1.4
 
 Adds a domain configuration step to the setup wizard (required, with "Skip (not recommended)" override). Appears after account creation.
@@ -378,7 +399,9 @@ Adds a domain configuration step to the setup wizard (required, with "Skip (not 
 #### T3.1.4. DNS Provider Integration
 
 **Status:** Done (Cloudflare)
+
 **Effort:** 6h
+
 **Dependencies:** None
 
 Provider-agnostic DNS management via a `DNSProvider` Go interface with three native implementations plus one universal fallback.
@@ -430,7 +453,9 @@ Cloudflare delegation (universal fallback):
 #### T3.1.5. Wildcard Domain Support
 
 **Status:** Done
+
 **Effort:** 3h
+
 **Dependencies:** T3.1.1
 
 Adds wildcard record support to Caddy and the certificate system.
@@ -447,7 +472,9 @@ Adds wildcard record support to Caddy and the certificate system.
 #### T3.1.6. DDNS Auto-Update Service
 
 **Status:** Done
+
 **Files:** `server/backend/internal/network/ddns.go`, `server/backend/internal/api/handlers/ddns.go`, `server/frontend/src/components/settings/categories/DDNSCard.jsx`
+
 **Effort:** 3h
 **Dependencies:** T3.1.4 ✅
 
@@ -466,7 +493,9 @@ Background service that monitors the public IP address and updates DNS records w
 #### T3.1.7. Subdomain Selection in App Install
 
 **Status:** Not started
+
 **Effort:** 3h
+
 **Dependencies:** T3.1.3
 
 Adds a subdomain picker step to the app install wizard, shown only when a domain is configured.
@@ -491,7 +520,9 @@ Adds a subdomain picker step to the app install wizard, shown only when a domain
 #### T3.1.8. Auto-Route Creation on App Install
 
 **Status:** Not started
+
 **Effort:** 2h
+
 **Dependencies:** T3.1.7
 
 Wires the install completion → Caddy route creation → certificate request into one seamless flow.
@@ -507,8 +538,11 @@ Wires the install completion → Caddy route creation → certificate request in
 #### T3.1.9. Domain Management in Settings
 
 **Status:** Done
+
 **Files:** `server/frontend/src/components/settings/categories/DomainManagementCard.jsx`, `server/backend/internal/api/handlers/network.go`
+
 **Effort:** 2h
+
 **Dependencies:** T3.1.3 ✅
 
 Settings UI to view, change, and disconnect the current domain configuration.
@@ -552,8 +586,11 @@ Settings UI to view, change, and disconnect the current domain configuration.
 #### T3.3.1. System Updates Page
 
 **Status:** Done
+
 **File:** `server/frontend/src/components/settings/categories/SystemCategory.jsx`
+
 **Effort:** 2h
+
 **Dependencies:** None
 
 **User Journey:**
@@ -580,7 +617,9 @@ Settings UI to view, change, and disconnect the current domain configuration.
 #### T3.3.2. Update Scheduling and Orchestration UI
 
 **Status:** Not started
+
 **Effort:** 3h
+
 **Dependencies:** T3.3.1
 
 Scheduled updates for both the platform and individual apps.
@@ -595,7 +634,9 @@ Scheduled updates for both the platform and individual apps.
 #### T3.3.3. Job Queue Monitor
 
 **Status:** Not started
+
 **Effort:** 2h
+
 **Dependencies:** None
 
 **Acceptance Criteria:**
@@ -638,6 +679,7 @@ Scheduled updates for both the platform and individual apps.
 #### T4.1.6. Improve Test Coverage
 
 **Status:** In progress
+
 **Effort:** Ongoing
 
 General test coverage improvement across the codebase.
@@ -682,6 +724,7 @@ CI includes govulncheck, gosec, staticcheck. SECURITY.md documents Trivy scannin
 #### T4.2.5. Threat Modeling
 
 **Status:** Not started
+
 **Effort:** 4h
 
 Create a formal threat model for LibreServ.
@@ -695,6 +738,7 @@ Create a formal threat model for LibreServ.
 #### T4.2.6. Docker Security Hardening
 
 **Status:** Not started
+
 **Effort:** 3h
 
 Document and enforce Docker security best practices.
@@ -730,9 +774,10 @@ Full implementation in install.sh: correct user/group, After=docker, Restart=alw
 `Server.Port` in config, defaults to 8080, uses viper with LIBRESERV prefix → works as `LIBRESERV_SERVER_PORT` env var.
 
 #### T4.3.4. Debian ISO Builder
-
 **Status:** Not started
+
 **Effort:** 4h
+
 **Dependencies:** T4.3.1, T4.3.2, T4.3.3
 
 **Acceptance Criteria:**
@@ -744,6 +789,7 @@ Full implementation in install.sh: correct user/group, After=docker, Restart=alw
 #### T4.3.5. Hardware Detection Script
 
 **Status:** In progress (claimed by Fluffy-Bunny-23)
+
 **Effort:** 1.5h
 
 **Acceptance Criteria:**
@@ -756,6 +802,7 @@ Full implementation in install.sh: correct user/group, After=docker, Restart=alw
 #### T4.4.1. Security Documentation
 
 **Status:** Partially done (SECURITY.md exists)
+
 **Effort:** 2h
 
 Expand SECURITY.md with full security documentation.
@@ -769,6 +816,7 @@ Expand SECURITY.md with full security documentation.
 #### T4.4.2. Caddy/ACME Operator Documentation
 
 **Status:** Not started
+
 **Effort:** 3h
 
 Document Caddy reverse proxy and ACME certificate management for operators.
@@ -776,37 +824,43 @@ Document Caddy reverse proxy and ACME certificate management for operators.
 #### T4.4.3. OpenAPI Spec
 
 **Status:** Not started
+
 **File:** `docs/openapi.yaml`
+
 **Effort:** 4h
 
 #### T4.4.4. Architecture Diagrams
 
 ## Phase 4.5: Accessibility
 ### T4.5.1. Accessibility Audit
-#### Status: Not started
-#### Effort: 5h
+**Status:** Not started
+
+**Effort:** 5h
 #### Acceptance Criteria:
 - [ ] Perform automated accessibility audit (aXe)
 - [ ] Identify violations in UI components
 - [ ] Report findings
 
 ### T4.5.2. ARIA Labels
-#### Status: Not started
-#### Effort: 3h
+**Status:** Not started
+
+**Effort:** 3h
 #### Acceptance Criteria:
 - [ ] Add ARIA roles/labels to interactive elements
 - [ ] Ensure screen reader announces correct text
 
 ### T4.5.3. Keyboard Navigation
-#### Status: Not started
-#### Effort: 4h
+**Status:** Not started
+
+**Effort:** 4h
 #### Acceptance Criteria:
 - [ ] All interactive elements reachable via Tab
 - [ ] Focus visible, visible focus outlines
 
 ### T4.5.4. Contrast Ratio
-#### Status: In progress
-#### Effort: 10h
+**Status:** In progress
+
+**Effort:** 10h
 #### Acceptance Criteria:
 - [ ] Scan all components for color usage
 - [ ] Verify color contrast meets WCAG AA
@@ -814,15 +868,17 @@ Document Caddy reverse proxy and ACME certificate management for operators.
 - [ ] Fix any violations
 
 ### T4.5.5. Screen Reader Testing
-#### Status: Not started
-#### Effort: 3h
+**Status:** Not started
+
+**Effort:** 3h
 #### Acceptance Criteria:
 - [ ] Test key pages with NVDA/VoiceOver
 - [ ] Fix any announced content issues
 
 ### T4.5.6. Color Usage Scan
-#### Status: In progress
-#### Effort: 8h
+**Status:** In progress
+
+**Effort:** 8h
 #### Acceptance Criteria:
 - [ ] Scan all components for color usage
 - [ ] Verify contrast ratios meet WCAG AA
@@ -830,6 +886,7 @@ Document Caddy reverse proxy and ACME certificate management for operators.
 
 
 **Status:** Not started
+
 **Effort:** 2h
 
 ---
@@ -841,7 +898,9 @@ Document Caddy reverse proxy and ACME certificate management for operators.
 ### 5.1 OIDC Identity Provider
 
 **Status:** Not started
+
 **Effort:** 12h (estimated)
+
 **Dependencies:** T3.1.1 (HTTPS via routes required for OIDC redirect URIs and secure cookies)
 
 LibreServ acts as an OIDC provider so apps that support OIDC can use LibreServ's user accounts for login.
@@ -879,6 +938,7 @@ LibreServ acts as an OIDC provider so apps that support OIDC can use LibreServ's
 #### T5.2.2. Community App Submission — Future
 
 **Status:** Not started
+
 **Effort:** 6h
 
 - Community app submission API
@@ -902,6 +962,7 @@ LibreServ acts as an OIDC provider so apps that support OIDC can use LibreServ's
 ### 6.1 Backup System Revamp
 
 **Status:** Not started
+
 **Effort:** 16h (estimated)
 
 The current backup system duplicates entire app volumes as tar archives. This does not scale beyond development use. A user running Nextcloud with terabytes of data cannot "just tar it up."
@@ -933,6 +994,7 @@ The current backup system duplicates entire app volumes as tar archives. This do
 ### 6.2 Advanced Storage Management
 
 **Status:** Not started
+
 **Effort:** 12h (estimated)
 
 Support for users with multiple storage devices, RAID, and mounted volumes.
@@ -986,6 +1048,7 @@ Support for users with multiple storage devices, RAID, and mounted volumes.
 ### 7.4 AI-Powered Help
 
 **Status:** Not started
+
 **Effort:** Exploratory
 
 Explore offering human support for subscription users. Open-source makes AI-as-a-service complex. Consider subscription for human help.
@@ -1098,31 +1161,6 @@ For every task:
 - [ ] Works on mobile/tablet (for UI)
 - [ ] Error messages are plain-language (no JSON dumps to users)
 - [ ] Actions are reversible or have confirmation
-- [ ] Documentation updated where applicable
+- [ ] Documentation updated where applicable (e.g. this document)
 
 ---
-
-## Changelog
-
-| Date | Change |
-|------|--------|
-| 2026-04-17 | T3.1.9: Done. Domain Management UI with view/change/disconnect functionality |
-| 2026-04-17 | T3.1.6: Done. DDNS Auto-Update Service with configurable interval and manual update |
-| 2026-04-17 | T2.3.2: Done. System Health Display widget on Dashboard with real-time resource monitoring and service health indicators |
-| 2026-04-17 | T3.3.1: Done. System Updates UI in Settings → System with check/apply/update flow |
-| 2026-04-15 | T3.1.4: Done (Cloudflare-only). Added DNSProvider interface, CloudflareProvider via libdns/cloudflare, DNSProviderManager with SQLite persistence, DNSConfig to config.go. Porkbun and Spaceship deferred. |
-| 2026-04-15 | T3.1.5: Done. Wildcard cert fallback in manualTLSPaths, wildcard catch-all Caddyfile blocks, RequestWildcardCert via lego (single SAN cert), SetupWildcardDNS, DetectPublicIP. Fixed baseDomain for single-label TLDs. |
-| 2026-04-15 | Verification update: T3.1.1→Needs polish, T3.1.2→Removed, T4.2.1→Done, T4.2.4→Approved, T4.3.2→Hopefully done, T4.3.3→Implemented(Untested), T4.1.1→Needs Updating |
-| 2026-04-14 | Major rewrite: consolidated all issues into roadmap, removed deadline, added Phase 5 (OIDC + custom apps), Phase 6 (backup revamp + storage management), Phase 7 (advanced features) |
-| 2026-04-05 | T1.1.5: Enhanced preflight permission checks |
-| 2026-02-28 | T2.2.3: Cloud backup integration |
-| 2026-02-28 | T2.2.1: Backups page |
-| 2026-02-27 | T2.3.1: Enhanced AppDetailPage |
-| 2026-02-27 | T4.2.2: Rate limiting middleware |
-| 2026-02-27 | T4.3.1: Enhanced install.sh |
-| 2026-02-19 | T2.1.3: App uninstall with confirmation |
-| 2026-02-19 | T3.2.1: Enhanced user management |
-| 2026-02-17 | Restructured around user journeys |
-| 2026-02-17 | T2.1.0: App Feature Matrix Schema |
-| 2026-02-18 | T2.1.1: App Install Wizard |
-| 2026-02-18 | T2.1.2: Enhanced App Catalog Page |
