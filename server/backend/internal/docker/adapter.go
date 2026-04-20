@@ -52,7 +52,7 @@ func (r *RuntimeAdapter) ListContainersByLabel(label string) ([]runtime.Containe
 			ID:     c.ID,
 			Names:  c.Names,
 			Image:  c.Image,
-			State:  c.State,
+			State:  string(c.State),
 			Status: c.Status,
 		})
 	}

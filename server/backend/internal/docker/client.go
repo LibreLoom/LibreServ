@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 )
 
@@ -144,7 +144,7 @@ func (c *Client) HealthCheck() error {
 	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
 
-	_, err := c.cli.Ping(ctx)
+	_, err := c.cli.Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf("docker daemon not responding: %w", err)
 	}

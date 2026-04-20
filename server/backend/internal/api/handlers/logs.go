@@ -8,10 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/go-chi/chi/v5"
+	"github.com/moby/moby/api/pkg/stdcopy"
+	"github.com/moby/moby/client"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 )
 
@@ -98,7 +97,7 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Connect to Docker daemon to fetch/stream logs
 	ctx := r.Context()
-	opts := container.LogsOptions{
+	opts := client.ContainerLogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Follow:     follow,
@@ -115,45 +114,45 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	isTTY := false
 
 	// First try to find by libreserv.app label
-	containers, listErr := rawClient.ContainerList(ctx, container.ListOptions{
+	listResult, listErr := rawClient.ContainerList(ctx, client.ContainerListOptions{
 		All:     true,
-		Filters: filters.NewArgs(filters.Arg("label", "libreserv.app="+instanceID)),
+		Filters: make(client.Filters).Add("label", "libreserv.app="+instanceID),
 	})
 
 	// Fallback to docker compose project label
-	if listErr != nil || len(containers) == 0 {
-		containers, listErr = rawClient.ContainerList(ctx, container.ListOptions{
+	if listErr != nil || len(listResult.Items) == 0 {
+		listResult, listErr = rawClient.ContainerList(ctx, client.ContainerListOptions{
 			All:     true,
-			Filters: filters.NewArgs(filters.Arg("label", "com.docker.compose.project="+instanceID)),
+			Filters: make(client.Filters).Add("label", "com.docker.compose.project="+instanceID),
 		})
 	}
 
 	// Fallback to script_executor docker compose project name
-	if listErr != nil || len(containers) == 0 {
-		containers, listErr = rawClient.ContainerList(ctx, container.ListOptions{
+	if listErr != nil || len(listResult.Items) == 0 {
+		listResult, listErr = rawClient.ContainerList(ctx, client.ContainerListOptions{
 			All:     true,
-			Filters: filters.NewArgs(filters.Arg("label", "com.docker.compose.project=libreserv-"+instanceID)),
+			Filters: make(client.Filters).Add("label", "com.docker.compose.project=libreserv-"+instanceID),
 		})
 	}
 
 	// Final fallback: Match explicitly against the container name
-	if listErr != nil || len(containers) == 0 {
-		containers, listErr = rawClient.ContainerList(ctx, container.ListOptions{
+	if listErr != nil || len(listResult.Items) == 0 {
+		listResult, listErr = rawClient.ContainerList(ctx, client.ContainerListOptions{
 			All:     true,
-			Filters: filters.NewArgs(filters.Arg("name", "^"+instanceID+"-")),
+			Filters: make(client.Filters).Add("name", "^"+instanceID+"-"),
 		})
 	}
 
-	if listErr == nil && len(containers) > 0 {
-		containerID = containers[0].ID
+	if listErr == nil && len(listResult.Items) > 0 {
+		containerID = listResult.Items[0].ID
 	}
 
-	cJSON, err := rawClient.ContainerInspect(ctx, containerID)
-	if err == nil && cJSON.Config != nil && cJSON.Config.Tty {
+	cJSON, err := rawClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err == nil && cJSON.Container.Config != nil && cJSON.Container.Config.Tty {
 		isTTY = true
 	}
 
-	logsReader, err := rawClient.ContainerLogs(ctx, containerID, opts)
+	logsResult, err := rawClient.ContainerLogs(ctx, containerID, opts)
 	if err != nil {
 		errEvent := map[string]string{
 			"type":    "stderr",
@@ -164,19 +163,16 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		_ = rc.Flush()
 		return
 	}
-	defer logsReader.Close()
+	defer logsResult.Close()
 
 	// 5. Multiplex stdout and stderr to SSE format
 	outWriter := &sseWriter{w: w, rc: rc, typ: "stdout"}
 	errWriter := &sseWriter{w: w, rc: rc, typ: "stderr"}
 
 	if isTTY {
-		// If TTY is enabled, there is no multiplexing header
-		_, err = io.Copy(outWriter, logsReader)
+		_, err = io.Copy(outWriter, logsResult)
 	} else {
-		// Docker log streams for containers without a TTY are multiplexed using a custom header.
-		// stdcopy.StdCopy decodes this multiplexed stream and directs payloads to the respective writers.
-		_, err = stdcopy.StdCopy(outWriter, errWriter, logsReader)
+		_, err = stdcopy.StdCopy(outWriter, errWriter, logsResult)
 	}
 
 	if err != nil && err != io.EOF {
