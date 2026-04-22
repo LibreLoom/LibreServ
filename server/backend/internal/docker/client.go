@@ -42,7 +42,7 @@ func NewClient(cfg config.DockerConfig) (*Client, error) {
 func autoDetectConnection() (*Client, error) {
 	// 1. Try DOCKER_HOST env var
 	if host := os.Getenv("DOCKER_HOST"); host != "" {
-		cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+		cli, err := client.NewClientWithOpts(client.FromEnv)
 		if err == nil {
 			return &Client{cli: cli, ctx: context.Background()}, nil
 		}
@@ -73,7 +73,6 @@ func connectViaSocket(socketPath string) (*Client, error) {
 
 	cli, err := client.NewClientWithOpts(
 		client.WithHost(socketPath),
-		client.WithAPIVersionNegotiation(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to socket: %w", err)
@@ -85,7 +84,6 @@ func connectViaTCP(cfg config.TCPConfig) (*Client, error) {
 	host := fmt.Sprintf("tcp://%s:%d", cfg.Host, cfg.Port)
 	opts := []client.Opt{
 		client.WithHost(host),
-		client.WithAPIVersionNegotiation(),
 	}
 
 	if cfg.UseTLS {
@@ -127,7 +125,6 @@ func connectViaSSH(cfg config.SSHConfig) (*Client, error) {
 
 	cli, err := client.NewClientWithOpts(
 		client.WithHost(host),
-		client.WithAPIVersionNegotiation(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect via SSH: %w", err)
