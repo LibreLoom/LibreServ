@@ -54,11 +54,11 @@ function ForgotPasswordModal({ isOpen, onClose }) {
     <ModalCard title="Reset Password" onClose={onClose}>
       {!sent ? (
         <>
-          <p className="text-secondary/70 text-sm mb-4">
+          <p className="text-primary/70 text-sm mb-4">
             Enter your email address and we'll send you a link to reset your password.
           </p>
           <form onSubmit={handleSubmit}>
-            <label htmlFor="reset-email" className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
+            <label htmlFor="reset-email" className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
               Email
             </label>
             <input
