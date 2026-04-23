@@ -192,7 +192,7 @@ Allow users to install apps beyond the builtin catalog.
 
 **Acceptance Criteria:**
  - [ ] Upload `.tar.xz` containing `app.yaml` + `docker-compose.yml` + optional scripts
- - [ ] Paste URL to `.tar.xz` (HTTP/HTTPS, git repo archive)
+ - [ ] Paste URL to `.tar.xz` file (HTTP/HTTPS) OR git repository URL (for clone)
  - [ ] Validate `app.yaml` schema (required fields, no malicious content)
  - [ ] Validate `docker-compose.yml` (no privileged by default, no host network)
  - [ ] Security scanning for shell scripts in package
