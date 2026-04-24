@@ -8,6 +8,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
 )
 
 // SupportDiagnosticsHandler exposes lightweight diagnostics for support purposes.
@@ -57,7 +58,7 @@ func (h *SupportDiagnosticsHandler) Get(w http.ResponseWriter, r *http.Request) 
 	if cfg != nil && cfg.Apps.DataPath != "" {
 		if path, err := resolveConfigPath(cfg.Apps.DataPath); err == nil {
 			if err := syscall.Statfs(path, &stat); err == nil {
-				free := safeDiskBytes(int64(stat.Bavail), stat.Bsize)
+				free := util.SafeDiskBytes(int64(stat.Bavail), stat.Bsize)
 				results["disk_space_bytes_free"] = free
 			}
 		}

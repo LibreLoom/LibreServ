@@ -23,6 +23,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
 )
 
 // setupDNSState holds the async cert issuance result for DNS setup
@@ -347,7 +348,7 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		if err := syscall.Statfs(resolvedPath, &stat); err != nil {
 			return err
 		}
-		diskFree = safeDiskBytes(int64(stat.Bavail), stat.Bsize)
+		diskFree = util.SafeDiskBytes(int64(stat.Bavail), stat.Bsize)
 		if diskFree < 512*1024*1024 {
 			return fmt.Errorf("low disk space")
 		}

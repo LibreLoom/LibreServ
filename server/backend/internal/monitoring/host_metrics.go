@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
 )
 
 const (
@@ -144,8 +145,8 @@ func (h *HostMetricsCollector) DiskUsage(dataPath string) (total, free uint64) {
 		if err := syscall.Statfs(p, &stat); err != nil {
 			continue
 		}
-		total = safeDiskBytes(int64(stat.Blocks), stat.Bsize)
-		free = safeDiskBytes(int64(stat.Bavail), stat.Bsize)
+		total = util.SafeDiskBytes(int64(stat.Blocks), stat.Bsize)
+		free = util.SafeDiskBytes(int64(stat.Bavail), stat.Bsize)
 		return total, free
 	}
 
@@ -295,13 +296,6 @@ func clamp01(v float64) float64 {
 		return 1
 	}
 	return v
-}
-
-func safeDiskBytes(blocks, bsize int64) uint64 {
-	if blocks < 0 || bsize <= 0 {
-		return 0
-	}
-	return uint64(blocks) * uint64(bsize)
 }
 
 func maxFloat(a, b float64) float64 {

@@ -6,7 +6,7 @@ import (
 )
 
 // CORS returns a middleware that handles Cross-Origin Resource Sharing.
-// If allowedOrigins is empty, defaults to "*".
+// If allowedOrigins is empty, all cross-origin requests are denied.
 func CORS(allowedOrigins []string) func(next http.Handler) http.Handler {
 	origins := allowedOrigins
 	return func(next http.Handler) http.Handler {

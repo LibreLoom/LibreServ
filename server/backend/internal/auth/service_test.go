@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 )
@@ -117,5 +118,44 @@ func TestSetupFlow(t *testing.T) {
 	}
 	if !complete {
 		t.Fatalf("expected setup to be complete after admin creation")
+	}
+}
+
+func TestCleanupExpiredLockouts(t *testing.T) {
+	db := newTestDB(t)
+	svc := NewService(db, "testsecret", slog.Default())
+
+	now := time.Now()
+	_, err := db.Exec(`INSERT INTO account_lockouts (username, locked_until) VALUES (?, ?)`, "expired_user", now.Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("insert expired lockout: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO account_lockouts (username, locked_until) VALUES (?, ?)`, "active_user", now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("insert active lockout: %v", err)
+	}
+
+	n, err := svc.CleanupExpiredLockouts()
+	if err != nil {
+		t.Fatalf("CleanupExpiredLockouts error: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 row cleaned, got %d", n)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM account_lockouts`).Scan(&count); err != nil {
+		t.Fatalf("count lockouts: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 remaining lockout, got %d", count)
+	}
+
+	n, err = svc.CleanupExpiredLockouts()
+	if err != nil {
+		t.Fatalf("second cleanup error: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 rows on second cleanup, got %d", n)
 	}
 }

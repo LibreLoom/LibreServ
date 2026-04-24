@@ -18,6 +18,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"golang.org/x/sys/unix"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
 )
 
 // UpdateState tracks pending update verification
@@ -569,7 +570,7 @@ func checkDiskSpace(requiredBytes int64) error {
 	}
 
 	// Available space = free blocks * block size
-	available := int64(safeDiskBytes(int64(stat.Bavail), stat.Bsize))
+	available := int64(util.SafeDiskBytes(int64(stat.Bavail), stat.Bsize))
 
 	if available < requiredBytes {
 		return fmt.Errorf("only %d bytes available, need %d bytes", available, requiredBytes)
@@ -591,11 +592,4 @@ func timedRename(oldPath, newPath string, timeout time.Duration) error {
 	case <-time.After(timeout):
 		return fmt.Errorf("rename operation timed out after %v", timeout)
 	}
-}
-
-func safeDiskBytes(blocks, bsize int64) uint64 {
-	if blocks < 0 || bsize <= 0 {
-		return 0
-	}
-	return uint64(blocks) * uint64(bsize)
 }
