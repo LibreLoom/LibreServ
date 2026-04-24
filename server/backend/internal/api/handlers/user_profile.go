@@ -105,5 +105,5 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	JSON(w, http.StatusOK, user)
+	JSON(w, http.StatusOK, user.Sanitize())
 }

@@ -3,6 +3,7 @@ package email
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
 	"net/smtp"
 	"strings"
 	"text/template"
@@ -91,7 +92,14 @@ func TestSMTP(cfg config.SMTPConfig) error {
 }
 
 func checkTLS(addr string, cfg config.SMTPConfig) error {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: cfg.SkipVerify})
+	skipVerify := cfg.SkipVerify
+	if skipVerify {
+		if c := config.Get(); c != nil && c.Server.Mode == "production" {
+			log.Printf("warning: InsecureSkipVerify overridden to false in production mode")
+			skipVerify = false
+		}
+	}
+	conn, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: skipVerify})
 	if err != nil {
 		return err
 	}
@@ -124,7 +132,14 @@ func (s *Sender) Send(to []string, subject, body string) error {
 }
 
 func (s *Sender) sendTLS(to []string, msg string) error {
-	c, err := tls.Dial("tcp", s.host, &tls.Config{InsecureSkipVerify: s.skipVerify})
+	skipVerify := s.skipVerify
+	if skipVerify {
+		if c := config.Get(); c != nil && c.Server.Mode == "production" {
+			log.Printf("warning: InsecureSkipVerify overridden to false in production mode")
+			skipVerify = false
+		}
+	}
+	c, err := tls.Dial("tcp", s.host, &tls.Config{InsecureSkipVerify: skipVerify})
 	if err != nil {
 		return err
 	}

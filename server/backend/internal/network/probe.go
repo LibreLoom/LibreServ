@@ -1,12 +1,13 @@
 package network
 
 import (
+	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
 
-// ProbeResult captures reachability test results.
 type ProbeResult struct {
 	Target    string        `json:"target"`
 	Port      int           `json:"port"`
@@ -15,7 +16,35 @@ type ProbeResult struct {
 	Error     string        `json:"error,omitempty"`
 }
 
-// ProbeTCP tries to connect to host:port with a timeout.
+func isBlockedIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 169 && ip4[1] == 254 {
+			return true
+		}
+	}
+	return false
+}
+
+func ValidateHost(host string) error {
+	if ip := net.ParseIP(host); ip != nil {
+		if isBlockedIP(ip) {
+			return fmt.Errorf("target IP is not allowed")
+		}
+		return nil
+	}
+	blocked := []string{"metadata.google.internal", "metadata.azure.internal"}
+	lower := strings.ToLower(host)
+	for _, b := range blocked {
+		if lower == b {
+			return fmt.Errorf("target host is not allowed")
+		}
+	}
+	return nil
+}
+
 func ProbeTCP(host string, port int, timeout time.Duration) *ProbeResult {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()

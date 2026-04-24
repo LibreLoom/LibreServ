@@ -157,17 +157,27 @@ func (l *limiter) extractIP(r *http.Request) string {
 		host = r.RemoteAddr
 	}
 
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		if len(parts) > 0 {
-			trimmed := strings.TrimSpace(parts[0])
-			if trimmed != "" {
-				host = trimmed
+	if isTrustedProxy(host) {
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			parts := strings.Split(forwarded, ",")
+			for i := len(parts) - 1; i >= 0; i-- {
+				ip := strings.TrimSpace(parts[i])
+				if ip != "" {
+					return "ip:" + ip
+				}
 			}
 		}
 	}
 
 	return "ip:" + host
+}
+
+func isTrustedProxy(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback() || ip.IsPrivate()
 }
 
 func (l *limiter) take(key string, rule RateRule) (remaining int, reset time.Duration, allowed bool) {

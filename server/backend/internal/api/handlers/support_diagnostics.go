@@ -57,7 +57,7 @@ func (h *SupportDiagnosticsHandler) Get(w http.ResponseWriter, r *http.Request) 
 	if cfg != nil && cfg.Apps.DataPath != "" {
 		if path, err := resolveConfigPath(cfg.Apps.DataPath); err == nil {
 			if err := syscall.Statfs(path, &stat); err == nil {
-				free := stat.Bavail * uint64(stat.Bsize)
+				free := safeDiskBytes(int64(stat.Bavail), stat.Bsize)
 				results["disk_space_bytes_free"] = free
 			}
 		}

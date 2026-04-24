@@ -163,7 +163,8 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.settingsService.UpdateSettings(r.Context(), updates); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		slog.Error("Failed to update settings", "error", err)
+		JSONError(w, http.StatusBadRequest, "invalid settings")
 		return
 	}
 
@@ -278,7 +279,8 @@ func (h *SettingsHandler) UpdateNotifications(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := h.settingsService.UpdateSettings(r.Context(), filtered); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		slog.Error("Failed to update notification settings", "error", err)
+		JSONError(w, http.StatusBadRequest, "invalid notification settings")
 		return
 	}
 
@@ -403,7 +405,8 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 	// Wrap updates in proxy object to match UpdateSettings expectations
 	proxyUpdates := map[string]interface{}{"proxy": updates}
 	if err := h.settingsService.UpdateSettings(r.Context(), proxyUpdates); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		slog.Error("Failed to update proxy settings", "error", err)
+		JSONError(w, http.StatusBadRequest, "invalid proxy settings")
 		return
 	}
 

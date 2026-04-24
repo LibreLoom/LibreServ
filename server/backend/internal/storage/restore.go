@@ -100,7 +100,7 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 	}()
 
 	// Create app directory
-	if err := os.MkdirAll(appPath, 0755); err != nil {
+	if err := os.MkdirAll(appPath, 0750); err != nil {
 		result.Error = fmt.Errorf("failed to create app directory: %w", err)
 		return result, result.Error
 	}
@@ -191,17 +191,17 @@ func (s *BackupService) extractTarball(tarPath, destPath string) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
+			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)&0o0755); err != nil {
 				return fmt.Errorf("failed to create directory %s: %w", targetPath, err)
 			}
 
 		case tar.TypeReg:
 			// Ensure parent directory exists
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0750); err != nil {
 				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
 
-			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode))
+			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode)&0o755)
 			if err != nil {
 				return fmt.Errorf("failed to create file %s: %w", targetPath, err)
 			}
@@ -449,7 +449,7 @@ func rewriteFileInstanceID(filePath, oldID, newID string) error {
 		return nil
 	}
 
-	if err := os.WriteFile(filePath, []byte(newContent), 0644); err != nil {
+	if err := os.WriteFile(filePath, []byte(newContent), 0640); err != nil {
 		return err
 	}
 

@@ -120,7 +120,17 @@ func NewServer(cfg ServerConfig) *Server {
 		r.Use(middleware.SecurityHeaders())
 	}
 
-	// Set request timeout
+	r.Use(maxBodySize(10 << 20))
+
+	if cfg.DevMode {
+		cfg := config.Get()
+		if cfg != nil && cfg.Server.Mode == "production" {
+			logger.Error("DEV MODE IS ACTIVE IN PRODUCTION CONFIG - security headers are relaxed")
+		} else {
+			logger.Warn("dev mode is enabled - security headers are relaxed")
+		}
+	}
+
 	r.Use(chimiddleware.Timeout(60 * time.Second))
 
 	// Initialize security service with email notifier
@@ -191,11 +201,12 @@ func NewServer(cfg ServerConfig) *Server {
 // Start starts the HTTP server
 func (s *Server) Start() error {
 	s.httpServer = &http.Server{
-		Addr:         s.addr,
-		Handler:      s.router,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:           s.addr,
+		Handler:        s.router,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 
 	s.logger.Info("Starting HTTP server", "addr", s.addr)
@@ -324,7 +335,7 @@ func (s *Server) serveFSPath(w http.ResponseWriter, r *http.Request, fsPath, nam
 	}
 
 	// Set Content Security Policy headers for XSS protection
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://gt.plainskill.net; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://gt.plainskill.net; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-Frame-Options", "DENY")
 
@@ -341,4 +352,13 @@ func addVaryHeader(header http.Header, value string) {
 		return
 	}
 	header.Set("Vary", value)
+}
+
+func maxBodySize(max int64) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, max)
+			next.ServeHTTP(w, r)
+		})
+	}
 }

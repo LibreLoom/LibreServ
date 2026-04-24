@@ -23,7 +23,6 @@ const (
 	StatusExpired Status = "expired"
 )
 
-// Session represents a support session record.
 type Session struct {
 	ID           string     `json:"id"`
 	Code         string     `json:"code"`
@@ -37,6 +36,11 @@ type Session struct {
 	RevokedBy    string     `json:"revoked_by,omitempty"`
 	SupportLevel string     `json:"support_level,omitempty"`
 	LicenseID    string     `json:"license_id,omitempty"`
+}
+
+func (s *Session) Sanitize() {
+	s.Code = ""
+	s.Token = ""
 }
 
 // Service manages support session lifecycle and audit logging.
@@ -144,6 +148,7 @@ func (s *Service) ListSessions(ctx context.Context, limit int) ([]*Session, erro
 		if revokedBy.Valid {
 			sess.RevokedBy = revokedBy.String
 		}
+		sess.Sanitize()
 		sessions = append(sessions, &sess)
 	}
 	return sessions, nil
@@ -174,10 +179,9 @@ func (s *Service) GetSession(ctx context.Context, id string) (*Session, error) {
 	if revokedBy.Valid {
 		sess.RevokedBy = revokedBy.String
 	}
+	sess.Sanitize()
 	return &sess, nil
 }
-
-// ValidateCode returns an active session matching code/token.
 func (s *Service) ValidateCode(ctx context.Context, code, token string) (*Session, error) {
 	row := s.db.QueryRow(`
 		SELECT id, code, token, scopes, status, expires_at, created_at, created_by, revoked_at, revoked_by, support_level, license_id
@@ -240,7 +244,7 @@ func splitScopes(s string) []string {
 }
 
 func generateCode() string {
-	b := make([]byte, 4)
+	b := make([]byte, 8)
 	_, _ = rand.Read(b)
 	return strings.ToUpper(hex.EncodeToString(b))
 }

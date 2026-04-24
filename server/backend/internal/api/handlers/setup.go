@@ -35,6 +35,7 @@ type setupDNSState struct {
 
 // SetupHandler handles initial setup endpoints
 type SetupHandler struct {
+	mu             sync.Mutex
 	authService    *auth.Service
 	setupService   *setup.Service
 	docker         *docker.Client
@@ -110,6 +111,9 @@ func (h *SetupHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 // Creates the initial admin user
 // This endpoint is only accessible when setup is not complete
 func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
@@ -185,7 +189,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		// User was created but login failed - still return success
 		JSON(w, http.StatusCreated, map[string]interface{}{
 			"message": "setup complete - please log in",
-			"user":    user,
+			"user":    user.Sanitize(),
 		})
 		return
 	}
@@ -194,7 +198,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 	secure := isSecureRequest(r)
 	refreshExpiresAt := time.Now().Add(7 * 24 * time.Hour)
 	http.SetCookie(w, &http.Cookie{
-		Name:     "access_token",
+		Name:     accessCookieName,
 		Value:    tokens.Tokens.AccessToken,
 		Path:     "/",
 		Expires:  time.Unix(tokens.Tokens.ExpiresAt, 0),
@@ -203,7 +207,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
-		Name:     "refresh_token",
+		Name:     refreshCookieName,
 		Value:    tokens.Tokens.RefreshToken,
 		Path:     "/",
 		Expires:  refreshExpiresAt,
@@ -217,7 +221,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"message": "setup complete",
-		"user":    tokens.User,
+		"user":    tokens.User.Sanitize(),
 		"tokens":  tokens.Tokens,
 		"license": LicenseSnapshot(h.license),
 	})
@@ -343,7 +347,7 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		if err := syscall.Statfs(resolvedPath, &stat); err != nil {
 			return err
 		}
-		diskFree = stat.Bavail * uint64(stat.Bsize)
+		diskFree = safeDiskBytes(int64(stat.Bavail), stat.Bsize)
 		if diskFree < 512*1024*1024 {
 			return fmt.Errorf("low disk space")
 		}
@@ -518,12 +522,14 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 		Enabled:  true,
 	}
 	if err := h.dnsProviderMgr.SaveConfig(r.Context(), cfg); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to save DNS config: "+err.Error())
+		slog.Error("Failed to save DNS config", "error", err)
+		JSONError(w, http.StatusInternalServerError, "failed to save DNS config")
 		return
 	}
 
 	if err := h.dnsProviderMgr.SetupWildcardDNS(r.Context(), cfg, publicIP); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to set up DNS records: "+err.Error())
+		slog.Error("Failed to set up DNS records", "error", err)
+		JSONError(w, http.StatusInternalServerError, "failed to set up DNS records")
 		return
 	}
 

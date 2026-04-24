@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -154,9 +155,10 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 
 	logsResult, err := rawClient.ContainerLogs(ctx, containerID, opts)
 	if err != nil {
+		slog.Error("Failed to get container logs", "container_id", containerID, "error", err)
 		errEvent := map[string]string{
 			"type":    "stderr",
-			"content": fmt.Sprintf("Failed to get container logs: %v", err),
+			"content": "Failed to get container logs",
 		}
 		data, _ := json.Marshal(errEvent)
 		fmt.Fprintf(w, "data: %s\n\n", data)
@@ -176,10 +178,10 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil && err != io.EOF {
-		// If an error happens midway, try to inform the client
+		slog.Error("Log stream interrupted", "container_id", containerID, "error", err)
 		errEvent := map[string]string{
 			"type":    "stderr",
-			"content": fmt.Sprintf("stream interrupted: %v", err),
+			"content": "stream interrupted",
 		}
 		data, _ := json.Marshal(errEvent)
 		fmt.Fprintf(w, "data: %s\n\n", data)

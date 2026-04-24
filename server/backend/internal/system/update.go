@@ -45,7 +45,7 @@ type RestartSignal struct{}
 func (e RestartSignal) Error() string { return "restart required" }
 
 func init() {
-	if err := os.MkdirAll(updateStateDir, 0755); err != nil {
+	if err := os.MkdirAll(updateStateDir, 0750); err != nil {
 		if tmpDir, err := os.UserConfigDir(); err == nil {
 			updateStateDirFallback = tmpDir
 		} else {
@@ -375,7 +375,7 @@ type giteaRelease struct {
 // saveUpdateState persists update state to disk with secure permissions
 func saveUpdateState(state *UpdateState) error {
 	dir := getStateDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
 	}
 	path := filepath.Join(dir, updateStateFile)
@@ -569,7 +569,7 @@ func checkDiskSpace(requiredBytes int64) error {
 	}
 
 	// Available space = free blocks * block size
-	available := int64(stat.Bavail) * int64(stat.Bsize)
+	available := int64(safeDiskBytes(int64(stat.Bavail), stat.Bsize))
 
 	if available < requiredBytes {
 		return fmt.Errorf("only %d bytes available, need %d bytes", available, requiredBytes)
@@ -591,4 +591,11 @@ func timedRename(oldPath, newPath string, timeout time.Duration) error {
 	case <-time.After(timeout):
 		return fmt.Errorf("rename operation timed out after %v", timeout)
 	}
+}
+
+func safeDiskBytes(blocks, bsize int64) uint64 {
+	if blocks < 0 || bsize <= 0 {
+		return 0
+	}
+	return uint64(blocks) * uint64(bsize)
 }

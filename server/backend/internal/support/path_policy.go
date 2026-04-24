@@ -69,7 +69,7 @@ func (p *PathPolicy) EnsureScratch(path string) error {
 	if path == "" {
 		return errors.New("scratch path required")
 	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
+	if err := os.MkdirAll(path, 0o750); err != nil {
 		return err
 	}
 	return nil

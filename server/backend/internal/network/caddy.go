@@ -3,12 +3,13 @@ package network
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"math"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"os"
 	"os/exec"
@@ -24,7 +25,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 )
 
-// CaddyManager manages Caddy reverse proxy configuration
 type CaddyManager struct {
 	db           *database.DB
 	config       CaddyConfig
@@ -33,7 +33,6 @@ type CaddyManager struct {
 	reloadMu     sync.Mutex
 	httpClient   *http.Client
 	configBackup string
-	rand         *rand.Rand
 	metrics      *monitoring.CaddyMetrics
 }
 
@@ -62,7 +61,6 @@ func NewCaddyManager(db *database.DB, config CaddyConfig) *CaddyManager {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -553,12 +551,12 @@ func (cm *CaddyManager) regenerateCaddyfileLocked() error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(cm.config.ConfigPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	// Write to file
-	if err := os.WriteFile(cm.config.ConfigPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(cm.config.ConfigPath, []byte(content), 0640); err != nil {
 		return fmt.Errorf("failed to write Caddyfile: %w", err)
 	}
 
@@ -976,7 +974,7 @@ func (cm *CaddyManager) reloadCaddy() error {
 			if attempt == retries {
 				break
 			}
-			time.Sleep(backoffWithJitter(cm.rand, backoffMin, backoffMax, attempt, jitter))
+			time.Sleep(backoffWithJitter(backoffMin, backoffMax, attempt, jitter))
 		}
 
 		// Fall through to CLI method as a last resort (if available).
@@ -1016,20 +1014,26 @@ func isRetryableStatus(code int) bool {
 	}
 }
 
-func backoffWithJitter(r *rand.Rand, min, max time.Duration, attempt int, jitterFraction float64) time.Duration {
+func cryptoRandFloat64() float64 {
+	n, err := rand.Int(rand.Reader, big.NewInt(1<<53))
+	if err != nil {
+		return 0
+	}
+	return float64(n.Int64()) / float64(1<<53)
+}
+
+func backoffWithJitter(min, max time.Duration, attempt int, jitterFraction float64) time.Duration {
 	if attempt < 0 {
 		attempt = 0
 	}
-	// Exponential backoff: min * 2^attempt, capped at max.
 	base := float64(min) * math.Pow(2, float64(attempt))
 	if base > float64(max) {
 		base = float64(max)
 	}
-	if jitterFraction <= 0 || r == nil {
+	if jitterFraction <= 0 {
 		return time.Duration(base)
 	}
-	// Apply +/- jitterFraction.
-	j := (r.Float64()*2 - 1) * jitterFraction // [-jitter, +jitter]
+	j := (cryptoRandFloat64()*2 - 1) * jitterFraction
 	val := base * (1 + j)
 	if val < float64(min) {
 		val = float64(min)
@@ -1054,7 +1058,7 @@ func (cm *CaddyManager) restoreBackup() error {
 		return nil
 	}
 
-	if err := os.WriteFile(cm.config.ConfigPath, []byte(cm.configBackup), 0644); err != nil {
+	if err := os.WriteFile(cm.config.ConfigPath, []byte(cm.configBackup), 0640); err != nil {
 		return err
 	}
 

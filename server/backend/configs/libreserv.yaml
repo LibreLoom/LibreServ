@@ -5,9 +5,11 @@ server:
 database:
     path: ./dev/data/libreserv.db
 auth:
-    jwt_secret: 7s2GaYdYS6AAyJPaM5wA7B0KDfzZiR6DucwNcjuLVyw=
+    jwt_secret: ""
+    # Auto-generated on first run
     secret_file: ""
-    csrf_secret: eioEvRHrlYYFBT0I3XbpABWMTbcYwAnh5dYosPwHeXA=
+    csrf_secret: ""
+    # Auto-generated on first run
 apps:
     data_path: ./dev/apps
     catalog_path: ./apps

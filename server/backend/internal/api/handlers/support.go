@@ -26,12 +26,21 @@ func NewSupportHandler(svc *support.Service, lic middleware.LicenseChecker) *Sup
 	return &SupportHandler{svc: svc, license: lic, mailer: email.NewSender}
 }
 
+var allowedScopes = map[string]bool{
+	"diagnostics":     true,
+	"files-ro":        true,
+	"files-ro+docker": true,
+	"files-rw":        true,
+	"files-rw+docker": true,
+	"shell-lite":      true,
+	"shell-full":      true,
+}
+
 type createSessionRequest struct {
 	Scopes []string `json:"scopes"`
 	TTL    string   `json:"ttl"` // e.g., "1h", "30m"
 }
 
-// CreateSession creates a new support session.
 func (h *SupportHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	if h.license != nil && !h.license.Valid() {
 		JSONError(w, http.StatusForbidden, "support requires a valid license: "+h.license.Reason())
@@ -41,6 +50,12 @@ func (h *SupportHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		JSONError(w, http.StatusBadRequest, "invalid request body")
 		return
+	}
+	for _, scope := range req.Scopes {
+		if !allowedScopes[scope] {
+			JSONError(w, http.StatusBadRequest, "invalid scope: "+scope)
+			return
+		}
 	}
 	ttl := time.Hour
 	if req.TTL != "" {
@@ -138,7 +153,7 @@ func (h *SupportHandler) notifySupport(sess *support.Session) {
 	}
 	data := map[string]string{
 		"Code":      sess.Code,
-		"Token":     sess.Token,
+		"Token":     "***",
 		"Expires":   sess.ExpiresAt.String(),
 		"Scopes":    strings.Join(sess.Scopes, ","),
 		"CreatedBy": sess.CreatedBy,

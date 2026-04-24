@@ -14,6 +14,22 @@ type User struct {
 	LastLogin    *time.Time `json:"last_login,omitempty"`
 }
 
+// Sanitize returns a copy with sensitive fields cleared for API responses.
+func (u *User) Sanitize() *User {
+	if u == nil {
+		return nil
+	}
+	return &User{
+		ID:        u.ID,
+		Username:  u.Username,
+		Email:     u.Email,
+		Role:      u.Role,
+		CreatedAt: u.CreatedAt,
+		UpdatedAt: u.UpdatedAt,
+		LastLogin: u.LastLogin,
+	}
+}
+
 // UserRepository defines database operations for users.
 type UserRepository interface {
 	Create(user *User) error

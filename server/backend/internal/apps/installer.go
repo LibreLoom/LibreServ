@@ -142,7 +142,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	}
 
 	installPath := filepath.Join(i.appsDataDir, instanceID)
-	if err := os.MkdirAll(installPath, 0755); err != nil {
+	if err := os.MkdirAll(installPath, 0750); err != nil {
 		return &InstallResult{Success: false, Error: "failed to create install directory"}, err
 	}
 
@@ -651,7 +651,7 @@ func (i *Installer) createDataDirectories(installPath string, appDef *AppDefinit
 
 	for _, dir := range dirs {
 		path := filepath.Join(installPath, dir)
-		if err := os.MkdirAll(path, 0755); err != nil {
+		if err := os.MkdirAll(path, 0750); err != nil {
 			return err
 		}
 	}
@@ -661,11 +661,11 @@ func (i *Installer) createDataDirectories(installPath string, appDef *AppDefinit
 			continue
 		}
 		dataPath := filepath.Join(installPath, "data", vol.Name)
-		if err := os.MkdirAll(dataPath, 0755); err != nil {
+		if err := os.MkdirAll(dataPath, 0750); err != nil {
 			return err
 		}
 		configPath := filepath.Join(installPath, "config", vol.Name)
-		if err := os.MkdirAll(configPath, 0755); err != nil {
+		if err := os.MkdirAll(configPath, 0750); err != nil {
 			return err
 		}
 	}
@@ -685,7 +685,7 @@ func (i *Installer) copyScripts(installPath string, appDef *AppDefinition) error
 	}
 
 	installScriptsPath := filepath.Join(installPath, "scripts")
-	if err := os.MkdirAll(installScriptsPath, 0755); err != nil {
+	if err := os.MkdirAll(installScriptsPath, 0750); err != nil {
 		return fmt.Errorf("failed to create scripts directory: %w", err)
 	}
 

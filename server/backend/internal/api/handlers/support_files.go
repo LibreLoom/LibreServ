@@ -138,7 +138,17 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusRequestEntityTooLarge, "payload too large")
 		return
 	}
-	if err := os.WriteFile(cleanPath, []byte(req.Data), 0o644); err != nil {
+
+	ext := strings.ToLower(filepath.Ext(cleanPath))
+	configExts := map[string]bool{".yaml": true, ".yml": true, ".json": true, ".conf": true, ".toml": true, ".env": true}
+	if configExts[ext] {
+		if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
+			JSONError(w, http.StatusForbidden, "cannot create new config files")
+			return
+		}
+	}
+
+	if err := os.WriteFile(cleanPath, []byte(req.Data), 0o640); err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to write file")
 		h.svc.LogAudit(r.Context(), &support.AuditEntry{
 			SessionID:  session.ID,

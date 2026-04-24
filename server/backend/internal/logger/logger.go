@@ -99,7 +99,7 @@ func Init(cfg config.LoggingConfig) {
 			filePath = filepath.Join(path, "libreserv.log")
 		}
 
-		if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(filePath), 0o750); err != nil {
 			fmt.Fprintln(os.Stderr, "logger: failed to create log directory:", err)
 		} else {
 			f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)

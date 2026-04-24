@@ -12,7 +12,7 @@ func CORS(allowedOrigins []string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			allowOrigin := "*"
+			var allowOrigin string
 			if len(origins) > 0 {
 				if origin == "" {
 					allowOrigin = ""
@@ -22,8 +22,11 @@ func CORS(allowedOrigins []string) func(next http.Handler) http.Handler {
 				} else {
 					allowOrigin = origin
 				}
-			} else if origin == "" {
-				allowOrigin = ""
+			} else {
+				if origin != "" {
+					http.Error(w, "CORS origin denied", http.StatusForbidden)
+					return
+				}
 			}
 
 			if allowOrigin != "" {

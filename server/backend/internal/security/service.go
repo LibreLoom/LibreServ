@@ -209,7 +209,7 @@ func (s *Service) getNotificationRecipients(event *Event) ([]string, error) {
 			SELECT u.email 
 			FROM users u
 			JOIN user_security_settings s ON u.id = s.user_id
-			WHERE u.id = $1 AND s.notifications_enabled = true
+			WHERE u.id = ? AND s.notifications_enabled = true
 		`, event.ActorID).Scan(&userEmail)
 		if err == nil {
 			recipients = append(recipients, userEmail)
@@ -280,7 +280,7 @@ func (s *Service) RecordEvent(ctx context.Context, event *Event) error {
 	query := `
 		INSERT INTO security_events (timestamp, event_type, severity, actor_id, actor_username, 
 		ip_address, user_agent, details, metadata, notified)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`
 
@@ -466,27 +466,22 @@ func (s *Service) ListEvents(ctx context.Context, filter EventFilter) (*Paginate
 
 	var conditions []string
 	var args []interface{}
-	argIdx := 1
 
 	if filter.ActorID != "" {
-		conditions = append(conditions, fmt.Sprintf("actor_id = $%d", argIdx))
+		conditions = append(conditions, "actor_id = ?")
 		args = append(args, filter.ActorID)
-		argIdx++
 	}
 	if filter.EventType != "" {
-		conditions = append(conditions, fmt.Sprintf("event_type = $%d", argIdx))
+		conditions = append(conditions, "event_type = ?")
 		args = append(args, string(filter.EventType))
-		argIdx++
 	}
 	if filter.Severity != "" {
-		conditions = append(conditions, fmt.Sprintf("severity = $%d", argIdx))
+		conditions = append(conditions, "severity = ?")
 		args = append(args, string(filter.Severity))
-		argIdx++
 	}
 	if !filter.Since.IsZero() {
-		conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", argIdx))
+		conditions = append(conditions, "timestamp >= ?")
 		args = append(args, filter.Since)
-		argIdx++
 	}
 
 	whereClause := ""
@@ -503,8 +498,8 @@ func (s *Service) ListEvents(ctx context.Context, filter EventFilter) (*Paginate
 		FROM security_events
 		%s
 		ORDER BY timestamp DESC
-		LIMIT $%d OFFSET $%d
-	`, whereClause, argIdx, argIdx+1)
+		LIMIT ? OFFSET ?
+	`, whereClause)
 
 	args = append(args, filter.Limit, filter.Offset)
 
@@ -585,7 +580,7 @@ func (s *Service) GetUserSettings(ctx context.Context, userID string) (*UserSett
 		SELECT notifications_enabled, notification_frequency, notify_on_login,
 		       notify_on_failed_login, notify_on_password_change, notify_on_admin_action, use_12_hour_time, updated_at
 		FROM user_security_settings
-		WHERE user_id = $1
+		WHERE user_id = ?
 	`
 
 	row := s.db.QueryRow(query, userID)
@@ -630,7 +625,7 @@ func (s *Service) UpdateUserSettings(ctx context.Context, settings *UserSettings
 		INSERT INTO user_security_settings 
 		(user_id, notifications_enabled, notification_frequency, notify_on_login,
 		 notify_on_failed_login, notify_on_password_change, notify_on_admin_action, use_12_hour_time, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET
 			notifications_enabled = EXCLUDED.notifications_enabled,
 			notification_frequency = EXCLUDED.notification_frequency,
@@ -678,7 +673,7 @@ func (s *Service) GetStats(ctx context.Context) (*Stats, error) {
 	typeQuery := `
 		SELECT event_type, COUNT(*) 
 		FROM security_events 
-		WHERE timestamp > $1
+		WHERE timestamp > ?
 		GROUP BY event_type
 	`
 	weekAgo := time.Now().UTC().Add(-7 * 24 * time.Hour)
@@ -712,7 +707,7 @@ func (s *Service) GetStats(ctx context.Context) (*Stats, error) {
 		SELECT COUNT(*) 
 		FROM security_events 
 		WHERE severity = 'critical' 
-		AND timestamp > $1
+		AND timestamp > ?
 	`
 	if err := s.db.QueryRow(criticalQuery, weekAgo).Scan(&stats.CriticalEvents); err != nil {
 		return nil, fmt.Errorf("get critical events: %w", err)
@@ -723,7 +718,7 @@ func (s *Service) GetStats(ctx context.Context) (*Stats, error) {
 		SELECT COUNT(*) 
 		FROM security_events 
 		WHERE event_type = 'account_locked' 
-		AND timestamp > $1
+		AND timestamp > ?
 	`
 	if err := s.db.QueryRow(lockoutQuery, weekAgo).Scan(&stats.RecentLockouts); err != nil {
 		return nil, fmt.Errorf("get recent lockouts: %w", err)
@@ -733,7 +728,7 @@ func (s *Service) GetStats(ctx context.Context) (*Stats, error) {
 	ipQuery := `
 		SELECT COUNT(DISTINCT ip_address) 
 		FROM security_events 
-		WHERE timestamp > $1
+		WHERE timestamp > ?
 	`
 	if err := s.db.QueryRow(ipQuery, weekAgo).Scan(&stats.UniqueIPs); err != nil {
 		return nil, fmt.Errorf("get unique ips: %w", err)
@@ -745,7 +740,7 @@ func (s *Service) GetStats(ctx context.Context) (*Stats, error) {
 func (s *Service) CleanupOldEvents(ctx context.Context) error {
 	cutoff := time.Now().UTC().Add(-time.Duration(s.config.RetentionDays) * 24 * time.Hour)
 
-	query := `DELETE FROM security_events WHERE timestamp < $1`
+	query := `DELETE FROM security_events WHERE timestamp < ?`
 	result, err := s.db.Exec(query, cutoff)
 	if err != nil {
 		return fmt.Errorf("delete old events: %w", err)

@@ -362,7 +362,7 @@ func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPa
 
 func (e *ScriptExecutor) createConfigFile(path string, config ScriptExecutionConfig) (string, error) {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return "", fmt.Errorf("failed to create config directory: %w", err)
 	}
 

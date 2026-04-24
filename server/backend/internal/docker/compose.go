@@ -173,7 +173,7 @@ func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath st
 		return err
 	}
 
-	if err := os.WriteFile(composePath, hardenedData, 0644); err != nil {
+	if err := os.WriteFile(composePath, hardenedData, 0640); err != nil {
 		return err
 	}
 

@@ -51,6 +51,7 @@ func NewService(db *database.DB, jwtSecret string, logger *slog.Logger) *Service
 		lockoutWindow: constants.DefaultLockoutWindow,
 		lockoutFor:    constants.DefaultLockoutDuration,
 	}
+	svc.loadLockoutsFromDB()
 	return svc
 }
 
@@ -156,29 +157,71 @@ type loginAttempts struct {
 }
 
 func (s *Service) recordFailure(username string) {
+	ctx := context.Background()
+	now := time.Now()
+
+	dbOK := true
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO failed_login_attempts (timestamp, username, ip_address, reason) VALUES (?, ?, ?, ?)`,
+		now, username, "", "failed_login",
+	); err != nil {
+		s.logger.Warn("failed to record login failure to DB", "error", err)
+		dbOK = false
+	}
+
+	var count int
+	windowStart := now.Add(-s.lockoutWindow)
+	if dbOK {
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM failed_login_attempts WHERE username = ? AND timestamp > ?`,
+			username, windowStart,
+		).Scan(&count); err != nil {
+			s.logger.Warn("failed to count login failures from DB", "error", err)
+			dbOK = false
+		}
+	}
+
+	lockedUntil := time.Time{}
+	if count >= s.lockoutAfter {
+		lockedUntil = now.Add(s.lockoutFor)
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO account_lockouts (username, locked_until) VALUES (?, ?)`,
+			username, lockedUntil,
+		); err != nil {
+			s.logger.Warn("failed to record lockout to DB", "error", err)
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	la, ok := s.failed[username]
-	now := time.Now()
-	if !ok {
-		s.failed[username] = &loginAttempts{count: 1, first: now}
-		return
-	}
-	if la.lockedUntil.After(now) {
-		return
-	}
-	if now.Sub(la.first) > s.lockoutWindow {
-		la.count = 1
-		la.first = now
-		return
-	}
-	la.count++
-	if la.count >= s.lockoutAfter {
-		la.lockedUntil = now.Add(s.lockoutFor)
+	if dbOK {
+		s.failed[username] = &loginAttempts{count: count, first: windowStart, lockedUntil: lockedUntil}
+	} else {
+		la, ok := s.failed[username]
+		if !ok {
+			s.failed[username] = &loginAttempts{count: 1, first: now}
+		} else {
+			if la.lockedUntil.After(now) {
+				return
+			}
+			if now.Sub(la.first) > s.lockoutWindow {
+				la.count = 1
+				la.first = now
+			} else {
+				la.count++
+			}
+			if la.count >= s.lockoutAfter {
+				la.lockedUntil = now.Add(s.lockoutFor)
+			}
+		}
 	}
 }
 
 func (s *Service) clearFailures(username string) {
+	ctx := context.Background()
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM account_lockouts WHERE username = ?`, username)
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM failed_login_attempts WHERE username = ?`, username)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.failed, username)
@@ -186,21 +229,51 @@ func (s *Service) clearFailures(username string) {
 
 func (s *Service) isLockedOut(username string) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.isLockedOutUnsafe(username)
+	la, ok := s.failed[username]
+	if ok && la.lockedUntil.After(time.Now()) {
+		s.mu.Unlock()
+		return true
+	}
+	s.mu.Unlock()
+
+	ctx := context.Background()
+	var lockedUntil time.Time
+	err := s.db.QueryRowContext(ctx,
+		`SELECT locked_until FROM account_lockouts WHERE username = ? AND locked_until > ? ORDER BY locked_until DESC LIMIT 1`,
+		username, time.Now(),
+	).Scan(&lockedUntil)
+	if err != nil {
+		return false
+	}
+
+	s.mu.Lock()
+	s.failed[username] = &loginAttempts{lockedUntil: lockedUntil}
+	s.mu.Unlock()
+	return true
 }
 
-// isLockedOutUnsafe checks lockout status without acquiring lock.
-// Must be called while holding s.mu.
-func (s *Service) isLockedOutUnsafe(username string) bool {
-	la, ok := s.failed[username]
-	if !ok {
-		return false
+func (s *Service) loadLockoutsFromDB() {
+	ctx := context.Background()
+	now := time.Now()
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT username, locked_until FROM account_lockouts WHERE locked_until > ?`,
+		now,
+	)
+	if err != nil {
+		return
 	}
-	if time.Now().After(la.lockedUntil) {
-		return false
+	defer rows.Close()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for rows.Next() {
+		var uname string
+		var lockedUntil time.Time
+		if err := rows.Scan(&uname, &lockedUntil); err != nil {
+			continue
+		}
+		s.failed[uname] = &loginAttempts{lockedUntil: lockedUntil}
 	}
-	return true
 }
 
 // Register creates a new user
@@ -586,4 +659,13 @@ func (s *Service) RefreshTokensWithRotation(refreshToken, revokedBy string) (*To
 // CleanupExpiredRevocations removes expired revocation records.
 func (s *Service) CleanupExpiredRevocations() (int64, error) {
 	return s.tokenStore.CleanupExpired()
+}
+
+func (s *Service) CleanupExpiredLockouts() (int64, error) {
+	result, err := s.db.Exec(`DELETE FROM account_lockouts WHERE locked_until < ?`, time.Now())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	return n, nil
 }

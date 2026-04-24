@@ -12,7 +12,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 	"time"
 
 	"github.com/google/uuid"
@@ -75,7 +75,7 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 
 	// Create backup directory
 	backupDir := filepath.Join(s.basePath, "apps", appID)
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0750); err != nil {
 		result.Error = fmt.Errorf("failed to create backup directory: %w", err)
 		return result, result.Error
 	}
@@ -351,7 +351,7 @@ func (s *BackupService) CleanupOldBackups(ctx context.Context, appID string, ret
 func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, error) {
 	// Create backup directory
 	backupDir := filepath.Join(s.basePath, "database")
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
@@ -363,8 +363,7 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 	// Use SQLite VACUUM INTO for a consistent backup
 	tempPath := backupPath + ".tmp"
 
-	// Validate path to prevent SQL injection via single quotes
-	if strings.Contains(tempPath, "'") || strings.Contains(tempPath, "\x00") {
+	if !safePathRegexp.MatchString(tempPath) {
 		return nil, fmt.Errorf("invalid characters in backup path")
 	}
 
@@ -458,6 +457,8 @@ type nopWriteCloser struct {
 }
 
 func (nopWriteCloser) Close() error { return nil }
+
+var safePathRegexp = regexp.MustCompile(`^[a-zA-Z0-9._/\-]+$`)
 
 // ListSchedules returns all backup schedules
 func (s *BackupService) ListSchedules(ctx context.Context) ([]BackupSchedule, error) {
@@ -571,7 +572,7 @@ func (s *BackupService) StoreUploadedBackup(ctx context.Context, filename string
 	uploadID := uuid.New().String()
 	uploadDir := filepath.Join(s.basePath, "uploads", uploadID)
 
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+	if err := os.MkdirAll(uploadDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create upload directory: %w", err)
 	}
 
@@ -656,7 +657,7 @@ func (s *BackupService) StoreUploadedDatabaseBackup(ctx context.Context, filenam
 	backupID := uuid.New().String()
 	backupDir := filepath.Join(s.basePath, "database")
 
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	if err := os.MkdirAll(backupDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create database backup directory: %w", err)
 	}
 

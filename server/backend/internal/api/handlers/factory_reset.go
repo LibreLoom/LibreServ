@@ -2,11 +2,12 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
-	"log/slog"
 )
 
 type FactoryResetHandler struct {
@@ -22,6 +23,14 @@ func NewFactoryResetHandler(db *database.DB, setupSvc *setup.Service) *FactoryRe
 }
 
 func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Confirm bool `json:"confirm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !req.Confirm {
+		JSONError(w, http.StatusBadRequest, "confirmation required")
+		return
+	}
+
 	err := h.db.WithTransaction(r.Context(), func(tx *sql.Tx) error {
 		// Allowlist of tables that can be truncated during factory reset
 		// This prevents SQL injection and ensures only expected tables are cleared

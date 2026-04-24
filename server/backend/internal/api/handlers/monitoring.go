@@ -640,8 +640,8 @@ func (h *MonitoringHandlers) runComprehensiveHealthChecks(ctx context.Context) *
 		if err := syscall.Statfs(resolvedPath, &stat); err != nil {
 			return false, "Cannot stat disk: " + err.Error(), nil
 		}
-		diskFree = stat.Bavail * uint64(stat.Bsize)
-		diskTotal = stat.Blocks * uint64(stat.Bsize)
+		diskFree = safeDiskBytes(int64(stat.Bavail), stat.Bsize)
+		diskTotal = safeDiskBytes(int64(stat.Blocks), stat.Bsize)
 
 		if diskFree < 512*1024*1024 {
 			return false, "Low disk space (< 512MB free)", map[string]interface{}{
@@ -784,6 +784,13 @@ func formatBytes(bytes uint64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.2f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func safeDiskBytes(blocks, bsize int64) uint64 {
+	if blocks < 0 || bsize <= 0 {
+		return 0
+	}
+	return uint64(blocks) * uint64(bsize)
 }
 
 // CleanupMetrics removes old monitoring data

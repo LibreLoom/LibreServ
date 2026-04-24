@@ -235,8 +235,8 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 		}
 	}
 
-	_ = os.MkdirAll(cfg.DataPath, 0o755)
-	_ = os.MkdirAll(cfg.CertsPath, 0o755)
+	_ = os.MkdirAll(cfg.DataPath, 0o750)
+	_ = os.MkdirAll(cfg.CertsPath, 0o750)
 
 	// Run lego to obtain/renew the cert into cfg.DataPath/certificates/.
 	if cfg.UseDocker {
@@ -257,7 +257,7 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 		return fmt.Errorf("lego did not produce expected files: %s / %s", srcCrt, srcKey)
 	}
 	dstDir := filepath.Join(cfg.CertsPath, safeDomainDir(domain))
-	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+	if err := os.MkdirAll(dstDir, 0o750); err != nil {
 		return fmt.Errorf("create cert dir: %w", err)
 	}
 	if err := copyFile(srcCrt, filepath.Join(dstDir, "fullchain.pem"), 0o644); err != nil {
@@ -432,8 +432,8 @@ func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email str
 	if cfg.CertsPath == "" {
 		return fmt.Errorf("certs_path is required")
 	}
-	_ = os.MkdirAll(cfg.DataPath, 0o755)
-	_ = os.MkdirAll(cfg.CertsPath, 0o755)
+	_ = os.MkdirAll(cfg.DataPath, 0o750)
+	_ = os.MkdirAll(cfg.CertsPath, 0o750)
 
 	domains := []string{legoDomain, domain}
 	if cfg.UseDocker {
@@ -453,7 +453,7 @@ func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email str
 	}
 	for _, d := range domains {
 		dstDir := filepath.Join(cfg.CertsPath, safeDomainDir(d))
-		if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		if err := os.MkdirAll(dstDir, 0o750); err != nil {
 			return fmt.Errorf("create cert dir for %s: %w", d, err)
 		}
 		if err := copyFile(srcCrt, filepath.Join(dstDir, "fullchain.pem"), 0o644); err != nil {

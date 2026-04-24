@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -157,7 +158,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 		Secure:   secure,
 	})
-	JSON(w, http.StatusOK, response.User)
+	JSON(w, http.StatusOK, response.User.Sanitize())
 }
 
 // Logout handles POST /api/v1/auth/logout
@@ -268,7 +269,8 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.passwordResetService.RequestReset(r.Context(), req.Email); err != nil {
-		JSONError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("Password reset request failed", "email", req.Email, "error", err)
+		JSONError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -292,12 +294,14 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 
 	user, err := h.passwordResetService.ValidateToken(r.Context(), req.Token)
 	if err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		slog.Warn("Password reset token validation failed", "error", err)
+		JSONError(w, http.StatusBadRequest, "invalid or expired token")
 		return
 	}
 
 	if err := h.passwordResetService.ResetPassword(r.Context(), req.Token, req.NewPassword); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		slog.Error("Password reset failed", "error", err)
+		JSONError(w, http.StatusBadRequest, "failed to reset password")
 		return
 	}
 

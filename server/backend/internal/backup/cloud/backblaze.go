@@ -285,7 +285,7 @@ func (p *BackblazeProvider) Download(ctx context.Context, remotePath, localPath 
 		return fmt.Errorf("download failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(localPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(localPath), 0750); err != nil {
 		return fmt.Errorf("failed to create local directory: %w", err)
 	}
 

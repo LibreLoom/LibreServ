@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/pagination"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
 )
 
@@ -31,7 +32,12 @@ func (h *UsersHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	JSON(w, http.StatusOK, pagination.NewResult(users, total, params))
+	sanitized := make([]*models.User, len(users))
+	for i, u := range users {
+		sanitized[i] = u.Sanitize()
+	}
+
+	JSON(w, http.StatusOK, pagination.NewResult(sanitized, total, params))
 }
 
 // CreateUserRequest represents the payload for creating a user
@@ -94,7 +100,7 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
-		"user":    user,
+		"user":    user.Sanitize(),
 		"message": "user created",
 	})
 }
@@ -112,7 +118,7 @@ func (h *UsersHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusNotFound, "user not found")
 		return
 	}
-	JSON(w, http.StatusOK, user)
+	JSON(w, http.StatusOK, user.Sanitize())
 }
 
 // UpdateUserRequest represents the payload for updating a user
@@ -168,7 +174,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"user":    user,
+		"user":    user.Sanitize(),
 		"message": "user updated",
 	})
 }
