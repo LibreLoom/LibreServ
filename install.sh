@@ -241,13 +241,14 @@ create_directories() {
     log_info "Creating directories..."
     
     # Create all directories first
-    mkdir -p "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${DATA_DIR}/apps" "${DATA_DIR}/backups" "${LOG_DIR}"
+    mkdir -p "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${DATA_DIR}/apps" "${DATA_DIR}/backups" "${LOG_DIR}" "${CONFIG_DIR}/caddy/certs"
     
     # Set ownership - explicitly for each directory
     chown "${USER}:${USER}" "${INSTALL_DIR}"
     chown "${USER}:${USER}" "${CONFIG_DIR}"
     chown -R "${USER}:${USER}" "${DATA_DIR}"
     chown "${USER}:${USER}" "${LOG_DIR}"
+    chown -R "${USER}:${USER}" "${CONFIG_DIR}/caddy"
     
     # Set permissions
     # - INSTALL_DIR: readable by all, writable by user (for catalog updates)
@@ -258,12 +259,15 @@ create_directories() {
     chmod 700 "${DATA_DIR}" "${DATA_DIR}/apps" "${DATA_DIR}/backups"
     # - LOG_DIR: readable by user, writable by service
     chmod 750 "${LOG_DIR}"
+    # - Caddy dirs: writable by service for config/cert generation
+    chmod 750 "${CONFIG_DIR}/caddy"
+    chmod 700 "${CONFIG_DIR}/caddy/certs"
     
     # Verify writability as the target user
     log_info "Verifying directory permissions..."
     local check_failed=false
     
-    for dir in "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}"; do
+    for dir in "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}" "${CONFIG_DIR}/caddy"; do
         if ! su -s /bin/sh "${USER}" -c "test -w ${dir}" 2>/dev/null; then
             log_error "Directory ${dir} is not writable by ${USER}"
             check_failed=true
@@ -450,6 +454,12 @@ docker:
   method: "auto"
   socket_path: ""
   timeout: "30s"
+
+network:
+  caddy:
+    mode: "disabled"
+    config_path: "${CONFIG_DIR}/caddy/Caddyfile"
+    certs_path: "${CONFIG_DIR}/caddy/certs"
 EOF
 
     # Explicitly set ownership and permissions on config file
@@ -520,7 +530,7 @@ verify_permissions() {
     local failed=false
     
     # Check directories
-    for dir in "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}"; do
+    for dir in "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}" "${CONFIG_DIR}/caddy"; do
         if [ ! -d "$dir" ]; then
             log_error "Directory missing: $dir"
             failed=true
@@ -560,7 +570,7 @@ verify_permissions() {
     if [ "$failed" = true ]; then
         log_error "Permission verification failed"
         log_info "Directory listing:"
-        ls -ld "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}" 2>&1 || true
+        ls -ld "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}" "${CONFIG_DIR}/caddy" "${CONFIG_DIR}/caddy/certs" 2>&1 || true
         return 1
     fi
     

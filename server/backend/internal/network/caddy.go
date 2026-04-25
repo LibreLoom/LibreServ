@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"math"
 	"math/big"
 	"net/http"
@@ -83,7 +84,7 @@ func (cm *CaddyManager) WithMetrics(metrics *monitoring.CaddyMetrics) *CaddyMana
 func (cm *CaddyManager) mode() string {
 	m := strings.ToLower(strings.TrimSpace(cm.config.Mode))
 	if m == "" {
-		return "enabled"
+		return "disabled"
 	}
 	return m
 }
@@ -96,6 +97,34 @@ func (cm *CaddyManager) isEnabled() bool {
 func (cm *CaddyManager) isDisabled() bool {
 	m := cm.mode()
 	return m == "disabled" || m == "noop"
+}
+
+// SetMode updates the CaddyManager's mode at runtime.
+// Switching from disabled/noop to enabled triggers initialization and a config reload.
+func (cm *CaddyManager) SetMode(mode string) error {
+	m := strings.ToLower(strings.TrimSpace(mode))
+	validModes := map[string]bool{"enabled": true, "disabled": true, "noop": true}
+	if !validModes[m] {
+		return fmt.Errorf("invalid caddy mode: %s", mode)
+	}
+
+	wasEnabled := cm.isEnabled()
+	cm.config.Mode = m
+
+	if !wasEnabled && cm.isEnabled() {
+		if cm.config.ConfigPath == "" {
+			return fmt.Errorf("cannot enable caddy: config_path not set")
+		}
+		if err := cm.Initialize(context.Background()); err != nil {
+			slog.Warn("caddy initialization on mode change failed", "error", err)
+			return err
+		}
+		slog.Info("caddy mode changed to enabled, initialized successfully")
+	} else {
+		slog.Info("caddy mode updated", "mode", m)
+	}
+
+	return nil
 }
 
 // UpdateDefaults updates domain/email/autohttps defaults and regenerates config.

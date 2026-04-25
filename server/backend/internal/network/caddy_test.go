@@ -71,7 +71,7 @@ func TestCaddyManager_Mode(t *testing.T) {
 		{"enabled", "enabled", "enabled", true, false},
 		{"noop", "noop", "noop", false, true},
 		{"disabled", "disabled", "disabled", false, true},
-		{"empty defaults to enabled", "", "enabled", true, false},
+		{"empty defaults to disabled", "", "disabled", false, true},
 		{"uppercase normalized", "ENABLED", "enabled", true, false},
 	}
 
@@ -87,6 +87,45 @@ func TestCaddyManager_Mode(t *testing.T) {
 			}
 			if got := cm.isDisabled(); got != tt.disabled {
 				t.Errorf("isDisabled() = %v, want %v", got, tt.disabled)
+			}
+		})
+	}
+}
+
+func TestCaddyManager_SetMode(t *testing.T) {
+	tests := []struct {
+		name    string
+		from    string
+		to      string
+		wantErr bool
+	}{
+		{"disabled to enabled", "disabled", "enabled", false},
+		{"enabled to disabled", "enabled", "disabled", false},
+		{"noop to disabled", "noop", "disabled", false},
+		{"invalid mode", "disabled", "invalid", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cm, _ := setupTestCaddyManager(t, tt.from)
+			if tt.from == "enabled" {
+				if err := cm.Initialize(context.Background()); err != nil {
+					t.Fatalf("Initialize() failed: %v", err)
+				}
+			}
+
+			err := cm.SetMode(tt.to)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("SetMode() failed: %v", err)
+			}
+			if got := cm.mode(); got != tt.to {
+				t.Errorf("mode() = %v, want %v", got, tt.to)
 			}
 		})
 	}

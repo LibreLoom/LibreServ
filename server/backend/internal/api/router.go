@@ -93,7 +93,7 @@ func (s *Server) setupRoutes() {
 	s.dnsProviderMgr = network.NewDNSProviderManager(s.db)
 
 	// Initialize setup handler with all required dependencies
-	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService, s.dnsProviderMgr, s.acmeManager)
+	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService, s.dnsProviderMgr, s.acmeManager, s.caddyManager, s.settingsService)
 
 	// Initialize support and system handlers
 	supportHandler := handlers.NewSupportHandler(s.supportService, s.licenseService)

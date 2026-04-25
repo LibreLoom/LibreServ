@@ -390,6 +390,14 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if mode, ok := updates["mode"].(string); ok && mode != "" {
+		validModes := map[string]bool{"enabled": true, "disabled": true, "noop": true}
+		if !validModes[mode] {
+			JSONError(w, http.StatusBadRequest, "invalid mode: must be enabled, disabled, or noop")
+			return
+		}
+	}
+
 	if autoHTTPS, ok := updates["auto_https"]; ok {
 		if _, ok := autoHTTPS.(bool); !ok {
 			JSONError(w, http.StatusBadRequest, "auto_https must be a boolean")
@@ -412,6 +420,11 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Propagate changes to CaddyManager if available
 	if h.caddyManager != nil {
+		if mode, ok := updates["mode"].(string); ok && mode != "" {
+			if err := h.caddyManager.SetMode(mode); err != nil {
+				slog.Warn("Failed to update Caddy mode", "error", err)
+			}
+		}
 		defaultDomain, _ := updates["default_domain"].(string)
 		sslEmail, _ := updates["ssl_email"].(string)
 		autoHTTPS, _ := updates["auto_https"].(bool)

@@ -239,6 +239,9 @@ func (r *Repository) LoadIntoConfig() error {
 		cfg.CORS.AllowedOrigins = csvToStringSlice(v)
 	}
 
+	if v, ok := changes["network.caddy.mode"]; ok && v != "" {
+		cfg.Network.Caddy.Mode = v
+	}
 	if v, ok := changes["network.caddy.default_domain"]; ok {
 		cfg.Network.Caddy.DefaultDomain = v
 	}
@@ -485,6 +488,18 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 		proxy, _ := proxyRaw.(map[string]interface{})
 		if proxy == nil {
 			return fmt.Errorf("invalid proxy format")
+		}
+		if mode, ok := proxy["mode"].(string); ok && mode != "" {
+			validModes := map[string]bool{"enabled": true, "disabled": true, "noop": true}
+			if !validModes[mode] {
+				return fmt.Errorf("invalid caddy mode: %s", mode)
+			}
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Network.Caddy.Mode = mode },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "network.caddy.mode", mode, "string")
+				},
+			})
 		}
 		if defaultDomain, ok := proxy["default_domain"].(string); ok {
 			mutations = append(mutations, mutation{

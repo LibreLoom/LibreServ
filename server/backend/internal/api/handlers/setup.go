@@ -22,6 +22,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
 )
@@ -36,18 +37,19 @@ type setupDNSState struct {
 
 // SetupHandler handles initial setup endpoints
 type SetupHandler struct {
-	mu             sync.Mutex
-	authService    *auth.Service
-	setupService   *setup.Service
-	docker         *docker.Client
-	mailer         func() (*email.Sender, error)
-	license        middleware.LicenseChecker
-	dnsProviderMgr *network.DNSProviderManager
-	acmeManager    *network.ACMEManager
-	dnsState       setupDNSState
+	mu              sync.Mutex
+	authService     *auth.Service
+	setupService    *setup.Service
+	docker          *docker.Client
+	mailer          func() (*email.Sender, error)
+	license         middleware.LicenseChecker
+	dnsProviderMgr  *network.DNSProviderManager
+	acmeManager     *network.ACMEManager
+	caddyManager    *network.CaddyManager
+	settingsService *settings.Service
+	dnsState        setupDNSState
 }
 
-// NewSetupHandler creates a new SetupHandler
 func NewSetupHandler(
 	authService *auth.Service,
 	setupService *setup.Service,
@@ -55,15 +57,19 @@ func NewSetupHandler(
 	license middleware.LicenseChecker,
 	dnsProviderMgr *network.DNSProviderManager,
 	acmeManager *network.ACMEManager,
+	caddyManager *network.CaddyManager,
+	settingsService *settings.Service,
 ) *SetupHandler {
 	return &SetupHandler{
-		authService:    authService,
-		setupService:   setupService,
-		docker:         dockerClient,
-		mailer:         email.NewSender,
-		license:        license,
-		dnsProviderMgr: dnsProviderMgr,
-		acmeManager:    acmeManager,
+		authService:     authService,
+		setupService:    setupService,
+		docker:          dockerClient,
+		mailer:          email.NewSender,
+		license:         license,
+		dnsProviderMgr:  dnsProviderMgr,
+		acmeManager:     acmeManager,
+		caddyManager:    caddyManager,
+		settingsService: settingsService,
 	}
 }
 
@@ -78,6 +84,36 @@ func (h *SetupHandler) checkCertCapability() (available bool, method string) {
 		return true, "binary"
 	}
 	return false, ""
+}
+
+func (h *SetupHandler) enableCaddy(ctx context.Context, domain, email string) error {
+	if h.caddyManager == nil {
+		return nil
+	}
+
+	if err := h.caddyManager.SetMode("enabled"); err != nil {
+		return fmt.Errorf("set caddy mode: %w", err)
+	}
+
+	if err := h.caddyManager.UpdateDefaults(domain, email, true); err != nil {
+		slog.Warn("Failed to update caddy defaults after enable", "error", err)
+	}
+
+	if h.settingsService != nil {
+		proxyUpdates := map[string]interface{}{
+			"proxy": map[string]interface{}{
+				"mode":           "enabled",
+				"default_domain": domain,
+				"ssl_email":      email,
+				"auto_https":     true,
+			},
+		}
+		if err := h.settingsService.UpdateSettings(ctx, proxyUpdates); err != nil {
+			slog.Warn("Failed to persist caddy settings to DB", "error", err)
+		}
+	}
+
+	return nil
 }
 
 // GetStatus handles GET /api/v1/setup/status
@@ -528,6 +564,10 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Failed to set up DNS records", "error", err)
 		JSONError(w, http.StatusInternalServerError, "failed to set up DNS records")
 		return
+	}
+
+	if err := h.enableCaddy(r.Context(), req.Domain, req.Email); err != nil {
+		slog.Warn("Failed to enable caddy after domain setup", "error", err)
 	}
 
 	h.dnsState.mu.Lock()
