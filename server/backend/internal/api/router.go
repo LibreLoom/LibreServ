@@ -140,6 +140,7 @@ func (s *Server) setupRoutes() {
 			r.Post("/complete", setupHandler.CompleteSetup)
 			r.Get("/preflight", setupHandler.Preflight)
 			r.Put("/progress", setupHandler.SaveProgress)
+			r.Post("/progress/reset", setupHandler.ResetProgress)
 			r.Post("/dns/test", setupHandler.TestDNS)
 			r.Post("/dns/apply", setupHandler.ApplyDNS)
 			r.Get("/dns/status", setupHandler.GetDNSStatus)

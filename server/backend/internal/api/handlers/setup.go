@@ -717,6 +717,25 @@ func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]interface{}{"ok": true})
 }
 
+func (h *SetupHandler) ResetProgress(w http.ResponseWriter, r *http.Request) {
+	state, err := h.setupService.Ensure(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		return
+	}
+	if state.Status == setup.StatusComplete {
+		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		return
+	}
+
+	if err := h.setupService.ResetProgress(r.Context()); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to reset progress")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"ok": true})
+}
+
 func isSimpleSlice(v interface{}) bool {
 	arr, ok := v.([]interface{})
 	if !ok {

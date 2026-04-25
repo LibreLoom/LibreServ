@@ -54,7 +54,7 @@ func (s *Service) Ensure(ctx context.Context) (*State, error) {
 	_, err = s.db.Exec(`
 		INSERT INTO setup_state (id, status, nonce, started_at, current_step, step_data)
 		VALUES (1, ?, ?, ?, ?, '{}')
-	`, StatusPending, nonce, now, StepChecking)
+	`, StatusPending, nonce, now, StepWelcome)
 	if err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)
 	}
@@ -63,7 +63,7 @@ func (s *Service) Ensure(ctx context.Context) (*State, error) {
 		Status:      StatusPending,
 		Nonce:       nonce,
 		StartedAt:   &now,
-		CurrentStep: StepChecking,
+		CurrentStep: StepWelcome,
 		StepData:    map[string]interface{}{},
 	}, nil
 }
@@ -140,6 +140,21 @@ func (s *Service) SaveProgress(ctx context.Context, currentStep, currentSubStep 
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
 		return fmt.Errorf("progress save rejected: stale timestamp")
+	}
+	return nil
+}
+
+func (s *Service) ResetProgress(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`
+		UPDATE setup_state
+		SET current_step = ?, current_sub_step = NULL, step_data = '{}', progress_updated_at = ?
+		WHERE id = 1
+	`, StepWelcome, time.Now())
+	if err != nil {
+		return fmt.Errorf("reset progress: %w", err)
 	}
 	return nil
 }

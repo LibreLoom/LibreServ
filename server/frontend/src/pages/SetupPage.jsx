@@ -11,7 +11,6 @@ import useSetupProgress from "../hooks/useSetupProgress";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
-  CHECKING:  "checking",
   WELCOME:   "welcome",
   PREFLIGHT: "preflight",
   DOMAIN:    "domain",
@@ -864,20 +863,11 @@ function ErrorStep({ message }) {
 ErrorStep.propTypes = { message: PropTypes.string };
 
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
-const RESUME_STEP_MAP = {
-  checking:  null,
-  welcome:   STEP.WELCOME,
-  preflight: STEP.PREFLIGHT,
-  domain:    STEP.DOMAIN,
-  account:   STEP.ACCOUNT,
-  complete:  STEP.COMPLETE,
-};
-
 const UNSAFE_SUB_STEPS = new Set(["connecting"]);
 
 export default function SetupPage() {
   const navigate        = useNavigate();
-  const [step, setStep] = useState(STEP.CHECKING);
+  const [step, setStep] = useState(null);
   const [error, setError] = useState(null);
   const [showDomainWizard, setShowDomainWizard] = useState(false);
   const [initialSubStep, setInitialSubStep] = useState(null);
@@ -930,43 +920,34 @@ export default function SetupPage() {
         }
 
         const saved = data.progress;
-        if (saved && saved.current_step) {
-          const resumeStep = RESUME_STEP_MAP[saved.current_step];
-          if (resumeStep === null) {
-            setError("Setup state is invalid (stuck at 'checking'). Please try again.");
-            setStep(STEP.ERROR);
-            return;
-          }
-          if (resumeStep && resumeStep !== STEP.WELCOME) {
-            const savedData = saved.step_data || {};
+        if (saved && saved.current_step && saved.current_step !== "welcome") {
+          const step = saved.current_step;
+          const savedData = saved.step_data || {};
 
-            if (resumeStep === STEP.DOMAIN && saved.current_sub_step) {
-              if (savedData.domain_completed || savedData.domain_skipped) {
-                setStep(STEP.ACCOUNT);
-                saveProgress(STEP.ACCOUNT, "", { ...savedData });
-                return;
-              }
-              if (UNSAFE_SUB_STEPS.has(saved.current_sub_step)) {
-                setStep(STEP.DOMAIN);
-                setInitialSubStep("token_input");
-                setInitialStepData(savedData);
-                setShowDomainWizard(true);
-                saveProgress(STEP.DOMAIN, "token_input", savedData);
-                return;
-              }
-              setStep(STEP.DOMAIN);
-              setInitialSubStep(saved.current_sub_step);
-              setInitialStepData(savedData);
-              setShowDomainWizard(true);
-              progressRef.current = { step: STEP.DOMAIN, subStep: saved.current_sub_step, stepData: savedData };
+          if (step === STEP.DOMAIN) {
+            if (savedData.domain_completed || savedData.domain_skipped) {
+              setStep(STEP.ACCOUNT);
+              saveProgress(STEP.ACCOUNT, "", { ...savedData });
               return;
             }
-
-            setStep(resumeStep);
-            setInitialStepData(savedData);
-            progressRef.current = { step: resumeStep, subStep: "", stepData: savedData };
-            return;
+            if (saved.current_sub_step) {
+              const sub = UNSAFE_SUB_STEPS.has(saved.current_sub_step) ? "token_input" : saved.current_sub_step;
+              setStep(STEP.DOMAIN);
+              setInitialSubStep(sub);
+              setInitialStepData(savedData);
+              setShowDomainWizard(true);
+              progressRef.current = { step: STEP.DOMAIN, subStep: sub, stepData: savedData };
+              if (sub !== saved.current_sub_step) {
+                saveProgress(STEP.DOMAIN, sub, savedData);
+              }
+              return;
+            }
           }
+
+          setStep(step);
+          setInitialStepData(savedData);
+          progressRef.current = { step, subStep: "", stepData: savedData };
+          return;
         }
 
         setStep(STEP.WELCOME);
@@ -976,7 +957,7 @@ export default function SetupPage() {
       }
     };
     check();
-  }, [navigate, saveProgress, flushProgress]);
+  }, [navigate, saveProgress]);
 
   const handleBegin = useCallback(() => advanceStep(STEP.PREFLIGHT), [advanceStep]);
 
@@ -1012,7 +993,7 @@ export default function SetupPage() {
 
   void error;
 
-  if (step === STEP.CHECKING) {
+  if (step === null) {
     return (
       <SetupShell>
         <Loader2 className="w-8 h-8 animate-spin text-secondary/60" />

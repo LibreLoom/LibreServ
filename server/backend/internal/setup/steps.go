@@ -1,7 +1,6 @@
 package setup
 
 var validMainSteps = map[string]bool{
-	StepChecking:  true,
 	StepWelcome:   true,
 	StepPreflight: true,
 	StepDomain:    true,
@@ -33,7 +32,6 @@ var allowedStepDataKeys = map[string]bool{
 }
 
 const (
-	StepChecking  = "checking"
 	StepWelcome   = "welcome"
 	StepPreflight = "preflight"
 	StepDomain    = "domain"
