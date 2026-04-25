@@ -436,24 +436,36 @@ function PreflightStep({ onPass }) {
         </div>
 
         {/* Status line */}
-        <div className="h-6 flex items-center mb-5">
+        <div className="mb-5">
           {running && (
-            <p className="text-xs text-primary/35 animate-in fade-in duration-300">
+            <p className="text-xs text-primary/35 animate-in fade-in duration-300 h-6">
               Running checks&hellip;
             </p>
           )}
           {allPassed && (
-            <p className="text-xs text-primary/50 animate-in fade-in duration-300">
+            <p className="text-xs text-primary/50 animate-in fade-in duration-300 h-6">
               All checks passed.
             </p>
           )}
           {hasFailed && (
-            <span className="inline-flex items-center gap-1.5 animate-in fade-in slide-in-from-bottom-1 duration-500 ease-out">
-              <AlertCircle className="w-3.5 h-3.5 text-error/70 flex-shrink-0" />
-              <p className="text-xs text-error/70">
+            <div className="animate-in fade-in slide-in-from-bottom-1 duration-500 ease-out">
+              <p className="text-xs text-error/70 flex items-center gap-1.5 mb-2">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                 Some checks failed. Fix the issues above and retry.
               </p>
-            </span>
+              {Array.from(new Set(
+                checkEntries
+                  .filter(([, c]) => c.status !== "ok" && c.error)
+                  .map(([, c]) => c.error.toLowerCase())
+                  .filter(err => err.includes("cannot") || err.includes("permission") || err.includes("read-only"))
+              )).length > 0 && (
+                <div className="rounded-card bg-error/5 border border-error/15 p-3">
+                  <p className="text-xs text-primary/60">
+                    <span className="font-semibold text-primary/80">Tip:</span> Storage permission errors often mean the directory is owned by root. Try restarting your device, or check that directories are writable by the libreserv user.
+                  </p>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
