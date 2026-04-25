@@ -405,6 +405,11 @@ logging:
 auth:
   jwt_secret: "${JWT_SECRET}"
   csrf_secret: "${CSRF_SECRET}"
+
+docker:
+  method: "auto"
+  socket_path: ""
+  timeout: "30s"
 EOF
 
     chown -R "${USER}:${USER}" "${CONFIG_DIR}"
