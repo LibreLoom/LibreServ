@@ -348,17 +348,15 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		return checkPathWritable(filepath.Dir(cfg.Logging.Path))
 	})
 
-	if cfg.Network.Caddy.Mode != "disabled" && cfg.Network.Caddy.Mode != "noop" {
-		if cfg.Network.Caddy.ConfigPath != "" {
-			check("caddy_config_writable", "network", func() error {
-				return checkPathWritable(filepath.Dir(cfg.Network.Caddy.ConfigPath))
-			})
-		}
-		if cfg.Network.Caddy.CertsPath != "" {
-			check("caddy_certs_writable", "network", func() error {
-				return checkPathWritable(cfg.Network.Caddy.CertsPath)
-			})
-		}
+	if cfg.Network.Caddy.ConfigPath != "" {
+		check("caddy_config_writable", "network", func() error {
+			return checkPathWritable(filepath.Dir(cfg.Network.Caddy.ConfigPath))
+		})
+	}
+	if cfg.Network.Caddy.CertsPath != "" {
+		check("caddy_certs_writable", "network", func() error {
+			return checkPathWritable(cfg.Network.Caddy.CertsPath)
+		})
 	}
 
 	if cfg.Network.ACME.External.Enabled {

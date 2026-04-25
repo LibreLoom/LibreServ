@@ -590,18 +590,16 @@ func (h *MonitoringHandlers) runComprehensiveHealthChecks(ctx context.Context) *
 		return checkPathWritableHealth(filepath.Dir(cfg.Logging.Path), cfg)
 	})
 
-	// Caddy/Network Checks (if enabled)
-	if cfg.Network.Caddy.Mode != "disabled" && cfg.Network.Caddy.Mode != "noop" {
-		if cfg.Network.Caddy.ConfigPath != "" {
-			runCheck("caddy_config_writable", "network", func() (bool, string, interface{}) {
-				return checkPathWritableHealth(filepath.Dir(cfg.Network.Caddy.ConfigPath), cfg)
-			})
-		}
-		if cfg.Network.Caddy.CertsPath != "" {
-			runCheck("caddy_certs_writable", "network", func() (bool, string, interface{}) {
-				return checkPathWritableHealth(cfg.Network.Caddy.CertsPath, cfg)
-			})
-		}
+	// Caddy/Network Checks
+	if cfg.Network.Caddy.ConfigPath != "" {
+		runCheck("caddy_config_writable", "network", func() (bool, string, interface{}) {
+			return checkPathWritableHealth(filepath.Dir(cfg.Network.Caddy.ConfigPath), cfg)
+		})
+	}
+	if cfg.Network.Caddy.CertsPath != "" {
+		runCheck("caddy_certs_writable", "network", func() (bool, string, interface{}) {
+			return checkPathWritableHealth(cfg.Network.Caddy.CertsPath, cfg)
+		})
 	}
 
 	// ACME Checks (if enabled)
