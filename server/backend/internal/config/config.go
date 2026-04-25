@@ -200,6 +200,24 @@ func LoadConfig(path string) error {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
+	v.SetDefault("server.host", "0.0.0.0")
+	v.SetDefault("server.port", 8080)
+	v.SetDefault("server.mode", "production")
+	v.SetDefault("docker.method", "auto")
+	v.SetDefault("docker.timeout", "30s")
+	v.SetDefault("logging.level", "info")
+	v.SetDefault("smtp.port", 587)
+	v.SetDefault("network.caddy.mode", "disabled")
+	v.SetDefault("network.caddy.admin_api", "localhost:2019")
+	v.SetDefault("network.caddy.auto_https", false)
+	v.SetDefault("network.caddy.reload.retries", 5)
+	v.SetDefault("network.caddy.reload.backoff_min", "1s")
+	v.SetDefault("network.caddy.reload.backoff_max", "30s")
+	v.SetDefault("network.caddy.reload.jitter_fraction", 0.1)
+	v.SetDefault("network.caddy.reload.attempt_timeout", "10s")
+	v.SetDefault("network.caddy.logging.output", "stdout")
+	v.SetDefault("network.caddy.logging.format", "console")
+
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
 			return err

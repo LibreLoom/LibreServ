@@ -426,14 +426,11 @@ create_config() {
     fi
 
     log_info "Creating default configuration..."
-    JWT_SECRET="$(openssl rand -hex 32)"
-    CSRF_SECRET="$(openssl rand -hex 32)"
-
     cat > "${CONFIG_DIR}/libreserv.yaml" <<EOF
-server:
-  host: "0.0.0.0"
-  port: 8080
-  mode: "production"
+# LibreServ Configuration
+# Only paths are set here — all other settings have code defaults.
+# Auth secrets are auto-generated on first boot.
+# Runtime settings can be changed via the web UI (Settings page).
 
 database:
   path: "${DATA_DIR}/libreserv.db"
@@ -443,21 +440,10 @@ apps:
   catalog_path: "${INSTALL_DIR}/catalog"
 
 logging:
-  level: "info"
   path: "${LOG_DIR}/libreserv.log"
-
-auth:
-  jwt_secret: "${JWT_SECRET}"
-  csrf_secret: "${CSRF_SECRET}"
-
-docker:
-  method: "auto"
-  socket_path: ""
-  timeout: "30s"
 
 network:
   caddy:
-    mode: "disabled"
     config_path: "${CONFIG_DIR}/caddy/Caddyfile"
     certs_path: "${CONFIG_DIR}/caddy/certs"
 EOF
