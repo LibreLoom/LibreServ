@@ -46,9 +46,9 @@ const (
 
 const (
 	InsecureConfigWarning = `
-╔══════════════════════════════════════════════════════════════════════╗
-║                 ⚠️  INSECURE CONFIGURATION DETECTED  ⚠️              ║
-╠══════════════════════════════════════════════════════════════════════╣`
+╔════════════════════════════════════════════════════════════════════════════════════════╗
+║                                   ⚠️  INSECURE CONFIGURATION DETECTED  ⚠️                                   ║
+╠════════════════════════════════════════════════════════════════════════════════════════╣`
 )
 
 type SecurityIssue struct {
@@ -275,10 +275,10 @@ func PrintSecurityBanner(result *ValidationResult) {
 	if len(result.Issues) > 0 {
 		fmt.Fprintln(os.Stderr, InsecureConfigWarning)
 		for _, issue := range result.Issues {
-			warningLogger.Warn(fmt.Sprintf("[%s] %s: %s", issue.Severity, issue.Category, issue.Message),
-				"recommendation", issue.Recommendation)
+			fmt.Fprintf(os.Stderr, "║  [%s] %s: %s\n", issue.Severity, issue.Category, issue.Message)
+			fmt.Fprintf(os.Stderr, "║     → %s\n", issue.Recommendation)
 		}
-		fmt.Fprintln(os.Stderr, "╚═══════════════════════════════════════════════════════════════════════╝")
+		fmt.Fprintln(os.Stderr, "╚════════════════════════════════════════════════════════════════════════════════════════╝")
 	}
 
 	if result.Passed {
