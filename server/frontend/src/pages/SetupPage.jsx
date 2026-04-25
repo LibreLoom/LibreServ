@@ -530,11 +530,11 @@ PasswordStrengthBar.propTypes = { score: PropTypes.number.isRequired };
 function FormField({ id, label, hint, children }) {
   return (
     <div>
-      <label htmlFor={id} className="block text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1">
+      <label htmlFor={id} className="block text-primary/80 font-sans text-sm text-left translate-x-5 mb-1">
         {label}
       </label>
       {children}
-      {hint && <p className="text-xs text-secondary/70 mt-1.5 translate-x-5">{hint}</p>}
+      {hint && <p className="text-xs text-primary/70 mt-1.5 translate-x-5">{hint}</p>}
     </div>
   );
 }
@@ -865,7 +865,7 @@ ErrorStep.propTypes = { message: PropTypes.string };
 
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
 const RESUME_STEP_MAP = {
-  checking:  STEP.WELCOME,
+  checking:  null,
   welcome:   STEP.WELCOME,
   preflight: STEP.PREFLIGHT,
   domain:    STEP.DOMAIN,
@@ -882,14 +882,41 @@ export default function SetupPage() {
   const [showDomainWizard, setShowDomainWizard] = useState(false);
   const [initialSubStep, setInitialSubStep] = useState(null);
   const [initialStepData, setInitialStepData] = useState({});
-  const { saveProgress } = useSetupProgress();
+  const { saveProgress, flushProgress } = useSetupProgress();
   const progressRef = useRef({});
+  const savingRef = useRef(false);
 
-  const advanceStep = useCallback((nextStep, subStep, stepData) => {
+  const advanceStep = useCallback(async (nextStep, subStep, stepData) => {
+    const data = stepData || progressRef.current.stepData || {};
+    progressRef.current = { step: nextStep, subStep: subStep || "", stepData: data };
+
+    savingRef.current = true;
+    try {
+      await saveProgress(nextStep, subStep || "", data);
+    } catch {
+      try {
+        await saveProgress(nextStep, subStep || "", data);
+      } catch {
+        setError("Failed to save progress. Please try again.");
+        setStep(STEP.ERROR);
+        return;
+      }
+    } finally {
+      savingRef.current = false;
+    }
+
     setStep(nextStep);
-    progressRef.current = { step: nextStep, subStep: subStep || "", stepData: stepData || progressRef.current.stepData || {} };
-    saveProgress(nextStep, subStep || "", progressRef.current.stepData);
   }, [saveProgress]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (savingRef.current) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
 
   useEffect(() => {
     const check = async () => {
@@ -904,6 +931,11 @@ export default function SetupPage() {
         const saved = data.progress;
         if (saved && saved.current_step) {
           const resumeStep = RESUME_STEP_MAP[saved.current_step];
+          if (resumeStep === null) {
+            setError("Setup state is invalid (stuck at 'checking'). Please try again.");
+            setStep(STEP.ERROR);
+            return;
+          }
           if (resumeStep && resumeStep !== STEP.WELCOME) {
             const savedData = saved.step_data || {};
 
@@ -943,7 +975,7 @@ export default function SetupPage() {
       }
     };
     check();
-  }, [navigate, saveProgress]);
+  }, [navigate, saveProgress, flushProgress]);
 
   const handleBegin = useCallback(() => advanceStep(STEP.PREFLIGHT), [advanceStep]);
 
@@ -967,10 +999,11 @@ export default function SetupPage() {
     advanceStep(STEP.ACCOUNT, "", data);
   }, [advanceStep]);
 
-  const handleAccountSuccess = useCallback(() => {
+  const handleAccountSuccess = useCallback(async () => {
+    await flushProgress();
     setStep(STEP.COMPLETE);
     setTimeout(() => { window.location.href = "/"; }, 1800);
-  }, []);
+  }, [flushProgress]);
 
   const handleAccountError = useCallback((msg) => {
     setError(msg);

@@ -707,7 +707,7 @@ func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "stale timestamp") {
 			slog.Warn("setup progress save rejected due to stale timestamp",
 				"step", req.CurrentStep, "sub_step", req.CurrentSubStep)
-			JSON(w, http.StatusOK, map[string]interface{}{"ok": true, "stale": true})
+			JSONError(w, http.StatusConflict, "progress was modified by another request, please retry")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "failed to save progress")

@@ -3,6 +3,7 @@ import api from "../lib/api";
 
 export default function useSetupProgress() {
   const seqRef = useRef(0);
+  const inFlightRef = useRef(null);
 
   const saveProgress = useCallback((currentStep, currentSubStep, stepData) => {
     const seq = ++seqRef.current;
@@ -13,14 +14,27 @@ export default function useSetupProgress() {
       step_data: stepData || {},
     };
 
-    api("/setup/progress", {
+    const promise = api("/setup/progress", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    }).catch(() => {});
+    }).then(() => ({ seq }));
 
-    return seq;
+    inFlightRef.current = promise;
+    promise.finally(() => {
+      if (inFlightRef.current === promise) {
+        inFlightRef.current = null;
+      }
+    });
+
+    return promise;
   }, []);
 
-  return { saveProgress };
+  const flushProgress = useCallback(async () => {
+    if (inFlightRef.current) {
+      try { await inFlightRef.current; } catch { /* best-effort flush */ }
+    }
+  }, []);
+
+  return { saveProgress, flushProgress };
 }
