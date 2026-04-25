@@ -236,12 +236,47 @@ create_user() {
     fi
 }
 
-# Create directories
+# Create directories with proper ownership and permissions
 create_directories() {
     log_info "Creating directories..."
+    
+    # Create all directories first
     mkdir -p "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${DATA_DIR}/apps" "${DATA_DIR}/backups" "${LOG_DIR}"
-    chown -R "${USER}:${USER}" "${INSTALL_DIR}" "${DATA_DIR}" "${LOG_DIR}"
-    chmod 700 "${DATA_DIR}"
+    
+    # Set ownership - explicitly for each directory
+    chown "${USER}:${USER}" "${INSTALL_DIR}"
+    chown "${USER}:${USER}" "${CONFIG_DIR}"
+    chown -R "${USER}:${USER}" "${DATA_DIR}"
+    chown "${USER}:${USER}" "${LOG_DIR}"
+    
+    # Set permissions
+    # - INSTALL_DIR: readable by all, writable by user (for catalog updates)
+    chmod 755 "${INSTALL_DIR}"
+    # - CONFIG_DIR: restricted (contains secrets)
+    chmod 750 "${CONFIG_DIR}"
+    # - DATA_DIR: restricted (contains app data)
+    chmod 700 "${DATA_DIR}" "${DATA_DIR}/apps" "${DATA_DIR}/backups"
+    # - LOG_DIR: readable by user, writable by service
+    chmod 750 "${LOG_DIR}"
+    
+    # Verify writability as the target user
+    log_info "Verifying directory permissions..."
+    local check_failed=false
+    
+    for dir in "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}"; do
+        if ! su -s /bin/sh "${USER}" -c "test -w ${dir}" 2>/dev/null; then
+            log_error "Directory ${dir} is not writable by ${USER}"
+            check_failed=true
+        fi
+    done
+    
+    if [ "$check_failed" = true ]; then
+        log_error "Permission verification failed. Check that ${USER} user exists and has correct ownership."
+        ls -ld "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}"
+        exit 1
+    fi
+    
+    log_info "Directory permissions verified"
 }
 
 # Prompt for version
@@ -363,6 +398,7 @@ download_catalog() {
         tar -xzf /tmp/catalog.tar.gz -C "${CATALOG_DIR}"
         rm -f /tmp/catalog.tar.gz
         chown -R "${USER}:${USER}" "${CATALOG_DIR}"
+        chmod 755 "${CATALOG_DIR}"
         log_info "App catalog installed"
     else
         rm -f /tmp/catalog.tar.gz
@@ -371,6 +407,7 @@ download_catalog() {
         # Create empty builtin dir so the app doesn't crash on startup
         mkdir -p "${CATALOG_DIR}/builtin"
         chown -R "${USER}:${USER}" "${CATALOG_DIR}"
+        chmod 755 "${CATALOG_DIR}"
     fi
 }
 
@@ -378,6 +415,9 @@ download_catalog() {
 create_config() {
     if [ -f "${CONFIG_DIR}/libreserv.yaml" ]; then
         log_info "Configuration file already exists, preserving"
+        # Ensure correct ownership even if file existed
+        chown "${USER}:${USER}" "${CONFIG_DIR}/libreserv.yaml"
+        chmod 640 "${CONFIG_DIR}/libreserv.yaml"
         return
     fi
 
@@ -412,7 +452,9 @@ docker:
   timeout: "30s"
 EOF
 
-    chown -R "${USER}:${USER}" "${CONFIG_DIR}"
+    # Explicitly set ownership and permissions on config file
+    chown "${USER}:${USER}" "${CONFIG_DIR}/libreserv.yaml"
+    chmod 640 "${CONFIG_DIR}/libreserv.yaml"
 }
 
 # Create systemd service
@@ -470,6 +512,60 @@ verify_service() {
         journalctl -u "${SERVICE_NAME}" --no-pager -n 20
         return 1
     fi
+}
+
+# Verify all permissions before starting service
+verify_permissions() {
+    log_info "Verifying file permissions..."
+    local failed=false
+    
+    # Check directories
+    for dir in "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}"; do
+        if [ ! -d "$dir" ]; then
+            log_error "Directory missing: $dir"
+            failed=true
+            continue
+        fi
+        
+        local owner
+        owner=$(stat -c '%U:%G' "$dir" 2>/dev/null || stat -f '%Su:%Sg' "$dir" 2>/dev/null)
+        if [ "$owner" != "${USER}:${USER}" ]; then
+            log_error "Directory $dir owned by $owner (expected ${USER}:${USER})"
+            failed=true
+        fi
+    done
+    
+    # Check config file
+    if [ -f "${CONFIG_DIR}/libreserv.yaml" ]; then
+        local cfg_owner
+        cfg_owner=$(stat -c '%U:%G' "${CONFIG_DIR}/libreserv.yaml" 2>/dev/null || stat -f '%Su:%Sg' "${CONFIG_DIR}/libreserv.yaml" 2>/dev/null)
+        if [ "$cfg_owner" != "${USER}:${USER}" ]; then
+            log_error "Config file owned by $cfg_owner (expected ${USER}:${USER})"
+            failed=true
+        fi
+    fi
+    
+    # Check binary
+    if [ -x "${INSTALL_DIR}/libreserv" ]; then
+        local bin_owner
+        bin_owner=$(stat -c '%U:%G' "${INSTALL_DIR}/libreserv" 2>/dev/null || stat -f '%Su:%Sg' "${INSTALL_DIR}/libreserv" 2>/dev/null)
+        if [ "$bin_owner" != "root:root" ]; then
+            log_warn "Binary owned by $bin_owner (expected root:root)"
+        fi
+    else
+        log_error "Binary not found or not executable: ${INSTALL_DIR}/libreserv"
+        failed=true
+    fi
+    
+    if [ "$failed" = true ]; then
+        log_error "Permission verification failed"
+        log_info "Directory listing:"
+        ls -ld "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}" "${LOG_DIR}" 2>&1 || true
+        return 1
+    fi
+    
+    log_info "All permissions verified"
+    return 0
 }
 
 # Get IP address for post-install message (portable)
@@ -617,11 +713,17 @@ do_install() {
 
     create_systemd_service
 
-    if verify_service; then
-        print_post_install
+    if verify_permissions; then
+        if verify_service; then
+            print_post_install
+        else
+            log_error "Installation completed but service failed to start"
+            log_error "Check logs with: journalctl -u ${SERVICE_NAME} -n 50"
+            exit 1
+        fi
     else
-        log_error "Installation completed but service failed to start"
-        log_error "Check logs with: journalctl -u ${SERVICE_NAME} -n 50"
+        log_error "Permission verification failed. Not starting service."
+        log_error "Fix permissions and run: systemctl start ${SERVICE_NAME}"
         exit 1
     fi
 }
