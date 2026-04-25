@@ -5,6 +5,8 @@ import PropTypes from "prop-types";
 import api from "../lib/api";
 import DomainWizard from "../components/setup/DomainWizard";
 import ConfirmModal from "../components/common/ConfirmModal";
+import PreflightRemediation from "../components/setup/PreflightRemediation";
+import { summarizeError } from "../lib/preflight-errors";
 import useSetupProgress from "../hooks/useSetupProgress";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -253,10 +255,8 @@ function PreflightRow({ name, check, index, done, rerunning }) {
   const showPrev  = rerunning && check;
   const showEmpty = !done && !check;
 
-  // Extract short error message (first line, truncate long messages)
-  const shortError = isFail && check.error
-    ? check.error.split("\n")[0].replace(/^(cannot|failed to|unable to)/i, "$1").slice(0, 50) + (check.error.length > 50 ? "..." : "")
-    : null;
+  // Use shared error summarization logic
+  const shortError = isFail && check.error ? summarizeError(check.error) : null;
 
   return (
     <div
@@ -435,7 +435,7 @@ function PreflightStep({ onPass }) {
           )}
         </div>
 
-        {/* Status line */}
+        {/* Status line + remediation */}
         <div className="mb-5">
           {running && (
             <p className="text-xs text-primary/35 animate-in fade-in duration-300 h-6">
@@ -453,18 +453,7 @@ function PreflightStep({ onPass }) {
                 <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
                 Some checks failed. Fix the issues above and retry.
               </p>
-              {Array.from(new Set(
-                checkEntries
-                  .filter(([, c]) => c.status !== "ok" && c.error)
-                  .map(([, c]) => c.error.toLowerCase())
-                  .filter(err => err.includes("cannot") || err.includes("permission") || err.includes("read-only"))
-              )).length > 0 && (
-                <div className="rounded-card bg-error/5 border border-error/15 p-3">
-                  <p className="text-xs text-primary/60">
-                    <span className="font-semibold text-primary/80">Tip:</span> Storage permission errors often mean the directory is owned by root. Try restarting your device, or check that directories are writable by the libreserv user.
-                  </p>
-                </div>
-              )}
+              <PreflightRemediation failedChecks={checkEntries} />
             </div>
           )}
         </div>
