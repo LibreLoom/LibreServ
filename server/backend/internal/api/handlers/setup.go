@@ -382,11 +382,17 @@ func checkPathWritable(path string) error {
 		return fmt.Errorf("not configured")
 	}
 
-	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
-		testDir := filepath.Join(resolved, ".perm-check-"+randomSuffix(8))
+	// If path looks like a file (has extension or no trailing slash), check parent dir
+	checkPath := resolved
+	if filepath.Ext(path) != "" || !strings.HasSuffix(path, "/") {
+		checkPath = filepath.Dir(resolved)
+	}
+
+	if info, err := os.Stat(checkPath); err == nil && info.IsDir() {
+		testDir := filepath.Join(checkPath, ".perm-check-"+randomSuffix(8))
 		if err := os.Mkdir(testDir, 0755); err != nil {
 			slog.Error("preflight permission check failed",
-				"path", resolved,
+				"path", checkPath,
 				"error", err,
 				"uid", os.Getuid(),
 				"gid", os.Getgid())
@@ -394,9 +400,9 @@ func checkPathWritable(path string) error {
 		}
 		_ = os.Remove(testDir)
 
-		f, err := os.CreateTemp(resolved, ".probe")
+		f, err := os.CreateTemp(checkPath, ".probe")
 		if err != nil {
-			slog.Error("preflight write check failed", "path", resolved, "error", err)
+			slog.Error("preflight write check failed", "path", checkPath, "error", err)
 			return fmt.Errorf("cannot write to storage")
 		}
 		name := f.Name()
@@ -405,14 +411,14 @@ func checkPathWritable(path string) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(resolved, 0755); err != nil {
-		slog.Error("preflight directory creation failed", "path", resolved, "error", err)
+	if err := os.MkdirAll(checkPath, 0755); err != nil {
+		slog.Error("preflight directory creation failed", "path", checkPath, "error", err)
 		return fmt.Errorf("cannot create storage")
 	}
 
-	f, err := os.CreateTemp(resolved, ".probe")
+	f, err := os.CreateTemp(checkPath, ".probe")
 	if err != nil {
-		slog.Error("preflight write check failed", "path", resolved, "error", err)
+		slog.Error("preflight write check failed", "path", checkPath, "error", err)
 		return fmt.Errorf("cannot write to storage")
 	}
 	name := f.Name()
