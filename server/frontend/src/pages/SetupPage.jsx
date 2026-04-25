@@ -253,6 +253,11 @@ function PreflightRow({ name, check, index, done, rerunning }) {
   const showPrev  = rerunning && check;
   const showEmpty = !done && !check;
 
+  // Extract short error message (first line, truncate long messages)
+  const shortError = isFail && check.error
+    ? check.error.split("\n")[0].replace(/^(cannot|failed to|unable to)/i, "$1").slice(0, 50) + (check.error.length > 50 ? "..." : "")
+    : null;
+
   return (
     <div
       className={`flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 motion-safe:transition-opacity motion-safe:duration-300 ${rerunning ? "opacity-45" : "opacity-100"} animate-in fade-in slide-in-from-bottom-1 duration-300`}
@@ -276,17 +281,14 @@ function PreflightRow({ name, check, index, done, rerunning }) {
 
       {/* Label + detail */}
       <div className="flex-1 min-w-0">
-        <span className="text-sm text-primary capitalize">{label}</span>
-        {isFail && check.error && (
-          <p className="text-xs text-error/75 mt-0.5">
-            {check.error}
-            {check.error.includes("cannot") && (
-              <span className="block mt-1 text-primary/40">
-                Try restarting your device. If this persists, contact support.
-              </span>
-            )}
-          </p>
-        )}
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-sm text-primary capitalize">{label}</span>
+          {isFail && shortError && (
+            <span className="text-xs text-error/75 truncate">
+              ({shortError})
+            </span>
+          )}
+        </div>
         {name === "disk_space" && isOk && check.disk_space_bytes_free && (
           <p className="text-xs text-primary/70 mt-0.5">
             {Math.round((check.disk_space_bytes_free / (1024 * 1024 * 1024)) * 10) / 10} GB free
