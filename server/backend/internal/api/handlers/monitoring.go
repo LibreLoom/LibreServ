@@ -587,14 +587,14 @@ func (h *MonitoringHandlers) runComprehensiveHealthChecks(ctx context.Context) *
 	})
 
 	runCheck("logs_path_writable", "storage", func() (bool, string, interface{}) {
-		return checkPathWritableHealth(cfg.Logging.Path, cfg)
+		return checkPathWritableHealth(filepath.Dir(cfg.Logging.Path), cfg)
 	})
 
 	// Caddy/Network Checks (if enabled)
 	if cfg.Network.Caddy.Mode != "disabled" && cfg.Network.Caddy.Mode != "noop" {
 		if cfg.Network.Caddy.ConfigPath != "" {
 			runCheck("caddy_config_writable", "network", func() (bool, string, interface{}) {
-				return checkPathWritableHealth(cfg.Network.Caddy.ConfigPath, cfg)
+				return checkPathWritableHealth(filepath.Dir(cfg.Network.Caddy.ConfigPath), cfg)
 			})
 		}
 		if cfg.Network.Caddy.CertsPath != "" {

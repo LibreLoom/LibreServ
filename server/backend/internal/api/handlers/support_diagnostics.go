@@ -50,7 +50,7 @@ func (h *SupportDiagnosticsHandler) Get(w http.ResponseWriter, r *http.Request) 
 		return h.docker.HealthCheck()
 	})
 	check("data_path_writable", func() error {
-		return touchPath(cfg.Apps.DataPath)
+		return checkPathWritable(cfg.Apps.DataPath)
 	})
 
 	// Disk space snapshot

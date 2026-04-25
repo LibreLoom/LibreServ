@@ -250,7 +250,7 @@ func TestGetStatusRepairsSoftLockedSetup(t *testing.T) {
 	}
 }
 
-func TestTouchPathResolvesRelativePathsFromConfigLocation(t *testing.T) {
+func TestCheckPathWritableResolvesRelativePathsFromConfigLocation(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "configs", "libreserv.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
@@ -264,8 +264,8 @@ func TestTouchPathResolvesRelativePathsFromConfigLocation(t *testing.T) {
 	}
 
 	relPath := "./dev/apps"
-	if err := touchPath(relPath); err != nil {
-		t.Fatalf("touchPath returned error: %v", err)
+	if err := checkPathWritable(relPath); err != nil {
+		t.Fatalf("checkPathWritable returned error: %v", err)
 	}
 
 	resolvedPath := filepath.Join(filepath.Dir(configPath), relPath)
