@@ -894,6 +894,7 @@ export default function SetupPage() {
     try {
       await saveProgress(nextStep, subStep || "", data);
     } catch {
+      // Retry once on any error (covers 409 stale timestamp + transient failures)
       try {
         await saveProgress(nextStep, subStep || "", data);
       } catch {

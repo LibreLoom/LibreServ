@@ -41,8 +41,11 @@ func newTestSetupHandler(t *testing.T) testSetupDeps {
 	if cfg == nil {
 		t.Fatalf("config not loaded")
 	}
+	cfg.Database.Path = filepath.Join(dir, "test.db")
 	cfg.Apps.DataPath = filepath.Join(dir, "apps")
 	cfg.Logging.Path = filepath.Join(dir, "logs")
+	cfg.Network.Caddy.ConfigPath = filepath.Join(dir, "caddy", "Caddyfile")
+	cfg.Network.Caddy.CertsPath = filepath.Join(dir, "caddy", "certs")
 	svc := auth.NewService(db, "secret", slog.Default())
 	setupSvc := setup.NewService(db)
 	if _, err := setupSvc.Ensure(context.Background()); err != nil {
@@ -164,6 +167,10 @@ func TestPreflightResolvesRelativeDiskSpacePathFromConfigLocation(t *testing.T) 
 	if err := config.LoadConfig(configPath); err != nil {
 		t.Fatalf("load config: %v", err)
 	}
+	cfg := config.Get()
+	cfg.Database.Path = filepath.Join(dir, "test.db")
+	cfg.Network.Caddy.ConfigPath = filepath.Join(dir, "caddy", "Caddyfile")
+	cfg.Network.Caddy.CertsPath = filepath.Join(dir, "caddy", "certs")
 
 	db, err := database.Open(filepath.Join(dir, "test.db"))
 	if err != nil {
