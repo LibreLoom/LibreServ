@@ -68,7 +68,9 @@ server/backend/bin/
 tmp/
 *.swp
 *.tar.gz
-libreserv
+# Build output
+/libreserv
+server/backend/libreserv
 *.pid
 
 # @trafficcone's gosh darned stuffs :)

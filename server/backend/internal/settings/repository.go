@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"time"
@@ -129,7 +130,7 @@ func (r *Repository) SeedFromConfig() error {
 		"smtp.from":                    cfg.SMTP.From,
 		"smtp.use_tls":                 strconv.FormatBool(cfg.SMTP.UseTLS),
 		"smtp.skip_verify":             strconv.FormatBool(cfg.SMTP.SkipVerify),
-		"notify.enabled":              strconv.FormatBool(cfg.Notify.Enabled),
+		"notify.enabled":               strconv.FormatBool(cfg.Notify.Enabled),
 		"notify.welcome_subject":       cfg.Notify.WelcomeSubject,
 		"notify.welcome_body":          cfg.Notify.WelcomeBody,
 		"notify.support_subject":       cfg.Notify.SupportSubject,
@@ -187,6 +188,10 @@ func (r *Repository) LoadIntoConfig() error {
 	}
 	if err := rows.Err(); err != nil {
 		return err
+	}
+
+	if len(changes) > 0 {
+		slog.Debug("settings: DB-backed settings loaded from database, overriding config file values", "count", len(changes))
 	}
 
 	if v, ok := changes["logging.level"]; ok && v != "" {

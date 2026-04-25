@@ -1,3 +1,15 @@
+// Package config manages LibreServ application configuration.
+//
+// Configuration values are resolved in this order (later wins):
+//
+//  1. Code defaults    — viper.SetDefault() in LoadConfig()
+//  2. Config file     — /etc/libreserv/libreserv.yaml (or --config path)
+//  3. Environment     — LIBRESERV_<KEY> (e.g. LIBRESERV_SERVER_PORT)
+//  4. Database         — app_settings table overrides for DB-backed keys
+//
+// DB-backed keys (logging.level, smtp.*, server.mode, cors.allowed_origins,
+// network.caddy.mode/default_domain/email/auto_https) are managed via the
+// Settings UI. Editing these in the config file has no effect after first boot.
 package config
 
 import (
@@ -182,6 +194,34 @@ type CaddyLogConfig struct {
 var globalConfig *Config
 var configFilePath string
 
+// SetDefaults registers all code defaults on the given viper instance.
+// This is exported so subcommands can reuse the same defaults without duplication.
+func SetDefaults(v *viper.Viper) {
+	v.SetDefault("server.host", "0.0.0.0")
+	v.SetDefault("server.port", 8080)
+	v.SetDefault("server.mode", "production")
+	v.SetDefault("database.path", "/var/lib/libreserv/libreserv.db")
+	v.SetDefault("apps.data_path", "/var/lib/libreserv/apps")
+	v.SetDefault("apps.catalog_path", "/opt/libreserv/catalog")
+	v.SetDefault("docker.method", "auto")
+	v.SetDefault("docker.timeout", "30s")
+	v.SetDefault("logging.level", "info")
+	v.SetDefault("logging.path", "/var/log/libreserv/libreserv.log")
+	v.SetDefault("smtp.port", 587)
+	v.SetDefault("network.caddy.mode", "disabled")
+	v.SetDefault("network.caddy.admin_api", "localhost:2019")
+	v.SetDefault("network.caddy.config_path", "/etc/libreserv/caddy/Caddyfile")
+	v.SetDefault("network.caddy.certs_path", "/etc/libreserv/caddy/certs")
+	v.SetDefault("network.caddy.auto_https", false)
+	v.SetDefault("network.caddy.reload.retries", 5)
+	v.SetDefault("network.caddy.reload.backoff_min", "1s")
+	v.SetDefault("network.caddy.reload.backoff_max", "30s")
+	v.SetDefault("network.caddy.reload.jitter_fraction", 0.1)
+	v.SetDefault("network.caddy.reload.attempt_timeout", "10s")
+	v.SetDefault("network.caddy.logging.output", "stdout")
+	v.SetDefault("network.caddy.logging.format", "console")
+}
+
 // LoadConfig loads configuration from disk and environment.
 func LoadConfig(path string) error {
 	v := viper.New()
@@ -200,23 +240,7 @@ func LoadConfig(path string) error {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	v.SetDefault("server.host", "0.0.0.0")
-	v.SetDefault("server.port", 8080)
-	v.SetDefault("server.mode", "production")
-	v.SetDefault("docker.method", "auto")
-	v.SetDefault("docker.timeout", "30s")
-	v.SetDefault("logging.level", "info")
-	v.SetDefault("smtp.port", 587)
-	v.SetDefault("network.caddy.mode", "disabled")
-	v.SetDefault("network.caddy.admin_api", "localhost:2019")
-	v.SetDefault("network.caddy.auto_https", false)
-	v.SetDefault("network.caddy.reload.retries", 5)
-	v.SetDefault("network.caddy.reload.backoff_min", "1s")
-	v.SetDefault("network.caddy.reload.backoff_max", "30s")
-	v.SetDefault("network.caddy.reload.jitter_fraction", 0.1)
-	v.SetDefault("network.caddy.reload.attempt_timeout", "10s")
-	v.SetDefault("network.caddy.logging.output", "stdout")
-	v.SetDefault("network.caddy.logging.format", "console")
+	SetDefaults(v)
 
 	if err := v.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

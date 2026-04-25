@@ -41,6 +41,13 @@ func main() {
 	cfgPath := flag.String("config", "./configs/libreserv.yaml", "path to configuration file")
 	flag.Parse()
 
+	// Dispatch config subcommand before loading the full server
+	args := flag.Args()
+	if len(args) > 0 && args[0] == "config" {
+		handleConfigCommand(args[1:], *cfgPath)
+		return
+	}
+
 	if err := config.LoadConfig(*cfgPath); err != nil {
 		log.Fatalf("failed to load config: %v", err)
 	}

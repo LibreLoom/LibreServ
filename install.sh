@@ -426,26 +426,18 @@ create_config() {
     fi
 
     log_info "Creating default configuration..."
+    JWT_SECRET="$(openssl rand -hex 32)"
+    CSRF_SECRET="$(openssl rand -hex 32)"
+
     cat > "${CONFIG_DIR}/libreserv.yaml" <<EOF
 # LibreServ Configuration
-# Only paths are set here — all other settings have code defaults.
-# Auth secrets are auto-generated on first boot.
-# Runtime settings can be changed via the web UI (Settings page).
+# All paths and settings have code defaults — this file only contains secrets.
+# DB-backed settings (logging.level, smtp.*, server.mode, etc.) must be
+# changed via the Settings UI — editing this file has no effect after first boot.
 
-database:
-  path: "${DATA_DIR}/libreserv.db"
-
-apps:
-  data_path: "${DATA_DIR}/apps"
-  catalog_path: "${INSTALL_DIR}/catalog"
-
-logging:
-  path: "${LOG_DIR}/libreserv.log"
-
-network:
-  caddy:
-    config_path: "${CONFIG_DIR}/caddy/Caddyfile"
-    certs_path: "${CONFIG_DIR}/caddy/certs"
+auth:
+  jwt_secret: "${JWT_SECRET}"
+  csrf_secret: "${CSRF_SECRET}"
 EOF
 
     # Explicitly set ownership and permissions on config file
