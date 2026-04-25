@@ -324,11 +324,12 @@ function PreflightStep({ onPass }) {
     setError(null);
 
     try {
-      const res = await api("/setup/preflight");
+      const res = await fetch("/api/v1/setup/preflight", { credentials: "include" });
       const data = await res.json();
-      setChecks(data.checks ?? {});
-      setHealthy(data.healthy);
-      if (!res.ok && !data.checks) {
+      if (data.checks) {
+        setChecks(data.checks);
+        setHealthy(data.healthy);
+      } else {
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
     } catch (err) {
