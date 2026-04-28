@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/test-utils";
@@ -18,6 +18,25 @@ vi.mock("../context/ToastContext", () => ({
 }));
 
 describe("Login", () => {
+  const originalLocation = window.location;
+
+  beforeEach(() => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        reload: vi.fn(),
+      },
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+
   it("renders login form with username and password fields", () => {
     renderWithProviders(<Login />);
 
@@ -56,6 +75,7 @@ describe("Login", () => {
     await user.click(screen.getByRole("button", { name: /login/i }));
 
     expect(loginFn).toHaveBeenCalledWith("admin", "hunter2");
+    expect(window.location.reload).toHaveBeenCalledTimes(1);
   });
 
   it("shows 401 error message on auth failure", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { renderWithProviders } from "../../../../test/test-utils";
 import NetworkCategory from "../NetworkCategory";
 
@@ -168,7 +168,9 @@ describe("NetworkCategory", () => {
 
     await waitFor(() => expect(screen.getByTestId("routes-card")).toBeInTheDocument());
 
-    RoutesCardProps.onAdd();
+    act(() => {
+      RoutesCardProps.onAdd();
+    });
 
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -181,7 +183,9 @@ describe("NetworkCategory", () => {
 
     await waitFor(() => expect(screen.getByTestId("routes-card")).toBeInTheDocument());
 
-    RoutesCardProps.onEdit(mockRoutes[0]);
+    act(() => {
+      RoutesCardProps.onEdit(mockRoutes[0]);
+    });
 
     await waitFor(() => {
       expect(screen.getByText("Edit Route", { selector: "h2" })).toBeInTheDocument();
@@ -193,7 +197,9 @@ describe("NetworkCategory", () => {
 
     await waitFor(() => expect(screen.getByTestId("routes-card")).toBeInTheDocument());
 
-    RoutesCardProps.onDelete(mockRoutes[0]);
+    act(() => {
+      RoutesCardProps.onDelete(mockRoutes[0]);
+    });
 
     await waitFor(() => {
       expect(screen.getByText("Delete Route", { selector: "h2" })).toBeInTheDocument();

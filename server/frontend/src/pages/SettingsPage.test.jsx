@@ -30,6 +30,11 @@ vi.mock("../lib/security-api.js", () => ({
   sendTestNotification: vi.fn(),
 }));
 
+vi.mock("../lib/notifications-api.js", () => ({
+  getNotifications: vi.fn(),
+  updateNotifications: vi.fn(),
+}));
+
 vi.mock("../context/ToastContext", () => ({
   useToast: () => ({
     addToast: vi.fn(),
@@ -56,9 +61,11 @@ vi.mock("../components/settings/SettingsContent", () => ({
 
 import { getSettings } from "../lib/settings-api.js";
 import { getSecuritySettings } from "../lib/security-api.js";
+import { getNotifications } from "../lib/notifications-api.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getNotifications.mockResolvedValue({});
 });
 
 describe("SettingsPage", () => {
