@@ -112,7 +112,11 @@ func NewServer(cfg ServerConfig) *Server {
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger(logger))
 	r.Use(chimiddleware.Recoverer)
-	r.Use(middleware.CORS(config.Get().CORS.AllowedOrigins))
+	corsOrigins := config.Get().CORS.AllowedOrigins
+	if cfg.DevMode && len(corsOrigins) == 0 {
+		corsOrigins = []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"}
+	}
+	r.Use(middleware.CORS(corsOrigins))
 
 	if cfg.DevMode {
 		r.Use(middleware.DevSecurityHeaders())
