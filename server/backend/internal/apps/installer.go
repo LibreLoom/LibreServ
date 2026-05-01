@@ -978,7 +978,7 @@ func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, i
 	i.logger.Info("Running system-setup", "app_id", appDef.ID, "instance_id", instanceID)
 
 	executor := NewScriptExecutorWithCatalog(i.logger, nil, i.appsDataDir, i.catalogPath)
-	result, err := executor.Execute(ctx, instanceID, scriptPath, config)
+	result, err := executor.ExecuteAt(ctx, instanceID, scriptPath, filepath.Join(i.appsDataDir, instanceID), config)
 	if err != nil {
 		i.logger.Warn("system-setup failed", "app_id", appDef.ID, "error", err)
 		return nil

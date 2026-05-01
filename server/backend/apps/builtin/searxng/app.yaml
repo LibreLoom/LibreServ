@@ -8,7 +8,7 @@ repository: https://github.com/searxng/searxng
 featured: true
 
 deployment:
-  compose_file: app-compose/docker-compose.yml
+  compose_file: app-compose/docker-compose.yml.tmpl
   ports:
     - host: 8080
       container: 8080

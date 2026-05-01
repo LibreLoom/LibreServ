@@ -383,7 +383,7 @@ func (m *Manager) handleRepair(instanceID string) {
 		return
 	}
 
-	result, err := m.scriptExecutor.Execute(context.Background(), instanceID, repairScript, app.Config)
+	result, err := m.scriptExecutor.ExecuteAt(context.Background(), instanceID, repairScript, app.Path, app.Config)
 	if err != nil || !result.Success {
 		m.logger.Warn("Repair script failed", "app_id", app.AppID, "error", err, "output", result.Error)
 		return
@@ -627,7 +627,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 
 		backupScriptPath := m.scriptExecutor.GetSystemScriptPath(catalogApp.CatalogPath, "backup")
 		if backupScriptPath != "" {
-			result, err := m.scriptExecutor.Execute(ctx, instanceID, backupScriptPath, app.Config)
+			result, err := m.scriptExecutor.ExecuteAt(ctx, instanceID, backupScriptPath, app.Path, app.Config)
 			if err != nil || !result.Success {
 				m.recordUpdateFailure(updateID, fmt.Errorf("backup script failed: %v, %s", err, result.Error), false, "")
 				return fmt.Errorf("backup script failed: %w", err)
@@ -662,7 +662,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 	updateScriptPath := m.scriptExecutor.GetSystemScriptPath(catalogApp.CatalogPath, "update")
 	if updateScriptPath != "" {
 		m.logger.Info("Running system-update script", "instance_id", instanceID)
-		result, err := m.scriptExecutor.Execute(ctx, instanceID, updateScriptPath, app.Config)
+		result, err := m.scriptExecutor.ExecuteAt(ctx, instanceID, updateScriptPath, app.Path, app.Config)
 		if err != nil || !result.Success {
 			m.recordUpdateFailure(updateID, fmt.Errorf("system-update script failed: %v, %s", err, result.Error), false, backupID)
 			return fmt.Errorf("system-update script failed: %w", err)

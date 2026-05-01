@@ -107,9 +107,12 @@ func (e *ScriptExecutor) validateScriptPath(scriptPath string) (string, error) {
 }
 
 func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath string, options map[string]interface{}) (*ScriptResult, error) {
+	return e.ExecuteAt(ctx, instanceID, scriptPath, "", options)
+}
+
+func (e *ScriptExecutor) ExecuteAt(ctx context.Context, instanceID, scriptPath, installPath string, options map[string]interface{}) (*ScriptResult, error) {
 	startTime := time.Now()
 
-	// Validate instance ID to prevent path traversal attacks
 	if err := e.validateInstanceID(instanceID); err != nil {
 		return &ScriptResult{
 			Success:  false,
@@ -118,7 +121,6 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 		}, fmt.Errorf("invalid instance ID: %w", err)
 	}
 
-	// Validate and resolve script path (prevents symlink attacks)
 	validatedPath, err := e.validateScriptPath(scriptPath)
 	if err != nil {
 		return &ScriptResult{
@@ -136,7 +138,9 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 		}, fmt.Errorf("script not found: %s", validatedPath)
 	}
 
-	installPath := filepath.Dir(filepath.Dir(validatedPath))
+	if installPath == "" {
+		installPath = filepath.Dir(filepath.Dir(validatedPath))
+	}
 	appDataPath := filepath.Join(installPath, "data")
 	configPath := filepath.Join(installPath, "config.json")
 	configDir := filepath.Join(installPath, "config")
@@ -148,7 +152,7 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 		ConfigPath:  configPath,
 		ConfigDir:   configDir,
 		Runtime: RuntimeInfo{
-			ComposeFile: filepath.Join(installPath, "app-compose", "docker-compose.yml"),
+			ComposeFile: filepath.Join(installPath, "docker-compose.yml"),
 			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
 		},
 		Options: options,
@@ -242,19 +246,22 @@ func (e *ScriptExecutor) validateExposedInfo(raw map[string]interface{}) map[str
 }
 
 func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPath string, options map[string]interface{}) (<-chan ScriptOutput, error) {
-	// Validate instance ID to prevent path traversal attacks (same as Execute)
+	return e.StreamExecuteAt(ctx, instanceID, scriptPath, "", options)
+}
+
+func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, scriptPath, installPath string, options map[string]interface{}) (<-chan ScriptOutput, error) {
 	if err := e.validateInstanceID(instanceID); err != nil {
 		return nil, fmt.Errorf("invalid instance ID: %w", err)
 	}
 
-	// Validate and resolve script path (prevents symlink attacks)
 	validatedPath, err := e.validateScriptPath(scriptPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Install path is derived from validated script path (script is at {installPath}/scripts/{name})
-	installPath := filepath.Dir(filepath.Dir(validatedPath))
+	if installPath == "" {
+		installPath = filepath.Dir(filepath.Dir(validatedPath))
+	}
 	appDataPath := filepath.Join(installPath, "data")
 	configPath := filepath.Join(installPath, "config.json")
 	configDir := filepath.Join(installPath, "config")
@@ -266,7 +273,7 @@ func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPa
 		ConfigPath:  configPath,
 		ConfigDir:   configDir,
 		Runtime: RuntimeInfo{
-			ComposeFile: filepath.Join(installPath, "app-compose", "docker-compose.yml"),
+			ComposeFile: filepath.Join(installPath, "docker-compose.yml"),
 			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
 		},
 		Options: options,

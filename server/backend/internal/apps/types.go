@@ -148,7 +148,7 @@ type AppFeatures struct {
 
 // DeploymentConfig contains Docker deployment settings
 type DeploymentConfig struct {
-	// ComposeFile is the path to docker-compose.yml template relative to app directory
+	// ComposeFile is the path to compose template (.yml.tmpl) relative to app directory
 	ComposeFile string `yaml:"compose_file" json:"compose_file"`
 
 	// Image is for single-container apps (if no compose file)

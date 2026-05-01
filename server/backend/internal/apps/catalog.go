@@ -242,7 +242,7 @@ func (c *Catalog) GetComposeFilePath(appID string) (string, error) {
 
 	composePath := app.Deployment.ComposeFile
 	if composePath == "" {
-		composePath = "docker-compose.yml"
+		composePath = "docker-compose.yml.tmpl"
 	}
 
 	return filepath.Join(app.CatalogPath, composePath), nil
