@@ -47,18 +47,27 @@ const ACCESS_MODELS = {
   },
 };
 
-const TONE_STYLES = {
-  success: { text: "text-primary", bg: "bg-success/20", border: "border-success/30" },
-  warning: { text: "text-primary", bg: "bg-warning/20", border: "border-warning/30" },
-  error: { text: "text-primary", bg: "bg-error/20", border: "border-error/30" },
-  info: { text: "text-primary", bg: "bg-info/20", border: "border-info/30" },
-  neutral: { text: "text-primary", bg: "bg-primary/10", border: "border-primary/20" },
-};
+function getToneStyles(onPrimary) {
+  const text = onPrimary ? "text-secondary" : "text-primary";
+  const neutralBg = onPrimary ? "bg-secondary/10" : "bg-primary/10";
+  const neutralBorder = onPrimary ? "border-secondary/20" : "border-primary/20";
+  return {
+    success: { text, bg: "bg-success/20", border: "border-success/30" },
+    warning: { text, bg: "bg-warning/20", border: "border-warning/30" },
+    error: { text, bg: "bg-error/20", border: "border-error/30" },
+    info: { text, bg: "bg-info/20", border: "border-info/30" },
+    neutral: { text, bg: neutralBg, border: neutralBorder },
+  };
+}
 
-function AccessModel({ model, compact }) {
+function AccessModel({ model, compact, onPrimary = false }) {
+  const tone = getToneStyles(onPrimary);
   const info = ACCESS_MODELS[model] || ACCESS_MODELS.integrated_users;
   const Icon = info.icon;
-  const style = TONE_STYLES[info.tone];
+  const style = tone[info.tone];
+  const labelDim = onPrimary ? "text-secondary/70" : "text-primary/50";
+  const labelMuted = onPrimary ? "text-secondary" : "text-primary/70";
+  const labelDesc = onPrimary ? "text-secondary/80" : "text-primary/60";
 
   if (compact) {
     return (
@@ -67,7 +76,7 @@ function AccessModel({ model, compact }) {
           <Icon size={12} className={style.text} />
         </div>
         <div>
-          <p className="text-xs font-mono text-primary/50">Access</p>
+          <p className={`text-xs font-mono ${labelDim}`}>Access</p>
           <p className={`text-sm font-medium ${style.text}`}>{info.label}</p>
         </div>
       </div>
@@ -81,19 +90,22 @@ function AccessModel({ model, compact }) {
           <Icon size={18} className={style.text} />
         </div>
         <div className="flex-1">
-          <p className="text-xs font-mono uppercase tracking-wide text-primary/70 mb-1">Access Model</p>
+          <p className={`text-xs font-mono uppercase tracking-wide ${labelMuted} mb-1`}>Access Model</p>
           <p className={`text-base font-medium ${style.text}`}>{info.label}</p>
-          <p className="text-sm text-primary/60 mt-1">{info.desc}</p>
+          <p className={`text-sm ${labelDesc} mt-1`}>{info.desc}</p>
         </div>
       </div>
     </div>
   );
 }
 
-function BooleanFeature({ icon: Icon, label, value, compact }) {
+function BooleanFeature({ icon: Icon, label, value, compact, onPrimary = false }) {
+  const tone = getToneStyles(onPrimary);
   const isActive = Boolean(value);
-  const style = isActive ? TONE_STYLES.success : TONE_STYLES.neutral;
+  const style = isActive ? tone.success : tone.neutral;
   const DisplayIcon = isActive ? Check : X;
+  const labelMuted = onPrimary ? "text-secondary" : "text-primary/70";
+  const labelDim = onPrimary ? "text-secondary/70" : "text-primary/50";
 
   if (compact) {
     return (
@@ -102,7 +114,7 @@ function BooleanFeature({ icon: Icon, label, value, compact }) {
           <DisplayIcon size={12} className={style.text} />
         </div>
         <div>
-          <p className="text-xs font-mono text-primary/70">{label}</p>
+          <p className={`text-xs font-mono ${labelMuted}`}>{label}</p>
           <p className={`text-sm font-medium ${style.text}`}>{isActive ? "Yes" : "No"}</p>
         </div>
       </div>
@@ -115,14 +127,16 @@ function BooleanFeature({ icon: Icon, label, value, compact }) {
         <Icon size={16} className={style.text} />
       </div>
       <div className="flex-1">
-        <p className="text-xs font-mono text-primary/50">{label}</p>
+        <p className={`text-xs font-mono ${labelDim}`}>{label}</p>
         <p className={`text-sm font-medium ${style.text}`}>{isActive ? "Supported" : "Not supported"}</p>
       </div>
     </div>
   );
 }
 
-function UpdateBehavior({ behavior, compact }) {
+function UpdateBehavior({ behavior, compact, onPrimary = false }) {
+  const tone = getToneStyles(onPrimary);
+  const labelDim = onPrimary ? "text-secondary/50" : "text-primary/50";
   if (!behavior) return null;
 
   const { automatic, requires_downtime, supports_rollback } = behavior;
@@ -130,12 +144,12 @@ function UpdateBehavior({ behavior, compact }) {
   if (compact) {
     return (
       <div className="flex items-center gap-2">
-        <div className={`p-1.5 rounded-full ${automatic ? TONE_STYLES.info.bg : TONE_STYLES.neutral.bg}`}>
-          <RefreshCw size={12} className={automatic ? TONE_STYLES.info.text : TONE_STYLES.neutral.text} />
+        <div className={`p-1.5 rounded-full ${automatic ? tone.info.bg : tone.neutral.bg}`}>
+          <RefreshCw size={12} className={automatic ? tone.info.text : tone.neutral.text} />
         </div>
         <div>
-          <p className="text-xs font-mono text-primary/50">Updates</p>
-          <p className={`text-sm font-medium ${automatic ? TONE_STYLES.info.text : TONE_STYLES.neutral.text}`}>
+          <p className={`text-xs font-mono ${labelDim}`}>Updates</p>
+          <p className={`text-sm font-medium ${automatic ? tone.info.text : tone.neutral.text}`}>
             {automatic ? "Automatic" : "Manual"}
           </p>
         </div>
@@ -145,23 +159,23 @@ function UpdateBehavior({ behavior, compact }) {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-mono uppercase tracking-wide text-primary/50">Updates</p>
+      <p className={`text-xs font-mono uppercase tracking-wide ${labelDim}`}>Updates</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div className={`flex items-center gap-2 p-2 rounded-large-element ${automatic ? TONE_STYLES.info.bg : TONE_STYLES.neutral.bg}`}>
-          <RefreshCw size={14} className={automatic ? TONE_STYLES.info.text : TONE_STYLES.neutral.text} />
-          <span className={`text-sm ${automatic ? TONE_STYLES.info.text : TONE_STYLES.neutral.text}`}>
+        <div className={`flex items-center gap-2 p-2 rounded-large-element ${automatic ? tone.info.bg : tone.neutral.bg}`}>
+          <RefreshCw size={14} className={automatic ? tone.info.text : tone.neutral.text} />
+          <span className={`text-sm ${automatic ? tone.info.text : tone.neutral.text}`}>
             {automatic ? "Automatic" : "Manual"}
           </span>
         </div>
-        <div className={`flex items-center gap-2 p-2 rounded-large-element ${requires_downtime ? TONE_STYLES.warning.bg : TONE_STYLES.success.bg}`}>
-          <Clock size={14} className={requires_downtime ? TONE_STYLES.warning.text : TONE_STYLES.success.text} />
-          <span className={`text-sm ${requires_downtime ? TONE_STYLES.warning.text : TONE_STYLES.success.text}`}>
+        <div className={`flex items-center gap-2 p-2 rounded-large-element ${requires_downtime ? tone.warning.bg : tone.success.bg}`}>
+          <Clock size={14} className={requires_downtime ? tone.warning.text : tone.success.text} />
+          <span className={`text-sm ${requires_downtime ? tone.warning.text : tone.success.text}`}>
             {requires_downtime ? "Downtime required" : "Zero downtime"}
           </span>
         </div>
-        <div className={`flex items-center gap-2 p-2 rounded-large-element ${supports_rollback ? TONE_STYLES.success.bg : TONE_STYLES.neutral.bg}`}>
-          <RotateCcw size={14} className={supports_rollback ? TONE_STYLES.success.text : TONE_STYLES.neutral.text} />
-          <span className={`text-sm ${supports_rollback ? TONE_STYLES.success.text : TONE_STYLES.neutral.text}`}>
+        <div className={`flex items-center gap-2 p-2 rounded-large-element ${supports_rollback ? tone.success.bg : tone.neutral.bg}`}>
+          <RotateCcw size={14} className={supports_rollback ? tone.success.text : tone.neutral.text} />
+          <span className={`text-sm ${supports_rollback ? tone.success.text : tone.neutral.text}`}>
             {supports_rollback ? "Rollback supported" : "No rollback"}
           </span>
         </div>
@@ -170,7 +184,9 @@ function UpdateBehavior({ behavior, compact }) {
   );
 }
 
-function ResourceHints({ hints, compact }) {
+function ResourceHints({ hints, compact, onPrimary = false }) {
+  const tone = getToneStyles(onPrimary);
+  const labelDim = onPrimary ? "text-secondary/50" : "text-primary/50";
   if (!hints || (!hints.single_instance && !hints.privileged_required)) return null;
 
   if (compact) {
@@ -181,7 +197,7 @@ function ResourceHints({ hints, compact }) {
     return (
       <div className="flex flex-wrap gap-2">
         {items.map((item, i) => (
-          <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${TONE_STYLES[item.tone].bg} ${TONE_STYLES[item.tone].text}`}>
+          <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${tone[item.tone].bg} ${tone[item.tone].text}`}>
             <item.icon size={10} />
             {item.label}
           </span>
@@ -192,18 +208,18 @@ function ResourceHints({ hints, compact }) {
 
   return (
     <div>
-      <p className="text-xs font-mono uppercase tracking-wide text-primary/50 mb-2">Resources</p>
+      <p className={`text-xs font-mono uppercase tracking-wide ${labelDim} mb-2`}>Resources</p>
       <div className="flex flex-wrap gap-2">
         {hints.single_instance && (
-          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${TONE_STYLES.warning.bg}`}>
-            <Server size={14} className={TONE_STYLES.warning.text} />
-            <span className={`text-sm ${TONE_STYLES.warning.text}`}>Single instance only</span>
+          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone.warning.bg}`}>
+            <Server size={14} className={tone.warning.text} />
+            <span className={`text-sm ${tone.warning.text}`}>Single instance only</span>
           </span>
         )}
         {hints.privileged_required && (
-          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${TONE_STYLES.warning.bg}`}>
-            <Zap size={14} className={TONE_STYLES.warning.text} />
-            <span className={`text-sm ${TONE_STYLES.warning.text}`}>Privileged mode required</span>
+          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone.warning.bg}`}>
+            <Zap size={14} className={tone.warning.text} />
+            <span className={`text-sm ${tone.warning.text}`}>Privileged mode required</span>
           </span>
         )}
       </div>
@@ -211,7 +227,9 @@ function ResourceHints({ hints, compact }) {
   );
 }
 
-function Flags({ features, compact }) {
+function Flags({ features, compact, onPrimary = false }) {
+  const tone = getToneStyles(onPrimary);
+  const labelDim = onPrimary ? "text-secondary/50" : "text-primary/50";
   const activeFlags = [];
   if (features.read_only) activeFlags.push({ icon: ShieldCheck, label: "Read-only", tone: "info" });
   if (features.experimental) activeFlags.push({ icon: AlertTriangle, label: "Experimental", tone: "warning" });
@@ -224,7 +242,7 @@ function Flags({ features, compact }) {
     return (
       <div className="flex flex-wrap gap-2">
         {activeFlags.map((flag, i) => (
-          <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${TONE_STYLES[flag.tone].bg} ${TONE_STYLES[flag.tone].text}`}>
+          <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${tone[flag.tone].bg} ${tone[flag.tone].text}`}>
             <flag.icon size={10} />
             {flag.label}
           </span>
@@ -235,12 +253,12 @@ function Flags({ features, compact }) {
 
   return (
     <div>
-      <p className="text-xs font-mono uppercase tracking-wide text-primary/50 mb-2">Flags</p>
+      <p className={`text-xs font-mono uppercase tracking-wide ${labelDim} mb-2`}>Flags</p>
       <div className="flex flex-wrap gap-2">
         {activeFlags.map((flag, i) => (
-          <span key={i} className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${TONE_STYLES[flag.tone].bg}`}>
-            <flag.icon size={14} className={TONE_STYLES[flag.tone].text} />
-            <span className={`text-sm ${TONE_STYLES[flag.tone].text}`}>{flag.label}</span>
+          <span key={i} className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone[flag.tone].bg}`}>
+            <flag.icon size={14} className={tone[flag.tone].text} />
+            <span className={`text-sm ${tone[flag.tone].text}`}>{flag.label}</span>
           </span>
         ))}
       </div>
@@ -248,7 +266,9 @@ function Flags({ features, compact }) {
   );
 }
 
-function Requirements({ features, compact }) {
+function Requirements({ features, compact, onPrimary = false }) {
+  const tone = getToneStyles(onPrimary);
+  const labelMuted = onPrimary ? "text-secondary/70" : "text-primary/70";
   const hasMinRam = features.min_ram;
   const hasMinCpu = features.min_cpu;
 
@@ -258,13 +278,13 @@ function Requirements({ features, compact }) {
     return (
       <div className="flex flex-wrap gap-2">
         {hasMinRam && (
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${TONE_STYLES.neutral.bg} ${TONE_STYLES.neutral.text}`}>
+          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${tone.neutral.bg} ${tone.neutral.text}`}>
             <Database size={10} />
             {features.min_ram}
           </span>
         )}
         {hasMinCpu && (
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${TONE_STYLES.neutral.bg} ${TONE_STYLES.neutral.text}`}>
+          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${tone.neutral.bg} ${tone.neutral.text}`}>
             <Cpu size={10} />
             {features.min_cpu} CPU
           </span>
@@ -275,18 +295,18 @@ function Requirements({ features, compact }) {
 
   return (
     <div>
-      <p className="text-xs font-mono uppercase tracking-wide text-primary/70 mb-2">Requirements</p>
+      <p className={`text-xs font-mono uppercase tracking-wide ${labelMuted} mb-2`}>Requirements</p>
       <div className="flex flex-wrap gap-2">
         {hasMinRam && (
-          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${TONE_STYLES.neutral.bg}`}>
-            <Database size={14} className={TONE_STYLES.neutral.text} />
-            <span className={`text-sm ${TONE_STYLES.neutral.text}`}>{features.min_ram} RAM</span>
+          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone.neutral.bg}`}>
+            <Database size={14} className={tone.neutral.text} />
+            <span className={`text-sm ${tone.neutral.text}`}>{features.min_ram} RAM</span>
           </span>
         )}
         {hasMinCpu && (
-          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${TONE_STYLES.neutral.bg}`}>
-            <Cpu size={14} className={TONE_STYLES.neutral.text} />
-            <span className={`text-sm ${TONE_STYLES.neutral.text}`}>{features.min_cpu} CPU cores</span>
+          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone.neutral.bg}`}>
+            <Cpu size={14} className={tone.neutral.text} />
+            <span className={`text-sm ${tone.neutral.text}`}>{features.min_cpu} CPU cores</span>
           </span>
         )}
       </div>
@@ -294,10 +314,10 @@ function Requirements({ features, compact }) {
   );
 }
 
-function FeatureMatrix({ features, compact = false, className = "" }) {
+function FeatureMatrix({ features, compact = false, className = "", onPrimary = false }) {
   if (!features) {
     return (
-      <div className={`text-sm text-primary/50 italic ${className}`}>
+      <div className={`text-sm italic ${className} ${onPrimary ? "text-secondary/50" : "text-primary/50"}`}>
         No capability information available for this app.
       </div>
     );
@@ -307,24 +327,27 @@ function FeatureMatrix({ features, compact = false, className = "" }) {
     return (
       <div className={className}>
         <div className="grid grid-cols-2 gap-y-3 gap-x-4">
-          <AccessModel model={features.access_model || "integrated_users"} compact />
+          <AccessModel model={features.access_model || "integrated_users"} compact onPrimary={onPrimary} />
           <BooleanFeature
             icon={Lock}
             label="SSO"
             value={features.sso}
             compact
+            onPrimary={onPrimary}
           />
           <BooleanFeature
             icon={Database}
             label="Backup"
             value={features.backup === "supported"}
             compact
+            onPrimary={onPrimary}
           />
           <BooleanFeature
             icon={LayoutTemplate}
             label="Custom Domains"
             value={features.custom_domains}
             compact
+            onPrimary={onPrimary}
           />
         </div>
       </div>
@@ -333,33 +356,36 @@ function FeatureMatrix({ features, compact = false, className = "" }) {
 
   return (
     <div className={`space-y-4 ${className}`}>
-      <AccessModel model={features.access_model || "integrated_users"} />
+      <AccessModel model={features.access_model || "integrated_users"} onPrimary={onPrimary} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <BooleanFeature
           icon={Lock}
           label="Single Sign-On"
           value={features.sso}
+          onPrimary={onPrimary}
         />
         <BooleanFeature
           icon={Database}
           label="Backup Support"
           value={features.backup === "supported"}
+          onPrimary={onPrimary}
         />
         <BooleanFeature
           icon={LayoutTemplate}
           label="Custom Domains"
           value={features.custom_domains}
+          onPrimary={onPrimary}
         />
       </div>
 
-      <UpdateBehavior behavior={features.update_behavior} />
+      <UpdateBehavior behavior={features.update_behavior} onPrimary={onPrimary} />
 
-      <ResourceHints hints={features.resource_hints} />
+      <ResourceHints hints={features.resource_hints} onPrimary={onPrimary} />
 
-      <Flags features={features} />
+      <Flags features={features} onPrimary={onPrimary} />
 
-      <Requirements features={features} />
+      <Requirements features={features} onPrimary={onPrimary} />
     </div>
   );
 }

@@ -530,7 +530,7 @@ export default function AppDetailPage() {
                   <ArrowUpCircle size={32} className="text-secondary/70" />
                   <div>
                     <h2 className="text-xl font-mono font-normal">Update Available</h2>
-                    <p className="text-sm text-primary/70">
+                    <p className="text-sm text-secondary/70">
                       {availableUpdate.current_version} to {availableUpdate.latest_version}
                     </p>
                   </div>
@@ -670,7 +670,7 @@ export default function AppDetailPage() {
                 <Settings size={20} className="text-secondary/70" />
                 <h2 className="text-2xl font-mono font-normal">Capabilities</h2>
               </div>
-              <FeatureMatrix features={catalogFeatures} compact />
+              <FeatureMatrix features={catalogFeatures} compact onPrimary />
             </Card>
           </section>
 
