@@ -430,6 +430,7 @@ type ScriptExecutionConfig struct {
 	InstallPath string                 `json:"install_path"`
 	AppDataPath string                 `json:"app_data_path"`
 	ConfigPath  string                 `json:"config_path"`
+	ConfigDir   string                 `json:"config_dir"`
 	Runtime     RuntimeInfo            `json:"runtime"`
 	Options     map[string]interface{} `json:"options"`
 }

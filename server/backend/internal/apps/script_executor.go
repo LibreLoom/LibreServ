@@ -136,16 +136,17 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 		}, fmt.Errorf("script not found: %s", validatedPath)
 	}
 
-	// Install path is derived from validated script path (script is at {installPath}/scripts/{name})
 	installPath := filepath.Dir(filepath.Dir(validatedPath))
 	appDataPath := filepath.Join(installPath, "data")
 	configPath := filepath.Join(installPath, "config.json")
+	configDir := filepath.Join(installPath, "config")
 
 	scriptConfig := ScriptExecutionConfig{
 		InstanceID:  instanceID,
 		InstallPath: installPath,
 		AppDataPath: appDataPath,
 		ConfigPath:  configPath,
+		ConfigDir:   configDir,
 		Runtime: RuntimeInfo{
 			ComposeFile: filepath.Join(installPath, "app-compose", "docker-compose.yml"),
 			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
@@ -256,12 +257,14 @@ func (e *ScriptExecutor) StreamExecute(ctx context.Context, instanceID, scriptPa
 	installPath := filepath.Dir(filepath.Dir(validatedPath))
 	appDataPath := filepath.Join(installPath, "data")
 	configPath := filepath.Join(installPath, "config.json")
+	configDir := filepath.Join(installPath, "config")
 
 	scriptConfig := ScriptExecutionConfig{
 		InstanceID:  instanceID,
 		InstallPath: installPath,
 		AppDataPath: appDataPath,
 		ConfigPath:  configPath,
+		ConfigDir:   configDir,
 		Runtime: RuntimeInfo{
 			ComposeFile: filepath.Join(installPath, "app-compose", "docker-compose.yml"),
 			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
