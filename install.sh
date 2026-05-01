@@ -18,6 +18,7 @@ DATA_DIR="/var/lib/libreserv"
 LOG_DIR="/var/log/libreserv"
 USER="libreserv"
 SERVICE_NAME="libreserv"
+NO_SYSTEMD=false
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -43,6 +44,7 @@ print_help() {
     echo "Options:"
     echo "  --uninstall    Remove LibreServ (preserves data in ${DATA_DIR})"
     echo "  --upgrade      Upgrade existing installation (preserves data and config)"
+    echo "  --no-systemd   Skip systemd setup (for TESTING only, not for production)"
     echo "  --help         Show this help message"
     echo ""
     echo "After installation, access the web interface at http://<device-ip>:8080"
@@ -130,13 +132,21 @@ get_distro_info() {
     esac
 }
 
+# Run systemctl or skip in --no-systemd mode
+run_systemctl() {
+    if [ "$NO_SYSTEMD" = true ]; then
+        return 0
+    fi
+    systemctl "$@"
+}
+
 # Install Docker if needed
 install_docker() {
     if command -v docker >/dev/null 2>&1; then
         log_info "Docker is already installed: $(docker --version)"
-        if ! systemctl is-active --quiet docker 2>/dev/null; then
+        if ! run_systemctl is-active --quiet docker 2>/dev/null; then
             log_info "Starting Docker service..."
-            systemctl start docker
+            run_systemctl start docker
         fi
         return
     fi
@@ -164,15 +174,15 @@ install_docker() {
             echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${DISTRO} ${DISTRO_VERSION_CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
             apt-get update -qq
             apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            systemctl enable docker
-            systemctl start docker
+            run_systemctl enable docker
+            run_systemctl start docker
             ;;
         fedora)
             dnf -y -q install dnf-plugins-core
             dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
             dnf install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            systemctl enable docker
-            systemctl start docker
+            run_systemctl enable docker
+            run_systemctl start docker
             ;;
         rhel|centos)
             if command -v dnf >/dev/null 2>&1; then
@@ -187,18 +197,18 @@ install_docker() {
                 log_error "No supported package manager found (dnf or yum required)"
                 exit 1
             fi
-            systemctl enable docker
-            systemctl start docker
+            run_systemctl enable docker
+            run_systemctl start docker
             ;;
         opensuse-leap|opensuse-tumbleweed|sles)
             zypper -q install -y docker docker-compose-plugin
-            systemctl enable docker
-            systemctl start docker
+            run_systemctl enable docker
+            run_systemctl start docker
             ;;
         arch|manjaro|endeavouros)
             pacman -Sy --noconfirm docker
-            systemctl enable docker
-            systemctl start docker
+            run_systemctl enable docker
+            run_systemctl start docker
             ;;
         alpine)
             apk add docker docker-compose
@@ -353,9 +363,9 @@ download_binary() {
     DOWNLOAD_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
     CHECKSUM_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
 
-    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+    if [ "$NO_SYSTEMD" = false ] && systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
         log_info "Stopping existing service..."
-        systemctl stop "${SERVICE_NAME}"
+        run_systemctl stop "${SERVICE_NAME}"
     fi
 
     log_info "Downloading ${BINARY_NAME}..."
@@ -447,9 +457,15 @@ EOF
 
 # Create systemd service
 create_systemd_service() {
-    if ! command -v systemctl >/dev/null 2>&1; then
-        log_warn "systemctl not found. Skipping systemd service creation."
-        log_warn "You will need to configure the service manually."
+    if [ "$NO_SYSTEMD" = true ] || ! command -v systemctl >/dev/null 2>&1; then
+        if [ "$NO_SYSTEMD" = true ]; then
+            log_warn "--no-systemd specified. Skipping systemd service creation."
+            log_warn "--no-systemd is for TESTING only. Production deployments require systemd."
+        else
+            log_warn "systemctl not found. Skipping systemd service creation."
+            log_warn "You will need to configure the service manually."
+            log_warn "Tip: pass --no-systemd to skip this (for TESTING only, not for production)."
+        fi
         return
     fi
 
@@ -480,19 +496,26 @@ PrivateTmp=true
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
+    run_systemctl daemon-reload
 }
 
 # Verify service starts successfully
 verify_service() {
+    if [ "$NO_SYSTEMD" = true ]; then
+        log_info "LibreServ binary installed to ${BIN_DIR}/libreserv"
+        log_info "Run manually: sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml"
+        log_warn "--no-systemd mode is for TESTING ONLY. Production deployments require systemd."
+        return 0
+    fi
+
     log_info "Starting LibreServ service..."
-    systemctl enable "${SERVICE_NAME}"
-    systemctl start "${SERVICE_NAME}"
+    run_systemctl enable "${SERVICE_NAME}"
+    run_systemctl start "${SERVICE_NAME}"
 
     log_info "Waiting for service to be ready..."
     sleep 3
 
-    if systemctl is-active --quiet "${SERVICE_NAME}"; then
+    if run_systemctl is-active --quiet "${SERVICE_NAME}"; then
         log_info "Service started successfully!"
         return 0
     else
@@ -593,10 +616,17 @@ print_post_install() {
     echo -e "  3. Install your first app from the catalog"
     echo ""
     echo -e "Service commands:"
-    echo -e "   Status:  ${YELLOW}systemctl status ${SERVICE_NAME}${NC}"
-    echo -e "   Stop:    ${YELLOW}systemctl stop ${SERVICE_NAME}${NC}"
-    echo -e "   Restart: ${YELLOW}systemctl restart ${SERVICE_NAME}${NC}"
-    echo -e "   Logs:    ${YELLOW}journalctl -u ${SERVICE_NAME} -f${NC}"
+    if [ "$NO_SYSTEMD" = true ]; then
+        echo -e "   Run:    ${YELLOW}sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml${NC}"
+        echo -e "   Logs:   ${YELLOW}tail -f ${LOG_DIR}/libreserv.log${NC}"
+        echo ""
+        echo -e "   ${YELLOW}--no-systemd is for TESTING only. Use systemctl in production.${NC}"
+    else
+        echo -e "   Status:  ${YELLOW}systemctl status ${SERVICE_NAME}${NC}"
+        echo -e "   Stop:    ${YELLOW}systemctl stop ${SERVICE_NAME}${NC}"
+        echo -e "   Restart: ${YELLOW}systemctl restart ${SERVICE_NAME}${NC}"
+        echo -e "   Logs:    ${YELLOW}journalctl -u ${SERVICE_NAME} -f${NC}"
+    fi
     echo ""
     echo -e "Configuration: ${CONFIG_DIR}/libreserv.yaml"
     echo -e "Data directory: ${DATA_DIR}"
@@ -623,7 +653,7 @@ do_upgrade() {
         cp "${INSTALL_DIR}/libreserv" "${BACKUP_BINARY}"
     fi
 
-    systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+    run_systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
 
     create_directories
     get_latest_release
@@ -636,7 +666,7 @@ do_upgrade() {
             chmod +x "${INSTALL_DIR}/libreserv"
             ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
             log_info "Previous binary restored"
-            systemctl start "${SERVICE_NAME}" 2>/dev/null || true
+            run_systemctl start "${SERVICE_NAME}" 2>/dev/null || true
         fi
         exit 1
     fi
@@ -646,7 +676,7 @@ do_upgrade() {
     rm -f "${BACKUP_BINARY}"
 
     log_info "Reloading systemd..."
-    systemctl daemon-reload
+    run_systemctl daemon-reload
 
     log_info "Starting service..."
     if verify_service; then
@@ -665,15 +695,15 @@ do_uninstall() {
     log_info "Data in ${DATA_DIR} will be preserved"
 
     log_info "Stopping service..."
-    systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-    systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
+    run_systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+    run_systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
 
     log_info "Removing files..."
     rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
     rm -f "${BIN_DIR}/libreserv"
     rm -rf "${INSTALL_DIR}"
 
-    systemctl daemon-reload
+    run_systemctl daemon-reload
 
     echo ""
     log_info "LibreServ has been uninstalled"
@@ -706,28 +736,43 @@ do_install() {
             print_post_install
         else
             log_error "Installation completed but service failed to start"
-            log_error "Check logs with: journalctl -u ${SERVICE_NAME} -n 50"
+            if [ "$NO_SYSTEMD" = true ]; then
+                log_error "Run manually: sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml"
+            else
+                log_error "Check logs with: journalctl -u ${SERVICE_NAME} -n 50"
+            fi
             exit 1
         fi
     else
         log_error "Permission verification failed. Not starting service."
-        log_error "Fix permissions and run: systemctl start ${SERVICE_NAME}"
+        if [ "$NO_SYSTEMD" = true ]; then
+            log_error "Fix permissions and run: sudo -u ${USER} ${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml"
+        else
+            log_error "Fix permissions and run: systemctl start ${SERVICE_NAME}"
+        fi
         exit 1
     fi
 }
 
 # Parse arguments
-case "${1:-}" in
-    --uninstall)
-        do_uninstall
-        ;;
-    --upgrade)
-        do_upgrade
-        ;;
-    --help|-h)
-        print_help
-        ;;
-    *)
-        do_install
-        ;;
-esac
+DO_HELP=false
+DO_UNINSTALL=false
+DO_UPGRADE=false
+for arg in "$@"; do
+    case "$arg" in
+        --no-systemd) NO_SYSTEMD=true ;;
+        --uninstall) DO_UNINSTALL=true ;;
+        --upgrade) DO_UPGRADE=true ;;
+        --help|-h) DO_HELP=true ;;
+    esac
+done
+
+if [ "$DO_HELP" = true ]; then
+    print_help
+elif [ "$DO_UNINSTALL" = true ]; then
+    do_uninstall
+elif [ "$DO_UPGRADE" = true ]; then
+    do_upgrade
+else
+    do_install
+fi
