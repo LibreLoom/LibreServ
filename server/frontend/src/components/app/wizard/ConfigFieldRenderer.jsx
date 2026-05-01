@@ -30,7 +30,7 @@ function ConfigFieldRenderer({ field, value, onChange, disabled }) {
 
 const inputBaseClasses = `
       w-full px-4 py-2 border-2 rounded-large-element
-      bg-primary text-secondary
+      bg-secondary text-primary
       focus:ring-2 focus:ring-accent focus:ring-offset-2
       motion-safe:transition-all
       disabled:opacity-50 disabled:cursor-not-allowed

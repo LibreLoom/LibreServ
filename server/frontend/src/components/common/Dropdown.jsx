@@ -109,12 +109,12 @@ export default function Dropdown({
         type="button"
         onClick={handleToggle}
         disabled={disabled}
-        className={`${fullWidth ? "w-full" : "inline-flex"} flex-col items-start gap-0 px-3 py-1.5 bg-primary text-secondary text-xs font-medium motion-safe:transition-colors cursor-pointer rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`${fullWidth ? "w-full" : "inline-flex"} flex-col items-start gap-0 px-3 py-1.5 bg-secondary text-primary text-xs font-medium motion-safe:transition-colors cursor-pointer rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-secondary disabled:opacity-50 disabled:cursor-not-allowed`}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label={label ? `${label}: ${selectedOption?.label || "select"}` : undefined}
       >
-        {label && <span className="text-secondary/70">{label}</span>}
+        {label && <span className="text-primary/70">{label}</span>}
         <span className={`inline-flex items-center gap-1 font-mono ${fullWidth ? "justify-between w-full" : ""}`}>
           {selectedOption?.label || placeholder}
           <ChevronDown
