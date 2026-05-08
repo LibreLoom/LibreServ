@@ -189,7 +189,7 @@ body {
 }
 
 .pop-in {
-    animation: pop-in 200ms ease-out backwards;
+    animation: pop-in 200ms ease-out both;
 }
 
 .animate-dropdown-open {

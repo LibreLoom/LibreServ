@@ -39,7 +39,7 @@ function AppCardInner({ app }) {
   const uptimeLabel = isRunning ? "Uptime" : "Downtime";
 
   return (
-    <div ref={ref} className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start relative">
+    <div ref={ref} className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] self-start relative">
       <StatusPill status={app.status} compact={isNarrow} className="absolute top-3 right-3 z-10" />
 
       <div className="flex items-center gap-4">

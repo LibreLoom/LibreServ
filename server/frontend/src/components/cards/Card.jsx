@@ -16,7 +16,7 @@ function Card({
 
   const animationClass = noPopIn
     ? ""
-    : "pop-in transition-all duration-300 ease-in-out";
+    : "pop-in";
 
   const hasHeader = title || Icon;
 
@@ -58,7 +58,7 @@ function Card({
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
           </div>
         )}
-        <div className={padding ? "p-5" : ""}>{children}</div>
+        {padding ? <div className="p-5">{children}</div> : children}
       </div>
     </div>
   );

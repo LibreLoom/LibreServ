@@ -10,7 +10,7 @@ export default function BaseCard({
   className = "",
 }) {
   return (
-    <div className={`pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start ${className}`}>
+    <div className={`pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] self-start ${className}`}>
       {(Icon || title) && (
         <>
           <div className="flex items-center gap-4 mb-4">

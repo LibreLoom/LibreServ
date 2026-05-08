@@ -8,6 +8,7 @@ import {
   Terminal,
   X,
 } from "lucide-react";
+import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Toggle from "../common/Toggle";
 
@@ -194,7 +195,7 @@ export default function LogsViewer({
       size="xl"
       mobileFullscreen
     >
-      <div className="flex flex-col h-full min-h-0 space-y-2 sm:space-y-4 max-h-[100dvh] sm:max-h-[75vh]">
+      <div className="flex flex-col min-h-0 space-y-2 sm:space-y-4">
         {/* Mobile toolbar */}
         <div className="flex sm:hidden items-center gap-2 shrink-0">
           <button
@@ -288,10 +289,10 @@ export default function LogsViewer({
           </div>
         </div>
 
-        <div className="flex flex-col flex-1 min-h-0 rounded-[12px] border border-primary/15 bg-secondary/90 overflow-hidden">
+        <Card noPopIn padding={false} className="flex flex-col min-h-0 overflow-hidden border border-primary/15">
           <div
             ref={outputRef}
-            className="flex-1 overflow-auto px-2 sm:px-4 py-3 font-sans text-[11px] sm:text-xs leading-6 text-primary/80 min-h-[200px] sm:min-h-[300px]"
+            className="overflow-auto px-2 sm:px-4 py-3 font-sans text-[11px] sm:text-xs leading-6 text-primary/80 max-h-[50vh] sm:max-h-[60vh]"
           >
             {filteredLines.length === 0 && streamError ? (
               <div className="py-10 text-center text-primary/50">
@@ -338,7 +339,7 @@ export default function LogsViewer({
               )}
             </div>
           </div>
-        </div>
+        </Card>
       </div>
     </ModalCard>
   );
