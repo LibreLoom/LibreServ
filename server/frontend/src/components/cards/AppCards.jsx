@@ -5,6 +5,7 @@ import CardButton from "./CardButton";
 import AppIcon from "../common/AppIcon";
 import StatusPill from "../common/StatusPill";
 import { useApps } from "../../hooks/useApps";
+import { useIsNarrow } from "../../hooks/useIsNarrow";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";
@@ -31,14 +32,15 @@ function formatBytes(bytes) {
 }
 
 function AppCardInner({ app }) {
+  const [isNarrow, ref] = useIsNarrow(220);
   const isRunning = app.status === "running";
   const uptime = isRunning ? app.uptime_seconds : app.downtime_seconds;
   const appUrl = app.url || app.backends?.[0]?.url || "";
   const uptimeLabel = isRunning ? "Uptime" : "Downtime";
 
   return (
-    <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start relative">
-      <StatusPill status={app.status} className="absolute top-3 right-3 z-10" />
+    <div ref={ref} className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition hover:scale-[1.02] self-start relative">
+      <StatusPill status={app.status} compact={isNarrow} className="absolute top-3 right-3 z-10" />
 
       <div className="flex items-center gap-4">
         <AppIcon appId={app.app_id} size={48} />

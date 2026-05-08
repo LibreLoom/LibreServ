@@ -29,13 +29,13 @@ const statusConfig = {
   },
 };
 
-export default function StatusPill({ status, className = "" }) {
+export default function StatusPill({ status, className = "", compact = false }) {
   const config = statusConfig[status] || statusConfig.unknown;
   const Icon = config.icon;
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill ${className}`}
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill ${className} ${compact ? "px-1.5" : ""}`}
         style={{
           backgroundColor: `var(${config.bgVar})`,
           color: `var(--color-primary)`,
@@ -49,7 +49,7 @@ export default function StatusPill({ status, className = "" }) {
       >
         <Icon size={12} strokeWidth={2.5} />
       </span>
-      <span className="text-xs font-mono font-medium">{config.label}</span>
+      {!compact && <span className="text-xs font-mono font-medium">{config.label}</span>}
     </div>
   );
 }
@@ -57,4 +57,5 @@ export default function StatusPill({ status, className = "" }) {
 StatusPill.propTypes = {
   status: PropTypes.oneOf(["running", "stopped", "error", "unknown"]),
   className: PropTypes.string,
+  compact: PropTypes.bool,
 };
