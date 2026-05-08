@@ -35,7 +35,7 @@ export default function StatusPill({ status, className = "", compact = false }) 
 
   return (
     <div
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill ${className} ${compact ? "px-1.5" : ""}`}
+      className={`inline-flex items-center gap-1.5 p-1 rounded-pill ${className}`}
         style={{
           backgroundColor: `var(${config.bgVar})`,
           color: `var(--color-primary)`,
