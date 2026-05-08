@@ -3,14 +3,13 @@ services:
     image: searxng/searxng:latest
     container_name: "{{.instance_id}}-searxng"
     restart: unless-stopped
-    user: "{{.puid}}:{{.pgid}}"
     ports:
       - "{{.http_port}}:8080"
     environment:
       - "SEARXNG_BASE_URL={{if .base_url}}{{.base_url}}{{else}}http://localhost:{{.http_port}}/{{end}}"
       - "SEARXNG_SECRET={{.secret_key}}"
     volumes:
-      - "{{ configPath }}/searxng:/etc/searxng:rw"
+      - "{{ configPath }}/searxng:/etc/searxng:rw,z"
     cap_drop:
       - ALL
     cap_add:
@@ -30,10 +29,9 @@ services:
     image: redis:7.4-alpine
     container_name: "{{.instance_id}}-redis"
     restart: unless-stopped
-    user: "{{.puid}}:{{.pgid}}"
     command: redis-server --save 30 1 --loglevel warning
     volumes:
-      - "{{ dataPath }}/redis:/data"
+      - "{{ dataPath }}/redis:/data:z"
     cap_drop:
       - ALL
     cap_add:

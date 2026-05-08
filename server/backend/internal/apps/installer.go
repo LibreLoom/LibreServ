@@ -389,7 +389,7 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 
 	// Create install output channel for streaming
 	outputCh := i.createInstallOutputChannel(instanceID)
-	defer i.removeInstallOutputChannel(instanceID)
+	defer func() { i.removeInstallOutputChannel(instanceID) }()
 
 	i.logger.Info("Pulling images", "app_id", appDef.ID, "instance_id", instanceID)
 	outputCh <- ScriptOutput{Type: "stdout", Content: "Pulling application images...\n"}
@@ -509,9 +509,11 @@ func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string,
 
 	// Remove the installation directory
 	if err := os.RemoveAll(installPath); err != nil {
-		i.logger.Warn("Failed to remove install directory (may contain root-owned files from container)",
-			"path", installPath, "error", err,
-			"hint", "You may need to run: sudo rm -rf "+installPath,
+		// This is serious - root-owned files from containers can block future installs
+		i.logger.Error("Failed to remove install directory due to root-owned files",
+			"path", installPath,
+			"error", err,
+			"action", "Manually remove with: sudo rm -rf "+installPath,
 		)
 	}
 

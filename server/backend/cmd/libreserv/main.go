@@ -239,6 +239,14 @@ func main() {
 	renewalScheduler.Start()
 	defer renewalScheduler.Stop()
 
+	// Ensure apps data directory exists with correct permissions before app manager init
+	appsDataDir := cfg.Apps.DataPath
+	if err := os.MkdirAll(appsDataDir, 0755); err != nil {
+		slog.Warn("failed to create apps data directory, continuing anyway", "path", appsDataDir, "error", err)
+	} else if err := os.Chmod(appsDataDir, 0755); err != nil {
+		slog.Warn("failed to fix apps data directory permissions", "path", appsDataDir, "error", err)
+	}
+
 	appManager, err := apps.NewManager(
 		cfg.Apps.CatalogPath,
 		cfg.Apps.DataPath,

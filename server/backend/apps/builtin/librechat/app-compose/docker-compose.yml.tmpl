@@ -3,7 +3,6 @@ services:
     image: ghcr.io/danny-avila/librechat-dev-api:latest
     container_name: "{{.instance_id}}-librechat"
     restart: always
-    user: "{{.puid}}:{{.pgid}}"
     ports:
       - "{{.http_port}}:3080"
     depends_on:
@@ -39,10 +38,10 @@ services:
       - "MEILI_MASTER_KEY={{.meili_master_key}}"
 {{- end }}
     volumes:
-      - "{{ dataPath }}/librechat/images:/app/client/public/images"
-      - "{{ dataPath }}/librechat/uploads:/app/uploads"
-      - "{{ dataPath }}/librechat/logs:/app/api/logs"
-      - "{{ configPath }}/librechat/librechat.yaml:/app/librechat.yaml"
+      - "{{ dataPath }}/librechat/images:/app/client/public/images:z"
+      - "{{ dataPath }}/librechat/uploads:/app/uploads:z"
+      - "{{ dataPath }}/librechat/logs:/app/api/logs:z"
+      - "{{ configPath }}/librechat/librechat.yaml:/app/librechat.yaml:z"
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.name={{.app_name}}"
@@ -53,10 +52,9 @@ services:
     image: mongo:latest
     container_name: "{{.instance_id}}-mongodb"
     restart: always
-    user: "{{.puid}}:{{.pgid}}"
     command: mongod --noauth
     volumes:
-      - "{{ dataPath }}/mongodb:/data/db"
+      - "{{ dataPath }}/mongodb:/data/db:z"
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.component=mongodb"
@@ -68,13 +66,12 @@ services:
     image: getmeili/meilisearch:latest
     container_name: "{{.instance_id}}-meilisearch"
     restart: always
-    user: "{{.puid}}:{{.pgid}}"
     environment:
       - "MEILI_HOST=http://meilisearch:7700"
       - "MEILI_NO_ANALYTICS=true"
       - "MEILI_MASTER_KEY={{.meili_master_key}}"
     volumes:
-      - "{{ dataPath }}/meilisearch:/meili_data"
+      - "{{ dataPath }}/meilisearch:/meili_data:z"
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.component=meilisearch"

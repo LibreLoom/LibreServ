@@ -25,7 +25,7 @@ func NewClient(cfg config.DockerConfig) (*Client, error) {
 	case "auto":
 		c, err := autoDetectConnection()
 		if err != nil {
-			return &Client{cli: nil, ctx: context.Background()}, nil // mock for dev
+			return nil, err
 		}
 		return c, nil
 	case "socket":

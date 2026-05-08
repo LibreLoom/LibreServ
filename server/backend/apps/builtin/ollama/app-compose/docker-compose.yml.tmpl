@@ -16,9 +16,8 @@ services:
 {{- if .enable_gpu }}
       - "NVIDIA_VISIBLE_DEVICES={{ if eq .gpu_count 0 }}all{{ else }}{{.gpu_count}}{{ end }}"
 {{- end }}
-    user: "{{.puid}}:{{.pgid}}"
     volumes:
-      - "{{ dataPath }}/ollama:/root/.ollama"
+      - "{{ dataPath }}/ollama:/root/.ollama:z"
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.name={{.app_name}}"

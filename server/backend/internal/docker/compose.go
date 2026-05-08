@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,9 +47,70 @@ func (cm *ComposeManager) getComposeArgs(composePath string) (composeFile string
 	return
 }
 
+// CreateVolumeDirs pre-creates host-side bind mount directories from a compose file.
+// This prevents docker compose from creating them as root when it sets up bind mounts.
+func CreateVolumeDirs(composePath string) error {
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		return fmt.Errorf("failed to read compose file: %w", err)
+	}
+
+	var compose map[string]interface{}
+	if err := yaml.Unmarshal(data, &compose); err != nil {
+		return fmt.Errorf("failed to parse compose file: %w", err)
+	}
+
+	services, ok := compose["services"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	for _, svc := range services {
+		s, ok := svc.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		volumes, ok := s["volumes"].([]interface{})
+		if !ok {
+			continue
+		}
+
+		for _, v := range volumes {
+			vol, ok := v.(string)
+			if !ok {
+				continue
+			}
+
+			parts := strings.SplitN(vol, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			hostPath := parts[0]
+			if !strings.HasPrefix(hostPath, "/") {
+				continue
+			}
+
+			if err := os.MkdirAll(hostPath, 0777); err != nil {
+				log.Printf("Warning: failed to pre-create volume directory %s: %v", hostPath, err)
+				continue
+			}
+
+			_ = os.Chmod(hostPath, 0777)
+		}
+	}
+
+	return nil
+}
+
 // Up runs `docker compose up -d`
-// Implements Recommendation #7: Custom App Security (Sandboxing) via RunCustomAppSafely wrapper (future)
 func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
+	// Pre-create volume directories before docker compose runs to prevent root-owned dirs
+	if err := CreateVolumeDirs(composePath); err != nil {
+		log.Printf("Warning: failed to pre-create volume directories: %v", err)
+	}
+
 	composeFile, workDir := cm.getComposeArgs(composePath)
 
 	cmd := exec.CommandContext(ctx, "docker", "compose",
@@ -160,9 +222,7 @@ func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath st
 				}
 
 				// Run as host user to prevent root-owned files in volumes
-				if _, hasUser := s["user"]; !hasUser {
-					s["user"] = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-				}
+				s["user"] = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 			}
 		}
 	}

@@ -3,7 +3,6 @@ services:
     image: ghcr.io/c4illin/convertx:latest
     container_name: "{{.instance_id}}-convertx"
     restart: unless-stopped
-    user: "{{.puid}}:{{.pgid}}"
     ports:
       - "{{.http_port}}:3000"
     environment:
@@ -11,7 +10,7 @@ services:
       - "ACCOUNT_REGISTRATION={{.account_registration}}"
       - "ALLOW_UNAUTHENTICATED={{.allow_unauthenticated}}"
     volumes:
-      - "{{ dataPath }}/convertx:/app/data"
+      - "{{ dataPath }}/convertx:/app/data:z"
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.name={{.app_name}}"

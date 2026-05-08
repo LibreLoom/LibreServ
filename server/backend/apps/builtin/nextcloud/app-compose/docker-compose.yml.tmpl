@@ -13,8 +13,8 @@ services:
     environment:
       - NEXTCLOUD_DATADIR={{.data_dir}}
     volumes:
-      - "{{ dataPath }}/aio-config:/mnt/docker-aio-config"
-      - "{{ dataPath }}/ncdata:/mnt/ncdata"
+      - "{{ dataPath }}/aio-config:/mnt/docker-aio-config:z"
+      - "{{ dataPath }}/ncdata:/mnt/ncdata:z"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
     stop_grace_period: 1m
     cap_drop:

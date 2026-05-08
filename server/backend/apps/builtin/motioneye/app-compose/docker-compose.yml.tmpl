@@ -4,9 +4,6 @@ services:
     container_name: "{{.instance_id}}-motioneye"
     restart: unless-stopped
     privileged: {{.enable_usb_cameras}}
-{{- if not .enable_usb_cameras }}
-    user: "{{.puid}}:{{.pgid}}"
-{{- end }}
     ports:
       - "{{.http_port}}:8765"
 {{- if .enable_network_cameras }}
@@ -22,8 +19,8 @@ services:
       - "ME_PASSWORD={{.admin_password}}"
 {{- end }}
     volumes:
-      - "{{ configPath }}/motioneye:/etc/motioneye"
-      - "{{ dataPath }}/motioneye:/var/lib/motioneye"
+      - "{{ configPath }}/motioneye:/etc/motioneye:z"
+      - "{{ dataPath }}/motioneye:/var/lib/motioneye:z"
 {{- if .enable_usb_cameras }}
     devices:
       - /dev/video0:/dev/video0
