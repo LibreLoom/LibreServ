@@ -8,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/client"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
 // HTTPCheck performs HTTP health checks
@@ -52,7 +51,6 @@ func (h *HTTPCheck) Run(ctx context.Context) CheckResult {
 		return result
 	}
 
-	// Add custom headers
 	for key, value := range h.Config.Headers {
 		req.Header.Set(key, value)
 	}
@@ -65,7 +63,6 @@ func (h *HTTPCheck) Run(ctx context.Context) CheckResult {
 	}
 	defer resp.Body.Close()
 
-	// Check status code
 	expectedStatus := h.Config.ExpectedStatus
 	if expectedStatus == 0 {
 		expectedStatus = 200
@@ -127,17 +124,17 @@ func (t *TCPCheck) Run(ctx context.Context) CheckResult {
 	return result
 }
 
-// ContainerCheck verifies Docker container health status
+// ContainerCheck verifies container health status using the runtime interface.
 type ContainerCheck struct {
-	Config       ContainerCheckConfig
-	DockerClient *client.Client
+	Config  ContainerCheckConfig
+	Runtime runtime.ContainerRuntime
 }
 
 // NewContainerCheck creates a container health check.
-func NewContainerCheck(cfg ContainerCheckConfig, dockerClient *client.Client) *ContainerCheck {
+func NewContainerCheck(cfg ContainerCheckConfig, rt runtime.ContainerRuntime) *ContainerCheck {
 	return &ContainerCheck{
-		Config:       cfg,
-		DockerClient: dockerClient,
+		Config:  cfg,
+		Runtime: rt,
 	}
 }
 
@@ -153,21 +150,20 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 		Timestamp: time.Now(),
 	}
 
-	if c.DockerClient == nil {
+	if c.Runtime == nil {
 		result.Status = HealthStatusDegraded
-		result.Message = "Docker unavailable; container health checks are disabled"
+		result.Message = "Runtime unavailable; container health checks are disabled"
 		return result
 	}
 
-	// List containers to find the one matching our name
-	containers, err := c.DockerClient.ContainerList(ctx, client.ContainerListOptions{All: true})
+	containers, err := c.Runtime.ListContainersAll(ctx)
 	if err != nil {
 		result.Status = HealthStatusUnknown
 		result.Message = fmt.Sprintf("Failed to list containers: %v", err)
 		return result
 	}
 
-	targetContainer := pickContainer(containers.Items, c.Config.ContainerName)
+	targetContainer := pickContainer(containers, c.Config.ContainerName)
 
 	if targetContainer == nil {
 		result.Status = HealthStatusUnhealthy
@@ -175,20 +171,18 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 		return result
 	}
 
-	// Check container state
-	state := strings.ToLower(string(targetContainer.State))
+	state := strings.ToLower(targetContainer.State)
 	switch state {
 	case "running":
-		// Check if container has a health check configured
-		inspect, err := c.DockerClient.ContainerInspect(ctx, targetContainer.ID, client.ContainerInspectOptions{})
+		inspect, err := c.Runtime.InspectContainer(ctx, targetContainer.ID)
 		if err != nil {
 			result.Status = HealthStatusHealthy
 			result.Message = "Container is running (health details unavailable)"
 			return result
 		}
 
-		if inspect.Container.State.Health != nil {
-			switch inspect.Container.State.Health.Status {
+		if inspect.State.HealthState != "" {
+			switch inspect.State.HealthState {
 			case "healthy":
 				result.Status = HealthStatusHealthy
 				result.Message = "Container is healthy"
@@ -227,47 +221,46 @@ func (c *ContainerCheck) Run(ctx context.Context) CheckResult {
 	return result
 }
 
-func pickContainer(containers []container.Summary, query string) *container.Summary {
+func pickContainer(containers []runtime.ContainerInfo, query string) *runtime.ContainerInfo {
 	if query == "" {
 		return nil
 	}
 
-	// Prefer label-based matching (compose projects/services, LibreServ label), and prefer a running container.
-	var bestLabelMatch *container.Summary
+	var bestLabelMatch *runtime.ContainerInfo
+	var bestNameMatch *runtime.ContainerInfo
 	for i := range containers {
 		cont := &containers[i]
 		if !matchesContainerByLabels(*cont, query) {
 			continue
 		}
-		if strings.EqualFold(string(cont.State), "running") {
+		if strings.EqualFold(cont.State, "running") {
 			return cont
 		}
 		if bestLabelMatch == nil {
 			bestLabelMatch = cont
 		}
 	}
-	if bestLabelMatch != nil {
-		return bestLabelMatch
-	}
 
-	// Fallback: match by container name.
-	var bestNameMatch *container.Summary
 	for i := range containers {
 		cont := &containers[i]
 		if !matchesContainerByName(*cont, query) {
 			continue
 		}
-		if strings.EqualFold(string(cont.State), "running") {
+		if strings.EqualFold(cont.State, "running") {
 			return cont
 		}
 		if bestNameMatch == nil {
 			bestNameMatch = cont
 		}
 	}
+
+	if bestLabelMatch != nil {
+		return bestLabelMatch
+	}
 	return bestNameMatch
 }
 
-func matchesContainerByLabels(cont container.Summary, query string) bool {
+func matchesContainerByLabels(cont runtime.ContainerInfo, query string) bool {
 	if query == "" {
 		return false
 	}
@@ -286,12 +279,11 @@ func matchesContainerByLabels(cont container.Summary, query string) bool {
 	return false
 }
 
-func matchesContainerByName(cont container.Summary, query string) bool {
+func matchesContainerByName(cont runtime.ContainerInfo, query string) bool {
 	if query == "" {
 		return false
 	}
 	for _, name := range cont.Names {
-		// Container names are prefixed with /
 		cleanName := strings.TrimPrefix(name, "/")
 		if cleanName == query || strings.Contains(cleanName, query) {
 			return true
@@ -347,7 +339,6 @@ func (c *CompositeCheck) Run(ctx context.Context) CheckResult {
 		}
 	}
 
-	// Determine overall status
 	if unhealthy > 0 {
 		result.Status = HealthStatusUnhealthy
 	} else if degraded > 0 || unknown > 0 {

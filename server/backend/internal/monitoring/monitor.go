@@ -8,14 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/moby/moby/client"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	rt "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
 // Monitor manages health checks and metrics collection for all apps
 type Monitor struct {
 	db               *database.DB
-	dockerClient     *client.Client
+	runtime          rt.ContainerRuntime
 	metricsCollector *MetricsCollector
 	hostCollector    *HostMetricsCollector
 
@@ -60,11 +60,11 @@ type HealthChecker struct {
 }
 
 // NewMonitor creates a new monitoring instance
-func NewMonitor(db *database.DB, dockerClient *client.Client, dataPath string) *Monitor {
+func NewMonitor(db *database.DB, rt rt.ContainerRuntime, dataPath string) *Monitor {
 	return &Monitor{
 		db:               db,
-		dockerClient:     dockerClient,
-		metricsCollector: NewMetricsCollector(dockerClient),
+		runtime:          rt,
+		metricsCollector: NewMetricsCollector(rt),
 		hostCollector:    NewHostMetricsCollector(),
 		checkers:         make(map[string]*HealthChecker),
 		metricsInterval:  30 * time.Second,
@@ -75,8 +75,7 @@ func NewMonitor(db *database.DB, dockerClient *client.Client, dataPath string) *
 
 // Start begins background monitoring tasks
 func (m *Monitor) Start() {
-	if m.dockerClient == nil {
-		// Docker-backed metrics are disabled; health checks may still run for HTTP/TCP.
+	if m.runtime == nil {
 		return
 	}
 	m.wg.Add(1)
@@ -119,20 +118,20 @@ func (m *Monitor) RegisterApp(appID string, config HealthCheckConfig) error {
 	}
 
 	if config.Container != nil {
-		if m.dockerClient == nil {
-			return fmt.Errorf("%w: container checks require docker", ErrDockerUnavailable)
+		if m.runtime == nil {
+			return fmt.Errorf("%w: container checks require runtime", ErrDockerUnavailable)
 		}
-		checks = append(checks, NewContainerCheck(*config.Container, m.dockerClient))
+		checks = append(checks, NewContainerCheck(*config.Container, m.runtime))
 	}
 
 	// If no specific checks configured, add a default container check
 	if len(checks) == 0 {
-		if m.dockerClient == nil {
-			return fmt.Errorf("%w: no checks configured and docker is unavailable", ErrDockerUnavailable)
+		if m.runtime == nil {
+			return fmt.Errorf("%w: no checks configured and runtime is unavailable", ErrDockerUnavailable)
 		}
 		checks = append(checks, NewContainerCheck(ContainerCheckConfig{
 			ContainerName: appID,
-		}, m.dockerClient))
+		}, m.runtime))
 	}
 
 	// Set defaults

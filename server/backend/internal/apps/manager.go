@@ -452,7 +452,7 @@ func (m *Manager) GetAppStatus(ctx context.Context, instanceID string) (*AppStat
 	}
 
 	label := "libreserv.app=" + instanceID
-	containers, err := m.runtime.ListContainersByLabel(label)
+	containers, err := m.runtime.ListContainersByLabel(ctx, label)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list containers: %w", err)
 	}

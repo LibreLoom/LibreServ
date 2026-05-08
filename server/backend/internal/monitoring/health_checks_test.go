@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/moby/moby/api/types/container"
+	rt "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
 func TestPickContainer_PrefersComposeProjectLabelAndRunning(t *testing.T) {
-	containers := []container.Summary{
+	containers := []rt.ContainerInfo{
 		{
 			ID:    "a",
 			State: "exited",
@@ -32,7 +32,7 @@ func TestPickContainer_PrefersComposeProjectLabelAndRunning(t *testing.T) {
 }
 
 func TestPickContainer_FallsBackToNameMatch(t *testing.T) {
-	containers := []container.Summary{
+	containers := []rt.ContainerInfo{
 		{
 			ID:    "a",
 			State: "running",
@@ -51,7 +51,7 @@ func TestPickContainer_FallsBackToNameMatch(t *testing.T) {
 	}
 }
 
-func TestContainerCheck_Run_WithNilDockerClient_Degrades(t *testing.T) {
+func TestContainerCheck_Run_WithNilRuntime_Degrades(t *testing.T) {
 	cc := NewContainerCheck(ContainerCheckConfig{ContainerName: "anything"}, nil)
 	res := cc.Run(context.Background())
 

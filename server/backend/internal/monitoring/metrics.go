@@ -2,54 +2,43 @@ package monitoring
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/client"
+	rt "gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
-// MetricsCollector collects resource usage metrics from Docker containers
+// MetricsCollector collects resource usage metrics from containers
 type MetricsCollector struct {
-	dockerClient *client.Client
+	runtime rt.ContainerRuntime
 }
 
 // NewMetricsCollector creates a new metrics collector
-func NewMetricsCollector(dockerClient *client.Client) *MetricsCollector {
+func NewMetricsCollector(rts rt.ContainerRuntime) *MetricsCollector {
 	return &MetricsCollector{
-		dockerClient: dockerClient,
+		runtime: rts,
 	}
 }
 
 // CollectContainerMetrics collects metrics for a specific container
 func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containerID string) (*Metrics, error) {
-	if m.dockerClient == nil {
-		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
+	if m.runtime == nil {
+		return nil, fmt.Errorf("%w: runtime not available", ErrDockerUnavailable)
 	}
-	stats, err := m.dockerClient.ContainerStats(ctx, containerID, client.ContainerStatsOptions{})
+	stats, err := m.runtime.GetContainerStats(ctx, containerID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to get container stats: %v", ErrDockerUnavailable, err)
 	}
-	defer stats.Body.Close()
 
-	var v container.StatsResponse
-	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
-		return nil, fmt.Errorf("failed to decode stats: %w", err)
-	}
-
-	return m.parseStats(&v), nil
+	return m.parseStats(stats), nil
 }
 
 // CollectAppMetrics collects metrics for all containers belonging to an app
 func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) (*Metrics, error) {
-	if m.dockerClient == nil {
-		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
+	if m.runtime == nil {
+		return nil, fmt.Errorf("%w: runtime not available", ErrDockerUnavailable)
 	}
-	// Find containers belonging to this app by label
-	containers, err := m.dockerClient.ContainerList(ctx, client.ContainerListOptions{
-		All: false,
-	})
+	containers, err := m.runtime.ListContainersAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrDockerUnavailable, err)
 	}
@@ -60,17 +49,13 @@ func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) 
 	}
 
 	var found bool
-	for _, cont := range containers.Items {
-		// Check if container belongs to this app
-		// Containers are typically named: appid_servicename_1 or appid-servicename-1
+	for _, cont := range containers {
 		if matchesApp(cont, appID) {
 			found = true
-			stats, err := m.CollectContainerMetrics(ctx, cont.ID)
+			stats, err := m.runtime.GetContainerStats(ctx, cont.ID)
 			if err != nil {
-				continue // Skip failed containers
+				continue
 			}
-
-			// Aggregate metrics
 			aggregated.CPUPercent += stats.CPUPercent
 			aggregated.MemoryUsage += stats.MemoryUsage
 			aggregated.MemoryLimit += stats.MemoryLimit
@@ -88,24 +73,22 @@ func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) 
 
 // CollectSystemMetrics collects aggregate metrics across all running containers.
 func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
-	if m.dockerClient == nil {
-		return nil, fmt.Errorf("%w: docker client not available", ErrDockerUnavailable)
+	if m.runtime == nil {
+		return nil, fmt.Errorf("%w: runtime not available", ErrDockerUnavailable)
 	}
 
-	containers, err := m.dockerClient.ContainerList(ctx, client.ContainerListOptions{
-		All: false,
-	})
+	containers, err := m.runtime.ListContainersAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrDockerUnavailable, err)
 	}
 
 	out := &SystemMetrics{
 		Timestamp:         time.Now(),
-		RunningContainers: len(containers.Items),
+		RunningContainers: len(containers),
 	}
 
-	for _, cont := range containers.Items {
-		stats, err := m.CollectContainerMetrics(ctx, cont.ID)
+	for _, cont := range containers {
+		stats, err := m.runtime.GetContainerStats(ctx, cont.ID)
 		if err != nil {
 			continue
 		}
@@ -120,21 +103,17 @@ func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMet
 }
 
 // matchesApp checks if a container belongs to the given app
-func matchesApp(cont container.Summary, appID string) bool {
-	// Check labels first (preferred method)
+func matchesApp(cont rt.ContainerInfo, appID string) bool {
 	if projectLabel, ok := cont.Labels["com.docker.compose.project"]; ok {
 		if projectLabel == appID {
 			return true
 		}
 	}
 
-	// Fallback: check container names
 	for _, name := range cont.Names {
-		// Remove leading /
 		if len(name) > 0 && name[0] == '/' {
 			name = name[1:]
 		}
-		// Check if name starts with appID
 		if len(name) >= len(appID) && name[:len(appID)] == appID {
 			return true
 		}
@@ -143,37 +122,16 @@ func matchesApp(cont container.Summary, appID string) bool {
 	return false
 }
 
-// parseStats converts Docker stats to our Metrics structure
-func (m *MetricsCollector) parseStats(stats *container.StatsResponse) *Metrics {
-	metrics := &Metrics{
-		Timestamp: time.Now(),
+// parseStats converts runtime.ContainerStats to our Metrics structure
+func (m *MetricsCollector) parseStats(stats *rt.ContainerStats) *Metrics {
+	return &Metrics{
+		Timestamp:   time.Now(),
+		CPUPercent:  stats.CPUPercent,
+		MemoryUsage: stats.MemoryUsage,
+		MemoryLimit: stats.MemoryLimit,
+		NetworkRx:   stats.NetworkRx,
+		NetworkTx:   stats.NetworkTx,
 	}
-
-	// Calculate CPU percentage
-	cpuDelta := float64(stats.CPUStats.CPUUsage.TotalUsage) - float64(stats.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(stats.CPUStats.SystemUsage) - float64(stats.PreCPUStats.SystemUsage)
-
-	if systemDelta > 0.0 && cpuDelta > 0.0 {
-		cpuCount := float64(stats.CPUStats.OnlineCPUs)
-		if cpuCount == 0 {
-			cpuCount = float64(len(stats.CPUStats.CPUUsage.PercpuUsage))
-		}
-		if cpuCount > 0 {
-			metrics.CPUPercent = (cpuDelta / systemDelta) * cpuCount * 100.0
-		}
-	}
-
-	// Memory usage
-	metrics.MemoryUsage = stats.MemoryStats.Usage
-	metrics.MemoryLimit = stats.MemoryStats.Limit
-
-	// Network I/O (aggregate all interfaces)
-	for _, netStats := range stats.Networks {
-		metrics.NetworkRx += netStats.RxBytes
-		metrics.NetworkTx += netStats.TxBytes
-	}
-
-	return metrics
 }
 
 // FormatMemory formats bytes to human-readable string

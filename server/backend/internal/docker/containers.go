@@ -1,8 +1,10 @@
 package docker
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -34,10 +36,23 @@ func (c *Client) ListContainersByLabel(label string) ([]container.Summary, error
 	return result.Items, nil
 }
 
-// GetContainerStats retrieves real-time stats
-// Note: This is a simplified implementation. Real stats calculation from the stream is complex.
-func (c *Client) GetContainerStats(containerID string) (*ContainerStats, error) {
-	stats, err := c.cli.ContainerStats(c.ctx, containerID, client.ContainerStatsOptions{})
+// ListContainersAll returns all containers (running and stopped).
+func (c *Client) ListContainersAll(ctx context.Context) ([]container.Summary, error) {
+	if c == nil || c.cli == nil {
+		return nil, errors.New("docker client not initialized")
+	}
+	result, err := c.cli.ContainerList(ctx, client.ContainerListOptions{
+		All: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.Items, nil
+}
+
+// GetContainerStats retrieves real-time stats.
+func (c *Client) GetContainerStats(ctx context.Context, containerID string) (*ContainerStats, error) {
+	stats, err := c.cli.ContainerStats(ctx, containerID, client.ContainerStatsOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +63,6 @@ func (c *Client) GetContainerStats(containerID string) (*ContainerStats, error) 
 		return nil, err
 	}
 
-	// Calculate CPU Percent (simplified)
 	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage) - float64(v.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(v.CPUStats.SystemUsage) - float64(v.PreCPUStats.SystemUsage)
 
@@ -61,6 +75,27 @@ func (c *Client) GetContainerStats(containerID string) (*ContainerStats, error) 
 		CPUPercent:  cpuPercent,
 		MemoryUsage: v.MemoryStats.Usage,
 		MemoryLimit: v.MemoryStats.Limit,
-		// Network stats need more parsing from v.Networks
 	}, nil
+}
+
+// InspectContainer returns detailed information about a container.
+func (c *Client) InspectContainer(ctx context.Context, containerID string) (client.ContainerInspectResult, error) {
+	if c == nil || c.cli == nil {
+		return client.ContainerInspectResult{}, errors.New("docker client not initialized")
+	}
+	return c.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+}
+
+// ContainerLogs retrieves logs from a container.
+func (c *Client) ContainerLogs(ctx context.Context, containerID string, follow bool, tail string) (io.ReadCloser, error) {
+	if c == nil || c.cli == nil {
+		return nil, errors.New("docker client not initialized")
+	}
+	opts := client.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     follow,
+		Tail:       tail,
+	}
+	return c.cli.ContainerLogs(ctx, containerID, opts)
 }

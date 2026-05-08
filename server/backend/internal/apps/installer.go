@@ -1029,7 +1029,7 @@ func (i *Installer) waitForContainers(ctx context.Context, instanceID string) er
 	start := time.Now()
 
 	for {
-		containers, err := i.runtime.ListContainersByLabel(label)
+		containers, err := i.runtime.ListContainersByLabel(ctx, label)
 		if err != nil {
 			return fmt.Errorf("failed to list containers: %w", err)
 		}

@@ -156,14 +156,6 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// GetRawClient returns the underlying Docker client for direct API access
-func (c *Client) GetRawClient() *client.Client {
-	if c.cli == nil {
-		return nil
-	}
-	return c.cli
-}
-
 // Compose operations - delegate to ComposeManager
 
 // ComposeUp starts containers defined in a compose file

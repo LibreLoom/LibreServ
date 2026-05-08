@@ -11,34 +11,29 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/moby/moby/api/pkg/stdcopy"
-	"github.com/moby/moby/client"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
 type LogsHandler struct {
-	dockerClient *docker.Client
+	runtime runtime.ContainerRuntime
 }
 
-func NewLogsHandler(dockerClient *docker.Client) *LogsHandler {
+func NewLogsHandler(rt runtime.ContainerRuntime) *LogsHandler {
 	return &LogsHandler{
-		dockerClient: dockerClient,
+		runtime: rt,
 	}
 }
 
-// sseWriter implements io.Writer and translates written bytes into SSE events
 type sseWriter struct {
 	w   http.ResponseWriter
 	rc  *http.ResponseController
-	typ string // "stdout" or "stderr"
+	typ string
 }
 
 func (sw *sseWriter) Write(p []byte) (n int, err error) {
-	// A robust implementation would use a line scanner (like bufio.Scanner) to handle partial lines.
-	// For simplicity, we split the incoming chunk on newlines.
 	lines := strings.Split(string(p), "\n")
 
 	for i, line := range lines {
-		// Handle trailing newline from Split
 		if i == len(lines)-1 && line == "" {
 			continue
 		}
@@ -64,18 +59,14 @@ func (sw *sseWriter) Write(p []byte) (n int, err error) {
 }
 
 func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
-	// 1. Setup response controller for flushing (bypasses middleware wrappers)
 	rc := http.NewResponseController(w)
-	// Optionally extend timeouts for streaming
 	_ = rc.SetReadDeadline(time.Time{})
 	_ = rc.SetWriteDeadline(time.Time{})
 
-	// 2. Set necessary headers for SSE
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// 3. Extract parameters
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
 		instanceID = r.URL.Query().Get("instanceId")
@@ -96,66 +87,25 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		tail = "all"
 	}
 
-	// 4. Connect to Docker daemon to fetch/stream logs
 	ctx := r.Context()
-	opts := client.ContainerLogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Follow:     follow,
-		Tail:       tail,
-	}
 
-	rawClient := h.dockerClient.GetRawClient()
-	if rawClient == nil {
-		http.Error(w, "Docker client is not available", http.StatusInternalServerError)
+	containers, err := h.runtime.FindContainersByInstanceID(ctx, instanceID)
+	if err != nil || len(containers) == 0 {
+		http.Error(w, "Container not found", http.StatusNotFound)
 		return
 	}
 
-	containerID := instanceID
-	isTTY := false
+	target := containers[0]
 
-	// First try to find by libreserv.app label
-	listResult, listErr := rawClient.ContainerList(ctx, client.ContainerListOptions{
-		All:     true,
-		Filters: make(client.Filters).Add("label", "libreserv.app="+instanceID),
+	inspect, err := h.runtime.InspectContainer(ctx, target.ID)
+	isTTY := inspect != nil && inspect.TTY
+
+	logsReader, err := h.runtime.ContainerLogs(ctx, target.ID, runtime.LogOptions{
+		Follow: follow,
+		Tail:   tail,
 	})
-
-	// Fallback to docker compose project label
-	if listErr != nil || len(listResult.Items) == 0 {
-		listResult, listErr = rawClient.ContainerList(ctx, client.ContainerListOptions{
-			All:     true,
-			Filters: make(client.Filters).Add("label", "com.docker.compose.project="+instanceID),
-		})
-	}
-
-	// Fallback to script_executor docker compose project name
-	if listErr != nil || len(listResult.Items) == 0 {
-		listResult, listErr = rawClient.ContainerList(ctx, client.ContainerListOptions{
-			All:     true,
-			Filters: make(client.Filters).Add("label", "com.docker.compose.project=libreserv-"+instanceID),
-		})
-	}
-
-	// Final fallback: Match explicitly against the container name
-	if listErr != nil || len(listResult.Items) == 0 {
-		listResult, listErr = rawClient.ContainerList(ctx, client.ContainerListOptions{
-			All:     true,
-			Filters: make(client.Filters).Add("name", "^"+instanceID+"-"),
-		})
-	}
-
-	if listErr == nil && len(listResult.Items) > 0 {
-		containerID = listResult.Items[0].ID
-	}
-
-	cJSON, err := rawClient.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
-	if err == nil && cJSON.Container.Config != nil && cJSON.Container.Config.Tty {
-		isTTY = true
-	}
-
-	logsResult, err := rawClient.ContainerLogs(ctx, containerID, opts)
 	if err != nil {
-		slog.Error("Failed to get container logs", "container_id", containerID, "error", err)
+		slog.Error("Failed to get container logs", "container_id", target.ID, "error", err)
 		errEvent := map[string]string{
 			"type":    "stderr",
 			"content": "Failed to get container logs",
@@ -165,20 +115,19 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 		_ = rc.Flush()
 		return
 	}
-	defer logsResult.Close()
+	defer logsReader.Close()
 
-	// 5. Multiplex stdout and stderr to SSE format
 	outWriter := &sseWriter{w: w, rc: rc, typ: "stdout"}
 	errWriter := &sseWriter{w: w, rc: rc, typ: "stderr"}
 
 	if isTTY {
-		_, err = io.Copy(outWriter, logsResult)
+		_, err = io.Copy(outWriter, logsReader)
 	} else {
-		_, err = stdcopy.StdCopy(outWriter, errWriter, logsResult)
+		_, err = stdcopy.StdCopy(outWriter, errWriter, logsReader)
 	}
 
 	if err != nil && err != io.EOF {
-		slog.Error("Log stream interrupted", "container_id", containerID, "error", err)
+		slog.Error("Log stream interrupted", "container_id", target.ID, "error", err)
 		errEvent := map[string]string{
 			"type":    "stderr",
 			"content": "stream interrupted",

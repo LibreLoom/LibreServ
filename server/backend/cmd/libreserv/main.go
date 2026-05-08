@@ -122,7 +122,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	monitor := monitoring.NewMonitor(db, dockerClient.GetRawClient(), cfg.Apps.DataPath)
+	runtimeClient := docker.NewRuntimeAdapter(dockerClient)
+	monitor := monitoring.NewMonitor(db, runtimeClient, cfg.Apps.DataPath)
 	monitor.Start()
 	defer monitor.Stop()
 
@@ -238,7 +239,6 @@ func main() {
 	renewalScheduler.Start()
 	defer renewalScheduler.Stop()
 
-	runtimeClient := docker.NewRuntimeAdapter(dockerClient)
 	appManager, err := apps.NewManager(
 		cfg.Apps.CatalogPath,
 		cfg.Apps.DataPath,

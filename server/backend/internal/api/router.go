@@ -8,6 +8,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
@@ -193,7 +194,7 @@ func (s *Server) setupRoutes() {
 			})
 
 			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
-			logsHandler := handlers.NewLogsHandler(s.dockerClient)
+			logsHandler := handlers.NewLogsHandler(docker.NewRuntimeAdapter(s.dockerClient))
 
 			// Apps management - installed apps
 			r.Route("/apps", func(r chi.Router) {
