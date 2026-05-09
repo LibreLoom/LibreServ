@@ -321,13 +321,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
             description="Receive email notifications"
           />
 
-          <div
-            className={`overflow-hidden transition-all duration-300 ${
-              settings?.notify?.enabled
-                ? "max-h-[1200px] opacity-100"
-                : "max-h-0 opacity-0"
-            }`}
-          >
+          {settings?.notify?.enabled && (
             <div className="pt-4 mt-4 border-t border-primary/10 space-y-6">
               <div>
                 <div className="font-medium text-primary mb-3">Frequency</div>
@@ -378,7 +372,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                 />
               </div>
             </div>
-          </div>
+          )}
         </div>
       </SettingsCard>
     </div>
