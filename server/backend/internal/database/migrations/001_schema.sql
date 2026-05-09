@@ -1,5 +1,5 @@
 -- Complete LibreServ Database Schema
--- Consolidated into single file for simplicity in development
+-- All migrations consolidated into single file
 
 -- =====================
 -- Core Tables
@@ -188,6 +188,14 @@ CREATE TABLE IF NOT EXISTS failed_login_attempts (
     reason TEXT
 );
 
+-- Account lockouts
+CREATE TABLE IF NOT EXISTS account_lockouts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    locked_until TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- User security settings
 CREATE TABLE IF NOT EXISTS user_security_settings (
     user_id TEXT PRIMARY KEY,
@@ -197,6 +205,10 @@ CREATE TABLE IF NOT EXISTS user_security_settings (
     notify_on_failed_login BOOLEAN DEFAULT 1,
     notify_on_password_change BOOLEAN DEFAULT 1,
     notify_on_admin_action BOOLEAN DEFAULT 1,
+    notify_on_health_alert BOOLEAN DEFAULT TRUE,
+    notify_on_disk_warning BOOLEAN DEFAULT TRUE,
+    notify_on_docker_failure BOOLEAN DEFAULT TRUE,
+    notify_on_database_issue BOOLEAN DEFAULT TRUE,
     use_12_hour_time BOOLEAN DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -231,7 +243,11 @@ CREATE TABLE IF NOT EXISTS setup_state (
     status TEXT NOT NULL,
     nonce TEXT NOT NULL,
     started_at TIMESTAMP,
-    completed_at TIMESTAMP
+    completed_at TIMESTAMP,
+    current_step TEXT NOT NULL DEFAULT 'checking',
+    current_sub_step TEXT,
+    step_data TEXT DEFAULT '{}',
+    progress_updated_at TIMESTAMP
 );
 
 -- Support sessions
@@ -271,6 +287,28 @@ CREATE TABLE IF NOT EXISTS dns_provider_configs (
     enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Password reset tokens table
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Email templates table
+CREATE TABLE IF NOT EXISTS email_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_key TEXT UNIQUE NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    is_custom BOOLEAN DEFAULT FALSE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by TEXT
 );
 
 -- =====================
@@ -327,6 +365,15 @@ CREATE INDEX IF NOT EXISTS idx_failed_logins_timestamp ON failed_login_attempts(
 CREATE INDEX IF NOT EXISTS idx_failed_logins_ip ON failed_login_attempts(ip_address);
 CREATE INDEX IF NOT EXISTS idx_failed_logins_username ON failed_login_attempts(username);
 
+-- Account lockouts indexes
+CREATE INDEX IF NOT EXISTS idx_account_lockouts_username ON account_lockouts(username);
+CREATE INDEX IF NOT EXISTS idx_account_lockouts_locked_until ON account_lockouts(locked_until);
+
+-- Password reset tokens indexes
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires ON password_reset_tokens(expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
+
 -- Audit log indexes
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
@@ -334,43 +381,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 
 -- Support sessions indexes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_support_sessions_code_unique ON support_sessions(code, token);
+
 -- =====================
--- Password Reset & Notifications (from 003)
+-- Default Data
 -- =====================
 
--- Password reset tokens table
-CREATE TABLE IF NOT EXISTS password_reset_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    token_hash TEXT NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    used BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user ON password_reset_tokens(user_id);
-CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires ON password_reset_tokens(expires_at);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_password_reset_tokens_hash ON password_reset_tokens(token_hash);
-
--- Notification preferences (extends user_security_settings)
-ALTER TABLE user_security_settings ADD COLUMN notify_on_health_alert BOOLEAN DEFAULT TRUE;
-ALTER TABLE user_security_settings ADD COLUMN notify_on_disk_warning BOOLEAN DEFAULT TRUE;
-ALTER TABLE user_security_settings ADD COLUMN notify_on_docker_failure BOOLEAN DEFAULT TRUE;
-ALTER TABLE user_security_settings ADD COLUMN notify_on_database_issue BOOLEAN DEFAULT TRUE;
-
--- Email templates table
-CREATE TABLE IF NOT EXISTS email_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    template_key TEXT UNIQUE NOT NULL,
-    subject TEXT NOT NULL,
-    body TEXT NOT NULL,
-    is_custom BOOLEAN DEFAULT FALSE,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_by TEXT
-);
-
--- Insert default templates
+-- Insert default email templates
 INSERT OR IGNORE INTO email_templates (template_key, subject, body, is_custom, updated_at, updated_by) VALUES
 ('password_reset', 'Reset Your LibreServ Password', 'Hello {{.Username}},
 
