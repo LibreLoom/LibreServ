@@ -76,11 +76,11 @@ type UpdateInfo struct {
 
 // UpdateChecker handles checking for platform updates
 type UpdateChecker struct {
-	cfg        config.UpdatesConfig
-	baseURL    string
-	client     *http.Client
-	cacheMu    sync.RWMutex
-	cachedInfo map[string]*UpdateInfo
+	cfg            config.UpdatesConfig
+	baseURL        string
+	client         *http.Client
+	cacheMu        sync.RWMutex
+	cachedInfo     map[string]*UpdateInfo
 	cacheTimestamp map[string]time.Time
 	cacheDuration  time.Duration
 	restartCh      chan<- RestartSignal

@@ -97,9 +97,9 @@ func (h *ReposHandler) AddRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
-		"message":            "repository added",
-		"url":                req.URL,
-		"restart_required":   true,
+		"message":          "repository added",
+		"url":              req.URL,
+		"restart_required": true,
 	})
 }
 
@@ -127,7 +127,7 @@ func (h *ReposHandler) RemoveRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"message":           "repository removed",
+		"message":          "repository removed",
 		"url":              removed.URL,
 		"restart_required": true,
 	})

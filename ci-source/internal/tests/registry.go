@@ -200,9 +200,9 @@ func addFuzzTests() {
 			Description: fmt.Sprintf("Fuzz %s for edge cases and panics", ft.fuzzFn),
 			Type:        TestTypeFuzz,
 			Container:   "golang:1.26-alpine",
-			Command:     fmt.Sprintf(`go test -fuzz=%s -fuzztime=5m -run=^$ ./%s`, ft.fuzzFn, ft.pkg),
+			Command:     fmt.Sprintf(`go test -fuzz=%s -fuzztime=${FUZZ_DURATION:-5m} -run=^$ ./%s`, ft.fuzzFn, ft.pkg),
 			WorkDir:     "/repo/server/backend",
-			Timeout:     10 * time.Minute,
+			Timeout:     15 * time.Minute,
 			Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 			FuzzPackage: ft.pkg,
 		})
@@ -361,7 +361,7 @@ func addSecurityTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "CGO_ENABLED=0 go install github.com/securego/gosec/v2/cmd/gosec@latest && $(go env GOPATH)/bin/gosec -severity high -confidence high -exclude G104,G101,G702,G703,G704 ./internal/... ./cmd/... 2>&1",
 		WorkDir:     "/repo/server/backend",
-		Timeout:     2 * time.Minute,
+		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 
@@ -373,7 +373,7 @@ func addSecurityTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck -checks all,-ST1,-ST1000 ./internal/... ./cmd/...",
 		WorkDir:     "/repo/server/backend",
-		Timeout:     2 * time.Minute,
+		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 }

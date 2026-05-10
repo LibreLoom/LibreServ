@@ -288,9 +288,13 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 
 	// Apply test timeout if configured
 	testCtx := ctx
-	if t.Timeout > 0 {
+	effectiveTimeout := t.Timeout
+	if t.Type == tests.TestTypeFuzz && fuzzDuration > 0 {
+		effectiveTimeout = fuzzDuration + 5*time.Minute
+	}
+	if effectiveTimeout > 0 {
 		var cancel context.CancelFunc
-		testCtx, cancel = context.WithTimeout(ctx, t.Timeout)
+		testCtx, cancel = context.WithTimeout(ctx, effectiveTimeout)
 		defer cancel()
 	}
 

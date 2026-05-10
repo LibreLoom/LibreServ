@@ -113,7 +113,7 @@ describe("NetworkCategory", () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("routes-card")).toBeInTheDocument();
+      expect(RoutesCardProps?.loading).toBe(false);
     });
 
     expect(RoutesCardProps).toMatchObject({

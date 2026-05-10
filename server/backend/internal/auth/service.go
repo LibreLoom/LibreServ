@@ -535,7 +535,7 @@ func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
-users = append(users, user)
+		users = append(users, user)
 	}
 
 	if err := rows.Err(); err != nil {
