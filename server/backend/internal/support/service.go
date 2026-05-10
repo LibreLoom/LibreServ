@@ -3,6 +3,7 @@ package support
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
@@ -200,9 +201,12 @@ func (s *Service) ValidateCode(ctx context.Context, code, token string) (*Sessio
 		return nil, fmt.Errorf("session not active")
 	}
 	if now.After(sess.ExpiresAt) {
-		// Mark expired for future queries
 		_ = s.markExpired(ctx, sess.ID)
 		return nil, fmt.Errorf("session expired")
+	}
+	// Constant-time token comparison
+	if subtle.ConstantTimeCompare([]byte(token), []byte(sess.Token)) != 1 {
+		return nil, fmt.Errorf("invalid session")
 	}
 	sess.Scopes = splitScopes(scopes)
 	if revokedAt.Valid {
