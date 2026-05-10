@@ -21,9 +21,10 @@ build:
 	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags "$(BUILD_TAGS)" $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
 
 run: build
-	@if [ ! -f ./configs/libreserv.yaml ] && [ -f ./configs/libreserv.yaml.example ]; then \
-		echo ">> Copying libreserv.yaml.example → libreserv.yaml"; \
-		cp ./configs/libreserv.yaml.example ./configs/libreserv.yaml; \
+	@if [ ! -f ./configs/libreserv.yaml ]; then \
+		echo "Error: ./configs/libreserv.yaml not found. Copy it from the example:"; \
+		echo "  cp configs/libreserv.yaml.example configs/libreserv.yaml"; \
+		exit 1; \
 	fi
 	@echo ">> Running $(APP_NAME)"
 	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) serve --config ./configs/libreserv.yaml
