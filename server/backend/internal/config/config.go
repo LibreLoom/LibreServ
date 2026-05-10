@@ -276,8 +276,6 @@ func LoadConfig(path string) error {
 					return err
 				}
 			}
-			v.SetConfigName("libreserv")
-			configFilePath = ""
 		}
 	}
 
@@ -288,8 +286,12 @@ func LoadConfig(path string) error {
 
 	globalConfig = &c
 	configFilePath = v.ConfigFileUsed()
-	if configFilePath == "" {
-		configFilePath = path
+	if configFilePath == "" || strings.HasSuffix(configFilePath, ".example") {
+		if path != "" {
+			configFilePath = path
+		} else {
+			configFilePath = "./configs/libreserv.yaml"
+		}
 	}
 	return nil
 }
