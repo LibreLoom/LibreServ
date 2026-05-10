@@ -2,11 +2,12 @@ package middleware
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 )
 
 // CORS returns a middleware that handles Cross-Origin Resource Sharing.
-// If allowedOrigins is empty, all cross-origin requests are denied.
+// If allowedOrigins is empty, only same-origin requests are allowed.
 func CORS(allowedOrigins []string) func(next http.Handler) http.Handler {
 	origins := allowedOrigins
 	return func(next http.Handler) http.Handler {
@@ -23,7 +24,7 @@ func CORS(allowedOrigins []string) func(next http.Handler) http.Handler {
 					allowOrigin = origin
 				}
 			} else {
-				if origin != "" {
+				if origin != "" && !isSameOrigin(r, origin) {
 					http.Error(w, "CORS origin denied", http.StatusForbidden)
 					return
 				}
@@ -65,4 +66,12 @@ func originAllowed(allowed []string, origin string) bool {
 		}
 	}
 	return false
+}
+
+func isSameOrigin(r *http.Request, origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }

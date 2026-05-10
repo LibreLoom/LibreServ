@@ -26,37 +26,37 @@ import (
 
 // Config holds application configuration values.
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Apps     AppsConfig     `mapstructure:"apps"`
-	Docker   DockerConfig   `mapstructure:"docker"`
-	Logging  LoggingConfig  `mapstructure:"logging"`
-	Network  NetworkConfig  `mapstructure:"network"`
-	CORS     CORSConfig     `mapstructure:"cors"`
-	License  LicenseConfig  `mapstructure:"license"`
-	SMTP     SMTPConfig     `mapstructure:"smtp"`
-	Notify   Notifications  `mapstructure:"notify"`
-	Updates  UpdatesConfig  `mapstructure:"updates"`
+	Server   ServerConfig   `mapstructure:"server" yaml:"server"`
+	Database DatabaseConfig `mapstructure:"database" yaml:"database"`
+	Auth     AuthConfig     `mapstructure:"auth" yaml:"auth"`
+	Apps     AppsConfig     `mapstructure:"apps" yaml:"apps"`
+	Docker   DockerConfig   `mapstructure:"docker" yaml:"docker"`
+	Logging  LoggingConfig  `mapstructure:"logging" yaml:"logging"`
+	Network  NetworkConfig  `mapstructure:"network" yaml:"network"`
+	CORS     CORSConfig     `mapstructure:"cors" yaml:"cors"`
+	License  LicenseConfig  `mapstructure:"license" yaml:"license"`
+	SMTP     SMTPConfig     `mapstructure:"smtp" yaml:"smtp"`
+	Notify   Notifications  `mapstructure:"notify" yaml:"notify"`
+	Updates  UpdatesConfig  `mapstructure:"updates" yaml:"updates"`
 }
 
 // AuthConfig holds auth-related settings.
 type AuthConfig struct {
-	JWTSecret  string `mapstructure:"jwt_secret"` // Auto-generated if empty
-	SecretFile string `mapstructure:"secret_file"`
-	CSRFSecret string `mapstructure:"csrf_secret"`
+	JWTSecret  string `mapstructure:"jwt_secret" yaml:"jwt_secret"`
+	SecretFile string `mapstructure:"secret_file" yaml:"secret_file"`
+	CSRFSecret string `mapstructure:"csrf_secret" yaml:"csrf_secret"`
 }
 
 // ServerConfig defines HTTP server settings.
 type ServerConfig struct {
-	Host string `mapstructure:"host"`
-	Port int    `mapstructure:"port"`
-	Mode string `mapstructure:"mode"`
+	Host string `mapstructure:"host" yaml:"host"`
+	Port int    `mapstructure:"port" yaml:"port"`
+	Mode string `mapstructure:"mode" yaml:"mode"`
 }
 
 // DatabaseConfig defines database settings.
 type DatabaseConfig struct {
-	Path string `mapstructure:"path"`
+	Path string `mapstructure:"path" yaml:"path"`
 }
 
 // RepoConfig defines a git repository source for apps.
@@ -84,129 +84,126 @@ type UpdatesConfig struct {
 
 // DockerConfig defines Docker connection settings.
 type DockerConfig struct {
-	Method     string        `mapstructure:"method"` // auto, socket, tcp, ssh
-	SocketPath string        `mapstructure:"socket_path"`
-	TCP        TCPConfig     `mapstructure:"tcp"`
-	SSH        SSHConfig     `mapstructure:"ssh"`
-	Timeout    time.Duration `mapstructure:"timeout"`
+	Method     string        `mapstructure:"method" yaml:"method"`
+	SocketPath string        `mapstructure:"socket_path" yaml:"socket_path"`
+	TCP        TCPConfig     `mapstructure:"tcp" yaml:"tcp"`
+	SSH        SSHConfig     `mapstructure:"ssh" yaml:"ssh"`
+	Timeout    time.Duration `mapstructure:"timeout" yaml:"timeout"`
 }
 
 // TCPConfig defines TCP Docker connection settings.
 type TCPConfig struct {
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	UseTLS   bool   `mapstructure:"use_tls"`
-	CertPath string `mapstructure:"cert_path"`
+	Host     string `mapstructure:"host" yaml:"host"`
+	Port     int    `mapstructure:"port" yaml:"port"`
+	UseTLS   bool   `mapstructure:"use_tls" yaml:"use_tls"`
+	CertPath string `mapstructure:"cert_path" yaml:"cert_path"`
 }
 
 // SSHConfig defines SSH Docker connection settings.
 type SSHConfig struct {
-	Host    string `mapstructure:"host"`
-	User    string `mapstructure:"user"`
-	KeyPath string `mapstructure:"key_path"`
+	Host    string `mapstructure:"host" yaml:"host"`
+	User    string `mapstructure:"user" yaml:"user"`
+	KeyPath string `mapstructure:"key_path" yaml:"key_path"`
 }
 
 // LoggingConfig defines logging settings.
 type LoggingConfig struct {
-	Level string `mapstructure:"level"`
-	Path  string `mapstructure:"path"`
+	Level string `mapstructure:"level" yaml:"level"`
+	Path  string `mapstructure:"path" yaml:"path"`
 }
 
 // CORSConfig defines CORS settings.
 type CORSConfig struct {
-	AllowedOrigins []string `mapstructure:"allowed_origins"`
+	AllowedOrigins []string `mapstructure:"allowed_origins" yaml:"allowed_origins"`
 }
 
 // LicenseConfig defines license validation settings.
 type LicenseConfig struct {
-	EntitlementFile string `mapstructure:"entitlement_file"`
-	PublicKeyFile   string `mapstructure:"public_key_file"`
+	EntitlementFile string `mapstructure:"entitlement_file" yaml:"entitlement_file"`
+	PublicKeyFile   string `mapstructure:"public_key_file" yaml:"public_key_file"`
 }
 
 // SMTPConfig holds outbound email settings.
 type SMTPConfig struct {
-	Host       string `mapstructure:"host"`
-	Port       int    `mapstructure:"port"`
-	Username   string `mapstructure:"username"`
-	Password   string `mapstructure:"password"`
-	From       string `mapstructure:"from"`
-	UseTLS     bool   `mapstructure:"use_tls"`
-	SkipVerify bool   `mapstructure:"skip_verify"` // allow self-signed (dev)
+	Host       string `mapstructure:"host" yaml:"host"`
+	Port       int    `mapstructure:"port" yaml:"port"`
+	Username   string `mapstructure:"username" yaml:"username"`
+	Password   string `mapstructure:"password" yaml:"password"`
+	From       string `mapstructure:"from" yaml:"from"`
+	UseTLS     bool   `mapstructure:"use_tls" yaml:"use_tls"`
+	SkipVerify bool   `mapstructure:"skip_verify" yaml:"skip_verify"`
 }
 
 // Notifications holds email notification settings.
 type Notifications struct {
-	Enabled           bool     `mapstructure:"enabled"`
-	SupportRecipients []string `mapstructure:"support_recipients"`
-	SupportSubject    string   `mapstructure:"support_subject"`
-	SupportBody       string   `mapstructure:"support_body"`
-	WelcomeSubject    string   `mapstructure:"welcome_subject"`
-	WelcomeBody       string   `mapstructure:"welcome_body"`
+	Enabled           bool     `mapstructure:"enabled" yaml:"enabled"`
+	SupportRecipients []string `mapstructure:"support_recipients" yaml:"support_recipients"`
+	SupportSubject    string   `mapstructure:"support_subject" yaml:"support_subject"`
+	SupportBody       string   `mapstructure:"support_body" yaml:"support_body"`
+	WelcomeSubject    string   `mapstructure:"welcome_subject" yaml:"welcome_subject"`
+	WelcomeBody       string   `mapstructure:"welcome_body" yaml:"welcome_body"`
 }
 
 // NetworkConfig holds reverse proxy settings (Caddy)
 type NetworkConfig struct {
-	Caddy CaddyConfig `mapstructure:"caddy"`
-	ACME  ACMEConfig  `mapstructure:"acme"`
-	DNS   DNSConfig   `mapstructure:"dns"`
+	Caddy CaddyConfig `mapstructure:"caddy" yaml:"caddy"`
+	ACME  ACMEConfig  `mapstructure:"acme" yaml:"acme"`
+	DNS   DNSConfig   `mapstructure:"dns" yaml:"dns"`
 }
 
 // DNSConfig holds DNS provider settings for domain record management.
 type DNSConfig struct {
-	Provider string `mapstructure:"provider"` // "cloudflare"
-	APIToken string `mapstructure:"api_token"`
+	Provider string `mapstructure:"provider" yaml:"provider"`
+	APIToken string `mapstructure:"api_token" yaml:"api_token"`
 }
 
 // ACMEConfig defines ACME-related settings.
 type ACMEConfig struct {
-	External ExternalACMEConfig `mapstructure:"external"`
+	External ExternalACMEConfig `mapstructure:"external" yaml:"external"`
 }
 
 // ExternalACMEConfig holds external ACME issuer settings.
 type ExternalACMEConfig struct {
-	Enabled     bool              `mapstructure:"enabled"`
-	UseDocker   bool              `mapstructure:"use_docker"`
-	DockerImage string            `mapstructure:"docker_image"`
-	DataPath    string            `mapstructure:"data_path"`
-	DNSProvider string            `mapstructure:"dns_provider"`
-	DNSEnv      map[string]string `mapstructure:"dns_env"`
-	Email       string            `mapstructure:"email"`
-	Staging     bool              `mapstructure:"staging"`
-	CADirURL    string            `mapstructure:"ca_dir_url"`
-	KeyType     string            `mapstructure:"key_type"`
-	// CertsPath is where the issued cert/key will be copied for Caddy to use.
-	CertsPath string `mapstructure:"certs_path"`
+	Enabled     bool              `mapstructure:"enabled" yaml:"enabled"`
+	UseDocker   bool              `mapstructure:"use_docker" yaml:"use_docker"`
+	DockerImage string            `mapstructure:"docker_image" yaml:"docker_image"`
+	DataPath    string            `mapstructure:"data_path" yaml:"data_path"`
+	DNSProvider string            `mapstructure:"dns_provider" yaml:"dns_provider"`
+	DNSEnv      map[string]string `mapstructure:"dns_env" yaml:"dns_env"`
+	Email       string            `mapstructure:"email" yaml:"email"`
+	Staging     bool              `mapstructure:"staging" yaml:"staging"`
+	CADirURL    string            `mapstructure:"ca_dir_url" yaml:"ca_dir_url"`
+	KeyType     string            `mapstructure:"key_type" yaml:"key_type"`
+	CertsPath   string            `mapstructure:"certs_path" yaml:"certs_path"`
 }
 
-// CaddyConfig mirrors the network.CaddyConfig but avoids import cycles
-// CaddyConfig defines Caddy reverse proxy settings.
 type CaddyConfig struct {
-	Mode          string         `mapstructure:"mode"`
-	AdminAPI      string         `mapstructure:"admin_api"`
-	ConfigPath    string         `mapstructure:"config_path"`
-	CertsPath     string         `mapstructure:"certs_path"`
-	DefaultDomain string         `mapstructure:"default_domain"`
-	Email         string         `mapstructure:"email"`
-	AutoHTTPS     bool           `mapstructure:"auto_https"`
-	Reload        CaddyReload    `mapstructure:"reload"`
-	Logging       CaddyLogConfig `mapstructure:"logging"`
+	Mode          string         `mapstructure:"mode" yaml:"mode"`
+	AdminAPI      string         `mapstructure:"admin_api" yaml:"admin_api"`
+	ConfigPath    string         `mapstructure:"config_path" yaml:"config_path"`
+	CertsPath     string         `mapstructure:"certs_path" yaml:"certs_path"`
+	DefaultDomain string         `mapstructure:"default_domain" yaml:"default_domain"`
+	Email         string         `mapstructure:"email" yaml:"email"`
+	AutoHTTPS     bool           `mapstructure:"auto_https" yaml:"auto_https"`
+	Reload        CaddyReload    `mapstructure:"reload" yaml:"reload"`
+	Logging       CaddyLogConfig `mapstructure:"logging" yaml:"logging"`
 }
 
 // CaddyReload defines retry settings for Caddy reloads.
 type CaddyReload struct {
-	Retries        int           `mapstructure:"retries"`
-	BackoffMin     time.Duration `mapstructure:"backoff_min"`
-	BackoffMax     time.Duration `mapstructure:"backoff_max"`
-	JitterFraction float64       `mapstructure:"jitter_fraction"`
-	AttemptTimeout time.Duration `mapstructure:"attempt_timeout"`
+	Retries        int           `mapstructure:"retries" yaml:"retries"`
+	BackoffMin     time.Duration `mapstructure:"backoff_min" yaml:"backoff_min"`
+	BackoffMax     time.Duration `mapstructure:"backoff_max" yaml:"backoff_max"`
+	JitterFraction float64       `mapstructure:"jitter_fraction" yaml:"jitter_fraction"`
+	AttemptTimeout time.Duration `mapstructure:"attempt_timeout" yaml:"attempt_timeout"`
 }
 
 // CaddyLogConfig defines Caddy logging settings.
 type CaddyLogConfig struct {
-	Output string `mapstructure:"output"`
-	File   string `mapstructure:"file"`
-	Format string `mapstructure:"format"`
-	Level  string `mapstructure:"level"`
+	Output string `mapstructure:"output" yaml:"output"`
+	File   string `mapstructure:"file" yaml:"file"`
+	Format string `mapstructure:"format" yaml:"format"`
+	Level  string `mapstructure:"level" yaml:"level"`
 }
 
 var globalConfig *Config

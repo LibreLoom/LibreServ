@@ -54,3 +54,52 @@ func TestCORSAllowsWildcardSubdomain(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rr.Code)
 	}
 }
+
+func TestCORSEmptyOriginsAllowsSameOrigin(t *testing.T) {
+	mw := CORS(nil)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPut, "/", nil)
+	req.Host = "localhost:8080"
+	req.Header.Set("Origin", "http://localhost:8080")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for same-origin, got %d", rr.Code)
+	}
+}
+
+func TestCORSEmptyOriginsDeniesCrossOrigin(t *testing.T) {
+	mw := CORS(nil)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPut, "/", nil)
+	req.Host = "localhost:8080"
+	req.Header.Set("Origin", "http://evil.com")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for cross-origin, got %d", rr.Code)
+	}
+}
+
+func TestCORSEmptyOriginsAllowsNoOrigin(t *testing.T) {
+	mw := CORS(nil)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for no origin, got %d", rr.Code)
+	}
+}
