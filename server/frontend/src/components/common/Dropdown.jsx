@@ -11,6 +11,7 @@ export default function Dropdown({
   width,
   fullWidth = false,
   disabled = false,
+  bg = "secondary",
   className = "",
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -109,7 +110,7 @@ export default function Dropdown({
         type="button"
         onClick={handleToggle}
         disabled={disabled}
-        className={`${fullWidth ? "w-full" : "inline-flex"} flex-col items-start gap-0 px-3 py-1.5 bg-secondary text-primary text-xs font-medium motion-safe:transition-colors cursor-pointer rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-secondary disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`${fullWidth ? "w-full" : "inline-flex"} flex-col items-start gap-0 px-3 py-1.5 bg-${bg} text-${bg === "primary" ? "secondary" : "primary"} text-xs font-medium motion-safe:transition-colors cursor-pointer rounded-pill focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-${bg} disabled:opacity-50 disabled:cursor-not-allowed`}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label={label ? `${label}: ${selectedOption?.label || "select"}` : undefined}

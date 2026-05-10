@@ -755,7 +755,25 @@ Full implementation in install.sh: correct user/group, After=docker, Restart=alw
 - [ ] Creates preseed for automated install
 - [ ] Results in bootable ISO
 
-#### T4.3.5. Hardware Detection Script
+#### T4.3.5. Embedded App Repository
+
+**Status:** Not started
+
+**Effort:** 3h
+
+Migrate the app repository to a proper Git repository as the source of truth. Only testing/sample applications should be embedded in the binary or release artifacts.
+
+**Current state:** 7 builtin apps exist in `server/backend/apps/builtin/` on disk but are not embedded in the binary. They must be copied to `/opt/libreserv/catalog/builtin/` at install time.
+
+**Goal:** Production apps live in a versioned Git repository (e.g. `gt.plainskill.net/LibreLoom/libreserv-apps`). The binary ships with zero builtin apps by default. A post-install setup step clones the app repo. The built-in placeholder apps are replaced by a minimal set of real testing apps embedded for development/demonstration only.
+
+**Acceptance Criteria:**
+- [ ] App repo migrated to Git with proper manifests for all production apps
+- [ ] Binary ships with no embedded app catalog by default
+- [ ] Setup clones the app repo to `/opt/libreserv/catalog/builtin/` on first run
+- [ ] A small set of testing/sample apps (1-3) embedded in the binary for dev/demo
+
+#### T4.3.6. Hardware Detection Script
 
 **Status:** In progress (claimed by Fluffy-Bunny-23)
 

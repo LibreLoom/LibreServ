@@ -210,19 +210,17 @@ export default function RepoStatusCard({ index = 0 }) {
         padding={false}
         index={index}
       >
-        <div className="p-5">
-          <div className="flex items-start justify-between gap-4 mb-4">
-            <div className="flex-1">
-              <div className="text-sm text-primary/70 mb-1">
-                {repos.length === 0 ? "No repositories configured" : `${repos.length} repository${repos.length !== 1 ? "s" : ""} configured`}
-              </div>
+        <div className="px-5 py-4">
+          <div className="flex items-center justify-between gap-4 mb-4 p-1.5 rounded-full bg-primary/10">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-primary/20 text-primary">
+              {repos.length === 0 ? "No repositories configured" : `${repos.length} repository${repos.length !== 1 ? "s" : ""} configured`}
             </div>
             <div className="flex gap-2">
               <Button
                 variant="primary"
                 onClick={handlePull}
                 disabled={pulling || repos.length === 0}
-                className="min-w-[140px]"
+                size="sm"
               >
                 {pulling ? (
                   <>
@@ -239,6 +237,7 @@ export default function RepoStatusCard({ index = 0 }) {
               <Button
                 variant="primary"
                 onClick={() => setShowAddModal(true)}
+                size="sm"
               >
                 <Plus size={16} />
                 Add

@@ -36,6 +36,7 @@ export default function GeneralCategory({ settings, use12HourTime, on12HourTimeC
               value={settings?.logging?.level || "info"}
               onChange={(val) => settings?.onLoggingChange?.(val)}
               width={120}
+              bg="primary"
               options={[
                 { value: "debug", label: "Debug" },
                 { value: "info", label: "Info" },

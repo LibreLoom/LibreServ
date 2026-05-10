@@ -106,7 +106,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
         padding={false}
         index={index}
       >
-        <div className="p-5">
+        <div className="px-5 pt-5 pb-2">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
               <div className="text-sm text-primary/70 mb-1">Current Version</div>
@@ -194,23 +194,21 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
                   </>
                 )}
               </Button>
+
+              <div className="flex flex-wrap gap-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-primary/20 text-primary">
+                  <Info size={12} />
+                  Auto-restart after update
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-primary/20 text-primary">
+                  <CheckCircle size={12} />
+                  Re-login required
+                </div>
+              </div>
             </div>
           )}
 
           <div className="mt-4 pt-4 border-t border-primary/10">
-            <div className="flex flex-wrap gap-2">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-primary/20 text-primary">
-                <Info size={12} />
-                Auto-restart after update
-              </div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs bg-primary/20 text-primary">
-                <CheckCircle size={12} />
-                Re-login required
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-primary/10">
             <div className="text-xs font-medium text-accent uppercase tracking-wider mb-3">
               <GitBranch size={12} className="inline mr-1.5" />
               Update Source
@@ -241,7 +239,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
                 className="w-full md:w-40 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent"
               />
             </SettingsRow>
-            <SettingsRow label="Repo" stack>
+            <SettingsRow label="Repo" stack hideDivider>
               <input
                 type="text"
                 value={updateSettings?.repo || ""}
