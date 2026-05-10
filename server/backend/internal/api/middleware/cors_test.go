@@ -118,4 +118,40 @@ func TestCORSDevModeAllowsAllOrigins(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200 in dev mode, got %d", rr.Code)
 	}
+	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "http://evil.com" {
+		t.Fatalf("expected ACAO header in dev mode, got %q", got)
+	}
+}
+
+func TestCORSDevModeHandlesPreflight(t *testing.T) {
+	mw := CORS(nil, true)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called for OPTIONS")
+	}))
+
+	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for dev preflight, got %d", rr.Code)
+	}
+}
+
+func TestCORSTrustedHostOverridesRequestHost(t *testing.T) {
+	mw := CORS(nil, false, "app.example.com")
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPut, "/", nil)
+	req.Host = "evil.com"
+	req.Header.Set("Origin", "https://app.example.com")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 with trusted host, got %d", rr.Code)
+	}
 }
