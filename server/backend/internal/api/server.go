@@ -113,13 +113,7 @@ func NewServer(cfg ServerConfig) *Server {
 	r.Use(middleware.Logger(logger))
 	r.Use(chimiddleware.Recoverer)
 	corsOrigins := config.Get().CORS.AllowedOrigins
-	insecureDev := os.Getenv("LIBRESERV_INSECURE_DEV") == "true"
-	corsDevMode := cfg.DevMode
-	if insecureDev && isLocalhost(cfg.Host) {
-		corsDevMode = true
-	} else if insecureDev {
-		logger.Warn("LIBRESERV_INSECURE_DEV=true ignored for CORS — server is bound to a non-localhost address")
-	}
+	corsDevMode := cfg.DevMode || os.Getenv("LIBRESERV_INSECURE_DEV") == "true"
 	if corsDevMode && len(corsOrigins) == 0 {
 		corsOrigins = []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"}
 	}
@@ -372,12 +366,4 @@ func maxBodySize(max int64) func(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-func isLocalhost(host string) bool {
-	switch host {
-	case "localhost", "127.0.0.1", "::1", "0.0.0.0", "::", "":
-		return true
-	}
-	return strings.HasSuffix(host, ".localhost") || strings.HasPrefix(host, "127.")
 }
