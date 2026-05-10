@@ -34,7 +34,7 @@ func LoadManifest(appDir string) (*Manifest, error) {
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &Manifest{AppID: "", Channel: "stable", Versions: []ManifestVersion{}}, nil
+			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to read manifest: %w", err)
 	}

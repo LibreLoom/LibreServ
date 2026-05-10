@@ -35,9 +35,6 @@ func NewRepoClient(logger *slog.Logger, cfg config.RepoConfig, localPath string)
 }
 
 func (r *RepoClient) Pull(ctx context.Context) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	branch := r.config.Branch
 	if branch == "" {
 		branch = "main"
@@ -56,7 +53,9 @@ func (r *RepoClient) Pull(ctx context.Context) error {
 			Auth:          &http.BasicAuth{Username: "git", Password: ""},
 		})
 		if err != nil {
+			r.mu.Lock()
 			r.lastError = err
+			r.mu.Unlock()
 			return fmt.Errorf("failed to clone repo: %w", err)
 		}
 	} else {
@@ -76,20 +75,22 @@ func (r *RepoClient) Pull(ctx context.Context) error {
 			Auth:          &http.BasicAuth{Username: "git", Password: ""},
 		})
 		if err != nil && err != git.NoErrAlreadyUpToDate {
+			r.mu.Lock()
 			r.lastError = err
+			r.mu.Unlock()
 			return fmt.Errorf("failed to pull repo: %w", err)
 		}
 	}
 
+	r.mu.Lock()
 	r.lastError = nil
 	r.lastPullAt = time.Now()
-
 	if repo != nil {
-		head, headErr := repo.Head()
-		if headErr == nil {
+		if head, headErr := repo.Head(); headErr == nil {
 			r.lastCommit = head.Hash().String()
 		}
 	}
+	r.mu.Unlock()
 
 	return nil
 }

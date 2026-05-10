@@ -667,13 +667,13 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 	}
 
 	manifest, _ := LoadManifest(catalogApp.CatalogPath)
-	if manifest == nil || manifest.AppID == "" {
+	if manifest == nil {
 		m.logger.Warn("No manifest available, updating without verification", "app_id", app.AppID, "instance_id", instanceID)
 	}
 
 	var targetVersion *ManifestVersion
 	var newVersion string
-	if manifest != nil && manifest.AppID != "" {
+	if manifest != nil {
 		if latest := manifest.LatestApproved(); latest != nil {
 			targetVersion = latest
 			newVersion = latest.Tag
@@ -1062,7 +1062,7 @@ func (m *Manager) GetAvailableUpdates(ctx context.Context) ([]AvailableUpdate, e
 		needsConfigReason := ""
 		isUpdate := false
 
-		if manifest != nil && manifest.AppID != "" {
+		if manifest != nil {
 			digestTrackingEnabled = currentDigest != ""
 			if latest := manifest.LatestApproved(); latest != nil {
 				latestVersion = latest.Tag
@@ -1150,7 +1150,7 @@ func (m *Manager) CheckRevocations(ctx context.Context) error {
 		}
 
 		manifest, err := LoadManifest(catalogApp.CatalogPath)
-		if err != nil || manifest == nil || manifest.AppID == "" {
+		if err != nil || manifest == nil {
 			continue
 		}
 
@@ -1207,12 +1207,16 @@ func (m *Manager) CheckRevocations(ctx context.Context) error {
 
 // AcknowledgeRevocation marks a revoked app's revocation notice as acknowledged by the user.
 func (m *Manager) AcknowledgeRevocation(ctx context.Context, instanceID string) error {
-	_, err := m.db.Exec(`
+	res, err := m.db.Exec(`
 		UPDATE apps SET revocation_acknowledged_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND revocation_severity IS NOT NULL
+		WHERE id = ? AND revocation_severity IS NOT NULL AND revocation_acknowledged_at IS NULL
 	`, instanceID)
 	if err != nil {
 		return fmt.Errorf("failed to acknowledge revocation: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("no unacknowledged revocation found for app %s", instanceID)
 	}
 	m.logger.Info("Revocation acknowledged", "instance_id", instanceID)
 	return nil

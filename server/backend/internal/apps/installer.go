@@ -269,7 +269,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	}
 
 	manifest, _ := LoadManifest(appDef.CatalogPath)
-	if manifest != nil && manifest.AppID != "" {
+	if manifest != nil {
 		if latest := manifest.LatestApproved(); latest != nil {
 			config["version"] = latest.Tag
 		} else {
@@ -293,7 +293,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	config["_compose_template_sha"] = sha
 
 	var imageDigest string
-	if manifest != nil && manifest.AppID != "" {
+	if manifest != nil {
 		if latest := manifest.LatestApproved(); latest != nil {
 			imageDigest = latest.Digest
 			if latest.Digest != "" && appDef.Deployment.Image != "" {
