@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
+import { sanitizeSVG } from "../../lib/sanitize";
 
 export default function AppIcon({ appId, size = 48, className = "" }) {
   const [svg, setSvg] = useState("");
@@ -19,7 +20,12 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
       .then((svgText) => {
         if (controller.signal.aborted || !mountedRef.current) return;
         if (svgText.includes("<svg")) {
-          const sized = svgText.replace(
+          const sanitized = sanitizeSVG(svgText);
+          if (!sanitized) {
+            setFailed(true);
+            return;
+          }
+          const sized = sanitized.replace(
             /<svg/,
             `<svg width="${size}" height="${size}"`,
           );

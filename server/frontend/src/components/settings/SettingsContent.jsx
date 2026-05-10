@@ -39,6 +39,8 @@ export default function SettingsContent({
   onNotificationsSettingsChange,
   onTestNotification,
   onLoggingChange,
+  updateSettings,
+  onUpdateSettingsChange,
   colors,
   setColors,
   darkColors,
@@ -66,6 +68,8 @@ export default function SettingsContent({
           },
           use12HourTime,
           on12HourTimeChange,
+          updateSettings,
+          onUpdateSettingsChange,
         };
       case "appearance":
         return {
