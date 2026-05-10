@@ -267,6 +267,20 @@ func LoadConfig(path string) error {
 		}
 	}
 
+	if v.ConfigFileUsed() == "" {
+		example := findExampleConfig()
+		if example != "" {
+			v.SetConfigFile(example)
+			if err := v.ReadInConfig(); err != nil {
+				if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+					return err
+				}
+			}
+			v.SetConfigName("libreserv")
+			configFilePath = ""
+		}
+	}
+
 	var c Config
 	if err := v.Unmarshal(&c); err != nil {
 		return err
@@ -374,4 +388,17 @@ func IsWritableFilePath(path string) (bool, error) {
 // This should only be used in test files.
 func SetTestConfig(cfg *Config) {
 	globalConfig = cfg
+}
+
+func findExampleConfig() string {
+	candidates := []string{
+		"./configs/libreserv.yaml.example",
+		"/etc/libreserv/libreserv.yaml.example",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return ""
 }

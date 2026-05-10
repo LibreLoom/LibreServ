@@ -50,6 +50,7 @@ server/backend/.env.local
 dev/
 server/backend/dev/
 server/backend/bin/
+server/backend/configs/libreserv.yaml
 *.db
 .env
 .env.local
