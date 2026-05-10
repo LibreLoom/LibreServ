@@ -5,6 +5,7 @@ import { login as loginQuips } from "../assets/greetings";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Alert from "../components/common/Alert";
+import { useNavigate } from "react-router-dom";
 
 function getLoginQuip() {
   const hoursSinceEpoch = Math.floor(Date.now() / 43200000);
@@ -93,6 +94,7 @@ export default function Login() {
   const [showResetModal, setShowResetModal] = useState(false);
   const errorRef = useRef(null);
   const { login } = useAuth();
+  const navigate = useNavigate();
   const loginQuip = useMemo(() => getLoginQuip(), []);
   
   useEffect(() => {
@@ -144,6 +146,19 @@ export default function Login() {
         </p>
       );
     } else if (errorStatus) {
+      const statusNum = Number(errorStatus);
+      if (!Number.isInteger(statusNum) || statusNum < 100 || statusNum > 599) {
+        return (
+          <p>
+            We've encountered an unidentified error while trying to log in.
+            <br />
+            <br />
+            If you're having this issue repeatedly, start by rebooting your
+            LibreServ. If that fails, feel free to contact support to help resolve
+            this issue, we're always happy to help!
+          </p>
+        );
+      }
       return (
         <p>
           We've encountered an unidentified error while trying to log in.
@@ -175,7 +190,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(username, password);
-      window.location.reload();
+      navigate("/");
     } catch (err) {
       setErrorStatus(err.cause?.status || "NetworkError");
       setLoading(false);

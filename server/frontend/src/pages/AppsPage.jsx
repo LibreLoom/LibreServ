@@ -9,6 +9,7 @@ import StatusPill from "../components/common/StatusPill";
 import { useApps } from "../hooks/useApps";
 import { useCatalog } from "../hooks/useCatalog";
 import FeatureMatrixPill from "../components/app/FeatureMatrixPill";
+import { sanitizeURL } from "../lib/sanitize";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";
@@ -233,7 +234,8 @@ export default function AppsPage() {
               const isRunning = app.status === "running";
               const uptime = isRunning ? app.uptime_seconds : app.downtime_seconds;
               const uptimeLabel = isRunning ? "Uptime" : "Downtime";
-              const appUrl = app.url || app.backends?.[0]?.url || "";
+              const rawUrl = app.url || app.backends?.[0]?.url || "";
+              const appUrl = sanitizeURL(rawUrl);
 
               return (
                 <Card key={app.id} className="relative flex flex-col">

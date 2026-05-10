@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import { Clock, Server, CheckCircle, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Clock, Server, CheckCircle, RefreshCw, Database } from "lucide-react";
 
 import StatCard from "../components/cards/StatCard";
 import HeaderCard from "../components/cards/HeaderCard";
@@ -7,6 +8,7 @@ import AppCards from "../components/cards/AppCards";
 import DropdownCard from "../components/cards/DropdownCard";
 import RefreshDropdown, { REFRESH_INTERVALS } from "../components/common/RefreshDropdown";
 import WelcomeCard from "../components/onboarding/WelcomeCard";
+import api from "../lib/api";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
 import { useUser } from "../hooks/useUser";
@@ -136,6 +138,25 @@ export default function Dashboard() {
     });
   }, [resources]);
 
+  const [repoStatus, setRepoStatus] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchRepoStatus = async () => {
+      try {
+        const res = await api("/repos/status");
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setRepoStatus(data);
+        }
+      } catch {
+        // Silently ignore - non-critical
+      }
+    };
+    fetchRepoStatus();
+    return () => { cancelled = true; };
+  }, []);
+
   const systemStatus = useMemo(
     () => ({
       status: "online",
@@ -199,6 +220,20 @@ export default function Dashboard() {
 
       <section className="px-8 mb-10">
         <WelcomeCard />
+        {repoStatus && repoStatus.length > 0 && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-secondary/60">
+            <Database size={12} className="text-accent" />
+            <span>
+              App repository: last checked{" "}
+              {repoStatus[0].last_pull && repoStatus[0].last_pull !== "0001-01-01T00:00:00Z"
+                ? new Date(repoStatus[0].last_pull).toLocaleString(undefined, { timeStyle: "short" })
+                : "never"}
+            </span>
+            <Link to="/settings" className="text-accent hover:text-primary transition-colors">
+              Check now
+            </Link>
+          </div>
+        )}
       </section>
 
       <section

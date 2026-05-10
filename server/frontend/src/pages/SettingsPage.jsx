@@ -171,6 +171,17 @@ export default function SettingsPage() {
     scheduleSave();
   };
 
+  const handleUpdateSettingsChange = (partial) => {
+    setSettings((prev) => {
+      if (!prev) return prev;
+      const newUpdates = { ...prev?.updates, ...partial };
+      pendingSettingsRef.current = { updates: newUpdates };
+      return { ...prev, updates: newUpdates };
+    });
+    setSaveStatus("unsaved");
+    scheduleSave();
+  };
+
   const handleRetrySave = () => {
     performSave();
   };
@@ -223,6 +234,8 @@ export default function SettingsPage() {
             onNotificationsSettingsChange={handleNotificationsSettingsChange}
             onTestNotification={handleTestNotification}
             onLoggingChange={handleLoggingChange}
+            updateSettings={settings?.updates}
+            onUpdateSettingsChange={handleUpdateSettingsChange}
             colors={colors}
             setColors={setColors}
             darkColors={darkColors}
@@ -273,6 +286,8 @@ export default function SettingsPage() {
               onNotificationsSettingsChange={handleNotificationsSettingsChange}
               onTestNotification={handleTestNotification}
               onLoggingChange={handleLoggingChange}
+              updateSettings={settings?.updates}
+              onUpdateSettingsChange={handleUpdateSettingsChange}
               colors={colors}
               setColors={setColors}
               darkColors={darkColors}

@@ -11,6 +11,7 @@ import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import AppIcon from "../components/common/AppIcon";
 import api from "../lib/api";
+import { sanitizeURL } from "../lib/sanitize";
 import {
   Grid2X2,
   Trash2,
@@ -38,6 +39,8 @@ import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal
 import { ExposedInfoCard } from "../components/app/ExposedInfoCard";
 import FeatureMatrix from "../components/app/FeatureMatrix";
 import LogsViewer from "../components/app/LogsViewer";
+import RevocationBanner from "../components/app/RevocationBanner";
+import AcknowledgeRevocationModal from "../components/app/AcknowledgeRevocationModal";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");
@@ -142,7 +145,9 @@ export default function AppDetailPage() {
   const [selectedAction, setSelectedAction] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [showLogsViewer, setShowLogsViewer] = useState(false);
-  const appUrl = app?.url || app?.backends?.[0]?.url || "";
+  const [showAckRevocationModal, setShowAckRevocationModal] = useState(false);
+  const rawUrl = app?.url || app?.backends?.[0]?.url || "";
+  const appUrl = sanitizeURL(rawUrl);
 
   useEffect(() => {
     if (!instanceId) {
@@ -416,6 +421,15 @@ export default function AppDetailPage() {
 
       {!loading && !error && app && (
         <>
+          {app.revocation_notice && (
+            <RevocationBanner
+              notice={app.revocation_notice}
+              appName={app.name}
+              acknowledged={!!app.revocation_notice.acknowledged_at}
+              onSeeDetails={() => setShowAckRevocationModal(true)}
+            />
+          )}
+
           <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <Card className="flex flex-col items-center justify-center py-6 text-center">
               <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
@@ -533,11 +547,26 @@ export default function AppDetailPage() {
                     <p className="text-sm text-secondary/70">
                       {availableUpdate.current_version} to {availableUpdate.latest_version}
                     </p>
+                    {availableUpdate.needs_config && availableUpdate.needs_config_reason && (
+                      <p className="text-sm text-secondary/60 mt-1">
+                        Needs setup: {availableUpdate.needs_config_reason}
+                      </p>
+                    )}
+                    {availableUpdate.compose_template_changed && (
+                      <p className="text-sm text-secondary/60 mt-1">
+                        This update includes configuration changes.
+                      </p>
+                    )}
+                    {!availableUpdate.digest_tracking_enabled && (
+                      <p className="text-sm text-secondary/60 mt-1">
+                        Updating will enable security verification for this app.
+                      </p>
+                    )}
                   </div>
                   </div>
                   <button
                     onClick={() => handleAppAction("update")}
-                    disabled={actionLoading}
+                    disabled={actionLoading || availableUpdate.needs_config}
                     className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
                   >
                     {actionLoading === "update" ? (
@@ -548,7 +577,7 @@ export default function AppDetailPage() {
                     ) : (
                       <>
                         <ArrowUpCircle size={18} />
-                        Update Now
+                        {availableUpdate.needs_config ? "Setup Required" : "Update Now"}
                       </>
                     )}
                   </button>
@@ -705,6 +734,18 @@ export default function AppDetailPage() {
         <LogsViewer
           app={app}
           onClose={() => setShowLogsViewer(false)}
+        />
+      )}
+
+      {showAckRevocationModal && app && (
+        <AcknowledgeRevocationModal
+          app={app}
+          onClose={() => setShowAckRevocationModal(false)}
+          onAcknowledged={async () => {
+            const response = await request(`/apps/${app.id}`);
+            const data = await response.json();
+            setApp(data);
+          }}
         />
       )}
     </main>
