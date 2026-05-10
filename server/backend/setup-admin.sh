@@ -1,5 +1,12 @@
 #!/bin/bash
 # Complete initial setup for LibreServ
+# Requires LIBRESERV_INSECURE_DEV=true for development use only
+
+if [ "${LIBRESERV_INSECURE_DEV:-}" != "true" ]; then
+  echo "ERROR: This script requires LIBRESERV_INSECURE_DEV=true"
+  echo "This script is for development only and must not be used in production."
+  exit 1
+fi
 
 cd /workspaces/LibreServ/server/backend
 

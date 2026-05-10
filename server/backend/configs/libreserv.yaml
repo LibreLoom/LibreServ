@@ -1,23 +1,27 @@
 server:
     host: 0.0.0.0
     port: 8080
-    mode: development
+    mode: production
 database:
     path: ./dev/data/libreserv.db
 auth:
-    jwt_secret: HiBbpIZh5G4a6WW-6Cy5tTw4Z7zpMMdEZEwvXm2LNPM=
+    jwt_secret: ""
     secret_file: ""
-    csrf_secret: s0Pr1s4EehRnkFShG4eLb3w1DJuzEu61UdqpFWIpYc4=
+    csrf_secret: ""
 apps:
     data_path: ./dev/apps
     catalog_path: ./apps
+updates:
+    base_url: https://gt.plainskill.net/api/v1
+    owner: libreloom
+    repo: libreserv
 docker:
     method: auto
     socket_path: ""
     tcp:
         host: ""
         port: 0
-        use_tls: false
+use_tls: true
         cert_path: ""
     ssh:
         host: ""
@@ -25,7 +29,7 @@ docker:
         key_path: ""
     timeout: 30s
 logging:
-    level: debug
+    level: info
     path: ./dev/logs
 network:
     caddy:
