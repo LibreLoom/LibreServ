@@ -7,11 +7,16 @@ import (
 )
 
 // CORS returns a middleware that handles Cross-Origin Resource Sharing.
-// If allowedOrigins is empty, only same-origin requests are allowed.
-func CORS(allowedOrigins []string) func(next http.Handler) http.Handler {
+// If devMode is true, all origins are allowed (development only).
+func CORS(allowedOrigins []string, devMode bool) func(next http.Handler) http.Handler {
 	origins := allowedOrigins
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if devMode {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			origin := r.Header.Get("Origin")
 			var allowOrigin string
 			if len(origins) > 0 {

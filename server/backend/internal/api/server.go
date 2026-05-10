@@ -116,7 +116,7 @@ func NewServer(cfg ServerConfig) *Server {
 	if cfg.DevMode && len(corsOrigins) == 0 {
 		corsOrigins = []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"}
 	}
-	r.Use(middleware.CORS(corsOrigins))
+	r.Use(middleware.CORS(corsOrigins, cfg.DevMode || os.Getenv("LIBRESERV_INSECURE_DEV") == "true"))
 
 	if cfg.DevMode {
 		r.Use(middleware.DevSecurityHeaders())

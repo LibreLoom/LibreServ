@@ -25,7 +25,6 @@ export default defineConfig({
     host: "0.0.0.0",
     open: false,
     allowedHosts: [".shares.zrok.io"],
-    origin: "https://zeder-codeserver.shares.zrok.io:3001",
     fs: {
       allow: ["../.."],
     },

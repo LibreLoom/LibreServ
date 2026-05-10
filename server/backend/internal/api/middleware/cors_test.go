@@ -7,7 +7,7 @@ import (
 )
 
 func TestCORSAllowsConfiguredOrigin(t *testing.T) {
-	mw := CORS([]string{"https://example.com"})
+	mw := CORS([]string{"https://example.com"}, false)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -26,7 +26,7 @@ func TestCORSAllowsConfiguredOrigin(t *testing.T) {
 }
 
 func TestCORSDeniesUnknownOrigin(t *testing.T) {
-	mw := CORS([]string{"https://allowed.com"})
+	mw := CORS([]string{"https://allowed.com"}, false)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -42,7 +42,7 @@ func TestCORSDeniesUnknownOrigin(t *testing.T) {
 }
 
 func TestCORSAllowsWildcardSubdomain(t *testing.T) {
-	mw := CORS([]string{"*.example.com"})
+	mw := CORS([]string{"*.example.com"}, false)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -56,7 +56,7 @@ func TestCORSAllowsWildcardSubdomain(t *testing.T) {
 }
 
 func TestCORSEmptyOriginsAllowsSameOrigin(t *testing.T) {
-	mw := CORS(nil)
+	mw := CORS(nil, false)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -73,7 +73,7 @@ func TestCORSEmptyOriginsAllowsSameOrigin(t *testing.T) {
 }
 
 func TestCORSEmptyOriginsDeniesCrossOrigin(t *testing.T) {
-	mw := CORS(nil)
+	mw := CORS(nil, false)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -90,7 +90,7 @@ func TestCORSEmptyOriginsDeniesCrossOrigin(t *testing.T) {
 }
 
 func TestCORSEmptyOriginsAllowsNoOrigin(t *testing.T) {
-	mw := CORS(nil)
+	mw := CORS(nil, false)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -101,5 +101,21 @@ func TestCORSEmptyOriginsAllowsNoOrigin(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200 for no origin, got %d", rr.Code)
+	}
+}
+
+func TestCORSDevModeAllowsAllOrigins(t *testing.T) {
+	mw := CORS(nil, true)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodPut, "/", nil)
+	req.Header.Set("Origin", "http://evil.com")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 in dev mode, got %d", rr.Code)
 	}
 }
