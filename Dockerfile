@@ -33,6 +33,8 @@ COPY --from=backend-builder /app/backend/bin/libreserv /app/libreserv
 COPY --from=frontend-builder /app/backend/OS/dist /app/OS/dist
 # Copy default configs
 COPY server/backend/configs /app/configs
+# Use example config as default (env vars override specific settings at runtime)
+RUN cp /app/configs/libreserv.yaml.example /app/configs/libreserv.yaml
 # Copy apps catalog
 COPY server/backend/apps /app/apps
 

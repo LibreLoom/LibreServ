@@ -98,6 +98,9 @@ func (h *LogsHandler) StreamLogs(w http.ResponseWriter, r *http.Request) {
 	target := containers[0]
 
 	inspect, err := h.runtime.InspectContainer(ctx, target.ID)
+	if err != nil {
+		slog.Warn("Failed to inspect container, assuming non-TTY", "container_id", target.ID, "error", err)
+	}
 	isTTY := inspect != nil && inspect.TTY
 
 	logsReader, err := h.runtime.ContainerLogs(ctx, target.ID, runtime.LogOptions{
