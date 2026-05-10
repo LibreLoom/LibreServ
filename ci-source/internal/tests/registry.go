@@ -283,7 +283,7 @@ func addE2ETests() {
 			# Detect the port the server actually binds to from logs
 			echo "Waiting for server to start..."
 			for i in $(seq 1 30); do
-				SERVER_PORT=$(docker logs libreserv-e2e 2>&1 | grep -oP 'addr=0\.0\.0\.0:\K[0-9]+' | head -1)
+				SERVER_PORT=$(docker logs libreserv-e2e 2>&1 | grep -oP '"addr":"0\.0\.0\.0:\K[0-9]+' | head -1)
 				if [ -n "$SERVER_PORT" ]; then
 					break
 				fi
