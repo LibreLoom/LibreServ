@@ -28,10 +28,10 @@ export default async function api(path, options = {}, retried = false) {
     !retried &&
     !noRetry
   ) {
-    console.log(`[api] 401 on ${path}, triggering refresh`);
+    if (import.meta.env.DEV) console.log(`[api] 401 on ${path}, triggering refresh`);
     // Prevent race conditions by ensuring only one refresh request at a time
     if (!refreshPromise) {
-      console.log("[api] creating refresh promise");
+      if (import.meta.env.DEV) console.log("[api] creating refresh promise");
       refreshPromise = fetch("/api/v1/auth/refresh", {
         credentials: "include",
         method: "POST",
@@ -41,10 +41,10 @@ export default async function api(path, options = {}, retried = false) {
     try {
       const refreshResponse = await refreshPromise;
       refreshPromise = null;
-      console.log(`[api] refresh -> ${refreshResponse.status}`);
+      if (import.meta.env.DEV) console.log(`[api] refresh -> ${refreshResponse.status}`);
 
       if (refreshResponse.ok) {
-        console.log(`[api] refresh ok, retrying ${path}`);
+        if (import.meta.env.DEV) console.log(`[api] refresh ok, retrying ${path}`);
         return await api(path, options, true);
       }
 

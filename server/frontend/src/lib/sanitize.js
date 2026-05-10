@@ -43,9 +43,46 @@ export function stripHTML(str) {
   sanitized = sanitized.replace(/data:text\/html/gi, '');
   
   // Remove other dangerous tags
-  const dangerousTags = /<(iframe|object|embed|form|input|textarea|button|select|option|style|link|meta|base)[^>]*>/gi;
+  const dangerousTags = /<(iframe|object|embed|form|input|textarea|button|select|option|style|link|meta|base|foreignObject)[^>]*>/gi;
   sanitized = sanitized.replace(dangerousTags, '');
   
+  return sanitized;
+}
+
+/**
+ * Sanitizes SVG markup for safe inline rendering.
+ * Strips script elements, event handlers, foreignObject, and unsafe href values.
+ * @param {string} svg - SVG markup string
+ * @returns {string} - Sanitized SVG safe for dangerouslySetInnerHTML
+ */
+export function sanitizeSVG(svg) {
+  if (!svg || typeof svg !== 'string') {
+    return '';
+  }
+  if (!svg.includes('<svg')) {
+    return '';
+  }
+
+  let sanitized = svg;
+
+  // Remove all <script> elements entirely
+  sanitized = sanitized.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+
+  // Remove all <foreignObject> elements
+  sanitized = sanitized.replace(/<foreignObject[^>]*>[\s\S]*?<\/foreignObject>/gi, '');
+
+  // Strip event handler attributes from all elements
+  sanitized = sanitized.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, '');
+  sanitized = sanitized.replace(/\s+on\w+\s*=\s*[^\s>]*/gi, '');
+
+  // Strip href attributes with dangerous values
+  sanitized = sanitized.replace(/\s+href\s*=\s*["']javascript:[^"']*["']/gi, ' href=""');
+  sanitized = sanitized.replace(/\s+href\s*=\s*["']data:text\/html[^"']*["']/gi, ' href=""');
+  sanitized = sanitized.replace(/\s+href\s*=\s*["']vbscript:[^"']*["']/gi, ' href=""');
+
+  // Remove dangerous uses-elements that load external scripts
+  sanitized = sanitized.replace(/<use[^>]*href\s*=\s*["'][^"']*\.js["'][^>]*\/>/gi, '');
+
   return sanitized;
 }
 
