@@ -209,6 +209,7 @@ func (s *Server) setupRoutes() {
 				r.Post("/{instanceId}/start", appsHandler.StartApp)
 				r.Post("/{instanceId}/stop", appsHandler.StopApp)
 				r.Post("/{instanceId}/restart", appsHandler.RestartApp)
+				r.Post("/{instanceId}/acknowledge-revocation", appsHandler.AcknowledgeRevocation)
 				r.Post("/{instanceId}/update", appsHandler.UpdateApp)
 				r.Post("/{instanceId}/pin", appsHandler.PinAppVersion)
 				r.Post("/{instanceId}/unpin", appsHandler.UnpinAppVersion)

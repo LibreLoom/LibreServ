@@ -19,6 +19,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
@@ -267,10 +268,40 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		}
 	}
 
+	manifest, _ := LoadManifest(appDef.CatalogPath)
+	if manifest != nil && manifest.AppID != "" {
+		if latest := manifest.LatestApproved(); latest != nil {
+			config["version"] = latest.Tag
+		} else {
+			config["version"] = appDef.Version
+		}
+	} else {
+		config["version"] = appDef.Version
+	}
+
 	composePath, err := i.processComposeTemplate(appDef, installPath, config)
 	if err != nil {
 		_ = os.RemoveAll(installPath)
 		return &InstallResult{Success: false, Error: "failed to process compose template"}, err
+	}
+
+	sha, err := ComposeTemplateSHA(composePath)
+	if err != nil {
+		_ = os.RemoveAll(installPath)
+		return &InstallResult{Success: false, Error: "failed to compute template SHA"}, err
+	}
+	config["_compose_template_sha"] = sha
+
+	var imageDigest string
+	if manifest != nil && manifest.AppID != "" {
+		if latest := manifest.LatestApproved(); latest != nil {
+			imageDigest = latest.Digest
+			if latest.Digest != "" && appDef.Deployment.Image != "" {
+				if err := docker.ComposePinImageDigest(composePath, appDef.Deployment.Image, latest.Digest); err != nil {
+					i.logger.Warn("Failed to pin image digest during install", "error", err)
+				}
+			}
+		}
 	}
 
 	if err := i.createMetadataFile(installPath, appDef, config); err != nil {
@@ -299,6 +330,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		Config:       config,
 		InstalledAt:  time.Now(),
 		UpdatedAt:    time.Now(),
+		ImageDigest:  imageDigest,
 	}
 
 	if len(appDef.Deployment.Ports) > 0 {
@@ -375,7 +407,7 @@ func (i *Installer) updateAppConfigInDB(instanceID string, config map[string]int
 
 	_, err = i.db.Exec(`
 		UPDATE apps
-		SET config = ?, updated_at = ?
+		SET metadata = ?, updated_at = ?
 		WHERE id = ?
 	`, configJSON, time.Now(), instanceID)
 
@@ -627,9 +659,6 @@ func (i *Installer) processComposeTemplate(appDef *AppDefinition, installPath st
 
 // createMetadataFile creates the .libreserv.yaml metadata file
 func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition, config map[string]interface{}) error {
-	// Ensure version is in config for DB persistence
-	config["version"] = appDef.Version
-
 	metadata := map[string]interface{}{
 		"app_id":       appDef.ID,
 		"app_name":     appDef.Name,
@@ -854,9 +883,16 @@ func (i *Installer) saveInstalledApp(app *InstalledApp) error {
 		return fmt.Errorf("failed to marshal app config: %w", err)
 	}
 
+	composeSHA := app.ComposeTemplateSHA
+	if composeSHA == "" && app.Config != nil {
+		if sha, ok := app.Config["_compose_template_sha"].(string); ok {
+			composeSHA = sha
+		}
+	}
+
 	_, err = i.db.Exec(`
-		INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, image_digest, compose_template_sha)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			type = excluded.type,
@@ -865,8 +901,10 @@ func (i *Installer) saveInstalledApp(app *InstalledApp) error {
 			status = excluded.status,
 			health_status = excluded.health_status,
 			updated_at = excluded.updated_at,
-			metadata = excluded.metadata
-	`, app.ID, app.Name, string(app.Type), app.AppID, app.Path, string(app.Status), string(app.HealthStatus), app.InstalledAt, app.UpdatedAt, string(configJSON))
+			metadata = excluded.metadata,
+			image_digest = excluded.image_digest,
+			compose_template_sha = excluded.compose_template_sha
+	`, app.ID, app.Name, string(app.Type), app.AppID, app.Path, string(app.Status), string(app.HealthStatus), app.InstalledAt, app.UpdatedAt, string(configJSON), app.ImageDigest, composeSHA)
 
 	return err
 }

@@ -12,8 +12,8 @@ type AppType string
 const (
 	// AppTypeBuiltin represents apps from the official catalog
 	AppTypeBuiltin AppType = "builtin"
-	// AppTypeCustom represents user-uploaded compose files
-	AppTypeCustom AppType = "custom"
+	// AppTypeRepo represents apps from a git repository
+	AppTypeRepo AppType = "repo"
 	// AppTypeExternal represents externally managed apps registered for monitoring
 	AppTypeExternal AppType = "external"
 )
@@ -96,8 +96,9 @@ type AppDefinition struct {
 	Features AppFeatures `yaml:"features,omitempty" json:"features,omitempty"`
 
 	// Internal metadata (not from YAML)
-	Type        AppType `yaml:"-" json:"type"`
-	CatalogPath string  `yaml:"-" json:"-"`
+	Type          AppType `yaml:"-" json:"type"`
+	CatalogPath   string  `yaml:"-" json:"-"`
+	SourceRepoURL string  `yaml:"-" json:"source_repo_url,omitempty"`
 }
 
 // Clone returns a deep copy of the AppDefinition.
@@ -248,7 +249,6 @@ type ResourceRequirements struct {
 type UpdateConfig struct {
 	Strategy           string `yaml:"strategy" json:"strategy"` // manual, notify, auto
 	BackupBeforeUpdate bool   `yaml:"backup_before_update" json:"backup_before_update"`
-	AllowDowngrade     bool   `yaml:"allow_downgrade" json:"allow_downgrade"`
 }
 
 // InstalledApp represents an app instance installed on the system
@@ -288,6 +288,18 @@ type InstalledApp struct {
 	// State tracking
 	LastStartedAt time.Time `json:"last_started_at,omitempty"`
 	LastStoppedAt time.Time `json:"last_stopped_at,omitempty"`
+
+	// Version tracking
+	ImageDigest        string            `json:"image_digest,omitempty"`
+	ComposeTemplateSHA string            `json:"compose_template_sha,omitempty"`
+	RevocationNotice   *RevocationNotice `json:"revocation_notice,omitempty"`
+}
+
+type RevocationNotice struct {
+	Severity       string     `json:"severity"`
+	Reason         string     `json:"reason"`
+	RevokedAt      time.Time  `json:"revoked_at"`
+	AcknowledgedAt *time.Time `json:"acknowledged_at,omitempty"`
 }
 
 // BackendRef describes a reachable backend for an installed app.
@@ -308,6 +320,7 @@ const (
 	StatusUpdating   AppStatus = "updating"
 	StatusError      AppStatus = "error"
 	StatusRemoving   AppStatus = "removing"
+	StatusRevoked    AppStatus = "revoked"
 )
 
 // HealthStatus represents the health status of an app
@@ -337,12 +350,18 @@ type AppUpdate struct {
 
 // AvailableUpdate represents an available update for an installed app
 type AvailableUpdate struct {
-	InstanceID     string `json:"instance_id"`
-	AppID          string `json:"app_id"`
-	AppName        string `json:"app_name"`
-	CurrentVersion string `json:"current_version"`
-	LatestVersion  string `json:"latest_version"`
-	IsUpdate       bool   `json:"is_update"`
+	InstanceID             string `json:"instance_id"`
+	AppID                  string `json:"app_id"`
+	AppName                string `json:"app_name"`
+	CurrentVersion         string `json:"current_version"`
+	LatestVersion          string `json:"latest_version"`
+	CurrentDigest          string `json:"current_digest,omitempty"`
+	LatestDigest           string `json:"latest_digest,omitempty"`
+	ComposeTemplateChanged bool   `json:"compose_template_changed"`
+	NeedsConfig            bool   `json:"needs_config"`
+	NeedsConfigReason      string `json:"needs_config_reason,omitempty"`
+	IsUpdate               bool   `json:"is_update"`
+	DigestTrackingEnabled  bool   `json:"digest_tracking_enabled"`
 }
 
 type ScriptConfig struct {

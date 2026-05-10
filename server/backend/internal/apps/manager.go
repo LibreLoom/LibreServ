@@ -14,6 +14,7 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
@@ -24,6 +25,7 @@ import (
 type Manager struct {
 	mu             sync.RWMutex
 	catalog        *Catalog
+	repoSet        *RepoSet
 	installer      *Installer
 	portManager    *PortManager
 	runtime        runtime.ContainerRuntime
@@ -37,6 +39,8 @@ type Manager struct {
 	backendMap     map[string][]string            // appID -> backend URLs (primary first)
 	backendByName  map[string]map[string][]string // appID -> name -> backends
 	scriptExecutor *ScriptExecutor
+	updateMu       sync.Mutex
+	updating       map[string]bool
 }
 
 // NewManager creates a new app Manager
@@ -66,6 +70,7 @@ func NewManager(
 		backendMap:     make(map[string][]string),
 		backendByName:  make(map[string]map[string][]string),
 		scriptExecutor: NewScriptExecutorWithCatalog(slog.Default().With("component", "script-executor"), nil, appsDataDir, catalogPath),
+		updating:       make(map[string]bool),
 	}
 
 	// Set up repair callback if monitor is available
@@ -169,7 +174,38 @@ func NewManager(
 
 // GetCatalog returns the app catalog
 func (m *Manager) GetCatalog() *Catalog {
+	if m.repoSet != nil {
+		if rc := m.repoSet.GetCatalog(); rc != nil {
+			return rc
+		}
+	}
 	return m.catalog
+}
+
+// SetRepoSet wires the RepoSet into the Manager for catalog/manifest lookups.
+func (m *Manager) SetRepoSet(rs *RepoSet) {
+	m.repoSet = rs
+	rs.SetRevocationCallback(m.CheckRevocations)
+}
+
+// TriggerRepoPull pulls repos if the last pull was more than an hour ago.
+func (m *Manager) TriggerRepoPull(ctx context.Context) {
+	if m.repoSet == nil {
+		return
+	}
+	statuses := m.repoSet.RepoStatus()
+	needsPull := len(statuses) == 0
+	for _, s := range statuses {
+		if s.Enabled && time.Since(s.LastPull) > time.Hour {
+			needsPull = true
+			break
+		}
+	}
+	if needsPull {
+		if err := m.repoSet.PullAll(ctx); err != nil {
+			m.logger.Warn("freshness repo pull failed", "error", err)
+		}
+	}
 }
 
 // GetPortManager returns the port manager
@@ -371,7 +407,7 @@ func (m *Manager) handleRepair(instanceID string) {
 		return
 	}
 
-	catalogApp, err := m.catalog.GetApp(app.AppID)
+	catalogApp, err := m.GetCatalog().GetApp(app.AppID)
 	if err != nil {
 		m.logger.Warn("Repair failed: app not in catalog", "app_id", app.AppID)
 		return
@@ -395,6 +431,15 @@ func (m *Manager) handleRepair(instanceID string) {
 // StartApp starts a stopped app
 func (m *Manager) StartApp(ctx context.Context, instanceID string) error {
 	m.logger.Info("Starting app", "instance_id", instanceID)
+
+	app, err := m.GetInstalledApp(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+
+	if app.RevocationNotice != nil && app.RevocationNotice.AcknowledgedAt == nil {
+		return fmt.Errorf("this version has been recalled for security reasons and cannot be started right now")
+	}
 
 	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")
 	if err := m.runtime.ComposeUp(ctx, composePath); err != nil {
@@ -516,7 +561,7 @@ type ContainerStatus struct {
 // ListInstalledApps returns all installed apps
 func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error) {
 	rows, err := m.db.Query(`
-		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error
+		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error, image_digest, compose_template_sha, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at
 		FROM apps
 		ORDER BY installed_at DESC
 	`)
@@ -539,7 +584,7 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 		app.Backends = m.listBackendRefs(app.ID)
 
 		// Populate exposed_info from catalog definition
-		if catalogApp, err := m.catalog.GetApp(app.AppID); err == nil {
+		if catalogApp, err := m.GetCatalog().GetApp(app.AppID); err == nil {
 			app.ExposedInfo = m.mergeExposedInfo(app, catalogApp)
 		}
 
@@ -563,7 +608,7 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 // GetInstalledApp returns a single installed app by instance ID
 func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*InstalledApp, error) {
 	row := m.db.QueryRow(`
-		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error
+		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error, image_digest, compose_template_sha, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at
 		FROM apps WHERE id = ?
 	`, instanceID)
 
@@ -574,7 +619,7 @@ func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*Inst
 
 	app.Backends = m.listBackendRefs(app.ID)
 
-	catalogApp, err := m.catalog.GetApp(app.AppID)
+	catalogApp, err := m.GetCatalog().GetApp(app.AppID)
 	if err == nil {
 		app.ExposedInfo = m.mergeExposedInfo(app, catalogApp)
 	}
@@ -582,8 +627,31 @@ func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*Inst
 	return app, nil
 }
 
-// UpdateApp updates an app to a newer version
-func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
+// UpdateApp updates an app to a newer version.
+//
+// Phase 3 changes:
+//   - Per-app mutex prevents concurrent updates for the same app
+//   - Sets StatusUpdating during the update
+//   - Enforces pinned version (returns error unless overridePin=true)
+//   - Blocks if manifest marks version as needs_config
+//   - Keeps backup for 7 days instead of deleting on success
+//   - Renders new compose template if SHA changed
+//   - Pins image digest from manifest before pull
+//   - Updates image_digest, compose_template_sha, version in DB on success
+func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin bool) error {
+	m.updateMu.Lock()
+	if m.updating[instanceID] {
+		m.updateMu.Unlock()
+		return fmt.Errorf("update already in progress for app %s", instanceID)
+	}
+	m.updating[instanceID] = true
+	defer func() {
+		m.updateMu.Lock()
+		delete(m.updating, instanceID)
+		m.updateMu.Unlock()
+	}()
+	m.updateMu.Unlock()
+
 	m.logger.Info("Updating app", "instance_id", instanceID)
 
 	app, err := m.GetInstalledApp(ctx, instanceID)
@@ -591,26 +659,53 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 		return err
 	}
 
-	// If app is pinned, we should only update if the catalog has exactly that version
-	// but for now UpdateApp usually implies updating to whatever is in catalog.
-	// We'll warn if updating a pinned app.
-	if app.PinnedVersion != "" {
-		m.logger.Warn("Updating a pinned app - this may change its version from the pin", "instance_id", instanceID, "pin", app.PinnedVersion)
-	}
+	prevStatus := app.Status
 
-	oldVersion := app.Config["version"] // Version from current installation metadata
-	if oldVersion == nil {
-		oldVersion = ""
-	}
-
-	// Get new version from catalog
-	catalogApp, err := m.catalog.GetApp(app.AppID)
+	catalogApp, err := m.GetCatalog().GetApp(app.AppID)
 	if err != nil {
 		return fmt.Errorf("app not found in catalog: %w", err)
 	}
-	newVersion := catalogApp.Version
 
-	// Record update start
+	manifest, _ := LoadManifest(catalogApp.CatalogPath)
+	if manifest == nil || manifest.AppID == "" {
+		m.logger.Warn("No manifest available, updating without verification", "app_id", app.AppID, "instance_id", instanceID)
+	}
+
+	var targetVersion *ManifestVersion
+	var newVersion string
+	if manifest != nil && manifest.AppID != "" {
+		if latest := manifest.LatestApproved(); latest != nil {
+			targetVersion = latest
+			newVersion = latest.Tag
+		}
+	}
+	if newVersion == "" {
+		newVersion = catalogApp.Version
+	}
+
+	if app.PinnedVersion != "" && !overridePin {
+		if app.PinnedVersion != newVersion {
+			return fmt.Errorf("this app is pinned to version %s. If you want to update, confirm the update to override the pin", app.PinnedVersion)
+		}
+	}
+
+	if targetVersion != nil && targetVersion.NeedsConfig {
+		reason := targetVersion.NeedsConfigReason
+		if reason == "" {
+			reason = "This update needs some setup first."
+		}
+		return fmt.Errorf("needs_config: %s", reason)
+	}
+
+	oldVersion, _ := app.Config["version"].(string)
+	if oldVersion == "" {
+		oldVersion = app.PinnedVersion
+	}
+
+	if err := m.updateStatus(ctx, instanceID, StatusUpdating); err != nil {
+		return fmt.Errorf("failed to set updating status: %w", err)
+	}
+
 	res, err := m.db.Exec(`
 		INSERT INTO updates (app_id, status, old_version, new_version, started_at)
 		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -621,7 +716,6 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 	}
 
 	var backupID string
-	// Check if backup is needed
 	if catalogApp.Updates.BackupBeforeUpdate {
 		m.logger.Info("Creating backup before update", "instance_id", instanceID)
 
@@ -630,6 +724,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 			result, err := m.scriptExecutor.ExecuteAt(ctx, instanceID, backupScriptPath, app.Path, app.Config)
 			if err != nil || !result.Success {
 				m.recordUpdateFailure(updateID, fmt.Errorf("backup script failed: %v, %s", err, result.Error), false, "")
+				m.updateStatus(ctx, instanceID, prevStatus)
 				return fmt.Errorf("backup script failed: %w", err)
 			}
 			if result.Data != nil {
@@ -639,17 +734,17 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 			}
 			m.logger.Info("Backup created via script", "backup_id", backupID)
 		} else {
-			// Fall back to existing backup service
-			res, err := m.backupService.BackupApp(ctx, instanceID, storage.BackupOptions{
+			backupRes, err := m.backupService.BackupApp(ctx, instanceID, storage.BackupOptions{
 				StopBeforeBackup: true,
 				Compress:         true,
 				IncludeLogs:      false,
 			})
 			if err != nil {
 				m.recordUpdateFailure(updateID, fmt.Errorf("backup failed: %w", err), false, "")
+				m.updateStatus(ctx, instanceID, prevStatus)
 				return fmt.Errorf("backup failed: %w", err)
 			}
-			backupID = res.Backup.ID
+			backupID = backupRes.Backup.ID
 			m.logger.Info("Backup created successfully", "backup_id", backupID)
 		}
 
@@ -658,30 +753,65 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 		}
 	}
 
-	// Run pre-update script if present
+	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")
+
+	composeTemplateChanged := false
+	if targetVersion != nil && targetVersion.ComposeTemplateSHA != "" && app.ComposeTemplateSHA != targetVersion.ComposeTemplateSHA {
+		composeTemplateChanged = true
+	}
+	if app.ComposeTemplateSHA == "" && targetVersion != nil && targetVersion.ComposeTemplateSHA != "" {
+		composeTemplateChanged = true
+	}
+	if composeTemplateChanged {
+		m.logger.Info("Compose template changed, rendering new template", "instance_id", instanceID)
+		app.Config["version"] = newVersion
+		for _, field := range catalogApp.Configuration {
+			if _, exists := app.Config[field.Name]; !exists {
+				if field.Default != nil {
+					app.Config[field.Name] = field.Default
+				} else if field.Type == "password" {
+					app.Config[field.Name] = generateSecurePassword(24)
+				}
+			}
+		}
+		_, err := m.installer.processComposeTemplate(catalogApp, filepath.Join(m.appsDataDir, instanceID), app.Config)
+		if err != nil {
+			m.recordUpdateFailure(updateID, fmt.Errorf("compose template render failed: %w", err), false, backupID)
+			m.updateStatus(ctx, instanceID, prevStatus)
+			return fmt.Errorf("compose template render failed: %w", err)
+		}
+
+		newSHA, _ := ComposeTemplateSHA(composePath)
+		if newSHA != "" {
+			app.ComposeTemplateSHA = newSHA
+		}
+	}
+
+	if targetVersion != nil && targetVersion.Digest != "" {
+		if err := docker.ComposePinImageDigest(composePath, catalogApp.Deployment.Image, targetVersion.Digest); err != nil {
+			m.logger.Warn("Failed to pin image digest in compose file", "error", err)
+		}
+	}
+
 	updateScriptPath := m.scriptExecutor.GetSystemScriptPath(catalogApp.CatalogPath, "update")
 	if updateScriptPath != "" {
 		m.logger.Info("Running system-update script", "instance_id", instanceID)
 		result, err := m.scriptExecutor.ExecuteAt(ctx, instanceID, updateScriptPath, app.Path, app.Config)
 		if err != nil || !result.Success {
 			m.recordUpdateFailure(updateID, fmt.Errorf("system-update script failed: %v, %s", err, result.Error), false, backupID)
+			m.updateStatus(ctx, instanceID, prevStatus)
 			return fmt.Errorf("system-update script failed: %w", err)
 		}
 		m.logger.Info("system-update script completed", "instance_id", instanceID)
 	}
 
-	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")
-
-	// Pull new images
 	if err := m.runtime.ComposePull(ctx, composePath); err != nil {
 		m.recordUpdateFailure(updateID, err, false, backupID)
+		m.updateStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("failed to pull images: %w", err)
 	}
 
-	// In-place update: docker compose up -d will recreate containers only if needed.
-	// This provides near-zero downtime compared to Down then Up.
 	if err := m.runtime.ComposeUp(ctx, composePath); err != nil {
-		// Attempt rollback if backup exists
 		rolledBack := false
 		if backupID != "" {
 			m.logger.Warn("Update failed during recreation, attempting rollback", "error", err)
@@ -695,12 +825,11 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 			}
 		}
 		m.recordUpdateFailure(updateID, err, rolledBack, backupID)
+		m.updateStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("failed to recreate containers: %w", err)
 	}
 
-	// Verify health of the new version
 	m.logger.Info("Verifying health after update", "instance_id", instanceID)
-
 	isHealthy := m.waitForHealthy(ctx, instanceID, 60*time.Second)
 
 	if !isHealthy {
@@ -717,10 +846,10 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 			}
 		}
 		m.recordUpdateFailure(updateID, fmt.Errorf("app unhealthy after update"), rolledBack, backupID)
+		m.updateStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("app unhealthy after update (rollback attempted)")
 	}
 
-	// Record success
 	if updateID > 0 {
 		_, _ = m.db.Exec(`
 			UPDATE updates 
@@ -729,12 +858,34 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string) error {
 		`, updateID)
 	}
 
-	// Clean up pre-update backup on success (no longer needed after successful update)
-	if backupID != "" {
-		if err := m.backupService.DeleteBackup(ctx, backupID); err != nil {
-			m.logger.Warn("Failed to cleanup pre-update backup", "backup_id", backupID, "error", err)
+	var newImageDigest string
+	var newComposeTemplateSHA string
+	if targetVersion != nil {
+		newImageDigest = targetVersion.Digest
+		newComposeTemplateSHA = targetVersion.ComposeTemplateSHA
+	} else {
+		newComposeTemplateSHA = app.ComposeTemplateSHA
+	}
+	if newComposeTemplateSHA == "" {
+		if sha, err := ComposeTemplateSHA(composePath); err == nil {
+			newComposeTemplateSHA = sha
 		}
 	}
+
+	_, _ = m.db.Exec(`
+		UPDATE apps SET
+			image_digest = ?,
+			compose_template_sha = ?,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = ?
+	`, newImageDigest, newComposeTemplateSHA, instanceID)
+
+	if app.Config == nil {
+		app.Config = make(map[string]interface{})
+	}
+	app.Config["version"] = newVersion
+	configJSON, _ := json.Marshal(app.Config)
+	_, _ = m.db.Exec(`UPDATE apps SET metadata = ? WHERE id = ?`, string(configJSON), instanceID)
 
 	return m.updateStatus(ctx, instanceID, StatusRunning)
 }
@@ -892,35 +1043,62 @@ func (m *Manager) GetAvailableUpdates(ctx context.Context) ([]AvailableUpdate, e
 		return nil, err
 	}
 
-	var available []AvailableUpdate
+	available := make([]AvailableUpdate, 0)
 	for _, app := range installedApps {
-		catalogApp, err := m.catalog.GetApp(app.AppID)
+		catalogApp, err := m.GetCatalog().GetApp(app.AppID)
 		if err != nil {
-			continue // Skip apps not in catalog (could be custom or removed)
+			continue
 		}
 
 		currentVersion, _ := app.Config["version"].(string)
 		latestVersion := catalogApp.Version
 
-		// If app is pinned, it only has an "update" if the latest catalog version
-		// is exactly the pinned version AND different from current.
-		// Usually pinning means "stay on this version", so we skip update detection for pinned apps.
+		manifest, _ := LoadManifest(catalogApp.CatalogPath)
+		digestTrackingEnabled := false
+		currentDigest := app.ImageDigest
+		latestDigest := ""
+		composeTemplateChanged := false
+		needsConfig := false
+		needsConfigReason := ""
 		isUpdate := false
-		if app.PinnedVersion == "" {
-			isUpdate = currentVersion != "" && currentVersion != latestVersion
-		} else if app.PinnedVersion != currentVersion {
-			// If it's pinned to something else than current, maybe we should report it?
-			// For now, let's just say pinned apps don't get auto-updates.
+
+		if manifest != nil && manifest.AppID != "" {
+			digestTrackingEnabled = currentDigest != ""
+			if latest := manifest.LatestApproved(); latest != nil {
+				latestVersion = latest.Tag
+				latestDigest = latest.Digest
+				needsConfig = latest.NeedsConfig
+				needsConfigReason = latest.NeedsConfigReason
+				if currentDigest != "" && currentDigest != latestDigest {
+					isUpdate = true
+				}
+				if latest.ComposeTemplateSHA != "" && app.ComposeTemplateSHA != latest.ComposeTemplateSHA {
+					composeTemplateChanged = true
+				}
+			}
+		} else {
+			if app.PinnedVersion == "" {
+				isUpdate = currentVersion != "" && currentVersion != latestVersion
+			}
+		}
+
+		if isUpdate && app.PinnedVersion != "" && currentVersion != app.PinnedVersion {
 			isUpdate = false
 		}
 
 		available = append(available, AvailableUpdate{
-			InstanceID:     app.ID,
-			AppID:          app.AppID,
-			AppName:        app.Name,
-			CurrentVersion: currentVersion,
-			LatestVersion:  latestVersion,
-			IsUpdate:       isUpdate,
+			InstanceID:             app.ID,
+			AppID:                  app.AppID,
+			AppName:                app.Name,
+			CurrentVersion:         currentVersion,
+			LatestVersion:          latestVersion,
+			CurrentDigest:          currentDigest,
+			LatestDigest:           latestDigest,
+			ComposeTemplateChanged: composeTemplateChanged,
+			NeedsConfig:            needsConfig,
+			NeedsConfigReason:      needsConfigReason,
+			IsUpdate:               isUpdate,
+			DigestTrackingEnabled:  digestTrackingEnabled,
 		})
 	}
 
@@ -947,9 +1125,102 @@ func (m *Manager) UnpinAppVersion(ctx context.Context, instanceID string) error 
 	return nil
 }
 
+// CheckRevocations checks installed apps against manifests for revoked versions.
+func (m *Manager) CheckRevocations(ctx context.Context) error {
+	rows, err := m.db.Query(`
+		SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error, image_digest, compose_template_sha, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at
+		FROM apps
+		WHERE status IN ('running', 'stopped') AND revocation_severity IS NULL
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to query apps for revocation check: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		app, err := scanInstalledApp(rows)
+		if err != nil {
+			m.logger.Warn("Failed to scan app for revocation check", "error", err)
+			continue
+		}
+
+		catalogApp, err := m.GetCatalog().GetApp(app.AppID)
+		if err != nil {
+			continue
+		}
+
+		manifest, err := LoadManifest(catalogApp.CatalogPath)
+		if err != nil || manifest == nil || manifest.AppID == "" {
+			continue
+		}
+
+		currentVersion, _ := app.Config["version"].(string)
+		if currentVersion == "" {
+			continue
+		}
+
+		revoked, ok := manifest.IsRevoked(currentVersion)
+		if !ok {
+			continue
+		}
+
+		m.logger.Warn("Revoked app version detected",
+			"instance_id", app.ID,
+			"app_id", app.AppID,
+			"version", currentVersion,
+			"severity", revoked.Severity,
+		)
+
+		if revoked.Severity == "malicious" && app.Status == StatusRunning {
+			composePath := filepath.Join(m.appsDataDir, app.ID, "docker-compose.yml")
+			stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := m.runtime.ComposeStop(stopCtx, composePath); err != nil {
+				m.logger.Warn("Failed to gracefully stop revoked malicious app", "instance_id", app.ID, "error", err)
+				downCtx, downCancel := context.WithTimeout(ctx, 5*time.Second)
+				_ = m.runtime.ComposeDown(downCtx, composePath)
+				downCancel()
+			}
+			cancel()
+		}
+
+		revokedAt := time.Now()
+		if revoked.RevokedAt != nil && !revoked.RevokedAt.IsZero() {
+			revokedAt = *revoked.RevokedAt
+		}
+		_, _ = m.db.Exec(`
+			UPDATE apps SET
+				status = 'revoked',
+				revocation_severity = ?,
+				revocation_reason = ?,
+				revocation_revoked_at = ?,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, revoked.Severity, revoked.RevocationReason, revokedAt, app.ID)
+
+		if m.metricsCache != nil {
+			m.metricsCache.UpdateStatus(app.ID, StatusRevoked)
+		}
+	}
+
+	return nil
+}
+
+// AcknowledgeRevocation marks a revoked app's revocation notice as acknowledged by the user.
+func (m *Manager) AcknowledgeRevocation(ctx context.Context, instanceID string) error {
+	_, err := m.db.Exec(`
+		UPDATE apps SET revocation_acknowledged_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND revocation_severity IS NOT NULL
+	`, instanceID)
+	if err != nil {
+		return fmt.Errorf("failed to acknowledge revocation: %w", err)
+	}
+	m.logger.Info("Revocation acknowledged", "instance_id", instanceID)
+	return nil
+}
+
 // RefreshCatalog reloads the app catalog from disk
 func (m *Manager) RefreshCatalog() error {
-	return m.catalog.Refresh()
+	return m.GetCatalog().Refresh()
 }
 
 // Close cleans up manager resources
@@ -962,7 +1233,7 @@ func (m *Manager) updateRouteIDInConfig(instanceID, routeID string) error {
 	// Fetch the current app config (no lock needed - direct DB read)
 	var currentConfigJSON []byte
 	err := m.db.QueryRow(`
-		SELECT config FROM apps WHERE id = ?
+		SELECT metadata FROM apps WHERE id = ?
 	`, instanceID).Scan(&currentConfigJSON)
 
 	if err != nil {
@@ -990,7 +1261,7 @@ func (m *Manager) updateRouteIDInConfig(instanceID, routeID string) error {
 	// Update database (no lock needed - DB handles concurrency)
 	_, err = m.db.Exec(`
 		UPDATE apps
-		SET config = ?, updated_at = ?
+		SET metadata = ?, updated_at = ?
 		WHERE id = ?
 	`, newConfigJSON, time.Now(), instanceID)
 
@@ -1034,9 +1305,15 @@ func scanInstalledApp(scanner interface {
 		metadataJSON                                          string
 		pinnedVersion                                         sql.NullString
 		errMsg                                                sql.NullString
+		imageDigest                                           sql.NullString
+		composeTemplateSHA                                    sql.NullString
+		revocationSeverity                                    sql.NullString
+		revocationReason                                      sql.NullString
+		revocationRevokedAt                                   sql.NullTime
+		revocationAcknowledgedAt                              sql.NullTime
 	)
 
-	if err := scanner.Scan(&id, &name, &appType, &source, &path, &status, &healthStatus, &installedAt, &updatedAt, &metadataJSON, &pinnedVersion, &errMsg); err != nil {
+	if err := scanner.Scan(&id, &name, &appType, &source, &path, &status, &healthStatus, &installedAt, &updatedAt, &metadataJSON, &pinnedVersion, &errMsg, &imageDigest, &composeTemplateSHA, &revocationSeverity, &revocationReason, &revocationRevokedAt, &revocationAcknowledgedAt); err != nil {
 		return nil, err
 	}
 
@@ -1047,20 +1324,37 @@ func scanInstalledApp(scanner interface {
 		}
 	}
 
-	return &InstalledApp{
-		ID:            id,
-		AppID:         source,
-		Name:          name,
-		Type:          AppType(appType),
-		Status:        AppStatus(status),
-		HealthStatus:  HealthStatus(healthStatus),
-		Path:          path,
-		Config:        config,
-		InstalledAt:   installedAt,
-		UpdatedAt:     updatedAt,
-		PinnedVersion: pinnedVersion.String,
-		Error:         errMsg.String,
-	}, nil
+	app := &InstalledApp{
+		ID:                 id,
+		AppID:              source,
+		Name:               name,
+		Type:               AppType(appType),
+		Status:             AppStatus(status),
+		HealthStatus:       HealthStatus(healthStatus),
+		Path:               path,
+		Config:             config,
+		InstalledAt:        installedAt,
+		UpdatedAt:          updatedAt,
+		PinnedVersion:      pinnedVersion.String,
+		Error:              errMsg.String,
+		ImageDigest:        imageDigest.String,
+		ComposeTemplateSHA: composeTemplateSHA.String,
+	}
+
+	if revocationSeverity.Valid && revocationSeverity.String != "" {
+		var ackTime *time.Time
+		if revocationAcknowledgedAt.Valid {
+			ackTime = &revocationAcknowledgedAt.Time
+		}
+		app.RevocationNotice = &RevocationNotice{
+			Severity:       revocationSeverity.String,
+			Reason:         revocationReason.String,
+			RevokedAt:      revocationRevokedAt.Time,
+			AcknowledgedAt: ackTime,
+		}
+	}
+
+	return app, nil
 }
 
 type backendEntry struct {
@@ -1114,8 +1408,8 @@ func (m *Manager) inferBackends(app *InstalledApp) []backendEntry {
 		}
 	}
 
-	if m.catalog != nil {
-		if def, err := m.catalog.GetApp(app.AppID); err == nil {
+	if m.GetCatalog() != nil {
+		if def, err := m.GetCatalog().GetApp(app.AppID); err == nil {
 			// Build a map of config field names to user-provided values
 			configValues := make(map[string]interface{})
 			if app.Config != nil {

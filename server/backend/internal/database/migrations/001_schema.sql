@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS apps (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('builtin', 'custom', 'external')),
+    type TEXT NOT NULL CHECK(type IN ('builtin', 'repo', 'external')),
     source TEXT,
     path TEXT NOT NULL,
     status TEXT DEFAULT 'stopped',
@@ -30,7 +30,13 @@ CREATE TABLE IF NOT EXISTS apps (
     error TEXT,
     installed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    metadata JSON
+    metadata JSON,
+    image_digest TEXT,
+    compose_template_sha TEXT,
+    revocation_severity TEXT,
+    revocation_reason TEXT,
+    revocation_revoked_at TIMESTAMP,
+    revocation_acknowledged_at TIMESTAMP
 );
 
 -- Health checks table

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
@@ -135,6 +136,21 @@ func (h *AppsHandler) StartApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, "App not found")
+		return
+	}
+
+	if app.RevocationNotice != nil && app.RevocationNotice.AcknowledgedAt == nil {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":      "This version has been recalled for security reasons and cannot be started right now. Check the app details for more information.",
+			"revocation": app.RevocationNotice,
+		})
+		return
+	}
+
 	if err := h.manager.StartApp(r.Context(), instanceID); err != nil {
 		slog.Error("Failed to start app", "instance_id", instanceID, "error", err)
 		JSONError(w, http.StatusInternalServerError, "Failed to start app")
@@ -168,6 +184,27 @@ func (h *AppsHandler) StopApp(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// AcknowledgeRevocation handles POST /api/apps/{instanceId}/acknowledge-revocation
+// Dismisses the revocation warning for a revoked app
+func (h *AppsHandler) AcknowledgeRevocation(w http.ResponseWriter, r *http.Request) {
+	instanceID := chi.URLParam(r, "instanceId")
+	if instanceID == "" {
+		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		return
+	}
+
+	if err := h.manager.AcknowledgeRevocation(r.Context(), instanceID); err != nil {
+		slog.Error("Failed to acknowledge revocation", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "Failed to acknowledge revocation")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{
+		"message":     "revocation acknowledged",
+		"instance_id": instanceID,
+	})
+}
+
 // RestartApp handles POST /api/apps/{instanceId}/restart
 // Restarts an app
 func (h *AppsHandler) RestartApp(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +227,8 @@ func (h *AppsHandler) RestartApp(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateApp handles POST /api/apps/{instanceId}/update
-// Updates an app to the latest version
+// Updates an app to the latest version.
+// Query param: override_pin=true to override a pinned version.
 func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
@@ -198,11 +236,23 @@ func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.manager.UpdateApp(r.Context(), instanceID); err != nil {
+	overridePin := r.URL.Query().Get("override_pin") == "true"
+
+	if err := h.manager.UpdateApp(r.Context(), instanceID, overridePin); err != nil {
 		slog.Error("Failed to update app", "instance_id", instanceID, "error", err)
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "app.update", instanceID, "", "failure", err.Error(), nil)
 		}
+
+		if strings.HasPrefix(err.Error(), "needs_config:") {
+			JSONError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if strings.Contains(err.Error(), "pinned") {
+			JSONError(w, http.StatusConflict, err.Error())
+			return
+		}
+
 		JSONError(w, http.StatusInternalServerError, "Failed to update app")
 		return
 	}

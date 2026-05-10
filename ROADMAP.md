@@ -1011,6 +1011,22 @@ Support for users with multiple storage devices, RAID, and mounted volumes.
 - [ ] Disk encryption support (LUKS)
 - [ ] Warning when disk is near capacity
 
+### 6.3 App Repository Extensions
+
+**Status:** Planned
+
+Extensions to the app repository and update system (T6.1/T6.2 are the core implementations).
+
+| Task | Effort | Status | Notes |
+|------|--------|--------|-------|
+| Private repo support | 4h | Not started | SSH key or HTTPS token auth for private repositories. |
+| Push-based revocation notifications | 3h | Not started | Webhook/push mechanism for faster malicious revocation alerts instead of 6h polling. |
+| Post-pull digest verification | 2h | Not started | Run `docker image inspect` after pull to verify the pulled image digest matches the manifest. Defense-in-depth on top of Docker's own pull-by-digest enforcement. |
+| Release channels (stable/beta/nightly) | 5h | Not started | Use the `channel` field already in the manifest schema. Add channel selection UI and per-channel filtering in the catalog. |
+| Staged/canary rollout | 4h | Not started | Percentage-based rollout for new app versions. e.g., roll out to 5% of installs first, monitor errors, expand. |
+| Batch "Update All" API | 2h | Not started | `POST /api/v1/apps/updates/batch` endpoint to update all apps at once. Scheduler already does this internally for auto-update apps; expose it to users. |
+| App changelog/release notes in updates | 2h | Not started | Add `release_notes` field to `AvailableUpdate` responses. Display in update card UI. |
+
 ---
 
 ## Phase 7: Advanced Features
@@ -1141,9 +1157,9 @@ flowchart TB
 | Phase 3: Admin Ops | 12 | 10.5h | In progress |
 | Phase 4: Production | 21 | 28.5h | In progress |
 | Phase 5: App Ecosystem | 5 | 26h | Not started |
-| Phase 6: Infrastructure Scale | 2 | 28h | Not started |
+| Phase 6: Infrastructure Scale | 9 | 50h | Not started |
 | Phase 7: Advanced | 12 | 31.5h | Not started |
-| **Total** | **72** | **~149h** | |
+| **Total** | **79** | **~171h** | |
 
 ---
 

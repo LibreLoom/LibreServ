@@ -82,8 +82,10 @@ func (s *Scheduler) runPeriodic(name string, interval time.Duration, job func())
 }
 
 func (s *Scheduler) checkAppUpdates() {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute) // Longer timeout for potential updates
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
+
+	s.appManager.TriggerRepoPull(ctx)
 
 	updates, err := s.appManager.GetAvailableUpdates(ctx)
 	if err != nil {
@@ -115,8 +117,12 @@ func (s *Scheduler) checkAppUpdates() {
 
 	// 1. Process Auto-Updates
 	for _, au := range autoUpdates {
+		if au.NeedsConfig {
+			s.logger.Info("Skipping auto-update for needs_config app", "app", au.AppName, "instance_id", au.InstanceID)
+			continue
+		}
 		s.logger.Info("Starting automated update for app", "app", au.AppName, "instance_id", au.InstanceID)
-		if err := s.appManager.UpdateApp(ctx, au.InstanceID); err != nil {
+		if err := s.appManager.UpdateApp(ctx, au.InstanceID, false); err != nil {
 			s.logger.Error("Automated update failed", "app", au.AppName, "error", err)
 			subject := fmt.Sprintf("[LibreServ] Automated Update FAILED: %s", au.AppName)
 			body := fmt.Sprintf("The automated update for %s failed.\n\nError: %v\n\nThe system has attempted to rollback to the previous version.", au.AppName, err)

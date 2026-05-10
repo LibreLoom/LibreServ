@@ -253,3 +253,105 @@ func composeError(action string, output []byte, err error) error {
 	}
 	return fmt.Errorf("compose %s failed: %s: %w", action, outStr, err)
 }
+
+func PinImageDigest(composePath string, imageRef string, digest string) error {
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		return fmt.Errorf("failed to read compose file: %w", err)
+	}
+
+	var compose map[string]interface{}
+	if err := yaml.Unmarshal(data, &compose); err != nil {
+		return fmt.Errorf("failed to parse compose file: %w", err)
+	}
+
+	services, ok := compose["services"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	pinnedImage := imageRef + "@sha256:" + digest
+	for _, svc := range services {
+		s, ok := svc.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if img, ok := s["image"].(string); ok && img == imageRef {
+			s["image"] = pinnedImage
+		}
+	}
+
+	pinnedData, err := yaml.Marshal(compose)
+	if err != nil {
+		return fmt.Errorf("failed to marshal compose: %w", err)
+	}
+
+	if err := os.WriteFile(composePath, pinnedData, 0644); err != nil {
+		return fmt.Errorf("failed to write compose file: %w", err)
+	}
+
+	return nil
+}
+
+func ComposePinImageDigest(composePath string, appImage string, digest string) error {
+	if appImage == "" || digest == "" {
+		return nil
+	}
+
+	digestHex := digest
+	if strings.HasPrefix(digest, "sha256:") {
+		digestHex = digest[len("sha256:"):]
+	}
+
+	data, err := os.ReadFile(composePath)
+	if err != nil {
+		return fmt.Errorf("failed to read compose file: %w", err)
+	}
+
+	var compose map[string]interface{}
+	if err := yaml.Unmarshal(data, &compose); err != nil {
+		return fmt.Errorf("failed to parse compose file: %w", err)
+	}
+
+	services, ok := compose["services"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	digestSuffix := "@sha256:" + digestHex
+	for _, svc := range services {
+		s, ok := svc.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		img, ok := s["image"].(string)
+		if !ok || img == "" {
+			continue
+		}
+		if strings.Contains(img, "@sha256:") {
+			continue
+		}
+		imgName := img
+		if idx := strings.Index(img, ":"); idx > 0 {
+			imgName = img[:idx]
+		}
+		if idx := strings.Index(img, "@"); idx > 0 {
+			imgName = img[:idx]
+		}
+		if imgName != appImage && !strings.HasPrefix(imgName, appImage+"/") {
+			continue
+		}
+		s["image"] = img + digestSuffix
+	}
+
+	pinnedData, err := yaml.Marshal(compose)
+	if err != nil {
+		return fmt.Errorf("failed to marshal compose: %w", err)
+	}
+
+	if err := os.WriteFile(composePath, pinnedData, 0644); err != nil {
+		return fmt.Errorf("failed to write compose file: %w", err)
+	}
+
+	return nil
+}

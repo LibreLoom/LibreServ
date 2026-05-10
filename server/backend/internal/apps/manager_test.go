@@ -20,13 +20,13 @@ func TestScanInstalledApp(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	now := time.Now()
-	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"inst1", "App One", "builtin", "app1", "/path", "running", "healthy", now, now, `{"k":"v"}`, "1.0.0", "")
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error, image_digest, compose_template_sha, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"inst1", "App One", "builtin", "app1", "/path", "running", "healthy", now, now, `{"k":"v"}`, "1.0.0", "", nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("insert app: %v", err)
 	}
 
-	row := db.QueryRow(`SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error FROM apps WHERE id = ?`, "inst1")
+	row := db.QueryRow(`SELECT id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error, image_digest, compose_template_sha, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at FROM apps WHERE id = ?`, "inst1")
 	app, err := scanInstalledApp(row)
 	if err != nil {
 		t.Fatalf("scan app: %v", err)

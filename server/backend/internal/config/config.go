@@ -58,10 +58,20 @@ type DatabaseConfig struct {
 	Path string `mapstructure:"path"`
 }
 
+// RepoConfig defines a git repository source for apps.
+type RepoConfig struct {
+	URL      string `mapstructure:"url" yaml:"url"`
+	Branch   string `mapstructure:"branch" yaml:"branch"`
+	Enabled  bool   `mapstructure:"enabled" yaml:"enabled"`
+	Priority int    `mapstructure:"priority" yaml:"priority"`
+}
+
 // AppsConfig defines app catalog and data paths.
 type AppsConfig struct {
-	DataPath    string `mapstructure:"data_path" yaml:"data_path"`
-	CatalogPath string `mapstructure:"catalog_path" yaml:"catalog_path"`
+	DataPath         string       `mapstructure:"data_path" yaml:"data_path"`
+	CatalogPath      string       `mapstructure:"catalog_path" yaml:"catalog_path"`
+	Repos            []RepoConfig `mapstructure:"repos" yaml:"repos"`
+	RepoPullInterval string       `mapstructure:"repo_pull_interval" yaml:"repo_pull_interval"`
 }
 
 // DockerConfig defines Docker connection settings.
@@ -203,6 +213,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("database.path", "/var/lib/libreserv/libreserv.db")
 	v.SetDefault("apps.data_path", "/var/lib/libreserv/apps")
 	v.SetDefault("apps.catalog_path", "/opt/libreserv/catalog")
+	v.SetDefault("apps.repo_pull_interval", "6h")
 	v.SetDefault("docker.method", "auto")
 	v.SetDefault("docker.timeout", "30s")
 	v.SetDefault("logging.level", "info")

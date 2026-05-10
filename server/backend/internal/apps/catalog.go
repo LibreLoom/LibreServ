@@ -37,20 +37,22 @@ func (c *Catalog) Load() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Clear existing apps
 	c.apps = make(map[string]*AppDefinition)
 
-	// Check if catalog path exists
 	if _, err := os.Stat(c.catalogPath); os.IsNotExist(err) {
 		return fmt.Errorf("catalog path does not exist: %s", c.catalogPath)
 	}
 
-	// Load builtin apps
-	builtinPath := filepath.Join(c.catalogPath, "builtin")
-	if err := c.loadAppsFromDir(builtinPath, AppTypeBuiltin); err != nil {
-		// Don't fail if builtin doesn't exist, just log it
+	appsPath := filepath.Join(c.catalogPath, "apps")
+	if err := c.loadAppsFromDir(appsPath, AppTypeRepo); err != nil {
 		if !os.IsNotExist(err) {
-			return fmt.Errorf("failed to load builtin apps: %w", err)
+			return fmt.Errorf("failed to load repo apps: %w", err)
+		}
+		builtinPath := filepath.Join(c.catalogPath, "builtin")
+		if err := c.loadAppsFromDir(builtinPath, AppTypeBuiltin); err != nil {
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("failed to load builtin apps: %w", err)
+			}
 		}
 	}
 
