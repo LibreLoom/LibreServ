@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -e
 
 EXCLUDE_FILE=".govulncheck-exemptions"
 EXEMPTIONS=""
@@ -19,7 +19,7 @@ if [ -z "$EXEMPTIONS" ]; then
   exit 3
 fi
 
-vuln_ids=$(echo "$text_output" | grep -oP 'Vulnerability #\d+: \KGO-\d+-\d+' | sort -u)
+vuln_ids=$(echo "$text_output" | grep 'Vulnerability #' | sed 's/.*Vulnerability #.*: \(GO-[0-9]*-[0-9]*\).*/\1/' | sort -u)
 
 has_unexempted=false
 for v in $vuln_ids; do
