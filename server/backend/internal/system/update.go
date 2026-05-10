@@ -18,6 +18,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"golang.org/x/sys/unix"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
 )
 
@@ -75,12 +76,11 @@ type UpdateInfo struct {
 
 // UpdateChecker handles checking for platform updates
 type UpdateChecker struct {
-	repoOwner      string
-	repoName       string
-	baseURL        string
-	client         *http.Client
-	cacheMu        sync.RWMutex
-	cachedInfo     map[string]*UpdateInfo
+	cfg        config.UpdatesConfig
+	baseURL    string
+	client     *http.Client
+	cacheMu    sync.RWMutex
+	cachedInfo map[string]*UpdateInfo
 	cacheTimestamp map[string]time.Time
 	cacheDuration  time.Duration
 	restartCh      chan<- RestartSignal
@@ -89,11 +89,10 @@ type UpdateChecker struct {
 const defaultCacheDuration = 1 * time.Hour
 
 // NewUpdateChecker creates a new update checker for Gitea
-func NewUpdateChecker(owner, name string) *UpdateChecker {
+func NewUpdateChecker(cfg config.UpdatesConfig) *UpdateChecker {
 	return &UpdateChecker{
-		repoOwner:     owner,
-		repoName:      name,
-		baseURL:       "https://gt.plainskill.net/api/v1",
+		cfg:           cfg,
+		baseURL:       cfg.BaseURL,
 		cacheDuration: defaultCacheDuration,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
@@ -106,6 +105,13 @@ func NewUpdateChecker(owner, name string) *UpdateChecker {
 // SetRestartChannel sets the channel to signal restarts
 func (c *UpdateChecker) SetRestartChannel(ch chan<- RestartSignal) {
 	c.restartCh = ch
+}
+
+func (c *UpdateChecker) downloadBaseURL() string {
+	base := strings.TrimRight(c.baseURL, "/")
+	base = strings.TrimSuffix(base, "/api/v1")
+	base = strings.TrimSuffix(base, "/api")
+	return fmt.Sprintf("%s/%s/%s/releases", base, c.cfg.Owner, c.cfg.Repo)
 }
 
 // SetCacheDuration configures how long to cache update check results
@@ -138,7 +144,7 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 		c.cacheMu.RUnlock()
 	}
 
-	url := fmt.Sprintf("%s/repos/%s/%s/releases?limit=1", c.baseURL, c.repoOwner, c.repoName)
+	url := fmt.Sprintf("%s/repos/%s/%s/releases?limit=1", c.baseURL, c.cfg.Owner, c.cfg.Repo)
 
 	resp, err := c.client.Get(url)
 	if err != nil {
@@ -211,7 +217,7 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 
 // fetchChecksum retrieves the SHA256 checksum for a release
 func (c *UpdateChecker) fetchChecksum(tagName string) string {
-	checksumURL := fmt.Sprintf("https://gt.plainskill.net/libreloom/libreserv/releases/download/%s/SHA256SUMS.txt", tagName)
+	checksumURL := fmt.Sprintf("%s/download/%s/SHA256SUMS.txt", c.downloadBaseURL(), tagName)
 	resp, err := c.client.Get(checksumURL)
 	if err != nil {
 		slog.Warn("Failed to fetch checksum file", "error", err)
@@ -256,7 +262,7 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 
 	// 1. Determine download URL for current platform
 	binaryName := fmt.Sprintf("libreserv-%s-%s", runtime.GOOS, runtime.GOARCH)
-	downloadURL := fmt.Sprintf("https://gt.plainskill.net/libreloom/libreserv/releases/download/%s/%s", info.LatestVersion, binaryName)
+	downloadURL := fmt.Sprintf("%s/download/%s/%s", c.downloadBaseURL(), info.LatestVersion, binaryName)
 
 	// 2. Check available disk space
 	if err := checkDiskSpace(minDiskSpace); err != nil {

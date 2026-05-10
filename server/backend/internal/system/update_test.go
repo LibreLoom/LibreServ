@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 )
 
 func newTestChecker(baseURL string) *UpdateChecker {
-	c := NewUpdateChecker("owner", "repo")
+	cfg := config.UpdatesConfig{Owner: "owner", Repo: "repo"}
+	c := NewUpdateChecker(cfg)
 	c.baseURL = baseURL
 	return c
 }
@@ -153,7 +157,8 @@ func TestCheckForUpdates_APIError(t *testing.T) {
 }
 
 func TestCheckForUpdates_NetworkError(t *testing.T) {
-	checker := NewUpdateChecker("owner", "repo")
+	cfg := config.UpdatesConfig{Owner: "owner", Repo: "repo"}
+	checker := NewUpdateChecker(cfg)
 	checker.baseURL = "http://127.0.0.1:1" // port 1 should refuse connections
 
 	_, err := checker.CheckForUpdates("1.0.0")
@@ -178,11 +183,13 @@ func TestCheckForUpdates_InvalidJSON(t *testing.T) {
 }
 
 func TestCheckForUpdates_Caching(t *testing.T) {
-	callCount := 0
+	releaseCallCount := 0
 	release := giteaRelease{TagName: "v2.0.0"}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		if strings.Contains(r.URL.Path, "/releases") && r.URL.Query().Get("limit") != "" {
+			releaseCallCount++
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]giteaRelease{release})
 	}))
@@ -196,8 +203,8 @@ func TestCheckForUpdates_Caching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first call: %v", err)
 	}
-	if callCount != 1 {
-		t.Fatalf("expected 1 server call, got %d", callCount)
+	if releaseCallCount != 1 {
+		t.Fatalf("expected 1 server call, got %d", releaseCallCount)
 	}
 
 	// Second call should use cache
@@ -205,8 +212,8 @@ func TestCheckForUpdates_Caching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}
-	if callCount != 1 {
-		t.Fatalf("expected 1 server call (cached), got %d", callCount)
+	if releaseCallCount != 1 {
+		t.Fatalf("expected 1 server call (cached), got %d", releaseCallCount)
 	}
 
 	// After clearing cache, should hit server again
@@ -215,17 +222,19 @@ func TestCheckForUpdates_Caching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("third call: %v", err)
 	}
-	if callCount != 2 {
-		t.Fatalf("expected 2 server calls after cache clear, got %d", callCount)
+	if releaseCallCount != 2 {
+		t.Fatalf("expected 2 server calls after cache clear, got %d", releaseCallCount)
 	}
 }
 
 func TestCheckForUpdates_CacheExpiration(t *testing.T) {
-	callCount := 0
+	releaseCallCount := 0
 	release := giteaRelease{TagName: "v2.0.0"}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+		if strings.Contains(r.URL.Path, "/releases") && r.URL.Query().Get("limit") != "" {
+			releaseCallCount++
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]giteaRelease{release})
 	}))
@@ -235,20 +244,20 @@ func TestCheckForUpdates_CacheExpiration(t *testing.T) {
 	checker.cacheDuration = 1 * time.Millisecond // near-instant expiry
 
 	checker.CheckForUpdates("1.0.0")
-	if callCount != 1 {
-		t.Fatalf("expected 1 call, got %d", callCount)
+	if releaseCallCount != 1 {
+		t.Fatalf("expected 1 call, got %d", releaseCallCount)
 	}
 
 	time.Sleep(2 * time.Millisecond)
 
 	checker.CheckForUpdates("1.0.0")
-	if callCount != 2 {
-		t.Fatalf("expected 2 calls after cache expiry, got %d", callCount)
+	if releaseCallCount != 2 {
+		t.Fatalf("expected 2 calls after cache expiry, got %d", releaseCallCount)
 	}
 }
 
 func TestSetCacheDuration(t *testing.T) {
-	checker := NewUpdateChecker("owner", "repo")
+	checker := NewUpdateChecker(config.UpdatesConfig{})
 	if checker.cacheDuration != defaultCacheDuration {
 		t.Errorf("default cache duration = %v, want %v", checker.cacheDuration, defaultCacheDuration)
 	}

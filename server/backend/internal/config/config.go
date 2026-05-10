@@ -37,6 +37,7 @@ type Config struct {
 	License  LicenseConfig  `mapstructure:"license"`
 	SMTP     SMTPConfig     `mapstructure:"smtp"`
 	Notify   Notifications  `mapstructure:"notify"`
+	Updates  UpdatesConfig  `mapstructure:"updates"`
 }
 
 // AuthConfig holds auth-related settings.
@@ -72,6 +73,13 @@ type AppsConfig struct {
 	CatalogPath      string       `mapstructure:"catalog_path" yaml:"catalog_path"`
 	Repos            []RepoConfig `mapstructure:"repos" yaml:"repos"`
 	RepoPullInterval string       `mapstructure:"repo_pull_interval" yaml:"repo_pull_interval"`
+}
+
+// UpdatesConfig defines platform update source settings.
+type UpdatesConfig struct {
+	BaseURL string `mapstructure:"base_url" yaml:"base_url"`
+	Owner   string `mapstructure:"owner" yaml:"owner"`
+	Repo    string `mapstructure:"repo" yaml:"repo"`
 }
 
 // DockerConfig defines Docker connection settings.
@@ -214,6 +222,9 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("apps.data_path", "/var/lib/libreserv/apps")
 	v.SetDefault("apps.catalog_path", "/opt/libreserv/catalog")
 	v.SetDefault("apps.repo_pull_interval", "6h")
+	v.SetDefault("updates.base_url", "https://gt.plainskill.net/api/v1")
+	v.SetDefault("updates.owner", "libreloom")
+	v.SetDefault("updates.repo", "libreserv")
 	v.SetDefault("docker.method", "auto")
 	v.SetDefault("docker.timeout", "30s")
 	v.SetDefault("logging.level", "info")
