@@ -517,7 +517,7 @@ func (s *Service) DeleteUser(ctx context.Context, id string) error {
 
 // ListUsers returns all users
 func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
-	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login FROM users ORDER BY created_at DESC`
+	query := `SELECT id, username, email, role, created_at, updated_at, last_login FROM users ORDER BY created_at DESC`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
@@ -531,11 +531,11 @@ func (s *Service) ListUsers(ctx context.Context) ([]*models.User, error) {
 	var users []*models.User
 	for rows.Next() {
 		user := &models.User{}
-		err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
+		err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
-		users = append(users, user)
+users = append(users, user)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -554,7 +554,7 @@ func (s *Service) ListUsersPaginated(ctx context.Context, offset, limit int) ([]
 	}
 
 	// Get paginated users
-	query := `SELECT id, username, password_hash, email, role, created_at, updated_at, last_login 
+	query := `SELECT id, username, email, role, created_at, updated_at, last_login 
 		FROM users 
 		ORDER BY created_at DESC 
 		LIMIT ? OFFSET ?`
@@ -571,7 +571,7 @@ func (s *Service) ListUsersPaginated(ctx context.Context, offset, limit int) ([]
 	var users []*models.User
 	for rows.Next() {
 		user := &models.User{}
-		err := rows.Scan(&user.ID, &user.Username, &user.PasswordHash, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
+		err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.CreatedAt, &user.UpdatedAt, &user.LastLogin)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to scan user: %w", err)
 		}

@@ -108,9 +108,6 @@ func (s *PasswordResetService) RequestReset(ctx context.Context, reqEmail string
 		Path:     "/reset-password",
 		RawQuery: url.Values{"token": []string{token}}.Encode(),
 	}
-	if cfg.Server.Mode != "production" {
-		resetURL.Scheme = "http"
-	}
 
 	mailer, err := s.mailer()
 	if err != nil {

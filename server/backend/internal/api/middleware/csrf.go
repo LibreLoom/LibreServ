@@ -69,11 +69,10 @@ func GenerateCSRF(secret, userID string) (string, error) {
 
 func validateCSRF(secret, userID, token string) bool {
 	parts := strings.Split(token, "|")
-	// Support both old format (sig|ts) and new format (sig|ts|nonce)
-	if len(parts) != 2 && len(parts) != 3 {
+	if len(parts) != 3 {
 		return false
 	}
-	sig, tsStr := parts[0], parts[1]
+	sig, tsStr, nonce := parts[0], parts[1], parts[2]
 	ts, err := strconv.ParseInt(tsStr, 10, 64)
 	if err != nil {
 		return false
@@ -83,16 +82,7 @@ func validateCSRF(secret, userID, token string) bool {
 		return false
 	}
 
-	// Build payload based on token format
-	var payload string
-	if len(parts) == 3 {
-		// New format with nonce
-		nonce := parts[2]
-		payload = userID + "|" + tsStr + "|" + nonce
-	} else {
-		// Legacy format without nonce (for backward compatibility during transition)
-		payload = userID + "|" + tsStr
-	}
+	payload := userID + "|" + tsStr + "|" + nonce
 
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(payload))

@@ -149,7 +149,7 @@ func (v *Validator) ValidatePassword(password string) *Validator {
 // ValidateEmail validates an email address
 func (v *Validator) ValidateEmail(email string) *Validator {
 	if strings.TrimSpace(email) == "" {
-		// Email is optional in some contexts
+		v.addError("email", "Email is required")
 		return v
 	}
 
