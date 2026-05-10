@@ -34,9 +34,6 @@ export function reportError(error, context = {}) {
     // In production, send to error tracking service
     // Example: Sentry, LogRocket, etc.
     // Sentry.captureException(error, { extra: enrichedContext });
-    
-    // For now, log to console in production too (but could be removed)
-    console.error(`[Error ${errorId}]`, error.message);
   }
 
   return errorId;

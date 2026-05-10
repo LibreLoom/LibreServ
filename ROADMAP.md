@@ -175,36 +175,9 @@ The current app templates are stubs only suitable for basic dev testing. All lif
 
 #### T2.1.6. Custom App Upload and URL Install
 
-**Status:** Not started
+**Status:** Dropped
 
-**Effort:** 6h
-
-**Dependencies:** T2.1.0
-
-Allow users to install apps beyond the builtin catalog.
-
-**User Journey:**
-1. User clicks "Install Custom App" in catalog
-2. Chooses: upload a `.tar.xz` package OR paste a URL
-3. LibreServ validates the package against LibreServ App Format
-4. Shows app metadata from `app.yaml`
-5. Proceeds through normal install wizard
-
-**Acceptance Criteria:**
- - [ ] Upload `.tar.xz` containing `app.yaml` + `docker-compose.yml` + optional scripts
- - [ ] Paste URL to `.tar.xz` file (HTTP/HTTPS) OR git repository URL (for clone)
- - [ ] Validate `app.yaml` schema (required fields, no malicious content)
- - [ ] Validate `docker-compose.yml` (no privileged by default, no host network)
- - [ ] Security scanning for shell scripts in package
- - [ ] Size limits (configurable, default 50MB)
- - [ ] Custom apps tagged as `AppTypeCustom` in database
- - [ ] Custom apps appear in catalog with "Custom" badge
- - [ ] Uninstall removes custom app files
-
-**Backend API (to add):**
-- `POST /api/v1/catalog/upload` — Upload custom app package
-- `POST /api/v1/catalog/install-url` — Install from URL
-- `GET /api/v1/catalog/custom` — List custom apps
+**Reason:** Replaced by repository-only model. Custom app submission is now handled through community app repositories. See Phase 6.3 for future ecosystem extensions.
 
 ### 2.2 Backup & Restore
 
@@ -929,7 +902,7 @@ LibreServ acts as an OIDC provider so apps that support OIDC can use LibreServ's
 
 #### T5.2.1. Custom App Upload and URL Install
 
-**Moved to T2.1.6** — elevated to Phase 2 priority. See above.
+**Dropped** — Replaced by repository-only model. See T2.1.6.
 
 #### T5.2.2. Community App Submission — Future
 
