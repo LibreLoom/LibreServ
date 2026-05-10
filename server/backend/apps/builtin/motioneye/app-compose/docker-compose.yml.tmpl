@@ -3,7 +3,15 @@ services:
     image: ccrisan/motioneye:master-amd64
     container_name: "{{.instance_id}}-motioneye"
     restart: unless-stopped
-    privileged: {{.enable_usb_cameras}}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
     ports:
       - "{{.http_port}}:8765"
 {{- if .enable_network_cameras }}

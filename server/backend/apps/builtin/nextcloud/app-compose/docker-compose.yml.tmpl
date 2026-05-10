@@ -3,7 +3,7 @@
 # that handle their own user mapping. Do NOT add user: directive here.
 services:
   nextcloud-aio-mastercontainer:
-    image: nextcloud/all-in-one:latest
+    image: nextcloud/all-in-one:31.0.0
     container_name: "{{.instance_id}}-nextcloud-aio-master"
     restart: unless-stopped
     ports:

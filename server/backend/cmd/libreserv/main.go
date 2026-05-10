@@ -273,7 +273,7 @@ func main() {
 	emailSender, _ := email.NewSender()
 	notifyService := notify.NewService(authService, emailSender)
 
-	sysChecker := system.NewUpdateChecker("libreloom", "libreserv")
+	sysChecker := system.NewUpdateChecker(cfg.Updates)
 	restartCh := make(chan system.RestartSignal, 1)
 	sysChecker.SetRestartChannel(restartCh)
 	scheduler := jobs.NewScheduler(appManager, sysChecker, notifyService, handlers.Version)

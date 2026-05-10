@@ -1,6 +1,6 @@
 services:
   librechat:
-    image: ghcr.io/danny-avila/librechat-dev-api:latest
+    image: ghcr.io/danny-avila/librechat-dev-api:0.7.8
     container_name: "{{.instance_id}}-librechat"
     restart: always
     ports:
@@ -15,7 +15,7 @@ services:
     environment:
       - "HOST=0.0.0.0"
       - "NODE_ENV=production"
-      - "MONGO_URI=mongodb://mongodb:27017/LibreChat"
+      - "MONGO_URI=mongodb://admin:{{.mongo_root_password}}@mongodb:27017/LibreChat?authSource=admin"
       - "APP_TITLE={{.app_title}}"
       - "ALLOW_REGISTRATION={{.allow_registration}}"
       - "ALLOW_SOCIAL_LOGIN={{.allow_social_login}}"
@@ -49,10 +49,12 @@ services:
       - librechat-net
 
   mongodb:
-    image: mongo:latest
+    image: mongo:7.0
     container_name: "{{.instance_id}}-mongodb"
     restart: always
-    command: mongod --noauth
+    environment:
+      - "MONGO_INITDB_ROOT_USERNAME=admin"
+      - "MONGO_INITDB_ROOT_PASSWORD={{.mongo_root_password}}"
     volumes:
       - "{{ dataPath }}/mongodb:/data/db:z"
     labels:
@@ -63,7 +65,7 @@ services:
 
 {{- if .enable_meilisearch }}
   meilisearch:
-    image: getmeili/meilisearch:latest
+    image: getmeili/meilisearch:v1.12
     container_name: "{{.instance_id}}-meilisearch"
     restart: always
     environment:

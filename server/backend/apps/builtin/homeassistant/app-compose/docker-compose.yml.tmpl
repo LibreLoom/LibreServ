@@ -1,7 +1,7 @@
 version: "3"
 services:
   homeassistant:
-    image: lscr.io/linuxserver/homeassistant:latest
+    image: lscr.io/linuxserver/homeassistant:2025.11.4
     container_name: "{{.instance_id}}-homeassistant"
     environment:
       - PUID={{.puid}}

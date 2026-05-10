@@ -113,6 +113,12 @@ configuration:
     type: password
     required: false
     env_var: CREDS_IV
+  - name: mongo_root_password
+    label: MongoDB Root Password
+    description: Root password for MongoDB (auto-generated if empty)
+    type: password
+    required: false
+    env_var: MONGO_ROOT_PASSWORD
 
 exposed_info:
   - name: meili_master_key

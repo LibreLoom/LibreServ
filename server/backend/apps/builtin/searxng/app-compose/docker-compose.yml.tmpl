@@ -1,6 +1,6 @@
 services:
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:1.5.0
     container_name: "{{.instance_id}}-searxng"
     restart: unless-stopped
     ports:
