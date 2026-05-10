@@ -92,12 +92,12 @@ func CreateVolumeDirs(composePath string) error {
 				continue
 			}
 
-			if err := os.MkdirAll(hostPath, 0777); err != nil {
+			if err := os.MkdirAll(hostPath, 0750); err != nil {
 				log.Printf("Warning: failed to pre-create volume directory %s: %v", hostPath, err)
 				continue
 			}
 
-			_ = os.Chmod(hostPath, 0777)
+			_ = os.Chmod(hostPath, 0750)
 		}
 	}
 

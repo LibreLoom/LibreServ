@@ -57,8 +57,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		UserAgent:     r.UserAgent(),
 		Details:       "New user account created: " + user.Username,
 		Metadata: map[string]interface{}{
-			"email": user.Email,
-			"role":  user.Role,
+			"role": user.Role,
 		},
 	}
 	h.securityService.RecordEvent(r.Context(), &event)

@@ -34,7 +34,7 @@ func TestUsersCRUD(t *testing.T) {
 	h, ctx := newTestUsersHandler(t)
 
 	// create user
-	body := `{"username":"user1","password":"Password1234","role":"user"}`
+	body := `{"username":"user1","password":"Password1234","role":"user","email":"user1@test.com"}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBufferString(body))
 	h.CreateUser(rec, req.WithContext(ctx))

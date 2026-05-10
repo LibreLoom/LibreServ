@@ -141,6 +141,9 @@ func (r *Repository) SeedFromConfig() error {
 		"network.caddy.default_domain": cfg.Network.Caddy.DefaultDomain,
 		"network.caddy.email":          cfg.Network.Caddy.Email,
 		"network.caddy.auto_https":     strconv.FormatBool(cfg.Network.Caddy.AutoHTTPS),
+		"updates.base_url":             cfg.Updates.BaseURL,
+		"updates.owner":                cfg.Updates.Owner,
+		"updates.repo":                 cfg.Updates.Repo,
 	}
 
 	for key, value := range settings {
@@ -261,6 +264,16 @@ func (r *Repository) LoadIntoConfig() error {
 		cfg.Network.Caddy.AutoHTTPS, _ = strconv.ParseBool(v)
 	}
 
+	if v, ok := changes["updates.base_url"]; ok {
+		cfg.Updates.BaseURL = v
+	}
+	if v, ok := changes["updates.owner"]; ok {
+		cfg.Updates.Owner = v
+	}
+	if v, ok := changes["updates.repo"]; ok {
+		cfg.Updates.Repo = v
+	}
+
 	if _, ok := changes["logging.level"]; ok {
 		logger.Init(cfg.Logging)
 	}
@@ -324,6 +337,11 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 			"host": cfg.Server.Host,
 			"port": cfg.Server.Port,
 			"mode": cfg.Server.Mode,
+		},
+		"updates": map[string]interface{}{
+			"base_url": cfg.Updates.BaseURL,
+			"owner":    cfg.Updates.Owner,
+			"repo":     cfg.Updates.Repo,
 		},
 	}
 
@@ -536,6 +554,31 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 		}
 	}
 
+	if updatesRaw, ok := updates["updates"]; ok {
+		updatesCfg, _ := updatesRaw.(map[string]interface{})
+		if updatesCfg == nil {
+			return fmt.Errorf("invalid updates format")
+		}
+		if baseURL, ok := updatesCfg["base_url"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Updates.BaseURL = baseURL },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.base_url", baseURL, "string") },
+			})
+		}
+		if owner, ok := updatesCfg["owner"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Updates.Owner = owner },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.owner", owner, "string") },
+			})
+		}
+		if repo, ok := updatesCfg["repo"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Updates.Repo = repo },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.repo", repo, "string") },
+			})
+		}
+	}
+
 	if len(mutations) == 0 {
 		return nil
 	}
@@ -581,6 +624,8 @@ func typeFor(key string) string {
 		return "bool"
 	case "notify.support_recipients", "cors.allowed_origins":
 		return "json"
+	case "updates.base_url", "updates.owner", "updates.repo":
+		return "string"
 	default:
 		return "string"
 	}
