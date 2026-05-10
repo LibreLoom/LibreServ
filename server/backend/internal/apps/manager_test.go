@@ -267,3 +267,24 @@ func TestMergeExposedInfoNoExposedInfoFields(t *testing.T) {
 		t.Fatalf("expected 0 exposed info fields when catalog has none, got %d", len(merged))
 	}
 }
+
+func TestManager_GetRepoStatus_Nil(t *testing.T) {
+	m := &Manager{}
+	statuses := m.GetRepoStatus()
+	if statuses != nil {
+		t.Fatalf("expected nil when no repoSet, got %+v", statuses)
+	}
+}
+
+func TestManager_ForcePullRepos_NoRepoSet(t *testing.T) {
+	m := &Manager{}
+	err := m.ForcePullRepos(context.Background())
+	if err == nil {
+		t.Fatal("expected error when no repoSet configured")
+	}
+}
+
+func TestManager_TriggerRepoPull_NoRepoSet(t *testing.T) {
+	m := &Manager{}
+	m.TriggerRepoPull(context.Background())
+}

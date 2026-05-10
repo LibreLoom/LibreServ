@@ -21,6 +21,7 @@ func (s *Server) setupRoutes() {
 	// Initialize all route handlers with required dependencies
 	healthHandler := handlers.NewHealthHandler(s.db)
 	catalogHandler := handlers.NewCatalogHandler(s.appManager)
+	reposHandler := handlers.NewReposHandler(s.appManager, config.Get())
 	appsHandler := handlers.NewAppsHandler(s.appManager)
 	appsHandler.SetAuditLogger(s)
 	authHandler := handlers.NewAuthHandler(s.authService, s.securityService, s.db)
@@ -147,12 +148,11 @@ func (s *Server) setupRoutes() {
 			r.Get("/dns/status", setupHandler.GetDNSStatus)
 		})
 
-		// Public auth routes (login, register, refresh, password reset)
+		// Public auth routes (login, register, password reset)
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
 			r.Post("/auth/login", authHandler.Login)
 			r.Post("/auth/register", authHandler.Register)
-			r.Post("/auth/refresh", authHandler.RefreshToken)
 
 			// Password reset endpoints (no auth required - token-based authentication)
 			r.Post("/auth/password-reset/request", authHandler.RequestPasswordReset)
@@ -164,14 +164,6 @@ func (s *Server) setupRoutes() {
 
 		})
 
-		// Protected routes (require authentication) - read-only operations
-		r.Group(func(r chi.Router) {
-			r.Use(setupGuard)
-			r.Use(middleware.Auth(authConfig))
-			// Add logout here temporarily until frontend sends CSRF tokens
-			r.Post("/auth/logout", authHandler.Logout)
-		})
-
 		// CSRF-protected routes (authenticated users with CSRF tokens) - state-changing operations
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
@@ -179,7 +171,9 @@ func (s *Server) setupRoutes() {
 			// CSRF protection on mutating routes
 			r.Use(middleware.CSRF(authConfig.CSRFSecret))
 
-			// Auth - authenticated user endpoints
+			// Auth - authenticated user endpoints including logout and refresh
+			r.Post("/auth/logout", authHandler.Logout)
+			r.Post("/auth/refresh", authHandler.RefreshToken)
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
 			r.Get("/auth/csrf", csrfHandler.GetToken)
@@ -188,9 +182,18 @@ func (s *Server) setupRoutes() {
 			r.Route("/catalog", func(r chi.Router) {
 				r.Get("/", catalogHandler.ListApps)
 				r.Get("/categories", catalogHandler.GetCategories)
-				r.Post("/refresh", catalogHandler.RefreshCatalog)
+				r.Post("/refresh", reposHandler.PullRepos)
 				r.Get("/{appId}", catalogHandler.GetApp)
 				r.Get("/{appId}/features", catalogHandler.GetAppFeatures)
+			})
+
+			// Repository management (admin only)
+			r.Route("/repos", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Post("/pull", reposHandler.PullRepos)
+				r.Get("/status", reposHandler.GetReposStatus)
+				r.Post("/", reposHandler.AddRepo)
+				r.Delete("/{index}", reposHandler.RemoveRepo)
 			})
 
 			scriptsHandler := handlers.NewScriptsHandler(s.appManager)

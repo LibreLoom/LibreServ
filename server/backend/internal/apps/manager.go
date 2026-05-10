@@ -188,6 +188,22 @@ func (m *Manager) SetRepoSet(rs *RepoSet) {
 	rs.SetRevocationCallback(m.CheckRevocations)
 }
 
+// ForcePullRepos forces a pull of all repositories regardless of freshness.
+func (m *Manager) ForcePullRepos(ctx context.Context) error {
+	if m.repoSet == nil {
+		return fmt.Errorf("no repositories configured")
+	}
+	return m.repoSet.PullAll(ctx)
+}
+
+// GetRepoStatus returns the status of all configured repositories.
+func (m *Manager) GetRepoStatus() []RepoStatus {
+	if m.repoSet == nil {
+		return nil
+	}
+	return m.repoSet.RepoStatus()
+}
+
 // TriggerRepoPull pulls repos if the last pull was more than an hour ago.
 func (m *Manager) TriggerRepoPull(ctx context.Context) {
 	if m.repoSet == nil {
