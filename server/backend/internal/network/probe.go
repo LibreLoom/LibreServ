@@ -16,7 +16,7 @@ type ProbeResult struct {
 	Error     string        `json:"error,omitempty"`
 }
 
-func isBlockedIP(ip net.IP) bool {
+func IsBlockedIP(ip net.IP) bool {
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 		return true
 	}
@@ -30,7 +30,7 @@ func isBlockedIP(ip net.IP) bool {
 
 func ValidateHost(host string) error {
 	if ip := net.ParseIP(host); ip != nil {
-		if isBlockedIP(ip) {
+		if IsBlockedIP(ip) {
 			return fmt.Errorf("target IP is not allowed")
 		}
 		return nil

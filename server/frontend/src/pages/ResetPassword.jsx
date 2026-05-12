@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/ui/Button";
 import Alert from "../components/common/Alert";
 import { useToast } from "../context/ToastContext";
+import api from "../lib/api";
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -33,7 +34,11 @@ export default function ResetPassword() {
 
   async function validateToken(t) {
     try {
-      const res = await fetch(`/api/v1/auth/password-reset/validate?token=${encodeURIComponent(t)}`);
+      const res = await api("/auth/password-reset/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: t }),
+      });
       const data = await res.json();
       
       if (data.valid) {
@@ -65,7 +70,7 @@ export default function ResetPassword() {
     setError(null);
     
     try {
-      const res = await fetch("/api/v1/auth/password-reset/confirm", {
+      const res = await api("/auth/password-reset/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, new_password: password }),
@@ -149,6 +154,7 @@ export default function ResetPassword() {
               className="w-full border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent"
               required
               minLength={8}
+              autoComplete="new-password"
             />
             
             <label className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
@@ -161,6 +167,7 @@ export default function ResetPassword() {
               placeholder="Re-enter password"
               className="w-full border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent"
               required
+              autoComplete="new-password"
             />
             
             {error && (

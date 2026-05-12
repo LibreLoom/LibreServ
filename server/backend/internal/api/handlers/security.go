@@ -167,26 +167,10 @@ func isTrustedProxy(ipStr string) bool {
 	if ip == nil {
 		return false
 	}
-
-	if ip.IsLoopback() {
-		return true
-	}
-
-	if ip.IsPrivate() {
-		return true
-	}
-
-	if ip4 := ip.To4(); ip4 != nil {
-		ip4Str := ip4.String()
-		ip4Parsed := net.ParseIP(ip4Str)
-		if ip4Parsed != nil && (ip4Parsed.IsLoopback() || ip4Parsed.IsPrivate()) {
+	for _, network := range middleware.TrustedProxyNets() {
+		if network.Contains(ip) {
 			return true
 		}
 	}
-
-	if ip.IsLinkLocalUnicast() {
-		return true
-	}
-
 	return false
 }

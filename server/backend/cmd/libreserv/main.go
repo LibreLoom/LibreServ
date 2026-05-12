@@ -131,7 +131,12 @@ func main() {
 	backupService := storage.NewBackupService(db, dockerClient, backupBase, cfg.Apps.DataPath)
 
 	// Initialize cloud backup service
-	cloudService := cloud.NewService(db, cfg.Auth.CSRFSecret)
+	cloudEncryptionKey := cfg.Auth.CloudEncryptionKey
+	if cloudEncryptionKey == "" {
+		cloudEncryptionKey = cfg.Auth.CSRFSecret
+		slog.Warn("cloud_encryption_key not set; falling back to CSRF secret — set auth.cloud_encryption_key for proper key separation")
+	}
+	cloudService := cloud.NewService(db, cloudEncryptionKey)
 	backupService.SetCloudService(cloudService)
 
 	// Clean up ghost database backup records from previous "Save DB" downloads.
@@ -344,12 +349,13 @@ func main() {
 	_ = dockerClient.Close()
 }
 
-// ensureSecrets autogenerates JWT/CSRF secrets if missing and persists them.
+// ensureSecrets autogenerates JWT/CSRF/cloud-encryption secrets if missing and persists them.
 func ensureSecrets(cfgPath string) error {
 	cfg := config.Get()
 	missingJWT := cfg.Auth.JWTSecret == ""
 	missingCSRF := cfg.Auth.CSRFSecret == ""
-	if !missingJWT && !missingCSRF {
+	missingCloud := cfg.Auth.CloudEncryptionKey == ""
+	if !missingJWT && !missingCSRF && !missingCloud {
 		return nil
 	}
 
@@ -359,7 +365,7 @@ func ensureSecrets(cfgPath string) error {
 	// - If the config path is not writable, fail fast with a clear remediation.
 	if cfgPath == "" {
 		return fmt.Errorf(
-			"missing required secrets (auth.jwt_secret and/or auth.csrf_secret) and no config path was provided to persist generated secrets; set env vars LIBRESERV_AUTH_JWT_SECRET and LIBRESERV_AUTH_CSRF_SECRET (recommended for read-only configs) or run with a writable --config path",
+			"missing required secrets and no config path was provided to persist generated secrets; set env vars LIBRESERV_AUTH_JWT_SECRET, LIBRESERV_AUTH_CSRF_SECRET, and LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY (recommended for read-only configs) or run with a writable --config path",
 		)
 	}
 	writable, err := config.IsWritableFilePath(cfgPath)
@@ -368,7 +374,7 @@ func ensureSecrets(cfgPath string) error {
 	}
 	if !writable {
 		return fmt.Errorf(
-			"missing required secrets (auth.jwt_secret and/or auth.csrf_secret) but config file is not writable (%q). Provide secrets via env (LIBRESERV_AUTH_JWT_SECRET and LIBRESERV_AUTH_CSRF_SECRET) or make the config path writable",
+			"missing required secrets but config file is not writable (%q). Provide secrets via env (LIBRESERV_AUTH_JWT_SECRET, LIBRESERV_AUTH_CSRF_SECRET, LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY) or make the config path writable",
 			cfgPath,
 		)
 	}
@@ -388,6 +394,14 @@ func ensureSecrets(cfgPath string) error {
 			return fmt.Errorf("generate csrf secret: %w", err)
 		}
 		cfg.Auth.CSRFSecret = secret
+		updated = true
+	}
+	if missingCloud {
+		secret, err := auth.GenerateSecureKey(32)
+		if err != nil {
+			return fmt.Errorf("generate cloud encryption key: %w", err)
+		}
+		cfg.Auth.CloudEncryptionKey = secret
 		updated = true
 	}
 

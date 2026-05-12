@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/constants"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,6 +22,11 @@ func CSRF(secret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if secret == "" {
+				if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
+					slog.Warn("CSRF secret is empty; rejecting state-changing request")
+					response.Forbidden(w, "CSRF protection is not configured")
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

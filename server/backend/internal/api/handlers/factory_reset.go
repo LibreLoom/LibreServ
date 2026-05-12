@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -81,7 +82,7 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 		}
 
 		for _, table := range tables {
-			if _, err := tx.Exec("DELETE FROM " + table); err != nil {
+			if _, err := tx.Exec(fmt.Sprintf("DELETE FROM \"%s\"", table)); err != nil {
 				slog.Error("factory reset delete failed", "table", table, "error", err)
 				return err
 			}

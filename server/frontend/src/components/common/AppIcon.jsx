@@ -1,6 +1,33 @@
 import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
-import { sanitizeSVG } from "../../lib/sanitize";
+import DOMPurify from "dompurify";
+
+DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
+  if (data.attrName && data.attrName.startsWith("on")) {
+    data.forceKeepAttr = false;
+  }
+});
+
+const SVG_PURIFY_OPTS = {
+  RETURN_DOM: true,
+  ADD_TAGS: ["svg"],
+  FORBID_TAGS: ["script", "foreignObject", "animate", "set"],
+  FORBID_ATTR: ["onload", "onerror", "onclick"],
+};
+
+function sanitizeSVG(svgText) {
+  if (!svgText || typeof svgText !== "string" || !svgText.includes("<svg")) {
+    return "";
+  }
+  try {
+    const clean = DOMPurify.sanitize(svgText, SVG_PURIFY_OPTS);
+    const wrapper = document.createElement("div");
+    wrapper.appendChild(clean);
+    return wrapper.innerHTML;
+  } catch {
+    return "";
+  }
+}
 
 export default function AppIcon({ appId, size = 48, className = "" }) {
   const [svg, setSvg] = useState("");

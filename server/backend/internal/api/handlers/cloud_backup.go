@@ -9,6 +9,13 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
+func maskCredential(s string) string {
+	if len(s) <= 4 {
+		return "****"
+	}
+	return "****" + s[len(s)-4:]
+}
+
 type CloudBackupHandlers struct {
 	cloudService  *cloud.Service
 	backupService *storage.BackupService
@@ -44,6 +51,7 @@ func (h *CloudBackupHandlers) GetConfig(w http.ResponseWriter, r *http.Request) 
 	}
 
 	config.KeySecret = ""
+	config.KeyID = maskCredential(config.KeyID)
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"configured": true,
@@ -111,6 +119,7 @@ func (h *CloudBackupHandlers) SaveConfig(w http.ResponseWriter, r *http.Request)
 	}
 
 	config.KeySecret = ""
+	config.KeyID = maskCredential(config.KeyID)
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,

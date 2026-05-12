@@ -171,7 +171,7 @@ func validateDockerArgs(args []string) error {
 		return err
 	}
 	for _, arg := range args {
-		if strings.Contains(arg, "$(") || strings.Contains(arg, "`") || strings.Contains(arg, "|") || strings.Contains(arg, ";") {
+		if strings.ContainsAny(arg, "$`()|;&><\n\r") || strings.Contains(arg, "${") {
 			return fmt.Errorf("shell metacharacters not allowed")
 		}
 	}

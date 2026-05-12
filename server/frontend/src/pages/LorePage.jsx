@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 import Card from "../components/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
 import TypewriterLoader from "../components/ui/TypewriterLoader";
@@ -46,6 +47,7 @@ export default function LorePage() {
             <div className="markdown-content">
               {/* Map markdown elements to app typography + spacing. */}
               <ReactMarkdown
+                rehypePlugins={[rehypeSanitize]}
                 components={{
                   h1: (props) => (
                     <h1

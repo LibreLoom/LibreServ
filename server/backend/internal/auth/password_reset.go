@@ -178,9 +178,11 @@ func (s *PasswordResetService) ResetPassword(ctx context.Context, token, newPass
 		return fmt.Errorf("failed to reset password: %w", err)
 	}
 
+	hashToInvalidate := sha256.Sum256([]byte(token))
+	tokenHashToInvalidate := hex.EncodeToString(hashToInvalidate[:])
 	_, err = s.db.ExecContext(ctx, `
 		UPDATE password_reset_tokens SET used = TRUE WHERE token_hash = ?
-	`, sha256.Sum256([]byte(token)))
+	`, tokenHashToInvalidate)
 	if err != nil {
 		slog.Warn("Failed to invalidate reset token", "error", err)
 	}

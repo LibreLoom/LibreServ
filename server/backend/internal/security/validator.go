@@ -183,16 +183,39 @@ func validateSecrets(cfg *config.Config, result *ValidationResult) {
 			Recommendation: "Use LIBRESERV_AUTH_CSRF_SECRET environment variable for secrets",
 		})
 	}
+
+	if cfg.Auth.CloudEncryptionKey == "" {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:       "MEDIUM",
+			Category:       "Encryption",
+			Message:        "Cloud backup encryption key is not configured; will fall back to CSRF secret",
+			Recommendation: "Set auth.cloud_encryption_key in config or LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY environment variable",
+		})
+	} else if cfg.Auth.CloudEncryptionKey == cfg.Auth.CSRFSecret {
+		result.Issues = append(result.Issues, SecurityIssue{
+			Severity:       "MEDIUM",
+			Category:       "Encryption",
+			Message:        "Cloud backup encryption key is the same as the CSRF secret",
+			Recommendation: "Use a dedicated key for auth.cloud_encryption_key to isolate cloud backup credential encryption from CSRF protection",
+		})
+	}
 }
 
 func validateNetworkBindings(cfg *config.Config, result *ValidationResult) {
-	if cfg.Server.Host == "0.0.0.0" && result.IsDevMode {
+	if cfg.Server.Host == "0.0.0.0" {
+		severity := "HIGH"
+		if result.IsDevMode {
+			severity = "MEDIUM"
+		}
 		result.Issues = append(result.Issues, SecurityIssue{
-			Severity:       "MEDIUM",
+			Severity:       severity,
 			Category:       "Network",
-			Message:        "Server binding to all interfaces (0.0.0.0) in development mode",
-			Recommendation: "Consider binding to localhost (127.0.0.1) for development",
+			Message:        "Server binding to all interfaces (0.0.0.0) exposes the API without TLS",
+			Recommendation: "Bind to 127.0.0.1 and let the reverse proxy (Caddy) handle external access",
 		})
+		if !result.IsDevMode {
+			result.Passed = false
+		}
 	}
 }
 

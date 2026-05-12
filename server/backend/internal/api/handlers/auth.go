@@ -323,15 +323,25 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// ValidateResetToken handles GET /api/v1/auth/password-reset/validate?token=...
+// ValidateResetToken handles POST /api/v1/auth/password-reset/validate
 func (h *AuthHandler) ValidateResetToken(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		JSONError(w, http.StatusBadRequest, "token is required")
-		return
+	var req struct {
+		Token string `json:"token"`
+	}
+	if r.Method == http.MethodPost {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
+			JSONError(w, http.StatusBadRequest, "token is required")
+			return
+		}
+	} else {
+		req.Token = r.URL.Query().Get("token")
+		if req.Token == "" {
+			JSONError(w, http.StatusBadRequest, "token is required")
+			return
+		}
 	}
 
-	_, err := h.passwordResetService.ValidateToken(r.Context(), token)
+	_, err := h.passwordResetService.ValidateToken(r.Context(), req.Token)
 	if err != nil {
 		JSON(w, http.StatusOK, map[string]interface{}{
 			"valid": false,

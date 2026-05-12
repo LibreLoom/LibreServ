@@ -64,6 +64,6 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"message": "user registered successfully",
-		"user":    user,
+		"user":    user.Sanitize(),
 	})
 }

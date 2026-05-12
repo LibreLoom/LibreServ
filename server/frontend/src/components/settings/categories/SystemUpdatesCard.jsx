@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info, ExternalLink, GitBranch } from "lucide-react";
@@ -279,6 +280,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
             <div className="markdown-content overflow-y-auto flex-1 px-1">
               <div className="bg-primary rounded-large-element px-5 py-3">
                 <ReactMarkdown
+                rehypePlugins={[rehypeSanitize]}
                 components={{
                   h1: (props) => (
                     <h1

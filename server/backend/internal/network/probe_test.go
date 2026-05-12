@@ -30,8 +30,8 @@ func TestIsBlockedIP(t *testing.T) {
 			if ip == nil {
 				t.Fatalf("failed to parse IP %s", tt.ip)
 			}
-			if got := isBlockedIP(ip); got != tt.want {
-				t.Errorf("isBlockedIP(%s) = %v, want %v", tt.ip, got, tt.want)
+			if got := IsBlockedIP(ip); got != tt.want {
+				t.Errorf("IsBlockedIP(%s) = %v, want %v", tt.ip, got, tt.want)
 			}
 		})
 	}

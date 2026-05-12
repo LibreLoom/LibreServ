@@ -2,6 +2,7 @@ import { useRef, useEffect, useState, useMemo } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
 import { login as loginQuips } from "../assets/greetings";
+import api from "../lib/api";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Alert from "../components/common/Alert";
@@ -27,7 +28,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
     setError(null);
     
     try {
-      const res = await fetch("/api/v1/auth/password-reset/request", {
+      const res = await api("/auth/password-reset/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),

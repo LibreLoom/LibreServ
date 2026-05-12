@@ -42,9 +42,10 @@ type Config struct {
 
 // AuthConfig holds auth-related settings.
 type AuthConfig struct {
-	JWTSecret  string `mapstructure:"jwt_secret" yaml:"jwt_secret"`
-	SecretFile string `mapstructure:"secret_file" yaml:"secret_file"`
-	CSRFSecret string `mapstructure:"csrf_secret" yaml:"csrf_secret"`
+	JWTSecret          string `mapstructure:"jwt_secret" yaml:"jwt_secret"`
+	SecretFile         string `mapstructure:"secret_file" yaml:"secret_file"`
+	CSRFSecret         string `mapstructure:"csrf_secret" yaml:"csrf_secret"`
+	CloudEncryptionKey string `mapstructure:"cloud_encryption_key" yaml:"cloud_encryption_key"`
 }
 
 // ServerConfig defines HTTP server settings.
@@ -212,7 +213,7 @@ var configFilePath string
 // SetDefaults registers all code defaults on the given viper instance.
 // This is exported so subcommands can reuse the same defaults without duplication.
 func SetDefaults(v *viper.Viper) {
-	v.SetDefault("server.host", "0.0.0.0")
+	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("server.mode", "production")
 	v.SetDefault("database.path", "/var/lib/libreserv/libreserv.db")

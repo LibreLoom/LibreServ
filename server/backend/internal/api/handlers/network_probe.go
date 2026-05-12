@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,6 +32,13 @@ func (h *NetworkProbeHandler) DNS(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "failed to resolve hostname")
 		return
 	}
+	for _, ipStr := range append(res.ARecords, res.AAAARecords...) {
+		if ip := net.ParseIP(ipStr); ip != nil && network.IsBlockedIP(ip) {
+			slog.Warn("Network probe target resolved to blocked IP", "host", host, "ip", ipStr)
+			JSONError(w, http.StatusBadRequest, "resolved IP is not allowed")
+			return
+		}
+	}
 	JSON(w, http.StatusOK, res)
 }
 
@@ -50,6 +59,18 @@ func (h *NetworkProbeHandler) ProbeTCP(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "invalid port")
 		return
 	}
+
+	ips, resolveErr := net.DefaultResolver.LookupIPAddr(r.Context(), host)
+	if resolveErr == nil {
+		for _, ipAddr := range ips {
+			if network.IsBlockedIP(ipAddr.IP) {
+				slog.Warn("Network TCP probe target resolved to blocked IP", "host", host, "ip", ipAddr.IP.String())
+				JSONError(w, http.StatusBadRequest, "resolved IP is not allowed")
+				return
+			}
+		}
+	}
+
 	res := network.ProbeTCP(host, port, 2*time.Second)
 	if !res.Reachable {
 		w.WriteHeader(http.StatusServiceUnavailable)

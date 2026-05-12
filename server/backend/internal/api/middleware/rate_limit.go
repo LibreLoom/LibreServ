@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +13,49 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
 	"log/slog"
 )
+
+var trustedProxyNets []*net.IPNet
+
+func init() {
+	trustedEnv := os.Getenv("LIBRESERV_TRUSTED_PROXIES")
+	if trustedEnv != "" {
+		for _, entry := range strings.Split(trustedEnv, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+			if !strings.Contains(entry, "/") {
+				if ip := net.ParseIP(entry); ip != nil {
+					if ip.To4() != nil {
+						entry += "/32"
+					} else {
+						entry += "/128"
+					}
+				}
+			}
+			_, cidr, err := net.ParseCIDR(entry)
+			if err != nil {
+				continue
+			}
+			trustedProxyNets = append(trustedProxyNets, cidr)
+		}
+	}
+	if len(trustedProxyNets) == 0 {
+		for _, cidr := range []string{
+			"127.0.0.0/8",
+			"::1/128",
+			"172.16.0.0/12",
+			"10.0.0.0/8",
+			"192.168.0.0/16",
+			"fc00::/7",
+		} {
+			_, network, err := net.ParseCIDR(cidr)
+			if err == nil {
+				trustedProxyNets = append(trustedProxyNets, network)
+			}
+		}
+	}
+}
 
 const (
 	defaultSetupStatusLimit = 180
@@ -172,12 +216,21 @@ func (l *limiter) extractIP(r *http.Request) string {
 	return "ip:" + host
 }
 
+func TrustedProxyNets() []*net.IPNet {
+	return trustedProxyNets
+}
+
 func isTrustedProxy(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return false
 	}
-	return ip.IsLoopback() || ip.IsPrivate()
+	for _, network := range trustedProxyNets {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *limiter) take(key string, rule RateRule) (remaining int, reset time.Duration, allowed bool) {

@@ -61,6 +61,9 @@ func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusInternalServerError, "failed to get settings")
 			return
 		}
+		if smtp, ok := result["smtp"].(map[string]interface{}); ok && smtp != nil {
+			smtp["password"] = ""
+		}
 		JSON(w, http.StatusOK, result)
 		return
 	}

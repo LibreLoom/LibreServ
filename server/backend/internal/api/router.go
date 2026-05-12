@@ -157,6 +157,7 @@ func (s *Server) setupRoutes() {
 			// Password reset endpoints (no auth required - token-based authentication)
 			r.Post("/auth/password-reset/request", authHandler.RequestPasswordReset)
 			r.Post("/auth/password-reset/confirm", authHandler.ConfirmPasswordReset)
+			r.Post("/auth/password-reset/validate", authHandler.ValidateResetToken)
 			r.Get("/auth/password-reset/validate", authHandler.ValidateResetToken)
 
 			// Public catalog icon endpoint (for app icons)
