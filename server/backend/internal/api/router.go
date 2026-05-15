@@ -148,6 +148,7 @@ func (s *Server) setupRoutes() {
 			r.Get("/dns/status", setupHandler.GetDNSStatus)
 			r.Put("/smtp", setupHandler.SaveSMTP)
 			r.Post("/smtp/test", setupHandler.TestSMTP)
+			r.Post("/finalize", setupHandler.FinalizeSetup)
 		})
 
 		// Public auth routes (login, register, password reset)

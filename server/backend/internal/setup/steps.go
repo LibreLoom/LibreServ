@@ -27,17 +27,19 @@ var validSubSteps = map[string]bool{
 }
 
 var allowedStepDataKeys = map[string]bool{
-	"preflight_passed": true,
-	"domain_completed": true,
-	"domain_skipped":   true,
-	"has_domain":       true,
-	"provider":         true,
-	"registrar":        true,
-	"domain_name":      true,
-	"cf_ns_confirmed":  true,
-	"smtp_completed":   true,
-	"smtp_skipped":     true,
-	"smtp_provider":    true,
+	"preflight_passed":  true,
+	"account_completed": true,
+	"admin_email":       true,
+	"domain_completed":  true,
+	"domain_skipped":    true,
+	"has_domain":        true,
+	"provider":          true,
+	"registrar":         true,
+	"domain_name":       true,
+	"cf_ns_confirmed":   true,
+	"smtp_completed":    true,
+	"smtp_skipped":      true,
+	"smtp_provider":     true,
 }
 
 const (

@@ -212,11 +212,6 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.setupService.MarkComplete(r.Context()); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to finalize setup")
-		return
-	}
-
 	// Generate tokens for the new admin user
 	tokens, err := h.authService.Login(r.Context(), &auth.LoginRequest{
 		Username: req.AdminUsername,
@@ -845,4 +840,25 @@ func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
 		"status": "sent",
 		"to":     body.To,
 	})
+}
+
+// FinalizeSetup handles POST /api/v1/setup/finalize
+// Marks setup as complete after all steps are done.
+func (h *SetupHandler) FinalizeSetup(w http.ResponseWriter, r *http.Request) {
+	state, err := h.setupService.Ensure(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		return
+	}
+	if state.Status == setup.StatusComplete {
+		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		return
+	}
+
+	if _, err := h.setupService.MarkComplete(r.Context()); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to finalize setup")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"message": "setup finalized"})
 }

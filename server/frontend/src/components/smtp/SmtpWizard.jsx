@@ -21,7 +21,7 @@ function buildInitialConfig(preset) {
   };
 }
 
-export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress, open = false, existingConfig, initialSubStep, initialStepData }) {
+export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress, open = false, existingConfig, initialSubStep, initialStepData, testRecipient = "" }) {
   const initData = initialStepData || {};
   const initPreset = initData.smtp_provider || existingConfig?.preset || null;
 
@@ -102,7 +102,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
         },
         credentials: "include",
         body: JSON.stringify({
-          to: fromEmail,
+          to: testRecipient || fromEmail,
           smtp: {
             host: config.host,
             port: config.port,
@@ -154,7 +154,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
     } finally {
       setTesting(false);
     }
-  }, [config, preset, persistProgress]);
+  }, [config, preset, persistProgress, testRecipient]);
 
   const handleRetry = useCallback(() => {
     setTestError(null);
@@ -275,4 +275,5 @@ SmtpWizard.propTypes = {
   }),
   initialSubStep:  PropTypes.string,
   initialStepData: PropTypes.object,
+  testRecipient:   PropTypes.string,
 };

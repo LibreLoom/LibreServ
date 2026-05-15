@@ -49,7 +49,7 @@ SetupCard.propTypes = {
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
-const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.DOMAIN, STEP.SMTP, STEP.ACCOUNT, STEP.COMPLETE];
+const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.DOMAIN, STEP.SMTP, STEP.COMPLETE];
 
 function StepDots({ current }) {
   const idx = VISIBLE_STEPS.indexOf(current);
@@ -582,7 +582,7 @@ function AccountStep({ onSuccess, onError }) {
         const data = await res.json();
         throw new Error(data.error ?? "Setup failed");
       }
-      onSuccess();
+      onSuccess(form.admin_email);
     } catch (err) {
       setFieldError(err.message);
       setSubmitting(false);
@@ -1005,11 +1005,22 @@ export default function SetupPage() {
           const step = saved.current_step;
           const savedData = saved.step_data || {};
 
+          if (step === STEP.ACCOUNT) {
+            if (savedData.account_completed) {
+              setStep(STEP.DOMAIN);
+              saveProgress(STEP.DOMAIN, "", { ...savedData });
+              return;
+            }
+            setStep(STEP.ACCOUNT);
+            setInitialStepData(savedData);
+            progressRef.current = { step: STEP.ACCOUNT, subStep: "", stepData: savedData };
+            return;
+          }
+
           if (step === STEP.DOMAIN) {
             if (savedData.domain_completed || savedData.domain_skipped) {
-              const nextStep = savedData.domain_skipped ? STEP.SMTP : STEP.SMTP;
-              setStep(nextStep);
-              saveProgress(nextStep, "", { ...savedData });
+              setStep(STEP.SMTP);
+              saveProgress(STEP.SMTP, "", { ...savedData });
               return;
             }
             if (saved.current_sub_step) {
@@ -1028,8 +1039,8 @@ export default function SetupPage() {
 
           if (step === STEP.SMTP) {
             if (savedData.smtp_completed || savedData.smtp_skipped) {
-              setStep(STEP.ACCOUNT);
-              saveProgress(STEP.ACCOUNT, "", { ...savedData });
+              setStep(STEP.COMPLETE);
+              saveProgress(STEP.COMPLETE, "", { ...savedData });
               return;
             }
             if (saved.current_sub_step) {
@@ -1069,7 +1080,7 @@ export default function SetupPage() {
 
   const handlePreflightPass = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), preflight_passed: true };
-    advanceStep(STEP.DOMAIN, "", data);
+    advanceStep(STEP.ACCOUNT, "", data);
   }, [advanceStep]);
 
   const handleStartDomainWizard = useCallback(() => {
@@ -1091,21 +1102,32 @@ export default function SetupPage() {
     setShowSmtpWizard(true);
   }, []);
 
-  const handleSmtpComplete = useCallback(() => {
+  const handleSmtpComplete = useCallback(async () => {
     const data = { ...(progressRef.current.stepData || {}), smtp_completed: true };
-    advanceStep(STEP.ACCOUNT, "", data);
-  }, [advanceStep]);
-
-  const handleSmtpSkip = useCallback(() => {
-    const data = { ...(progressRef.current.stepData || {}), smtp_skipped: true };
-    advanceStep(STEP.ACCOUNT, "", data);
-  }, [advanceStep]);
-
-  const handleAccountSuccess = useCallback(async () => {
+    progressRef.current.stepData = data;
+    try {
+      await api("/setup/finalize", { method: "POST" });
+    } catch { /* best effort */ }
     await flushProgress();
     setStep(STEP.COMPLETE);
     setTimeout(() => { window.location.href = "/"; }, 1800);
   }, [flushProgress]);
+
+  const handleSmtpSkip = useCallback(async () => {
+    const data = { ...(progressRef.current.stepData || {}), smtp_skipped: true };
+    progressRef.current.stepData = data;
+    try {
+      await api("/setup/finalize", { method: "POST" });
+    } catch { /* best effort */ }
+    await flushProgress();
+    setStep(STEP.COMPLETE);
+    setTimeout(() => { window.location.href = "/"; }, 1800);
+  }, [flushProgress]);
+
+  const handleAccountSuccess = useCallback((adminEmail) => {
+    const data = { ...(progressRef.current.stepData || {}), account_completed: true, admin_email: adminEmail };
+    advanceStep(STEP.DOMAIN, "", data);
+  }, [advanceStep]);
 
   const handleAccountError = useCallback((msg) => {
     setError(msg);
@@ -1165,6 +1187,7 @@ export default function SetupPage() {
           onDismiss={() => setShowSmtpWizard(false)}
           initialSubStep={initialSubStep}
           initialStepData={initialStepData}
+          testRecipient={progressRef.current.stepData?.admin_email || ""}
           saveProgress={(stepName, subStep, data) => saveProgress(stepName, subStep, { ...progressRef.current.stepData, ...data })}
         />
       );
