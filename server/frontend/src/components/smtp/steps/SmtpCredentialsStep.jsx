@@ -1,6 +1,6 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
-import { Eye, EyeOff, ExternalLink, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, ExternalLink, Info, AlertCircle } from "lucide-react";
 import { SMTP_PRESETS } from "../smtp-wiz-constants";
 
 const inputClass = "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
@@ -20,7 +20,7 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
 
       {presetData.help && (
         <div className="flex items-start gap-2.5 p-4 rounded-card border border-primary/10 bg-primary/5 mb-5">
-          <AlertCircle className="w-4 h-4 text-primary/40 flex-shrink-0 mt-0.5" />
+          <Info className="w-4 h-4 text-primary/40 flex-shrink-0 mt-0.5" />
           <div className="space-y-2">
             <p className="text-xs text-primary/60 leading-relaxed">{presetData.help}</p>
             {presetData.docs_url && (
