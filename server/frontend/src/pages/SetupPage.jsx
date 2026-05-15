@@ -1188,6 +1188,7 @@ export default function SetupPage() {
           initialSubStep={initialSubStep}
           initialStepData={initialStepData}
           testRecipient={progressRef.current.stepData?.admin_email || ""}
+          inSetup
           saveProgress={(stepName, subStep, data) => saveProgress(stepName, subStep, { ...progressRef.current.stepData, ...data })}
         />
       );

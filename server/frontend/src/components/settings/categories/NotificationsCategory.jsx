@@ -442,7 +442,6 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
           onComplete={handleSmtpWizardComplete}
           onSkip={handleSmtpWizardSkip}
           onDismiss={() => setShowSmtpWizard(false)}
-          existingConfig={settings?.smtp}
         />
       )}
     </div>

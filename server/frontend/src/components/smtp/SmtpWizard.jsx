@@ -21,33 +21,10 @@ function buildInitialConfig(preset) {
   };
 }
 
-function detectPresetFromHostInit(host) {
-  for (const [id, p] of Object.entries(SMTP_PRESETS)) {
-    if (id === "custom") continue;
-    if (p.host && host === p.host) return id;
-  }
-  return "custom";
-}
-
-export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress, open = false, existingConfig, initialSubStep, initialStepData, testRecipient = "" }) {
-  const initData = initialStepData || {};
-  const isReconfigure = existingConfig?.configured && !initialSubStep;
-  const detectedPreset = isReconfigure ? detectPresetFromHostInit(existingConfig.host) : null;
-  const initPreset = initData.smtp_provider || existingConfig?.preset || detectedPreset || null;
-
-  const [wizStep, setWizStep] = useState(
-    initialSubStep || (isReconfigure ? WIZ.CREDENTIALS : WIZ.PROVIDER_PICK)
-  );
-  const [preset, setPreset] = useState(initPreset);
-  const [config, setConfig] = useState(existingConfig?.configured ? {
-    host: existingConfig.host || "",
-    port: existingConfig.port || 587,
-    username: existingConfig.username || "",
-    password: "",
-    from: existingConfig.from || "",
-    use_tls: existingConfig.use_tls ?? true,
-    skip_verify: existingConfig.skip_verify ?? false,
-  } : initPreset ? buildInitialConfig(initPreset) : buildInitialConfig("custom"));
+export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress, open = false, initialSubStep, testRecipient = "", inSetup = false }) {
+  const [wizStep, setWizStep] = useState(initialSubStep || WIZ.PROVIDER_PICK);
+  const [preset, setPreset] = useState(null);
+  const [config, setConfig] = useState(buildInitialConfig("custom"));
   const [testError, setTestError] = useState(null);
   const [testing, setTesting] = useState(false);
 
@@ -103,7 +80,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
       const csrfData = await csrfRes.json();
       const csrfToken = csrfData.csrf_token;
 
-      const testRes = await fetch("/api/v1/setup/smtp/test", {
+      const testRes = await fetch(inSetup ? "/api/v1/setup/smtp/test" : "/api/v1/monitoring/email/test", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -130,7 +107,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
         throw new Error(msg || "SMTP test failed");
       }
 
-      const saveRes = await fetch("/api/v1/setup/smtp", {
+      const saveRes = await fetch(inSetup ? "/api/v1/setup/smtp" : "/api/v1/notify/config", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -163,7 +140,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
     } finally {
       setTesting(false);
     }
-  }, [config, preset, persistProgress, testRecipient]);
+  }, [config, preset, persistProgress, testRecipient, inSetup]);
 
   const handleRetry = useCallback(() => {
     setTestError(null);
@@ -272,17 +249,7 @@ SmtpWizard.propTypes = {
   onDismiss:      PropTypes.func,
   saveProgress:   PropTypes.func,
   open:           PropTypes.bool,
-  existingConfig:  PropTypes.shape({
-    configured: PropTypes.bool,
-    host:       PropTypes.string,
-    port:       PropTypes.number,
-    username:   PropTypes.string,
-    from:       PropTypes.string,
-    use_tls:    PropTypes.bool,
-    skip_verify: PropTypes.bool,
-    preset:     PropTypes.string,
-  }),
   initialSubStep:  PropTypes.string,
-  initialStepData: PropTypes.object,
   testRecipient:   PropTypes.string,
+  inSetup:         PropTypes.bool,
 };
