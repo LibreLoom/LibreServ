@@ -21,13 +21,22 @@ function buildInitialConfig(preset) {
   };
 }
 
+function detectPresetFromHostInit(host) {
+  for (const [id, p] of Object.entries(SMTP_PRESETS)) {
+    if (id === "custom") continue;
+    if (p.host && host === p.host) return id;
+  }
+  return "custom";
+}
+
 export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress, open = false, existingConfig, initialSubStep, initialStepData, testRecipient = "" }) {
   const initData = initialStepData || {};
-  const initPreset = initData.smtp_provider || existingConfig?.preset || null;
+  const isReconfigure = existingConfig?.configured && !initialSubStep;
+  const detectedPreset = isReconfigure ? detectPresetFromHostInit(existingConfig.host) : null;
+  const initPreset = initData.smtp_provider || existingConfig?.preset || detectedPreset || null;
 
   const [wizStep, setWizStep] = useState(
-    existingConfig?.configured ? WIZ.CONNECTED
-    : initialSubStep || WIZ.PROVIDER_PICK
+    initialSubStep || (isReconfigure ? WIZ.CREDENTIALS : WIZ.PROVIDER_PICK)
   );
   const [preset, setPreset] = useState(initPreset);
   const [config, setConfig] = useState(existingConfig?.configured ? {
