@@ -38,9 +38,9 @@ export const SMTP_PRESETS = {
     port: 587,
     use_tls: true,
     skip_verify: false,
-    username_label: "Server API token",
-    password_label: "Server API token",
-    help: "Use the same Server API token for both username and password.",
+    username_label: "Username",
+    password_label: "Password",
+    help: "Use your Server API token for both username and password.",
     docs_url: "https://postmarkapp.com/developer/sending#smtp",
   },
   custom: {
