@@ -45,7 +45,7 @@ export const SMTP_PRESETS = {
   },
   custom: {
     id: "custom",
-    label: "Custom SMTP",
+    label: "Custom",
     host: "",
     port: 587,
     use_tls: true,
