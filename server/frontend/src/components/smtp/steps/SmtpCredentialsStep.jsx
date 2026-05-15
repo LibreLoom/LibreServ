@@ -116,22 +116,22 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
             autoComplete="email"
           />
           {preset === "proton" && (
-            <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
+            <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
               Must be the one you selected when making the token in Proton
             </p>
           )}
           {preset === "resend" && (
-            <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
+            <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
               Must be a verified address in your Resend dashboard
             </p>
           )}
           {preset === "postmark" && (
-            <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
+            <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
               Must match a verified Sender Signature in Postmark
             </p>
           )}
           {preset === "custom" && (
-            <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
+            <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
               Must be authorized by your SMTP provider
             </p>
           )}
