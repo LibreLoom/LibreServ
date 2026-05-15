@@ -30,8 +30,6 @@ func RequireSetupComplete(service *setup.Service, checker SetupCompletionChecker
 			if checker != nil {
 				complete, err := checker.IsSetupComplete(r.Context())
 				if err == nil && complete {
-					// Best-effort repair for installs where the admin user exists but setup_state was not finalized.
-					_, _ = service.MarkComplete(r.Context())
 					next.ServeHTTP(w, r)
 					return
 				}

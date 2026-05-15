@@ -470,15 +470,7 @@ func (h *SetupHandler) reconcileSetupState(ctx context.Context, state *setup.Sta
 	if state == nil || userStatus == nil {
 		return state
 	}
-	if state.Status == setup.StatusComplete || !userStatus.SetupComplete {
-		return state
-	}
-
-	updated, err := h.setupService.MarkComplete(ctx)
-	if err != nil {
-		return state
-	}
-	return updated
+	return state
 }
 
 // TestDNS handles POST /api/v1/setup/dns/test
