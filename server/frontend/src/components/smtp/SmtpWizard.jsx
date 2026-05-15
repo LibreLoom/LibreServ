@@ -121,7 +121,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
         throw new Error(msg || "SMTP test failed");
       }
 
-      const saveRes = await fetch("/api/v1/notify/config", {
+      const saveRes = await fetch("/api/v1/setup/smtp", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -143,7 +143,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
 
       if (!saveRes.ok) {
         const data = await saveRes.json();
-        const msg = typeof data.error === "string" ? data.error : JSON.stringify(data.error || "");
+        const msg = typeof data.error === "string" ? data.error : typeof data.message === "string" ? data.message : JSON.stringify(data.error || "");
         throw new Error(msg || "Failed to save SMTP settings");
       }
 

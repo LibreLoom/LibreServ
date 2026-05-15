@@ -750,3 +750,23 @@ func isSimpleSlice(v interface{}) bool {
 	}
 	return true
 }
+
+// SaveSMTP handles PUT /api/v1/setup/smtp
+// Saves SMTP configuration during setup (no setupGuard required).
+func (h *SetupHandler) SaveSMTP(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		SMTP map[string]interface{} `json:"smtp"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.SMTP) == 0 {
+		JSONError(w, http.StatusBadRequest, "smtp configuration required")
+		return
+	}
+
+	if err := h.settingsService.UpdateSettings(r.Context(), map[string]interface{}{"smtp": body.SMTP}); err != nil {
+		slog.Error("Failed to save SMTP settings during setup", "error", err)
+		JSONError(w, http.StatusInternalServerError, "failed to save SMTP settings")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{"message": "smtp settings saved"})
+}
