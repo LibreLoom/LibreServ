@@ -770,3 +770,39 @@ func (h *SetupHandler) SaveSMTP(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusOK, map[string]interface{}{"message": "smtp settings saved"})
 }
+
+// TestSMTP handles POST /api/v1/setup/smtp/test
+// Tests SMTP connection during setup (no setupGuard required).
+func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		To   string             `json:"to"`
+		SMTP *config.SMTPConfig `json:"smtp,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.To == "" {
+		JSONError(w, http.StatusBadRequest, "to is required")
+		return
+	}
+
+	var mailer *email.Sender
+	var err error
+	if body.SMTP != nil {
+		mailer, err = email.NewSenderWithConfig(*body.SMTP)
+	} else if h.mailer != nil {
+		mailer, err = h.mailer()
+	} else {
+		JSONError(w, http.StatusInternalServerError, "no smtp configuration provided")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to set up SMTP: "+err.Error())
+		return
+	}
+	if err := mailer.Send([]string{body.To}, "LibreServ SMTP Test", "This is a test email from LibreServ."); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to send email: "+err.Error())
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"status": "sent",
+		"to":     body.To,
+	})
+}

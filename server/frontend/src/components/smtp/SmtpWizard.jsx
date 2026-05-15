@@ -94,7 +94,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
       const csrfData = await csrfRes.json();
       const csrfToken = csrfData.csrf_token;
 
-      const testRes = await fetch("/api/v1/monitoring/email/test", {
+      const testRes = await fetch("/api/v1/setup/smtp/test", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
