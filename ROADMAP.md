@@ -1047,6 +1047,7 @@ Extensions to the app repository and update system (T6.1/T6.2 are the core imple
 | Email notification templates | 2h | Not started |
 | Webhook notifications | 2h | Not started |
 | Push notifications | 3h | Not started |
+| Interception SMTP (built-in notification inbox) | 8h | Not started |
 
 ### 7.4 AI-Powered Help
 
