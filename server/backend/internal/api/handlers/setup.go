@@ -479,6 +479,16 @@ func (h *SetupHandler) reconcileSetupState(ctx context.Context, state *setup.Sta
 // TestDNS handles POST /api/v1/setup/dns/test
 // Validates DNS provider credentials without saving anything.
 func (h *SetupHandler) TestDNS(w http.ResponseWriter, r *http.Request) {
+	state, err := h.setupService.Ensure(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		return
+	}
+	if state.Status == setup.StatusComplete {
+		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		return
+	}
+
 	var req struct {
 		Provider string `json:"provider"`
 		Domain   string `json:"domain"`
@@ -754,6 +764,16 @@ func isSimpleSlice(v interface{}) bool {
 // SaveSMTP handles PUT /api/v1/setup/smtp
 // Saves SMTP configuration during setup (no setupGuard required).
 func (h *SetupHandler) SaveSMTP(w http.ResponseWriter, r *http.Request) {
+	state, err := h.setupService.Ensure(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		return
+	}
+	if state.Status == setup.StatusComplete {
+		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		return
+	}
+
 	var body struct {
 		SMTP map[string]interface{} `json:"smtp"`
 	}
@@ -774,6 +794,16 @@ func (h *SetupHandler) SaveSMTP(w http.ResponseWriter, r *http.Request) {
 // TestSMTP handles POST /api/v1/setup/smtp/test
 // Tests SMTP connection during setup (no setupGuard required).
 func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
+	state, stateErr := h.setupService.Ensure(r.Context())
+	if stateErr != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		return
+	}
+	if state.Status == setup.StatusComplete {
+		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		return
+	}
+
 	var body struct {
 		To   string             `json:"to"`
 		SMTP *config.SMTPConfig `json:"smtp,omitempty"`
