@@ -136,7 +136,7 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
                 <span className="font-mono text-lg tracking-wide">Not Configured</span>
               </div>
               <p className="text-sm text-primary/60 max-w-xs mb-8 leading-relaxed">
-                LibreServ needs an email provider to deliver password resets and notifications — it doesn&apos;t host email itself.
+                LibreServ needs an email provider to deliver password resets and notifications — it has no built-in email server.
               </p>
               <Button
                 variant="primary"
