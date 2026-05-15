@@ -348,7 +348,7 @@ func (s *Sender) SendHTMLEmail(to []string, subject, htmlBody string) error {
 	if s.useTLS {
 		return s.sendSTARTTLS(to, msg)
 	}
-	return smtp.SendMail(s.host, s.auth, s.from, to, []byte(msg))
+	return smtp.SendMail(s.host, s.makeAuth(), s.from, to, []byte(msg))
 }
 
 func (s *Sender) buildHTMLMessage(from string, to []string, subject, htmlBody string) string {

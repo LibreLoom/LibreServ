@@ -14,10 +14,15 @@ import (
 // Sender provides a minimal SMTP sender.
 type Sender struct {
 	host       string
-	auth       smtp.Auth
+	username   string
+	password   string
 	from       string
 	useTLS     bool
 	skipVerify bool
+}
+
+func (s *Sender) makeAuth() smtp.Auth {
+	return smtp.PlainAuth("", s.username, s.password, strings.Split(s.host, ":")[0])
 }
 
 // NewSender builds a sender from global config; returns nil if SMTP is not configured.
@@ -34,10 +39,10 @@ func NewSenderWithConfig(cfg config.SMTPConfig) (*Sender, error) {
 	if cfg.Host == "" || cfg.From == "" {
 		return nil, fmt.Errorf("smtp not configured")
 	}
-	auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
 	return &Sender{
 		host:       fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
-		auth:       auth,
+		username:   cfg.Username,
+		password:   cfg.Password,
 		from:       cfg.From,
 		useTLS:     cfg.UseTLS,
 		skipVerify: cfg.SkipVerify,
@@ -161,7 +166,7 @@ func (s *Sender) Send(to []string, subject, body string) error {
 	if s.useTLS {
 		return s.sendSTARTTLS(to, msg)
 	}
-	return smtp.SendMail(s.host, s.auth, s.from, to, []byte(msg))
+	return smtp.SendMail(s.host, s.makeAuth(), s.from, to, []byte(msg))
 }
 
 func (s *Sender) port() int {
@@ -184,7 +189,7 @@ func (s *Sender) sendSTARTTLS(to []string, msg string) error {
 	if err := c.StartTLS(&tls.Config{ServerName: strings.Split(s.host, ":")[0], InsecureSkipVerify: skipVerify}); err != nil {
 		return err
 	}
-	if err := c.Auth(s.auth); err != nil {
+	if err := c.Auth(s.makeAuth()); err != nil {
 		return err
 	}
 	if err := c.Mail(s.from); err != nil {
@@ -216,7 +221,7 @@ func (s *Sender) sendImplicitTLS(to []string, msg string) error {
 		return err
 	}
 	defer client.Close()
-	if err := client.Auth(s.auth); err != nil {
+	if err := client.Auth(s.makeAuth()); err != nil {
 		return err
 	}
 	if err := client.Mail(s.from); err != nil {
