@@ -115,7 +115,7 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
           />
           {preset === "proton" && (
             <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
-              Must be pre-configured in Proton
+              Must be the one you selected when making the token in Proton
             </p>
           )}
           {preset !== "proton" && (
