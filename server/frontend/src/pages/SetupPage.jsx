@@ -854,7 +854,7 @@ function SmtpIntroStep({ onStart, onSkip }) {
             </h2>
           </div>
           <p className="text-primary/50 text-sm leading-relaxed">
-            LibreServ needs to deliver emails — password resets, notifications, welcome messages — but it has no built-in email server. You bring an email provider so LibreServ can send on your behalf.
+            LibreServ needs to deliver emails — password resets, notifications, welcome messages. Since you control your own server, you choose the email provider that sends on your behalf.
           </p>
         </div>
 
