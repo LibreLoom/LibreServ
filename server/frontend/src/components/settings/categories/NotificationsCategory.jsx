@@ -136,7 +136,7 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
                 <span className="font-mono text-lg tracking-wide">Not Configured</span>
               </div>
               <p className="text-sm text-primary/60 max-w-xs mb-8 leading-relaxed">
-                Email notifications, password resets, and welcome emails won&apos;t work until SMTP is configured.
+                LibreServ needs an email provider to deliver password resets and notifications — it doesn&apos;t host email itself.
               </p>
               <Button
                 variant="primary"

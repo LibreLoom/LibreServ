@@ -854,7 +854,7 @@ function SmtpIntroStep({ onStart, onSkip }) {
             </h2>
           </div>
           <p className="text-primary/50 text-sm leading-relaxed">
-            Configure SMTP so LibreServ can send notifications, password resets, and welcome emails.
+            LibreServ needs to deliver emails — password resets, notifications, welcome messages — but it doesn't host email itself. You bring an email provider so LibreServ can send on your behalf.
           </p>
         </div>
 
@@ -901,7 +901,7 @@ function SmtpIntroStep({ onStart, onSkip }) {
         onConfirm={onSkip}
         icon={AlertTriangle}
         title="Skip email setup?"
-        message="Without SMTP, password resets and email notifications won't work until you configure it in Settings."
+        message="Without an email provider, LibreServ can't deliver password resets or notifications. You can add one later in Settings."
         variant="danger-undoable"
         confirmLabel="Skip anyway"
       />

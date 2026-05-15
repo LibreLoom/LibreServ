@@ -11,7 +11,7 @@ export default function SmtpSkipConfirmStep({ onBack, onSkip }) {
         Skip email setup?
       </h2>
       <p className="text-primary/50 text-sm leading-relaxed mb-2">
-        Without SMTP, email notifications, password resets, and welcome emails won&apos;t work.
+        Without an email provider, LibreServ can&apos;t deliver password resets or notifications.
       </p>
       <p className="text-primary/35 text-xs mb-8">
         You can configure this later in Settings &rarr; Notifications.
