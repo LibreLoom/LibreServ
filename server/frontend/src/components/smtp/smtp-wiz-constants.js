@@ -52,7 +52,7 @@ export const SMTP_PRESETS = {
     skip_verify: false,
     username_label: "Username",
     password_label: "Password",
-    help: "Enter your SMTP server details manually.",
+    help: "",
     docs_url: "",
   },
 };
