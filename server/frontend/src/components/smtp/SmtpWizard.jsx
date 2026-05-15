@@ -13,7 +13,7 @@ function buildInitialConfig(preset) {
   return {
     host: p.host,
     port: p.port,
-    username: "",
+    username: preset === "resend" ? "resend" : "",
     password: "",
     from: "",
     use_tls: p.use_tls,

@@ -69,6 +69,7 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
             className={inputClass}
             autoComplete="off"
             spellCheck={false}
+            readOnly={preset === "resend"}
           />
         </div>
 
