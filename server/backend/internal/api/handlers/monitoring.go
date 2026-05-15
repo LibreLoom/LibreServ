@@ -833,11 +833,11 @@ func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Reques
 		mailer, err = h.mailer()
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to set up SMTP")
+		JSONError(w, http.StatusInternalServerError, "failed to set up SMTP: "+err.Error())
 		return
 	}
 	if err := mailer.Send([]string{body.To}, "LibreServ SMTP Test", "This is a test email from LibreServ."); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to send email")
+		JSONError(w, http.StatusInternalServerError, "failed to send email: "+err.Error())
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{

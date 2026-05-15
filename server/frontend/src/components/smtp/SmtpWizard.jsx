@@ -82,7 +82,8 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
   }, [persistProgress]);
 
   const handleTest = useCallback(async () => {
-    if (!config.username || !config.password || (!config.from && preset !== "proton")) return;
+    const fromEmail = preset === "proton" && !config.from ? config.username : config.from;
+    if (!config.username || !config.password || !fromEmail) return;
     setTestError(null);
     setTesting(true);
     setWizStep(WIZ.TESTING);
@@ -101,13 +102,13 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
         },
         credentials: "include",
         body: JSON.stringify({
-          to: config.from,
+          to: fromEmail,
           smtp: {
             host: config.host,
             port: config.port,
             username: config.username,
             password: config.password,
-            from: config.from,
+            from: fromEmail,
             use_tls: config.use_tls,
             skip_verify: config.skip_verify,
           },
