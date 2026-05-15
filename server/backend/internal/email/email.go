@@ -115,7 +115,7 @@ func checkSTARTTLS(addr string, cfg config.SMTPConfig, skipVerify bool) error {
 		return err
 	}
 	defer c.Close()
-	if err := c.StartTLS(&tls.Config{InsecureSkipVerify: skipVerify}); err != nil {
+	if err := c.StartTLS(&tls.Config{ServerName: cfg.Host, InsecureSkipVerify: skipVerify}); err != nil {
 		return err
 	}
 	if cfg.Username != "" {
@@ -181,7 +181,7 @@ func (s *Sender) sendSTARTTLS(to []string, msg string) error {
 	}
 	defer c.Close()
 	skipVerify := resolveSkipVerify(s.skipVerify)
-	if err := c.StartTLS(&tls.Config{InsecureSkipVerify: skipVerify}); err != nil {
+	if err := c.StartTLS(&tls.Config{ServerName: strings.Split(s.host, ":")[0], InsecureSkipVerify: skipVerify}); err != nil {
 		return err
 	}
 	if err := c.Auth(s.auth); err != nil {
