@@ -109,13 +109,21 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
             value={config.from}
             onChange={(e) => onConfigChange({ ...config, from: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
-            placeholder="noreply@yourdomain.com"
+            placeholder={preset === "proton" ? "you@yourdomain.com" : "noreply@yourdomain.com"}
             className={inputClass}
             autoComplete="email"
           />
-          <p className="text-xs text-primary/35 mt-1.5 translate-x-5">
-            The address your emails will be sent from.
-          </p>
+          {preset === "proton" && (
+            <p className="text-xs text-amber-500/80 mt-1.5 translate-x-5 flex items-start gap-1.5">
+              <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
+              Must be a custom domain email already configured in Proton Mail Settings → Domain.
+            </p>
+          )}
+          {preset !== "proton" && (
+            <p className="text-xs text-primary/35 mt-1.5 translate-x-5">
+              The address your emails will be sent from.
+            </p>
+          )}
         </div>
       </div>
 
