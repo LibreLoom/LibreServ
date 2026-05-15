@@ -504,7 +504,38 @@ Wires the install completion → Caddy route creation → certificate request in
 - [ ] Rollback: if route or cert creation fails, clean up and warn user
 - [ ] App appears in Network Routes page immediately after install
 
-#### T3.1.9. Domain Management in Settings
+#### T3.1.9. Setup Wizards: Dead-Simple Step-by-Step UX
+
+**Status:** Not started
+
+**Effort:** 8h
+
+**Dependencies:** T3.1.3, SMTP setup
+
+The domain and email setup wizards currently assume users can infer what to do from field labels and brief help text. They can't. Users need to be walked through every single action, told exactly what to click, where to find things on their provider's website, and what the result should look like. No ambiguity. No "figure it out" gaps.
+
+**Principles:**
+- Every step has a numbered instruction list ("1. Go to cloudflare.com → 2. Click your domain → 3. Scroll to DNS → 4. Click Add Record → 5. Paste this value")
+- Never show a bare input field without explaining where its value comes from
+- Show expected results ("You should see a green checkmark" / "The page should say 'DNS record created'")
+- Provider-specific screenshots or illustrated guides where possible
+- Error messages must say what to DO, not just what went wrong ("Cloudflare rejected the API token. Go to cloudflare.com/profile/api-tokens, click the three dots on your token, and click Roll. Then paste the new token here.")
+
+**Scope:**
+- Domain wizard: provider-specific walkthroughs for Cloudflare, Porkbun, Spaceship, and the Cloudflare nameserver fallback. Each needs: where to log in, where to find API credentials, what to click, what to paste, what success looks like
+- SMTP wizard: provider-specific walkthroughs for each preset (Proton, Resend, Postmark, Custom). Where to find the SMTP token/password, where to find the from-address, what "send a test email" actually does
+- DNS verification step: explain what a DNS record is in one sentence, show the exact record being created, explain propagation wait times
+- Certificate request step: explain that HTTPS is being set up, show progress, explain what "DNS-01 challenge" means in plain terms ("We're proving you own this domain by adding a temporary DNS record")
+
+**Acceptance Criteria:**
+- [ ] Domain wizard: every provider option has numbered step-by-step instructions for credential retrieval
+- [ ] SMTP wizard: every preset has numbered step-by-step instructions for finding SMTP credentials
+- [ ] No input field appears without an explanation of where its value comes from
+- [ ] Error messages prescribe a concrete next action, not just describe the failure
+- [ ] Success states are explicitly described ("You should see...")
+- [ ] Technical concepts (DNS records, ACME challenges, SMTP auth) explained in one plain sentence at point of use
+
+#### T3.1.10. Domain Management in Settings
 
 **Status:** Done
 
@@ -512,7 +543,7 @@ Wires the install completion → Caddy route creation → certificate request in
 
 **Effort:** 2h
 
-**Dependencies:** T3.1.3 ✅
+**Dependencies:** T3.1.3 ✅, T3.1.9
 
 Settings UI to view, change, and disconnect the current domain configuration.
 

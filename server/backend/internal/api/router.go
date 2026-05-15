@@ -127,6 +127,10 @@ func (s *Server) setupRoutes() {
 		r.Get("/health/ready", healthHandler.ReadinessCheck)
 		r.Get("/health/live", healthHandler.LivenessCheck)
 
+		// Comprehensive health check (public so dashboard and monitoring can display failures)
+		r.Get("/api/v1/system/health/check", monitoringHandler.ComprehensiveHealthCheck)
+		r.Post("/api/v1/system/health/check/refresh", monitoringHandler.ComprehensiveHealthCheck)
+
 		// Prometheus metrics endpoint (public for scraping)
 		r.Get("/metrics", monitoringHandler.PrometheusMetrics)
 
@@ -235,12 +239,6 @@ func (s *Server) setupRoutes() {
 				r.Get("/system", monitoringHandler.SystemHealth)
 				r.Post("/cleanup", monitoringHandler.CleanupMetrics)
 				r.Post("/email/test", monitoringHandler.SendTestEmail)
-			})
-
-			// Comprehensive health check endpoint
-			r.Route("/system/health", func(r chi.Router) {
-				r.Get("/check", monitoringHandler.ComprehensiveHealthCheck)
-				r.Post("/check/refresh", monitoringHandler.ComprehensiveHealthCheck)
 			})
 
 			// Notification configuration (admin only)

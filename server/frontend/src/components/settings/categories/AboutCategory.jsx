@@ -82,14 +82,17 @@ export default function AboutCategory({ settings }) {
     try {
       const endpoint = force ? '/system/health/check/refresh' : '/system/health/check';
       const method = force ? 'POST' : 'GET';
-      const res = await request(endpoint, { method });
+      const res = await request(endpoint, { method, allowNonOk: true });
+      const data = await res.json();
       
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error?.message || 'Health check failed');
+      if (res.status === 401 || res.status === 403) {
+        throw new Error('You must be logged in to run health checks.');
       }
       
-      const data = await res.json();
+      if (!res.ok && !data.checks) {
+        throw new Error(data.error?.message || `Health check request failed (${res.status})`);
+      }
+      
       setHealthData(data);
       setLastChecked(new Date().toISOString());
     } catch (error) {
@@ -205,7 +208,7 @@ export default function AboutCategory({ settings }) {
               )}
             </div>
             <div className="flex items-center gap-3">
-              <div className="flex items-center px-3 py-1.5 rounded-full bg-primary border border-primary/20">
+              <div className="flex items-center px-3 py-1.5 rounded-full bg-primary text-secondary border border-primary/20">
                 <AnimatedCheckbox
                   checked={autoRefresh}
                   onChange={setAutoRefresh}

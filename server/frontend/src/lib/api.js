@@ -57,7 +57,7 @@ export default async function api(path, options = {}, retried = false) {
       throw new AuthError("Session expired. Please log in again.");
     }
   }
-  if (!res.ok) {
+  if (!res.ok && !options.allowNonOk) {
     throw new Error(`Request failed with status: ${res.status}`, {
       cause: {
         status: res.status,
