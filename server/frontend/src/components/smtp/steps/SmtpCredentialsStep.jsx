@@ -152,7 +152,7 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
                   className="inline-flex items-center gap-1.5 rounded-pill border border-primary/15 bg-primary/5 text-primary px-3.5 py-2 font-mono text-xs motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/10 hover:border-primary/25"
                 >
                   <ExternalLink size={12} />
-                  Open Documentation
+                  {presetData.link_label || "Open Documentation"}
                 </a>
               </div>
             )}

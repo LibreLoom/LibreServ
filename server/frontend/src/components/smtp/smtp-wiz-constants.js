@@ -18,6 +18,7 @@ export const SMTP_PRESETS = {
     password_label: "SMTP token",
     help: "Generate an SMTP token at Settings → IMAP/SMTP → SMTP tokens.",
     docs_url: "https://account.proton.me/u/0/mail/imap-smtp",
+    link_label: "Open Proton Settings",
   },
   resend: {
     id: "resend",
@@ -30,6 +31,7 @@ export const SMTP_PRESETS = {
     password_label: "API key",
     help: "All you need is your API key.",
     docs_url: "https://resend.com/docs/send-with-smtp",
+    link_label: "Open Documentation",
   },
   postmark: {
     id: "postmark",
@@ -42,6 +44,7 @@ export const SMTP_PRESETS = {
     password_label: "Password",
     help: "Use your Server API token for both username and password.",
     docs_url: "https://postmarkapp.com/developer/sending#smtp",
+    link_label: "Open Documentation",
   },
   custom: {
     id: "custom",
@@ -54,5 +57,6 @@ export const SMTP_PRESETS = {
     password_label: "Password",
     help: "",
     docs_url: "",
+    link_label: "",
   },
 };
