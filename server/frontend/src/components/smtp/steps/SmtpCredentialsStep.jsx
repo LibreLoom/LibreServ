@@ -120,9 +120,19 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
               Must be the one you selected when making the token in Proton
             </p>
           )}
-          {preset !== "proton" && (
-            <p className="text-xs text-primary/35 mt-1.5 translate-x-5">
-              The address your emails will be sent from.
+          {preset === "resend" && (
+            <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
+              Must be a verified address in your Resend dashboard
+            </p>
+          )}
+          {preset === "postmark" && (
+            <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
+              Must match a verified Sender Signature in Postmark
+            </p>
+          )}
+          {preset === "custom" && (
+            <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
+              Must be authorized by your SMTP provider
             </p>
           )}
         </div>
