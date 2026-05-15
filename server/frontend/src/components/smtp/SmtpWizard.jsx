@@ -117,7 +117,8 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
 
       if (!testRes.ok) {
         const data = await testRes.json();
-        throw new Error(data.error || data.message || "SMTP test failed");
+        const msg = typeof data.error === "string" ? data.error : JSON.stringify(data.error || data.message || "");
+        throw new Error(msg || "SMTP test failed");
       }
 
       const saveRes = await fetch("/api/v1/notify/config", {
@@ -133,7 +134,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
             port: config.port,
             username: config.username,
             password: config.password,
-            from: config.from,
+            from: fromEmail,
             use_tls: config.use_tls,
             skip_verify: config.skip_verify,
           },
@@ -142,7 +143,8 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
 
       if (!saveRes.ok) {
         const data = await saveRes.json();
-        throw new Error(data.error || "Failed to save SMTP settings");
+        const msg = typeof data.error === "string" ? data.error : JSON.stringify(data.error || "");
+        throw new Error(msg || "Failed to save SMTP settings");
       }
 
       setWizStep(WIZ.CONNECTED);
