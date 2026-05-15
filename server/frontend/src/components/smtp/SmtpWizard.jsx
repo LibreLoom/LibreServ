@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import PropTypes from "prop-types";
 import SetupWizard from "../ui/SetupWizard";
 import { WIZ, SMTP_PRESETS } from "./smtp-wiz-constants";
@@ -42,6 +42,12 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
   const [testError, setTestError] = useState(null);
   const [testing, setTesting] = useState(false);
 
+  useEffect(() => {
+    if (preset === "proton" && config.username) {
+      setConfig((c) => ({ ...c, from: c.username }));
+    }
+  }, [preset, config.username]);
+
   const persistProgress = useCallback((subStep, extra) => {
     if (!saveProgress) return;
     saveProgress("smtp", subStep, extra);
@@ -76,7 +82,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
   }, [persistProgress]);
 
   const handleTest = useCallback(async () => {
-    if (!config.username || !config.password || !config.from) return;
+    if (!config.username || !config.password || (!config.from && preset !== "proton")) return;
     setTestError(null);
     setTesting(true);
     setWizStep(WIZ.TESTING);
@@ -190,7 +196,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
   const nextLabel = wizStep === WIZ.CREDENTIALS ? "Test & Save" : "Continue";
 
   const nextDisabled = wizStep === WIZ.CREDENTIALS && (
-    !config.host || !config.username || !config.password || !config.from
+    !config.host || !config.username || !config.password || (!config.from && preset !== "proton")
   );
 
   if (!open) return null;

@@ -101,41 +101,38 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
           </div>
         </div>
 
-        <div>
-          <label htmlFor="smtp-from" className="block text-sm text-primary/60 translate-x-5 mb-1">
-            From email <span className="text-error" aria-hidden="true">*</span>
-          </label>
-          <input
-            id="smtp-from"
-            type="email"
-            value={config.from}
-            onChange={(e) => onConfigChange({ ...config, from: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
-            placeholder={preset === "proton" ? "you@yourdomain.com" : "noreply@yourdomain.com"}
-            className={inputClass}
-            autoComplete="email"
-          />
-          {preset === "proton" && (
-            <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
-              Must be the one you selected when making the token in Proton
-            </p>
-          )}
-          {preset === "resend" && (
-            <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
-              Must be a verified address in your Resend dashboard
-            </p>
-          )}
-          {preset === "postmark" && (
-            <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
-              Must match a verified Sender Signature in Postmark
-            </p>
-          )}
-          {preset === "custom" && (
-            <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
-              Must be authorized by your SMTP provider
-            </p>
-          )}
-        </div>
+        {preset !== "proton" && (
+          <div>
+            <label htmlFor="smtp-from" className="block text-sm text-primary/60 translate-x-5 mb-1">
+              From email <span className="text-error" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="smtp-from"
+              type="email"
+              value={config.from}
+              onChange={(e) => onConfigChange({ ...config, from: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
+              placeholder="noreply@yourdomain.com"
+              className={inputClass}
+              autoComplete="email"
+            />
+            {preset === "resend" && (
+              <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
+                Must be a verified address in your Resend dashboard
+              </p>
+            )}
+            {preset === "postmark" && (
+              <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
+                Must match a verified Sender Signature in Postmark
+              </p>
+            )}
+            {preset === "custom" && (
+              <p className="text-xs text-warning-muted mt-1.5 translate-x-5">
+                Must be authorized by your SMTP provider
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {(presetData.help || presetData.docs_url) && (

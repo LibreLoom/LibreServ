@@ -16,7 +16,7 @@ export const SMTP_PRESETS = {
     skip_verify: false,
     username_label: "SMTP username",
     password_label: "SMTP token",
-    help: "Generate an SMTP token at Settings → IMAP/SMTP → SMTP tokens. The 'From email' must be the one you selected when creating the token.",
+    help: "Generate an SMTP token at Settings → IMAP/SMTP → SMTP tokens.",
     docs_url: "https://account.proton.me/u/0/mail/imap-smtp",
   },
   resend: {
