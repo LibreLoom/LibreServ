@@ -17,7 +17,7 @@ export const SMTP_PRESETS = {
     username_label: "Email address",
     password_label: "SMTP token",
     help: "Generate an SMTP token at Settings → IMAP/SMTP → SMTP tokens. Use your custom domain email as the username. The 'From email' must be a custom domain address already configured in Proton Mail Settings → Domain.",
-    docs_url: "https://proton.me/support/smtp",
+    docs_url: "https://account.proton.me/mail/imap-smtp",
   },
   resend: {
     id: "resend",
