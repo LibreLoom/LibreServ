@@ -14,9 +14,9 @@ export const SMTP_PRESETS = {
     port: 587,
     use_tls: true,
     skip_verify: false,
-    username_label: "Email address",
+    username_label: "SMTP username",
     password_label: "SMTP token",
-    help: "Generate an SMTP token at Settings → IMAP/SMTP → SMTP tokens. Use your custom domain email as the username. The 'From email' must be the one you selected when creating the token.",
+    help: "Generate an SMTP token at Settings → IMAP/SMTP → SMTP tokens. The 'From email' must be the one you selected when creating the token.",
     docs_url: "https://account.proton.me/u/0/mail/imap-smtp",
   },
   resend: {
