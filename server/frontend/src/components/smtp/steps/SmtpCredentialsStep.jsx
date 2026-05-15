@@ -114,9 +114,8 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
             autoComplete="email"
           />
           {preset === "proton" && (
-            <p className="text-xs text-warning mt-1.5 translate-x-5 flex items-start gap-1.5">
-              <AlertCircle size={12} className="flex-shrink-0 mt-0.5" />
-              Must be a custom domain email already configured in Proton Mail Settings → Domain.
+            <p className="text-xs text-warning/70 mt-1.5 translate-x-5">
+              Must be pre-configured in Proton
             </p>
           )}
           {preset !== "proton" && (
