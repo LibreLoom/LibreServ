@@ -1,21 +1,59 @@
+import { useState, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
 import StatusRow from "../../setup/steps/StatusRow";
 
 export default function SmtpTestingStep({ error, onRetry }) {
+  const [showSend, setShowSend] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setShowSend(true), 1200);
+    return () => clearTimeout(t);
+  }, []);
+
+  const connectDone = !error && showSend;
+  const connectFailed = !!error;
+  const connectSpinner = !error && !showSend;
+
+  const sendSpinner = !error && showSend;
+
+  const heading = useMemo(() => {
+    if (error) return "Connection failed";
+    if (showSend) return "Sending test email…";
+    return "Testing your SMTP connection";
+  }, [error, showSend]);
+
+  const subheading = useMemo(() => {
+    if (error) return "We couldn't connect with those credentials.";
+    return "Verifying your SMTP connection works…";
+  }, [error]);
+
   return (
     <div>
       <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-2">
-        {error ? "Connection failed" : "Testing your SMTP connection"}
+        {heading}
       </h2>
       <p className="text-primary/50 text-sm mb-6">
-        {error ? "We couldn't connect with those credentials." : "Sending a test email to verify everything works…"}
+        {subheading}
       </p>
       <div className="space-y-3">
-        <StatusRow label="Reached SMTP server" done={!error} failed={!!error} spinner={!error}>
+        <StatusRow
+          label="Connecting to SMTP server"
+          done={connectDone}
+          failed={connectFailed}
+          spinner={connectSpinner}
+        >
           {error && (
             <p className="text-xs text-error/70 mt-0.5">{error}</p>
           )}
         </StatusRow>
+        {connectDone && (
+          <StatusRow
+            label="Sending test email"
+            done={false}
+            failed={false}
+            spinner={sendSpinner}
+          />
+        )}
       </div>
       {error && (
         <div className="mt-5">

@@ -297,6 +297,16 @@ func (h *SetupHandler) sendWelcome(to, username string) {
 // Preflight runs a set of basic checks before setup continues
 // GET /api/v1/setup/preflight
 func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
+	state, err := h.setupService.Ensure(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		return
+	}
+	if state.Status == setup.StatusComplete {
+		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		return
+	}
+
 	results := map[string]interface{}{}
 	allHealthy := true
 
