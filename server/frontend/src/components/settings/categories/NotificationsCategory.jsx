@@ -1,11 +1,15 @@
-import { useState } from "react";
-import { Mail, Bell, AlertCircle, CheckCircle, RefreshCw } from "lucide-react";
+import { useState, useCallback } from "react";
+import PropTypes from "prop-types";
+import { Mail, Bell, RefreshCw, ExternalLink, AlertTriangle, ShieldAlert } from "lucide-react";
 import Toggle from "../../common/Toggle";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import Alert from "../../common/Alert";
 import SettingsCard from "../SettingsCard";
-import ValueDisplay from "../../common/ValueDisplay";
+import Button from "../../ui/Button";
+import ConfirmModal from "../../common/ConfirmModal";
+import SmtpWizard from "../../smtp/SmtpWizard";
+import { SMTP_PRESETS } from "../../smtp/smtp-wiz-constants";
 import { useToast } from "../../../context/ToastContext";
 
 const FREQUENCY_OPTIONS = [
@@ -68,16 +72,176 @@ const HEALTH_NOTIFICATION_OPTIONS = [
   },
 ];
 
+function detectPresetFromHost(host) {
+  for (const [id, p] of Object.entries(SMTP_PRESETS)) {
+    if (id === "custom") continue;
+    if (p.host && host === p.host) return id;
+  }
+  return "custom";
+}
+
+function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
+  const { addToast } = useToast();
+  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const smtpConfigured = smtp?.configured || false;
+  const host = smtp?.host || "";
+  const from = smtp?.from || "";
+  const preset = detectPresetFromHost(host);
+  const providerLabel = SMTP_PRESETS[preset]?.label || "Custom";
+
+  const handleDisconnect = useCallback(async () => {
+    setDisconnecting(true);
+    try {
+      const csrfRes = await fetch("/api/v1/auth/csrf");
+      const csrfData = await csrfRes.json();
+      const csrfToken = csrfData.csrf_token;
+
+      const res = await fetch("/api/v1/notify/config", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          smtp: { host: "", port: 587, username: "", password: "", from: "", use_tls: false, skip_verify: false },
+        }),
+      });
+
+      if (res.ok) {
+        addToast({ type: "warning", message: "SMTP disconnected" });
+        onDisconnect();
+        setShowDisconnectModal(false);
+      } else {
+        const data = await res.json();
+        addToast({ type: "error", message: data.error || "Failed to disconnect SMTP" });
+      }
+    } catch (err) {
+      addToast({ type: "error", message: err.message });
+    } finally {
+      setDisconnecting(false);
+    }
+  }, [addToast, onDisconnect]);
+
+  if (!smtpConfigured) {
+    return (
+      <SettingsCard icon={Mail} title="Email (SMTP)" index={0}>
+        <div className="px-5 py-4 flex justify-center">
+          <div className="w-full max-w-sm rounded-large-element border border-primary/10 bg-secondary overflow-hidden">
+            <div className="px-8 py-12 flex flex-col items-center text-center">
+              <div className="inline-flex items-center gap-4 px-8 py-4 rounded-pill bg-accent/15 text-accent mb-8 border border-accent/20">
+                <Mail size={28} />
+                <span className="font-mono text-lg tracking-wide">Not Configured</span>
+              </div>
+              <p className="text-sm text-primary/60 max-w-xs mb-8 leading-relaxed">
+                Email notifications, password resets, and welcome emails won&apos;t work until SMTP is configured.
+              </p>
+              <Button
+                variant="primary"
+                onClick={onReconfigure}
+                className="w-full"
+              >
+                <ExternalLink size={16} />
+                Configure SMTP
+              </Button>
+            </div>
+          </div>
+        </div>
+      </SettingsCard>
+    );
+  }
+
+  return (
+    <>
+      <SettingsCard icon={Mail} title="Email (SMTP)" index={0}>
+        <div className="px-5 py-4">
+          <div className="rounded-large-element border border-primary/10 bg-secondary overflow-hidden">
+            <div className="px-4 py-3.5 space-y-4">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-primary/60 font-mono">Status</span>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill bg-accent/20 text-accent text-xs font-mono">
+                    <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                    Connected
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-primary/60 font-mono">Provider</span>
+                  <span className="text-sm text-primary/80 font-mono">{providerLabel}</span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-primary/60 font-mono">Server</span>
+                  <span className="text-sm text-primary/80 font-mono">{host}</span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-primary/60 font-mono">From</span>
+                  <span className="text-sm text-primary/80 font-mono truncate ml-4">{from}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="accent"
+                  className="flex-1"
+                  onClick={onReconfigure}
+                >
+                  Change SMTP
+                </Button>
+                <Button
+                  variant="danger"
+                  className="flex-1"
+                  onClick={() => setShowDisconnectModal(true)}
+                >
+                  Disconnect
+                </Button>
+              </div>
+
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-pill bg-warning/10 border border-warning/20">
+                <ShieldAlert size={16} className="text-warning mt-0.5 flex-shrink-0" />
+                <div className="text-xs text-warning leading-relaxed">
+                  <strong className="font-mono">Warning:</strong> Disconnecting will disable all email notifications, password resets, and welcome emails.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </SettingsCard>
+
+      <ConfirmModal
+        open={showDisconnectModal}
+        onClose={() => setShowDisconnectModal(false)}
+        onConfirm={handleDisconnect}
+        icon={AlertTriangle}
+        title="Disconnect SMTP"
+        message={`Disconnect ${providerLabel} SMTP? Email notifications and password resets will stop working.`}
+        variant="danger"
+        confirmLabel="Disconnect"
+        loading={disconnecting}
+      />
+    </>
+  );
+}
+
+SmtpStatusCard.propTypes = {
+  smtp:          PropTypes.object,
+  onReconfigure: PropTypes.func.isRequired,
+  onDisconnect:  PropTypes.func.isRequired,
+};
+
 export default function NotificationsCategory({ settings, onSettingsChange }) {
   const { addToast } = useToast();
   const [testing, setTesting] = useState(false);
-  const smtpConfigured = settings?.smtp?.configured || false;
+  const [showSmtpWizard, setShowSmtpWizard] = useState(false);
 
   const handleTestNotification = async () => {
     try {
       setTesting(true);
 
-      // Get CSRF token
       const csrfRes = await fetch("/api/v1/auth/csrf");
       const csrfData = await csrfRes.json();
       const csrfToken = csrfData.csrf_token;
@@ -116,147 +280,47 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
     onSettingsChange?.({ ...settings, [key]: !settings[key] });
   };
 
+  const handleSmtpReconfigure = () => {
+    setShowSmtpWizard(true);
+  };
+
+  const handleSmtpDisconnect = () => {
+    onSettingsChange?.({
+      ...settings,
+      smtp: {
+        host: "",
+        port: 587,
+        username: "",
+        from: "",
+        use_tls: false,
+        skip_verify: false,
+        configured: false,
+      },
+    });
+  };
+
+  const handleSmtpWizardComplete = () => {
+    setShowSmtpWizard(false);
+    window.location.reload();
+  };
+
+  const handleSmtpWizardSkip = () => {
+    setShowSmtpWizard(false);
+  };
+
+  const smtpConfigured = settings?.smtp?.configured || false;
+
   return (
     <div className="space-y-4">
-      <SettingsCard
-        icon={Mail}
-        title="SMTP Configuration (Advanced)"
-        padding={false}
-        index={0}
-      >
-        <div className="px-4 py-3 space-y-4">
-          {!smtpConfigured ? (
-            <Alert
-              variant="warning"
-              message="SMTP is not configured. Email notifications will not work until SMTP settings are provided."
-            />
-          ) : (
-            <Alert
-              variant="success"
-              message="SMTP is configured and ready to send emails."
-            />
-          )}
+      <SmtpStatusCard
+        smtp={settings?.smtp}
+        onReconfigure={handleSmtpReconfigure}
+        onDisconnect={handleSmtpDisconnect}
+      />
 
-          <div className="grid gap-4">
-            <div>
-              <label className="text-accent font-sans text-sm text-left translate-x-5 mb-1 block">
-                SMTP Host
-              </label>
-              <input
-                type="text"
-                value={settings?.smtp?.host || ""}
-                onChange={(e) =>
-                  onSettingsChange?.({
-                    ...settings,
-                    smtp: { ...settings.smtp, host: e.target.value },
-                  })
-                }
-                placeholder="smtp.example.com"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
-              />
-            </div>
-
-            <div>
-              <label className="text-accent font-sans text-sm text-left translate-x-5 mb-1 block">
-                Port
-              </label>
-              <input
-                type="number"
-                value={settings?.smtp?.port || ""}
-                onChange={(e) =>
-                  onSettingsChange?.({
-                    ...settings,
-                    smtp: { ...settings.smtp, port: parseInt(e.target.value) },
-                  })
-                }
-                placeholder="587"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
-              />
-            </div>
-
-            <div>
-              <label className="text-accent font-sans text-sm text-left translate-x-5 mb-1 block">
-                Username
-              </label>
-              <input
-                type="text"
-                value={settings?.smtp?.username || ""}
-                onChange={(e) =>
-                  onSettingsChange?.({
-                    ...settings,
-                    smtp: { ...settings.smtp, username: e.target.value },
-                  })
-                }
-                placeholder="username"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
-              />
-            </div>
-
-            <div>
-              <label className="text-secondary/80 font-sans text-sm text-left translate-x-5 mb-1 block">
-                Password
-              </label>
-              <input
-                type="password"
-                value={settings?.smtp?.password || ""}
-                onChange={(e) =>
-                  onSettingsChange?.({
-                    ...settings,
-                    smtp: { ...settings.smtp, password: e.target.value },
-                  })
-                }
-                placeholder="••••••••"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
-              />
-            </div>
-
-            <div>
-              <label className="text-accent font-sans text-sm text-left translate-x-5 mb-1 block">
-                From Email
-              </label>
-              <input
-                type="email"
-                value={settings?.smtp?.from || ""}
-                onChange={(e) =>
-                  onSettingsChange?.({
-                    ...settings,
-                    smtp: { ...settings.smtp, from: e.target.value },
-                  })
-                }
-                placeholder="noreply@example.com"
-                className="w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150"
-              />
-            </div>
-
-            <Toggle
-              checked={settings?.smtp?.use_tls || false}
-              onChange={() =>
-                onSettingsChange?.({
-                  ...settings,
-                  smtp: { ...settings.smtp, use_tls: !settings.smtp.use_tls },
-                })
-              }
-              label="Use TLS"
-              description="Encrypt SMTP connection"
-            />
-
-            <Toggle
-              checked={settings?.smtp?.skip_verify || false}
-              onChange={() =>
-                onSettingsChange?.({
-                  ...settings,
-                  smtp: {
-                    ...settings.smtp,
-                    skip_verify: !settings.smtp.skip_verify,
-                  },
-                })
-              }
-              label="Skip Certificate Verification"
-              description="Allow self-signed certificates (dev only)"
-            />
-          </div>
-
-          <div className="pt-4 border-t border-primary/10">
+      {smtpConfigured && (
+        <SettingsCard icon={Mail} title="Test Email" padding={false} index={1}>
+          <div className="px-4 py-3">
             <div className="rounded-large-element border border-accent/30 bg-accent/5 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -274,12 +338,8 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                 </div>
                 <button
                   onClick={handleTestNotification}
-                  disabled={testing || !smtpConfigured}
-                  className={`inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium motion-safe:transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary disabled:opacity-50 disabled:cursor-not-allowed ${
-                    smtpConfigured
-                      ? "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary"
-                      : "bg-primary text-secondary"
-                  }`}
+                  disabled={testing}
+                  className="inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary motion-safe:transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {testing ? (
                     <>
@@ -296,14 +356,14 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
               </div>
             </div>
           </div>
-        </div>
-      </SettingsCard>
+        </SettingsCard>
+      )}
 
       <SettingsCard
         icon={Bell}
         title="Notification Preferences"
         padding={false}
-        index={1}
+        index={2}
       >
         <div className="px-4 py-3">
           <Toggle
@@ -375,6 +435,16 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
           )}
         </div>
       </SettingsCard>
+
+      {showSmtpWizard && (
+        <SmtpWizard
+          open={showSmtpWizard}
+          onComplete={handleSmtpWizardComplete}
+          onSkip={handleSmtpWizardSkip}
+          onDismiss={() => setShowSmtpWizard(false)}
+          existingConfig={settings?.smtp}
+        />
+      )}
     </div>
   );
 }

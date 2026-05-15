@@ -348,7 +348,7 @@ export default function Navbar() {
                 className={`absolute bottom-0 right-0 pb-16 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto ${TRANSITION.full}`}
               >
                 <div
-                  className={`bg-secondary rounded-2xl ring-2 ring-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 ${TRANSITION.full}`}
+                  className={`bg-secondary rounded-large-element ring-2 ring-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 ${TRANSITION.full}`}
                 >
                   <NavLink
                     to="/users"

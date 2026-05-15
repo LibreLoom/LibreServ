@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle } from "lucide-react";
+import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle, Mail } from "lucide-react";
 import PropTypes from "prop-types";
 import api from "../lib/api";
 import DomainWizard from "../components/setup/DomainWizard";
+import SmtpWizard from "../components/smtp/SmtpWizard";
 import ConfirmModal from "../components/common/ConfirmModal";
 import PreflightRemediation from "../components/setup/PreflightRemediation";
 import { summarizeError } from "../lib/preflight-errors";
@@ -14,6 +15,7 @@ const STEP = {
   WELCOME:   "welcome",
   PREFLIGHT: "preflight",
   DOMAIN:    "domain",
+  SMTP:      "smtp",
   ACCOUNT:   "account",
   CREATING:  "creating",
   COMPLETE:  "complete",
@@ -47,7 +49,7 @@ SetupCard.propTypes = {
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
-const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.DOMAIN, STEP.ACCOUNT, STEP.COMPLETE];
+const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.DOMAIN, STEP.SMTP, STEP.ACCOUNT, STEP.COMPLETE];
 
 function StepDots({ current }) {
   const idx = VISIBLE_STEPS.indexOf(current);
@@ -833,6 +835,84 @@ DomainIntroStep.propTypes = {
   onSkip:  PropTypes.func.isRequired,
 };
 
+// ─── STEP: SMTP intro ──────────────────────────────────────────────────────────
+function SmtpIntroStep({ onStart, onSkip }) {
+  const [showSkipModal, setShowSkipModal] = useState(false);
+
+  return (
+    <SetupShell>
+      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <StepDots current={STEP.SMTP} />
+
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
+              <Mail className="w-5 h-5 text-primary/60" />
+            </div>
+            <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
+              Connect email
+            </h2>
+          </div>
+          <p className="text-primary/50 text-sm leading-relaxed">
+            Configure SMTP so LibreServ can send notifications, password resets, and welcome emails.
+          </p>
+        </div>
+
+        <div className="space-y-3 mb-8">
+          {[
+            { label: "Choose your email provider", desc: "Proton, Resend, Postmark, or bring your own" },
+            { label: "Enter your credentials", desc: "We'll autofill the server details for you" },
+            { label: "Test the connection", desc: "Verify everything works before saving" },
+          ].map((item, i) => (
+            <div key={i} className="flex items-start gap-3 py-2">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center mt-0.5">
+                <span className="text-[10px] text-primary/50 font-mono">{i + 1}</span>
+              </div>
+              <div>
+                <p className="text-sm text-primary/80">{item.label}</p>
+                <p className="text-xs text-primary/35">{item.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={onStart}
+            className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            Start Email Setup
+            <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+          </button>
+          <div className="text-center">
+            <button
+              onClick={() => setShowSkipModal(true)}
+              className="text-primary/30 hover:text-primary/50 font-mono text-xs motion-safe:transition-colors motion-safe:duration-150"
+            >
+              Skip for now (Not recommended)
+            </button>
+          </div>
+        </div>
+      </SetupCard>
+
+      <ConfirmModal
+        open={showSkipModal}
+        onClose={() => setShowSkipModal(false)}
+        onConfirm={onSkip}
+        icon={AlertTriangle}
+        title="Skip email setup?"
+        message="Without SMTP, password resets and email notifications won't work until you configure it in Settings."
+        variant="danger-undoable"
+        confirmLabel="Skip anyway"
+      />
+    </SetupShell>
+  );
+}
+SmtpIntroStep.propTypes = {
+  onStart: PropTypes.func.isRequired,
+  onSkip:  PropTypes.func.isRequired,
+};
+
 // ─── STEP: Error (fatal) ──────────────────────────────────────────────────────
 function ErrorStep({ message }) {
   return (
@@ -870,6 +950,7 @@ export default function SetupPage() {
   const [step, setStep] = useState(null);
   const [error, setError] = useState(null);
   const [showDomainWizard, setShowDomainWizard] = useState(false);
+  const [showSmtpWizard, setShowSmtpWizard] = useState(false);
   const [initialSubStep, setInitialSubStep] = useState(null);
   const [initialStepData, setInitialStepData] = useState({});
   const { saveProgress, flushProgress } = useSetupProgress();
@@ -926,8 +1007,9 @@ export default function SetupPage() {
 
           if (step === STEP.DOMAIN) {
             if (savedData.domain_completed || savedData.domain_skipped) {
-              setStep(STEP.ACCOUNT);
-              saveProgress(STEP.ACCOUNT, "", { ...savedData });
+              const nextStep = savedData.domain_skipped ? STEP.SMTP : STEP.SMTP;
+              setStep(nextStep);
+              saveProgress(nextStep, "", { ...savedData });
               return;
             }
             if (saved.current_sub_step) {
@@ -942,6 +1024,18 @@ export default function SetupPage() {
               }
               return;
             }
+          }
+
+          if (step === STEP.SMTP) {
+            if (savedData.smtp_completed || savedData.smtp_skipped) {
+              setStep(STEP.ACCOUNT);
+              saveProgress(STEP.ACCOUNT, "", { ...savedData });
+              return;
+            }
+            setStep(STEP.SMTP);
+            setInitialStepData(savedData);
+            progressRef.current = { step: STEP.SMTP, subStep: "", stepData: savedData };
+            return;
           }
 
           setStep(step);
@@ -973,11 +1067,25 @@ export default function SetupPage() {
 
   const handleDomainComplete = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), domain_completed: true };
-    advanceStep(STEP.ACCOUNT, "", data);
+    advanceStep(STEP.SMTP, "", data);
   }, [advanceStep]);
 
   const handleDomainSkip = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), domain_skipped: true };
+    advanceStep(STEP.SMTP, "", data);
+  }, [advanceStep]);
+
+  const handleStartSmtpWizard = useCallback(() => {
+    setShowSmtpWizard(true);
+  }, []);
+
+  const handleSmtpComplete = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), smtp_completed: true };
+    advanceStep(STEP.ACCOUNT, "", data);
+  }, [advanceStep]);
+
+  const handleSmtpSkip = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), smtp_skipped: true };
     advanceStep(STEP.ACCOUNT, "", data);
   }, [advanceStep]);
 
@@ -1031,6 +1139,26 @@ export default function SetupPage() {
       <DomainIntroStep
         onStart={handleStartDomainWizard}
         onSkip={handleDomainSkip}
+      />
+    );
+  }
+
+  if (step === STEP.SMTP) {
+    if (showSmtpWizard) {
+      return (
+        <SmtpWizard
+          open={showSmtpWizard}
+          onComplete={handleSmtpComplete}
+          onSkip={handleSmtpSkip}
+          onDismiss={() => setShowSmtpWizard(false)}
+          saveProgress={(stepName, subStep, data) => saveProgress(stepName, subStep, { ...progressRef.current.stepData, ...data })}
+        />
+      );
+    }
+    return (
+      <SmtpIntroStep
+        onStart={handleStartSmtpWizard}
+        onSkip={handleSmtpSkip}
       />
     );
   }

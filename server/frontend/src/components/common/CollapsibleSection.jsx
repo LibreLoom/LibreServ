@@ -17,7 +17,7 @@ export default function CollapsibleSection({
   const sizeClass = size === "xs" ? "text-xs" : size === "md" ? "text-base" : "text-sm";
 
   const wrapperClass = pill
-    ? `border border-primary/10 rounded-large-element bg-primary/5 ${className}`
+    ? `border rounded-large-element bg-primary/5 motion-safe:transition-colors motion-safe:duration-150 ${open ? "border-primary/20" : "border-primary/10 hover:border-primary/25"} ${className}`
     : className;
 
   return (
@@ -25,7 +25,7 @@ export default function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1.5 ${sizeClass} ${pill ? "text-primary font-medium" : "text-secondary/70"} ${open ? '' : 'hover:ring-2 hover:ring-accent'} motion-safe:transition-all w-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill ${
+        className={`flex items-center gap-1.5 ${sizeClass} ${pill ? "text-primary font-medium" : "text-secondary/70"} motion-safe:transition-all w-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill ${
           pill ? "py-2 px-3" : "py-1"
         } ${mono ? "font-mono" : ""}`}
         aria-expanded={open}
@@ -42,13 +42,14 @@ export default function CollapsibleSection({
       </button>
       <div
         id={contentId}
-        className={`overflow-hidden motion-safe:transition-all ease-[var(--motion-easing-emphasized)] ${
-          open ? "max-h-[800px] opacity-100" : "max-h-0 opacity-0"
+        className={`grid motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
         }`}
-        style={{ transitionDuration: "var(--motion-duration-medium1)" }}
       >
-        <div className={pill ? "px-3 pb-4" : background ? "mt-3 bg-primary/5 rounded-card p-3" : "pt-2 pl-6"}>
-          {children}
+        <div className="overflow-hidden">
+          <div className={pill ? "px-3 pb-4" : background ? "mt-3 bg-primary/5 rounded-card p-3" : "pt-2 pl-6"}>
+            {children}
+          </div>
         </div>
       </div>
     </div>

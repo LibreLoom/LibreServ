@@ -4,20 +4,26 @@ var validMainSteps = map[string]bool{
 	StepWelcome:   true,
 	StepPreflight: true,
 	StepDomain:    true,
+	StepSMTP:      true,
 	StepAccount:   true,
 	StepComplete:  true,
 }
 
 var validSubSteps = map[string]bool{
-	SubHasDomain:     true,
-	SubRegistrarPick: true,
-	SubSearchDomain:  true,
-	SubProviderPick:  true,
-	SubCFNSGuide:     true,
-	SubDomainInput:   true,
-	SubTokenInput:    true,
-	SubConnecting:    true,
-	SubConnected:     true,
+	SubHasDomain:       true,
+	SubRegistrarPick:   true,
+	SubSearchDomain:    true,
+	SubProviderPick:    true,
+	SubCFNSGuide:       true,
+	SubDomainInput:     true,
+	SubTokenInput:      true,
+	SubConnecting:      true,
+	SubConnected:       true,
+	SubSMTPProvider:    true,
+	SubSMTPCredentials: true,
+	SubSMTPTesting:     true,
+	SubSMTPConnected:   true,
+	SubSMTSkipConfirm:  true,
 }
 
 var allowedStepDataKeys = map[string]bool{
@@ -29,26 +35,35 @@ var allowedStepDataKeys = map[string]bool{
 	"registrar":        true,
 	"domain_name":      true,
 	"cf_ns_confirmed":  true,
+	"smtp_completed":   true,
+	"smtp_skipped":     true,
+	"smtp_provider":    true,
 }
 
 const (
 	StepWelcome   = "welcome"
 	StepPreflight = "preflight"
 	StepDomain    = "domain"
+	StepSMTP      = "smtp"
 	StepAccount   = "account"
 	StepComplete  = "complete"
 )
 
 const (
-	SubHasDomain     = "has_domain"
-	SubRegistrarPick = "registrar_pick"
-	SubSearchDomain  = "search_domain"
-	SubProviderPick  = "provider_pick"
-	SubCFNSGuide     = "cf_ns_guide"
-	SubDomainInput   = "domain_input"
-	SubTokenInput    = "token_input"
-	SubConnecting    = "connecting"
-	SubConnected     = "connected"
+	SubHasDomain       = "has_domain"
+	SubRegistrarPick   = "registrar_pick"
+	SubSearchDomain    = "search_domain"
+	SubProviderPick    = "provider_pick"
+	SubCFNSGuide       = "cf_ns_guide"
+	SubDomainInput     = "domain_input"
+	SubTokenInput      = "token_input"
+	SubConnecting      = "connecting"
+	SubConnected       = "connected"
+	SubSMTPProvider    = "smtp_provider_pick"
+	SubSMTPCredentials = "smtp_credentials"
+	SubSMTPTesting     = "smtp_testing"
+	SubSMTPConnected   = "smtp_connected"
+	SubSMTSkipConfirm  = "skip_confirm"
 )
 
 func IsValidMainStep(step string) bool {
