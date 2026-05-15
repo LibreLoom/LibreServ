@@ -55,23 +55,24 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
           </div>
         )}
 
-        <div>
-          <label htmlFor="smtp-username" className="block text-sm text-primary/60 translate-x-5 mb-1">
-            {presetData.username_label} <span className="text-error" aria-hidden="true">*</span>
-          </label>
-          <input
-            id="smtp-username"
-            type="text"
-            value={config.username}
-            onChange={(e) => onConfigChange({ ...config, username: e.target.value })}
-            onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
-            placeholder={preset === "proton" ? "you@yourdomain.com" : preset === "resend" ? "resend" : ""}
-            className={inputClass}
-            autoComplete="off"
-            spellCheck={false}
-            readOnly={preset === "resend"}
-          />
-        </div>
+        {(preset === "custom" || preset === "proton") && (
+          <div>
+            <label htmlFor="smtp-username" className="block text-sm text-primary/60 translate-x-5 mb-1">
+              {presetData.username_label} <span className="text-error" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="smtp-username"
+              type="text"
+              value={config.username}
+              onChange={(e) => onConfigChange({ ...config, username: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
+              placeholder={preset === "proton" ? "you@yourdomain.com" : ""}
+              className={inputClass}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
+        )}
 
         <div>
           <label htmlFor="smtp-password" className="block text-sm text-primary/60 translate-x-5 mb-1">
