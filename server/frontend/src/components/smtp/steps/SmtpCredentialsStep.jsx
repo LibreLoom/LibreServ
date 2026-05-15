@@ -127,12 +127,14 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
         </div>
       </div>
 
-      {presetData.help && (
+      {(presetData.help || presetData.docs_url) && (
         <CollapsibleSection title={`${presetData.label} setup help`} size="xs" pill>
           <div className="space-y-3">
-            <p className="text-xs text-primary/60 leading-relaxed">
-              {presetData.help}
-            </p>
+            {presetData.help && (
+              <p className="text-xs text-primary/60 leading-relaxed">
+                {presetData.help}
+              </p>
+            )}
             {presetData.docs_url && (
               <div className="flex items-center gap-2 pt-2">
                 <a

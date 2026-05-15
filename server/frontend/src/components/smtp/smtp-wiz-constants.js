@@ -28,7 +28,7 @@ export const SMTP_PRESETS = {
     skip_verify: false,
     username_label: "Username",
     password_label: "API key",
-    help: "",
+    help: "Username is always \"resend\". Use your API key as the password.",
     docs_url: "https://resend.com/docs/send-with-smtp",
   },
   postmark: {
