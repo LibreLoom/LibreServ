@@ -51,8 +51,12 @@ func HealthCheck() error {
 		return fmt.Errorf("smtp not configured")
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	skipVerify := resolveSkipVerify(cfg.SkipVerify)
+	if cfg.Port == 465 || cfg.Port == 2465 {
+		return checkImplicitTLS(addr, cfg, skipVerify)
+	}
 	if cfg.UseTLS {
-		return checkTLS(addr, cfg)
+		return checkSTARTTLS(addr, cfg, skipVerify)
 	}
 	c, err := smtp.Dial(addr)
 	if err != nil {
@@ -74,8 +78,12 @@ func TestSMTP(cfg config.SMTPConfig) error {
 		return fmt.Errorf("smtp host required")
 	}
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	skipVerify := resolveSkipVerify(cfg.SkipVerify)
+	if cfg.Port == 465 || cfg.Port == 2465 {
+		return checkImplicitTLS(addr, cfg, skipVerify)
+	}
 	if cfg.UseTLS {
-		return checkTLS(addr, cfg)
+		return checkSTARTTLS(addr, cfg, skipVerify)
 	}
 	c, err := smtp.Dial(addr)
 	if err != nil {
@@ -91,14 +99,35 @@ func TestSMTP(cfg config.SMTPConfig) error {
 	return nil
 }
 
-func checkTLS(addr string, cfg config.SMTPConfig) error {
-	skipVerify := cfg.SkipVerify
+func resolveSkipVerify(skipVerify bool) bool {
 	if skipVerify {
 		if c := config.Get(); c != nil && c.Server.Mode == "production" {
 			log.Printf("warning: InsecureSkipVerify overridden to false in production mode")
-			skipVerify = false
+			return false
 		}
 	}
+	return skipVerify
+}
+
+func checkSTARTTLS(addr string, cfg config.SMTPConfig, skipVerify bool) error {
+	c, err := smtp.Dial(addr)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	if err := c.StartTLS(&tls.Config{InsecureSkipVerify: skipVerify}); err != nil {
+		return err
+	}
+	if cfg.Username != "" {
+		auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+		if err := c.Auth(auth); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkImplicitTLS(addr string, cfg config.SMTPConfig, skipVerify bool) error {
 	conn, err := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: skipVerify})
 	if err != nil {
 		return err
@@ -125,25 +154,64 @@ func (s *Sender) Send(to []string, subject, body string) error {
 		return fmt.Errorf("missing recipients")
 	}
 	msg := buildMessage(s.from, to, subject, body)
+	port := s.port()
+	if port == 465 || port == 2465 {
+		return s.sendImplicitTLS(to, msg)
+	}
 	if s.useTLS {
-		return s.sendTLS(to, msg)
+		return s.sendSTARTTLS(to, msg)
 	}
 	return smtp.SendMail(s.host, s.auth, s.from, to, []byte(msg))
 }
 
-func (s *Sender) sendTLS(to []string, msg string) error {
-	skipVerify := s.skipVerify
-	if skipVerify {
-		if c := config.Get(); c != nil && c.Server.Mode == "production" {
-			log.Printf("warning: InsecureSkipVerify overridden to false in production mode")
-			skipVerify = false
-		}
+func (s *Sender) port() int {
+	parts := strings.Split(s.host, ":")
+	if len(parts) != 2 {
+		return 0
 	}
-	c, err := tls.Dial("tcp", s.host, &tls.Config{InsecureSkipVerify: skipVerify})
+	var port int
+	fmt.Sscanf(parts[1], "%d", &port)
+	return port
+}
+
+func (s *Sender) sendSTARTTLS(to []string, msg string) error {
+	c, err := smtp.Dial(s.host)
 	if err != nil {
 		return err
 	}
-	client, err := smtp.NewClient(c, strings.Split(s.host, ":")[0])
+	defer c.Close()
+	skipVerify := resolveSkipVerify(s.skipVerify)
+	if err := c.StartTLS(&tls.Config{InsecureSkipVerify: skipVerify}); err != nil {
+		return err
+	}
+	if err := c.Auth(s.auth); err != nil {
+		return err
+	}
+	if err := c.Mail(s.from); err != nil {
+		return err
+	}
+	for _, r := range to {
+		if err := c.Rcpt(r); err != nil {
+			return err
+		}
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte(msg)); err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+func (s *Sender) sendImplicitTLS(to []string, msg string) error {
+	skipVerify := resolveSkipVerify(s.skipVerify)
+	conn, err := tls.Dial("tcp", s.host, &tls.Config{InsecureSkipVerify: skipVerify})
+	if err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(conn, strings.Split(s.host, ":")[0])
 	if err != nil {
 		return err
 	}
