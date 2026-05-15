@@ -21,9 +21,15 @@ function buildInitialConfig(preset) {
   };
 }
 
-export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress, open = false, existingConfig }) {
-  const [wizStep, setWizStep] = useState(existingConfig?.configured ? WIZ.CONNECTED : WIZ.PROVIDER_PICK);
-  const [preset, setPreset] = useState(existingConfig?.preset || null);
+export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress, open = false, existingConfig, initialSubStep, initialStepData }) {
+  const initData = initialStepData || {};
+  const initPreset = initData.smtp_provider || existingConfig?.preset || null;
+
+  const [wizStep, setWizStep] = useState(
+    existingConfig?.configured ? WIZ.CONNECTED
+    : initialSubStep || WIZ.PROVIDER_PICK
+  );
+  const [preset, setPreset] = useState(initPreset);
   const [config, setConfig] = useState(existingConfig?.configured ? {
     host: existingConfig.host || "",
     port: existingConfig.port || 587,
@@ -32,7 +38,7 @@ export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress
     from: existingConfig.from || "",
     use_tls: existingConfig.use_tls ?? true,
     skip_verify: existingConfig.skip_verify ?? false,
-  } : buildInitialConfig("custom"));
+  } : initPreset ? buildInitialConfig(initPreset) : buildInitialConfig("custom"));
   const [testError, setTestError] = useState(null);
   const [testing, setTesting] = useState(false);
 
@@ -258,4 +264,6 @@ SmtpWizard.propTypes = {
     skip_verify: PropTypes.bool,
     preset:     PropTypes.string,
   }),
+  initialSubStep:  PropTypes.string,
+  initialStepData: PropTypes.object,
 };

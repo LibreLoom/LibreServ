@@ -943,7 +943,7 @@ function ErrorStep({ message }) {
 ErrorStep.propTypes = { message: PropTypes.string };
 
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
-const UNSAFE_SUB_STEPS = new Set(["connecting"]);
+const UNSAFE_SUB_STEPS = new Set(["connecting", "smtp_testing"]);
 
 export default function SetupPage() {
   const navigate        = useNavigate();
@@ -1030,6 +1030,18 @@ export default function SetupPage() {
             if (savedData.smtp_completed || savedData.smtp_skipped) {
               setStep(STEP.ACCOUNT);
               saveProgress(STEP.ACCOUNT, "", { ...savedData });
+              return;
+            }
+            if (saved.current_sub_step) {
+              const sub = UNSAFE_SUB_STEPS.has(saved.current_sub_step) ? "smtp_credentials" : saved.current_sub_step;
+              setStep(STEP.SMTP);
+              setInitialSubStep(sub);
+              setInitialStepData(savedData);
+              setShowSmtpWizard(true);
+              progressRef.current = { step: STEP.SMTP, subStep: sub, stepData: savedData };
+              if (sub !== saved.current_sub_step) {
+                saveProgress(STEP.SMTP, sub, savedData);
+              }
               return;
             }
             setStep(STEP.SMTP);
@@ -1151,6 +1163,8 @@ export default function SetupPage() {
           onComplete={handleSmtpComplete}
           onSkip={handleSmtpSkip}
           onDismiss={() => setShowSmtpWizard(false)}
+          initialSubStep={initialSubStep}
+          initialStepData={initialStepData}
           saveProgress={(stepName, subStep, data) => saveProgress(stepName, subStep, { ...progressRef.current.stepData, ...data })}
         />
       );
