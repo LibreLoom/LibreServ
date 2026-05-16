@@ -24,7 +24,7 @@ export default defineConfig({
     strictPort: true,
     host: "0.0.0.0",
     open: false,
-    allowedHosts: [".shares.zrok.io"],
+    allowedHosts: true,
     fs: {
       allow: ["../.."],
     },
