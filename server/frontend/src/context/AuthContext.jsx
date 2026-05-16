@@ -53,6 +53,7 @@ export function AuthProvider({ children }) {
     return () => {
       isMounted = false;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- location.pathname intentionally omitted: auth state does not change on navigation
   }, [navigate]);
 
   const login = useCallback(async (username, password) => {
