@@ -19,6 +19,7 @@ LOG_DIR="/var/log/libreserv"
 USER="libreserv"
 SERVICE_NAME="libreserv"
 NO_SYSTEMD=false
+RESTIC_VERSION="0.18.1"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -400,6 +401,33 @@ download_binary() {
     ln -sf "${INSTALL_DIR}/libreserv" "${BIN_DIR}/libreserv"
 }
 
+# Download restic binary for restic-based backups
+download_restic() {
+    local restic_dir="${DATA_DIR}/bin"
+    local restic_path="${restic_dir}/restic"
+
+    if [ -x "${restic_path}" ]; then
+        log_info "restic already installed at ${restic_path}"
+        return
+    fi
+
+    log_info "Downloading restic ${RESTIC_VERSION} for ${OS}/${ARCH}..."
+    mkdir -p "${restic_dir}"
+
+    local url="https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_${ARCH}.bz2"
+    if ! curl -fsSL "${url}" | bzip2 -d > "${restic_path}.tmp" 2>/dev/null; then
+        rm -f "${restic_path}.tmp"
+        log_warn "Failed to download restic; incremental backups will require manual installation"
+        log_warn "Install restic manually: https://restic.net/downloads/"
+        return
+    fi
+
+    chmod +x "${restic_path}.tmp"
+    mv "${restic_path}.tmp" "${restic_path}"
+    chown "${USER}:${USER}" "${restic_path}"
+    log_info "restic ${RESTIC_VERSION} installed to ${restic_path}"
+}
+
 # Download and extract the app catalog
 download_catalog() {
     CATALOG_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/catalog.tar.gz"
@@ -672,6 +700,7 @@ do_upgrade() {
     fi
 
     download_catalog
+    download_restic
 
     rm -f "${BACKUP_BINARY}"
 
@@ -727,6 +756,7 @@ do_install() {
     prompt_version
     download_binary
     download_catalog
+    download_restic
     create_config
 
     create_systemd_service

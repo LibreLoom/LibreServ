@@ -84,7 +84,7 @@ export default function RoutesCard({
           </div>
         ) : routes.length === 0 ? (
           <div className="px-4 py-6 text-center">
-            <Globe className="w-10 h-10 text-primary/30 mx-auto mb-2" />
+            <span className="opacity-50 block mb-2"><Globe className="w-10 h-10 text-primary mx-auto" /></span>
             <p className="text-sm text-accent">No routes configured</p>
             <button
               onClick={onAdd}
@@ -110,7 +110,7 @@ export default function RoutesCard({
                       </div>
                     ) : (
                       <div className="rounded-large-element bg-primary/10 flex items-center justify-center" style={{ width: 28, height: 28 }}>
-                        <HelpCircle size={16} className="text-primary/50" />
+                        <span className="opacity-50"><HelpCircle size={16} className="text-primary" /></span>
                       </div>
                     )}
                     <div className="min-w-0">
@@ -137,7 +137,7 @@ export default function RoutesCard({
                       className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
                       aria-label="Edit route"
                     >
-                      <Pencil size={14} aria-hidden="true" />
+                      <span className="opacity-50"><Pencil size={14} className="text-accent" aria-hidden="true" /></span>
                     </button>
                     <button
                       onClick={() => onDelete(route)}
@@ -145,7 +145,7 @@ export default function RoutesCard({
                       className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
                       aria-label="Delete route"
                     >
-                      <Trash2 size={14} aria-hidden="true" />
+                      <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
                     </button>
                   </div>
                 </div>

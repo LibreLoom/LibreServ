@@ -3,9 +3,9 @@ package database
 import (
 	"embed"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -96,19 +96,10 @@ func (d *DB) Migrate() error {
 		}
 	}
 
-	// 5. Legacy/Cleanup migrations (always run — ensures schema is correct even when SQL migration
-	// files were updated in-place after initial application).
-	if err := d.ensureBackupsChecksum(); err != nil {
-		return err
-	}
-	if err := d.ensureUpdatesBackupID(); err != nil {
-		return err
-	}
-	if err := d.ensure12HourTimeColumn(); err != nil {
-		return err
-	}
-	if err := d.ensureAppsColumns(); err != nil {
-		return err
+	// 5. Schema reconciliation (always run — ensures schema is correct even when SQL
+	// migration files were updated in-place after initial application).
+	if err := d.reconcileSchema(); err != nil {
+		slog.Warn("Schema reconciliation had issues (non-fatal)", "error", err)
 	}
 
 	return nil
@@ -194,153 +185,150 @@ func (d *DB) runMigration(filename string) error {
 	return tx.Commit()
 }
 
-// ensureBackupsChecksum backfills the checksum column for backups if missing.
-func (d *DB) ensureBackupsChecksum() error {
-	rows, err := d.db.Query(`PRAGMA table_info(backups)`)
-	if err != nil {
-		return fmt.Errorf("check backups schema: %w", err)
-	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
-		}
-	}()
+// reconcileSchema brings an existing database up to the current 001_schema.sql
+// without creating a new migration file. It adds missing columns/tables and
+// drops deprecated ones. This handles the case where 001 was already applied
+// with an older version of the schema.
+func (d *DB) reconcileSchema() error {
+	existingTables := d.getExistingTables()
+	existingColumns := d.getExistingColumns()
 
-	for rows.Next() {
-		var (
-			cid       int
-			name      string
-			ctype     string
-			notnull   int
-			dfltValue interface{}
-			pk        int
-		)
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
-			if strings.EqualFold(name, "checksum") {
-				return nil
+	// Add missing tables (CREATE IF NOT EXISTS is safe)
+	missingTables := map[string]string{
+		"backup_repositories": `
+			CREATE TABLE IF NOT EXISTS backup_repositories (
+				id TEXT PRIMARY KEY,
+				app_id TEXT,
+				repo_type TEXT NOT NULL CHECK(repo_type IN ('local', 's3', 'b2', 'sftp')),
+				repo_path TEXT NOT NULL,
+				password TEXT NOT NULL,
+				credentials TEXT,
+				is_system BOOLEAN DEFAULT 0,
+				limit_upload_kbps INTEGER DEFAULT 0,
+				limit_download_kbps INTEGER DEFAULT 0,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
+			)`,
+	}
+	for table, ddl := range missingTables {
+		if !existingTables[table] {
+			if _, err := d.db.Exec(ddl); err != nil {
+				slog.Warn("Failed to create missing table", "table", table, "error", err)
 			}
 		}
 	}
-	if _, err := d.db.Exec(`ALTER TABLE backups ADD COLUMN checksum TEXT`); err != nil {
-		return fmt.Errorf("add backups.checksum: %w", err)
+
+	// Add missing columns
+	missingColumns := map[string]map[string]string{
+		"backups": {
+			"format":      `ALTER TABLE backups ADD COLUMN format TEXT DEFAULT 'tar'`,
+			"snapshot_id": `ALTER TABLE backups ADD COLUMN snapshot_id TEXT`,
+			"repo_id":     `ALTER TABLE backups ADD COLUMN repo_id TEXT`,
+			"data_added":  `ALTER TABLE backups ADD COLUMN data_added INTEGER DEFAULT 0`,
+		},
+		"backup_repositories": {
+			"is_system": `ALTER TABLE backup_repositories ADD COLUMN is_system BOOLEAN DEFAULT 0`,
+		},
+		"updates": {
+			"backup_id": `ALTER TABLE updates ADD COLUMN backup_id TEXT`,
+		},
+		"user_security_settings": {
+			"use_12_hour_time": `ALTER TABLE user_security_settings ADD COLUMN use_12_hour_time BOOLEAN DEFAULT 0`,
+		},
+		"apps": {
+			"revocation_revoked_at":      `ALTER TABLE apps ADD COLUMN revocation_revoked_at TIMESTAMP`,
+			"revocation_acknowledged_at": `ALTER TABLE apps ADD COLUMN revocation_acknowledged_at TIMESTAMP`,
+		},
 	}
+	for table, columns := range missingColumns {
+		for col, ddl := range columns {
+			if !existingColumns[table][col] {
+				if _, err := d.db.Exec(ddl); err != nil {
+					slog.Warn("Failed to add missing column", "table", table, "column", col, "error", err)
+				}
+			}
+		}
+	}
+
+	// Add missing indexes
+	missingIndexes := map[string]string{
+		"idx_backup_repositories_app":  `CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(app_id)`,
+		"idx_backup_repositories_type": `CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type)`,
+	}
+	for idx, ddl := range missingIndexes {
+		var exists bool
+		_ = d.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?)`, idx).Scan(&exists)
+		if !exists {
+			if _, err := d.db.Exec(ddl); err != nil {
+				slog.Warn("Failed to create missing index", "index", idx, "error", err)
+			}
+		}
+	}
+
+	// Drop deprecated tables
+	deprecatedTables := []string{"cloud_backup_config", "cloud_backups"}
+	for _, table := range deprecatedTables {
+		if existingTables[table] {
+			if _, err := d.db.Exec(fmt.Sprintf(`DROP TABLE IF EXISTS "%s"`, table)); err != nil {
+				slog.Warn("Failed to drop deprecated table", "table", table, "error", err)
+			}
+		}
+	}
+
 	return nil
 }
 
-// ensureUpdatesBackupID backfills the backup_id column for updates if missing.
-func (d *DB) ensureUpdatesBackupID() error {
-	rows, err := d.db.Query(`PRAGMA table_info(updates)`)
+func (d *DB) getExistingTables() map[string]bool {
+	tables := make(map[string]bool)
+	rows, err := d.db.Query(`SELECT name FROM sqlite_master WHERE type='table'`)
 	if err != nil {
-		return fmt.Errorf("check updates schema: %w", err)
+		return tables
 	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
-		}
-	}()
-
+	defer rows.Close()
 	for rows.Next() {
-		var (
-			cid       int
-			name      string
-			ctype     string
-			notnull   int
-			dfltValue interface{}
-			pk        int
-		)
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
-			if strings.EqualFold(name, "backup_id") {
-				return nil
-			}
+		var name string
+		if rows.Scan(&name) == nil {
+			tables[name] = true
 		}
 	}
-	if _, err := d.db.Exec(`ALTER TABLE updates ADD COLUMN backup_id TEXT`); err != nil {
-		return fmt.Errorf("add updates.backup_id: %w", err)
-	}
-	return nil
+	return tables
 }
 
-// ensure12HourTimeColumn backfills the use_12_hour_time column for user_security_settings if missing.
-func (d *DB) ensure12HourTimeColumn() error {
-	rows, err := d.db.Query(`PRAGMA table_info(user_security_settings)`)
-	if err != nil {
-		return fmt.Errorf("check user_security_settings schema: %w", err)
-	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
+func (d *DB) getExistingColumns() map[string]map[string]bool {
+	result := make(map[string]map[string]bool)
+	tables := d.getExistingTables()
+	for table := range tables {
+		if table == "schema_migrations" {
+			continue
 		}
-	}()
-
-	for rows.Next() {
-		var (
-			cid       int
-			name      string
-			ctype     string
-			notnull   int
-			dfltValue interface{}
-			pk        int
-		)
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
-			if strings.EqualFold(name, "use_12_hour_time") {
-				return nil
+		if !isValidIdentifier(table) {
+			slog.Warn("Skipping table with invalid identifier", "table", table)
+			continue
+		}
+		columns := make(map[string]bool)
+		rows, err := d.db.Query(fmt.Sprintf(`PRAGMA table_info("%s")`, table))
+		if err != nil {
+			continue
+		}
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notnull int
+			var dfltValue interface{}
+			var pk int
+			if rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk) == nil {
+				columns[strings.ToLower(name)] = true
 			}
 		}
+		rows.Close()
+		result[table] = columns
 	}
-	if _, err := d.db.Exec(`ALTER TABLE user_security_settings ADD COLUMN use_12_hour_time BOOLEAN DEFAULT 0`); err != nil {
-		return fmt.Errorf("add user_security_settings.use_12_hour_time: %w", err)
-	}
-	return nil
+	return result
 }
 
-// ensureAppsColumns backfills missing columns in the apps table.
-// This handles the case where the schema was updated after the initial migration had already run.
-func (d *DB) ensureAppsColumns() error {
-	rows, err := d.db.Query(`PRAGMA table_info(apps)`)
-	if err != nil {
-		return fmt.Errorf("check apps schema: %w", err)
-	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
-		}
-	}()
+var validIdentifierRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
-	existing := make(map[string]bool)
-	for rows.Next() {
-		var (
-			cid       int
-			name      string
-			ctype     string
-			notnull   int
-			dfltValue interface{}
-			pk        int
-		)
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
-			existing[name] = true
-		}
-	}
-
-	type colDef struct {
-		Name string
-		Type string
-	}
-	missing := []colDef{
-		{"image_digest", "TEXT"},
-		{"compose_template_sha", "TEXT"},
-		{"revocation_severity", "TEXT"},
-		{"revocation_reason", "TEXT"},
-		{"revocation_revoked_at", "TIMESTAMP"},
-		{"revocation_acknowledged_at", "TIMESTAMP"},
-	}
-
-	for _, col := range missing {
-		if !existing[col.Name] {
-			if _, err := d.db.Exec(fmt.Sprintf("ALTER TABLE apps ADD COLUMN %s %s", col.Name, col.Type)); err != nil {
-				return fmt.Errorf("add apps.%s: %w", col.Name, err)
-			}
-			slog.Info("Added missing column to apps table", "column", col.Name, "type", col.Type)
-		}
-	}
-	return nil
+func isValidIdentifier(name string) bool {
+	return validIdentifierRe.MatchString(name)
 }

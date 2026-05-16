@@ -21,7 +21,7 @@ RUN VERSION=${VERSION} make build
 
 # Stage 3: Final Image
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates docker-cli docker-compose
+RUN apk add --no-cache ca-certificates docker-cli docker-compose restic
 
 # Create non-root user
 RUN adduser -D -u 1000 libreserv

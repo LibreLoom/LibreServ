@@ -7,6 +7,9 @@ export class AuthError extends Error {
   }
 }
 
+import { triggerSessionExpired } from "../utils/sessionExpiredHandler.js";
+export { triggerSessionExpired };
+
 export default async function api(path, options = {}, retried = false) {
   const { noRetry, ...fetchOptions } = options;
   const url = `/api/v1${path}`;
@@ -48,12 +51,15 @@ export default async function api(path, options = {}, retried = false) {
         return await api(path, options, true);
       }
 
+      triggerSessionExpired();
       throw new AuthError("Session expired. Please log in again.");
     } catch (error) {
       refreshPromise = null;
       if (error instanceof AuthError) {
+        triggerSessionExpired();
         throw error;
       }
+      triggerSessionExpired();
       throw new AuthError("Session expired. Please log in again.");
     }
   }

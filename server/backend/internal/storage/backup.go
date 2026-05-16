@@ -7,49 +7,93 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
 )
 
-// BackupService handles backup and restore operations
 type BackupService struct {
-	db           *database.DB
-	docker       *docker.Client
-	basePath     string // Base path for storing backups
-	appDataPath  string // Base path where app data is stored
-	cloudService interface {
-		IsEnabled() bool
-		UploadBackupAsync(backupID, localPath string) error
-	}
+	db            *database.DB
+	docker        *docker.Client
+	basePath      string
+	appDataPath   string
+	resticEngine  *restic.Engine
+	resticMu      sync.RWMutex
+	serverSecret  string
+	encryptionKey string
 }
 
-// NewBackupService creates a new backup service
 func NewBackupService(db *database.DB, docker *docker.Client, basePath, appDataPath string) *BackupService {
-	return &BackupService{
+	svc := &BackupService{
 		db:          db,
 		docker:      docker,
 		basePath:    basePath,
 		appDataPath: appDataPath,
 	}
+
+	if engine, err := restic.NewEngine(); err == nil {
+		svc.resticEngine = engine
+		log.Printf("BackupService: restic engine initialized (binary found)")
+	} else {
+		go func() {
+			if _, provErr := restic.AutoProvision(); provErr != nil {
+				log.Printf("BackupService: restic auto-provision failed: %v", provErr)
+				return
+			}
+			if engine, initErr := restic.NewEngine(); initErr == nil {
+				svc.resticMu.Lock()
+				svc.resticEngine = engine
+				svc.resticMu.Unlock()
+				log.Printf("BackupService: restic engine initialized (auto-provisioned)")
+			}
+		}()
+		log.Printf("BackupService: restic not available, attempting auto-provision: %v", err)
+	}
+
+	return svc
 }
 
-// BackupApp creates a backup of an app\'s data
+func (s *BackupService) SetServerSecret(secret string) {
+	s.serverSecret = secret
+}
+
+func (s *BackupService) DeriveRepoPassword(appID string) string {
+	return restic.DeriveRepoPassword(s.serverSecret, appID)
+}
+
+func (s *BackupService) SetEncryptionKey(key string) {
+	s.encryptionKey = key
+}
+
+func (s *BackupService) UseRestic() bool {
+	s.resticMu.RLock()
+	defer s.resticMu.RUnlock()
+	return s.resticEngine != nil
+}
+
 func (s *BackupService) BackupApp(ctx context.Context, appID string, opts BackupOptions) (*BackupResult, error) {
 	startTime := time.Now()
 	result := &BackupResult{}
 
 	log.Printf("BackupApp: starting backup for app %s", appID)
 
-	// Get app info from database
+	if !s.UseRestic() {
+		result.Error = fmt.Errorf("backups require restic — install restic or enable auto-provision to create backups")
+		return result, result.Error
+	}
+
 	var appPath, appStatus string
 	err := s.db.QueryRow("SELECT path, status FROM apps WHERE id = ?", appID).Scan(&appPath, &appStatus)
 	if err != nil {
@@ -59,7 +103,6 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 	}
 	log.Printf("BackupApp: found app at path %s with status %s", appPath, appStatus)
 
-	// Stop app if required
 	if opts.StopBeforeBackup && appStatus == "running" {
 		log.Printf("Stopping app %s for backup", appID)
 		if err := s.docker.ComposeStop(ctx, appPath); err != nil {
@@ -67,196 +110,79 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 			return result, result.Error
 		}
 		defer func() {
-			// Restart the app
 			log.Printf("Restarting app %s after backup", appID)
 			_ = s.docker.ComposeUp(ctx, appPath)
 		}()
 	}
 
-	// Create backup directory
-	backupDir := filepath.Join(s.basePath, "apps", appID)
-	if err := os.MkdirAll(backupDir, 0750); err != nil {
-		result.Error = fmt.Errorf("failed to create backup directory: %w", err)
-		return result, result.Error
+	if err := s.runPreBackupHook(ctx, appID, appPath); err != nil {
+		log.Printf("BackupApp: pre-backup hook failed for %s: %v (continuing)", appID, err)
 	}
 
-	// Generate backup ID and filename
 	backupID := uuid.New().String()
-	timestamp := time.Now().Format("20060102-150405")
 
-	var backupPath string
-	if opts.Compress {
-		backupPath = filepath.Join(backupDir, fmt.Sprintf("%s-%s.tar.gz", appID, timestamp))
-	} else {
-		backupPath = filepath.Join(backupDir, fmt.Sprintf("%s-%s.tar", appID, timestamp))
-	}
-
-	// Create the tarball
-	checksum, size, err := s.createTarball(appPath, backupPath, opts)
+	backup, err := s.backupWithRestic(ctx, appID, appPath, backupID)
 	if err != nil {
-		result.Error = fmt.Errorf("failed to create backup: %w", err)
-		log.Printf("BackupApp: failed to create tarball for app %s from %s: %v", appID, appPath, err)
-		return result, result.Error
-	}
-
-	// Save backup record to database
-	backup := &Backup{
-		ID:        backupID,
-		AppID:     appID,
-		Type:      BackupTypeApp,
-		Path:      backupPath,
-		Size:      size,
-		CreatedAt: time.Now(),
-		Checksum:  checksum,
-	}
-
-	_, err = s.db.Exec(`
-		INSERT INTO backups (id, app_id, type, path, size, created_at, checksum)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, backup.ID, backup.AppID, string(backup.Type), backup.Path, backup.Size, backup.CreatedAt, backup.Checksum)
-
-	if err != nil {
-		// Clean up the backup file - best effort, ignore error
-		_ = os.Remove(backupPath)
-		result.Error = fmt.Errorf("failed to save backup record: %w", err)
+		result.Error = err
 		return result, result.Error
 	}
 
 	result.Backup = backup
 	result.Duration = time.Since(startTime)
-
-	log.Printf("Backup created for %s: %s (%d bytes) in %v", appID, backupPath, size, result.Duration)
-
-	// Trigger cloud upload if configured and enabled
-	if s.cloudService != nil && s.cloudService.IsEnabled() {
-		go func() {
-			if err := s.cloudService.UploadBackupAsync(backup.ID, backupPath); err != nil {
-				log.Printf("Cloud backup upload failed for %s: %v", backup.ID, err)
-			}
-		}()
-	}
+	log.Printf("Restic backup created for %s: snapshot %s in %v", appID, backup.SnapshotID, result.Duration)
 
 	return result, nil
 }
 
-// SetCloudService configures the cloud backup service for automatic uploads
-func (s *BackupService) SetCloudService(cloudService interface {
-	IsEnabled() bool
-	UploadBackupAsync(backupID, localPath string) error
-}) {
-	s.cloudService = cloudService
+func (s *BackupService) backupWithRestic(ctx context.Context, appID, appPath, backupID string) (*Backup, error) {
+	repo, repoID, err := s.getOrCreateRepoForApp(ctx, appID)
+	if err != nil {
+		return nil, fmt.Errorf("restic repo setup: %w", err)
+	}
+
+	if err := s.resticEngine.EnsureLocalRepo(ctx, *repo); err != nil {
+		return nil, fmt.Errorf("restic repo init: %w", err)
+	}
+
+	summary, err := s.resticEngine.Backup(ctx, *repo, []string{appPath}, []string{appID, "libreserv"}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("restic backup: %w", err)
+	}
+
+	backup := &Backup{
+		ID:         backupID,
+		AppID:      appID,
+		Type:       BackupTypeApp,
+		Path:       repo.Path,
+		Size:       summary.TotalBytes,
+		DataAdded:  summary.DataAdded,
+		CreatedAt:  time.Now(),
+		Format:     BackupFormatRestic,
+		SnapshotID: summary.SnapshotID,
+		RepoID:     repoID,
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO backups (id, app_id, type, path, size, data_added, created_at, format, snapshot_id, repo_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, backup.ID, backup.AppID, string(backup.Type), backup.Path, backup.Size, backup.DataAdded, backup.CreatedAt, string(backup.Format), backup.SnapshotID, backup.RepoID)
+
+	if err != nil {
+		return nil, fmt.Errorf("save restic backup record: %w", err)
+	}
+
+	return backup, nil
 }
 
-// createTarball creates a compressed tarball of a directory
-func (s *BackupService) createTarball(srcPath, destPath string, opts BackupOptions) (string, int64, error) {
-	// Verify source path exists
-	srcInfo, err := os.Stat(srcPath)
-	if err != nil {
-		return "", 0, fmt.Errorf("source path does not exist or is not accessible: %s: %w", srcPath, err)
-	}
-	if !srcInfo.IsDir() {
-		return "", 0, fmt.Errorf("source path is not a directory: %s", srcPath)
-	}
-
-	// Create the destination file
-	file, err := os.Create(destPath)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to create backup file %s: %w", destPath, err)
-	}
-	defer func() { _ = file.Close() }()
-
-	// Setup hash writer for checksum
-	hash := sha256.New()
-	multiWriter := io.MultiWriter(file, hash)
-
-	var writer io.WriteCloser
-	if opts.Compress {
-		gzWriter := gzip.NewWriter(multiWriter)
-		defer gzWriter.Close()
-		writer = gzWriter
-	} else {
-		writer = &nopWriteCloser{Writer: multiWriter}
-	}
-
-	tarWriter := tar.NewWriter(writer)
-	defer tarWriter.Close()
-
-	// Walk the source directory and add files to the tarball
-	err = filepath.Walk(srcPath, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return fmt.Errorf("error accessing %s: %w", path, walkErr)
-		}
-
-		// Skip logs if not included
-		if !opts.IncludeLogs && filepath.Base(path) == "logs" && info.IsDir() {
-			return filepath.SkipDir
-		}
-
-		// Create tar header
-		header, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return fmt.Errorf("failed to create tar header for %s: %w", path, err)
-		}
-
-		// Update the header name to be relative to srcPath
-		relPath, err := filepath.Rel(srcPath, path)
-		if err != nil {
-			return fmt.Errorf("failed to get relative path for %s: %w", path, err)
-		}
-		header.Name = relPath
-
-		// Write header
-		if err := tarWriter.WriteHeader(header); err != nil {
-			return fmt.Errorf("failed to write tar header for %s: %w", path, err)
-		}
-
-		// If it's a regular file, write its contents
-		if !info.IsDir() {
-			file, err := os.Open(path)
-			if err != nil {
-				return fmt.Errorf("failed to open %s: %w", path, err)
-			}
-			defer func() { _ = file.Close() }()
-
-			if _, err := io.Copy(tarWriter, file); err != nil {
-				return fmt.Errorf("failed to copy %s to archive: %w", path, err)
-			}
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		_ = os.Remove(destPath)
-		return "", 0, fmt.Errorf("failed to walk source directory %s: %w", srcPath, err)
-	}
-
-	// Close writers to flush
-	_ = tarWriter.Close()
-	if opts.Compress {
-		_ = writer.Close()
-	}
-
-	// Get file size
-	fileInfo, err := os.Stat(destPath)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to stat backup file %s: %w", destPath, err)
-	}
-
-	checksum := hex.EncodeToString(hash.Sum(nil))
-	return checksum, fileInfo.Size(), nil
-}
-
-// ListBackups returns all backups, optionally filtered by app ID
 func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup, error) {
 	var query string
 	var args []interface{}
 
 	if appID != "" {
-		query = `SELECT b.id, b.app_id, b.type, b.path, b.size, b.created_at, b.checksum FROM backups b WHERE b.app_id = ? ORDER BY b.created_at DESC`
+		query = `SELECT b.id, b.app_id, b.type, b.path, b.size, b.created_at, b.checksum, COALESCE(b.source, 'local'), COALESCE(b.format, 'restic'), COALESCE(b.snapshot_id, ''), COALESCE(b.repo_id, ''), COALESCE(b.data_added, 0) FROM backups b WHERE b.app_id = ? ORDER BY b.created_at DESC`
 		args = []interface{}{appID}
 	} else {
-		query = `SELECT b.id, b.app_id, b.type, b.path, b.size, b.created_at, b.checksum FROM backups b INNER JOIN apps a ON b.app_id = a.id ORDER BY b.created_at DESC`
+		query = `SELECT b.id, b.app_id, b.type, b.path, b.size, b.created_at, b.checksum, COALESCE(b.source, 'local'), COALESCE(b.format, 'restic'), COALESCE(b.snapshot_id, ''), COALESCE(b.repo_id, ''), COALESCE(b.data_added, 0) FROM backups b LEFT JOIN apps a ON b.app_id = a.id ORDER BY b.created_at DESC`
 	}
 
 	rows, err := s.db.Query(query, args...)
@@ -272,49 +198,72 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 	var backups []Backup
 	for rows.Next() {
 		var b Backup
-		var backupType string
-		if err := rows.Scan(&b.ID, &b.AppID, &backupType, &b.Path, &b.Size, &b.CreatedAt, &b.Checksum); err != nil {
+		var backupType, source, format, snapshotID, repoID string
+		var checksum, appID sql.NullString
+		if err := rows.Scan(&b.ID, &appID, &backupType, &b.Path, &b.Size, &b.CreatedAt, &checksum, &source, &format, &snapshotID, &repoID, &b.DataAdded); err != nil {
 			continue
 		}
+		if appID.Valid {
+			b.AppID = appID.String
+		}
 		b.Type = BackupType(backupType)
+		b.Source = source
+		b.Format = BackupFormat(format)
+		b.SnapshotID = snapshotID
+		b.RepoID = repoID
+		if checksum.Valid {
+			b.Checksum = checksum.String
+		}
 		backups = append(backups, b)
 	}
 
 	return backups, nil
 }
 
-// GetBackup retrieves a specific backup by ID
 func (s *BackupService) GetBackup(ctx context.Context, backupID string) (*Backup, error) {
 	var b Backup
-	var backupType string
+	var backupType, source, format, snapshotID, repoID string
+	var checksum, appID sql.NullString
 
 	err := s.db.QueryRow(`
-		SELECT id, app_id, type, path, size, created_at, checksum
+		SELECT id, app_id, type, path, size, created_at, checksum, COALESCE(source, 'local'), COALESCE(format, 'restic'), COALESCE(snapshot_id, ''), COALESCE(repo_id, ''), COALESCE(data_added, 0)
 		FROM backups WHERE id = ?
-	`, backupID).Scan(&b.ID, &b.AppID, &backupType, &b.Path, &b.Size, &b.CreatedAt, &b.Checksum)
+	`, backupID).Scan(&b.ID, &appID, &backupType, &b.Path, &b.Size, &b.CreatedAt, &checksum, &source, &format, &snapshotID, &repoID, &b.DataAdded)
 
 	if err != nil {
 		return nil, fmt.Errorf("backup not found: %w", err)
 	}
 
+	if appID.Valid {
+		b.AppID = appID.String
+	}
+
 	b.Type = BackupType(backupType)
+	b.Source = source
+	b.Format = BackupFormat(format)
+	b.SnapshotID = snapshotID
+	b.RepoID = repoID
+	if checksum.Valid {
+		b.Checksum = checksum.String
+	}
 	return &b, nil
 }
 
-// DeleteBackup removes a backup
 func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error {
-	// Get backup info
 	backup, err := s.GetBackup(ctx, backupID)
 	if err != nil {
 		return err
 	}
 
-	// Delete the file
-	if err := os.Remove(backup.Path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to delete backup file: %w", err)
+	if backup.Format == BackupFormatRestic && s.UseRestic() && backup.SnapshotID != "" {
+		repo, _, repoErr := s.getRepoForApp(ctx, backup.AppID)
+		if repoErr == nil {
+			if forgetErr := s.forgetSnapshot(ctx, *repo, backup.SnapshotID); forgetErr != nil {
+				log.Printf("DeleteBackup: restic forget failed for snapshot %s: %v", backup.SnapshotID, forgetErr)
+			}
+		}
 	}
 
-	// Delete from database
 	_, err = s.db.Exec("DELETE FROM backups WHERE id = ?", backupID)
 	if err != nil {
 		return fmt.Errorf("failed to delete backup record: %w", err)
@@ -324,20 +273,20 @@ func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error
 	return nil
 }
 
-// CleanupOldBackups removes backups older than the retention period
+func (s *BackupService) forgetSnapshot(ctx context.Context, repo restic.RepoConfig, snapshotID string) error {
+	return s.resticEngine.ForgetSnapshot(ctx, repo, snapshotID)
+}
+
 func (s *BackupService) CleanupOldBackups(ctx context.Context, appID string, retention int) error {
-	// Get all backups for this app, ordered by date
 	backups, err := s.ListBackups(ctx, appID)
 	if err != nil {
 		return err
 	}
 
-	// Keep only the most recent 'retention' backups
 	if len(backups) <= retention {
 		return nil
 	}
 
-	// Delete older backups
 	for i := retention; i < len(backups); i++ {
 		if err := s.DeleteBackup(ctx, backups[i].ID); err != nil {
 			log.Printf("Failed to delete old backup %s: %v", backups[i].ID, err)
@@ -347,20 +296,16 @@ func (s *BackupService) CleanupOldBackups(ctx context.Context, appID string, ret
 	return nil
 }
 
-// BackupDatabase creates a backup of the LibreServ database
 func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, error) {
-	// Create backup directory
 	backupDir := filepath.Join(s.basePath, "database")
 	if err := os.MkdirAll(backupDir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create backup directory: %w", err)
 	}
 
-	// Generate backup path
 	backupID := uuid.New().String()
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := filepath.Join(backupDir, fmt.Sprintf("libreserv-%s.db.gz", timestamp))
 
-	// Use SQLite VACUUM INTO for a consistent backup
 	tempPath := backupPath + ".tmp"
 
 	if !safePathRegexp.MatchString(tempPath) {
@@ -372,26 +317,22 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 		return nil, fmt.Errorf("database backup failed: %w", err)
 	}
 
-	// Compress the backup
 	if err := compressFile(tempPath, backupPath); err != nil {
 		_ = os.Remove(tempPath)
 		return nil, fmt.Errorf("compression failed: %w", err)
 	}
 	_ = os.Remove(tempPath)
 
-	// Get file info
 	fileInfo, err := os.Stat(backupPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Calculate checksum
 	checksum, err := fileChecksum(backupPath)
 	if err != nil {
 		checksum = ""
 	}
 
-	// Save backup record
 	backup := &DatabaseBackup{
 		ID:        backupID,
 		Path:      backupPath,
@@ -411,245 +352,129 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 	}
 
 	log.Printf("Database backup created: %s (%d bytes)", backupPath, backup.Size)
+
+	if s.UseRestic() {
+		if err := s.backupDatabaseWithRestic(ctx, backupPath); err != nil {
+			log.Printf("Warning: restic database backup failed: %v", err)
+		}
+	}
+
 	return backup, nil
 }
 
-// Helper functions
-
-func compressFile(srcPath, destPath string) error {
-	src, err := os.Open(srcPath)
+func (s *BackupService) backupDatabaseWithRestic(ctx context.Context, dbFilePath string) error {
+	repo, _, err := s.getOrCreateSystemRepo(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("system repo setup: %w", err)
 	}
-	defer func() { _ = src.Close() }()
 
-	dest, err := os.Create(destPath)
+	dbDir := filepath.Dir(dbFilePath)
+	summary, err := s.resticEngine.Backup(ctx, *repo, []string{dbDir}, []string{"libreserv-database", "libreserv"}, nil)
 	if err != nil {
-		return err
-	}
-	defer func() { _ = dest.Close() }()
-
-	gzWriter := gzip.NewWriter(dest)
-	defer gzWriter.Close()
-
-	_, err = io.Copy(gzWriter, src)
-	return err
-}
-
-func fileChecksum(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = file.Close() }()
-
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
+		return fmt.Errorf("restic database backup: %w", err)
 	}
 
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// nopWriteCloser wraps an io.Writer to satisfy io.WriteCloser
-type nopWriteCloser struct {
-	io.Writer
-}
-
-func (nopWriteCloser) Close() error { return nil }
-
-var safePathRegexp = regexp.MustCompile(`^[a-zA-Z0-9._/\-]+$`)
-
-// ListSchedules returns all backup schedules
-func (s *BackupService) ListSchedules(ctx context.Context) ([]BackupSchedule, error) {
-	query := `SELECT id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, last_run, next_run, created_at, updated_at FROM backup_schedules ORDER BY created_at DESC`
-
-	rows, err := s.db.Query(query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query backup schedules: %w", err)
-	}
-	defer func() {
-		if cerr := rows.Close(); cerr != nil {
-			log.Printf("failed to close rows: %v", cerr)
-		}
-	}()
-
-	var schedules []BackupSchedule
-	for rows.Next() {
-		var bs BackupSchedule
-		var scheduleType string
-		var lastRun, nextRun sql.NullTime
-		if err := rows.Scan(&bs.ID, &bs.AppID, &scheduleType, &bs.CronExpr, &bs.Enabled, &bs.Options.StopBeforeBackup, &bs.Options.Compress, &bs.Options.IncludeConfig, &bs.Options.IncludeLogs, &bs.Retention, &lastRun, &nextRun, &bs.CreatedAt, &bs.UpdatedAt); err != nil {
-			log.Printf("failed to scan backup schedule: %v", err)
-			continue
-		}
-		bs.Type = BackupType(scheduleType)
-		if lastRun.Valid {
-			bs.LastRun = &lastRun.Time
-		}
-		if nextRun.Valid {
-			bs.NextRun = &nextRun.Time
-		}
-		schedules = append(schedules, bs)
-	}
-
-	return schedules, nil
-}
-
-// GetSchedule retrieves a specific backup schedule by ID
-func (s *BackupService) GetSchedule(ctx context.Context, scheduleID string) (*BackupSchedule, error) {
-	var bs BackupSchedule
-	var scheduleType string
-	var lastRun, nextRun sql.NullTime
-
-	err := s.db.QueryRow(`
-		SELECT id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, last_run, next_run, created_at, updated_at
-		FROM backup_schedules WHERE id = ?
-	`, scheduleID).Scan(&bs.ID, &bs.AppID, &scheduleType, &bs.CronExpr, &bs.Enabled, &bs.Options.StopBeforeBackup, &bs.Options.Compress, &bs.Options.IncludeConfig, &bs.Options.IncludeLogs, &bs.Retention, &lastRun, &nextRun, &bs.CreatedAt, &bs.UpdatedAt)
-
-	if err != nil {
-		return nil, fmt.Errorf("backup schedule not found: %w", err)
-	}
-
-	bs.Type = BackupType(scheduleType)
-	if lastRun.Valid {
-		bs.LastRun = &lastRun.Time
-	}
-	if nextRun.Valid {
-		bs.NextRun = &nextRun.Time
-	}
-
-	return &bs, nil
-}
-
-// CreateSchedule creates a new backup schedule
-func (s *BackupService) CreateSchedule(ctx context.Context, schedule *BackupSchedule) error {
-	_, err := s.db.Exec(`
-		INSERT INTO backup_schedules (id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, schedule.ID, schedule.AppID, string(schedule.Type), schedule.CronExpr, schedule.Enabled, schedule.Options.StopBeforeBackup, schedule.Options.Compress, schedule.Options.IncludeConfig, schedule.Options.IncludeLogs, schedule.Retention, schedule.CreatedAt, schedule.CreatedAt)
-
-	if err != nil {
-		return fmt.Errorf("failed to create backup schedule: %w", err)
-	}
-
-	log.Printf("Backup schedule created: %s", schedule.ID)
+	log.Printf("Database also backed up with restic: snapshot %s (%d bytes added)", summary.SnapshotID, summary.DataAdded)
 	return nil
 }
 
-// UpdateSchedule updates an existing backup schedule
-func (s *BackupService) UpdateSchedule(ctx context.Context, schedule *BackupSchedule) error {
-	_, err := s.db.Exec(`
-		UPDATE backup_schedules SET cron_expr = ?, enabled = ?, stop_before_backup = ?, compress = ?, include_config = ?, include_logs = ?, retention = ?, updated_at = ? WHERE id = ?
-	`, schedule.CronExpr, schedule.Enabled, schedule.Options.StopBeforeBackup, schedule.Options.Compress, schedule.Options.IncludeConfig, schedule.Options.IncludeLogs, schedule.Retention, time.Now(), schedule.ID)
-
-	if err != nil {
-		return fmt.Errorf("failed to update backup schedule: %w", err)
+func (s *BackupService) getOrCreateSystemRepo(ctx context.Context) (*restic.RepoConfig, string, error) {
+	existing, err := s.getSystemRepository(ctx)
+	if err == nil {
+		repoConfig := s.buildRepoConfigFromRepository(existing)
+		return repoConfig, existing.ID, nil
 	}
 
-	log.Printf("Backup schedule updated: %s", schedule.ID)
-	return nil
-}
-
-// DeleteSchedule removes a backup schedule
-func (s *BackupService) DeleteSchedule(ctx context.Context, scheduleID string) error {
-	_, err := s.db.Exec("DELETE FROM backup_schedules WHERE id = ?", scheduleID)
-	if err != nil {
-		return fmt.Errorf("failed to delete backup schedule: %w", err)
-	}
-
-	log.Printf("Backup schedule deleted: %s", scheduleID)
-	return nil
-}
-
-// BasePath returns the base path for backups
-func (s *BackupService) BasePath() string {
-	return s.basePath
-}
-
-// StoreUploadedBackup stores an uploaded backup file
-func (s *BackupService) StoreUploadedBackup(ctx context.Context, filename string, content io.Reader, size int64) (*Backup, error) {
-	uploadID := uuid.New().String()
-	uploadDir := filepath.Join(s.basePath, "uploads", uploadID)
-
-	if err := os.MkdirAll(uploadDir, 0750); err != nil {
-		return nil, fmt.Errorf("failed to create upload directory: %w", err)
-	}
-
-	destPath := filepath.Join(uploadDir, filename)
-
-	f, err := os.Create(destPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create backup file: %w", err)
-	}
-
-	hash := sha256.New()
-	multiWriter := io.MultiWriter(f, hash)
-
-	written, err := io.Copy(multiWriter, content)
-	if err != nil {
-		f.Close()
-		os.Remove(destPath)
-		return nil, fmt.Errorf("failed to write backup file: %w", err)
-	}
-	f.Close()
-
-	checksum := hex.EncodeToString(hash.Sum(nil))
-
-	backup := &Backup{
+	repoPath := filepath.Join(s.basePath, "restic-system")
+	repo := &BackupRepository{
 		ID:        uuid.New().String(),
-		Type:      BackupTypeApp,
-		Path:      destPath,
-		Size:      written,
+		AppID:     "",
+		RepoType:  "local",
+		RepoPath:  repoPath,
+		Password:  restic.DeriveRepoPassword(s.serverSecret, "__system__"),
+		IsSystem:  true,
 		CreatedAt: time.Now(),
-		Checksum:  checksum,
-		Source:    "uploaded",
+		UpdatedAt: time.Now(),
 	}
 
-	_, err = s.db.Exec(`
-		INSERT INTO backups (id, type, path, size, created_at, checksum, source)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, backup.ID, string(backup.Type), backup.Path, backup.Size, backup.CreatedAt, backup.Checksum, backup.Source)
-	if err != nil {
-		os.Remove(destPath)
-		return nil, fmt.Errorf("failed to save backup record: %w", err)
+	if err := s.CreateRepository(ctx, repo); err != nil {
+		return nil, "", fmt.Errorf("create system repo: %w", err)
 	}
 
-	log.Printf("Uploaded backup stored: %s (%d bytes)", backup.ID, backup.Size)
-	return backup, nil
+	repoConfig := s.buildRepoConfigFromRepository(repo)
+	if err := s.resticEngine.EnsureLocalRepo(ctx, *repoConfig); err != nil {
+		return nil, "", fmt.Errorf("init system repo: %w", err)
+	}
+
+	return repoConfig, repo.ID, nil
 }
 
-// ListUnattachedBackups lists backups not linked to any installed app
-func (s *BackupService) ListUnattachedBackups(ctx context.Context) ([]*Backup, error) {
-	rows, err := s.db.Query(`
-		SELECT id, app_id, type, path, size, created_at, checksum, source
-		FROM backups
-		WHERE app_id IS NULL OR app_id NOT IN (SELECT id FROM apps)
-		ORDER BY created_at DESC
-	`)
+func (s *BackupService) getSystemRepository(ctx context.Context) (*BackupRepository, error) {
+	var repo BackupRepository
+	err := s.db.QueryRow(`
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		FROM backup_repositories WHERE is_system = 1 LIMIT 1
+	`).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to query unattached backups: %w", err)
+		return nil, fmt.Errorf("system repository not found: %w", err)
 	}
-	defer rows.Close()
+	return &repo, nil
+}
 
-	var backups []*Backup
-	for rows.Next() {
-		var b Backup
-		var appID, source sql.NullString
-		if err := rows.Scan(&b.ID, &appID, &b.Type, &b.Path, &b.Size, &b.CreatedAt, &b.Checksum, &source); err != nil {
-			log.Printf("failed to scan unattached backup: %v", err)
-			continue
-		}
-		if appID.Valid {
-			b.AppID = appID.String
-		}
-		if source.Valid {
-			b.Source = source.String
-		}
-		backups = append(backups, &b)
+// CreateDownloadArchive restores a restic snapshot to a temp directory and
+// creates a downloadable tar.gz archive. Returns the archive path and a
+// cleanup function that the caller must invoke after serving the file.
+func (s *BackupService) CreateDownloadArchive(ctx context.Context, backupID string) (string, func(), error) {
+	if !s.UseRestic() {
+		return "", nil, fmt.Errorf("restic is not available")
 	}
 
-	return backups, nil
+	backup, err := s.GetBackup(ctx, backupID)
+	if err != nil {
+		return "", nil, fmt.Errorf("backup not found: %w", err)
+	}
+
+	if backup.Format != BackupFormatRestic || backup.SnapshotID == "" {
+		return "", nil, fmt.Errorf("backup is not a restic snapshot and cannot be downloaded")
+	}
+
+	repo, err := s.getRepoByBackup(ctx, backup)
+	if err != nil {
+		return "", nil, fmt.Errorf("repo lookup: %w", err)
+	}
+
+	tmpRestoreDir, err := os.MkdirTemp("", "libreserv-download-restore-")
+	if err != nil {
+		return "", nil, fmt.Errorf("create temp dir: %w", err)
+	}
+
+	if err := s.resticEngine.Restore(ctx, *repo, backup.SnapshotID, tmpRestoreDir, nil); err != nil {
+		os.RemoveAll(tmpRestoreDir)
+		return "", nil, fmt.Errorf("restic restore: %w", err)
+	}
+
+	archiveFile, err := os.CreateTemp("", "libreserv-download-*.tar.gz")
+	if err != nil {
+		os.RemoveAll(tmpRestoreDir)
+		return "", nil, fmt.Errorf("create temp archive: %w", err)
+	}
+	archivePath := archiveFile.Name()
+
+	if err := createTarGzFromDir(tmpRestoreDir, archiveFile); err != nil {
+		archiveFile.Close()
+		os.Remove(archivePath)
+		os.RemoveAll(tmpRestoreDir)
+		return "", nil, fmt.Errorf("create archive: %w", err)
+	}
+	archiveFile.Close()
+
+	cleanup := func() {
+		os.Remove(archivePath)
+		os.RemoveAll(tmpRestoreDir)
+	}
+
+	return archivePath, cleanup, nil
 }
 
 // StoreUploadedDatabaseBackup stores an uploaded database backup file
@@ -700,4 +525,463 @@ func (s *BackupService) StoreUploadedDatabaseBackup(ctx context.Context, filenam
 
 	log.Printf("Uploaded database backup stored: %s (%d bytes)", backup.ID, backup.Size)
 	return backup, nil
+}
+
+// --- Schedule management ---
+
+func (s *BackupService) ListSchedules(ctx context.Context) ([]BackupSchedule, error) {
+	query := `SELECT id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, last_run, next_run, created_at, updated_at FROM backup_schedules ORDER BY created_at DESC`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query backup schedules: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
+
+	var schedules []BackupSchedule
+	for rows.Next() {
+		var bs BackupSchedule
+		var scheduleType string
+		var lastRun, nextRun sql.NullTime
+		var compress, includeConfig, includeLogs bool
+		if err := rows.Scan(&bs.ID, &bs.AppID, &scheduleType, &bs.CronExpr, &bs.Enabled, &bs.Options.StopBeforeBackup, &compress, &includeConfig, &includeLogs, &bs.Retention, &lastRun, &nextRun, &bs.CreatedAt, &bs.UpdatedAt); err != nil {
+			log.Printf("failed to scan backup schedule: %v", err)
+			continue
+		}
+		bs.Type = BackupType(scheduleType)
+		if lastRun.Valid {
+			bs.LastRun = &lastRun.Time
+		}
+		if nextRun.Valid {
+			bs.NextRun = &nextRun.Time
+		}
+		schedules = append(schedules, bs)
+	}
+
+	return schedules, nil
+}
+
+func (s *BackupService) GetSchedule(ctx context.Context, scheduleID string) (*BackupSchedule, error) {
+	var bs BackupSchedule
+	var scheduleType string
+	var lastRun, nextRun sql.NullTime
+	var compress, includeConfig, includeLogs bool
+
+	err := s.db.QueryRow(`
+		SELECT id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, last_run, next_run, created_at, updated_at
+		FROM backup_schedules WHERE id = ?
+	`, scheduleID).Scan(&bs.ID, &bs.AppID, &scheduleType, &bs.CronExpr, &bs.Enabled, &bs.Options.StopBeforeBackup, &compress, &includeConfig, &includeLogs, &bs.Retention, &lastRun, &nextRun, &bs.CreatedAt, &bs.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("backup schedule not found: %w", err)
+	}
+
+	bs.Type = BackupType(scheduleType)
+	if lastRun.Valid {
+		bs.LastRun = &lastRun.Time
+	}
+	if nextRun.Valid {
+		bs.NextRun = &nextRun.Time
+	}
+
+	return &bs, nil
+}
+
+func (s *BackupService) CreateSchedule(ctx context.Context, schedule *BackupSchedule) error {
+	_, err := s.db.Exec(`
+		INSERT INTO backup_schedules (id, app_id, type, cron_expr, enabled, stop_before_backup, compress, include_config, include_logs, retention, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, schedule.ID, schedule.AppID, string(schedule.Type), schedule.CronExpr, schedule.Enabled, schedule.Options.StopBeforeBackup, false, false, false, schedule.Retention, schedule.CreatedAt, schedule.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create backup schedule: %w", err)
+	}
+
+	log.Printf("Backup schedule created: %s", schedule.ID)
+	return nil
+}
+
+func (s *BackupService) UpdateSchedule(ctx context.Context, schedule *BackupSchedule) error {
+	_, err := s.db.Exec(`
+		UPDATE backup_schedules SET cron_expr = ?, enabled = ?, stop_before_backup = ?, compress = ?, include_config = ?, include_logs = ?, retention = ?, updated_at = ? WHERE id = ?
+	`, schedule.CronExpr, schedule.Enabled, schedule.Options.StopBeforeBackup, false, false, false, schedule.Retention, time.Now(), schedule.ID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update backup schedule: %w", err)
+	}
+
+	log.Printf("Backup schedule updated: %s", schedule.ID)
+	return nil
+}
+
+func (s *BackupService) DeleteSchedule(ctx context.Context, scheduleID string) error {
+	_, err := s.db.Exec("DELETE FROM backup_schedules WHERE id = ?", scheduleID)
+	if err != nil {
+		return fmt.Errorf("failed to delete backup schedule: %w", err)
+	}
+
+	log.Printf("Backup schedule deleted: %s", scheduleID)
+	return nil
+}
+
+func (s *BackupService) UpdateScheduleNextRun(ctx context.Context, scheduleID string, lastRun, nextRun time.Time) error {
+	_, err := s.db.Exec(`
+		UPDATE backup_schedules SET last_run = ?, next_run = ?, updated_at = ? WHERE id = ?
+	`, lastRun, nextRun, time.Now(), scheduleID)
+	if err != nil {
+		return fmt.Errorf("failed to update schedule next_run: %w", err)
+	}
+	return nil
+}
+
+func (s *BackupService) BasePath() string {
+	return s.basePath
+}
+
+// --- Repository management ---
+
+func (s *BackupService) CreateRepository(ctx context.Context, repo *BackupRepository) error {
+	if err := restic.ValidateRepoType(repo.RepoType); err != nil {
+		return err
+	}
+
+	if s.encryptionKey == "" {
+		return fmt.Errorf("cloud encryption key not configured — cannot encrypt repository credentials")
+	}
+
+	password := repo.Password
+	credentials := repo.Credentials
+	encKey := s.encryptionKey
+
+	encPassword, err := encryptAESGCM(password, encKey)
+	if err != nil {
+		return fmt.Errorf("encrypt password: %w", err)
+	}
+	password = encPassword
+
+	if credentials != "" {
+		encCreds, err := encryptAESGCM(credentials, encKey)
+		if err != nil {
+			return fmt.Errorf("encrypt credentials: %w", err)
+		}
+		credentials = encCreds
+	}
+
+	var appID interface{} = repo.AppID
+	if repo.AppID == "" {
+		appID = nil
+	}
+
+	_, err = s.db.Exec(`
+		INSERT INTO backup_repositories (id, app_id, repo_type, repo_path, password, credentials, is_system, limit_upload_kbps, limit_download_kbps, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, repo.ID, appID, repo.RepoType, repo.RepoPath, password, credentials, repo.IsSystem, repo.LimitUploadKbps, repo.LimitDownloadKbps, repo.CreatedAt, repo.UpdatedAt)
+
+	if err != nil {
+		return fmt.Errorf("failed to create backup repository: %w", err)
+	}
+
+	log.Printf("Backup repository created: %s (type=%s)", repo.ID, repo.RepoType)
+	return nil
+}
+
+func (s *BackupService) GetRepository(ctx context.Context, repoID string) (*BackupRepository, error) {
+	var repo BackupRepository
+	err := s.db.QueryRow(`
+	SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+	FROM backup_repositories WHERE id = ?
+	`, repoID).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("backup repository not found: %w", err)
+	}
+	return &repo, nil
+}
+
+func (s *BackupService) ListRepositories(ctx context.Context) ([]BackupRepository, error) {
+	rows, err := s.db.Query(`
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		FROM backup_repositories ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query backup repositories: %w", err)
+	}
+	defer rows.Close()
+
+	var repos []BackupRepository
+	for rows.Next() {
+		var repo BackupRepository
+		if err := rows.Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt); err != nil {
+			continue
+		}
+		repos = append(repos, repo)
+	}
+	return repos, nil
+}
+
+func (s *BackupService) GetRepositoryForApp(ctx context.Context, appID string) (*BackupRepository, error) {
+	var repo BackupRepository
+	err := s.db.QueryRow(`
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		FROM backup_repositories WHERE app_id = ? LIMIT 1
+	`, appID).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("no repository configured for app %s: %w", appID, err)
+	}
+	return &repo, nil
+}
+
+// GetDefaultRepository returns the first non-system repo with no app assignment,
+// which serves as the fallback for apps without an explicit repo.
+func (s *BackupService) GetDefaultRepository(ctx context.Context) (*BackupRepository, error) {
+	var repo BackupRepository
+	err := s.db.QueryRow(`
+		SELECT id, COALESCE(app_id, ''), repo_type, repo_path, password, credentials, COALESCE(is_system, 0), COALESCE(limit_upload_kbps, 0), COALESCE(limit_download_kbps, 0), created_at, updated_at
+		FROM backup_repositories WHERE app_id IS NULL AND COALESCE(is_system, 0) = 0
+		ORDER BY created_at DESC LIMIT 1
+	`).Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("no default repository configured: %w", err)
+	}
+	return &repo, nil
+}
+
+func (s *BackupService) DeleteRepository(ctx context.Context, repoID string) error {
+	_, err := s.db.Exec("DELETE FROM backup_repositories WHERE id = ?", repoID)
+	if err != nil {
+		return fmt.Errorf("failed to delete backup repository: %w", err)
+	}
+	log.Printf("Backup repository deleted: %s", repoID)
+	return nil
+}
+
+func (s *BackupService) TestRepository(ctx context.Context, repoConfig restic.RepoConfig) error {
+	if s.resticEngine == nil {
+		return fmt.Errorf("restic engine not available")
+	}
+	return s.resticEngine.Check(ctx, repoConfig)
+}
+
+func (s *BackupService) GetRepoStats(ctx context.Context, repoID string) (map[string]interface{}, error) {
+	if s.resticEngine == nil {
+		return nil, fmt.Errorf("restic engine not available")
+	}
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return nil, fmt.Errorf("repository not found: %w", err)
+	}
+	repoConfig := s.buildRepoConfigFromRepository(repo)
+	return s.resticEngine.Stats(ctx, *repoConfig)
+}
+
+// --- Internal helpers ---
+
+func (s *BackupService) getOrCreateRepoForApp(ctx context.Context, appID string) (*restic.RepoConfig, string, error) {
+	existing, err := s.GetRepositoryForApp(ctx, appID)
+	if err == nil && existing != nil {
+		return s.buildRepoConfigFromRepository(existing), existing.ID, nil
+	}
+
+	defaultRepo, defErr := s.GetDefaultRepository(ctx)
+	if defErr == nil && defaultRepo != nil {
+		return s.buildRepoConfigFromRepository(defaultRepo), defaultRepo.ID, nil
+	}
+
+	repoID := uuid.New().String()
+	repoType := "local"
+	repoPath := restic.BuildRepoPath(repoType, s.basePath, appID)
+	password := restic.DeriveRepoPassword(s.serverSecret, appID)
+
+	repo := &BackupRepository{
+		ID:        repoID,
+		AppID:     appID,
+		RepoType:  repoType,
+		RepoPath:  repoPath,
+		Password:  password,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	if err := s.CreateRepository(ctx, repo); err != nil {
+		return nil, "", err
+	}
+
+	return s.buildRepoConfigFromRepository(repo), repoID, nil
+}
+
+func (s *BackupService) getRepoForApp(ctx context.Context, appID string) (*restic.RepoConfig, string, error) {
+	repo, err := s.GetRepositoryForApp(ctx, appID)
+	if err != nil {
+		return nil, "", err
+	}
+	return s.buildRepoConfigFromRepository(repo), repo.ID, nil
+}
+
+func (s *BackupService) getRepoByBackup(ctx context.Context, backup *Backup) (*restic.RepoConfig, error) {
+	if backup.RepoID != "" {
+		repo, err := s.GetRepository(ctx, backup.RepoID)
+		if err != nil {
+			return nil, fmt.Errorf("repository %s not found: %w", backup.RepoID, err)
+		}
+		return s.buildRepoConfigFromRepository(repo), nil
+	}
+
+	if backup.AppID != "" {
+		repo, err := s.GetRepositoryForApp(ctx, backup.AppID)
+		if err != nil {
+			defaultRepo, defErr := s.GetDefaultRepository(ctx)
+			if defErr != nil {
+				return nil, fmt.Errorf("no repository for app %s and no default: %w", backup.AppID, defErr)
+			}
+			return s.buildRepoConfigFromRepository(defaultRepo), nil
+		}
+		return s.buildRepoConfigFromRepository(repo), nil
+	}
+
+	return nil, fmt.Errorf("cannot determine restic repository for backup %s", backup.ID)
+}
+
+func (s *BackupService) buildRepoConfigFromRepository(repo *BackupRepository) *restic.RepoConfig {
+	env := map[string]string{}
+	rawCreds := repo.Credentials
+
+	if s.encryptionKey != "" && rawCreds != "" {
+		if decCreds, err := decryptAESGCM(rawCreds, s.encryptionKey); err == nil {
+			rawCreds = decCreds
+		} else {
+			log.Printf("Warning: failed to decrypt repo credentials for %s: %v", repo.ID, err)
+		}
+	}
+
+	if rawCreds != "" {
+		var creds map[string]string
+		if json.Unmarshal([]byte(rawCreds), &creds) == nil {
+			env = creds
+		}
+	}
+
+	password := repo.Password
+	if s.encryptionKey != "" && password != "" {
+		if decPass, err := decryptAESGCM(password, s.encryptionKey); err == nil {
+			password = decPass
+		} else {
+			log.Printf("Warning: failed to decrypt repo password for %s: %v", repo.ID, err)
+		}
+	}
+
+	return &restic.RepoConfig{
+		Type:              repo.RepoType,
+		Path:              repo.RepoPath,
+		Password:          password,
+		Env:               env,
+		LimitUploadKbps:   repo.LimitUploadKbps,
+		LimitDownloadKbps: repo.LimitDownloadKbps,
+	}
+}
+
+func (s *BackupService) runPreBackupHook(ctx context.Context, appID, appPath string) error {
+	hookPath := filepath.Join(appPath, "scripts", "system-backup")
+	if _, err := os.Stat(hookPath); err != nil {
+		return nil
+	}
+
+	log.Printf("Running pre-backup hook for app %s", appID)
+	cmd := exec.CommandContext(ctx, hookPath)
+	cmd.Dir = appPath
+	cmd.Env = append(os.Environ(),
+		"LIBRESERV_APP_ID="+appID,
+		"LIBRESERV_APP_PATH="+appPath,
+		"LIBRESERV_BACKUP_HOOK=true",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("backup hook failed: %w\noutput: %s", err, string(output))
+	}
+	return nil
+}
+
+func compressFile(srcPath, destPath string) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = src.Close() }()
+
+	dest, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dest.Close() }()
+
+	gzWriter := gzip.NewWriter(dest)
+	defer gzWriter.Close()
+
+	_, err = io.Copy(gzWriter, src)
+	return err
+}
+
+func fileChecksum(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+var safePathRegexp = regexp.MustCompile(`^[a-zA-Z0-9._/\-]+$`)
+
+// createTarGzFromDir creates a tar.gz archive of a directory into the provided writer.
+func createTarGzFromDir(srcDir string, w io.Writer) error {
+	gw := gzip.NewWriter(w)
+	defer gw.Close()
+
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
+
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		header, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return fmt.Errorf("tar header for %s: %w", path, err)
+		}
+
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return fmt.Errorf("relative path for %s: %w", path, err)
+		}
+		header.Name = relPath
+
+		if err := tw.WriteHeader(header); err != nil {
+			return fmt.Errorf("write header: %w", err)
+		}
+
+		if !info.IsDir() {
+			f, err := os.Open(path)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			if _, err := io.Copy(tw, f); err != nil {
+				return fmt.Errorf("copy %s: %w", path, err)
+			}
+		}
+
+		return nil
+	})
 }

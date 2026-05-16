@@ -7,6 +7,7 @@ const variants = {
   accent: "bg-accent text-primary hover:ring-2 hover:ring-primary",
   danger: "bg-primary text-secondary border-2 border-accent hover:bg-accent hover:text-primary hover:border-primary",
   ghost: "bg-transparent text-primary hover:bg-primary/10",
+  outline: "bg-transparent text-secondary border-2 border-secondary hover:bg-secondary hover:text-primary",
 };
 
 const sizes = {
@@ -60,7 +61,7 @@ export default function Button({
 
 Button.propTypes = {
   children: PropTypes.node,
-  variant: PropTypes.oneOf(['primary', 'secondary', 'accent', 'danger', 'ghost']),
+  variant: PropTypes.oneOf(['primary', 'secondary', 'accent', 'danger', 'ghost', 'outline']),
   size: PropTypes.oneOf(['sm', 'md', 'lg']),
   loading: PropTypes.bool,
   disabled: PropTypes.bool,

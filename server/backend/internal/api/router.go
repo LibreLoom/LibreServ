@@ -27,7 +27,7 @@ func (s *Server) setupRoutes() {
 	authHandler := handlers.NewAuthHandler(s.authService, s.securityService, s.db)
 	securityHandler := handlers.NewSecurityHandler(s.securityService)
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient, s.appManager.GetMetricsCache())
-	backupHandler := handlers.NewBackupHandlers(s.backupService, s.cloudService)
+	backupHandler := handlers.NewBackupHandlers(s.backupService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
 	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService, s.caddyManager)
 	csrfSecret := config.Get().Auth.CSRFSecret
@@ -271,8 +271,7 @@ func (s *Server) setupRoutes() {
 				}))
 				r.Get("/", backupHandler.ListBackups)
 				r.Post("/", backupHandler.CreateBackup)
-				r.Post("/upload", backupHandler.UploadBackup)
-				r.Get("/unattached", backupHandler.ListUnattachedBackups)
+				r.Get("/capabilities", backupHandler.GetBackupCapabilities)
 				r.Get("/{backupID}", backupHandler.GetBackup)
 				r.Get("/{backupID}/download", backupHandler.DownloadBackup)
 				r.Post("/{backupID}/restore", backupHandler.RestoreBackup)
@@ -285,26 +284,20 @@ func (s *Server) setupRoutes() {
 				r.Put("/schedules/{scheduleID}", backupHandler.UpdateSchedule)
 				r.Delete("/schedules/{scheduleID}", backupHandler.DeleteSchedule)
 
+				// Backup repositories (restic)
+				r.Get("/repos", backupHandler.ListRepositories)
+				r.Post("/repos", backupHandler.CreateRepository)
+				r.Delete("/repos/{repoID}", backupHandler.DeleteRepository)
+				r.Post("/repos/test", backupHandler.TestRepository)
+
 				// Database backups
 				r.Get("/database", backupHandler.ListDatabaseBackups)
 				r.Post("/database", backupHandler.CreateDatabaseBackup)
 				r.Post("/database/upload-restore", backupHandler.UploadDatabaseBackup)
 				r.Post("/database/{backupID}/restore", backupHandler.RestoreDatabaseBackup)
 
-				// Cloud backup routes
-				if s.cloudService != nil {
-					cloudHandler := handlers.NewCloudBackupHandlers(s.cloudService, s.backupService)
-					r.Route("/cloud", func(r chi.Router) {
-						r.Get("/providers", cloudHandler.ListProviders)
-						r.Get("/config", cloudHandler.GetConfig)
-						r.Post("/config", cloudHandler.SaveConfig)
-						r.Post("/test", cloudHandler.TestConnection)
-						r.Get("/remote", cloudHandler.ListRemoteBackups)
-					})
-					r.Post("/{backupID}/upload", cloudHandler.UploadBackup)
-					r.Get("/{backupID}/status", cloudHandler.GetUploadStatus)
-					r.Get("/{backupID}/cloud-status", cloudHandler.GetBackupCloudStatus)
-				}
+				// Backup repository stats
+				r.Get("/repos/{repoID}/stats", backupHandler.GetRepoStats)
 			})
 
 			// Network / Caddy - reverse proxy and routing management

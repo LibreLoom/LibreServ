@@ -14,29 +14,30 @@ const (
 	BackupTypeDatabase BackupType = "database"
 )
 
-// Backup represents a backup record
+type BackupFormat string
+
+const (
+	BackupFormatRestic BackupFormat = "restic"
+)
+
 type Backup struct {
-	ID          string                 `json:"id"`
-	AppID       string                 `json:"app_id,omitempty"`
-	Type        BackupType             `json:"type"`
-	Path        string                 `json:"path"`
-	Size        int64                  `json:"size"`
-	CreatedAt   time.Time              `json:"created_at"`
-	Checksum    string                 `json:"checksum,omitempty"`
-	Source      string                 `json:"source,omitempty"` // 'local', 'uploaded', 'cloud'
-	CloudStatus map[string]interface{} `json:"cloud_status,omitempty"`
+	ID         string       `json:"id"`
+	AppID      string       `json:"app_id,omitempty"`
+	Type       BackupType   `json:"type"`
+	Path       string       `json:"path"`
+	Size       int64        `json:"size"`
+	DataAdded  int64        `json:"data_added,omitempty"`
+	CreatedAt  time.Time    `json:"created_at"`
+	Checksum   string       `json:"checksum,omitempty"`
+	Source     string       `json:"source,omitempty"`
+	Format     BackupFormat `json:"format,omitempty"`
+	SnapshotID string       `json:"snapshot_id,omitempty"`
+	RepoID     string       `json:"repo_id,omitempty"`
 }
 
 // BackupOptions configures how a backup is created
 type BackupOptions struct {
-	// StopBeforeBackup stops the app before backing up (safer but downtime)
 	StopBeforeBackup bool `json:"stop_before_backup"`
-	// Compress the backup archive
-	Compress bool `json:"compress"`
-	// IncludeConfig includes configuration files
-	IncludeConfig bool `json:"include_config"`
-	// IncludeLogs includes log files
-	IncludeLogs bool `json:"include_logs"`
 }
 
 // RestoreOptions configures how a restore is performed
@@ -78,6 +79,21 @@ type DatabaseRestoreOptions struct {
 	// VerifyChecksum verifies the backup integrity before restoring.
 	// If true and the backup record has no checksum, restore will fail.
 	VerifyChecksum bool `json:"verify_checksum"`
+}
+
+// BackupRepository represents a restic backup repository configuration
+type BackupRepository struct {
+	ID                string    `json:"id"`
+	AppID             string    `json:"app_id,omitempty"`
+	RepoType          string    `json:"repo_type"`
+	RepoPath          string    `json:"repo_path"`
+	Password          string    `json:"-"`
+	Credentials       string    `json:"-"`
+	IsSystem          bool      `json:"is_system,omitempty"`
+	LimitUploadKbps   int       `json:"limit_upload_kbps,omitempty"`
+	LimitDownloadKbps int       `json:"limit_download_kbps,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
 }
 
 // BackupResult is the result of a backup operation

@@ -1,10 +1,14 @@
 APP_NAME := libreserv
 BIN_DIR := bin
+RESTIC_VERSION ?= 0.18.1
+RESTIC_DIR := OS/bin
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME ?=
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_TAGS ?=
+GOOS ?= $(shell go env GOOS)
+GOARCH ?= $(shell go env GOARCH)
 
 LDVARS := -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$(VERSION) \
           -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$(GIT_COMMIT)
@@ -37,6 +41,18 @@ frontend-build: frontend
 	@echo ">> Building frontend"
 	@cd ../frontend && npm run build
 	@echo ">> Frontend built to OS/dist/"
+
+restic-fetch:
+	@echo ">> Downloading restic $(RESTIC_VERSION) for $(GOOS)/$(GOARCH)"
+	@mkdir -p $(RESTIC_DIR)
+	@curl -fSL "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" \
+		| bzip2 -d > $(RESTIC_DIR)/restic
+	@chmod +x $(RESTIC_DIR)/restic
+	@echo ">> restic placed in $(RESTIC_DIR)/restic"
+
+restic-clean:
+	@echo ">> Removing downloaded restic binary"
+	@rm -f $(RESTIC_DIR)/restic
 
 # Testing targets
 test:
@@ -100,4 +116,4 @@ clean:
 	@echo ">> Cleaning build artifacts"
 	@rm -rf $(BIN_DIR) coverage.out coverage.html
 
-.PHONY: default build run frontend frontend-build test test-race test-coverage fmt-check vet lint govulncheck gosec staticcheck security ci-local ci-all ci-docker clean
+.PHONY: default build run frontend frontend-build restic-fetch restic-clean test test-race test-coverage fmt-check vet lint govulncheck gosec staticcheck security ci-local ci-all ci-docker clean

@@ -567,7 +567,7 @@ export default function AppDetailPage() {
                   <button
                     onClick={() => handleAppAction("update")}
                     disabled={actionLoading || availableUpdate.needs_config}
-                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
+                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
                   >
                     {actionLoading === "update" ? (
                       <>
@@ -599,7 +599,7 @@ export default function AppDetailPage() {
                     app.status === "stopped" && handleAppAction("start")
                   }
                   disabled={app.status !== "stopped" || actionLoading}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
                 >
                   {actionLoading === "start" ? (
                     <Loader2 size={18} className="animate-spin" />
@@ -614,7 +614,7 @@ export default function AppDetailPage() {
                     app.status === "running" && handleAppAction("stop")
                   }
                   disabled={app.status !== "running" || actionLoading}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
                 >
                   {actionLoading === "stop" ? (
                     <Loader2 size={18} className="animate-spin" />
@@ -627,7 +627,7 @@ export default function AppDetailPage() {
                 <button
                   onClick={() => handleAppAction("restart")}
                   disabled={actionLoading}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill border-2 border-accent text-secondary/70 hover:bg-accent/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-mono"
+                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill border-2 border-accent text-secondary/70 hover:bg-accent/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
                 >
                   {actionLoading === "restart" ? (
                     <Loader2 size={18} className="animate-spin" />

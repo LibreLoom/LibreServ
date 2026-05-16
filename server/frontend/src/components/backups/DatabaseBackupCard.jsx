@@ -30,7 +30,7 @@ export default function DatabaseBackupCard({
         <button
           onClick={onSaveDb}
           disabled={savingDb}
-          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-pill bg-primary text-secondary hover:opacity-90 transition-opacity disabled:opacity-40 font-mono text-sm"
+          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-pill bg-primary text-secondary hover:opacity-90 transition-opacity disabled:opacity-50 font-mono text-sm"
         >
           {savingDb ? (
             <Loader2 size={16} className="animate-spin" />

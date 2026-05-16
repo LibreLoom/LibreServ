@@ -2,6 +2,19 @@ import { memo } from "react";
 import PropTypes from "prop-types";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 
+/**
+ * @typedef {object} CardProps
+ * @property {import('react').ReactNode} [children]
+ * @property {string} [className]
+ * @property {boolean} [noPopIn]
+ * @property {boolean} [noHeightAnim]
+ * @property {import('react').ElementType} [icon]
+ * @property {string} [title]
+ * @property {import('react').ReactNode} [headerActions]
+ * @property {boolean} [padding]
+ */
+
+/** @param {CardProps} props */
 function Card({
   children,
   className = "",

@@ -2,7 +2,22 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import Card from "./Card";
+import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 
+/**
+ * @typedef {object} ModalCardProps
+ * @property {string} [title]
+ * @property {import('react').ReactNode|function({close: function}): import('react').ReactNode} [children]
+ * @property {() => void} [onClose]
+ * @property {boolean} [showCloseButton]
+ * @property {string} [size]
+ * @property {boolean} [mobileFullscreen]
+ * @property {import('react').ReactNode} [footer]
+ * @property {string} [className]
+ * @property {import('react').RefObject} [initialFocusRef]
+ */
+
+/** @param {ModalCardProps} props */
 export default function ModalCard({
   title,
   children,
@@ -19,6 +34,12 @@ export default function ModalCard({
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const previousFocusRef = useRef(null);
+  const { outerRef, innerRef } = useAnimatedHeight();
+
+  const setRefs = useCallback((node) => {
+    dialogRef.current = node;
+    outerRef.current = node;
+  }, [outerRef]);
 
   const handleClose = useCallback(() => {
     if (isClosing) return;
@@ -71,17 +92,24 @@ export default function ModalCard({
     };
   }, [handleClose, initialFocusRef]);
 
-  const sizeClasses =
+  const widthClasses =
     size === "fullscreen"
-      ? "max-w-[95vw] h-[95vh]"
+      ? "max-w-[95vw]"
       : size === "lg"
-        ? "sm:max-w-3xl max-h-full sm:max-h-[calc(95vh-4rem)]"
+        ? "sm:max-w-3xl"
         : size === "xl"
-          ? "sm:max-w-5xl max-h-full sm:max-h-[calc(95vh-4rem)]"
-          : "sm:max-w-md max-h-full sm:max-h-[calc(95vh-4rem)]";
+          ? "sm:max-w-5xl"
+          : "sm:max-w-md";
+
+  const maxHeightClasses =
+    size === "fullscreen"
+      ? "max-h-[95vh]"
+      : mobileFullscreen
+        ? "max-h-[100dvh] sm:max-h-[calc(95vh-4rem)]"
+        : "max-h-full sm:max-h-[calc(95vh-4rem)]";
 
   const mobileFsClasses = mobileFullscreen
-    ? "p-0 sm:p-4 [&>div]:rounded-none [&>div]:max-h-[100dvh] sm:[&>div]:rounded-[24px] sm:[&>div]:max-h-[calc(95vh-4rem)] [&>div>div]:rounded-none sm:[&>div>div]:rounded-[24px]"
+    ? "p-0 sm:p-4 [&>div>div>div]:rounded-none sm:[&>div>div>div]:rounded-[24px]"
     : "p-4";
 
   return createPortal(
@@ -90,14 +118,16 @@ export default function ModalCard({
       onClick={handleClose}
     >
       <div
-        ref={dialogRef}
+        ref={setRefs}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`w-full flex flex-col ${sizeClasses}`}
+        className={`w-full ${widthClasses} ${maxHeightClasses} overflow-hidden rounded-large-element transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]`}
+        style={{ transitionDuration: "var(--motion-duration-medium2)" }}
         onClick={(event) => event.stopPropagation()}
       >
-        <Card noHeightAnim noPopIn className={`relative flex-1 flex flex-col min-h-0 h-full overflow-hidden ${className} ${isClosing ? "pop-out" : "pop-in"}`}>
+        <div ref={innerRef} className={`${maxHeightClasses} overflow-y-auto`}>
+        <Card noHeightAnim noPopIn className={`relative overflow-hidden ${className} ${isClosing ? "pop-out" : "pop-in"}`}>
           {showCloseButton && (
             <button
               type="button"
@@ -119,11 +149,12 @@ export default function ModalCard({
           {content}
 
           {footer && (
-            <div className="mt-4 pt-4 border-t border-primary/10">
+            <div className="mt-4">
               {footer}
             </div>
           )}
         </Card>
+        </div>
       </div>
     </div>,
     document.body,

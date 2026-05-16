@@ -477,7 +477,7 @@ function PreflightStep({ onPass }) {
             <button
               onClick={runChecks}
               disabled={running}
-              className="w-full inline-flex items-center justify-center rounded-pill border border-primary/20 bg-transparent text-primary py-3.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-40 animate-in fade-in slide-in-from-bottom-2 duration-300"
+              className="w-full inline-flex items-center justify-center rounded-pill border border-primary/20 bg-transparent text-primary py-3.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-50 animate-in fade-in slide-in-from-bottom-2 duration-300"
             >
               <span
                 className={`overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out ${running ? "w-5 mr-2" : "w-0 mr-0"}`}
@@ -705,7 +705,7 @@ function AccountStep({ onSuccess, onError }) {
             <button
               type="submit"
               disabled={!isValid || submitting}
-              className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-30 disabled:pointer-events-none"
+              className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
             >
               {submitting ? (
                 <>

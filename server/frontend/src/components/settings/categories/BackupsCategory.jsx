@@ -1,45 +1,36 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
-import { DatabaseBackup, Download, Trash2, AlertTriangle, RotateCcw } from "lucide-react";
+import { DatabaseBackup, Download, Trash2, AlertTriangle, RotateCcw, Loader2 } from "lucide-react";
 import LocalBackupsCard from "../../backups/LocalBackupsCard";
-import UploadBackupCard from "../../backups/UploadBackupCard";
-import UnattachedBackupsCard from "../../backups/UnattachedBackupsCard";
 import DatabaseBackupCard from "../../backups/DatabaseBackupCard";
-import CloudBackupCard from "../../backups/CloudBackupCard";
+import BackupRepoConfig from "../../backups/BackupRepoConfig";
 import ScheduleForm from "../../backups/ScheduleForm";
-import RestoreAppSelector from "../../backups/RestoreAppSelector";
 import ConfirmModal from "../../common/ConfirmModal";
+import ModalCard from "../../cards/ModalCard";
 import Dropdown from "../../common/Dropdown";
 
 export default function BackupsCategory() {
   const { request } = useAuth();
   const { addToast } = useToast();
   const [backups, setBackups] = useState([]);
-  const [unattachedBackups, setUnattachedBackups] = useState([]);
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
-  const [showCloudConfig, setShowCloudConfig] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRestoreModal, setShowRestoreModal] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(null);
-  const [showAppSelector, setShowAppSelector] = useState(null);
   const [selectedApp, setSelectedApp] = useState("");
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [uploading, setUploading] = useState(null);
-  const [uploadFile, setUploadFile] = useState(null);
-  const [uploadingDb, setUploadingDb] = useState(false);
   const [savingDb, setSavingDb] = useState(false);
+  const [uploadingDb, setUploadingDb] = useState(false);
   const [pendingDbFile, setPendingDbFile] = useState(null);
-  const fileInputRef = useRef(null);
   const dbFileInputRef = useRef(null);
 
   useEffect(() => {
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const showSuccess = useCallback((message, description) => {
@@ -54,10 +45,9 @@ export default function BackupsCategory() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [backupsRes, appsRes, unattachedRes] = await Promise.all([
+      const [backupsRes, appsRes] = await Promise.all([
         request("/backups"),
         request("/apps"),
-        request("/backups/unattached"),
       ]);
 
       if (!backupsRes.ok) {
@@ -71,10 +61,8 @@ export default function BackupsCategory() {
 
       const backupsData = await backupsRes.json();
       const appsData = await appsRes.json();
-      const unattachedData = unattachedRes.ok ? await unattachedRes.json() : { backups: [] };
       setBackups(backupsData.backups || []);
       setApps(appsData.apps || []);
-      setUnattachedBackups(unattachedData.backups || []);
     } catch (err) {
       console.error("Failed to load data:", err);
       setLoadError(err.message);
@@ -90,7 +78,7 @@ export default function BackupsCategory() {
       const res = await request("/backups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ app_id: selectedApp, stop_before_backup: false, compress: true }),
+        body: JSON.stringify({ app_id: selectedApp, stop_before_backup: false }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -146,67 +134,6 @@ export default function BackupsCategory() {
       showError("Failed to delete backup", err.message);
     } finally {
       setDeleting(false);
-    }
-  }
-
-  async function handleUploadToCloud(backup) {
-    setUploading(backup.id);
-    try {
-      const res = await request(`/backups/${backup.id}/upload`, { method: "POST" });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to upload to cloud");
-      }
-      showSuccess("Upload complete", "Backup has been uploaded to cloud storage.");
-      loadData();
-    } catch (err) {
-      showError("Upload failed", err.message);
-    } finally {
-      setUploading(null);
-    }
-  }
-
-  function handleFileSelect(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const ext = file.name.toLowerCase();
-    if (!ext.endsWith(".tar") && !ext.endsWith(".tar.gz") && !ext.endsWith(".tgz")) {
-      showError("Invalid file", "Only .tar, .tar.gz, and .tgz files are supported.");
-      return;
-    }
-    setUploadFile(file);
-  }
-
-  function handleUploadComplete() {
-    setUploadFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    showSuccess("Backup uploaded", "Your backup has been uploaded successfully.");
-    loadData();
-  }
-
-  function handleUploadError(err) {
-    showError("Upload failed", err.message);
-  }
-
-  async function handleRestoreUnattachedBackup(backupId, targetAppId) {
-    setRestoring(true);
-    try {
-      const res = await request(`/backups/${backupId}/restore`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ target_app_id: targetAppId, stop_before_restore: true, restart_after_restore: true, verify_checksum: true }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to restore backup");
-      }
-      setShowAppSelector(null);
-      showSuccess("Backup restored", "Your data has been restored successfully.");
-      loadData();
-    } catch (err) {
-      showError("Failed to restore backup", err.message);
-    } finally {
-      setRestoring(false);
     }
   }
 
@@ -291,22 +218,6 @@ export default function BackupsCategory() {
         onCreate={() => setShowCreateModal(true)}
         onRestore={(backup) => setShowRestoreModal(backup)}
         onDelete={(backup) => setShowDeleteModal(backup)}
-        onUploadToCloud={handleUploadToCloud}
-        uploadingId={uploading}
-      />
-
-      <UploadBackupCard
-        uploadFile={uploadFile}
-        onFileSelect={handleFileSelect}
-        onUploadComplete={handleUploadComplete}
-        onUploadError={handleUploadError}
-        fileInputRef={fileInputRef}
-      />
-
-      <UnattachedBackupsCard
-        backups={unattachedBackups}
-        onRestore={(backup) => setShowAppSelector(backup)}
-        onDelete={(backup) => setShowDeleteModal(backup)}
       />
 
       <DatabaseBackupCard
@@ -319,23 +230,16 @@ export default function BackupsCategory() {
 
       <ScheduleForm />
 
-      <CloudBackupCard
-        showConfig={showCloudConfig}
-        onToggleConfig={() => setShowCloudConfig(!showCloudConfig)}
-        onConfigured={() => setShowCloudConfig(false)}
-      />
+      <BackupRepoConfig />
 
-      <ConfirmModal
-        open={showCreateModal}
-        onClose={() => { setShowCreateModal(false); setSelectedApp(""); }}
-        onConfirm={handleCreateBackup}
-        icon={DatabaseBackup}
-        title="Create Backup"
-        confirmLabel="Create"
-        confirmIcon={DatabaseBackup}
-        loading={creating}
-      >
-        <div className="mt-3">
+      {showCreateModal && (
+        <ModalCard
+          title="Create Backup"
+          onClose={() => { setShowCreateModal(false); setSelectedApp(""); }}
+        >
+          <p className="text-xs text-primary/50 mb-4">
+            Create a backup of an app's data. You can restore from it later if something goes wrong.
+          </p>
           <label className="block text-sm font-mono text-primary/70 mb-2">
             Select App
           </label>
@@ -344,10 +248,28 @@ export default function BackupsCategory() {
             onChange={setSelectedApp}
             placeholder="Select an app..."
             fullWidth
+            bg="primary"
             options={apps.map((app) => ({ value: app.id, label: app.name }))}
           />
-        </div>
-      </ConfirmModal>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={() => { setShowCreateModal(false); setSelectedApp(""); }}
+              disabled={creating}
+              className="flex-1 px-4 py-2 rounded-pill border-2 border-accent/30 bg-secondary text-primary hover:bg-accent/20 transition-all font-mono text-sm disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreateBackup}
+              disabled={creating || !selectedApp}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-accent transition-all font-mono text-sm disabled:opacity-50"
+            >
+              {creating ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <DatabaseBackup size={16} aria-hidden="true" />}
+              {creating ? "Creating..." : "Create"}
+            </button>
+          </div>
+        </ModalCard>
+      )}
 
       <ConfirmModal
         open={!!showRestoreModal}
@@ -387,15 +309,6 @@ export default function BackupsCategory() {
         confirmIcon={RotateCcw}
         loading={uploadingDb}
       />
-
-      {showAppSelector && (
-        <RestoreAppSelector
-          backup={showAppSelector}
-          apps={apps}
-          onRestore={handleRestoreUnattachedBackup}
-          onClose={() => setShowAppSelector(null)}
-        />
-      )}
     </div>
   );
 }

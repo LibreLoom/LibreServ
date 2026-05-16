@@ -137,7 +137,7 @@ export default function SetupWizard({
                 <button
                   type="button"
                   onClick={onBack}
-                  className="rounded-pill border border-primary/20 bg-transparent text-primary px-5 py-2.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-30 disabled:pointer-events-none"
+                  className="rounded-pill border border-primary/20 bg-transparent text-primary px-5 py-2.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-50 disabled:pointer-events-none"
                 >
                   Back
                 </button>
@@ -150,7 +150,7 @@ export default function SetupWizard({
                   type="button"
                   onClick={onNext}
                   disabled={nextDisabled || nextLoading}
-                  className="group inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-6 py-2.5 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-30 disabled:pointer-events-none disabled:scale-100"
+                  className="group inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-6 py-2.5 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none disabled:scale-100"
                 >
                   {nextLoading ? (
                     <>

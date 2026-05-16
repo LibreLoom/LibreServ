@@ -207,10 +207,10 @@ build_binaries() {
     # Build frontend first
     log_info "Building frontend..."
     cd server/backend
-    
+
     # Clean old build to avoid permission issues
     rm -rf OS/dist
-    
+
     if ! make frontend-build; then
         log_error "Frontend build failed"
         log_info "Cleaning up..."
@@ -220,6 +220,25 @@ build_binaries() {
     fi
     cd ../..
     
+    # Download restic binaries for embedding
+    log_info "Downloading restic for embedding..."
+    cd server/backend
+    
+    RESTIC_VERSION="0.18.1"
+    
+    # AMD64 restic
+    log_info "Downloading restic ${RESTIC_VERSION} for linux/amd64..."
+    mkdir -p OS/bin
+    if ! curl -fSL "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_amd64.bz2" \
+        | bzip2 -d > OS/bin/restic; then
+        log_error "Failed to download restic for amd64"
+        cd ../..
+        rm -rf "$BUILD_DIR"
+        exit 1
+    fi
+    chmod +x OS/bin/restic
+    cd ../..
+    
     # Get version info for ldflags
     GIT_COMMIT=$(git rev-parse HEAD)
     BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -227,7 +246,7 @@ build_binaries() {
     # Build Linux AMD64
     log_info "Building libreserv-linux-amd64..."
     cd server/backend
-    if ! GOOS=linux GOARCH=amd64 go build -tags "embedfront" \
+    if ! GOOS=linux GOARCH=amd64 go build -tags "embedfront embedrestic" \
         -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$BUILD_TIME" \
@@ -242,7 +261,19 @@ build_binaries() {
     # Build Linux ARM64
     log_info "Building libreserv-linux-arm64..."
     cd server/backend
-    if ! GOOS=linux GOARCH=arm64 go build -tags "embedfront" \
+
+    # Download ARM64 restic for embedding
+    log_info "Downloading restic ${RESTIC_VERSION} for linux/arm64..."
+    if ! curl -fSL "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_arm64.bz2" \
+        | bzip2 -d > OS/bin/restic; then
+        log_error "Failed to download restic for arm64"
+        cd ../..
+        rm -rf "$BUILD_DIR"
+        exit 1
+    fi
+    chmod +x OS/bin/restic
+
+    if ! GOOS=linux GOARCH=arm64 go build -tags "embedfront embedrestic" \
         -ldflags "-X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.Version=$VERSION_TAG \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.GitCommit=$GIT_COMMIT \
                   -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$BUILD_TIME" \
@@ -252,6 +283,7 @@ build_binaries() {
         rm -rf "$BUILD_DIR"
         exit 1
     fi
+    rm -f server/backend/OS/bin/restic
     cd ../..
     
     # Package the app catalog

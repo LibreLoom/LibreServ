@@ -752,8 +752,6 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 		} else {
 			backupRes, err := m.backupService.BackupApp(ctx, instanceID, storage.BackupOptions{
 				StopBeforeBackup: true,
-				Compress:         true,
-				IncludeLogs:      false,
 			})
 			if err != nil {
 				m.recordUpdateFailure(updateID, fmt.Errorf("backup failed: %w", err), false, "")

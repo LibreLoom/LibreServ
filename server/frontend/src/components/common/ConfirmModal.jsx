@@ -26,6 +26,24 @@ const VARIANTS = {
   },
 };
 
+/**
+ * @typedef {object} ConfirmModalProps
+ * @property {boolean} open
+ * @property {() => void} [onClose]
+ * @property {() => void} [onConfirm]
+ * @property {import('react').ElementType} [icon]
+ * @property {string} title
+ * @property {import('react').ReactNode} [children]
+ * @property {string} [message]
+ * @property {"default"|"warning"|"danger"|"danger-undoable"} [variant]
+ * @property {string} [confirmLabel]
+ * @property {import('react').ElementType} [confirmIcon]
+ * @property {boolean} [loading]
+ * @property {boolean} [disabledConfirm]
+ * @property {import('react').RefObject} [initialFocusRef]
+ */
+
+/** @param {ConfirmModalProps} props */
 export default function ConfirmModal({
   open,
   onClose,

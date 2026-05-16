@@ -17,7 +17,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/backup/cloud"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
@@ -129,15 +128,13 @@ func main() {
 
 	backupBase := filepath.Join(cfg.Apps.DataPath, "backups")
 	backupService := storage.NewBackupService(db, dockerClient, backupBase, cfg.Apps.DataPath)
+	backupService.SetServerSecret(cfg.Auth.JWTSecret)
 
-	// Initialize cloud backup service
-	cloudEncryptionKey := cfg.Auth.CloudEncryptionKey
-	if cloudEncryptionKey == "" {
-		cloudEncryptionKey = cfg.Auth.CSRFSecret
-		slog.Warn("cloud_encryption_key not set; falling back to CSRF secret — set auth.cloud_encryption_key for proper key separation")
+	if cfg.Auth.CloudEncryptionKey == "" {
+		slog.Error("auth.cloud_encryption_key is not set — cloud backup credentials cannot be encrypted. Set LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY or auth.cloud_encryption_key in config")
+		os.Exit(1)
 	}
-	cloudService := cloud.NewService(db, cloudEncryptionKey)
-	backupService.SetCloudService(cloudService)
+	backupService.SetEncryptionKey(cfg.Auth.CloudEncryptionKey)
 
 	// Clean up ghost database backup records from previous "Save DB" downloads.
 	if err := backupService.CleanupGhostDatabaseBackups(context.Background()); err != nil {
@@ -282,6 +279,7 @@ func main() {
 	restartCh := make(chan system.RestartSignal, 1)
 	sysChecker.SetRestartChannel(restartCh)
 	scheduler := jobs.NewScheduler(appManager, sysChecker, notifyService, handlers.Version)
+	scheduler.SetBackupService(backupService)
 	scheduler.Start()
 	defer scheduler.Stop()
 
@@ -294,7 +292,6 @@ func main() {
 		AuthService:     authService,
 		Monitor:         monitor,
 		BackupService:   backupService,
-		CloudService:    cloudService,
 		DockerClient:    dockerClient,
 		CaddyManager:    caddyManager,
 		SetupService:    setupService,

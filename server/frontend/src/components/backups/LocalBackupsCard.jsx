@@ -3,9 +3,6 @@ import {
   Plus,
   Loader2,
   DatabaseBackup,
-  Cloud,
-  Download,
-  CloudUpload,
   Trash2,
   RotateCcw,
   AlertTriangle,
@@ -25,8 +22,6 @@ export default function LocalBackupsCard({
   onCreate,
   onRestore,
   onDelete,
-  onUploadToCloud,
-  uploadingId,
 }) {
   const { use12HourTime } = useTimeFormat();
   function getAppDisplayName(backup) {
@@ -85,7 +80,7 @@ export default function LocalBackupsCard({
           </div>
         ) : recentBackups.length === 0 ? (
           <div className="px-4 py-6 text-center">
-            <DatabaseBackup className="w-10 h-10 text-primary/30 mx-auto mb-2" />
+            <span className="opacity-50 block mb-2"><DatabaseBackup className="w-10 h-10 text-primary mx-auto" /></span>
             <p className="text-sm text-accent">No backups yet</p>
             <button
               onClick={onCreate}
@@ -97,84 +92,50 @@ export default function LocalBackupsCard({
           </div>
         ) : (
           <div className="divide-y divide-primary/10">
-            {recentBackups.map((backup) => {
-              const isUploading = uploadingId === backup.id;
-              return (
-                <div key={backup.id} className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {isOrphaned(backup) ? (
-                      <div
-                        className="rounded-large-element bg-primary/10 flex items-center justify-center"
-                        style={{ width: 28, height: 28 }}
-                      >
-                        <HelpCircle size={16} className="text-primary/50" />
-                      </div>
-                    ) : (
-                      <AppIcon appId={getAppCatalogId(backup)} size={28} />
-                    )}
-                    <div className="min-w-0">
-                      <div className="font-mono text-sm text-primary truncate">
-                        {getAppDisplayName(backup)}
-                      </div>
-                      <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
-                        <span>{formatDate(backup.created_at, use12HourTime)}</span>
-                        <span>·</span>
-                        <span>{formatBytes(backup.size)}</span>
-                      </div>
+            {recentBackups.map((backup) => (
+              <div key={backup.id} className="px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {isOrphaned(backup) ? (
+                    <div
+                      className="rounded-large-element bg-primary/10 flex items-center justify-center"
+                      style={{ width: 28, height: 28 }}
+                    >
+                      <span className="opacity-50"><HelpCircle size={16} className="text-primary" /></span>
+                    </div>
+                  ) : (
+                    <AppIcon appId={getAppCatalogId(backup)} size={28} />
+                  )}
+                  <div className="min-w-0">
+                    <div className="font-mono text-sm text-primary truncate">
+                      {getAppDisplayName(backup)}
+                    </div>
+                    <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
+                      <span>{formatDate(backup.created_at, use12HourTime)}</span>
+                      <span>·</span>
+                      <span>{formatBytes(backup.size)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    {backup.cloud_status?.has_cloud_copy ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-pill bg-accent/20 text-accent text-xs mr-2">
-                        <Cloud size={12} />
-                        Cloud
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => onUploadToCloud(backup)}
-                          disabled={isUploading}
-                          title="Upload to cloud"
-                          className={`p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all mr-1 ${isUploading ? "opacity-50 cursor-wait" : ""}`}
-                          aria-label="Upload to cloud"
-                        >
-                          {isUploading ? (
-                            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                          ) : (
-                            <CloudUpload size={14} aria-hidden="true" />
-                          )}
-                        </button>
-                        <a
-                          href={`/api/v1/backups/${backup.id}/download`}
-                          download
-                          title="Download backup"
-                          className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                          aria-label="Download backup"
-                        >
-                          <Download size={14} aria-hidden="true" />
-                        </a>
-                        <button
-                          onClick={() => onRestore(backup)}
-                          title="Restore backup"
-                          className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                          aria-label="Restore backup"
-                        >
-                          <RotateCcw size={14} aria-hidden="true" />
-                        </button>
-                        <button
-                          onClick={() => onDelete(backup)}
-                          title="Delete backup"
-                          className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
-                          aria-label="Delete backup"
-                        >
-                          <Trash2 size={14} aria-hidden="true" />
-                        </button>
-                      </>
-                    )}
-                  </div>
                 </div>
-              );
-            })}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => onRestore(backup)}
+                    title="Restore backup"
+                    className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                    aria-label="Restore backup"
+                  >
+                    <span className="opacity-50"><RotateCcw size={14} className="text-accent" aria-hidden="true" /></span>
+                  </button>
+                  <button
+                    onClick={() => onDelete(backup)}
+                    title="Delete backup"
+                    className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
+                    aria-label="Delete backup"
+                  >
+                    <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

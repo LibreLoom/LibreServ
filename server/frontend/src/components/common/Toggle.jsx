@@ -1,5 +1,18 @@
 import PropTypes from "prop-types";
 
+/**
+ * @typedef {object} ToggleProps
+ * @property {boolean} checked
+ * @property {(checked: boolean) => void} onChange
+ * @property {string} [label]
+ * @property {string} [description]
+ * @property {boolean} [disabled]
+ * @property {import('react').ElementType} [iconOn]
+ * @property {import('react').ElementType} [iconOff]
+ * @property {string} [className]
+ */
+
+/** @param {ToggleProps} props */
 export default function Toggle({
   checked,
   onChange,

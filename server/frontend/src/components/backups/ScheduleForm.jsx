@@ -2,7 +2,9 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
 import Card from "../cards/Card";
+import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
+import CheckboxOptionGroup from "../common/CheckboxOptionGroup";
 import {
   Clock,
   Plus,
@@ -11,8 +13,6 @@ import {
   Loader2,
   Calendar,
   Save,
-  X,
-  AlertCircle,
 } from "lucide-react";
 
 const SCHEDULE_PRESETS = [
@@ -24,32 +24,98 @@ const SCHEDULE_PRESETS = [
   { label: "Custom...", value: "custom" },
 ];
 
+const CUSTOM_FREQ_OPTIONS = [
+  { label: "Daily", value: "daily" },
+  { label: "Weekly", value: "weekly" },
+  { label: "Every N hours", value: "interval" },
+];
+
+const DAY_OPTIONS = [
+  { label: "Sunday", value: "0" },
+  { label: "Monday", value: "1" },
+  { label: "Tuesday", value: "2" },
+  { label: "Wednesday", value: "3" },
+  { label: "Thursday", value: "4" },
+  { label: "Friday", value: "5" },
+  { label: "Saturday", value: "6" },
+];
+
+const HOUR_OPTIONS = Array.from({ length: 12 }, (_, i) => {
+  const h = i === 0 ? 12 : i;
+  return { label: String(h), value: String(i) };
+});
+
+const MINUTE_OPTIONS = [0, 15, 30, 45].map((m) => ({
+  label: String(m).padStart(2, "0"),
+  value: String(m),
+}));
+
+function buildCron(freq, hour, minute, ampm, day, interval) {
+  if (freq === "interval") {
+    return `${minute || "0"} */${interval || 6} * * *`;
+  }
+  let h = parseInt(hour) || 0;
+  if (ampm === "pm" && h !== 12) h += 12;
+  if (ampm === "am" && h === 12) h = 0;
+  if (freq === "weekly") {
+    return `${minute || "0"} ${h} * * ${day || "0"}`;
+  }
+  return `${minute || "0"} ${h} * * *`;
+}
+
+function describeCron(freq, hour, minute, ampm, day, interval) {
+  const minStr = String(minute || 0).padStart(2, "0");
+  if (freq === "interval") {
+    return `Every ${interval || 6} hours at :${minStr}`;
+  }
+  const h = parseInt(hour) || 12;
+  const timeStr = `${h}:${minStr} ${ampm || "am"}`.toUpperCase();
+  if (freq === "weekly") {
+    const dayName = DAY_OPTIONS.find((d) => d.value === (day || "0"))?.label || "Sunday";
+    return `${dayName} at ${timeStr}`;
+  }
+  return `Daily at ${timeStr}`;
+}
+
 function formatNextRun(cronExpr) {
   if (!cronExpr) return "Not scheduled";
   const parts = cronExpr.split(" ");
   if (parts.length !== 5) return "Invalid schedule";
 
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+  const [, hour, , , dayOfWeek] = parts;
 
-  if (minute === "0" && hour === "3" && dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
-    return "Daily at 3:00 AM";
-  }
-  if (minute === "0" && hour === "2" && dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
-    return "Daily at 2:00 AM";
-  }
-  if (minute === "0" && hour.startsWith("*/") && dayOfMonth === "*" && month === "*") {
+  if (dayOfWeek === "*" && hour.startsWith("*/")) {
     const interval = hour.replace("*/", "");
     return `Every ${interval} hours`;
   }
-  if (dayOfWeek === "0") {
-    return "Weekly on Sunday";
+  if (dayOfWeek !== "*") {
+    const dayNames = { "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday", "4": "Thursday", "5": "Friday", "6": "Saturday" };
+    const h = parseInt(hour);
+    const timeStr = h === 0 ? "12:00 AM" : h === 12 ? "12:00 PM" : h > 12 ? `${h - 12}:00 PM` : `${h}:00 AM`;
+    return `${dayNames[dayOfWeek] || dayOfWeek} at ${timeStr}`;
   }
-  if (dayOfWeek === "6") {
-    return "Weekly on Saturday";
-  }
-
-  return cronExpr;
+  const h = parseInt(hour);
+  const timeStr = h === 0 ? "12:00 AM" : h === 12 ? "12:00 PM" : h > 12 ? `${h - 12}:00 PM` : `${h}:00 AM`;
+  return `Daily at ${timeStr}`;
 }
+
+function inputClass() {
+  return "w-full px-3 py-2 bg-primary border border-primary/20 rounded-pill font-mono text-sm text-secondary focus-visible:ring-2 focus:ring-accent";
+}
+
+const INITIAL_FORM = {
+  app_id: "",
+  cron_expr: "0 3 * * *",
+  custom_freq: "daily",
+  custom_hour: "3",
+  custom_minute: "0",
+  custom_ampm: "am",
+  custom_day: "0",
+  custom_interval: "6",
+  enabled: true,
+  stop_before_backup: false,
+  retention: 7,
+};
 
 export default function ScheduleForm() {
   const { request } = useAuth();
@@ -58,19 +124,10 @@ export default function ScheduleForm() {
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [showForm, setShowForm] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [deleting, setDeleting] = useState(null);
-
-  const [formData, setFormData] = useState({
-    app_id: "",
-    cron_expr: "0 3 * * *",
-    custom_cron: "",
-    enabled: true,
-    stop_before_backup: false,
-    compress: true,
-    retention: 7,
-  });
+  const [formData, setFormData] = useState(INITIAL_FORM);
 
   useEffect(() => {
     loadData();
@@ -100,18 +157,10 @@ export default function ScheduleForm() {
     }
   }
 
-  function resetForm() {
-    setFormData({
-      app_id: "",
-      cron_expr: "0 3 * * *",
-      custom_cron: "",
-      enabled: true,
-      stop_before_backup: false,
-      compress: true,
-      retention: 7,
-    });
+  function closeModal() {
+    setFormData(INITIAL_FORM);
     setEditingSchedule(null);
-    setShowForm(false);
+    setShowModal(false);
   }
 
   async function handleSave() {
@@ -120,7 +169,9 @@ export default function ScheduleForm() {
       return;
     }
 
-    const cronExpr = formData.cron_expr === "custom" ? formData.custom_cron : formData.cron_expr;
+    const cronExpr = formData.cron_expr === "custom"
+      ? buildCron(formData.custom_freq, formData.custom_hour, formData.custom_minute, formData.custom_ampm, formData.custom_day, formData.custom_interval)
+      : formData.cron_expr;
     if (!cronExpr) {
       addToast({ type: "error", message: "Please enter a schedule" });
       return;
@@ -133,7 +184,6 @@ export default function ScheduleForm() {
         cron_expr: cronExpr,
         enabled: formData.enabled,
         stop_before_backup: formData.stop_before_backup,
-        compress: formData.compress,
         retention: formData.retention,
       };
 
@@ -158,7 +208,7 @@ export default function ScheduleForm() {
       }
 
       addToast({ type: "success", message: editingSchedule ? "Schedule updated" : "Schedule created" });
-      resetForm();
+      closeModal();
       loadData();
     } catch (err) {
       addToast({ type: "error", message: "Failed to save schedule", description: err.message });
@@ -189,21 +239,50 @@ export default function ScheduleForm() {
   }
 
   function handleEdit(schedule) {
+    const isPreset = SCHEDULE_PRESETS.some((p) => p.value === schedule.cron_expr);
+    let customFreq = "daily";
+    let customHour = "3";
+    let customMinute = "0";
+    let customAmpm = "am";
+    let customDay = "0";
+    let customInterval = "6";
+
+    if (!isPreset && schedule.cron_expr) {
+      const parts = schedule.cron_expr.split(" ");
+      const [min, hour, , , dow] = parts;
+      customMinute = min;
+
+      if (hour.startsWith("*/")) {
+        customFreq = "interval";
+        customInterval = hour.replace("*/", "");
+      } else {
+        const h = parseInt(hour);
+        if (dow !== "*") {
+          customFreq = "weekly";
+          customDay = dow;
+        }
+        if (h === 0) { customHour = "12"; customAmpm = "am"; }
+        else if (h < 12) { customHour = String(h); customAmpm = "am"; }
+        else if (h === 12) { customHour = "12"; customAmpm = "pm"; }
+        else { customHour = String(h - 12); customAmpm = "pm"; }
+      }
+    }
+
     setEditingSchedule(schedule);
     setFormData({
       app_id: schedule.app_id || "",
-      cron_expr: SCHEDULE_PRESETS.some((p) => p.value === schedule.cron_expr)
-        ? schedule.cron_expr
-        : "custom",
-      custom_cron: SCHEDULE_PRESETS.some((p) => p.value === schedule.cron_expr)
-        ? ""
-        : schedule.cron_expr,
+      cron_expr: isPreset ? schedule.cron_expr : "custom",
+      custom_freq: customFreq,
+      custom_hour: customHour,
+      custom_minute: customMinute,
+      custom_ampm: customAmpm,
+      custom_day: customDay,
+      custom_interval: customInterval,
       enabled: schedule.enabled,
       stop_before_backup: schedule.options?.stop_before_backup || false,
-      compress: schedule.options?.compress !== false,
       retention: schedule.retention || 7,
     });
-    setShowForm(true);
+    setShowModal(true);
   }
 
   function getAppName(appId) {
@@ -222,36 +301,34 @@ export default function ScheduleForm() {
   }
 
   return (
-    <Card
-      icon={Calendar}
-      title="Backup Schedules"
-      padding={false}
-      headerActions={
-        !showForm ? (
+    <>
+      <Card
+        icon={Calendar}
+        title="Backup Schedules"
+        padding={false}
+        headerActions={
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => setShowModal(true)}
             className="flex items-center gap-1 text-xs text-accent hover:text-primary transition-colors"
           >
             <Plus size={14} aria-hidden="true" />
             Add Schedule
           </button>
-        ) : undefined
-      }
-      className="animate-in fade-in slide-in-from-bottom-2"
-    >
-      {schedules.length === 0 && !showForm ? (
-        <div className="px-4 py-6 text-center">
-          <Clock className="w-10 h-10 text-primary/30 mx-auto mb-2" aria-hidden="true" />
-          <p className="text-sm text-accent">No backup schedules configured</p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
-          >
-            <Plus size={16} aria-hidden="true" />
-            Create Schedule
-          </button>
-        </div>
-      ) : (
+        }
+      >
+        {schedules.length === 0 ? (
+          <div className="px-4 py-6 text-center">
+            <span className="opacity-50 block mb-2"><Clock className="w-10 h-10 text-primary mx-auto" aria-hidden="true" /></span>
+            <p className="text-sm text-accent">No backup schedules configured</p>
+            <button
+              onClick={() => setShowModal(true)}
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
+            >
+              <Plus size={16} aria-hidden="true" />
+              Create Schedule
+            </button>
+          </div>
+        ) : (
           <div className="p-4 space-y-3">
             {schedules.map((schedule) => (
               <div
@@ -278,48 +355,52 @@ export default function ScheduleForm() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => handleEdit(schedule)}
-                    title="Edit schedule"
-                    className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                    aria-label="Edit schedule"
-                  >
-                    <Edit2 size={14} aria-hidden="true" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(schedule)}
-                    disabled={deleting === schedule.id}
-                    title="Delete schedule"
-                    className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all disabled:opacity-50"
-                    aria-label="Delete schedule"
-                  >
-                    {deleting === schedule.id ? (
-                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
-                    ) : (
-                      <Trash2 size={14} aria-hidden="true" />
-                    )}
+                   <button
+                     onClick={() => handleEdit(schedule)}
+                     title="Edit schedule"
+                     className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                     aria-label="Edit schedule"
+                   >
+                     <span className="opacity-50"><Edit2 size={14} className="text-accent" aria-hidden="true" /></span>
+                   </button>
+                   <button
+                     onClick={() => handleDelete(schedule)}
+                     disabled={deleting === schedule.id}
+                     title="Delete schedule"
+                     className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all disabled:opacity-50"
+                     aria-label="Delete schedule"
+                   >
+                     {deleting === schedule.id ? (
+                       <Loader2 size={14} className="animate-spin text-accent" aria-hidden="true" />
+                     ) : (
+                       <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
+                     )}
                   </button>
                 </div>
               </div>
             ))}
           </div>
         )}
+      </Card>
 
-        {showForm && (
-          <div className="p-4 pt-4 border-t border-primary/10 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-mono text-sm text-primary">
-                {editingSchedule ? "Edit Schedule" : "New Schedule"}
-              </h3>
+      {showModal && (
+        <ModalCard
+          title={editingSchedule ? "Edit Schedule" : "New Schedule"}
+          onClose={closeModal}
+          footer={
+            <div className="flex gap-3 w-full">
               <button
-                onClick={resetForm}
-                className="p-1 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                aria-label="Close form"
+                onClick={handleSave}
+                disabled={saving || !formData.app_id}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm disabled:opacity-50"
               >
-                <X size={16} aria-hidden="true" />
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {editingSchedule ? "Update" : "Create"}
               </button>
             </div>
-
+          }
+        >
+          <div className="space-y-4">
             <div>
               <label htmlFor="schedule-app" className="block text-sm font-mono text-primary/70 mb-2">
                 Select App
@@ -331,6 +412,7 @@ export default function ScheduleForm() {
                 placeholder="Select an app..."
                 fullWidth
                 disabled={!!editingSchedule}
+                bg="primary"
                 options={apps.map((app) => ({ value: app.id, label: app.name }))}
               />
             </div>
@@ -344,26 +426,89 @@ export default function ScheduleForm() {
                 value={formData.cron_expr}
                 onChange={(val) => setFormData({ ...formData, cron_expr: val })}
                 fullWidth
+                bg="primary"
                 options={SCHEDULE_PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}
               />
             </div>
 
             {formData.cron_expr === "custom" && (
-              <div>
-                <label htmlFor="schedule-custom-cron" className="block text-sm font-mono text-primary/70 mb-2">
-                  Cron Expression
-                </label>
-                <input
-                  id="schedule-custom-cron"
-                  type="text"
-                  value={formData.custom_cron}
-                  onChange={(e) => setFormData({ ...formData, custom_cron: e.target.value })}
-                  className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
-                  placeholder="0 3 * * * (minute hour day month weekday)"
-                />
-                <p className="mt-1 text-xs text-primary/50 font-mono">
-                  Format: minute hour day-of-month month day-of-week (e.g., "0 3 * * *" for daily at 3 AM)
-                </p>
+              <div className="p-4 bg-primary/5 border border-primary/10 rounded-card space-y-4">
+                <div>
+                  <label className="block text-sm font-mono text-primary/70 mb-2">How often?</label>
+                  <Dropdown
+                    value={formData.custom_freq}
+                    onChange={(val) => setFormData({ ...formData, custom_freq: val })}
+                    fullWidth
+                    bg="primary"
+                    options={CUSTOM_FREQ_OPTIONS}
+                  />
+                </div>
+
+                {formData.custom_freq === "interval" ? (
+                  <div>
+                    <label htmlFor="custom-interval" className="block text-sm font-mono text-primary/70 mb-2">
+                      Run every
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="custom-interval"
+                        type="number"
+                        value={formData.custom_interval}
+                        onChange={(e) => setFormData({ ...formData, custom_interval: e.target.value })}
+                        className={inputClass() + " w-20"}
+                        min="1"
+                        max="24"
+                      />
+                      <span className="text-sm text-accent font-mono">hours</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-mono text-primary/70 mb-2">What time?</label>
+                      <div className="flex items-center gap-2">
+                        <Dropdown
+                          value={formData.custom_hour}
+                          onChange={(val) => setFormData({ ...formData, custom_hour: val })}
+                          bg="primary"
+                          options={HOUR_OPTIONS}
+                        />
+                        <span className="text-accent font-mono">:</span>
+                        <Dropdown
+                          value={formData.custom_minute}
+                          onChange={(val) => setFormData({ ...formData, custom_minute: val })}
+                          bg="primary"
+                          options={MINUTE_OPTIONS}
+                        />
+                        <Dropdown
+                          value={formData.custom_ampm}
+                          onChange={(val) => setFormData({ ...formData, custom_ampm: val })}
+                          bg="primary"
+                          options={[{ label: "AM", value: "am" }, { label: "PM", value: "pm" }]}
+                        />
+                      </div>
+                    </div>
+
+                    {formData.custom_freq === "weekly" && (
+                      <div>
+                        <label className="block text-sm font-mono text-primary/70 mb-2">Which day?</label>
+                        <Dropdown
+                          value={formData.custom_day}
+                          onChange={(val) => setFormData({ ...formData, custom_day: val })}
+                          fullWidth
+                          bg="primary"
+                          options={DAY_OPTIONS}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="p-3 bg-secondary text-primary rounded-card">
+                  <p className="text-xs font-mono text-accent">
+                    {describeCron(formData.custom_freq, formData.custom_hour, formData.custom_minute, formData.custom_ampm, formData.custom_day, formData.custom_interval)}
+                  </p>
+                </div>
               </div>
             )}
 
@@ -376,67 +521,26 @@ export default function ScheduleForm() {
                 type="number"
                 value={formData.retention}
                 onChange={(e) => setFormData({ ...formData, retention: parseInt(e.target.value) || 7 })}
-                className="w-full px-3 py-2 bg-secondary/10 border border-secondary/30 rounded-pill font-mono text-sm text-primary focus-visible:ring-2 focus:ring-accent"
+                className={inputClass()}
                 min="1"
                 max="365"
               />
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="schedule-enabled" className="flex items-center gap-2">
-                <input
-                  id="schedule-enabled"
-                  type="checkbox"
-                  checked={formData.enabled}
-                  onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                  className="w-4 h-4 rounded accent-accent"
-                />
-                <span className="font-mono text-sm text-primary">Enabled</span>
-              </label>
-              <label htmlFor="schedule-stop-before" className="flex items-center gap-2">
-                <input
-                  id="schedule-stop-before"
-                  type="checkbox"
-                  checked={formData.stop_before_backup}
-                  onChange={(e) => setFormData({ ...formData, stop_before_backup: e.target.checked })}
-                  className="w-4 h-4 rounded accent-accent"
-                />
-                <span className="font-mono text-sm text-primary">Stop app before backup (safer)</span>
-              </label>
-              <label htmlFor="schedule-compress" className="flex items-center gap-2">
-                <input
-                  id="schedule-compress"
-                  type="checkbox"
-                  checked={formData.compress}
-                  onChange={(e) => setFormData({ ...formData, compress: e.target.checked })}
-                  className="w-4 h-4 rounded accent-accent"
-                />
-                <span className="font-mono text-sm text-primary">Compress backup</span>
-              </label>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={resetForm}
-                className="flex-1 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || !formData.app_id}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm disabled:opacity-50"
-              >
-                {saving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                {editingSchedule ? "Update" : "Create"}
-              </button>
-            </div>
+            <CheckboxOptionGroup
+              options={[
+                ...(editingSchedule ? [{ key: "enabled", label: "Enabled" }] : []),
+                { key: "stop_before_backup", label: "Stop app before backup (safer)" },
+              ]}
+              values={{
+                enabled: formData.enabled,
+                stop_before_backup: formData.stop_before_backup,
+              }}
+              onChange={(key) => setFormData({ ...formData, [key]: !formData[key] })}
+            />
           </div>
-        )}
-    </Card>
+        </ModalCard>
+      )}
+    </>
   );
 }

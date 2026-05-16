@@ -2,6 +2,22 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 
+/**
+ * @typedef {object} DropdownProps
+ * @property {Array<{value: string, label: string}>} options
+ * @property {string} value
+ * @property {(value: string) => void} onChange
+ * @property {string} [placeholder]
+ * @property {string} [label]
+ * @property {number} [width]
+ * @property {boolean} [fullWidth]
+ * @property {boolean} [disabled]
+ * @property {string} [bg]
+ * @property {string} [className]
+ * @property {string} [id]
+ */
+
+/** @param {DropdownProps} props */
 export default function Dropdown({
   options,
   value,

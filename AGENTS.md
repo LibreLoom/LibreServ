@@ -4,110 +4,139 @@
 
 | Command | Description |
 |---------|-------------|
-| `./ci` | Run full CI suite |
-| `make lint` | Format + lint Go code |
-| `npm run lint && npm run typecheck` | Lint + typecheck frontend |
+| `./ci` | Interactive CI runner (auto-builds if needed) |
+| `./ci run -profile full` | Run full CI suite non-interactively |
+| `cd server/backend && make lint` | Format check + vet Go code |
+| `cd server/frontend && npm run lint && npm run typecheck` | Lint + typecheck frontend |
 
 ---
 
-## Project Structure
+## Architecture
 
 ```
 LibreServ/
-├── server/backend/          # Go 1.26 backend (chi/v5 router)
-│   ├── cmd/libreserv/      # Entry point
+├── server/backend/           # Go 1.26 backend (chi/v5 router)
+│   ├── cmd/libreserv/        # Entry point
 │   ├── internal/
-│   │   ├── api/            # HTTP handlers + middleware
-│   │   ├── apps/           # App lifecycle management
-│   │   ├── audit/          # Audit logging
-│   │   ├── auth/           # JWT authentication
-│   │   ├── backup/         # Backup services
-│   │   ├── config/         # Config management
-│   │   ├── constants/      # Shared constants
-│   │   ├── database/       # SQLite + migrations
-│   │   ├── docker/         # Docker integration
-│   │   ├── email/          # Email sending
-│   │   ├── errors/         # Error types
-│   │   ├── jobqueue/       # Persistent job queue
-│   │   ├── jobs/           # Simple scheduler
-│   │   ├── license/        # License management
-│   │   ├── logger/         # Logging setup
-│   │   ├── monitoring/     # Health + metrics
-│   │   ├── network/        # Caddy, DNS, ACME
-│   │   ├── notify/         # Notifications
-│   │   ├── runtime/        # Container runtime abstraction
-│   │   ├── security/       # Security + validation
-│   │   ├── settings/       # DB-backed settings
-│   │   ├── setup/          # First-run setup
-│   │   ├── storage/        # Storage abstraction
-│   │   ├── support/        # Remote support sessions
-│   │   ├── system/         # Platform updates
-│   │   ├── util/           # Utility functions
-│   │   └── validation/     # Input validation
-│   ├── configs/            # YAML configuration
-│   ├── OS/dist/            # Embedded frontend (gitignored)
+│   │   ├── api/              # HTTP handlers + middleware + router
+│   │   │   ├── handlers/     # Endpoint handlers (dot-import response package)
+│   │   │   ├── middleware/   # Auth, CORS, CSRF, rate-limit, security headers
+│   │   │   └── response/    # JSONError, JSONResponse helpers
+│   │   ├── apps/             # App lifecycle + catalog
+│   │   ├── auth/             # JWT authentication
+│   │   ├── database/         # SQLite + migrations (internal/database/migrations/)
+│   │   ├── docker/           # Docker integration
+│   │   ├── network/          # Caddy, ACME, DNS providers, DDNS
+│   │   ├── storage/          # Backup service (restic + tar fallback)
+│   │   └── jobqueue/         # Background jobs
+│   ├── configs/              # YAML config (must copy .example → .yaml before run)
+│   ├── apps/builtin/         # App templates (7 apps: nextcloud, searxng, ollama, etc.)
+│   ├── OS/dist/              # Frontend build output (gitignored)
 │   └── Makefile
 │
-└── server/frontend/       # React 19 + Vite + Tailwind 4
-    └── src/
-        ├── components/     # UI components
-        ├── pages/          # Route pages (.jsx)
-        ├── hooks/          # Custom hooks
-        ├── context/        # React contexts
-        ├── layout/         # Layout components
-        └── utils/          # Utility functions
+├── server/frontend/          # React 19 + Vite 7 + Tailwind 4
+│   └── src/
+│       ├── pages/            # Route pages (.jsx, NOT .tsx)
+│       ├── hooks/            # Custom hooks (useAuth, useApps, etc.)
+│       ├── context/          # AuthContext, ThemeContext, ToastContext
+│       ├── components/       # UI components
+│       └── index.css         # Theme variables + Tailwind config
+│
+├── e2e-tests/                # Playwright E2E tests
+├── support/                  # Separate Go services (support-server, support-relay)
+└── ci-source/                # Custom CI runner source (./ci auto-builds from here)
 ```
 
 ---
 
-## Build Commands
+## Build & Run
 
 ### Backend
 ```bash
 cd server/backend
-make build              # Build binary to bin/libreserv
-make run                # Build and run (LIBRESERV_INSECURE_DEV=true)
-make test               # Run all tests
-make lint               # fmt-check + vet
-make security           # govulncheck + gosec + staticcheck
-make frontend-build     # Build frontend to OS/dist/
-BUILD_TAGS=embedfront make build  # Binary with embedded frontend
+cp configs/libreserv.yaml.example configs/libreserv.yaml   # Required first time
+make build                                    # → bin/libreserv
+make run                                      # Build + run with LIBRESERV_INSECURE_DEV=true
+make test                                     # All unit tests
+make lint                                     # gofmt check + go vet
+make security                                 # govulncheck + gosec + staticcheck
+make frontend-build                           # Install + build frontend to OS/dist/
+BUILD_TAGS=embedfront make build              # Binary with embedded frontend
+make restic-fetch                             # Download restic binary for backups
 ```
 
 ### Frontend
 ```bash
 cd server/frontend
-npm install             # Install dependencies
-npm run dev              # Dev server (Vite)
-npm run build            # Production build
-npm run lint             # ESLint
-npm run typecheck        # TypeScript checking
-npm test                 # Vitest tests
+npm install
+npm run dev                                   # Dev server on port 3000 (not default 5173)
+npm run build                                 # Production build → ../backend/OS/dist/
+npm run lint
+npm run typecheck                             # TypeScript checking (yes, on .jsx files)
+npm test                                      # Vitest (not Jest)
+npm run scan:colors                           # Detect hardcoded colors in UI code
+```
+
+### E2E Tests
+```bash
+cd e2e-tests
+npm install
+npx playwright install chromium
+npm test                                      # E2E_BASE_URL defaults to http://localhost:8080
 ```
 
 ---
 
-## Important Conventions
+## Conventions
+
+### PLAIN LANGUAGE (non-negotiable)
+
+LibreServ's users are **not technical**. The product goal is "99% of users shouldn't need a terminal." Every piece of user-facing text — error messages, UI labels, help text, setup wizards — must be written for someone who doesn't know what any of these acronyms mean:
+
+- **Never** expose raw technical terms in user-facing text without a plain-language gloss
+- **Never** assume the user knows where to find a credential, what a protocol does, or what an error code means
+- **Always** explain what to **do**, not just what went wrong. A bad error: `"SMTP connection refused"`. A good error: `"Could not connect to your email provider. Check that the server address and port are correct in Settings → Email."`
+- **Always** explain where a value comes from before asking for it. A bare input field labeled "API Token" is a failure. Say: `"Your API token is on cloudflare.com → Profile → API Tokens → Create Token."`
+- **Always** explain why something is needed, not just what it is. A user doesn't care what DNS is — they care that `"We need this so your apps can be reached at addresses like nextcloud.yourdomain.com instead of a numbered IP address."` Every settings field, every wizard step, every permission prompt must answer "why do you need this?" before asking for it.
+- Technical terms that need plain-language treatment at point of use: SMTP, SSH, DNS, ACME, TLS/HTTPS, CSRF, JWT, port, subdomain, Caddy, Docker, API, webhook, OIDC, DNS-01, DDNS
+
+This applies to frontend UI, API error messages shown to users, and any documentation a user might see. It does **not** apply to code comments, log entries, or internal developer docs.
 
 ### Go
-- HTTP router: `github.com/go-chi/chi/v5` (not gin)
-- Error response: `JSONError(w, statusCode, message)`
-- Auth context: `middleware.GetUserID(r.Context())`
 - Module path: `gt.plainskill.net/LibreLoom/LibreServ`
-- Always run `go fmt` before commit; `go vet` must pass
+- Router: `github.com/go-chi/chi/v5` (not gin)
+- Error response: `JSONError(w, statusCode, message)` — dot-imported from `internal/api/response`
+- Auth context: `middleware.GetUser(ctx)` returns `*middleware.User`, `middleware.GetUserID(ctx)` returns `(string, bool)`
+- Env var prefix: `LIBRESERV_` (viper), e.g. `LIBRESERV_SERVER_PORT`, `LIBRESERV_AUTH_JWT_SECRET`
+- Run `go fmt` before commit; `go vet` must pass
+- Integration tests: build tag `integration`, require Docker:
+  ```bash
+  go test -v -tags=integration ./tests/integration/...
+  ```
+- Race detector: `make test-race` targets middleware, auth, jobqueue only
 
 ### Frontend
-- Test runner: **Vitest** (not Jest)
-- CSS: Tailwind 4 with custom theme in `index.css`
-- File extensions: `.jsx` (not `.tsx`)
+- File extensions: `.jsx` (not `.tsx`) — but `npm run typecheck` still validates via JSDoc/TS-check
+- Test runner: **Vitest** (not Jest), uses `@testing-library/react` + jsdom
+- Vite dev port: **3000** (hardcoded, `strictPort: true`); proxies `/api` and `/health` to `localhost:8080`
+- Import order: React → Third-party → Local (include `.jsx` extension in imports)
 - Run `npm run scan:colors` when modifying UI to detect hardcoded colors
-- Import order: React → Third-party → Local (with `.jsx` extension)
 
-### Design
-- **Read branding repo** before working on UI: https://gt.plainskill.net/LibreLoom/libreloom-branding
-- Colors via CSS variables (theme-aware)
-- Border radius: pill `9999px`, large `24px`, card `12px`
-- **CRITICAL: Color contrast** - Cards use `bg-secondary text-primary`. Always check parent container's background before choosing colors. Use `text-primary` on card backgrounds, `text-secondary` on `bg-primary` elements
+### Design / Theme
+- **Read branding repo** before UI work: https://gt.plainskill.net/LibreLoom/libreloom-branding
+- Theme uses CSS custom properties that swap on `.dark` class:
+  - `--primary` = page background (white/light, black/dark)
+  - `--secondary` = text color (black/light, white/dark)
+  - `--accent` = subtle highlights (#767676 both modes)
+- Tailwind maps: `bg-primary`, `text-secondary`, `bg-accent`, etc.
+- **CRITICAL contrast rule**: Cards on `bg-primary` use `bg-secondary text-primary`. On `bg-secondary` surfaces, use `text-primary`. On `bg-primary` surfaces, use `text-secondary`.
+- Border radius: pill `9999px`, card/large `24px`
+- No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
+
+### Git
+- Hosting: Gitea at https://gt.plainskill.net (not GitHub)
+- Conventional commits: `feat(scope): description`, `fix(scope): description`
+- Branch naming: `task/T{id}-{desc}`, `fix/{desc}`, `feat/{desc}`
 
 ---
 
@@ -115,16 +144,26 @@ npm test                 # Vitest tests
 
 ### Backend
 ```bash
-go test -v ./...                         # All tests
-go test -v -run TestName ./package       # Specific test
-go test -race ./internal/auth            # Race detector
+cd server/backend
+go test ./...                                          # All unit tests
+go test -v -run TestName ./internal/apps               # Specific test
+go test -race ./internal/auth                           # Race detector
+go test -coverprofile=coverage.out ./cmd/... ./internal/...  # Coverage
 ```
 
 ### Frontend
 ```bash
-npm test -- src/hooks/useAuth.test.jsx    # Single test file
-npm test -- --coverage                    # With coverage
-npm test -- --watch                      # Watch mode
+cd server/frontend
+npm test                                               # All tests
+npm test -- src/hooks/useAuth.test.jsx                 # Single file
+npm test -- --coverage                                 # With coverage
+npm test -- --watch                                    # Watch mode
+```
+
+### Integration (requires Docker)
+```bash
+cd server/backend
+go test -v -tags=integration ./tests/integration/...
 ```
 
 ---
@@ -133,36 +172,28 @@ npm test -- --watch                      # Watch mode
 
 **New API endpoint:**
 1. Create handler in `internal/api/handlers/{resource}.go`
-2. Add route in `internal/api/router.go`
+2. Add route in `internal/api/router.go` (not server.go — routes live in router.go)
 3. Write test in `{resource}_test.go`
 
 **New frontend page:**
 1. Create `src/pages/{PageName}.jsx`
-2. Add route in `src/App.jsx`
+2. Add lazy-loaded route in `src/App.jsx`
 
-**Run application:**
+**Reset dev data:**
 ```bash
-cd server/frontend && npm install
-cd ../backend
-./libreserv.sh setup
-./libreserv.sh run
+rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 ```
 
 ---
 
 ## Key Notes
 
-- **Hosting:** Gitea at https://gt.plainskill.net (not GitHub)
-- **Database:** SQLite with migrations in `internal/database/migrations/`
-- **Docker:** Required for app runtime (`docker compose` v2)
-- **Config:** `server/backend/configs/libreserv.yaml`
-- **Frontend build output:** `server/backend/OS/dist/` (gitignored)
-- **Reset dev data:** `rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs`
-
----
-
-## Resources
-
-- [ROADMAP.md](ROADMAP.md) - Task list and project status
-- [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) - Detailed development guide
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Contribution workflow
+- **Database:** SQLite. Single migration file: `internal/database/migrations/001_schema.sql`
+- **Docker:** Required for app runtime (`docker compose` v2). Integration tests also need Docker.
+- **Config:** `server/backend/configs/libreserv.yaml` — must be created from `.example` before first run
+- **Secrets:** If `jwt_secret`/`csrf_secret` are empty at startup, LibreServ generates and persists them to the config file. If config is read-only, set `LIBRESERV_AUTH_JWT_SECRET` / `LIBRESERV_AUTH_CSRF_SECRET` env vars instead.
+- **Frontend build output:** `server/backend/OS/dist/` (gitignored). Production binaries with embedded frontend: `BUILD_TAGS=embedfront make build`
+- **Restic:** Backup system requires restic binary. `make restic-fetch` downloads it; `embedrestic` build tag bundles it in the binary.
+- **Caddy:** Reverse proxy for HTTPS. Mode can be `enabled`/`noop`/`disabled` in config. ACME certs via DNS-01 challenge.
+- **CI:** `./ci` is a custom Go binary. Auto-builds from `ci-source/` on first run. No GitHub Actions — all CI is local.
+- **No `libreserv.sh`** in repo — use `make run` from `server/backend/` for development instead

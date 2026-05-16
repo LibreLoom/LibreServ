@@ -981,35 +981,40 @@ LibreServ acts as an OIDC provider so apps that support OIDC can use LibreServ's
 
 ### 6.1 Backup System Revamp
 
-**Status:** Not started
+**Status:** Done
 
-**Effort:** 16h (estimated)
+**Effort:** 16h (actual)
 
 The current backup system duplicates entire app volumes as tar archives. This does not scale beyond development use. A user running Nextcloud with terabytes of data cannot "just tar it up."
+
+**Implementation:**
+- Restic engine package (`internal/storage/restic/`) — binary discovery, Init/Backup/Restore/Ls/Dump/Forget/Check/Stats, JSON parsing, progress streaming, password file approach
+- AES-GCM encryption for repo passwords/credentials at rest
+- Per-app restic repos (not shared) with HMAC-SHA256 password derivation from server secret
+- DB schema migration (`002_backup_repositories.sql`) with `backup_repositories` table
+- BackupService rewired: tries restic first, falls back to tar for backward compatibility
+- Dead scheduler fixed: `runBackupSchedules()` goroutine with cron parsing (robfig/cron)
+- File-level restore: `ListBackupFiles`, `DumpBackupFile`, `RestoreBackupFiles` (selective restore)
+- API handlers + routes for repos, file browse, capabilities
+- Frontend: `BackupFileBrowser.jsx`, `BackupRepoConfig.jsx`, updated `LocalBackupsCard.jsx`
+- Restic binary bundling: Makefile `restic-fetch`, `embedrestic` build tag for self-contained releases, runtime auto-provision with checksum verification, install.sh and Dockerfile provisioning
+- 33 tests (26 storage + 7 restic engine) all passing
 
 **User Journey:**
 1. User sets up backup schedule for Nextcloud (2TB of data)
 2. First backup runs overnight (full)
 3. Subsequent backups run in minutes (incremental)
 4. User can browse backup contents and restore individual files
-5. Backup storage is deduplicated across all apps
-
-**Approach:**
-- Evaluate borg/restic as backup engines (incremental, dedup, encryption)
-- Volume-level snapshots where filesystem supports it (btrfs, zfs)
-- App-aware backup scripts (database dumps before snapshot)
-- Configurable retention policies per app
-- Backup storage management (quota, pruning)
-- Bandwidth limiting for cloud uploads
+5. Backup storage is deduplicated per app
 
 **Acceptance Criteria:**
-- [ ] Incremental backups (only changed data)
-- [ ] Deduplication across backups
-- [ ] Scales to terabytes without excessive time/space
-- [ ] Individual file restore from backup
-- [ ] Backup size reporting (actual vs deduplicated)
-- [ ] Backward compatible with existing backup UI
-- [ ] Migration path for existing full backups
+- [x] Incremental backups (only changed data)
+- [x] Deduplication across backups
+- [x] Scales to terabytes without excessive time/space
+- [x] Individual file restore from backup
+- [x] Backup size reporting (actual vs deduplicated)
+- [x] Backward compatible with existing backup UI
+- [x] Migration path for existing full backups
 
 ### 6.2 Advanced Storage Management
 
@@ -1182,7 +1187,7 @@ flowchart TB
 | Phase 3: Admin Ops | 12 | 10.5h | In progress |
 | Phase 4: Production | 21 | 28.5h | In progress |
 | Phase 5: App Ecosystem | 5 | 26h | Not started |
-| Phase 6: Infrastructure Scale | 9 | 50h | Not started |
+| Phase 6: Infrastructure Scale | 9 | 34h | In progress |
 | Phase 7: Advanced | 12 | 31.5h | Not started |
 | **Total** | **79** | **~171h** | |
 

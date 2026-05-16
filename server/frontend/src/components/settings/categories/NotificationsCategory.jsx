@@ -5,6 +5,8 @@ import Toggle from "../../common/Toggle";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import Alert from "../../common/Alert";
+import ValueDisplay from "../../common/ValueDisplay";
+import Pill from "../../common/Pill";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import ConfirmModal from "../../common/ConfirmModal";
@@ -128,26 +130,22 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
   if (!smtpConfigured) {
     return (
       <SettingsCard icon={Mail} title="Email (SMTP)" index={0}>
-        <div className="px-5 py-4 flex justify-center">
-          <div className="w-full max-w-sm rounded-large-element border border-primary/10 bg-secondary overflow-hidden">
-            <div className="px-8 py-12 flex flex-col items-center text-center">
-              <div className="inline-flex items-center gap-4 px-8 py-4 rounded-pill bg-accent/15 text-accent mb-8 border border-accent/20">
-                <Mail size={28} />
-                <span className="font-mono text-lg tracking-wide">Not Configured</span>
-              </div>
-              <p className="text-sm text-primary/60 max-w-xs mb-8 leading-relaxed">
-                LibreServ needs an email provider to deliver password resets and notifications. Since you control your own server, you choose who sends on your behalf.
-              </p>
-              <Button
-                variant="primary"
-                onClick={onReconfigure}
-                className="w-full"
-              >
-                <ExternalLink size={16} />
-                Configure SMTP
-              </Button>
-            </div>
+        <div className="flex flex-col items-center text-center py-8">
+          <div className="inline-flex items-center gap-4 px-8 py-4 rounded-pill bg-accent/15 text-accent mb-8 border border-accent/20">
+            <Mail size={28} />
+            <span className="font-mono text-lg tracking-wide">Not Configured</span>
           </div>
+          <p className="text-sm text-primary/60 max-w-xs mb-8 leading-relaxed">
+            LibreServ needs an email provider to deliver password resets and notifications. Since you control your own server, you choose who sends on your behalf.
+          </p>
+          <Button
+            variant="primary"
+            onClick={onReconfigure}
+            className="w-full max-w-sm"
+          >
+            <ExternalLink size={16} />
+            Configure SMTP
+          </Button>
         </div>
       </SettingsCard>
     );
@@ -155,58 +153,40 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
 
   return (
     <>
-      <SettingsCard icon={Mail} title="Email (SMTP)" index={0}>
-        <div className="px-5 py-4">
-          <div className="rounded-large-element border border-primary/10 bg-secondary overflow-hidden">
-            <div className="px-4 py-3.5 space-y-4">
-              <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-primary/60 font-mono">Status</span>
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill bg-accent/20 text-accent text-xs font-mono">
-                    <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                    Connected
-                  </div>
-                </div>
+      <SettingsCard icon={Mail} title="Email (SMTP)" padding={false} index={0}>
+        <div className="px-4 pb-4 pt-3 space-y-2">
+          <div className="flex items-center justify-between py-2 px-3 border border-primary/10 rounded-large-element bg-primary/5">
+            <span className="text-sm text-primary font-medium">Status</span>
+            <Pill variant="accent">
+              <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+              Connected
+            </Pill>
+          </div>
+          <ValueDisplay label="Provider" value={providerLabel} />
+          <ValueDisplay label="Server" value={host} />
+          <ValueDisplay label="From" value={from} />
 
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-primary/60 font-mono">Provider</span>
-                  <span className="text-sm text-primary/80 font-mono">{providerLabel}</span>
-                </div>
+          <div className="flex gap-3 pt-2">
+            <Button
+              variant="accent"
+              className="flex-1"
+              onClick={onReconfigure}
+            >
+              Change SMTP
+            </Button>
+            <Button
+              variant="danger"
+              className="flex-1"
+              onClick={() => setShowDisconnectModal(true)}
+            >
+              Disconnect
+            </Button>
+          </div>
 
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-primary/60 font-mono">Server</span>
-                  <span className="text-sm text-primary/80 font-mono">{host}</span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-primary/60 font-mono">From</span>
-                  <span className="text-sm text-primary/80 font-mono truncate ml-4">{from}</span>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <Button
-                  variant="accent"
-                  className="flex-1"
-                  onClick={onReconfigure}
-                >
-                  Change SMTP
-                </Button>
-                <Button
-                  variant="danger"
-                  className="flex-1"
-                  onClick={() => setShowDisconnectModal(true)}
-                >
-                  Disconnect
-                </Button>
-              </div>
-
-              <div className="flex items-start gap-2 px-3 py-2.5 rounded-pill bg-warning/10 border border-warning/20">
-                <ShieldAlert size={16} className="text-warning mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-warning leading-relaxed">
-                  <strong className="font-mono">Warning:</strong> Disconnecting will disable all email notifications, password resets, and welcome emails.
-                </div>
-              </div>
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-pill bg-warning/10 border border-warning/20">
+            <ShieldAlert size={16} className="text-warning mt-0.5 flex-shrink-0" />
+            <div className="text-xs text-warning leading-relaxed">
+              <strong className="font-mono">Warning:</strong> Disconnecting will disable all email notifications, password resets, and welcome emails.
             </div>
           </div>
         </div>

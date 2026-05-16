@@ -88,6 +88,10 @@ CREATE TABLE IF NOT EXISTS backups (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     checksum TEXT,
     source TEXT DEFAULT 'local' CHECK(source IN ('local', 'uploaded', 'cloud')),
+    format TEXT DEFAULT 'tar',
+    snapshot_id TEXT,
+    repo_id TEXT,
+    data_added INTEGER DEFAULT 0,
     FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE SET NULL
 );
 
@@ -133,28 +137,20 @@ CREATE TABLE IF NOT EXISTS backup_schedules (
     FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
 );
 
--- Cloud backup configuration
-CREATE TABLE IF NOT EXISTS cloud_backup_config (
+-- Backup repositories: restic-backed local or cloud repos
+CREATE TABLE IF NOT EXISTS backup_repositories (
     id TEXT PRIMARY KEY,
-    provider TEXT NOT NULL,
-    bucket TEXT,
-    region TEXT,
-    key_id TEXT,
-    key_secret TEXT,
-    endpoint TEXT,
-    enabled INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
--- Cloud backups tracking
-CREATE TABLE IF NOT EXISTS cloud_backups (
-    id TEXT PRIMARY KEY,
-    backup_id TEXT NOT NULL,
-    remote_path TEXT NOT NULL,
-    size INTEGER DEFAULT 0,
-    uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (backup_id) REFERENCES backups(id) ON DELETE CASCADE
+    app_id TEXT,
+    repo_type TEXT NOT NULL CHECK(repo_type IN ('local', 's3', 'b2', 'sftp')),
+    repo_path TEXT NOT NULL,
+    password TEXT NOT NULL,
+    credentials TEXT,
+    is_system BOOLEAN DEFAULT 0,
+    limit_upload_kbps INTEGER DEFAULT 0,
+    limit_download_kbps INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
 );
 
 -- Token revocation table
@@ -350,9 +346,9 @@ CREATE INDEX IF NOT EXISTS idx_backup_schedules_app ON backup_schedules(app_id);
 CREATE INDEX IF NOT EXISTS idx_backup_schedules_enabled ON backup_schedules(enabled);
 CREATE INDEX IF NOT EXISTS idx_backup_schedules_next_run ON backup_schedules(next_run);
 
--- Cloud backups indexes
-CREATE INDEX IF NOT EXISTS idx_cloud_backups_backup_id ON cloud_backups(backup_id);
-CREATE INDEX IF NOT EXISTS idx_cloud_backups_uploaded_at ON cloud_backups(uploaded_at);
+-- Backup repositories indexes
+CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(app_id);
+CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type);
 
 -- Token revocation indexes
 CREATE INDEX IF NOT EXISTS idx_revoked_tokens_jti ON revoked_tokens(token_jti);
