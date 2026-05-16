@@ -232,7 +232,16 @@ func (s *Scheduler) runBackupSchedules() {
 		s.runningBackups[schedule.AppID] = true
 		s.mu.Unlock()
 
-		go func(sc storage.BackupSchedule) {
+		// Compute and persist NextRun BEFORE launching the goroutine so that
+		// a restart mid-backup does not re-trigger the same schedule. The old
+		// code only set NextRun after the backup completed, meaning a crash or
+		// restart would see a stale (past-due) next_run and launch a duplicate.
+		nextRun := parsed.Next(now)
+		if err := s.backupService.UpdateScheduleNextRun(context.Background(), schedule.ID, now, nextRun); err != nil {
+			s.logger.Error("Failed to update schedule next_run before backup", "schedule_id", schedule.ID, "error", err)
+		}
+
+		go func(sc storage.BackupSchedule, computedNextRun time.Time) {
 			defer func() {
 				s.mu.Lock()
 				delete(s.runningBackups, sc.AppID)
@@ -250,6 +259,10 @@ func (s *Scheduler) runBackupSchedules() {
 				subject := fmt.Sprintf("[LibreServ] Scheduled Backup FAILED: %s", sc.AppID)
 				body := fmt.Sprintf("The scheduled backup for app %s failed.\n\nError: %v", sc.AppID, err)
 				_ = s.notify.AdminNotify(backupCtx, subject, body)
+
+				// On failure, reschedule from the original next_run so the
+				// schedule stays on its normal cadence (not from failure time).
+				_ = s.backupService.UpdateScheduleNextRun(backupCtx, sc.ID, now, computedNextRun)
 			} else {
 				s.logger.Info("Scheduled backup completed", "app_id", sc.AppID, "schedule_id", sc.ID, "duration", result.Duration)
 
@@ -258,10 +271,9 @@ func (s *Scheduler) runBackupSchedules() {
 						s.logger.Error("Failed to cleanup old backups", "app_id", sc.AppID, "error", err)
 					}
 				}
+				// NextRun was already persisted before the goroutine started,
+				// so no further update is needed on success.
 			}
-
-			nextRun := parsed.Next(now)
-			s.backupService.UpdateScheduleNextRun(backupCtx, sc.ID, now, nextRun)
-		}(schedule)
+		}(schedule, nextRun)
 	}
 }

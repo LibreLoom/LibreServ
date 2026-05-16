@@ -17,10 +17,11 @@ export function SessionExpiredProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    window.__triggerSessionExpired = handleShow;
-    
+    const onSessionExpired = () => handleShow();
+    document.addEventListener("libreserv:session-expired", onSessionExpired);
+
     return () => {
-      window.__triggerSessionExpired = null;
+      document.removeEventListener("libreserv:session-expired", onSessionExpired);
     };
   }, [handleShow]);
 

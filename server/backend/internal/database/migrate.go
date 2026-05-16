@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"embed"
 	"fmt"
 	"log/slog"
@@ -266,10 +267,30 @@ func (d *DB) reconcileSchema() error {
 		}
 	}
 
-	// Drop deprecated tables
+	// Migrate data from deprecated tables before dropping them.
+	// cloud_backup_config → backup_repositories (config data maps cleanly).
+	if existingTables["cloud_backup_config"] {
+		d.migrateCloudBackupConfig()
+	}
+
+	// cloud_backups tracked remote-upload metadata (backup_id → remote_path,
+	// uploaded_at) — it was NOT a standalone backup record. The actual backup
+	// data already lives in the backups table, so there is nothing meaningful
+	// to migrate. We log the row count for visibility and drop the table.
+	if existingTables["cloud_backups"] {
+		var count int
+		if err := d.db.QueryRow(`SELECT COUNT(*) FROM cloud_backups`).Scan(&count); err == nil && count > 0 {
+			slog.Warn("Dropping cloud_backups table with data (upload-tracking metadata, not restorable backups)",
+				"rows", count,
+				"note", "actual backup records are already in the backups table")
+		}
+	}
+
+	// Drop deprecated tables (data migrated or logged above)
 	deprecatedTables := []string{"cloud_backup_config", "cloud_backups"}
 	for _, table := range deprecatedTables {
 		if existingTables[table] {
+			slog.Warn("Dropping deprecated table", "table", table)
 			if _, err := d.db.Exec(fmt.Sprintf(`DROP TABLE IF EXISTS "%s"`, table)); err != nil {
 				slog.Warn("Failed to drop deprecated table", "table", table, "error", err)
 			}
@@ -331,4 +352,103 @@ var validIdentifierRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func isValidIdentifier(name string) bool {
 	return validIdentifierRe.MatchString(name)
+}
+
+// migrateCloudBackupConfig migrates rows from the deprecated cloud_backup_config
+// table into backup_repositories. Rows that cannot be migrated (e.g. missing
+// required fields) are logged and skipped rather than blocking startup.
+func (d *DB) migrateCloudBackupConfig() {
+	// Check if there's any data to migrate
+	var count int
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM cloud_backup_config`).Scan(&count)
+	if err != nil {
+		slog.Warn("Could not count cloud_backup_config rows (skipping migration)", "error", err)
+		return
+	}
+	if count == 0 {
+		slog.Info("cloud_backup_config is empty, no data to migrate")
+		return
+	}
+
+	slog.Info("Migrating cloud_backup_config data to backup_repositories", "rows", count)
+
+	// Inspect available columns — older schemas may not have all fields.
+	cols := d.getExistingColumns()
+	ccCols := cols["cloud_backup_config"]
+
+	// Build query dynamically based on what columns exist
+	selectCols := []string{"id"}
+	if ccCols["app_id"] {
+		selectCols = append(selectCols, "app_id")
+	}
+	if ccCols["repo_type"] {
+		selectCols = append(selectCols, "repo_type")
+	} else {
+		selectCols = append(selectCols, "'s3' AS repo_type")
+	}
+	if ccCols["repo_path"] {
+		selectCols = append(selectCols, "repo_path")
+	} else {
+		selectCols = append(selectCols, "'' AS repo_path")
+	}
+	if ccCols["password"] {
+		selectCols = append(selectCols, "password")
+	} else {
+		selectCols = append(selectCols, "'' AS password")
+	}
+	if ccCols["credentials"] {
+		selectCols = append(selectCols, "credentials")
+	} else {
+		selectCols = append(selectCols, "NULL AS credentials")
+	}
+	if ccCols["created_at"] {
+		selectCols = append(selectCols, "created_at")
+	} else {
+		selectCols = append(selectCols, "CURRENT_TIMESTAMP AS created_at")
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM cloud_backup_config", strings.Join(selectCols, ", "))
+	rows, err := d.db.Query(query)
+	if err != nil {
+		slog.Error("Failed to query cloud_backup_config for migration", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	migrated, skipped := 0, 0
+	for rows.Next() {
+		var id, repoType, repoPath, password, createdAt string
+		var appID, credentials sql.NullString
+
+		if err := rows.Scan(&id, &appID, &repoType, &repoPath, &password, &credentials, &createdAt); err != nil {
+			slog.Error("Failed to scan cloud_backup_config row", "error", err)
+			skipped++
+			continue
+		}
+
+		if repoPath == "" {
+			slog.Warn("Skipping cloud_backup_config row with empty repo_path", "id", id)
+			skipped++
+			continue
+		}
+
+		var appIDVal interface{}
+		if appID.Valid && appID.String != "" {
+			appIDVal = appID.String
+		}
+
+		_, err := d.db.Exec(`
+			INSERT OR IGNORE INTO backup_repositories
+				(id, app_id, repo_type, repo_path, password, credentials, is_system, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+			id, appIDVal, repoType, repoPath, password, credentials, createdAt, createdAt)
+		if err != nil {
+			slog.Error("Failed to migrate cloud_backup_config row", "id", id, "error", err)
+			skipped++
+			continue
+		}
+		migrated++
+	}
+
+	slog.Info("cloud_backup_config migration complete", "migrated", migrated, "skipped", skipped)
 }

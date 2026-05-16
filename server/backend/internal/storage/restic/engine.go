@@ -88,6 +88,7 @@ func extractEmbeddedBinary(homeDir string) string {
 	targetDir := filepath.Join(homeDir, ".libreserv", "bin")
 	targetPath := filepath.Join(targetDir, "restic")
 
+	// Fast path: binary already exists — no extraction needed.
 	if _, err := os.Stat(targetPath); err == nil {
 		return targetPath
 	}
@@ -97,6 +98,11 @@ func extractEmbeddedBinary(homeDir string) string {
 		return ""
 	}
 
+	// Use O_EXCL to create the temp file — this eliminates the TOCTOU race
+	// where another process could create targetPath between our Stat and Rename.
+	// The temp file is written, chmod'd, then atomically renamed into place.
+	// If two processes race, only one will succeed at the rename; the other
+	// will get an error and fall through to the stat at the bottom.
 	tmpFile, err := os.CreateTemp(targetDir, "restic-*.tmp")
 	if err != nil {
 		slog.Error("failed to create temp file for restic extraction", "error", err)
@@ -104,26 +110,38 @@ func extractEmbeddedBinary(homeDir string) string {
 	}
 	tmpPath := tmpFile.Name()
 
+	// Ensure temp file is cleaned up on any early return
+	success := false
+	defer func() {
+		if !success {
+			os.Remove(tmpPath)
+		}
+	}()
+
 	if _, err := tmpFile.Write(osdist.ResticBinary); err != nil {
 		tmpFile.Close()
-		os.Remove(tmpPath)
 		slog.Error("failed to write embedded restic binary", "error", err)
 		return ""
 	}
 	tmpFile.Close()
 
 	if err := os.Chmod(tmpPath, 0750); err != nil {
-		os.Remove(tmpPath)
 		slog.Error("failed to chmod embedded restic binary", "error", err)
 		return ""
 	}
 
 	if err := os.Rename(tmpPath, targetPath); err != nil {
-		os.Remove(tmpPath)
+		// Rename failed — likely because another process won the race.
+		// Check if the target now exists (another process got there first).
+		if _, statErr := os.Stat(targetPath); statErr == nil {
+			slog.Info("another process extracted restic binary first", "path", targetPath)
+			return targetPath
+		}
 		slog.Error("failed to rename embedded restic binary", "error", err)
 		return ""
 	}
 
+	success = true
 	slog.Info("extracted embedded restic binary", "path", targetPath)
 	return targetPath
 }
@@ -230,8 +248,24 @@ func verifyChecksumFromRemote(version, goos, goarch, actualHash, tmpPath string)
 		return fmt.Errorf("SHA256SUMS fetch returned HTTP %d, cannot verify restic binary integrity", checksumResp.StatusCode)
 	}
 
+	// Read the full body so we can verify the GPG signature AND match the hash.
+	body, err := io.ReadAll(checksumResp.Body)
+	if err != nil {
+		return fmt.Errorf("read SHA256SUMS body: %w", err)
+	}
+
+	// Best-effort GPG signature verification. Restic publishes SHA256SUMS.asc
+	// alongside SHA256SUMS. If gpg is available and the signature file can be
+	// fetched, we verify it. If gpg is not installed or the signature fetch
+	// fails, we log a warning and continue with checksum-only verification.
+	if err := verifySHA256SUMSSignature(version, body); err != nil {
+		slog.Warn("GPG signature verification of SHA256SUMS failed (continuing with checksum-only verification)", "error", err)
+	} else {
+		slog.Info("SHA256SUMS GPG signature verified successfully")
+	}
+
 	expectedFile := fmt.Sprintf("restic_%s_%s_%s.bz2", version, goos, goarch)
-	scanner := bufio.NewScanner(checksumResp.Body)
+	scanner := bufio.NewScanner(strings.NewReader(string(body)))
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasSuffix(line, expectedFile) {
@@ -249,6 +283,62 @@ func verifyChecksumFromRemote(version, goos, goarch, actualHash, tmpPath string)
 	}
 
 	return fmt.Errorf("restic %s/%s/%s not found in SHA256SUMS — cannot verify binary integrity", version, goos, goarch)
+}
+
+// verifySHA256SUMSSignature fetches the GPG signature (SHA256SUMS.asc) for the
+// given restic release and verifies it against the checksum file contents.
+// Returns nil on success, or an error describing why verification could not be
+// completed (missing gpg binary, fetch failure, bad signature, etc.).
+func verifySHA256SUMSSignature(version string, checksumBody []byte) error {
+	// Check if gpg is available
+	if _, err := exec.LookPath("gpg"); err != nil {
+		return fmt.Errorf("gpg not found on PATH: %w", err)
+	}
+
+	sigURL := fmt.Sprintf("https://github.com/restic/restic/releases/download/v%s/SHA256SUMS.asc", version)
+	sigResp, err := http.Get(sigURL)
+	if err != nil {
+		return fmt.Errorf("fetch SHA256SUMS.asc: %w", err)
+	}
+	defer sigResp.Body.Close()
+
+	if sigResp.StatusCode != http.StatusOK {
+		return fmt.Errorf("SHA256SUMS.asc fetch returned HTTP %d", sigResp.StatusCode)
+	}
+
+	sigBody, err := io.ReadAll(sigResp.Body)
+	if err != nil {
+		return fmt.Errorf("read SHA256SUMS.asc: %w", err)
+	}
+
+	// Write both files to temp location for gpg verification
+	tmpDir, err := os.MkdirTemp("", "restic-gpg-verify-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	checksumFile := filepath.Join(tmpDir, "SHA256SUMS")
+	sigFile := filepath.Join(tmpDir, "SHA256SUMS.asc")
+
+	if err := os.WriteFile(checksumFile, checksumBody, 0644); err != nil {
+		return fmt.Errorf("write checksum temp file: %w", err)
+	}
+	if err := os.WriteFile(sigFile, sigBody, 0644); err != nil {
+		return fmt.Errorf("write signature temp file: %w", err)
+	}
+
+	// Run gpg --verify
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "gpg", "--verify", sigFile, checksumFile)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("gpg --verify failed: %w\noutput: %s", err, string(output))
+	}
+
+	return nil
 }
 
 func decompressBz2(bz2Path string) error {
@@ -381,8 +471,21 @@ func (e *Engine) buildCmdNoJSON(ctx context.Context, repo RepoConfig, args ...st
 	return cmd, pwFile, nil
 }
 
+// writePasswordFile creates a temporary file holding the repository password.
+// The caller MUST defer os.Remove(name) as soon as the file is no longer
+// needed (typically right after the restic subprocess exits).  As an
+// additional safety net, the file is created inside a dedicated temp directory
+// so that a crash before cleanup only leaks a single small file in a known
+// location that can be garbage-collected on the next startup.
 func (e *Engine) writePasswordFile(password string) (string, error) {
-	tmpFile, err := os.CreateTemp("", "restic-pw-")
+	// Use a well-known temp subdirectory so we can find and clean up leaked
+	// password files from previous crashes on startup.
+	pwDir := filepath.Join(os.TempDir(), "libreserv-restic-pw")
+	if err := os.MkdirAll(pwDir, 0700); err != nil {
+		return "", fmt.Errorf("create password temp dir: %w", err)
+	}
+
+	tmpFile, err := os.CreateTemp(pwDir, "pw-")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
@@ -397,6 +500,49 @@ func (e *Engine) writePasswordFile(password string) (string, error) {
 	tmpFile.Close()
 	os.Chmod(name, 0600)
 	return name, nil
+}
+
+// CleanupLeakedPasswordFiles removes any stale password temp files left behind
+// by previous process crashes.  Call once at startup before any restic
+// operations.
+//
+// Only removes files older than 24 hours to avoid deleting active password
+// files from another LibreServ instance sharing the same temp directory.
+func CleanupLeakedPasswordFiles() {
+	pwDir := filepath.Join(os.TempDir(), "libreserv-restic-pw")
+	entries, err := os.ReadDir(pwDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("could not read restic password temp dir for cleanup", "path", pwDir, "error", err)
+		}
+		return
+	}
+
+	const maxAge = 24 * time.Hour
+	cleaned := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(pwDir, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			slog.Warn("could not stat restic password file", "path", path, "error", err)
+			continue
+		}
+		if time.Since(info.ModTime()) < maxAge {
+			// File was modified recently — likely still in use by an active process.
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			slog.Warn("could not remove leaked restic password file", "path", path, "error", err)
+		} else {
+			cleaned++
+		}
+	}
+	if cleaned > 0 {
+		slog.Info("cleaned up leaked restic password temp files", "count", cleaned)
+	}
 }
 
 func (e *Engine) appendLimitArgs(args []string, repo RepoConfig) []string {

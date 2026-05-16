@@ -32,6 +32,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
 )
@@ -125,6 +126,9 @@ func main() {
 	monitor := monitoring.NewMonitor(db, runtimeClient, cfg.Apps.DataPath)
 	monitor.Start()
 	defer monitor.Stop()
+
+	// Clean up leaked restic password temp files from previous crashes.
+	restic.CleanupLeakedPasswordFiles()
 
 	backupBase := filepath.Join(cfg.Apps.DataPath, "backups")
 	backupService := storage.NewBackupService(db, dockerClient, backupBase, cfg.Apps.DataPath)

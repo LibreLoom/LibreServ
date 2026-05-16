@@ -83,20 +83,25 @@ function formatNextRun(cronExpr) {
   if (parts.length !== 5) return "Invalid schedule";
 
   const [, hour, , , dayOfWeek] = parts;
+  const [minute] = parts;
+  const m = parseInt(minute) || 0;
+  const mm = String(m).padStart(2, "0");
+
+  function formatTime(h) {
+    if (h === 0) return `12:${mm} AM`;
+    if (h === 12) return `12:${mm} PM`;
+    return h > 12 ? `${h - 12}:${mm} PM` : `${h}:${mm} AM`;
+  }
 
   if (dayOfWeek === "*" && hour.startsWith("*/")) {
     const interval = hour.replace("*/", "");
-    return `Every ${interval} hours`;
+    return m > 0 ? `Every ${interval} hours at :${mm}` : `Every ${interval} hours`;
   }
   if (dayOfWeek !== "*") {
     const dayNames = { "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday", "4": "Thursday", "5": "Friday", "6": "Saturday" };
-    const h = parseInt(hour);
-    const timeStr = h === 0 ? "12:00 AM" : h === 12 ? "12:00 PM" : h > 12 ? `${h - 12}:00 PM` : `${h}:00 AM`;
-    return `${dayNames[dayOfWeek] || dayOfWeek} at ${timeStr}`;
+    return `${dayNames[dayOfWeek] || dayOfWeek} at ${formatTime(parseInt(hour))}`;
   }
-  const h = parseInt(hour);
-  const timeStr = h === 0 ? "12:00 AM" : h === 12 ? "12:00 PM" : h > 12 ? `${h - 12}:00 PM` : `${h}:00 AM`;
-  return `Daily at ${timeStr}`;
+  return `Daily at ${formatTime(parseInt(hour))}`;
 }
 
 function inputClass() {
@@ -355,26 +360,26 @@ export default function ScheduleForm() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                   <button
-                     onClick={() => handleEdit(schedule)}
-                     title="Edit schedule"
-                     className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
-                     aria-label="Edit schedule"
-                   >
-                     <span className="opacity-50"><Edit2 size={14} className="text-accent" aria-hidden="true" /></span>
-                   </button>
-                   <button
-                     onClick={() => handleDelete(schedule)}
-                     disabled={deleting === schedule.id}
-                     title="Delete schedule"
-                     className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all disabled:opacity-50"
-                     aria-label="Delete schedule"
-                   >
-                     {deleting === schedule.id ? (
-                       <Loader2 size={14} className="animate-spin text-accent" aria-hidden="true" />
-                     ) : (
-                       <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
-                     )}
+                  <button
+                    onClick={() => handleEdit(schedule)}
+                    title="Edit schedule"
+                    className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
+                    aria-label="Edit schedule"
+                  >
+                    <Edit2 size={14} className="text-accent opacity-50" aria-hidden="true" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(schedule)}
+                    disabled={deleting === schedule.id}
+                    title="Delete schedule"
+                    className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all disabled:opacity-50"
+                    aria-label="Delete schedule"
+                  >
+                    {deleting === schedule.id ? (
+                      <Loader2 size={14} className="animate-spin text-accent" aria-hidden="true" />
+                    ) : (
+                      <Trash2 size={14} className="text-accent opacity-50" aria-hidden="true" />
+                    )}
                   </button>
                 </div>
               </div>
