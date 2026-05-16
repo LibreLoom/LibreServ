@@ -190,7 +190,7 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 			if passed+failed+skipped >= len(testsToRun) && len(results) >= len(testsToRun) {
 				goto done
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
 

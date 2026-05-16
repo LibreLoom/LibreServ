@@ -64,7 +64,16 @@ export default async function api(path, options = {}, retried = false) {
     }
   }
   if (!res.ok && !options.allowNonOk) {
-    throw new Error(`Request failed with status: ${res.status}`, {
+    let message = `Request failed with status: ${res.status}`;
+    try {
+      const body = await res.clone().json();
+      if (body.error || body.message) {
+        message = body.error || body.message;
+      }
+    } catch {
+      // Response body wasn't JSON; fall back to status-only message
+    }
+    throw new Error(message, {
       cause: {
         status: res.status,
         response: res,

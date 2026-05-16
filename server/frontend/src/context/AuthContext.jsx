@@ -53,7 +53,7 @@ export function AuthProvider({ children }) {
     return () => {
       isMounted = false;
     };
-  }, [navigate, location.pathname]);
+  }, [navigate]);
 
   const login = useCallback(async (username, password) => {
     await api("/auth/login", {

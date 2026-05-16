@@ -57,7 +57,10 @@ func main() {
 	}
 	hmacKey := []byte(os.Getenv("RELAY_HMAC_SECRET"))
 	if len(hmacKey) == 0 {
-		log.Printf("warning: RELAY_HMAC_SECRET not set; connections are not authenticated")
+		if os.Getenv("RELAY_INSECURE_DEV") != "true" {
+			log.Fatal("RELAY_HMAC_SECRET must be set. Set RELAY_INSECURE_DEV=true to allow running without authentication (development only).")
+		}
+		log.Printf("WARNING: running without authentication — development mode only")
 	}
 
 	srv := &relayServer{

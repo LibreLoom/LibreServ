@@ -53,6 +53,13 @@ func main() {
 		addr = defaultListen
 	}
 
+	if adminToken == "" && deviceToken == "" {
+		if os.Getenv("SUPPORT_INSECURE_DEV") != "true" {
+			log.Fatal("SUPPORT_ADMIN_TOKEN and SUPPORT_DEVICE_TOKEN must be set. Set SUPPORT_INSECURE_DEV=true to allow running without authentication (development only).")
+		}
+		log.Printf("WARNING: running without authentication — development mode only")
+	}
+
 	s := &store{cases: make(map[string]*SupportCase)}
 	mux := http.NewServeMux()
 
@@ -130,6 +137,7 @@ func main() {
 func authHandler(adminToken, deviceToken string, next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if adminToken == "" && deviceToken == "" {
+			log.Printf("WARNING: request served without authentication (no tokens configured)")
 			next.ServeHTTP(w, r)
 			return
 		}

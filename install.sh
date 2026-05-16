@@ -394,7 +394,8 @@ download_binary() {
         fi
         rm -f /tmp/SHA256SUMS.txt
     else
-        log_warn "Could not download checksums, skipping verification"
+        log_error "Could not download checksums. Verification is required for security. Check your network connection and that the release includes SHA256SUMS.txt"
+        exit 1
     fi
 
     chmod +x "${INSTALL_DIR}/libreserv"
@@ -437,7 +438,7 @@ download_catalog() {
 
     log_info "Downloading app catalog..."
     if curl -fsSL "${CATALOG_URL}" -o "/tmp/catalog.tar.gz" 2>/dev/null; then
-        tar -xzf /tmp/catalog.tar.gz -C "${CATALOG_DIR}"
+        tar -xzf /tmp/catalog.tar.gz -C "${CATALOG_DIR}" --exclude='..'
         rm -f /tmp/catalog.tar.gz
         chown -R "${USER}:${USER}" "${CATALOG_DIR}"
         chmod 755 "${CATALOG_DIR}"
