@@ -506,7 +506,7 @@ Wires the install completion → Caddy route creation → certificate request in
 
 #### T3.1.9. Setup Wizards: Dead-Simple Step-by-Step UX
 
-**Status:** Not started
+**Status:** In progress (SMTP wizard implemented, domain wizard needs UX pass)
 
 **Effort:** 8h
 
