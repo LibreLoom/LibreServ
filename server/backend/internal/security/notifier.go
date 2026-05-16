@@ -25,11 +25,16 @@ func (n *EmailNotifier) IsConfigured() bool {
 	return err == nil && sender != nil
 }
 
-// SendNotification sends an email notification
+// SendNotification sends an email notification (HTML if possible, plaintext fallback)
 func (n *EmailNotifier) SendNotification(recipients []string, subject, body string) error {
 	sender, err := n.getSender()
 	if err != nil {
 		return fmt.Errorf("email not configured: %w", err)
+	}
+
+	htmlBody, htmlErr := email.RenderHTMLEmail(subject, body, map[string]interface{}{})
+	if htmlErr == nil {
+		return sender.SendHTMLEmail(recipients, subject, htmlBody)
 	}
 
 	return sender.Send(recipients, subject, body)

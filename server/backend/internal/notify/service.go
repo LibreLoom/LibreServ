@@ -39,8 +39,15 @@ func (s *Service) NotifySpecific(recipients []string, subject, body string) erro
 		return nil
 	}
 
-	if err := s.email.Send(recipients, subject, body); err != nil {
-		return fmt.Errorf("failed to send notification email: %w", err)
+	htmlBody, htmlErr := email.RenderHTMLEmail(subject, body, map[string]interface{}{})
+	if htmlErr != nil {
+		s.logger.Warn("Failed to render HTML email, falling back to plaintext", "error", htmlErr)
+		return s.email.Send(recipients, subject, body)
+	}
+
+	if err := s.email.SendHTMLEmail(recipients, subject, htmlBody); err != nil {
+		s.logger.Warn("Failed to send HTML email, falling back to plaintext", "error", err)
+		return s.email.Send(recipients, subject, body)
 	}
 
 	s.logger.Info("Notification sent", "recipients", len(recipients), "subject", subject)
@@ -49,6 +56,11 @@ func (s *Service) NotifySpecific(recipients []string, subject, body string) erro
 
 // AdminNotify sends a notification to all administrators
 func (s *Service) AdminNotify(ctx context.Context, subject, body string) error {
+	return s.AdminNotifyWithData(ctx, subject, body, nil)
+}
+
+// AdminNotifyWithData sends a notification to all administrators with optional template data
+func (s *Service) AdminNotifyWithData(ctx context.Context, subject, body string, data map[string]interface{}) error {
 	if s.email == nil {
 		s.logger.Debug("Email sender not configured, skipping admin notification")
 		return nil
@@ -64,8 +76,19 @@ func (s *Service) AdminNotify(ctx context.Context, subject, body string) error {
 		return nil
 	}
 
-	if err := s.email.Send(admins, subject, body); err != nil {
-		return fmt.Errorf("failed to send notification email: %w", err)
+	if data == nil {
+		data = map[string]interface{}{}
+	}
+
+	htmlBody, htmlErr := email.RenderHTMLEmail(subject, body, data)
+	if htmlErr != nil {
+		s.logger.Warn("Failed to render HTML email, falling back to plaintext", "error", htmlErr)
+		return s.email.Send(admins, subject, body)
+	}
+
+	if err := s.email.SendHTMLEmail(admins, subject, htmlBody); err != nil {
+		s.logger.Warn("Failed to send HTML email, falling back to plaintext", "error", err)
+		return s.email.Send(admins, subject, body)
 	}
 
 	s.logger.Info("Admin notification sent", "recipients", len(admins), "subject", subject)

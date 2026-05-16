@@ -120,6 +120,7 @@ export default function App() {
           </Route>
           {/* Public routes outside auth requirement */}
           <Route path="/setup" element={<SetupPage />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           {/* Fallback for unknown routes. */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
