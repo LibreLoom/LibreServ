@@ -15,6 +15,7 @@ import (
 var migrationFS embed.FS
 
 // Migrate applies pending database migrations.
+// SQL migrations run first (if any), then cleanup/legacy migrations always run.
 func (d *DB) Migrate() error {
 	// 1. Ensure schema_migrations table exists
 	if err := d.ensureMigrationTable(); err != nil {
@@ -35,7 +36,7 @@ func (d *DB) Migrate() error {
 	}
 	sort.Strings(files)
 
-	// Check if any migration actually needs to run
+	// 3. Check if any SQL migration actually needs to run
 	var needsMigration bool
 	for _, file := range files {
 		var exists bool
@@ -46,61 +47,57 @@ func (d *DB) Migrate() error {
 		}
 	}
 
-	if !needsMigration {
-		return nil
-	}
+	// 4. Run pending SQL migrations (if any)
+	if needsMigration {
+		// 4a. Dry-run: ensure all pending migrations are syntactically valid together
+		if err := d.dryRunMigrations(files); err != nil {
+			return fmt.Errorf("migration dry-run failed: %w", err)
+		}
 
-	// 3. Dry-run: ensure all pending migrations are syntactically valid together
-	if err := d.dryRunMigrations(files); err != nil {
-		return fmt.Errorf("migration dry-run failed: %w", err)
-	}
+		// 4b. Checkpoint WAL to ensure all data is in the main DB file before backup.
+		if _, err := d.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+			slog.Warn("WAL checkpoint before migration backup failed (non-fatal)", "error", err)
+		}
 
-	// 4. Checkpoint WAL to ensure all data is in the main DB file before backup.
-	// Without this, CopyFile may miss data still in the WAL file.
-	if _, err := d.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		slog.Warn("WAL checkpoint before migration backup failed (non-fatal)", "error", err)
-	}
+		// 4c. Backup database before migration
+		backupPath := d.path + ".pre-migration-" + time.Now().Format("20060102-150405")
+		slog.Info("Backing up database before migration", "path", backupPath)
+		if err := CopyFile(d.path, backupPath); err != nil {
+			return fmt.Errorf("pre-migration backup failed: %w", err)
+		}
 
-	// 5. Backup database before migration
-	backupPath := d.path + ".pre-migration-" + time.Now().Format("20060102-150405")
-	slog.Info("Backing up database before migration", "path", backupPath)
-	if err := CopyFile(d.path, backupPath); err != nil {
-		return fmt.Errorf("pre-migration backup failed: %w", err)
-	}
+		// 4d. Run migrations in order
+		for _, file := range files {
+			if err := d.runMigration(file); err != nil {
+				// Migration failed - rollback the database file to the pre-migration state
+				slog.Error("Migration failed, attempting automatic rollback", "file", file, "error", err)
 
-	// 5. Run migrations in order
-	for _, file := range files {
-		if err := d.runMigration(file); err != nil {
-			// Migration failed - rollback the database file to the pre-migration state
-			slog.Error("Migration failed, attempting automatic rollback", "file", file, "error", err)
+				_ = d.db.Close()
 
-			// Close current connection to release locks
-			_ = d.db.Close()
+				if rErr := CopyFile(backupPath, d.path); rErr != nil {
+					slog.Error("CRITICAL: Failed to restore database backup after migration failure", "backup", backupPath, "error", rErr)
+					return fmt.Errorf("migration %s failed and rollback failed: %w (backup at %s)", file, rErr, backupPath)
+				}
 
-			// Restore the backup
-			if rErr := CopyFile(backupPath, d.path); rErr != nil {
-				slog.Error("CRITICAL: Failed to restore database backup after migration failure", "backup", backupPath, "error", rErr)
-				return fmt.Errorf("migration %s failed and rollback failed: %w (backup at %s)", file, rErr, backupPath)
+				newDB, oErr := Open(d.path)
+				if oErr != nil {
+					slog.Error("CRITICAL: Failed to reopen database after rollback", "error", oErr)
+					return fmt.Errorf("migration %s failed, rolled back, but failed to reopen: %w", file, oErr)
+				}
+				d.db = newDB.db
+
+				return fmt.Errorf("migration %s failed: %w (database rolled back to pre-migration state)", file, err)
 			}
+		}
 
-			// Reopen database
-			newDB, oErr := Open(d.path)
-			if oErr != nil {
-				slog.Error("CRITICAL: Failed to reopen database after rollback", "error", oErr)
-				return fmt.Errorf("migration %s failed, rolled back, but failed to reopen: %w", file, oErr)
-			}
-			d.db = newDB.db
-
-			return fmt.Errorf("migration %s failed: %w (database rolled back to pre-migration state)", file, err)
+		// Clean up pre-migration backup on success
+		if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+			slog.Warn("Failed to remove pre-migration backup", "path", backupPath, "error", err)
 		}
 	}
 
-	// Clean up pre-migration backup on success
-	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
-		slog.Warn("Failed to remove pre-migration backup", "path", backupPath, "error", err)
-	}
-
-	// 6. Legacy/Cleanup migrations (best effort to ensure schema is correct if initial was already run)
+	// 5. Legacy/Cleanup migrations (always run — ensures schema is correct even when SQL migration
+	// files were updated in-place after initial application).
 	if err := d.ensureBackupsChecksum(); err != nil {
 		return err
 	}
@@ -110,6 +107,10 @@ func (d *DB) Migrate() error {
 	if err := d.ensure12HourTimeColumn(); err != nil {
 		return err
 	}
+	if err := d.ensureAppsColumns(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -288,6 +289,58 @@ func (d *DB) ensure12HourTimeColumn() error {
 	}
 	if _, err := d.db.Exec(`ALTER TABLE user_security_settings ADD COLUMN use_12_hour_time BOOLEAN DEFAULT 0`); err != nil {
 		return fmt.Errorf("add user_security_settings.use_12_hour_time: %w", err)
+	}
+	return nil
+}
+
+// ensureAppsColumns backfills missing columns in the apps table.
+// This handles the case where the schema was updated after the initial migration had already run.
+func (d *DB) ensureAppsColumns() error {
+	rows, err := d.db.Query(`PRAGMA table_info(apps)`)
+	if err != nil {
+		return fmt.Errorf("check apps schema: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("failed to close rows: %v", cerr)
+		}
+	}()
+
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notnull   int
+			dfltValue interface{}
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+			existing[name] = true
+		}
+	}
+
+	type colDef struct {
+		Name string
+		Type string
+	}
+	missing := []colDef{
+		{"image_digest", "TEXT"},
+		{"compose_template_sha", "TEXT"},
+		{"revocation_severity", "TEXT"},
+		{"revocation_reason", "TEXT"},
+		{"revocation_revoked_at", "TIMESTAMP"},
+		{"revocation_acknowledged_at", "TIMESTAMP"},
+	}
+
+	for _, col := range missing {
+		if !existing[col.Name] {
+			if _, err := d.db.Exec(fmt.Sprintf("ALTER TABLE apps ADD COLUMN %s %s", col.Name, col.Type)); err != nil {
+				return fmt.Errorf("add apps.%s: %w", col.Name, err)
+			}
+			slog.Info("Added missing column to apps table", "column", col.Name, "type", col.Type)
+		}
 	}
 	return nil
 }
