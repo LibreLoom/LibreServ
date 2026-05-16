@@ -74,7 +74,7 @@ Before installing LibreServ, ensure your system meets the following requirements
 The official installer script handles all installation steps automatically:
 
 ```bash
-curl -fsSL https://gt.plainskill.net/libreloom/libreserv/raw/branch/main/install.sh | sudo sh
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo sh
 ```
 
 **What the Installer Does:**
@@ -84,7 +84,7 @@ curl -fsSL https://gt.plainskill.net/libreloom/libreserv/raw/branch/main/install
 3. **Directory Setup**: Establishes required directories:
    - `/opt/libreserv` - Binary and configuration files
    - `/var/lib/libreserv` - Application data and databases
-4. **Binary Download**: Fetches the latest stable binary from GitHub releases
+4. **Binary Download**: Fetches the latest stable binary from releases
 5. **Configuration Generation**: Creates `config.yaml` with secure random secrets
 6. **Service Installation**: Configures systemd service for automatic restarts (Linux)
 7. **Permissions**: Sets appropriate ownership on all directories and files
@@ -93,13 +93,13 @@ curl -fsSL https://gt.plainskill.net/libreloom/libreserv/raw/branch/main/install
 
 ```bash
 # Install specific version
-curl -fsSL https://gt.plainskill.net/libreloom/libreserv/raw/branch/main/install.sh | sudo sh -s -- --version 1.0.0
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo sh -s -- --version 1.0.0
 
 # Skip Caddy installation (if already installed)
-curl -fsSL https://gt.plainskill.net/libreloom/libreserv/raw/branch/main/install.sh | sudo sh -s -- --skip-caddy
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo sh -s -- --skip-caddy
 
 # Install to custom directory
-curl -fsSL https://gt.plainskill.net/libreloom/libreserv/raw/branch/main/install.sh | sudo sh -s -- --prefix /custom/path
+curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh | sudo sh -s -- --prefix /custom/path
 ```
 
 ### Manual Installation
@@ -115,7 +115,7 @@ sudo useradd --system --home /var/lib/libreserv --shell /usr/sbin/nologin libres
 
 # 3. Download binary
 cd /opt/libreserv
-sudo curl -L -o libreserv https://github.com/anomalyco/LibreServ/releases/latest/download/libreserv-linux-amd64
+sudo curl -L -o libreserv https://gt.plainskill.net/LibreLoom/LibreServ/releases/latest/download/libreserv-linux-amd64
 sudo chmod +x libreserv
 
 # 4. Create configuration
@@ -123,13 +123,36 @@ sudo tee /opt/libreserv/config.yaml << 'EOF'
 server:
   host: "0.0.0.0"
   port: 8080
-data_path: "/var/lib/libreserv"
-log_level: "info"
-secret_key: "$(openssl rand -base64 32)"
+  mode: production
 database:
   path: "/var/lib/libreserv/libreserv.db"
-caddy:
-  admin_url: "http://localhost:2019"
+auth:
+  jwt_secret: ""
+  csrf_secret: ""
+  cloud_encryption_key: ""
+apps:
+  data_path: "/var/lib/libreserv/apps"
+  catalog_path: "/opt/libreserv/catalog"
+docker:
+  method: auto
+  socket_path: ""
+  timeout: 30s
+network:
+  caddy:
+    mode: enabled
+    admin_api: "localhost:2019"
+    config_path: "/etc/libreserv/caddy/Caddyfile"
+    certs_path: "/etc/libreserv/caddy/certs"
+    auto_https: false
+logging:
+  level: info
+  path: "/var/log/libreserv/libreserv.log"
+smtp:
+  host: ""
+  port: 587
+  username: ""
+  password: ""
+  from: ""
 EOF
 
 # 5. Set ownership
@@ -146,7 +169,7 @@ Requires=docker.service
 Type=simple
 User=libreserv
 Group=libreserv
-ExecStart=/opt/libreserv/libreserv
+ExecStart=/opt/libreserv/libreserv --config /opt/libreserv/config.yaml
 WorkingDirectory=/opt/libreserv
 Restart=always
 RestartSec=5
@@ -170,7 +193,10 @@ After installation, verify the system is operating correctly:
 sudo systemctl status libreserv
 
 # Verify API is responding
-curl http://localhost:8080/api/v1/system/info
+curl http://localhost:8080/api/version
+
+# Check health
+curl http://localhost:8080/health
 
 # Check Docker is accessible
 docker ps
@@ -179,15 +205,9 @@ docker ps
 curl http://localhost:2019/config/ | head -c 200
 ```
 
-**Expected API Response:**
-
+**Expected Health Response:**
 ```json
-{
-  "version": "1.0.0",
-  "status": "running",
-  "apps_installed": 0,
-  "apps_running": 0
-}
+{"status": "ok"}
 ```
 
 ---
@@ -203,70 +223,136 @@ The primary configuration file is located at `/opt/libreserv/config.yaml`. Below
 server:
   host: "0.0.0.0"              # Listen address (IP or hostname)
   port: 8080                   # HTTP listen port
-  read_timeout: 30s            # Maximum request read timeout
-  write_timeout: 30s           # Maximum request write timeout
-  idle_timeout: 120s           # Maximum idle connection timeout
+  mode: production             # production or development
 
 # Data and Storage
-data_path: "/var/lib/libreserv"  # Base data directory
 database:
   path: "/var/lib/libreserv/libreserv.db"  # SQLite database path
-  max_open_conns: 25          # Maximum concurrent database connections
-  max_idle_conns: 5           # Maximum idle database connections
-  conn_max_lifetime: 5m       # Maximum connection lifetime
+apps:
+  data_path: "/var/lib/libreserv/apps"     # Installed app data directory
+  catalog_path: "/opt/libreserv/catalog"   # App template directory
+  repo_pull_interval: "6h"                 # How often to pull repo sources
 
 # Logging
-log_level: "info"              # debug, info, warn, error
-log_format: "json"             # json or text
-log_path: ""                   # Optional: log file path (empty for stdout)
-
-# Security
-secret_key: ""                 # Generated at install, DO NOT change after setup
-api_keys: []                   # Optional: additional API keys for authentication
+logging:
+  level: "info"                # debug, info, warn, error
+  path: ""                     # Optional: log file path (empty for stdout)
 
 # Docker Configuration
 docker:
+  method: "auto"               # auto, socket, tcp, ssh
   socket_path: "/var/run/docker.sock"  # Docker daemon socket
-  network_name: "libreserv"   # Docker network for apps
-  data_volume_prefix: "libreserv-"     # Prefix for data volumes
+  tcp:
+    host: ""                   # TCP Docker host
+    port: 2376                 # TCP Docker port
+    use_tls: false
+    cert_path: ""
+  ssh:
+    host: ""                   # SSH Docker host
+    user: ""
+    key_path: ""
+  timeout: "30s"               # Docker operation timeout
 
 # Caddy Reverse Proxy
-caddy:
-  admin_url: "http://localhost:2019"  # Caddy Admin API endpoint
-  config_path: "/var/lib/libreserv/caddy"  # Caddy configuration directory
-  data_path: "/var/lib/libreserv/caddy-data"  # Caddy data (certificates)
+network:
+  caddy:
+    mode: "disabled"           # enabled, disabled
+    admin_api: "localhost:2019"  # Caddy Admin API endpoint
+    config_path: "/etc/libreserv/caddy/Caddyfile"  # Caddy configuration path
+    certs_path: "/etc/libreserv/caddy/certs"  # Caddy data (certificates)
+    default_domain: ""         # Default domain for apps
+    email: ""                  # Email for ACME registration
+    auto_https: false          # Enable automatic HTTPS
+    reload:
+      retries: 5               # Caddy reload retry count
+      backoff_min: "1s"        # Minimum backoff duration
+      backoff_max: "30s"       # Maximum backoff duration
+      jitter_fraction: 0.1     # Jitter for retry backoff
+      attempt_timeout: "10s"   # Per-attempt timeout
+    logging:
+      output: "stdout"         # stdout or file
+      file: ""                 # Log file path (if output: file)
+      format: "console"        # console or json
+      level: ""                # Log level override
+  dns:
+    provider: ""               # DNS provider name (e.g., "cloudflare")
+    api_token: ""              # DNS provider API token
+  acme:
+    external:
+      enabled: false           # Use external ACME issuer
+      use_docker: false        # Run external ACME in Docker
+      docker_image: ""         # Docker image for external ACME
+      data_path: ""            # External ACME data directory
+      dns_provider: ""         # DNS provider for external ACME
+      dns_env: {}              # Environment variables for DNS provider
+      email: ""                # ACME account email
+      staging: false           # Use staging ACME endpoint
+      ca_dir_url: ""           # Custom CA directory URL
+      key_type: ""             # Key type (e.g., "P256", "P384", "RSA2048")
+      certs_path: ""           # Certificate output directory
 
-# Update Settings
+# Authentication
+auth:
+  jwt_secret: ""               # Generated at install. DO NOT CHANGE after setup.
+  secret_file: ""              # Path to external secrets file
+  csrf_secret: ""              # Generated at install. DO NOT CHANGE after setup.
+  cloud_encryption_key: ""     # Key for encrypting cloud provider credentials
+
+# Cross-Origin Resource Sharing
+cors:
+  allowed_origins: []          # List of allowed CORS origins
+
+# License (optional)
+license:
+  entitlement_file: ""         # Path to license entitlement file
+  public_key_file: ""          # Path to license public key
+
+# SMTP (optional)
+smtp:
+  host: ""                     # SMTP server hostname
+  port: 587                    # SMTP server port
+  username: ""                 # SMTP username
+  password: ""                 # SMTP password
+  from: ""                     # From address
+  use_tls: false               # Use TLS (true) or STARTTLS (false)
+  skip_verify: false           # Skip TLS certificate verification
+
+# Notifications (optional)
+notify:
+  enabled: false               # Enable email notifications
+  support_recipients: []       # Recipients for support notifications
+  support_subject: ""          # Support notification subject
+  support_body: ""             # Support notification body
+  welcome_subject: ""          # Welcome email subject
+  welcome_body: ""             # Welcome email body
+
+# Platform Updates
 updates:
-  channel: "stable"           # stable, beta, or latest
-  check_interval: 24h         # How often to check for updates
-  auto_apply: false           # Whether to automatically apply platform updates
-
-# Backup Configuration
-backup:
-  path: "/var/lib/libreserv/backups"  # Backup storage directory
-  retention: 7              # Number of backups to retain
-  compression: true         # Compress backup archives
-
-# Telemetry (optional)
-telemetry:
-  enabled: false             # Anonymous usage statistics
-  endpoint: ""               # Telemetry endpoint
+  base_url: "https://gt.plainskill.net/api/v1"  # Update server URL
+  owner: "libreloom"           # Repository owner
+  repo: "libreserv"            # Repository name
 ```
 
 ### Environment Variables
 
-Override configuration using environment variables:
+Override configuration using environment variables with the `LIBRESERV_` prefix and underscore-separated paths:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LIBRESERV_HOST` | Server listen host | `0.0.0.0` |
-| `LIBRESERV_PORT` | Server port | `8080` |
-| `LIBRESERV_DATA_PATH` | Data directory | `/var/lib/libreserv` |
-| `LIBRESERV_LOG_LEVEL` | Log verbosity | `info` |
-| `LIBRESERV_SECRET_KEY` | Authentication secret | (generated) |
-| `DOCKER_SOCKET` | Docker socket path | `/var/run/docker.sock` |
-| `CADDY_ADMIN_URL` | Caddy Admin API URL | `http://localhost:2019` |
+| `LIBRESERV_SERVER_HOST` | Server listen host | `127.0.0.1` |
+| `LIBRESERV_SERVER_PORT` | Server port | `8080` |
+| `LIBRESERV_SERVER_MODE` | Server mode | `production` |
+| `LIBRESERV_DATABASE_PATH` | Database path | `/var/lib/libreserv/libreserv.db` |
+| `LIBRESERV_LOGGING_LEVEL` | Log verbosity | `info` |
+| `LIBRESERV_AUTH_JWT_SECRET` | JWT signing secret | (generated) |
+| `LIBRESERV_AUTH_CSRF_SECRET` | CSRF protection secret | (generated) |
+| `LIBRESERV_DOCKER_METHOD` | Docker connection method | `auto` |
+| `LIBRESERV_DOCKER_SOCKET_PATH` | Docker socket path | `/var/run/docker.sock` |
+| `LIBRESERV_NETWORK_CADDY_MODE` | Caddy mode | `disabled` |
+| `LIBRESERV_NETWORK_CADDY_ADMIN_API` | Caddy Admin API URL | `localhost:2019` |
+| `LIBRESERV_INSECURE_DEV` | Bypass production checks (dev only) | unset |
+
+Any config key can be overridden via environment — replace `.` with `_` and prefix with `LIBRESERV_`. For example, `network.caddy.admin_api` becomes `LIBRESERV_NETWORK_CADDY_ADMIN_API`.
 
 ### Network Configuration
 
@@ -276,24 +362,11 @@ LibreServ creates a custom Docker bridge network (`libreserv`) for application i
 
 **Custom Network Configuration:**
 
-```yaml
-docker:
-  network_name: "libreserv"
-  network_options:
-    --subnet: "10.10.0.0/16"
-    --gateway: "10.10.0.1"
-    --ip-range: "10.10.1.0/24"
-```
+Docker network configuration is managed by Docker's own settings. LibreServ delegates all Docker networking to the Docker daemon.
 
 **Port Allocation:**
 
-Apps can expose ports on the host. By default, ports 8080-9000 are available for app use. Configure allowed ports:
-
-```yaml
-app_ports:
-  min: 8080
-  max: 9000
-```
+Apps expose ports on the host. Port allocation is handled dynamically by the `PortManager` which scans upward from each app's configured default port until an available port is found.
 
 ---
 
@@ -333,10 +406,10 @@ sudo systemctl disable libreserv
 
 ```bash
 # Start in foreground (development)
-./libreserv
+./bin/libreserv --config ./configs/libreserv.yaml
 
-# Start as background daemon
-./libreserv --config /opt/libreserv/config.yaml
+# Start with dev mode (bypasses production checks)
+LIBRESERV_INSECURE_DEV=true ./bin/libreserv --config ./configs/libreserv.yaml
 
 # Stop (find and kill process)
 pkill -f libreserv
@@ -353,9 +426,6 @@ LibreServ checks for platform updates every 24 hours by default.
 ```bash
 # Via API
 curl http://localhost:8080/api/v1/system/updates/check
-
-# Via CLI (if available)
-libreserv update check
 ```
 
 **Applying Updates:**
@@ -373,10 +443,11 @@ sudo systemctl start libreserv
 **Update Process:**
 
 1. Backup of current binary created at `/var/lib/libreserv/libreserv.old`
-2. New binary downloaded from GitHub releases
+2. New binary downloaded from releases
 3. SHA256 checksum verified
 4. Binary replaced
 5. Service restarted automatically
+6. Post-update health check runs — if unhealthy, rolls back automatically
 
 **Rollback:**
 
@@ -390,27 +461,19 @@ sudo systemctl start libreserv
 
 #### Application Updates
 
-Apps in the catalog are checked for updates every 24 hours.
-
-**Update Strategies:**
-
-| Strategy | Behavior |
-|----------|----------|
-| `manual` | Admin must manually trigger updates via UI or API |
-| `notify` | Admin receives notification; manual approval required |
-| `auto` | Updates applied automatically without intervention |
+Apps in the catalog are checked for updates periodically.
 
 **Managing Updates:**
 
 ```bash
-# Check for app updates
-curl http://localhost:8080/api/v1/apps/updates/check
-
 # View available updates
 curl http://localhost:8080/api/v1/apps/updates/available
 
-# Apply specific update
-curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/update
+# View update history
+curl http://localhost:8080/api/v1/apps/updates/history
+
+# Check for specific app updates
+curl http://localhost:8080/api/v1/apps/{instanceId}/update
 
 # Pin app to current version (prevent updates)
 curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/pin
@@ -425,9 +488,10 @@ curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/unpin
 
 ```bash
 # Via API
-curl -X POST http://localhost:8080/api/v1/apps/catalog/{appId}/install \
+curl -X POST http://localhost:8080/api/v1/apps \
   -H "Content-Type: application/json" \
-  -d '{"config": {"http_port": 8080}}'
+  -H "Authorization: Bearer <token>" \
+  -d '{"app_id": "nextcloud", "config": {"http_port": 8080}}'
 
 # Via UI: Navigate to Catalog, select app, click Install
 ```
@@ -437,9 +501,6 @@ curl -X POST http://localhost:8080/api/v1/apps/catalog/{appId}/install \
 ```bash
 # Start single app
 curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/start
-
-# Start all stopped apps
-curl -X POST http://localhost:8080/api/v1/apps/start-all
 ```
 
 **Stopping Apps:**
@@ -447,29 +508,20 @@ curl -X POST http://localhost:8080/api/v1/apps/start-all
 ```bash
 # Stop single app
 curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/stop
-
-# Stop all running apps
-curl -X POST http://localhost:8080/api/v1/apps/stop-all
 ```
 
 **Restarting Apps:**
 
 ```bash
-# Restart with backup
+# Restart app
 curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/restart
-
-# Force restart (no backup)
-curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/restart?force=true
 ```
 
 **Removing Apps:**
 
 ```bash
-# Remove app (stop containers, keep data)
+# Uninstall app (removes containers and data)
 curl -X DELETE http://localhost:8080/api/v1/apps/{instanceId}
-
-# Remove app and all data
-curl -X DELETE http://localhost:8080/api/v1/apps/{instanceId}?purge=true
 ```
 
 **Viewing App Status:**
@@ -478,14 +530,20 @@ curl -X DELETE http://localhost:8080/api/v1/apps/{instanceId}?purge=true
 # List all apps
 curl http://localhost:8080/api/v1/apps
 
-# Get app details
+# Get app details (includes health, version, exposed info)
 curl http://localhost:8080/api/v1/apps/{instanceId}
 
-# View app logs
-curl http://localhost:8080/api/v1/apps/{instanceId}/logs
+# View app status
+curl http://localhost:8080/api/v1/apps/{instanceId}/status
 
-# View app config
-curl http://localhost:8080/api/v1/apps/{instanceId}/config
+# View app metrics (CPU, RAM, disk)
+curl http://localhost:8080/api/v1/apps/{instanceId}/metrics
+
+# Stream app logs
+curl http://localhost:8080/api/v1/apps/{instanceId}/logs/stream
+
+# View app actions
+curl http://localhost:8080/api/v1/apps/{instanceId}/actions
 ```
 
 ### Reverse Proxy (Caddy)
@@ -498,47 +556,47 @@ LibreServ integrates with Caddy for automatic HTTPS and domain routing.
 # Check Caddy status
 curl http://localhost:2019/
 
-# View current configuration
+# View Caddy config (requires Caddy API access)
 curl http://localhost:2019/config/
-
-# View running configuration
-curl http://localhost:2019/config/
-
-# Reload configuration
-curl -X POST http://localhost:2019/load \
-  -H "Content-Type: application/json" \
-  -d @/var/lib/libreserv/caddy/Caddyfile.json
 ```
 
-**Route Management:**
-
-Routes are automatically generated based on installed apps. View the current Caddyfile:
+**Managing Routes:**
 
 ```bash
-curl http://localhost:8080/api/v1/network/caddyfile
+# List all routes
+curl http://localhost:8080/api/v1/network/routes
+
+# Create a route
+curl -X POST http://localhost:8080/api/v1/network/routes \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "app.example.com", "target": "localhost:8081"}'
+
+# Test backend connectivity before saving
+curl -X POST http://localhost:8080/api/v1/network/test-backend \
+  -H "Content-Type: application/json" \
+  -d '{"target": "localhost:8081"}'
+
+# Delete a route
+curl -X DELETE http://localhost:8080/api/v1/network/routes/{routeID}
 ```
 
-**Manual Caddy Configuration:**
+**Certificate Management:**
 
-For custom domains and advanced routing, create a `Caddyfile` in `/var/lib/libreserv/caddy/`:
+```bash
+# Request a certificate
+curl -X POST http://localhost:8080/api/v1/network/acme/request \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "app.example.com"}'
 
-```
-# /var/lib/libreserv/caddy/Caddyfile
-{
-    admin off
-}
+# Check certificate job status
+curl http://localhost:8080/api/v1/network/acme/jobs/{jobID}
 
-libreserv.example.com {
-    reverse_proxy localhost:8080 {
-        header_up X-Forwarded-Host libreserv.example.com
-    }
-}
+# Get certificate issuance status
+curl http://localhost:8080/api/v1/network/acme/status
 
-app1.libreserv.example.com {
-    reverse_proxy app1-libreserv:8080 {
-        header_up X-Forwarded-Host app1.libreserv.example.com
-    }
-}
+# Check DNS and port readiness
+curl -X POST http://localhost:8080/api/v1/network/acme/probe-dns
+curl -X POST http://localhost:8080/api/v1/network/acme/probe-ports
 ```
 
 ---
@@ -547,120 +605,42 @@ app1.libreserv.example.com {
 
 ### System Logs
 
-**Viewing Logs:**
-
 ```bash
-# All logs
-journalctl -u libreserv
+# View backend logs via journalctl
+sudo journalctl -u libreserv -n 200 -f
 
-# Recent logs (last 100 lines)
-journalctl -u libreserv -n 100
+# Or if logging to file
+tail -f /var/log/libreserv/libreserv.log
 
-# Real-time logging
-journalctl -u libreserv -f
-
-# Logs since specific time
-journalctl -u libreserv --since "2024-01-01 00:00:00"
-
-# Error logs only
-journalctl -u libreserv -p err
-```
-
-**Log Levels:**
-
-| Level | Description | Use Case |
-|-------|-------------|----------|
-| `debug` | Detailed debugging information | Development and troubleshooting |
-| `info` | General operational information | Default, normal operations |
-| `warn` | Warning conditions | Potential issues |
-| `error` | Error conditions | Problems requiring attention |
-
-**Application Container Logs:**
-
-```bash
-# View app container logs
-docker logs {instance_id}-appname
-
-# Follow logs
-docker logs -f {instance_id}-appname
-
-# View with timestamps
-docker logs --timestamps {instance_id}-appname
+# Set log level via API (runtime configurable)
 ```
 
 ### Audit Trail
 
-All administrative actions are recorded in the audit log.
-
-**Querying Audit Logs:**
+All admin actions are logged to the audit trail.
 
 ```bash
-# Recent audit entries
-curl "http://localhost:8080/api/v1/audit?limit=50"
-
-# Filter by action type
-curl "http://localhost:8080/api/v1/audit?action=app_install"
-
-# Filter by app
-curl "http://localhost:8080/api/v1/audit?app_id=myapp"
-
-# Filter by user
-curl "http://localhost:8080/api/v1/audit?user=admin"
-
-# Filter by time range
-curl "http://localhost:8080/api/v1/audit?start=2024-01-01T00:00:00Z&end=2024-01-31T23:59:59Z"
+# List audit log entries
+curl http://localhost:8080/api/v1/audit
 ```
-
-**Audit Log Fields:**
-
-| Field | Description |
-|-------|-------------|
-| `timestamp` | When the action occurred |
-| `action` | Type of action (app_install, app_update, etc.) |
-| `actor` | User or system that performed the action |
-| `resource` | Affected resource (app ID, instance ID) |
-| `details` | Additional action details |
-| `status` | Action result (success, failure) |
-| `error` | Error message if action failed |
 
 ### Health Monitoring
 
-LibreServ continuously monitors app health using configurable health checks.
-
-**Health Check Types:**
-
-| Type | Description |
-|------|-------------|
-| `http` | HTTP GET request to specified endpoint |
-| `tcp` | TCP connection to specified port |
-| `container` | Docker container healthcheck |
-| `command` | Shell command execution |
-
-**Viewing Health Status:**
-
 ```bash
-# Overall system health
-curl http://localhost:8080/api/v1/system/health
+# Basic health check
+curl http://localhost:8080/health
 
-# App-specific health
-curl http://localhost:8080/api/v1/apps/{instanceId}/health
+# Readiness check
+curl http://localhost:8080/health/ready
 
-# Failed health checks
-curl http://localhost:8080/api/v1/apps/health/failed
-```
+# Liveness check
+curl http://localhost:8080/health/live
 
-**Configuring Health Checks:**
+# Comprehensive system health
+curl http://localhost:8080/api/v1/system/health/check
 
-Health checks are defined in each app's `app.yaml`:
-
-```yaml
-health_check:
-  type: http
-  endpoint: /health
-  port: 8080
-  interval: 30s
-  timeout: 10s
-  retries: 3
+# Prometheus metrics endpoint
+curl http://localhost:8080/metrics
 ```
 
 ---
@@ -669,146 +649,51 @@ health_check:
 
 ### Automatic Backups
 
-LibreServ automatically creates backups in the following scenarios:
-
-| Trigger | Backup Type | Retention |
-|---------|-------------|-----------|
-| Pre-update | Full app backup | Follows retention policy |
-| Scheduled (daily) | Full app backup | Follows retention policy |
-| Manual request | Full app backup | Indefinite |
-
-**Backup Location:**
-
-All backups are stored at `/var/lib/libreserv/backups/` with the following structure:
-
-```
-/var/lib/libreserv/backups/
-├── platform/
-│   └── 2024-01-15T12-00-00Z/
-│       ├── libreserv.db
-│       └── config.yaml
-└── apps/
-    └── myapp/
-        └── 2024-01-15T12-00-00Z/
-            ├── metadata.json
-            ├── data.tar.gz
-            └── restore.sh
-```
+Scheduled backups can be configured through the web UI under Backups → Schedule.
 
 ### Manual Backups
 
-**Backup Platform:**
-
 ```bash
-# Via API
-curl -X POST http://localhost:8080/api/v1/system/backup
+# Create a backup
+curl -X POST http://localhost:8080/api/v1/backups \
+  -H "Content-Type: application/json" \
+  -d '{"app_id": "your-app-instance-id"}'
 
-# Binary backup
-sudo cp /opt/libreserv/libreserv /var/lib/libreserv/backups/platform/libreserv-$(date +%Y%m%d)
-```
+# List all backups
+curl http://localhost:8080/api/v1/backups
 
-**Backup App:**
+# Download a backup
+curl http://localhost:8080/api/v1/backups/{backupID}/download
 
-```bash
-# Via API
-curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/backup
+# Upload a backup archive
+curl -X POST http://localhost:8080/api/v1/backups/upload \
+  -F "file=@/path/to/backup.tar.gz"
 
-# View available backups
-curl http://localhost:8080/api/v1/apps/{instanceId}/backups
+# Database backup
+curl -X POST http://localhost:8080/api/v1/backups/database
+
+# List database backups
+curl http://localhost:8080/api/v1/backups/database
 ```
 
 ### Restoration Procedures
 
-**Restore Platform:**
-
 ```bash
-# Stop service
-sudo systemctl stop libreserv
+# Restore an app from backup
+curl -X POST http://localhost:8080/api/v1/backups/{backupID}/restore
 
-# Restore database
-sudo cp /var/lib/libreserv/backups/platform/2024-01-15T12-00-00Z/libreserv.db \
-  /var/lib/libreserv/libreserv.db
-
-# Restore binary (if needed)
-sudo cp /var/lib/libreserv/backups/platform/libreserv-old \
-  /opt/libreserv/libreserv
-
-# Start service
-sudo systemctl start libreserv
-```
-
-**Restore App:**
-
-```bash
-# Via API
-curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/restore \
-  -H "Content-Type: application/json" \
-  -d '{"backup_id": "backup-2024-01-15-120000"}'
-
-# To different instance ID
-curl -X POST http://localhost:8080/api/v1/apps/{instanceId}/restore \
-  -H "Content-Type: application/json" \
-  -d '{"backup_id": "backup-2024-01-15-120000", "new_instance_id": "myapp-restored"}'
+# Restore database from backup
+curl -X POST http://localhost:8080/api/v1/backups/database/{backupID}/restore
 ```
 
 ### Disaster Recovery
 
-#### Complete System Recovery
+In the event of a complete system failure:
 
-1. **Assess Damage**: Identify which components are affected
-2. **Restore Docker**: Ensure Docker is operational
-3. **Restore Platform**: Recover LibreServ binary and configuration
-4. **Restore Database**: Import last known good database
-5. **Restore Apps**: Reinstall or restore apps from backups
-6. **Verify**: Test each component systematically
-
-**Scripted Recovery:**
-
-```bash
-#!/bin/bash
-# disaster-recovery.sh
-
-BACKUP_DATE="${1:-$(ls -t /var/lib/libreserv/backups/platform/ | head -1)}"
-BACKUP_PATH="/var/lib/libreserv/backups/platform/${BACKUP_DATE}"
-
-echo "Starting disaster recovery from ${BACKUP_DATE}"
-
-# Stop LibreServ
-systemctl stop libreserv
-
-# Restore database
-cp "${BACKUP_PATH}/libreserv.db" /var/lib/libreserv/libreserv.db
-
-# Restore Caddy data
-cp -r "${BACKUP_PATH}/caddy-data/"* /var/lib/libreserv/caddy-data/
-
-# Restart services
-systemctl start libreserv
-
-echo "Disaster recovery complete"
-```
-
-#### Manual Database Restore
-
-If automatic rollback fails and database is corrupted:
-
-```bash
-# 1. Stop the service
-sudo systemctl stop libreserv
-
-# 2. List available backups
-ls -la /var/lib/libreserv/libreserv.db.pre-*
-
-# 3. Copy latest backup
-sudo cp /var/lib/libreserv/libreserv.db.pre-migration-YYYYMMDD-HHMMSS \
-  /var/lib/libreserv/libreserv.db
-
-# 4. Set correct ownership
-sudo chown libreserv:libreserv /var/lib/libreserv/libreserv.db
-
-# 5. Start the service
-sudo systemctl start libreserv
-```
+1. **Reinstall LibreServ** on fresh hardware
+2. **Restore the database** from the most recent database backup via upload
+3. **Reinstall apps** from the catalog
+4. **Restore app data** from backup archives
 
 ---
 
@@ -816,75 +701,29 @@ sudo systemctl start libreserv
 
 ### Security Best Practices
 
-1. **Keep Updated**: Apply platform and app updates promptly
-2. **Strong Secrets**: Use generated random secrets; don't hardcode
-3. **Network Isolation**: Use firewall to limit access to management ports
-4. **Regular Backups**: Maintain and test backup restoration regularly
-5. **Audit Monitoring**: Review audit logs regularly for suspicious activity
-6. **Least Privilege**: Run apps with minimal required permissions
-7. **SSL/TLS**: Always use HTTPS in production (Caddy handles this)
-8. **Access Control**: Limit who can access the management interface
+- Keep LibreServ updated to the latest version
+- Use strong admin passwords (12+ characters)
+- Configure SMTP for password reset emails
+- Enable HTTPS via Caddy integration for production deployments
+- Monitor security events via `/api/v1/security/events`
 
 ### Authentication and Authorization
 
-**Default Authentication:**
-
-LibreServ uses API key authentication. The primary API key is generated during installation and stored in the configuration file.
-
-**Adding Additional API Keys:**
-
-```yaml
-api_keys:
-  - name: "backup-service"
-    key: "ak_xxxxxxxxxxxxxxxxxxxxxxxx"
-    permissions:
-      - "apps:read"
-      - "apps:backup"
-  - name: "monitoring"
-    key: "ak_yyyyyyyyyyyyyyyyyyyy"
-    permissions:
-      - "apps:read"
-      - "system:read"
-```
-
-**API Key Usage:**
-
-```bash
-# Authenticated request
-curl -H "Authorization: Bearer YOUR_API_KEY" \
-  http://localhost:8080/api/v1/apps
-```
+- **JWT-based** authentication with bcrypt password hashing
+- **Role-based access control**: `admin` and `user` roles
+- **Rate limiting** protects against brute-force attempts:
+  - Auth endpoints: 120 requests/minute (IP-based)
+  - Setup endpoints: 15-180 requests/minute depending on operation
+  - General API: 300 requests/minute (per user)
+  - Sensitive operations (users, support, backups): 10-60 requests/minute (per user)
+- **CSRF protection** on state-changing routes
 
 ### Network Security
 
-**Firewall Configuration (UFW):**
-
-```bash
-# Allow SSH
-sudo ufw allow 22/tcp
-
-# Allow HTTP/HTTPS
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-
-# Allow LibreServ API (restrict to trusted network)
-sudo ufw allow from 10.0.0.0/8 to any port 8080
-
-# Enable firewall
-sudo ufw enable
-```
-
-**Docker Network Security:**
-
-```bash
-# Create isolated network
-docker network create --driver bridge \
-  --subnet 172.20.0.0/16 \
-  --gateway 172.20.0.1 \
-  libreserv-internal
-
-# Apps can only communicate within their network
-```
+- Security headers applied by default
+- CORS with strict default policy
+- Trusted proxy detection (X-Forwarded-For) respected for private subnets
+- All production guardrails enforced unless `LIBRESERV_INSECURE_DEV=true` is set
 
 ---
 
@@ -892,94 +731,48 @@ docker network create --driver bridge \
 
 ### Common Issues
 
-**Service Won't Start:**
+**"Security validation failed" on startup:**
+- Run with `LIBRESERV_INSECURE_DEV=true` for development, or
+- Ensure production security requirements are met (secrets configured, not running as root)
 
-```bash
-# Check for port conflicts
-netstat -tlnp | grep 8080
+**Caddy not accepting configuration:**
+- Verify Caddy is running: `sudo systemctl status caddy`
+- Check Caddy Admin API is accessible: `curl http://localhost:2019/`
+- Check logs: `sudo journalctl -u caddy -n 50`
 
-# Check Docker is running
-systemctl status docker
+**App installation fails:**
+- Verify Docker is running: `docker ps`
+- Check app logs: ensure ports are available
+- View detailed error in web UI or API response
 
-# Check logs for errors
-journalctl -u libreserv --no-pager | tail -50
-```
-
-**Docker Permission Denied:**
-
-```bash
-# Add user to docker group
-sudo usermod -aG docker $USER
-
-# Or use sudo for docker commands
-sudo docker ps
-```
-
-**App Container Crashing:**
-
-```bash
-# Check container logs
-docker logs {instance_id}-appname
-
-# Check container events
-docker events --filter container={instance_id}-appname
-
-# Inspect container state
-docker inspect {instance_id}-appname
-```
-
-**Caddy Not Routing:**
-
-```bash
-# Check Caddy status
-curl http://localhost:2019/
-
-# Verify Caddyfile is valid
-cd /var/lib/libreserv/caddy
-caddy validate --config Caddyfile
-
-# Check Caddy logs
-docker logs caddy
-```
-
-**Database Corruption:**
-
-```bash
-# Check database integrity
-sqlite3 /var/lib/libreserv/libreserv.db "PRAGMA integrity_check"
-
-# Restore from backup
-# See Disaster Recovery section
-```
+**Cannot reach the web UI:**
+- Verify the service is running: `sudo systemctl status libreserv`
+- Check the configured port: `curl http://localhost:8080/health`
+- Check firewall rules
 
 ### Diagnostic Commands
 
 ```bash
-# System information
-curl http://localhost:8080/api/v1/system/info
+# Check overall system health
+curl http://localhost:8080/api/v1/system/health/check
 
-# Disk usage
-df -h /var/lib/libreserv
+# Verify service is running
+sudo systemctl status libreserv
 
-# Docker disk usage
-docker system df
+# Check Docker status
+docker info
 
-# Container resource usage
-docker stats --no-stream
+# View recent logs
+sudo journalctl -u libreserv -n 200
 
-# Network connectivity test
-curl -v http://localhost:8080/api/v1/health
+# Run DNS probe
+curl http://localhost:8080/api/v1/network/probe/dns
 
-# App list with status
-curl http://localhost:8080/api/v1/apps | jq '.[] | {name: .name, status: .status}'
+# Run TCP probe
+curl http://localhost:8080/api/v1/network/probe/tcp
 ```
 
 ### Getting Help
 
-If you cannot resolve an issue:
-
-1. **Check Documentation**: Review this guide and related docs in `/docs/`
-2. **Check Logs**: Review system and application logs for error messages
-3. **Search Issues**: Check GitHub issues for similar problems
-4. **Create Issue**: Report new issues at https://github.com/anomalyco/LibreServ/issues
-   - Include: OS, LibreServ version, Docker version, relevant logs, steps to reproduce
+- **Gitea Issues**: https://gt.plainskill.net/LibreLoom/LibreServ/issues
+- **Documentation**: See `docs/` directory in the repository

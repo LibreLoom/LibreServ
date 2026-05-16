@@ -541,20 +541,19 @@ All scripts receive a JSON configuration file as the first argument. This file c
 {
   "instance_id": "abc123def456",
   "app_id": "convertx",
-  "app_name": "My Application",
   "install_path": "/var/lib/libreserv/apps/abc123",
   "app_data_path": "/var/lib/libreserv/apps/abc123/data",
   "config_path": "/var/lib/libreserv/apps/abc123/config.json",
+  "config_dir": "/var/lib/libreserv/apps/abc123/config",
   "runtime": {
-    "compose_file": "/var/lib/libreserv/apps/abc123/app-compose/docker-compose.yml",
+    "compose_file": "/var/lib/libreserv/apps/abc123/docker-compose.yml",
     "project_name": "libreserv-abc123"
   },
   "options": {
     "http_port": 3000,
     "http_allowed": "http://localhost:*",
     "account_registration": true
-  },
-  "secrets": {}
+  }
 }
 ```
 
@@ -564,14 +563,13 @@ All scripts receive a JSON configuration file as the first argument. This file c
 |-------|------|-------------|
 | `instance_id` | string | Unique instance identifier |
 | `app_id` | string | Application ID from app.yaml |
-| `app_name` | string | User-provided app name |
 | `install_path` | string | App installation directory |
 | `app_data_path` | string | App data directory |
-| `config_path` | string | Path to this config file |
+| `config_path` | string | Path to the config.json file |
+| `config_dir` | string | Path to the config directory |
 | `runtime.compose_file` | string | Docker Compose file path |
 | `runtime.project_name` | string | Docker Compose project name |
 | `options` | object | User-configured options |
-| `secrets` | object | Sensitive values (passwords, API keys) |
 
 **Parsing Configuration:**
 

@@ -19,9 +19,9 @@ LibreServ implements the following security measures:
 
 ### Authentication & Access Control
 - JWT-based authentication with bcrypt password hashing
-- Configurable password requirements (12+ characters, alphanumeric)
-- Rate limiting (5 attempts, 15-minute lockout)
-- Optional 2FA support
+- Configurable password requirements
+- Rate limiting on auth and sensitive endpoints
+- Two-factor authentication (coming soon)
 
 ### Input Validation
 - CORS strict defaults (no wildcard unless explicitly configured)
@@ -34,11 +34,33 @@ LibreServ implements the following security measures:
 - Security headers (X-Frame-Options, HSTS, CSP recommendations)
 - Dev mode security warnings and production guardrails
 - Audit logging for all administrative actions
+- Global request body size limit: **10 MB** enforced via middleware
 
 ### Container Security
 - Non-root container configurations where possible
 - Hardened Docker Compose with pinned image tags
 - Network isolation recommendations
+
+## Rate Limiting
+
+LibreServ enforces the following per-IP or per-user rate limits, reset every minute:
+
+| Route Prefix | Limit | Scope |
+|---|---|---|
+| `/api/v1/setup/complete` | 15 requests/min | Global (by IP) |
+| `/api/v1/setup/preflight` | 60 requests/min | Global (by IP) |
+| `/api/v1/setup/status` | 180 requests/min | Global (by IP) |
+| `/api/v1/auth` | 120 requests/min | Global (by IP) |
+| `/api/v1/users` | 60 requests/min | Per user |
+| `/api/v1/support` | 30 requests/min | Per user |
+| `/api/v1/backups` | 20 requests/min | Per user |
+| `/api/v1/support/sessions` | 20 requests/min | Per user |
+| `/api/v1/support/diagnostics` | 10 requests/min | Per user |
+| `/api/v1/support/session` | 15 requests/min | Per user |
+| `/api/v1/security` | 60 requests/min | Per user |
+| `/api/v1` (general) | 300 requests/min | Per user |
+
+Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`) are included in every response.
 
 ## Automated Scanning
 
@@ -75,7 +97,3 @@ When a commit is blocked:
 3. Re-push the corrected code
 
 The security team is automatically notified of all blocked commits for review.
-
-## Hardening Checklist
-
-See [TODO.md](TODO.md) for current security hardening status and future enhancements.

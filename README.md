@@ -9,7 +9,7 @@ General users. No person who isn't completely uninitiated in terms of tech shoul
 The primary method of delivery for LibreServ will likely be via hardware with the software pre-installed.
 
 ## Status
-- In active development (MVP target: April 30, 2026)
+- In active development
 - Backend is Go; Frontend is React/Vite. Reverse proxy is Caddy. Database is SQLite. Apps run via Docker.
 
 ## Goals
@@ -48,11 +48,11 @@ LibreServ has achieved MVP when ALL of the following are true:
 
 ---
 
-## What’s here
+## What's here
 - **Backend** (`server/backend`): API server, app installer/manager, monitoring, backups, support session tooling.
 - **Frontend** (`server/frontend`): Vite/React source (not built by default). Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
 - **Built-in apps**: Nextcloud AIO, SearXNG, Ollama, ConvertX, MotionEye compose templates live under `server/backend/apps/builtin/`.
-- **CI**: `.github/workflows/ci.yml` runs backend vet/tests and frontend lint/build on pushes/PRs.
+- **CI**: `./ci` runs backend vet/tests and frontend lint/build.
 
 ## Contributing
 

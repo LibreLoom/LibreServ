@@ -45,67 +45,99 @@ LibreServ/
 ├── server/
 │   ├── backend/                    # Go backend application
 │   │   ├── cmd/
-│   │   │   └── libreserv/          # Application entry point
-│   │   │       ├── main.go         # Main function and initialization
-│   │   │       └── main_test.go    # Integration tests
+│   │   │   ├── libreserv/         # Application entry point
+│   │   │   │   ├── main.go        # Main function and initialization
+│   │   │   │   └── config_cmd.go  # Config subcommand
 │   │   ├── internal/
-│   │   │   ├── api/                # HTTP server and handlers
-│   │   │   │   ├── server.go       # Server configuration and startup
-│   │   │   │   ├── handlers/       # Request handlers by resource
-│   │   │   │   │   ├── apps.go     # App management endpoints
-│   │   │   │   │   ├── system.go   # System operation endpoints
-│   │   │   │   │   ├── network.go  # Network configuration endpoints
-│   │   │   │   │   └── audit.go    # Audit log endpoints
-│   │   │   │   └── middleware/     # HTTP middleware (auth, logging, etc.)
-│   │   │   ├── apps/               # App catalog and lifecycle management
-│   │   │   │   ├── catalog.go      # Built-in and custom app catalog
-│   │   │   │   ├── lifecycle.go    # Container lifecycle operations
-│   │   │   │   ├── update.go       # Update detection and application
-│   │   │   │   └── backup.go       # Backup and restore operations
-│   │   │   ├── audit/              # Audit logging system
-│   │   │   │   ├── logger.go       # Audit event recording
-│   │   │   │   └── query.go        # Audit log queries
-│   │   │   ├── database/           # SQLite database layer
-│   │   │   │   ├── db.go           # Database connection and setup
-│   │   │   │   ├── models/         # Data models and entities
-│   │   │   │   └── migrations/     # Database schema migrations
-│   │   │   ├── jobs/               # Background job scheduler
-│   │   │   │   ├── scheduler.go    # Job scheduling logic
-│   │   │   │   └── workers/        # Background task implementations
-│   │   │   ├── notify/             # Notification services
-│   │   │   │   ├── email.go        # Email notifications
-│   │   │   │   └── webhook.go      # Webhook notifications
-│   │   │   ├── system/             # Platform self-update logic
-│   │   │   │   ├── update.go       # Platform update detection
-│   │   │   │   └── install.go      # Binary installation
-│   │   │   ├── compose/            # Docker Compose management
-│   │   │   │   ├── executor.go     # Compose command execution
-│   │   │   │   └── generator.go    # Compose file generation
-│   │   │   ├── caddy/              # Caddy reverse proxy integration
-│   │   │   │   ├── client.go       # Caddy Admin API client
-│   │   │   │   └── config.go       # Route configuration generation
-│   │   │   └── health/             # Health check system
-│   │   │       ├── checker.go      # Health check execution
-│   │   │       └── monitor.go      # Continuous health monitoring
-│   │   └── go.mod                  # Go module definition
-│   └── frontend/                   # React frontend application
+│   │   │   ├── api/               # HTTP server and handlers
+│   │   │   │   ├── server.go      # Server configuration and startup
+│   │   │   │   ├── router.go      # Route setup
+│   │   │   │   ├── handlers/      # Request handlers by resource
+│   │   │   │   │   ├── apps.go    # App management endpoints
+│   │   │   │   │   ├── auth.go    # Authentication endpoints
+│   │   │   │   │   ├── backups.go # Backup endpoints
+│   │   │   │   │   ├── catalog.go # Catalog endpoints
+│   │   │   │   │   ├── network.go # Network configuration endpoints
+│   │   │   │   │   ├── setup.go   # Setup wizard endpoints
+│   │   │   │   │   ├── system.go  # System operation endpoints
+│   │   │   │   │   ├── audit.go   # Audit log endpoints
+│   │   │   │   │   └── ...        # Additional handler files
+│   │   │   │   └── middleware/    # HTTP middleware (auth, logging, rate limit, etc.)
+│   │   │   ├── apps/              # App catalog and lifecycle management
+│   │   │   │   ├── catalog.go     # Built-in and custom app catalog
+│   │   │   │   ├── installer.go   # Template processing and installation
+│   │   │   │   ├── manager.go     # App lifecycle orchestration
+│   │   │   │   ├── types.go       # All type definitions
+│   │   │   │   ├── port_manager.go# Host port allocation
+│   │   │   │   ├── script_executor.go # Script execution
+│   │   │   │   ├── manifest.go    # App manifest handling
+│   │   │   │   ├── repo.go        # Repository app sources
+│   │   │   │   └── metrics_cache.go # App metrics caching
+│   │   │   ├── audit/             # Audit logging system (service.go, service_test.go)
+│   │   │   ├── auth/              # JWT authentication, password reset
+│   │   │   ├── backup/            # Backup service (cloud/)
+│   │   │   ├── config/            # Config loading (viper + YAML)
+│   │   │   ├── constants/         # Shared constants
+│   │   │   ├── database/          # SQLite database layer
+│   │   │   │   ├── db.go          # Database connection and setup
+│   │   │   │   ├── models/        # Data models and entities
+│   │   │   │   ├── migrations/    # Database schema migrations
+│   │   │   │   └── migrate.go     # Migration runner
+│   │   │   ├── docker/            # Docker client abstraction
+│   │   │   ├── email/             # Email sending (templates, markdown)
+│   │   │   ├── errors/            # Error types
+│   │   │   ├── jobqueue/          # Persistent job queue with retry logic
+│   │   │   ├── jobs/              # Simple time-based scheduler
+│   │   │   ├── license/           # License validation
+│   │   │   ├── logger/            # Structured logging setup
+│   │   │   ├── monitoring/        # Health checking and metrics
+│   │   │   ├── network/           # Caddy, DNS, ACME certificate management
+│   │   │   │   ├── caddy.go       # Caddy Admin API client
+│   │   │   │   ├── dns.go         # DNS provider interface
+│   │   │   │   ├── acme.go        # ACME certificate management
+│   │   │   │   ├── ddns.go        # DDNS auto-update
+│   │   │   │   └── probe.go       # Network probing
+│   │   │   ├── notify/            # Notification services
+│   │   │   ├── runtime/           # Container runtime abstraction
+│   │   │   ├── security/          # Security validation and monitoring
+│   │   │   ├── settings/          # DB-backed settings management
+│   │   │   ├── setup/             # First-run setup orchestration
+│   │   │   ├── storage/           # Storage abstraction
+│   │   │   ├── support/           # Remote support sessions
+│   │   │   ├── system/            # Platform self-update logic
+│   │   │   ├── util/              # Utility functions
+│   │   │   └── validation/        # Input validation
+│   │   ├── apps/                  # App template directories
+│   │   │   └── builtin/           # Built-in app definitions
+│   │   ├── configs/               # Configuration files
+│   │   └── go.mod                 # Go module definition
+│   └── frontend/                  # React frontend application
 │       ├── src/
-│       │   ├── components/         # React components
-│       │   ├── pages/              # Page components
-│       │   ├── hooks/              # Custom React hooks
-│       │   ├── services/           # API client services
-│       │   ├── stores/             # State management
-│       │   └── utils/              # Utility functions
-│       ├── package.json            # NPM dependencies
-│       └── vite.config.ts          # Vite configuration
-├── docs/                           # Documentation
-│   ├── APP_PACKAGE_FORMAT.md       # Custom app package specification
-│   ├── DEVELOPER_GUIDE.md          # This guide
-│   ├── OPERATOR_GUIDE.md           # Operations documentation
-│   └── SCRIPT_DEVELOPMENT_GUIDE.md # Script development reference
-├── Dockerfile                      # Production image build
-├── Makefile                        # Build automation
-└── README.md                       # Project overview
+│       │   ├── components/        # React components
+│       │   │   ├── app/           # App-related components
+│       │   │   ├── backups/       # Backup components
+│       │   │   ├── cards/         # Card components
+│       │   │   ├── common/        # Common/shared components
+│       │   │   ├── onboarding/    # Onboarding components
+│       │   │   ├── settings/      # Settings components
+│       │   │   ├── setup/         # Setup wizard components
+│       │   │   ├── smtp/          # SMTP components
+│       │   │   └── ui/            # UI primitives
+│       │   ├── pages/             # Page components (.jsx)
+│       │   ├── hooks/             # Custom React hooks
+│       │   ├── context/           # React contexts
+│       │   ├── layout/            # Layout components
+│       │   └── utils/             # Utility functions
+│       ├── package.json           # NPM dependencies
+│       └── vite.config.js         # Vite configuration
+├── docs/                          # Documentation
+│   ├── APP_PACKAGE_FORMAT.md      # Custom app package specification
+│   ├── DEVELOPER_GUIDE.md         # This guide
+│   ├── OPERATOR_GUIDE.md          # Operations documentation
+│   └── SCRIPT_DEVELOPMENT_GUIDE.md# Script development reference
+├── Dockerfile                     # Production image build
+├── Makefile                       # Build automation
+└── README.md                      # Project overview
 ```
 
 ---
@@ -118,8 +150,8 @@ Ensure the following tools are installed on your development system:
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| Go | 1.23+ | Backend development and building |
-| Node.js | 20+ | Frontend development |
+| Go | 1.26+ | Backend development and building |
+| Node.js | 18+ | Frontend development |
 | Docker | Latest | Container runtime for testing |
 | Docker Compose | v2 plugin | Compose command (`docker compose`) |
 | Git | Latest | Version control |
@@ -146,7 +178,7 @@ docker info
 
 ```bash
 # Clone the repository
-git clone https://github.com/anomalyco/LibreServ.git
+git clone https://gt.plainskill.net/LibreLoom/LibreServ.git
 cd LibreServ
 
 # Install backend dependencies
@@ -239,7 +271,7 @@ docker build -t libreserv:dev .
 |----------|-------------|---------|
 | `VERSION` | Version string embedded in binary | git describe |
 | `COMMIT` | Git commit hash | git rev-parse HEAD |
-| `DATE` | Build timestamp | current date |
+| `DATE` | Build timestamp | current date (optional) |
 | `BUILD_TAGS` | Go build tags (e.g., `embedfront`) | none |
 
 ---
@@ -256,6 +288,8 @@ LibreServ uses SQLite for data persistence. The database stores:
 - Audit logs
 - Backup metadata
 - Scheduled jobs
+- Health check history
+- Security events
 
 ### Database Migrations
 
@@ -265,7 +299,7 @@ Migrations are stored in `server/backend/internal/database/migrations/` and foll
 
 1. Create a new SQL file with the next sequence number:
    ```
-   migrations/005_add_feature_table.sql
+   migrations/002_add_feature_table.sql
    ```
 
 2. Write the migration SQL (migrations run in transactions):
@@ -300,8 +334,6 @@ func RunCustomMigration(db *sql.DB) error {
 **Migration Safety:**
 
 - All migrations run in database transactions
-- Automatic dry-run validation before applying
-- Automatic rollback on failure
 - Pre-migration backups created automatically
 
 ### Database Access for Development
@@ -310,11 +342,8 @@ func RunCustomMigration(db *sql.DB) error {
 # Start LibreServ to create the database
 cd server/backend && ./bin/libreserv
 
-# Access the SQLite database
-sqlite3 /var/lib/libreserv/libreserv.db
-
-# Or from the project directory with test data
-sqlite3 /tmp/libreserv-test.db
+# Access the SQLite database from the dev directory
+sqlite3 dev/data/libreserv.db
 ```
 
 ### Testing with Database
@@ -432,11 +461,11 @@ dlv debug ./cmd/libreserv
 The backend uses structured logging. Increase log verbosity:
 
 ```bash
-# Run with debug logging
-./bin/libreserv --log-level debug
+# Run with debug logging (via config)
+# Set logging.level: debug in libreserv.yaml, or...
 
-# Or via environment variable
-LOG_LEVEL=debug ./bin/libreserv
+# Via environment variable
+LIBRESERV_LOGGING_LEVEL=debug ./bin/libreserv
 ```
 
 **HTTP Request Logging:**
@@ -498,348 +527,135 @@ docker inspect libreserv-backend
 ### Request Flow
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Browser   │────▶│  Frontend   │────▶│   Backend   │────▶│   Docker    │
-│             │◀────│   (React)   │◀────│   (Go API)  │◀────│   Compose   │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
-                          │                   │
-                          │                   │
-                     ┌─────────────┐    ┌─────────────┐
-                     │   Caddy     │    │  SQLite     │
-                     │   (Proxy)   │    │  (Database) │
-                     └─────────────┘    └─────────────┘
+Browser ──HTTP──> Caddy (reverse proxy) ──> LibreServ API (port 8080)
+                                              │
+                                              ├── SQLite database
+                                              ├── Docker daemon (app containers)
+                                              ├── Caddy Admin API (port 2019)
+                                              └── External services (DNS, ACME)
 ```
 
-### Component Responsibilities
+### API Route Structure
 
-| Component | Responsibility |
-|-----------|----------------|
-| **Frontend** | User interface, state management, API communication |
-| **Backend API** | Business logic, validation, orchestration |
-| **Database** | Persistent storage, data integrity |
-| **Docker Runtime** | Container lifecycle, isolation |
-| **Caddy** | HTTPS termination, routing, certificates |
-| **Job Scheduler** | Background tasks, periodic operations |
+```
+/api/v1/
+├── setup/          # First-run wizard (public)
+├── auth/           # Login, register, password reset
+├── catalog/        # App catalog browsing
+├── apps/           # Installed app management
+├── backups/        # Backup/restore
+├── network/        # Caddy routes, ACME certs, DNS
+├── users/          # User management (admin)
+├── settings/       # Application settings
+├── system/         # Platform updates
+├── monitoring/     # Health and metrics
+├── security/       # Security events
+├── support/        # Remote support sessions
+├── audit/          # Audit log
+└── admin/          # Factory reset (admin)
+```
 
-### Key Design Patterns
+### Key Components
 
-1. **Repository Pattern**: Data access abstracted through repository interfaces
-2. **Service Layer**: Business logic encapsulated in service components
-3. **Event Sourcing**: Audit log captures all state-changing operations
-4. **Idempotent Operations**: All operations designed for safe retry
+- **Catalog**: File-system based registry of app definitions loaded at startup
+- **Installer**: Converts app template + user config → Docker Compose deployment
+- **Manager**: Handles lifecycle of installed app instances
+- **Network Manager**: Caddy config generation, DNS provider abstraction, ACME certificates
+- **Job Queue**: Persistent background job system with retry and cancellation
+- **Backup Service**: App data backups with local and cloud (B2/S3) targets
+- **Monitoring**: Health checks, metrics collection, Prometheus endpoint
+- **Security**: Rate limiting, CSRF, JWT auth, security event monitoring
 
 ---
 
 ## API Development
 
-### API Structure
-
-The REST API is organized by resource:
-
-| Resource | Base Path | Purpose |
-|----------|-----------|---------|
-| Apps | `/api/v1/apps` | App catalog and instance management |
-| System | `/api/v1/system` | Platform operations and updates |
-| Network | `/api/v1/network` | Network configuration and routing |
-| Audit | `/api/v1/audit` | Audit log access |
-| Jobs | `/api/v1/jobs` | Background job status |
-
 ### Adding a New Endpoint
 
-1. **Define Handler** in `internal/api/handlers/`:
+1. Create or extend a handler file in `internal/api/handlers/`
+2. Register the route in `internal/api/router.go`
+3. Write tests in a `*_test.go` file next to the handler
 
-```go
-// internal/api/handlers/resource.go
-package handlers
+### Response Formats
 
-import (
-    "net/http"
-    "github.com/gin-gonic/gin"
-)
-
-func (h *Handler) GetResource(c *gin.Context) {
-    id := c.Param("id")
-    resource, err := h.services.GetResource(id)
-    if err != nil {
-        c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-        return
-    }
-    c.JSON(http.StatusOK, resource)
+**Success:**
+```json
+{
+    "data": { ... }
 }
 ```
 
-2. **Register Route** in `internal/api/server.go`:
-
-```go
-func setupRoutes(r *gin.Engine) {
-    api := r.Group("/api/v1")
-    {
-        resources := api.Group("/resources")
-        {
-            resources.GET("/:id", handlers.GetResource)
-            resources.POST("/", handlers.CreateResource)
-            resources.DELETE("/:id", handlers.DeleteResource)
-        }
-    }
+**Error:**
+```json
+{
+    "error": "message"
 }
 ```
 
-3. **Add Tests** in `internal/api/handlers/resource_test.go`
-
-### API Documentation
-
-API endpoints are documented inline using OpenAPI-style comments. Generate documentation:
-
-```bash
-# Generate API docs (if swag installed)
-swag init
-```
+Use the `JSONError(w, statusCode, message)` helper for consistent error responses.
 
 ---
 
 ## Frontend Development
 
-### Project Structure
+### Project Conventions
 
-```
-server/frontend/
-├── src/
-│   ├── components/          # Reusable UI components
-│   │   ├── Button/
-│   │   ├── Modal/
-│   │   └── Form/
-│   ├── pages/               # Route-level components
-│   │   ├── Dashboard/
-│   │   ├── Apps/
-│   │   └── Settings/
-│   ├── hooks/               # Custom React hooks
-│   │   ├── useApps.ts
-│   │   └── useSystem.ts
-│   ├── services/            # API client
-│   │   └── api.ts
-│   ├── stores/              # State management (Zustand)
-│   │   └── appStore.ts
-│   ├── types/               # TypeScript type definitions
-│   └── utils/               # Helper functions
-├── package.json
-├── tsconfig.json
-└── vite.config.ts
-```
+- Use `.jsx` extensions (not `.tsx`)
+- Functional components with hooks
+- Import order: React → Third-party → Local (with `.jsx` extension)
+- Tailwind 4 with CSS variables for theme-aware colors
+- Run `npm run scan:colors` before committing UI changes
 
-### Development Workflow
+### Available Scripts
 
 ```bash
-cd server/frontend
-
-# Start development server with HMR
-npm run dev
-
-# Type checking
-npm run typecheck
-
-# Linting
-npm run lint
-
-# Building for production
-npm run build
+npm run dev              # Development server with HMR
+npm run build            # Production build
+npm run preview          # Preview production build
+npm run lint             # ESLint
+npm run typecheck        # TypeScript checking
+npm test                 # Vitest tests
+npm run scan:colors      # Detect hardcoded colors
 ```
-
-### Adding a New Page
-
-1. Create page component in `src/pages/NewPage/`:
-
-```tsx
-// src/pages/NewPage/NewPage.tsx
-import { useState } from 'react';
-import { usePageTitle } from '../../hooks/usePageTitle';
-
-export function NewPage() {
-    usePageTitle('New Page');
-    const [data, setData] = useState('');
-
-    return (
-        <div className="page">
-            <h1>New Page</h1>
-            {/* Page content */}
-        </div>
-    );
-}
-```
-
-2. Add route in routing configuration
-
-3. Add navigation link if applicable
 
 ---
 
 ## Docker Development
 
-### Development Docker Compose
+### Development Mode
 
-Create `docker-compose.dev.yml` for local development:
+When running in development mode, set `LIBRESERV_INSECURE_DEV=true` to bypass production security checks.
 
-```yaml
-version: "3.8"
-
-services:
-  backend:
-    build:
-      context: ./server/backend
-      dockerfile: Dockerfile.dev
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./server/backend:/app
-      - backend-cache:/go/pkg
-    environment:
-      - LOG_LEVEL=debug
-    depends_on:
-      - caddy
-
-  frontend:
-    build:
-      context: ./server/frontend
-      dockerfile: Dockerfile.dev
-    ports:
-      - "5173:5173"
-    volumes:
-      - ./server/frontend:/app
-      - node-modules:/app/node_modules
-
-  caddy:
-    image: caddy:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile.dev:/etc/caddy/Caddyfile
-      - caddy-data:/data
-
-volumes:
-  backend-cache:
-  node-modules:
-  caddy-data:
-```
-
-### Building Production Image
+### Docker Compose Tips
 
 ```bash
-# Build from repository root
-docker build -t libreserv:latest .
+# View running containers
+docker ps
 
-# Build with specific version
-docker build -t libreserv:1.0.0 --build-arg VERSION=1.0.0 .
+# View container logs
+docker logs -f <container-name>
+
+# Rebuild and restart an app after config changes
+docker compose -p libreserv-<instance_id> up -d
 ```
 
 ---
 
 ## Code Style and Conventions
 
-### Go Conventions
+### Go
+- Run `go fmt` before committing
+- Run `go vet ./...` — no warnings
+- Follow [Effective Go](https://golang.org/doc/effective_go)
+- Use structured logging via `log/slog`
 
-1. **Formatting**: Run `go fmt` before committing
-2. **Linting**: Run `golangci-lint run` to check code quality
-3. **Naming**: Use descriptive names, follow Go conventions
-4. **Error Handling**: Handle errors explicitly, avoid `_`
-5. **Documentation**: Comment exported types and functions
-
-```go
-// Package purpose - top of every file
-// Package audit provides audit logging functionality for the platform.
-
-// GetAuditLog retrieves the audit log with filtering options.
-func GetAuditLog(ctx context.Context, filter Filter) ([]Entry, error) {
-    // Implementation
-}
-```
-
-### TypeScript Conventions
-
-1. **Formatting**: ESLint and Prettier configured
-2. **Types**: Prefer explicit types over `any`
-3. **Components**: Functional components with hooks
-4. **Naming**: camelCase for variables, PascalCase for components
-5. **Imports**: Organized, grouped by type
-
-```typescript
-// Types in types/ directory
-export interface AppConfig {
-    id: string;
-    name: string;
-    version: string;
-}
-
-// Components in dedicated folders
-export function AppList({ apps }: AppListProps) {
-    // Implementation
-}
-```
-
-### Commit Messages
-
-Follow Conventional Commits format:
-
-```
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer]
-```
-
-**Types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation changes
-- `style`: Formatting changes
-- `refactor`: Code restructuring
-- `test`: Test additions
-- `chore`: Maintenance
+### JavaScript/React
+- Run `npm run lint` — no errors
+- Use functional components with hooks
+- Run `npm run scan:colors` before committing UI changes
 
 ---
 
 ## Contributing Guidelines
 
-### Getting Started
-
-1. Fork the repository on GitHub
-2. Clone your fork locally:
-   ```bash
-   git clone https://github.com/YOUR-USERNAME/LibreServ.git
-   cd LibreServ
-   ```
-3. Create a feature branch:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-4. Make changes following code conventions
-5. Add tests for your changes
-6. Ensure all tests pass
-7. Commit with descriptive message
-8. Push and create Pull Request
-
-### Pull Request Requirements
-
-- Clear title and description
-- Link to related issue
-- All CI checks passing
-- Tests included for new functionality
-- Documentation updated for user-facing changes
-- Code follows project conventions
-
-### Code Review Process
-
-1. Maintainers review PR within 48 hours
-2. Feedback provided as comments
-3. Address review comments with additional commits
-4. PR approved when all concerns resolved
-5. Merge performed by maintainer
-
-### Reporting Issues
-
-When reporting bugs:
-- Use the issue template
-- Describe expected vs actual behavior
-- Include steps to reproduce
-- Add relevant logs and screenshots
-- Note environment details (OS, Go version, etc.)
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full contribution workflow.

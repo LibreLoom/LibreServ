@@ -260,10 +260,10 @@ go test -v -tags=integration ./tests/integration/...
 
 | Status | Meaning |
 |--------|---------|
-| 🔴 | Not started - Available to claim |
-| 🟡 | In progress - Someone is working on it |
-| ✅ | Complete - Merged to main |
-| ⏸️ | Blocked - Waiting on dependency |
+| Not started | Available to claim |
+| In Progress | Someone is working on it |
+| Done | Complete — Merged to main |
+| Blocked | Waiting on dependency |
 
 ---
 

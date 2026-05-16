@@ -74,8 +74,6 @@ Located at `app-compose/docker-compose.yml`, this file defines the Docker servic
 The Compose file supports template variables that are substituted during deployment:
 
 ```yaml
-version: "3.8"
-
 services:
   app:
     image: myapp:latest
@@ -387,8 +385,6 @@ scripts:
 ### docker-compose.yml
 
 ```yaml
-version: "3.8"
-
 services:
   myapp:
     image: myapp:latest
@@ -412,7 +408,7 @@ services:
 - **Valid Compose**: `docker-compose.yml` must be syntactically valid
 - **Executable Scripts**: All script files must have executable permissions
 - **Valid Options**: `.opts` files must contain valid YAML
-- **Archive Size**: Total uncompressed archive size limited to 100MB (configurable per deployment)
+- **Archive Size**: Total request body size limited to 10 MB (enforced globally by middleware). This affects archive uploads and all API requests.
 - **No Root in Compose**: Services should not run as UID 0 in containers
 - **Volume Isolation**: Data volumes are isolated per app instance
 - **Network Isolation**: Apps run on a custom bridge network by default

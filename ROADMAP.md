@@ -187,7 +187,7 @@ The current app templates are stubs only suitable for basic dev testing. All lif
 
 **Status:** Done
 
-**File:** `server/frontend/src/pages/BackupsPage.jsx`
+**Files:** Settings page (`server/frontend/src/pages/SettingsPage.jsx`) with backup sub-panels (`server/frontend/src/components/backups/`)
 
 - List backups sorted by date (newest first)
 - Create/restore/delete with progress indicators
@@ -444,7 +444,7 @@ Adds wildcard record support to Caddy and the certificate system.
 
 **Status:** Done
 
-**Files:** `server/backend/internal/network/ddns.go`, `server/backend/internal/api/handlers/ddns.go`, `server/frontend/src/components/settings/categories/DDNSCard.jsx`
+**Files:** `server/backend/internal/network/ddns.go`, `server/backend/internal/api/handlers/ddns.go`, `server/frontend/src/components/settings/categories/NetworkCategory.jsx` (DDNS section)
 
 **Effort:** 3h
 **Dependencies:** T3.1.4 ✅

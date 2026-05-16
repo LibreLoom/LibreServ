@@ -292,6 +292,7 @@ Scripts live in `scripts/` within the app package directory and are copied to th
 | `system-setup` | After first container start | One-time initialization |
 | `system-update` | Before update | Pre-update operations |
 | `system-repair` | Health check failure | Automated recovery |
+| `system-destroy-repair` | Health check failure (destructive) | Aggressive recovery (may lose data) |
 | `system-backup` | Before updates / scheduled | Create backup snapshot |
 | `system-restore` | Restore operation | Restore from backup |
 
@@ -302,11 +303,13 @@ All scripts receive a JSON config file as their first argument:
 ```json
 {
   "instance_id": "a1b2c3d4...",
+  "app_id": "nextcloud",
   "install_path": "/var/lib/libreserv/apps/a1b2c3...",
   "app_data_path": "/var/lib/libreserv/apps/a1b2c3.../data",
-  "config_path": "/var/lib/libreserv/apps/a1b2c3.../config",
+  "config_path": "/var/lib/libreserv/apps/a1b2c3.../config.json",
+  "config_dir": "/var/lib/libreserv/apps/a1b2c3.../config",
   "runtime": {
-    "compose_file": "docker-compose.yml",
+    "compose_file": "/var/lib/libreserv/apps/a1b2c3.../docker-compose.yml",
     "project_name": "libreserv-a1b2c3"
   },
   "options": {}

@@ -14,15 +14,35 @@
 
 ```
 LibreServ/
-├── server/backend/          # Go 1.25 backend (chi/v5 router)
+├── server/backend/          # Go 1.26 backend (chi/v5 router)
 │   ├── cmd/libreserv/      # Entry point
 │   ├── internal/
 │   │   ├── api/            # HTTP handlers + middleware
 │   │   ├── apps/           # App lifecycle management
+│   │   ├── audit/          # Audit logging
 │   │   ├── auth/           # JWT authentication
+│   │   ├── backup/         # Backup services
+│   │   ├── config/         # Config management
+│   │   ├── constants/      # Shared constants
 │   │   ├── database/       # SQLite + migrations
 │   │   ├── docker/         # Docker integration
-│   │   ├── jobqueue/       # Background jobs
+│   │   ├── email/          # Email sending
+│   │   ├── errors/         # Error types
+│   │   ├── jobqueue/       # Persistent job queue
+│   │   ├── jobs/           # Simple scheduler
+│   │   ├── license/        # License management
+│   │   ├── logger/         # Logging setup
+│   │   ├── monitoring/     # Health + metrics
+│   │   ├── network/        # Caddy, DNS, ACME
+│   │   ├── notify/         # Notifications
+│   │   ├── runtime/        # Container runtime abstraction
+│   │   ├── security/       # Security + validation
+│   │   ├── settings/       # DB-backed settings
+│   │   ├── setup/          # First-run setup
+│   │   ├── storage/        # Storage abstraction
+│   │   ├── support/        # Remote support sessions
+│   │   ├── system/         # Platform updates
+│   │   ├── util/           # Utility functions
 │   │   └── validation/     # Input validation
 │   ├── configs/            # YAML configuration
 │   ├── OS/dist/            # Embedded frontend (gitignored)
@@ -34,7 +54,8 @@ LibreServ/
         ├── pages/          # Route pages (.jsx)
         ├── hooks/          # Custom hooks
         ├── context/        # React contexts
-        └── layout/         # Layout components
+        ├── layout/         # Layout components
+        └── utils/          # Utility functions
 ```
 
 ---
@@ -112,7 +133,7 @@ npm test -- --watch                      # Watch mode
 
 **New API endpoint:**
 1. Create handler in `internal/api/handlers/{resource}.go`
-2. Add route in `internal/api/server.go`
+2. Add route in `internal/api/router.go`
 3. Write test in `{resource}_test.go`
 
 **New frontend page:**
