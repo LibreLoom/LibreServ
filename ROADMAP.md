@@ -58,6 +58,8 @@ Installs an app -> It works -> Creates backup -> Done
 - Welcome screen with plain-language intro
 - Admin account creation (username, password, email)
 - Preflight checks (Docker, DB, disk space, permissions)
+- Domain configuration step (Cloudflare or nameserver fallback)
+- SMTP setup step with provider presets (Proton, Resend, Postmark, Custom)
 - Auto-redirect to dashboard on completion
 
 ### T1.1.2. Setup Route
@@ -282,7 +284,7 @@ Implement a global system to track uptime and availability of apps and the serve
 
 ### 3.1 Domain & Network Setup
 
-**Overview:** LibreServ's domain system gives every app its own subdomain under the user's domain. During setup, users connect their domain through one of three natively-supported providers (Cloudflare, Porkbun, Spaceship) or via the universal Cloudflare nameserver fallback (works with any registrar). Wildcard certificates are requested via DNS-01 ACME challenges, and a background service keeps DNS records in sync as the user's public IP changes.
+**Overview:** LibreServ's domain system gives every app its own subdomain under the user's domain. During setup, users connect their domain through one of three natively-supported providers (Cloudflare, Porkbun, Spaceship) or via the universal Cloudflare nameserver fallback (works with any registrar). Wildcard certificates are requested via DNS-01 ACME challenges, and a background service keeps DNS records in sync as the user's public IP changes. SMTP setup was added as the third setup wizard step (after Domain), with provider presets for Proton, Resend, Postmark, and Custom SMTP.
 
 #### T3.1.1. Network Routes Page
 
