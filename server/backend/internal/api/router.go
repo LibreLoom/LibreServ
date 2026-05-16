@@ -107,7 +107,7 @@ func (s *Server) setupRoutes() {
 	systemHandler := handlers.NewSystemHandler(s.sysChecker)
 	systemHandler.SetAuditLogger(s)
 	auditHandler := handlers.NewAuditHandler(s.audit)
-	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService)
+	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService, s.authService)
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
 
 	// Configure authentication middleware with CSRF protection
@@ -272,6 +272,7 @@ func (s *Server) setupRoutes() {
 				r.Get("/", backupHandler.ListBackups)
 				r.Post("/", backupHandler.CreateBackup)
 				r.Get("/capabilities", backupHandler.GetBackupCapabilities)
+				r.Post("/provision", backupHandler.ProvisionBackupTool)
 				r.Get("/{backupID}", backupHandler.GetBackup)
 				r.Get("/{backupID}/download", backupHandler.DownloadBackup)
 				r.Post("/{backupID}/restore", backupHandler.RestoreBackup)

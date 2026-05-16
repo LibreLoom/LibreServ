@@ -159,7 +159,7 @@ export default function NetworkCategory({ settings }) {
   return (
     <div className="space-y-6">
       {caddyStatus && (
-        <SettingsCard icon={Server} title="Caddy Status" index={0}>
+        <SettingsCard icon={Server} title="Proxy Status" index={0}>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <ValueDisplay
               label="Status"
@@ -172,14 +172,14 @@ export default function NetworkCategory({ settings }) {
             />
             <ValueDisplay label="Version" value={caddyStatus.version || "N/A"} />
             <ValueDisplay
-              label="Config"
+              label="Configuration"
               value={
                 caddyStatus.config_valid
                   ? <span className="text-success">Valid</span>
                   : <span className="text-warning">Invalid</span>
               }
             />
-            <ValueDisplay label="Routes" value={String(caddyStatus.routes || routes.length)} />
+            <ValueDisplay label="Web Addresses" value={String(caddyStatus.routes || routes.length)} />
             <ValueDisplay label="Domains" value={String(caddyStatus.domains?.length || 0)} />
           </div>
         </SettingsCard>

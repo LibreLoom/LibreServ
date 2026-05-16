@@ -21,7 +21,12 @@ func IsBlockedIP(ip net.IP) bool {
 		return true
 	}
 	if ip4 := ip.To4(); ip4 != nil {
+		// 169.254.0.0/16 — link-local (AWS/GCP/Azure metadata via IP)
 		if ip4[0] == 169 && ip4[1] == 254 {
+			return true
+		}
+		// 100.64.0.0/10 — Carrier-Grade NAT (includes Alibaba Cloud 100.100.100.200 metadata)
+		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
 			return true
 		}
 	}
@@ -35,7 +40,13 @@ func ValidateHost(host string) error {
 		}
 		return nil
 	}
-	blocked := []string{"metadata.google.internal", "metadata.azure.internal"}
+	blocked := []string{
+		"metadata.google.internal",
+		"metadata.azure.internal",
+		"alibaba.zjgmeta.internal",       // Alibaba Cloud metadata
+		"100.100.100.200",                // Alibaba Cloud metadata IP
+		"fd00:ec2::254",                  // AWS IPv6 metadata (defense-in-depth, also blocked by IsBlockedIP)
+	}
 	lower := strings.ToLower(host)
 	for _, b := range blocked {
 		if lower == b {

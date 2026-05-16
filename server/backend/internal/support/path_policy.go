@@ -28,6 +28,7 @@ func NewDefaultPolicy(extraAllow []string) *PathPolicy {
 			"/proc",
 			"/sys",
 			"/dev",
+			"/etc/libreserv/libreserv.yaml", // contains secrets (JWT, CSRF)
 		},
 	}
 }

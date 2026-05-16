@@ -29,7 +29,7 @@ export const ERROR_REMEDIATIONS = [
   {
     id: 'docker',
     match: (err) => /docker|container|daemon/i.test(err),
-    tip: 'Ensure Docker is installed and running: sudo systemctl start docker',
+    tip: 'Docker (the app runtime) needs to be running. Try restarting your device, or ask the person who set up your LibreServ for help.',
     severity: 'critical'
   },
   {

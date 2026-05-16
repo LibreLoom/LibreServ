@@ -167,19 +167,7 @@ export default function Login() {
           <br />
           If you're having this issue repeatedly, start by rebooting your
           LibreServ. If that fails, feel free to contact support to help resolve
-          this issue, we're always happy to help! <br />
-          <br />
-          See
-          <a
-            href={
-              "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/" +
-              errorStatus
-            }
-            className="underline"
-          >
-            {" this page "}
-          </a>
-          for info that might be helpful.
+          this issue, we're always happy to help!
         </p>
       );
     }

@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 )
@@ -14,25 +16,51 @@ import (
 type FactoryResetHandler struct {
 	db           *database.DB
 	setupService *setup.Service
+	authService  *auth.Service
 }
 
-func NewFactoryResetHandler(db *database.DB, setupSvc *setup.Service) *FactoryResetHandler {
+func NewFactoryResetHandler(db *database.DB, setupSvc *setup.Service, authSvc *auth.Service) *FactoryResetHandler {
 	return &FactoryResetHandler{
 		db:           db,
 		setupService: setupSvc,
+		authService:  authSvc,
 	}
 }
 
 func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Confirm bool `json:"confirm"`
+		Confirm  bool   `json:"confirm"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !req.Confirm {
 		JSONError(w, http.StatusBadRequest, "confirmation required")
 		return
 	}
 
-	err := h.db.WithTransaction(r.Context(), func(tx *sql.Tx) error {
+	// Require password re-authentication to prevent session theft from enabling factory reset
+	if req.Password == "" {
+		JSONError(w, http.StatusBadRequest, "Please enter your password to confirm factory reset.")
+		return
+	}
+
+	userID, _ := middleware.GetUserID(r.Context())
+	if userID == "" {
+		JSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	user, err := h.authService.GetUserByID(r.Context(), userID)
+	if err != nil {
+		JSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	if err := auth.VerifyPassword(user.PasswordHash, req.Password); err != nil {
+		JSONError(w, http.StatusBadRequest, "Incorrect password. Please try again.")
+		return
+	}
+
+	err = h.db.WithTransaction(r.Context(), func(tx *sql.Tx) error {
 		// Allowlist of tables that can be truncated during factory reset
 		// This prevents SQL injection and ensures only expected tables are cleared
 		allowedTables := map[string]bool{

@@ -113,7 +113,7 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
       });
 
       if (res.ok) {
-        addToast({ type: "warning", message: "SMTP disconnected" });
+        addToast({ type: "warning", message: "Email provider disconnected" });
         onDisconnect();
         setShowDisconnectModal(false);
       } else {
@@ -129,7 +129,7 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
 
   if (!smtpConfigured) {
     return (
-      <SettingsCard icon={Mail} title="Email (SMTP)" index={0}>
+      <SettingsCard icon={Mail} title="Email Delivery" index={0}>
         <div className="flex flex-col items-center text-center py-8">
           <div className="inline-flex items-center gap-4 px-8 py-4 rounded-pill bg-accent/15 text-accent mb-8 border border-accent/20">
             <Mail size={28} />
@@ -144,7 +144,7 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
             className="w-full max-w-sm"
           >
             <ExternalLink size={16} />
-            Configure SMTP
+            Set Up Email Delivery
           </Button>
         </div>
       </SettingsCard>
@@ -153,7 +153,7 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
 
   return (
     <>
-      <SettingsCard icon={Mail} title="Email (SMTP)" padding={false} index={0}>
+      <SettingsCard icon={Mail} title="Email Delivery" padding={false} index={0}>
         <div className="px-4 pb-4 pt-3 space-y-2">
           <div className="flex items-center justify-between py-2 px-3 border border-primary/10 rounded-large-element bg-primary/5">
             <span className="text-sm text-primary font-medium">Status</span>
@@ -172,7 +172,7 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
               className="flex-1"
               onClick={onReconfigure}
             >
-              Change SMTP
+              Change Email Provider
             </Button>
             <Button
               variant="danger"
@@ -197,8 +197,8 @@ function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
         onClose={() => setShowDisconnectModal(false)}
         onConfirm={handleDisconnect}
         icon={AlertTriangle}
-        title="Disconnect SMTP"
-        message={`Disconnect ${providerLabel} SMTP? Email notifications and password resets will stop working.`}
+        title="Disconnect Email Provider"
+        message={`Disconnect ${providerLabel}? Email notifications and password resets will stop working.`}
         variant="danger"
         confirmLabel="Disconnect"
         loading={disconnecting}

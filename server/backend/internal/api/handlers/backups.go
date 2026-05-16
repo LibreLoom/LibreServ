@@ -184,7 +184,16 @@ func (h *BackupHandlers) DownloadBackup(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	filename := fmt.Sprintf("libreserv-backup-%s.tar.gz", backupID[:8])
+	// Sanitize backup ID for safe filename (UUID hex chars only: 0-9, a-f)
+	safeID := make([]byte, 0, len(backupID))
+	for _, r := range []byte(backupID[:8]) {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			safeID = append(safeID, r)
+		} else {
+			safeID = append(safeID, '_')
+		}
+	}
+	filename := fmt.Sprintf("libreserv-backup-%s.tar.gz", safeID)
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
@@ -258,7 +267,7 @@ func (h *BackupHandlers) RestoreDatabaseBackup(w http.ResponseWriter, r *http.Re
 }
 
 func (h *BackupHandlers) UploadDatabaseBackup(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(0); err != nil {
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		JSONError(w, http.StatusBadRequest, "failed to parse upload")
 		return
 	}
@@ -605,6 +614,24 @@ func (h *BackupHandlers) GetBackupCapabilities(w http.ResponseWriter, r *http.Re
 			"dedup":              resticAvailable,
 			"encryption_at_rest": resticAvailable,
 		},
+	})
+}
+
+func (h *BackupHandlers) ProvisionBackupTool(w http.ResponseWriter, r *http.Request) {
+	available, err := h.backupService.ProvisionRestic()
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Failed to install advanced backup tool. Please try again later.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"restic_available": available,
+		"message": func() string {
+			if available {
+				return "Advanced backup tool installed successfully."
+			}
+			return "Installation failed."
+		}(),
 	})
 }
 

@@ -189,11 +189,11 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 
 	// Validate
 	if req.AdminUsername == "" {
-		JSONError(w, http.StatusBadRequest, "admin_username is required")
+		JSONError(w, http.StatusBadRequest, "Please provide an admin username.")
 		return
 	}
 	if req.AdminPassword == "" {
-		JSONError(w, http.StatusBadRequest, "admin_password is required")
+		JSONError(w, http.StatusBadRequest, "Please provide an admin password.")
 		return
 	}
 	if err := h.authService.ValidatePassword(req.AdminPassword); err != nil {
@@ -254,7 +254,6 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"message": "setup complete",
 		"user":    tokens.User.Sanitize(),
-		"tokens":  tokens.Tokens,
 		"license": LicenseSnapshot(h.license),
 	})
 }
@@ -496,7 +495,7 @@ func (h *SetupHandler) TestDNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Provider == "" || req.Domain == "" || req.APIToken == "" {
-		JSONError(w, http.StatusBadRequest, "provider, domain, and api_token are required")
+		JSONError(w, http.StatusBadRequest, "Please fill in the provider, domain, and access key fields.")
 		return
 	}
 	if req.Provider != "cloudflare" {
@@ -543,7 +542,7 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Provider == "" || req.Domain == "" || req.APIToken == "" || req.Email == "" {
-		JSONError(w, http.StatusBadRequest, "provider, domain, api_token, and email are required")
+		JSONError(w, http.StatusBadRequest, "Please fill in the provider, domain, access key, and email fields.")
 		return
 	}
 

@@ -60,7 +60,7 @@ func init() {
 const (
 	defaultSetupStatusLimit = 180
 	defaultSetupCheckLimit  = 60
-	defaultSetupWriteLimit  = 15
+	defaultSetupWriteLimit  = 5
 	defaultAuthLimit        = 120
 	defaultUserLimit        = 60
 	defaultSupportLimit     = 30

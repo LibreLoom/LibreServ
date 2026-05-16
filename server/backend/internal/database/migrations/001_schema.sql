@@ -361,6 +361,7 @@ CREATE INDEX IF NOT EXISTS idx_security_events_actor ON security_events(actor_id
 CREATE INDEX IF NOT EXISTS idx_security_events_type ON security_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_security_events_severity ON security_events(severity);
 CREATE INDEX IF NOT EXISTS idx_security_events_notified ON security_events(notified);
+CREATE INDEX IF NOT EXISTS idx_security_events_ip ON security_events(ip_address);
 
 -- Failed login attempts indexes
 CREATE INDEX IF NOT EXISTS idx_failed_logins_timestamp ON failed_login_attempts(timestamp);

@@ -16,15 +16,20 @@ function FactoryResetCard({ index = 2 }) {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [confirmText, setConfirmText] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const inputRef = useRef(null);
 
   const handleFactoryReset = useCallback(async () => {
-    if (!confirmText || confirmText !== "RESET") return;
+    if (!confirmText || confirmText !== "RESET" || !password) return;
 
     setLoading(true);
     try {
-      await request("/admin/factory-reset", { method: "POST" });
+      await request("/admin/factory-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true, password }),
+      });
       addToast({ type: "success", message: "Factory reset complete" });
       await logout();
       navigate("/setup");
@@ -33,7 +38,7 @@ function FactoryResetCard({ index = 2 }) {
     } finally {
       setLoading(false);
     }
-  }, [confirmText, request, addToast, logout, navigate]);
+  }, [confirmText, password, request, addToast, logout, navigate]);
 
   return (
     <>
@@ -54,6 +59,7 @@ function FactoryResetCard({ index = 2 }) {
         onClose={() => {
           setModalOpen(false);
           setConfirmText("");
+          setPassword("");
         }}
         onConfirm={handleFactoryReset}
         icon={AlertTriangle}
@@ -62,7 +68,7 @@ function FactoryResetCard({ index = 2 }) {
         confirmLabel={loading ? "Resetting..." : "Reset"}
         confirmIcon={loading ? Loader2 : undefined}
         loading={loading}
-        disabledConfirm={confirmText !== "RESET"}
+        disabledConfirm={confirmText !== "RESET" || !password}
         initialFocusRef={inputRef}
       >
         <div className="space-y-2 text-sm">
@@ -93,6 +99,20 @@ function FactoryResetCard({ index = 2 }) {
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder="Type RESET"
             className="w-full px-3 py-2 rounded-card bg-secondary border-2 border-accent/30 text-primary font-mono text-sm focus:border-accent focus:outline-none"
+          />
+        </div>
+
+        <div className="mt-3">
+          <label className="block font-mono text-xs text-accent mb-1">
+            Enter your password to confirm
+          </label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Your password"
+            className="w-full px-3 py-2 rounded-card bg-secondary border-2 border-accent/30 text-primary font-mono text-sm focus:border-accent focus:outline-none"
+            autoComplete="off"
           />
         </div>
       </ConfirmModal>

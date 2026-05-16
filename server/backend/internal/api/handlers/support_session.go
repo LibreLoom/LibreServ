@@ -5,11 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
 )
 
-// SupportSessionValidationHandler validates session code+token and returns session info plus allowed paths.
+// SupportSessionValidationHandler validates session code+token and returns session info.
 type SupportSessionValidationHandler struct {
 	svc *support.Service
 }
@@ -51,12 +50,6 @@ func (h *SupportSessionValidationHandler) Validate(w http.ResponseWriter, r *htt
 		return
 	}
 
-	cfg := config.Get()
-	policy := support.NewDefaultPolicy([]string{})
-	if cfg != nil {
-		policy.Allow = append(policy.Allow, cfg.Apps.DataPath, cfg.Logging.Path)
-	}
-
 	h.svc.LogAudit(r.Context(), &support.AuditEntry{
 		SessionID:  sess.ID,
 		Actor:      "support-session",
@@ -68,9 +61,5 @@ func (h *SupportSessionValidationHandler) Validate(w http.ResponseWriter, r *htt
 
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"session": sess,
-		"policy": map[string]interface{}{
-			"allow": policy.Allow,
-			"deny":  policy.Deny,
-		},
 	})
 }

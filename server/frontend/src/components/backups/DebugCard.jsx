@@ -29,7 +29,7 @@ export default function DebugCard({ content, onReload }) {
         >
           <div className="bg-primary/5 rounded-card p-3">
             <p className="text-xs text-accent mb-3">
-              This file is generated automatically by LibreServ.
+              This shows the technical configuration file that controls your proxy. You usually don't need to look at this.
             </p>
             {isEmpty ? (
               <p className="text-sm text-primary/50 italic">

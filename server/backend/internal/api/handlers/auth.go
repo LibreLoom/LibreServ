@@ -207,7 +207,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 			req.RefreshToken = cookie.Value
 		}
 		if req.RefreshToken == "" {
-			JSONError(w, http.StatusBadRequest, "refresh_token is required")
+			JSONError(w, http.StatusBadRequest, "Your session needs to be refreshed. Please log in again.")
 			return
 		}
 	}
@@ -288,7 +288,7 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 	}
 
 	if req.Token == "" || req.NewPassword == "" {
-		JSONError(w, http.StatusBadRequest, "token and new_password are required")
+		JSONError(w, http.StatusBadRequest, "Please provide the reset link and a new password.")
 		return
 	}
 

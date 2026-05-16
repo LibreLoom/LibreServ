@@ -193,6 +193,8 @@ export default function BackupRepoConfig() {
     return app?.name || repo.app_id;
   }
 
+  const [provisioning, setProvisioning] = useState(false);
+
   const canSave = form.provider === "local"
     || (form.provider === "b2" && form.bucket && form.key_id && form.key_secret)
     || (form.provider === "s3" && form.endpoint && form.key_id && form.key_secret)
@@ -203,16 +205,32 @@ export default function BackupRepoConfig() {
       <Card icon={Cloud} title="Backup Destinations" padding={false} noPopIn>
         <div className="p-5 space-y-3">
           <p className="text-sm text-accent">
-            Cloud backup destinations require restic to be installed.
+            Cloud backup destinations require the advanced backup tool, which provides deduplication, compression, and encryption for your backups.
           </p>
-          <a
-            href="https://restic.net/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
+          <button
+            onClick={async () => {
+              setProvisioning(true);
+              try {
+                const res = await request("/backups/provision", { method: "POST" });
+                const data = await res.json();
+                if (data.restic_available) {
+                  addToast({ type: "success", message: "Advanced backup tool installed successfully." });
+                  loadData();
+                } else {
+                  addToast({ type: "error", message: data.error || "Installation failed. Please try again later." });
+                }
+              } catch {
+                addToast({ type: "error", message: "Installation failed. Please try again later." });
+              } finally {
+                setProvisioning(false);
+              }
+            }}
+            disabled={provisioning}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm disabled:opacity-50"
           >
-            Install restic
-          </a>
+            {provisioning ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+            {provisioning ? "Installing..." : "Install Now"}
+          </button>
         </div>
       </Card>
     );

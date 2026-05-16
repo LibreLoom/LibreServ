@@ -79,7 +79,8 @@ func (s *PasswordResetService) RequestReset(ctx context.Context, reqEmail string
 	}
 
 	if recentCount >= 3 {
-		return fmt.Errorf("too many requests, please try again later")
+		// Return silently to avoid revealing account existence via rate-limit error
+		return nil
 	}
 
 	token, tokenHash, err := generateResetToken()

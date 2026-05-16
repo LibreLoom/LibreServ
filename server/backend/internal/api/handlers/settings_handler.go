@@ -93,12 +93,6 @@ func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		if cfg.Network.Caddy.Mode != "" {
 			proxyInfo["mode"] = cfg.Network.Caddy.Mode
 		}
-		if cfg.Network.Caddy.AdminAPI != "" {
-			proxyInfo["admin_api"] = cfg.Network.Caddy.AdminAPI
-		}
-		if cfg.Network.Caddy.ConfigPath != "" {
-			proxyInfo["config_path"] = cfg.Network.Caddy.ConfigPath
-		}
 		if cfg.Network.Caddy.DefaultDomain != "" {
 			proxyInfo["default_domain"] = cfg.Network.Caddy.DefaultDomain
 		}
@@ -137,12 +131,6 @@ func (h *SettingsHandler) GetProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if cfg.Network.Caddy.Mode != "" {
 		proxyInfo["mode"] = cfg.Network.Caddy.Mode
-	}
-	if cfg.Network.Caddy.AdminAPI != "" {
-		proxyInfo["admin_api"] = cfg.Network.Caddy.AdminAPI
-	}
-	if cfg.Network.Caddy.ConfigPath != "" {
-		proxyInfo["config_path"] = cfg.Network.Caddy.ConfigPath
 	}
 	if cfg.Network.Caddy.DefaultDomain != "" {
 		proxyInfo["default_domain"] = cfg.Network.Caddy.DefaultDomain

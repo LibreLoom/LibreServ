@@ -15,7 +15,7 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
         {presetData.label} credentials
       </h2>
       <p className="text-primary/50 text-sm mb-6">
-        Enter the connection details for your {presetData.label} SMTP server.
+        Enter the account details for your {presetData.label} email provider.
       </p>
 
       {presetData.help && (
@@ -42,8 +42,11 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
         {preset === "custom" && (
           <div>
             <label htmlFor="smtp-host" className="block text-sm text-primary/60 translate-x-5 mb-1">
-              SMTP Host <span className="text-error" aria-hidden="true">*</span>
+              Server address <span className="text-error" aria-hidden="true">*</span>
             </label>
+            <p className="text-xs text-primary/35 mb-1.5 translate-x-5">
+              The address of your email provider's sending server. Find it in your email provider's settings under "SMTP" or "Outgoing Mail".
+            </p>
             <input
               id="smtp-host"
               type="text"
@@ -62,6 +65,9 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
             <label htmlFor="smtp-port" className="block text-sm text-primary/60 translate-x-5 mb-1">
               Port
             </label>
+            <p className="text-xs text-primary/35 mb-1.5 translate-x-5">
+              A number that identifies the connection channel. Most providers use port 587 (recommended) or 465.
+            </p>
             <input
               id="smtp-port"
               type="number"

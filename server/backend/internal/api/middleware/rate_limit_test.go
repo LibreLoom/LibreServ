@@ -166,7 +166,7 @@ func TestRateLimitDefaultUsesSpecificSetupRules(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/complete", nil)
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 5; i++ {
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Code != http.StatusOK {
@@ -179,7 +179,7 @@ func TestRateLimitDefaultUsesSpecificSetupRules(t *testing.T) {
 	if rr.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected rate limit, got %d", rr.Code)
 	}
-	if count != 15 {
-		t.Fatalf("handler should run 15 times, ran %d", count)
+	if count != 5 {
+		t.Fatalf("handler should run 5 times, ran %d", count)
 	}
 }

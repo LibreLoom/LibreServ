@@ -28,6 +28,27 @@ func TestPathPolicyAllowDeny(t *testing.T) {
 	}
 }
 
+func TestPathPolicyConfigFileDenied(t *testing.T) {
+	p := NewDefaultPolicy([]string{})
+
+	// /etc/libreserv is allowed, but libreserv.yaml (which contains secrets) should be denied
+	allowed, err := p.IsAllowed("/etc/libreserv/app-configs/myapp.yaml")
+	if err != nil {
+		t.Fatalf("app-config check: %v", err)
+	}
+	if !allowed {
+		t.Fatalf("expected /etc/libreserv/app-configs to be allowed")
+	}
+
+	denied, err := p.IsAllowed("/etc/libreserv/libreserv.yaml")
+	if err != nil {
+		t.Fatalf("config deny check: %v", err)
+	}
+	if denied {
+		t.Fatalf("expected /etc/libreserv/libreserv.yaml to be denied (contains secrets)")
+	}
+}
+
 func TestPathPolicySymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")

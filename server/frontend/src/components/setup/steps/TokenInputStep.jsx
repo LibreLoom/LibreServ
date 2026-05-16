@@ -23,13 +23,13 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
         Connect your Cloudflare account
       </h2>
       <p className="text-primary/50 text-sm mb-6">
-        We need an API token from your Cloudflare account to set up your domain. This is a special key that lets LibreServ manage your domain settings &mdash; you can create one below.
+        We need an access key from your Cloudflare account to set up your domain. This is a special key that lets LibreServ manage your domain settings &mdash; you can create one using the guide below.
       </p>
 
       <div className="space-y-4 mb-5">
         <div>
           <label htmlFor="wiz-token" className="block text-sm text-primary/60 translate-x-5 mb-1">
-            API Token <span className="text-error" aria-hidden="true">*</span>
+            Access Key <span className="text-error" aria-hidden="true">*</span>
           </label>
           <div className="relative">
             <input
@@ -56,7 +56,7 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
 
         <div>
           <label htmlFor="wiz-email" className="block text-sm text-primary/60 translate-x-5 mb-1">
-            Email for certificate updates <span className="text-error" aria-hidden="true">*</span>
+            Email for secure connection updates <span className="text-error" aria-hidden="true">*</span>
           </label>
           <input
             id="wiz-email"
@@ -69,12 +69,12 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
             autoComplete="email"
           />
           <p className="text-xs text-primary/35 mt-1.5 translate-x-5">
-            Used by our certificate provider for expiry notices.
+            We'll use this email to let you know when your secure connection (HTTPS) is about to expire, so your apps stay accessible.
           </p>
         </div>
       </div>
 
-      <CollapsibleSection title="How to create an API token" size="xs" pill>
+      <CollapsibleSection title="How to create an access key" size="xs" pill>
         <div className="space-y-3">
           {GUIDE_STEPS.map((step, i) => (
             <div key={i} className="flex items-start gap-2.5">

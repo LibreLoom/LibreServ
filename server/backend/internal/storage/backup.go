@@ -67,6 +67,34 @@ func NewBackupService(db *database.DB, docker *docker.Client, basePath, appDataP
 	return svc
 }
 
+// ProvisionRestic attempts to download and initialize the restic binary.
+// Returns true if restic is now available after provisioning.
+func (s *BackupService) ProvisionRestic() (bool, error) {
+	if s.UseRestic() {
+		return true, nil
+	}
+
+	path, err := restic.AutoProvision()
+	if err != nil {
+		return false, fmt.Errorf("failed to install backup tool: %w", err)
+	}
+	if path == "" {
+		// Already available (race with another call)
+		return s.UseRestic(), nil
+	}
+
+	engine, engineErr := restic.NewEngine()
+	if engineErr != nil {
+		return false, fmt.Errorf("backup tool installed but failed to initialize: %w", engineErr)
+	}
+
+	s.resticMu.Lock()
+	s.resticEngine = engine
+	s.resticMu.Unlock()
+
+	return true, nil
+}
+
 func (s *BackupService) SetServerSecret(secret string) {
 	s.serverSecret = secret
 }
