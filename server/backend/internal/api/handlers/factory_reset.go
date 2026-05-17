@@ -45,13 +45,13 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 
 	userID, _ := middleware.GetUserID(r.Context())
 	if userID == "" {
-		JSONError(w, http.StatusUnauthorized, "authentication required")
+		JSONError(w, http.StatusUnauthorized, "Please log in again.")
 		return
 	}
 
 	user, err := h.authService.GetUserByID(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusUnauthorized, "authentication required")
+		JSONError(w, http.StatusUnauthorized, "Please log in again.")
 		return
 	}
 

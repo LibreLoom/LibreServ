@@ -23,6 +23,11 @@ func TestIsBlockedIP(t *testing.T) {
 		{"link-local multicast", "224.0.0.1", true},
 		{"public v4", "8.8.8.8", false},
 		{"public v6", "2001:4860:4860::8888", false},
+		{"cgnat lower bound", "100.64.0.0", true},
+		{"cgnat alibaba metadata", "100.100.100.200", true},
+		{"cgnat upper bound", "100.127.255.255", true},
+		{"just below cgnat", "100.63.255.255", false},
+		{"just above cgnat", "100.128.0.0", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -52,6 +57,9 @@ func TestValidateHost(t *testing.T) {
 		{"gcp metadata", "metadata.google.internal", true},
 		{"azure metadata", "metadata.azure.internal", true},
 		{"metadata substring safe", "my-metadata-service.example.com", false},
+		{"alibaba metadata host", "alibaba.zjgmeta.internal", true},
+		{"alibaba metadata ip string", "100.100.100.200", true},
+		{"aws ipv6 metadata", "fd00:ec2::254", true},
 		{"link-local", "169.254.169.254", true},
 		{"empty string", "", false},
 	}
