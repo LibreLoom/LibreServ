@@ -580,10 +580,7 @@ func (e *Engine) Backup(ctx context.Context, repo RepoConfig, paths []string, ta
 		}
 	}
 
-	args := []string{"backup"}
-	for _, p := range paths {
-		args = append(args, p)
-	}
+	args := append([]string{"backup"}, paths...)
 	for _, t := range tags {
 		if !pathRegex.MatchString(t) {
 			return nil, fmt.Errorf("invalid tag: %q", t)
@@ -650,10 +647,7 @@ func (e *Engine) BackupWithProgress(ctx context.Context, repo RepoConfig, paths 
 		}
 	}
 
-	args := []string{"backup"}
-	for _, p := range paths {
-		args = append(args, p)
-	}
+	args := append([]string{"backup"}, paths...)
 	for _, t := range tags {
 		args = append(args, "--tag", t)
 	}

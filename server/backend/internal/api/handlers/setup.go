@@ -212,6 +212,11 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Mark setup as complete in the setup state machine
+	if _, err := h.setupService.MarkComplete(r.Context()); err != nil {
+		slog.Warn("Failed to mark setup complete in state machine", "error", err)
+	}
+
 	// Generate tokens for the new admin user
 	tokens, err := h.authService.Login(r.Context(), &auth.LoginRequest{
 		Username: req.AdminUsername,
@@ -468,6 +473,18 @@ func resolveConfigPath(path string) (string, error) {
 func (h *SetupHandler) reconcileSetupState(ctx context.Context, state *setup.State, userStatus *auth.SetupStatus) *setup.State {
 	if state == nil || userStatus == nil {
 		return state
+	}
+	// Repair: if an admin user exists but the setup state machine thinks
+	// we're still pending/in_progress, transition to complete.
+	if state.Status != setup.StatusComplete && userStatus.SetupComplete {
+		if _, err := h.setupService.MarkComplete(ctx); err != nil {
+			slog.Warn("reconcileSetupState: failed to mark setup complete", "error", err)
+		} else {
+			// Re-read to get the updated state
+			if repaired, err := h.setupService.Get(ctx); err == nil {
+				return repaired
+			}
+		}
 	}
 	return state
 }

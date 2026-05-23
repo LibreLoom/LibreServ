@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
@@ -30,6 +31,11 @@ func RequireSetupComplete(service *setup.Service, checker SetupCompletionChecker
 			if checker != nil {
 				complete, err := checker.IsSetupComplete(r.Context())
 				if err == nil && complete {
+					// Repair the setup state — user exists but the setup_state
+					// table wasn't transitioned (e.g. from an old bug or partial run).
+					if _, repairErr := service.MarkComplete(r.Context()); repairErr != nil {
+						slog.Warn("Failed to repair setup state to complete", "error", repairErr)
+					}
 					next.ServeHTTP(w, r)
 					return
 				}

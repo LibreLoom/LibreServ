@@ -43,9 +43,9 @@ func ValidateHost(host string) error {
 	blocked := []string{
 		"metadata.google.internal",
 		"metadata.azure.internal",
-		"alibaba.zjgmeta.internal",       // Alibaba Cloud metadata
-		"100.100.100.200",                // Alibaba Cloud metadata IP
-		"fd00:ec2::254",                  // AWS IPv6 metadata (defense-in-depth, also blocked by IsBlockedIP)
+		"alibaba.zjgmeta.internal", // Alibaba Cloud metadata
+		"100.100.100.200",          // Alibaba Cloud metadata IP
+		"fd00:ec2::254",            // AWS IPv6 metadata (defense-in-depth, also blocked by IsBlockedIP)
 	}
 	lower := strings.ToLower(host)
 	for _, b := range blocked {

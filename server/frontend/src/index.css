@@ -68,9 +68,13 @@
   --color-info: var(--palette-info, #3b82f6);
 
   /* Status Muted Colors - readable inline text regardless of theme */
+  /* color-scan: ignore-next-line */
   --color-success-muted: #4ade80;
+  /* color-scan: ignore-next-line */
   --color-warning-muted: #facc15;
+  /* color-scan: ignore-next-line */
   --color-error-muted: #f87171;
+  /* color-scan: ignore-next-line */
   --color-info-muted: #60a5fa;
 
   /* Status Background Colors - rgba works regardless of theme */
