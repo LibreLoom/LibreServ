@@ -1,7 +1,14 @@
 /* eslint-disable react-refresh/only-export-components */
 import { render } from "@testing-library/react";
 import { BrowserRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthContext } from "../context/AuthContextContext";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: false },
+  },
+});
 
 function Wrapper({ children, authOverrides }) {
   const authValue = {
@@ -16,7 +23,9 @@ function Wrapper({ children, authOverrides }) {
 
   return (
     <BrowserRouter>
-      <AuthContext.Provider value={authValue}>{children}</AuthContext.Provider>
+      <QueryClientProvider client={queryClient}>
+        <AuthContext.Provider value={authValue}>{children}</AuthContext.Provider>
+      </QueryClientProvider>
     </BrowserRouter>
   );
 }
