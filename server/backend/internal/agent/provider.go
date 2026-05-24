@@ -200,7 +200,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []Message, t
 	result := &AgentResponse{Content: choice.Message.Content}
 
 	for _, tc := range choice.Message.ToolCalls {
-		var args json.RawMessage = json.RawMessage(tc.Function.Arguments)
+		var args = json.RawMessage(tc.Function.Arguments)
 		if len(args) == 0 {
 			args = json.RawMessage("{}")
 		}

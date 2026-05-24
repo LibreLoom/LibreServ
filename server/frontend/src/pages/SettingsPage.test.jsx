@@ -22,6 +22,8 @@ vi.mock("../hooks/useTheme", () => ({
 vi.mock("../lib/settings-api.js", () => ({
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
+  getAISettings: vi.fn(),
+  updateAISettings: vi.fn(),
 }));
 
 vi.mock("../lib/security-api.js", () => ({

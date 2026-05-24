@@ -118,7 +118,7 @@ func (c *Checker) ValidateRemotePlan(ctx context.Context, userID string) (*Remot
 		return &RemotePlanValidation{
 			Valid:  false,
 			PlanID: sub.PlanID,
-			Error:  fmt.Sprintf("Plan validation returned an unexpected response. Please try again later or contact support."),
+			Error:  "Plan validation returned an unexpected response. Please try again later or contact support.",
 		}, nil
 	}
 

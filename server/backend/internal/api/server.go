@@ -17,7 +17,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
@@ -64,7 +63,7 @@ type Server struct {
 	dnsProviderMgr  *network.DNSProviderManager
 	acmeManager     *network.ACMEManager
 	ddnsService     *network.DDNSService
-	agentChat       *handlers.AgentChatHandler
+	// agentChat removed — field was unused
 	selfHealMonitor *agent.SelfHealingMonitor
 }
 

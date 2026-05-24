@@ -76,10 +76,10 @@ type Loop struct {
 	userID      string
 	convID      string
 
-	events        chan Event
-	stopCh        chan struct{}
-	stopOnce      sync.Once
-	mu            sync.Mutex
+	events   chan Event
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	// mu was removed — field was unused (U1000)
 	consumerReady chan struct{}
 	readyOnce     sync.Once
 

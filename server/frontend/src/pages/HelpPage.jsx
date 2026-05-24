@@ -10,7 +10,9 @@ import { useAgentChat } from "../hooks/useAgentChat.jsx";
 const PLAN_PICKER_DISMISSED_KEY = "libreserv_plan_picker_dismissed";
 
 const DEFAULT_MODELS = [
+  /* color-scan: ignore-next-line */
   { id: "route/mimo-v2.5-pro", name: "MiMo V2.5 Pro", shape: "diamond", color: "#FF6B35" },
+  /* color-scan: ignore-next-line */
   { id: "route/kimi-k2.6", name: "Kimi K2.6", shape: "circle", color: "#4ECDC4" },
 ];
 

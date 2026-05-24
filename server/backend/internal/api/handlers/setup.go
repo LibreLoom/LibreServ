@@ -260,6 +260,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		"message": "setup complete",
 		"user":    tokens.User.Sanitize(),
 		"license": LicenseSnapshot(h.license),
+		"tokens":  tokens.Tokens,
 	})
 }
 

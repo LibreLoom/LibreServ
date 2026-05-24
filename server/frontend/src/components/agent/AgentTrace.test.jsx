@@ -1,3 +1,4 @@
+/* color-scan: ignore-file - test fixtures with intentional avatar colors */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import AgentTrace, { AgentAvatar } from "./AgentTrace.jsx";
