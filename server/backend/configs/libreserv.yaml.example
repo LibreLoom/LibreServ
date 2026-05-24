@@ -89,3 +89,74 @@ updates:
     base_url: https://gt.plainskill.net/api/v1
     owner: libreloom
     repo: libreserv
+support:
+    server_url: "https://support.serv.libreloom.org"
+    inference_base_url: "https://api.routing.run/v1"
+    inference_api_key: ""
+    default_model: "route/mimo-v2.5-pro"
+    # billing_mode: how credit costs are calculated.
+    #   "token"  — cost based on token usage (for token-billed providers)
+    #   "request" — flat cost per request (for request-billed providers like routing.run)
+    billing_mode: "token"
+    agent:
+        max_turns: 50
+        turn_timeout: 5m
+        snapshot_before_writes: true
+        system_plan_id: "basic"
+    agents:
+        - id: agent-1
+          trigger: chat
+          model: route/mimo-v2.5-pro
+          avatar_shape: diamond
+          avatar_color: "#FF6B35"
+          tools: ["docker", "files", "diagnostics", "snapshots"]
+          max_turns: 50
+        - id: agent-2
+          trigger: chat
+          model: route/kimi-k2.6
+          avatar_shape: circle
+          avatar_color: "#4ECDC4"
+          tools: ["docker", "files", "diagnostics", "snapshots"]
+          max_turns: 50
+        - id: self-healing
+          trigger: container_unhealthy
+          model: route/mimo-v2.5-pro
+          tools: ["docker", "diagnostics", "config_read"]
+          max_turns: 5
+          permission_mode: auto
+    pricing:
+        route/mimo-v2.5-pro:
+            input_per_1m: 0.45
+            output_per_1m: 1.00
+            cache_per_1m: 0.10
+        route/kimi-k2.6:
+            input_per_1m: 0.46
+            output_per_1m: 2.00
+            cache_per_1m: 0.10
+        route/deepseek-v4-pro:
+            input_per_1m: 0.49
+            output_per_1m: 0.74
+            cache_per_1m: 0.003
+    plans:
+        # price_monthly is in cents (e.g. 1500 = $15.00)
+        - id: free
+          name: "Free"
+          price_monthly: 0
+          credit_cap_usd: 0
+          human_escalation: false
+          self_healing: false
+          self_healing_default: false
+        - id: basic
+          name: "Basic Support"
+          price_monthly: 1500
+          credit_cap_usd: 10
+          human_escalation: false
+          self_healing: true
+          self_healing_default: false
+        - id: premium
+          name: "Premium Support"
+          price_monthly: 2500
+          credit_cap_usd: 20
+          human_escalation: true
+          self_healing: true
+          self_healing_default: true

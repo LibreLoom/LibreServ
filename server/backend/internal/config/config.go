@@ -38,6 +38,7 @@ type Config struct {
 	SMTP     SMTPConfig     `mapstructure:"smtp" yaml:"smtp"`
 	Notify   Notifications  `mapstructure:"notify" yaml:"notify"`
 	Updates  UpdatesConfig  `mapstructure:"updates" yaml:"updates"`
+	Support  SupportConfig  `mapstructure:"support" yaml:"support"`
 }
 
 // AuthConfig holds auth-related settings.
@@ -81,6 +82,60 @@ type UpdatesConfig struct {
 	BaseURL string `mapstructure:"base_url" yaml:"base_url"`
 	Owner   string `mapstructure:"owner" yaml:"owner"`
 	Repo    string `mapstructure:"repo" yaml:"repo"`
+}
+
+// SupportConfig defines AI support agent settings.
+type SupportConfig struct {
+	ServerURL        string                  `mapstructure:"server_url" yaml:"server_url"`
+	InferenceBaseURL string                  `mapstructure:"inference_base_url" yaml:"inference_base_url"`
+	InferenceAPIKey  string                  `mapstructure:"inference_api_key" yaml:"inference_api_key"`
+	DefaultModel     string                  `mapstructure:"default_model" yaml:"default_model"`
+	BillingMode      string                  `mapstructure:"billing_mode" yaml:"billing_mode"`
+	Plans            []SupportPlan           `mapstructure:"plans" yaml:"plans"`
+	Agent            AgentConfig             `mapstructure:"agent" yaml:"agent"`
+	Pricing          map[string]ModelPricing `mapstructure:"pricing" yaml:"pricing"`
+	Agents           []AgentDefinition       `mapstructure:"agents" yaml:"agents"`
+	BYOKEnabled      bool                    `mapstructure:"byok_enabled" yaml:"byok_enabled"`
+	UserAPIKey       string                  `mapstructure:"user_api_key" yaml:"user_api_key"`
+	UserBaseURL      string                  `mapstructure:"user_base_url" yaml:"user_base_url"`
+	SelfHealing      bool                    `mapstructure:"self_healing" yaml:"self_healing"`
+}
+
+type AgentDefinition struct {
+	ID             string   `mapstructure:"id" yaml:"id"`
+	Trigger        string   `mapstructure:"trigger" yaml:"trigger"`
+	Model          string   `mapstructure:"model" yaml:"model"`
+	AvatarShape    string   `mapstructure:"avatar_shape" yaml:"avatar_shape"`
+	AvatarColor    string   `mapstructure:"avatar_color" yaml:"avatar_color"`
+	ToolNames      []string `mapstructure:"tools" yaml:"tools"`
+	MaxTurns       int      `mapstructure:"max_turns" yaml:"max_turns"`
+	PermissionMode string   `mapstructure:"permission_mode" yaml:"permission_mode"`
+	SystemPrompt   string   `mapstructure:"system_prompt" yaml:"system_prompt"`
+}
+
+type ModelPricing struct {
+	InputPer1M  float64 `mapstructure:"input_per_1m" yaml:"input_per_1m"`
+	OutputPer1M float64 `mapstructure:"output_per_1m" yaml:"output_per_1m"`
+	CachePer1M  float64 `mapstructure:"cache_per_1m" yaml:"cache_per_1m"`
+}
+
+// SupportPlan defines a support subscription tier.
+type SupportPlan struct {
+	ID                 string  `mapstructure:"id" yaml:"id"`
+	Name               string  `mapstructure:"name" yaml:"name"`
+	PriceMonthly       int     `mapstructure:"price_monthly" yaml:"price_monthly"`
+	CreditCapUSD       float64 `mapstructure:"credit_cap_usd" yaml:"credit_cap_usd"`
+	HumanEscalation    bool    `mapstructure:"human_escalation" yaml:"human_escalation"`
+	SelfHealing        bool    `mapstructure:"self_healing" yaml:"self_healing"`
+	SelfHealingDefault bool    `mapstructure:"self_healing_default" yaml:"self_healing_default"`
+}
+
+// AgentConfig defines agent loop parameters.
+type AgentConfig struct {
+	MaxTurns             int           `mapstructure:"max_turns" yaml:"max_turns"`
+	TurnTimeout          time.Duration `mapstructure:"turn_timeout" yaml:"turn_timeout"`
+	SnapshotBeforeWrites bool          `mapstructure:"snapshot_before_writes" yaml:"snapshot_before_writes"`
+	SystemPlanID         string        `mapstructure:"system_plan_id" yaml:"system_plan_id"`
 }
 
 // DockerConfig defines Docker connection settings.
@@ -240,6 +295,86 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("network.caddy.reload.attempt_timeout", "10s")
 	v.SetDefault("network.caddy.logging.output", "stdout")
 	v.SetDefault("network.caddy.logging.format", "console")
+
+	v.SetDefault("support.server_url", "https://support.serv.libreloom.org")
+	v.SetDefault("support.inference_base_url", "https://api.routing.run/v1")
+	v.SetDefault("support.inference_api_key", "")
+	v.SetDefault("support.default_model", "route/mimo-v2.5-pro")
+	v.SetDefault("support.billing_mode", "token")
+	v.SetDefault("support.agent.max_turns", 50)
+	v.SetDefault("support.agent.turn_timeout", "5m")
+	v.SetDefault("support.agent.snapshot_before_writes", true)
+	v.SetDefault("support.agent.system_plan_id", "basic")
+
+	v.SetDefault("support.pricing.route/mimo-v2.5-pro.input_per_1m", 0.45)
+	v.SetDefault("support.pricing.route/mimo-v2.5-pro.output_per_1m", 1.00)
+	v.SetDefault("support.pricing.route/mimo-v2.5-pro.cache_per_1m", 0.10)
+	v.SetDefault("support.pricing.route/kimi-k2.6.input_per_1m", 0.46)
+	v.SetDefault("support.pricing.route/kimi-k2.6.output_per_1m", 2.00)
+	v.SetDefault("support.pricing.route/kimi-k2.6.cache_per_1m", 0.10)
+	v.SetDefault("support.pricing.route/deepseek-v4-pro.input_per_1m", 0.49)
+	v.SetDefault("support.pricing.route/deepseek-v4-pro.output_per_1m", 0.74)
+	v.SetDefault("support.pricing.route/deepseek-v4-pro.cache_per_1m", 0.003)
+}
+
+func DefaultAgents() []AgentDefinition {
+	return []AgentDefinition{
+		{
+			ID:          "agent-1",
+			Trigger:     "chat",
+			Model:       "route/mimo-v2.5-pro",
+			AvatarShape: "diamond",
+			AvatarColor: "#FF6B35",
+			ToolNames:   []string{"docker", "files", "diagnostics", "snapshots"},
+			MaxTurns:    50,
+		},
+		{
+			ID:          "agent-2",
+			Trigger:     "chat",
+			Model:       "route/kimi-k2.6",
+			AvatarShape: "circle",
+			AvatarColor: "#4ECDC4",
+			ToolNames:   []string{"docker", "files", "diagnostics", "snapshots"},
+			MaxTurns:    50,
+		},
+		{
+			ID:             "self-healing",
+			Trigger:        "container_unhealthy",
+			Model:          "route/mimo-v2.5-pro",
+			ToolNames:      []string{"docker", "diagnostics", "config_read"},
+			MaxTurns:       5,
+			PermissionMode: "auto",
+		},
+	}
+}
+
+func AgentByID(id string) *AgentDefinition {
+	cfg := Get()
+	agents := cfg.Support.Agents
+	if len(agents) == 0 {
+		agents = DefaultAgents()
+	}
+	for i := range agents {
+		if agents[i].ID == id {
+			return &agents[i]
+		}
+	}
+	return nil
+}
+
+func AgentsByTrigger(trigger string) []AgentDefinition {
+	cfg := Get()
+	agents := cfg.Support.Agents
+	if len(agents) == 0 {
+		agents = DefaultAgents()
+	}
+	var matched []AgentDefinition
+	for _, a := range agents {
+		if a.Trigger == trigger {
+			matched = append(matched, a)
+		}
+	}
+	return matched
 }
 
 // LoadConfig loads configuration from disk and environment.

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -109,6 +110,9 @@ func (s *Server) setupRoutes() {
 	auditHandler := handlers.NewAuditHandler(s.audit)
 	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService, s.authService)
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
+
+	// Initialize AI agent chat handler
+	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.dockerClient, s.backupService, s.authService)
 
 	// Configure authentication middleware with CSRF protection
 	authConfig := &middleware.AuthConfig{
@@ -392,6 +396,37 @@ func (s *Server) setupRoutes() {
 				r.Post("/command", supportCommandHandler.Run)
 			})
 
+			// AI agent chat support (feature-flagged)
+			if os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
+				r.Route("/support/agent", func(r chi.Router) {
+					r.Use(middleware.RateLimit([]middleware.RateRule{
+						{Prefix: "/api/v1/support/agent", Limit: 30, Window: time.Minute, ByUser: true},
+					}))
+
+					// Conversation CRUD
+					r.Get("/conversations", agentChatHandler.ListConversations)
+					r.Post("/conversations", agentChatHandler.CreateConversation)
+					r.Get("/conversations/{conversationID}", agentChatHandler.GetConversation)
+
+					// Messaging
+					r.Post("/conversations/{conversationID}/messages", agentChatHandler.SendMessage)
+
+					// Permission flow
+					r.Post("/conversations/{conversationID}/permission", agentChatHandler.RespondPermission)
+
+					// Stop active agent
+					r.Post("/conversations/{conversationID}/stop", agentChatHandler.StopConversation)
+
+					// Audit trail
+					r.Get("/conversations/{conversationID}/tool-calls", agentChatHandler.ListToolCalls)
+
+					// Models and subscription
+					r.Get("/models", agentChatHandler.GetModels)
+					r.Get("/subscription", agentChatHandler.GetSubscription)
+					r.Put("/subscription", agentChatHandler.UpdateSubscription)
+				})
+			}
+
 			// Settings - unified application configuration
 			r.Route("/settings", func(r chi.Router) {
 				r.Get("/", settingsHandler.Get)
@@ -407,6 +442,10 @@ func (s *Server) setupRoutes() {
 				r.Get("/security", settingsHandler.GetSecurity)
 				r.Put("/security", settingsHandler.UpdateSecurity)
 				r.Post("/security/test", settingsHandler.TestNotification)
+
+				// AI support settings (admin only for changes)
+				r.Get("/ai-support", settingsHandler.GetAISupport)
+				r.With(middleware.RequireRole("admin")).Put("/ai-support", settingsHandler.UpdateAISupport)
 			})
 
 			// System updates (admin only)
@@ -452,6 +491,17 @@ func (s *Server) setupRoutes() {
 			})
 		})
 	})
+
+	// SSE stream endpoint for agent chat — must be outside auth middleware because
+	// EventSource cannot send Authorization headers. Auth is handled internally
+	// via cookie (withCredentials) or ?token= query param.
+	if os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
+		s.router.With(
+			middleware.RateLimit([]middleware.RateRule{
+				{Prefix: "/api/v1/support/agent", Limit: 30, Window: time.Minute},
+			}),
+		).Get("/api/v1/support/agent/conversations/{conversationID}/stream", agentChatHandler.StreamConversation)
+	}
 
 	// Serve static frontend (SPA) for all other routes
 	s.router.Handle("/assets/*", s.assetsHandler)

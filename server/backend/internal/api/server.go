@@ -16,6 +16,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
@@ -62,6 +64,8 @@ type Server struct {
 	dnsProviderMgr  *network.DNSProviderManager
 	acmeManager     *network.ACMEManager
 	ddnsService     *network.DDNSService
+	agentChat       *handlers.AgentChatHandler
+	selfHealMonitor *agent.SelfHealingMonitor
 }
 
 // ServerConfig holds configuration for creating a new Server
@@ -190,11 +194,17 @@ func NewServer(cfg ServerConfig) *Server {
 	// Initialize DDNS auto-update service
 	server.ddnsService = network.NewDDNSService(cfg.DB, server.dnsProviderMgr, cfg.AuditService)
 
+	// Initialize self-healing monitor
+	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.DockerClient, cfg.DB)
+
 	// Setup routes
 	server.setupRoutes()
 
 	// Start DDNS service if enabled
 	server.ddnsService.Start()
+
+	// Start self-healing monitor if enabled
+	server.selfHealMonitor.Start()
 
 	return server
 }
@@ -219,6 +229,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("Shutting down HTTP server")
 	if s.ddnsService != nil {
 		s.ddnsService.Stop()
+	}
+	if s.selfHealMonitor != nil {
+		s.selfHealMonitor.Stop()
 	}
 	return s.httpServer.Shutdown(ctx)
 }

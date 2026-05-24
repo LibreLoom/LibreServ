@@ -252,7 +252,7 @@ CREATE TABLE IF NOT EXISTS setup_state (
     progress_updated_at TIMESTAMP
 );
 
--- Support sessions
+-- Support sessions (legacy, kept for transition)
 CREATE TABLE IF NOT EXISTS support_sessions (
     id TEXT PRIMARY KEY,
     code TEXT NOT NULL,
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS support_sessions (
     license_id TEXT
 );
 
--- Support audit log
+-- Support audit log (legacy, kept for transition)
 CREATE TABLE IF NOT EXISTS support_audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT,
@@ -278,6 +278,94 @@ CREATE TABLE IF NOT EXISTS support_audit (
     success BOOLEAN,
     message TEXT,
     occurred_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Agent conversations
+CREATE TABLE IF NOT EXISTS agent_conversations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    trigger_type TEXT NOT NULL DEFAULT 'user_request',
+    trigger_app_id TEXT,
+    plan_id TEXT NOT NULL DEFAULT 'free',
+    permission_mode TEXT NOT NULL DEFAULT 'standard',
+    model TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (trigger_app_id) REFERENCES apps(id)
+);
+
+-- Conversation messages (main chat + CoT distinguished by visibility)
+CREATE TABLE IF NOT EXISTS conversation_messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    content_type TEXT NOT NULL DEFAULT 'text',
+    visibility TEXT NOT NULL DEFAULT 'chat',
+    tool_calls TEXT,
+    metadata TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
+);
+
+-- Tool calls (normalized for audit and tracking)
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    tool_args TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result TEXT,
+    error TEXT,
+    snapshot_id TEXT,
+    approved_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    executed_at TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (message_id) REFERENCES conversation_messages(id) ON DELETE CASCADE
+);
+
+-- Permission grants
+CREATE TABLE IF NOT EXISTS permission_grants (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    grant_type TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    granted_by TEXT NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
+);
+
+-- Credit usage (per-action, for metering)
+CREATE TABLE IF NOT EXISTS credit_usage (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    conversation_id TEXT,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id)
+);
+
+-- User subscriptions
+CREATE TABLE IF NOT EXISTS user_subscriptions (
+    user_id TEXT PRIMARY KEY,
+    plan_id TEXT NOT NULL DEFAULT 'free',
+    status TEXT NOT NULL DEFAULT 'active',
+    billing_cycle_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    billing_cycle_end TIMESTAMP,
+    support_server_token TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- DNS provider configuration
@@ -384,6 +472,16 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 
 -- Support sessions indexes
 CREATE UNIQUE INDEX IF NOT EXISTS idx_support_sessions_code_unique ON support_sessions(code, token);
+
+-- Agent conversation indexes
+CREATE INDEX IF NOT EXISTS idx_agent_conv_user ON agent_conversations(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_conv_status ON agent_conversations(status);
+CREATE INDEX IF NOT EXISTS idx_conv_messages_conv ON conversation_messages(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_conv_messages_vis ON conversation_messages(conversation_id, visibility);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_conv ON tool_calls(conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_status ON tool_calls(status);
+CREATE INDEX IF NOT EXISTS idx_credit_usage_user ON credit_usage(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_credit_usage_conv ON credit_usage(conversation_id);
 
 -- =====================
 -- Default Data

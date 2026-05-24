@@ -121,29 +121,40 @@ func (r *Repository) SeedFromConfig() error {
 	}
 
 	settings := map[string]string{
-		"logging.level":                cfg.Logging.Level,
-		"logging.path":                 cfg.Logging.Path,
-		"smtp.host":                    cfg.SMTP.Host,
-		"smtp.port":                    strconv.Itoa(cfg.SMTP.Port),
-		"smtp.username":                cfg.SMTP.Username,
-		"smtp.password":                cfg.SMTP.Password,
-		"smtp.from":                    cfg.SMTP.From,
-		"smtp.use_tls":                 strconv.FormatBool(cfg.SMTP.UseTLS),
-		"smtp.skip_verify":             strconv.FormatBool(cfg.SMTP.SkipVerify),
-		"notify.enabled":               strconv.FormatBool(cfg.Notify.Enabled),
-		"notify.welcome_subject":       cfg.Notify.WelcomeSubject,
-		"notify.welcome_body":          cfg.Notify.WelcomeBody,
-		"notify.support_subject":       cfg.Notify.SupportSubject,
-		"notify.support_body":          cfg.Notify.SupportBody,
-		"server.mode":                  cfg.Server.Mode,
-		"cors.allowed_origins":         stringSliceToCSV(cfg.CORS.AllowedOrigins),
-		"network.caddy.mode":           cfg.Network.Caddy.Mode,
-		"network.caddy.default_domain": cfg.Network.Caddy.DefaultDomain,
-		"network.caddy.email":          cfg.Network.Caddy.Email,
-		"network.caddy.auto_https":     strconv.FormatBool(cfg.Network.Caddy.AutoHTTPS),
-		"updates.base_url":             cfg.Updates.BaseURL,
-		"updates.owner":                cfg.Updates.Owner,
-		"updates.repo":                 cfg.Updates.Repo,
+		"logging.level":                        cfg.Logging.Level,
+		"logging.path":                         cfg.Logging.Path,
+		"smtp.host":                            cfg.SMTP.Host,
+		"smtp.port":                            strconv.Itoa(cfg.SMTP.Port),
+		"smtp.username":                        cfg.SMTP.Username,
+		"smtp.password":                        cfg.SMTP.Password,
+		"smtp.from":                            cfg.SMTP.From,
+		"smtp.use_tls":                         strconv.FormatBool(cfg.SMTP.UseTLS),
+		"smtp.skip_verify":                     strconv.FormatBool(cfg.SMTP.SkipVerify),
+		"notify.enabled":                       strconv.FormatBool(cfg.Notify.Enabled),
+		"notify.welcome_subject":               cfg.Notify.WelcomeSubject,
+		"notify.welcome_body":                  cfg.Notify.WelcomeBody,
+		"notify.support_subject":               cfg.Notify.SupportSubject,
+		"notify.support_body":                  cfg.Notify.SupportBody,
+		"server.mode":                          cfg.Server.Mode,
+		"cors.allowed_origins":                 stringSliceToCSV(cfg.CORS.AllowedOrigins),
+		"network.caddy.mode":                   cfg.Network.Caddy.Mode,
+		"network.caddy.default_domain":         cfg.Network.Caddy.DefaultDomain,
+		"network.caddy.email":                  cfg.Network.Caddy.Email,
+		"network.caddy.auto_https":             strconv.FormatBool(cfg.Network.Caddy.AutoHTTPS),
+		"updates.base_url":                     cfg.Updates.BaseURL,
+		"updates.owner":                        cfg.Updates.Owner,
+		"updates.repo":                         cfg.Updates.Repo,
+		"support.inference_base_url":           cfg.Support.InferenceBaseURL,
+		"support.inference_api_key":            cfg.Support.InferenceAPIKey,
+		"support.default_model":                cfg.Support.DefaultModel,
+		"support.byok_enabled":                 strconv.FormatBool(cfg.Support.BYOKEnabled),
+		"support.user_base_url":                cfg.Support.UserBaseURL,
+		"support.user_api_key":                 cfg.Support.UserAPIKey,
+		"support.agent.max_turns":              strconv.Itoa(cfg.Support.Agent.MaxTurns),
+		"support.agent.turn_timeout":           cfg.Support.Agent.TurnTimeout.String(),
+		"support.agent.snapshot_before_writes": strconv.FormatBool(cfg.Support.Agent.SnapshotBeforeWrites),
+		"support.self_healing":                 strconv.FormatBool(cfg.Support.SelfHealing),
+		"support.billing_mode":                 cfg.Support.BillingMode,
 	}
 
 	for key, value := range settings {
@@ -274,6 +285,46 @@ func (r *Repository) LoadIntoConfig() error {
 		cfg.Updates.Repo = v
 	}
 
+	if v, ok := changes["support.inference_base_url"]; ok {
+		cfg.Support.InferenceBaseURL = v
+	}
+	if v, ok := changes["support.inference_api_key"]; ok {
+		cfg.Support.InferenceAPIKey = v
+	}
+	if v, ok := changes["support.default_model"]; ok {
+		cfg.Support.DefaultModel = v
+	}
+	if v, ok := changes["support.byok_enabled"]; ok {
+		cfg.Support.BYOKEnabled, _ = strconv.ParseBool(v)
+	}
+	if v, ok := changes["support.user_base_url"]; ok {
+		cfg.Support.UserBaseURL = v
+	}
+	if v, ok := changes["support.user_api_key"]; ok {
+		cfg.Support.UserAPIKey = v
+	}
+	if v, ok := changes["support.agent.max_turns"]; ok {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Support.Agent.MaxTurns = n
+		}
+	}
+	if v, ok := changes["support.agent.turn_timeout"]; ok {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.Support.Agent.TurnTimeout = d
+		}
+	}
+	if v, ok := changes["support.agent.snapshot_before_writes"]; ok {
+		cfg.Support.Agent.SnapshotBeforeWrites, _ = strconv.ParseBool(v)
+	}
+	if v, ok := changes["support.self_healing"]; ok {
+		cfg.Support.SelfHealing, _ = strconv.ParseBool(v)
+	}
+	if v, ok := changes["support.billing_mode"]; ok {
+		if v == "token" || v == "request" {
+			cfg.Support.BillingMode = v
+		}
+	}
+
 	if _, ok := changes["logging.level"]; ok {
 		logger.Init(cfg.Logging)
 	}
@@ -366,6 +417,20 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 		}
 		proxyInfo["auto_https"] = cfg.Network.Caddy.AutoHTTPS
 		settings["proxy"] = proxyInfo
+	}
+
+	settings["ai_support"] = map[string]interface{}{
+		"inference_base_url":     cfg.Support.InferenceBaseURL,
+		"api_key_configured":     cfg.Support.InferenceAPIKey != "",
+		"default_model":          cfg.Support.DefaultModel,
+		"byok_enabled":           cfg.Support.BYOKEnabled,
+		"user_key_configured":    cfg.Support.UserAPIKey != "",
+		"user_base_url":          cfg.Support.UserBaseURL,
+		"agent_max_turns":        cfg.Support.Agent.MaxTurns,
+		"agent_turn_timeout":     cfg.Support.Agent.TurnTimeout.String(),
+		"snapshot_before_writes": cfg.Support.Agent.SnapshotBeforeWrites,
+		"self_healing":           cfg.Support.SelfHealing,
+		"billing_mode":           cfg.Support.BillingMode,
 	}
 
 	return settings, nil
@@ -579,6 +644,91 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 		}
 	}
 
+	if aiRaw, ok := updates["ai_support"]; ok {
+		ai, _ := aiRaw.(map[string]interface{})
+		if ai == nil {
+			return fmt.Errorf("invalid ai_support format")
+		}
+		if baseURL, ok := ai["inference_base_url"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Support.InferenceBaseURL = baseURL },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.inference_base_url", baseURL, "string") },
+			})
+		}
+		if apiKey, ok := ai["inference_api_key"].(string); ok && apiKey != "" {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Support.InferenceAPIKey = apiKey },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.inference_api_key", apiKey, "string") },
+			})
+		}
+		if model, ok := ai["default_model"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Support.DefaultModel = model },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.default_model", model, "string") },
+			})
+		}
+		if byokEnabled, ok := toBool(ai["byok_enabled"]); ok {
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Support.BYOKEnabled = byokEnabled },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "support.byok_enabled", strconv.FormatBool(byokEnabled), "bool")
+				},
+			})
+		}
+		if userAPIKey, ok := ai["user_api_key"].(string); ok && userAPIKey != "" {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Support.UserAPIKey = userAPIKey },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.user_api_key", userAPIKey, "string") },
+			})
+		}
+		if userBaseURL, ok := ai["user_base_url"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Support.UserBaseURL = userBaseURL },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.user_base_url", userBaseURL, "string") },
+			})
+		}
+		if maxTurns, ok := toInt(ai["agent_max_turns"]); ok && maxTurns > 0 && maxTurns <= 100 {
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Support.Agent.MaxTurns = maxTurns },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "support.agent.max_turns", strconv.Itoa(maxTurns), "int")
+				},
+			})
+		}
+		if turnTimeout, ok := ai["agent_turn_timeout"].(string); ok {
+			if d, err := time.ParseDuration(turnTimeout); err == nil && d >= time.Second && d <= 30*time.Minute {
+				mutations = append(mutations, mutation{
+					apply:  func() { cfg.Support.Agent.TurnTimeout = d },
+					commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.agent.turn_timeout", turnTimeout, "string") },
+				})
+			}
+		}
+		if snapshotBeforeWrites, ok := toBool(ai["snapshot_before_writes"]); ok {
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Support.Agent.SnapshotBeforeWrites = snapshotBeforeWrites },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "support.agent.snapshot_before_writes", strconv.FormatBool(snapshotBeforeWrites), "bool")
+				},
+			})
+		}
+		if selfHealing, ok := toBool(ai["self_healing"]); ok {
+			mutations = append(mutations, mutation{
+				apply: func() { cfg.Support.SelfHealing = selfHealing },
+				commit: func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "support.self_healing", strconv.FormatBool(selfHealing), "bool")
+				},
+			})
+		}
+		if billingMode, ok := ai["billing_mode"].(string); ok {
+			if billingMode == "token" || billingMode == "request" {
+				mutations = append(mutations, mutation{
+					apply:  func() { cfg.Support.BillingMode = billingMode },
+					commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.billing_mode", billingMode, "string") },
+				})
+			}
+		}
+	}
+
 	if len(mutations) == 0 {
 		return nil
 	}
@@ -618,9 +768,10 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 
 func typeFor(key string) string {
 	switch key {
-	case "smtp.port":
+	case "smtp.port", "support.agent.max_turns":
 		return "int"
-	case "smtp.use_tls", "smtp.skip_verify", "notify.enabled":
+	case "smtp.use_tls", "smtp.skip_verify", "notify.enabled",
+		"support.byok_enabled", "support.agent.snapshot_before_writes", "support.self_healing":
 		return "bool"
 	case "notify.support_recipients", "cors.allowed_origins":
 		return "json"

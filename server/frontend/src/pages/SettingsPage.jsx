@@ -4,7 +4,7 @@ import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/common/ErrorDisplay";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
-import { getSettings, updateSettings } from "../lib/settings-api.js";
+import { getSettings, updateSettings, getAISettings, updateAISettings } from "../lib/settings-api.js";
 import {
   getSecuritySettings,
   updateSecuritySettings,
@@ -39,10 +39,11 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState(null);
   const [securitySettings, setSecuritySettings] = useState(null);
   const [notificationsSettings, setNotificationsSettings] = useState(null);
+  const [aiSettings, setAISettings] = useState(null);
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState(() => {
     const hash = window.location.hash.slice(1);
-    const validCategories = ["general", "appearance", "backups", "security", "network", "notifications", "about"];
+    const validCategories = ["general", "appearance", "backups", "ai_support", "security", "network", "notifications", "about"];
     return validCategories.includes(hash) ? hash : "general";
   });
   const [showMobileContent, setShowMobileContent] = useState(false);
@@ -51,18 +52,21 @@ export default function SettingsPage() {
   const saveTimeoutRef = useRef(null);
   const pendingSettingsRef = useRef(null);
   const pendingSecurityRef = useRef(null);
+  const pendingAIRef = useRef(null);
 
   const loadData = useCallback(async () => {
     try {
       setError(null);
-      const [settingsData, securityData, notificationsData] = await Promise.all([
+      const [settingsData, securityData, notificationsData, aiData] = await Promise.all([
         getSettings(),
         getSecuritySettings(),
         getNotifications(),
+        getAISettings(),
       ]);
       setSettings(settingsData);
       setSecuritySettings(securityData);
       setNotificationsSettings(notificationsData);
+      setAISettings(aiData?.ai_support || null);
       if (securityData && typeof securityData.use_12_hour_time === "boolean") {
         setUse12HourTime(securityData.use_12_hour_time);
       }
@@ -107,16 +111,27 @@ export default function SettingsPage() {
       promises.push(updateSecuritySettings(pendingSecurity, csrfToken));
     }
 
+    if (pendingAIRef.current) {
+      promises.push(updateAISettings(pendingAIRef.current, csrfToken));
+    }
+
     if (promises.length > 0) {
       setSaveStatus("saving");
       try {
         await Promise.all(promises);
         pendingSettingsRef.current = null;
         pendingSecurityRef.current = null;
+        const hadAIPending = pendingAIRef.current != null;
+        pendingAIRef.current = null;
         
         if (pendingSettings && (pendingSettings.smtp || pendingSettings.notify)) {
           const notificationsData = await getNotifications();
           setNotificationsSettings(notificationsData);
+        }
+        
+        if (hadAIPending) {
+          const aiData = await getAISettings();
+          setAISettings(aiData?.ai_support || null);
         }
         
         setSaveStatus("saved");
@@ -167,6 +182,13 @@ export default function SettingsPage() {
   const handleNotificationsSettingsChange = (newSettings) => {
     setNotificationsSettings(newSettings);
     pendingSettingsRef.current = newSettings;
+    setSaveStatus("unsaved");
+    scheduleSave();
+  };
+
+  const handleAISettingsChange = (newSettings) => {
+    setAISettings(newSettings);
+    pendingAIRef.current = newSettings;
     setSaveStatus("unsaved");
     scheduleSave();
   };
@@ -236,6 +258,8 @@ export default function SettingsPage() {
             onLoggingChange={handleLoggingChange}
             updateSettings={settings?.updates}
             onUpdateSettingsChange={handleUpdateSettingsChange}
+            aiSettings={aiSettings}
+            onAISettingsChange={handleAISettingsChange}
             colors={colors}
             setColors={setColors}
             darkColors={darkColors}
@@ -288,6 +312,8 @@ export default function SettingsPage() {
               onLoggingChange={handleLoggingChange}
               updateSettings={settings?.updates}
               onUpdateSettingsChange={handleUpdateSettingsChange}
+              aiSettings={aiSettings}
+              onAISettingsChange={handleAISettingsChange}
               colors={colors}
               setColors={setColors}
               darkColors={darkColors}

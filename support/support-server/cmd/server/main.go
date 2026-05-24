@@ -60,6 +60,9 @@ func main() {
 		log.Printf("WARNING: running without authentication — development mode only")
 	}
 
+	db := initDB()
+	defer db.Close()
+
 	s := &store{cases: make(map[string]*SupportCase)}
 	mux := http.NewServeMux()
 
@@ -118,6 +121,33 @@ func main() {
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
+	}))
+
+	mux.Handle("/api/subscriptions", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			handleGetSubscription(db).ServeHTTP(w, r)
+		case http.MethodPost:
+			handleLinkSubscription(db).ServeHTTP(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+
+	mux.Handle("/api/subscriptions/credits", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleReportCredits(db).ServeHTTP(w, r)
+	}))
+
+	mux.Handle("/api/plans", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handleListPlans(db).ServeHTTP(w, r)
 	}))
 
 	server := &http.Server{

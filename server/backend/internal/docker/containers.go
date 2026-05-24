@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"time"
 
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
@@ -98,4 +99,31 @@ func (c *Client) ContainerLogs(ctx context.Context, containerID string, follow b
 		Tail:       tail,
 	}
 	return c.cli.ContainerLogs(ctx, containerID, opts)
+}
+
+// RestartContainer restarts a container with an optional timeout.
+func (c *Client) RestartContainer(ctx context.Context, containerID string, timeout time.Duration) error {
+	if c == nil || c.cli == nil {
+		return errors.New("docker client not initialized")
+	}
+	_, err := c.cli.ContainerRestart(ctx, containerID, client.ContainerRestartOptions{})
+	return err
+}
+
+// StopContainer stops a running container.
+func (c *Client) StopContainer(ctx context.Context, containerID string) error {
+	if c == nil || c.cli == nil {
+		return errors.New("docker client not initialized")
+	}
+	_, err := c.cli.ContainerStop(ctx, containerID, client.ContainerStopOptions{})
+	return err
+}
+
+// StartContainer starts a stopped container.
+func (c *Client) StartContainer(ctx context.Context, containerID string) error {
+	if c == nil || c.cli == nil {
+		return errors.New("docker client not initialized")
+	}
+	_, err := c.cli.ContainerStart(ctx, containerID, client.ContainerStartOptions{})
+	return err
 }

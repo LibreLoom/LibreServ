@@ -482,3 +482,41 @@ func validateEmail(email string) error {
 	}
 	return nil
 }
+
+func (h *SettingsHandler) GetAISupport(w http.ResponseWriter, r *http.Request) {
+	if h.settingsService == nil {
+		JSONError(w, http.StatusInternalServerError, "Settings service not available")
+		return
+	}
+	result, err := h.settingsService.GetSettings(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not load AI support settings. Please try again later.")
+		return
+	}
+	aiSettings, _ := result["ai_support"].(map[string]interface{})
+	if aiSettings == nil {
+		aiSettings = map[string]interface{}{}
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"ai_support": aiSettings,
+	})
+}
+
+func (h *SettingsHandler) UpdateAISupport(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r.Context())
+	if user == nil || user.Role != "admin" {
+		JSONError(w, http.StatusForbidden, "Only administrators can change AI support settings.")
+		return
+	}
+	var updates map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		JSONError(w, http.StatusBadRequest, "Could not understand the request. Please check the format and try again.")
+		return
+	}
+	if err := h.settingsService.UpdateSettings(r.Context(), map[string]interface{}{"ai_support": updates}); err != nil {
+		slog.Error("failed to update AI support settings", "error", err)
+		JSONError(w, http.StatusInternalServerError, "Could not save AI support settings. Please try again later.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}

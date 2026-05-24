@@ -4,8 +4,48 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
+
+var secretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(password|passwd|secret|api_key|apikey|api-key|token|webhook_url|webhook)["'\s]*[:=]["'\s]*\S+`),
+	regexp.MustCompile(`(?i)(jwt_secret|csrf_secret|smtp_password|dns_api_token|encryption_key)["'\s]*[:=]["'\s]*\S+`),
+}
+
+func MaskSecrets(content string) string {
+	for _, p := range secretPatterns {
+		content = p.ReplaceAllStringFunc(content, func(match string) string {
+			idx := strings.IndexAny(match, ":=")
+			if idx == -1 {
+				return match
+			}
+			prefix := match[:idx]
+			sepStart := idx
+			sepEnd := idx + 1
+			if match[sepEnd] == '=' || match[sepEnd] == ' ' || match[sepEnd] == '"' || match[sepEnd] == '\'' {
+				sepEnd++
+			}
+			return prefix + match[sepStart:sepEnd] + " ••••••••"
+		})
+	}
+	return content
+}
+
+func IsUserData(path string, appDataPath string) bool {
+	if appDataPath == "" {
+		return false
+	}
+	clean := filepath.Clean(path)
+	appRoot := filepath.Clean(appDataPath)
+	if clean == appRoot {
+		return true
+	}
+	if !strings.HasSuffix(appRoot, string(filepath.Separator)) {
+		appRoot += string(filepath.Separator)
+	}
+	return strings.HasPrefix(clean, appRoot)
+}
 
 // PathPolicy holds allow/deny roots for support file operations.
 type PathPolicy struct {

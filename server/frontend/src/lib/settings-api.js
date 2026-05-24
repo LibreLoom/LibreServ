@@ -16,3 +16,20 @@ export async function updateSettings(settings, csrfToken) {
   });
   return res.json();
 }
+
+export async function getAISettings() {
+  const res = await api("/settings/ai-support");
+  return res.json();
+}
+
+export async function updateAISettings(aiSettings, csrfToken) {
+  const res = await api("/settings/ai-support", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+    },
+    body: JSON.stringify(aiSettings),
+  });
+  return res.json();
+}
