@@ -125,7 +125,7 @@ html[data-no-theme-transition] {
 }
 
 html[data-theme-transitioning] * {
-  transition: none !important;
+  transition-property: transform, opacity, max-height, max-width, width, height, left, top, right, bottom, margin, padding, font-size, scale, rotate, translate, visibility, grid-template-columns, grid-template-rows, gap, flex-grow, flex-shrink, flex-basis, aspect-ratio, outline-width, border-width, border-spacing, letter-spacing, line-height, word-spacing, z-index, order !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -267,6 +267,27 @@ func (d *DB) reconcileSchema() error {
 		}
 	}
 
+	// Ensure revoked_tokens.token_jti has a UNIQUE constraint.
+	// SQLite cannot ALTER a column to add UNIQUE, so we recreate the table
+	// if the constraint is missing. Without it, INSERT OR IGNORE in
+	// RevokeTokenIfNotRevoked never detects duplicates, breaking token
+	// rotation reuse detection.
+	if existingTables["revoked_tokens"] && !d.hasUniqueIndex("revoked_tokens", "token_jti") {
+		slog.Warn("Recreating revoked_tokens table to add UNIQUE constraint on token_jti")
+		if err := d.recreateRevokedTokensTable(); err != nil {
+			slog.Error("Failed to recreate revoked_tokens with UNIQUE constraint", "error", err)
+		}
+	}
+	for idx, ddl := range missingIndexes {
+		var exists bool
+		_ = d.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?)`, idx).Scan(&exists)
+		if !exists {
+			if _, err := d.db.Exec(ddl); err != nil {
+				slog.Warn("Failed to create missing index", "index", idx, "error", err)
+			}
+		}
+	}
+
 	// Migrate data from deprecated tables before dropping them.
 	// cloud_backup_config → backup_repositories (config data maps cleanly).
 	if existingTables["cloud_backup_config"] {
@@ -352,6 +373,77 @@ var validIdentifierRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 
 func isValidIdentifier(name string) bool {
 	return validIdentifierRe.MatchString(name)
+}
+
+// hasUniqueIndex checks whether a table has a UNIQUE index on the given column.
+func (d *DB) hasUniqueIndex(table, column string) bool {
+	rows, err := d.db.Query(`PRAGMA index_list(?)`, table)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int
+		var name, origin string
+		var partial int
+		if rows.Scan(&seq, &name, &origin, &partial) != nil {
+			continue
+		}
+		if origin != "c" && origin != "u" {
+			continue
+		}
+		colRows, err := d.db.Query(`PRAGMA index_info(?)`, name)
+		if err != nil {
+			continue
+		}
+		for colRows.Next() {
+			var seqNo, cid int
+			var colName *string
+			if colRows.Scan(&seqNo, &cid, &colName) == nil && colName != nil && strings.EqualFold(*colName, column) {
+				colRows.Close()
+				return true
+			}
+		}
+		colRows.Close()
+	}
+	return false
+}
+
+// recreateRevokedTokensTable rebuilds the revoked_tokens table with a UNIQUE
+// constraint on token_jti. SQLite cannot alter a column constraint in-place,
+// so the standard create-rename swap is required.
+func (d *DB) recreateRevokedTokensTable() error {
+	stmts := []string{
+		`CREATE TABLE revoked_tokens_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			token_jti TEXT NOT NULL UNIQUE,
+			user_id TEXT NOT NULL,
+			token_type TEXT NOT NULL CHECK(token_type IN ('access', 'refresh')),
+			revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			revoked_by TEXT,
+			reason TEXT,
+			expires_at TIMESTAMP NOT NULL
+		)`,
+		`INSERT INTO revoked_tokens_new (id, token_jti, user_id, token_type, revoked_at, revoked_by, reason, expires_at)
+		 SELECT id, token_jti, user_id, token_type, revoked_at, revoked_by, reason, expires_at FROM revoked_tokens`,
+		`DROP TABLE revoked_tokens`,
+		`ALTER TABLE revoked_tokens_new RENAME TO revoked_tokens`,
+		`CREATE INDEX IF NOT EXISTS idx_revoked_tokens_user ON revoked_tokens(user_id, token_type)`,
+		`CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires ON revoked_tokens(expires_at)`,
+	}
+
+	tx, err := d.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, s := range stmts {
+		if _, err := tx.Exec(s); err != nil {
+			return fmt.Errorf("exec: %s: %w", s, err)
+		}
+	}
+	return tx.Commit()
 }
 
 // migrateCloudBackupConfig migrates rows from the deprecated cloud_backup_config

@@ -29,10 +29,6 @@ export default function BackupsCategory() {
   const [pendingDbFile, setPendingDbFile] = useState(null);
   const dbFileInputRef = useRef(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   const showSuccess = useCallback((message, description) => {
     addToast({ type: "success", message, description });
   }, [addToast]);
@@ -41,7 +37,7 @@ export default function BackupsCategory() {
     addToast({ type: "error", message, description });
   }, [addToast]);
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
@@ -69,7 +65,11 @@ export default function BackupsCategory() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [request]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   async function handleCreateBackup() {
     if (!selectedApp) return;

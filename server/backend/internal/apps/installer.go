@@ -534,15 +534,17 @@ func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string,
 
 		composePath := filepath.Join(installPath, "docker-compose.yml")
 		if _, err := os.Stat(composePath); err == nil {
-			// Try to clean up docker resources
 			_ = i.runtime.ComposeDown(ctx, composePath)
+
+			if err := docker.ChownBindMounts(ctx, composePath, os.Getuid(), os.Getgid()); err != nil {
+				i.logger.Warn("Failed to chown bind mount directories during install failure cleanup", "error", err)
+			}
 		}
 	}
 
 	// Remove the installation directory
 	if err := os.RemoveAll(installPath); err != nil {
-		// This is serious - root-owned files from containers can block future installs
-		i.logger.Error("Failed to remove install directory due to root-owned files",
+		i.logger.Error("Failed to remove install directory due to container-owned files",
 			"path", installPath,
 			"error", err,
 			"action", "Manually remove with: sudo rm -rf "+installPath,
@@ -761,13 +763,21 @@ func (i *Installer) Uninstall(ctx context.Context, instanceID string) error {
 		if err := i.runtime.ComposeDown(ctx, composePath); err != nil {
 			i.logger.Warn("Failed to stop containers", "error", err)
 		}
+
+		if err := docker.ChownBindMounts(ctx, composePath, os.Getuid(), os.Getgid()); err != nil {
+			i.logger.Warn("Failed to chown bind mount directories", "error", err)
+		}
 	} else {
 		i.logger.Debug("Compose file not found, skipping container stop", "path", composePath)
 	}
 
 	if _, err := os.Stat(installPath); err == nil {
 		if err := os.RemoveAll(installPath); err != nil {
-			i.logger.Warn("Failed to remove installation directory", "error", err)
+			i.logger.Error("Failed to remove installation directory",
+				"path", installPath,
+				"error", err,
+				"action", "Manually remove with: sudo rm -rf "+installPath,
+			)
 		}
 	}
 

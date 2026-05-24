@@ -7,6 +7,7 @@ import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Alert from "../components/common/Alert";
 import { useNavigate } from "react-router-dom";
+import { useSettingsStatus } from "../hooks/useSettingsStatus";
 
 function getLoginQuip() {
   const hoursSinceEpoch = Math.floor(Date.now() / 43200000);
@@ -97,6 +98,7 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const loginQuip = useMemo(() => getLoginQuip(), []);
+  const { smtpConfigured } = useSettingsStatus();
   
   useEffect(() => {
     if (errorStatus && errorRef.current) {
@@ -231,12 +233,14 @@ export default function Login() {
             aria-invalid={Boolean(errorStatus)}
             aria-describedby={errorStatus ? "login-error" : undefined}
           ></input>
-          <a
-            onClick={() => setShowResetModal(true)}
-            className="text-secondary/80 text-sm underline mt-2 text-right cursor-pointer"
-          >
-            Forgot password?
-          </a>
+          {smtpConfigured && (
+            <a
+              onClick={() => setShowResetModal(true)}
+              className="text-secondary/80 text-sm underline mt-2 text-right cursor-pointer"
+            >
+              Forgot password?
+            </a>
+          )}
           <button
             type="submit"
             className={`bg-secondary text-primary rounded-pill p-2 mt-6 transition-all duration-300 ease-out hover:bg-primary hover:text-secondary hover:ring-accent hover:ring-2 disabled:bg-accent disabled:cursor-not-allowed disabled:ring-0`}

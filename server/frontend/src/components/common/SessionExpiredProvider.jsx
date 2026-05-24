@@ -1,45 +1,32 @@
 import { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
+import { useAuth } from "../../hooks/useAuth";
 import SessionExpiredModal from "./SessionExpiredModal";
 
 export function SessionExpiredProvider({ children }) {
   const [showModal, setShowModal] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
-
-  const handleShow = useCallback(() => {
-    setPendingCount((prev) => prev + 1);
-    setShowModal(true);
-  }, []);
+  const { me } = useAuth();
 
   const handleClose = useCallback(() => {
     setShowModal(false);
-    setPendingCount(0);
   }, []);
 
   useEffect(() => {
-    const onSessionExpired = () => handleShow();
+    const onSessionExpired = () => {
+      setShowModal(true);
+    };
     document.addEventListener("libreserv:session-expired", onSessionExpired);
 
     return () => {
       document.removeEventListener("libreserv:session-expired", onSessionExpired);
     };
-  }, [handleShow]);
-
-  useEffect(() => {
-    if (pendingCount > 0 && showModal) {
-      const timer = setTimeout(() => {
-        setPendingCount(0);
-      }, 30000);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [pendingCount, showModal]);
+  }, []);
 
   return (
     <>
       {children}
       <SessionExpiredModal 
-        isOpen={showModal} 
+        isOpen={showModal && !me} 
         onClose={handleClose}
       />
     </>

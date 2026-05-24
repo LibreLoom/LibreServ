@@ -212,11 +212,6 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mark setup as complete in the setup state machine
-	if _, err := h.setupService.MarkComplete(r.Context()); err != nil {
-		slog.Warn("Failed to mark setup complete in state machine", "error", err)
-	}
-
 	// Generate tokens for the new admin user
 	tokens, err := h.authService.Login(r.Context(), &auth.LoginRequest{
 		Username: req.AdminUsername,

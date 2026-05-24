@@ -1,51 +1,19 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, Clock, Shield } from "lucide-react";
+import { Clock, Shield } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
-import Button from "../ui/Button";
-import { useToast } from "../../context/ToastContext";
+import { useAuth } from "../../hooks/useAuth";
 
 export default function SessionExpiredModal({ isOpen, onClose }) {
   const navigate = useNavigate();
-  const { addToast } = useToast();
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  async function handleLogout() {
-    setLoggingOut(true);
-    try {
-      const response = await fetch("/api/v1/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-      
-      if (!response.ok) {
-        throw new Error("Logout failed");
-      }
-      
-      addToast({ 
-        type: "info", 
-        message: "Logged out successfully",
-        description: "Please log in again to continue."
-      });
-      
-      navigate("/login");
-    } catch {
-      addToast({ 
-        type: "error", 
-        message: "Could not log out",
-        description: "Redirecting to login anyway..."
-      });
-      navigate("/login");
-    } finally {
-      setLoggingOut(false);
-    }
-  }
+  const { me } = useAuth();
 
   function handleLogin() {
-    navigate("/login");
+    navigate("/");
     onClose?.();
   }
+
+  if (!isOpen || !me) return null;
 
   if (!isOpen) return null;
 
@@ -83,30 +51,17 @@ export default function SessionExpiredModal({ isOpen, onClose }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <Button
-            onClick={handleLogout}
-            disabled={loggingOut}
-            variant="ghost"
-            size="md"
-            className="w-full"
-          >
-            <LogOut className="w-4 h-4" />
-            {loggingOut ? "Please wait..." : "Log Out"}
-          </Button>
-          
-          <Button
+        <div className="pt-2">
+          <button
             onClick={handleLogin}
-            variant="secondary"
-            size="md"
-            className="w-full"
+            className="w-full px-4 py-2 rounded-pill bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary transition-all font-mono text-sm"
           >
             Log In Again
-          </Button>
+          </button>
         </div>
 
         <p className="text-center text-xs text-primary/40">
-          You'll be redirected to the login page
+          You'll be redirected to the login screen
         </p>
       </div>
     </ModalCard>

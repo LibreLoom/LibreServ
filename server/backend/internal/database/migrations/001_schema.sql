@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS backup_repositories (
 -- Token revocation table
 CREATE TABLE IF NOT EXISTS revoked_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    token_jti TEXT NOT NULL,
+    token_jti TEXT NOT NULL UNIQUE,
     user_id TEXT NOT NULL,
     token_type TEXT NOT NULL CHECK(token_type IN ('access', 'refresh')),
     revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -439,7 +439,7 @@ CREATE INDEX IF NOT EXISTS idx_backup_repositories_app ON backup_repositories(ap
 CREATE INDEX IF NOT EXISTS idx_backup_repositories_type ON backup_repositories(repo_type);
 
 -- Token revocation indexes
-CREATE INDEX IF NOT EXISTS idx_revoked_tokens_jti ON revoked_tokens(token_jti);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_revoked_tokens_jti ON revoked_tokens(token_jti);
 CREATE INDEX IF NOT EXISTS idx_revoked_tokens_user ON revoked_tokens(user_id, token_type);
 CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires ON revoked_tokens(expires_at);
 

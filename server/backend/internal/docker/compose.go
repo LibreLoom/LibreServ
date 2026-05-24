@@ -47,24 +47,24 @@ func (cm *ComposeManager) getComposeArgs(composePath string) (composeFile string
 	return
 }
 
-// CreateVolumeDirs pre-creates host-side bind mount directories from a compose file.
-// This prevents docker compose from creating them as root when it sets up bind mounts.
-func CreateVolumeDirs(composePath string) error {
+// extractBindMountPaths parses a compose file and returns all host-side bind mount paths.
+func extractBindMountPaths(composePath string) ([]string, error) {
 	data, err := os.ReadFile(composePath)
 	if err != nil {
-		return fmt.Errorf("failed to read compose file: %w", err)
+		return nil, fmt.Errorf("failed to read compose file: %w", err)
 	}
 
 	var compose map[string]interface{}
 	if err := yaml.Unmarshal(data, &compose); err != nil {
-		return fmt.Errorf("failed to parse compose file: %w", err)
+		return nil, fmt.Errorf("failed to parse compose file: %w", err)
 	}
 
 	services, ok := compose["services"].(map[string]interface{})
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
+	var paths []string
 	for _, svc := range services {
 		s, ok := svc.(map[string]interface{})
 		if !ok {
@@ -82,8 +82,8 @@ func CreateVolumeDirs(composePath string) error {
 				continue
 			}
 
-			parts := strings.SplitN(vol, ":", 2)
-			if len(parts) != 2 {
+			parts := strings.SplitN(vol, ":", 3)
+			if len(parts) < 2 {
 				continue
 			}
 
@@ -92,13 +92,28 @@ func CreateVolumeDirs(composePath string) error {
 				continue
 			}
 
-			if err := os.MkdirAll(hostPath, 0750); err != nil {
-				log.Printf("Warning: failed to pre-create volume directory %s: %v", hostPath, err)
-				continue
-			}
-
-			_ = os.Chmod(hostPath, 0750)
+			paths = append(paths, hostPath)
 		}
+	}
+
+	return paths, nil
+}
+
+// CreateVolumeDirs pre-creates host-side bind mount directories from a compose file.
+// This prevents docker compose from creating them as root when it sets up bind mounts.
+func CreateVolumeDirs(composePath string) error {
+	paths, err := extractBindMountPaths(composePath)
+	if err != nil {
+		return err
+	}
+
+	for _, hostPath := range paths {
+		if err := os.MkdirAll(hostPath, 0750); err != nil {
+			log.Printf("Warning: failed to pre-create volume directory %s: %v", hostPath, err)
+			continue
+		}
+
+		_ = os.Chmod(hostPath, 0750)
 	}
 
 	return nil
@@ -240,6 +255,64 @@ func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath st
 	return cm.Up(ctx, projectPath)
 }
 
+// ChownBindMounts re-owns all bind mount host paths to the given uid/gid using a
+// temporary Alpine container. This is necessary because container processes may write
+// files with their internal UID (e.g. dnsmasq, polkitd), making them impossible for the
+// host user to delete. The Alpine container runs as root and can chown any file.
+func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) error {
+	paths, err := extractBindMountPaths(composePath)
+	if err != nil {
+		return fmt.Errorf("failed to extract bind mount paths: %w", err)
+	}
+
+	if len(paths) == 0 {
+		return nil
+	}
+
+	owner := fmt.Sprintf("%d:%d", uid, gid)
+
+	for _, hostPath := range paths {
+		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
+			continue
+		}
+
+		cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+			"-v", hostPath+":/cleanup",
+			"alpine:latest",
+			"sh", "-c", "chown -R "+owner+" /cleanup && chmod -R u+rw /cleanup",
+		)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("Warning: failed to chown bind mount %s: %v (%s)", hostPath, err, strings.TrimSpace(string(output)))
+			continue
+		}
+	}
+
+	return nil
+}
+
+// ChownDir runs a temporary Alpine container to recursively chown a directory to
+// the given uid/gid. This is used when no compose file is available (e.g. dev reset).
+func ChownDir(ctx context.Context, dirPath string, uid, gid int) error {
+	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	owner := fmt.Sprintf("%d:%d", uid, gid)
+
+	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", dirPath+":/cleanup",
+		"alpine:latest",
+		"sh", "-c", "chown -R "+owner+" /cleanup && chmod -R u+rw /cleanup",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("chown %s via alpine: %w (%s)", dirPath, err, strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
 func composeError(action string, output []byte, err error) error {
 	outStr := string(output)
 	if strings.Contains(outStr, "Cannot connect to Docker daemon") {
@@ -312,6 +385,45 @@ func ComposePinImageDigest(composePath string, appImage string, digest string) e
 
 	if err := os.WriteFile(composePath, pinnedData, 0644); err != nil {
 		return fmt.Errorf("failed to write compose file: %w", err)
+	}
+
+	return nil
+}
+
+// CleanupAppDataDir walks an apps data directory, finds all docker-compose.yml files,
+// chowns their bind mounts via temporary Alpine containers, then removes the directory.
+// This is used for dev reset and similar bulk cleanup scenarios.
+func CleanupAppDataDir(ctx context.Context, appsDataDir string, uid, gid int) error {
+	if _, err := os.Stat(appsDataDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	entries, err := os.ReadDir(appsDataDir)
+	if err != nil {
+		return fmt.Errorf("failed to read apps data directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		instanceDir := filepath.Join(appsDataDir, entry.Name())
+		composePath := filepath.Join(instanceDir, "docker-compose.yml")
+
+		if _, err := os.Stat(composePath); err == nil {
+			if err := ChownBindMounts(ctx, composePath, uid, gid); err != nil {
+				log.Printf("Warning: failed to chown bind mounts for %s: %v", entry.Name(), err)
+			}
+		}
+	}
+
+	if err := ChownDir(ctx, appsDataDir, uid, gid); err != nil {
+		log.Printf("Warning: failed to chown apps data directory %s: %v", appsDataDir, err)
+	}
+
+	if err := os.RemoveAll(appsDataDir); err != nil {
+		return fmt.Errorf("failed to remove apps data directory: %w", err)
 	}
 
 	return nil

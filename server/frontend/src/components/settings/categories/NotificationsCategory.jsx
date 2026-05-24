@@ -345,7 +345,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
         padding={false}
         index={2}
       >
-        <div className="px-4 py-3">
+        <div className={`px-4 pt-3 ${settings?.notify?.enabled ? "" : "pb-3"}`}>
           <Toggle
             checked={settings?.notify?.enabled || false}
             onChange={() =>
@@ -361,8 +361,13 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
             description="Receive email notifications"
           />
 
-          {settings?.notify?.enabled && (
-            <div className="pt-4 mt-4 border-t border-primary/10 space-y-6">
+          <div
+            className={`overflow-hidden transition-all ease-[var(--motion-easing-emphasized)] ${
+              settings?.notify?.enabled ? "max-h-[2000px] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0"
+            }`}
+            style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+          >
+            <div className="pt-4 border-t border-primary/10 space-y-6">
               <div>
                 <div className="font-medium text-primary mb-3">Frequency</div>
                 <RadioOptionGroup
@@ -412,7 +417,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                 />
               </div>
             </div>
-          )}
+          </div>
         </div>
       </SettingsCard>
 

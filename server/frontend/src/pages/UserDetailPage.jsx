@@ -12,11 +12,13 @@ import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
 import RoleChangeForm from "../components/common/forms/RoleChangeForm";
 import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
 import { useTimeFormat } from "../hooks/useTimeFormat";
+import { useSettingsStatus } from "../hooks/useSettingsStatus";
 
 export default function UserDetailPage() {
   const { userId } = useParams();
   const navigate = useNavigate();
   const { formatDateLong } = useTimeFormat();
+  const { smtpConfigured } = useSettingsStatus();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
@@ -247,12 +249,14 @@ export default function UserDetailPage() {
                 >
                   <span className="text-sm font-medium">Change Role</span>
                 </button>
-                <button
-                  onClick={() => setShowResetPasswordModal(true)}
-                  className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
-                >
-                  <span className="text-sm font-medium">Reset Password</span>
-                </button>
+                {smtpConfigured && (
+                  <button
+                    onClick={() => setShowResetPasswordModal(true)}
+                    className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                  >
+                    <span className="text-sm font-medium">Reset Password</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
                   className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
