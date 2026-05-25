@@ -28,6 +28,7 @@ type Manager struct {
 	repoSet        *RepoSet
 	installer      *Installer
 	portManager    *PortManager
+	upnpService    *network.UPnPService
 	runtime        runtime.ContainerRuntime
 	db             *database.DB
 	backupService  *storage.BackupService
@@ -88,8 +89,23 @@ func NewManager(
 		// Non-fatal — port allocation will still work, just without pre-existing port awareness
 	}
 
+	// Initialize UPnP service
+	upnpCfg := network.UPnPConfig{
+		Enabled: config.Get().Network.UPnP.Enabled,
+		Timeout: config.Get().Network.UPnP.Timeout,
+	}
+	if upnpCfg.Timeout == 0 {
+		upnpCfg.Timeout = 5
+	}
+	m.upnpService = network.NewUPnPService(upnpCfg, m.logger)
+	if err := m.upnpService.Init(); err != nil {
+		if upnpCfg.Enabled {
+			m.logger.Warn("UPnP initialization failed", "error", err)
+		}
+	}
+
 	// Create installer
-	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache, m.portManager)
+	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache, m.portManager, m.upnpService)
 	m.installer.SetCatalogPath(catalogPath)
 
 	// Set route cleanup callback for install failures
@@ -227,6 +243,11 @@ func (m *Manager) TriggerRepoPull(ctx context.Context) {
 // GetPortManager returns the port manager
 func (m *Manager) GetPortManager() *PortManager {
 	return m.portManager
+}
+
+// GetUPnPService returns the UPnP service
+func (m *Manager) GetUPnPService() *network.UPnPService {
+	return m.upnpService
 }
 
 // Start begins the metrics cache collection
@@ -977,10 +998,10 @@ func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 	return err
 }
 
-// CleanupStaleInstallations removes apps stuck in "installing" state for too long
+// CleanupStaleInstallations removes apps stuck in "installing" or "error" state for too long
 func (m *Manager) CleanupStaleInstallations(ctx context.Context) error {
 	cutoff := time.Now().Add(-30 * time.Minute)
-	rows, err := m.db.Query(`SELECT id FROM apps WHERE status = ? AND installed_at < ?`, string(StatusInstalling), cutoff)
+	rows, err := m.db.Query(`SELECT id FROM apps WHERE (status = ? OR status = ?) AND installed_at < ?`, string(StatusInstalling), string(StatusError), cutoff)
 	if err != nil {
 		return fmt.Errorf("failed to query stale installations: %w", err)
 	}
