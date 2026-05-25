@@ -157,7 +157,7 @@ export default function HelpPage() {
         leftContent={null}
         rightContent={null}
         bottomContent={
-          <p className="text-sm text-secondary/70 mt-1">
+          <p className="text-sm text-primary/70 mt-1">
             Ask our AI assistant about your server, apps, or any issues. Multiple agents work together to diagnose and fix problems.
           </p>
         }
