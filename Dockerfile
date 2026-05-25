@@ -43,6 +43,8 @@ RUN mkdir -p /app/data /app/configs && chown -R libreserv:libreserv /app
 
 USER libreserv
 
+COPY entrypoint.sh /app/entrypoint.sh
+
 EXPOSE 8080
-ENTRYPOINT ["/app/libreserv"]
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["--config", "/app/configs/libreserv.yaml"]

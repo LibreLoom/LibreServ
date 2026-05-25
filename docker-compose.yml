@@ -26,8 +26,7 @@ services:
       - LIBRESERV_NETWORK_CADDY_ADMIN_API=http://caddy:2019
       - LIBRESERV_NETWORK_CADDY_CONFIG_PATH=/etc/caddy/Caddyfile
     depends_on:
-      caddy:
-        condition: service_healthy
+      - caddy
     # Resource limits for stability and security
     deploy:
       resources:

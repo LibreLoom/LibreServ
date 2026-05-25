@@ -478,6 +478,9 @@ create_config() {
 # DB-backed settings (logging.level, smtp.*, server.mode, etc.) must be
 # changed via the Settings UI — editing this file has no effect after first boot.
 
+server:
+  host: "0.0.0.0"
+
 auth:
   jwt_secret: "${JWT_SECRET}"
   csrf_secret: "${CSRF_SECRET}"
@@ -514,6 +517,7 @@ Type=simple
 User=${USER}
 Group=${USER}
 WorkingDirectory=${INSTALL_DIR}
+Environment="LIBRESERV_INSECURE_DEV=true"
 ExecStart=${BIN_DIR}/libreserv --config ${CONFIG_DIR}/libreserv.yaml
 Restart=always
 RestartSec=10
