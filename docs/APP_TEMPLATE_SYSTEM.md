@@ -83,7 +83,7 @@ The catalog returns **deep-cloned** objects to prevent callers from mutating the
 
 ### Frontend Integration
 
-- `useCatalog()` hook fetches from `GET /api/v1/catalog`
+- `useCatalog()` hook fetches from `GET /api/v1/catalog` (via `useCatalog.js`)
 - `useCatalogApp(id)` hook fetches from `GET /api/v1/catalog/{id}`
 - Icon served from `GET /api/v1/catalog/{id}/icon`
 
@@ -362,5 +362,5 @@ Checks run at the configured `interval` (default 30s). After `retries` consecuti
 | `server/backend/internal/api/handlers/catalog.go` | Catalog REST endpoints |
 | `server/backend/internal/api/handlers/apps.go` | App management REST endpoints |
 | `server/backend/apps/builtin/` | Built-in app template directories |
-| `server/frontend/src/hooks/useCatalog.jsx` | Frontend catalog data fetching |
+| `server/frontend/src/hooks/useCatalog.js` | Frontend catalog data fetching |
 | `server/frontend/src/components/app/wizard/InstallWizard.jsx` | Installation wizard UI |

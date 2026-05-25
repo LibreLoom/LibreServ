@@ -19,18 +19,19 @@ LibreServ/
 │   ├── cmd/libreserv/        # Entry point
 │   ├── internal/
 │   │   ├── api/              # HTTP handlers + middleware + router
-│   │   │   ├── handlers/     # Endpoint handlers (dot-import response package)
+│   │   │   ├── handlers/     # Endpoint handlers
+│   │   │   │   └── response.go # JSONError, JSONResponse helpers
 │   │   │   ├── middleware/   # Auth, CORS, CSRF, rate-limit, security headers
-│   │   │   └── response/    # JSONError, JSONResponse helpers
 │   │   ├── apps/             # App lifecycle + catalog
 │   │   ├── auth/             # JWT authentication
 │   │   ├── database/         # SQLite + migrations (internal/database/migrations/)
 │   │   ├── docker/           # Docker integration
 │   │   ├── network/          # Caddy, ACME, DNS providers, DDNS
 │   │   ├── storage/          # Backup service (restic + tar fallback)
-│   │   └── jobqueue/         # Background jobs
+│   │   ├── jobqueue/         # Background jobs
+│   │   └── jobs/             # Simple time-based scheduler
 │   ├── configs/              # YAML config (must copy .example → .yaml before run)
-│   ├── apps/builtin/         # App templates (7 apps: nextcloud, searxng, ollama, etc.)
+│   ├── apps/builtin/         # App templates (7 apps: nextcloud, searxng, ollama, convertx, motioneye, homeassistant, librechat)
 │   ├── OS/dist/              # Frontend build output (gitignored)
 │   └── Makefile
 │
@@ -188,7 +189,7 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 
 ## Key Notes
 
-- **Database:** SQLite. Single migration file: `internal/database/migrations/001_schema.sql`
+- **Database:** SQLite. Multiple migration files in `internal/database/migrations/`
 - **Docker:** Required for app runtime (`docker compose` v2). Integration tests also need Docker.
 - **Config:** `server/backend/configs/libreserv.yaml` — must be created from `.example` before first run
 - **Secrets:** If `jwt_secret`/`csrf_secret` are empty at startup, LibreServ generates and persists them to the config file. If config is read-only, set `LIBRESERV_AUTH_JWT_SECRET` / `LIBRESERV_AUTH_CSRF_SECRET` env vars instead.

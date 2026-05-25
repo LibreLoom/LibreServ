@@ -193,7 +193,7 @@ After installation, verify the system is operating correctly:
 sudo systemctl status libreserv
 
 # Verify API is responding
-curl http://localhost:8080/api/version
+curl http://localhost:8080/api/v1/system/version
 
 # Check health
 curl http://localhost:8080/health
@@ -594,9 +594,8 @@ curl http://localhost:8080/api/v1/network/acme/jobs/{jobID}
 # Get certificate issuance status
 curl http://localhost:8080/api/v1/network/acme/status
 
-# Check DNS and port readiness
-curl -X POST http://localhost:8080/api/v1/network/acme/probe-dns
-curl -X POST http://localhost:8080/api/v1/network/acme/probe-ports
+# Run network probe
+curl -X POST http://localhost:8080/api/v1/network/probe
 ```
 
 ---
@@ -637,7 +636,7 @@ curl http://localhost:8080/health/ready
 curl http://localhost:8080/health/live
 
 # Comprehensive system health
-curl http://localhost:8080/api/v1/system/health/check
+curl http://localhost:8080/api/v1/system/health
 
 # Prometheus metrics endpoint
 curl http://localhost:8080/metrics
@@ -754,7 +753,7 @@ In the event of a complete system failure:
 
 ```bash
 # Check overall system health
-curl http://localhost:8080/api/v1/system/health/check
+curl http://localhost:8080/api/v1/system/health
 
 # Verify service is running
 sudo systemctl status libreserv
@@ -765,11 +764,8 @@ docker info
 # View recent logs
 sudo journalctl -u libreserv -n 200
 
-# Run DNS probe
-curl http://localhost:8080/api/v1/network/probe/dns
-
-# Run TCP probe
-curl http://localhost:8080/api/v1/network/probe/tcp
+# Run network probe
+curl -X POST http://localhost:8080/api/v1/network/probe
 ```
 
 ### Getting Help

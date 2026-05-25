@@ -46,9 +46,9 @@ LibreServ/
 │   ├── backend/                    # Go backend application
 │   │   ├── cmd/
 │   │   │   ├── libreserv/         # Application entry point
-│   │   │   │   ├── main.go        # Main function and initialization
-│   │   │   │   └── config_cmd.go  # Config subcommand
+│   │   │   │   └── main.go        # Main function and initialization
 │   │   ├── internal/
+│   │   │   ├── agent/             # AI agent persistence
 │   │   │   ├── api/               # HTTP server and handlers
 │   │   │   │   ├── server.go      # Server configuration and startup
 │   │   │   │   ├── router.go      # Route setup
@@ -75,14 +75,12 @@ LibreServ/
 │   │   │   │   └── metrics_cache.go # App metrics caching
 │   │   │   ├── audit/             # Audit logging system (service.go, service_test.go)
 │   │   │   ├── auth/              # JWT authentication, password reset
-│   │   │   ├── backup/            # Backup service (cloud/)
 │   │   │   ├── config/            # Config loading (viper + YAML)
 │   │   │   ├── constants/         # Shared constants
 │   │   │   ├── database/          # SQLite database layer
 │   │   │   │   ├── db.go          # Database connection and setup
-│   │   │   │   ├── models/        # Data models and entities
 │   │   │   │   ├── migrations/    # Database schema migrations
-│   │   │   │   └── migrate.go     # Migration runner
+│   │   │   │   └── migrations.go  # Migration runner
 │   │   │   ├── docker/            # Docker client abstraction
 │   │   │   ├── email/             # Email sending (templates, markdown)
 │   │   │   ├── errors/            # Error types
@@ -102,7 +100,8 @@ LibreServ/
 │   │   │   ├── security/          # Security validation and monitoring
 │   │   │   ├── settings/          # DB-backed settings management
 │   │   │   ├── setup/             # First-run setup orchestration
-│   │   │   ├── storage/           # Storage abstraction
+│   │   │   ├── storage/           # Backup service (restic + tar fallback)
+│   │   │   ├── subscription/      # Subscription and credit usage tracking
 │   │   │   ├── support/           # Remote support sessions
 │   │   │   ├── system/            # Platform self-update logic
 │   │   │   ├── util/              # Utility functions
@@ -497,7 +496,7 @@ Create `.vscode/launch.json`:
             "name": "Launch Chrome",
             "type": "chrome",
             "request": "launch",
-            "url": "http://localhost:5173",
+            "url": "http://localhost:3000",
             "webRoot": "${workspaceFolder}/server/frontend"
         }
     ]
@@ -544,6 +543,8 @@ Browser ──HTTP──> Caddy (reverse proxy) ──> LibreServ API (port 8080
 ├── catalog/        # App catalog browsing
 ├── apps/           # Installed app management
 ├── backups/        # Backup/restore
+├── email/          # Email testing and domains
+├── license/        # License validation
 ├── network/        # Caddy routes, ACME certs, DNS
 ├── users/          # User management (admin)
 ├── settings/       # Application settings

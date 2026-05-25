@@ -51,7 +51,7 @@ LibreServ has achieved MVP when ALL of the following are true:
 ## What's here
 - **Backend** (`server/backend`): API server, app installer/manager, monitoring, backups, support session tooling.
 - **Frontend** (`server/frontend`): Vite/React source (not built by default). Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
-- **Built-in apps**: Nextcloud AIO, SearXNG, Ollama, ConvertX, MotionEye compose templates live under `server/backend/apps/builtin/`.
+- **Built-in apps**: Nextcloud AIO, SearXNG, Ollama, ConvertX, MotionEye, HomeAssistant, LibreChat compose templates live under `server/backend/apps/builtin/`.
 - **CI**: `./ci` runs backend vet/tests and frontend lint/build.
 
 ## Contributing
@@ -78,10 +78,14 @@ curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/tag/<version>/insta
 
 ### Development setup
 ```bash
+# Terminal 1: Start backend
+cd server/backend
+make run
+
+# Terminal 2: Start frontend
 cd server/frontend
 npm install
-cd ..
-./libreserv.sh setup
+npm run dev
 ```
 
 ## Frontend build
@@ -96,12 +100,7 @@ BUILD_TAGS=embedfront make build
 
 ## To setup login
 
-### Option 1: Using libreserv.sh (recommended)
-```bash
-./libreserv.sh adduser "username" "password" "email@example.com"
-```
-
-### Option 2: Using setup-admin.sh (for development)
+### Using setup-admin.sh (for development)
 If running the backend directly without the frontend:
 ```bash
 cd server/backend
@@ -122,22 +121,17 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
   -d '{"username":"admin","password":"hunter2hunter2"}'
 ```
 
-## To run
+## To run backend
 ```bash
-./libreserv.sh run frontend ./server/frontend backend ./server/backend
+cd server/backend
+make run
 ```
 
-## To get status
+## To run frontend
 ```bash
-./libreserv.sh status
+cd server/frontend
+npm run dev
 ```
-
-## To stop
-```bash
-./libreserv.sh stop
-```
-
-`./libreserv.sh help` for more.
 
 ## Notes
 - Caddy must be installed/configured if you want automatic HTTPS; otherwise set `network.caddy.mode` to `noop` or `disabled`.

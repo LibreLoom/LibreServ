@@ -51,6 +51,7 @@ LibreServ enforces the following per-IP or per-user rate limits, reset every min
 | `/api/v1/setup/preflight` | 60 requests/min | Global (by IP) |
 | `/api/v1/setup/status` | 180 requests/min | Global (by IP) |
 | `/api/v1/auth` | 120 requests/min | Global (by IP) |
+| `/api/v1/email` | 10 requests/min | Per user |
 | `/api/v1/users` | 60 requests/min | Per user |
 | `/api/v1/support` | 30 requests/min | Per user |
 | `/api/v1/backups` | 20 requests/min | Per user |

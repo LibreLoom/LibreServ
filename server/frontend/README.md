@@ -10,18 +10,19 @@ npm run dev     # start dev server with HMR
 npm run build   # produce production assets
 ```
 
-To serve from the Go backend, copy the build output:
+To serve from the Go backend, simply build the frontend:
 ```bash
 npm run build
-cp -r dist ../backend/OS/dist
 ```
-Then restart the backend.
+The build is automatically output to `../backend/OS/dist` per the Vite configuration. Then restart the backend.
 
 ## Scripts
 - `npm run dev` – local development server
 - `npm run build` – production build
 - `npm run preview` – serve the built assets locally
 - `npm run lint` – ESLint checks
+- `npm run typecheck` – TypeScript checking via JSDoc
+- `npm test` – run Vitest tests
 - `npm run scan:colors` – scan for hardcoded colors (CI enforced)
 
 ### Color scan suppressions

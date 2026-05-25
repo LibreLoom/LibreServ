@@ -197,7 +197,7 @@ The current app templates are stubs only suitable for basic dev testing. All lif
 
 **Status:** Done
 
-**File:** `server/frontend/src/components/backups/ScheduleForm.jsx`
+**File:** `server/frontend/src/components/backups/BackupScheduleCard.jsx`
 
 - Preset schedules (Daily, Every 6h, Weekly)
 - Custom cron support
@@ -329,7 +329,7 @@ Implement a global system to track uptime and availability of apps and the serve
 **Backend API (exists):**
 - `GET /api/v1/network/acme/certificates` — List certificates
 - `POST /api/v1/network/acme/request` — Request a certificate
-- `GET /api/v1/network/acme/status/{job_id}` — Check request job status
+- `GET /api/v1/network/acme/jobs/{jobID}` — Check request job status
 
 **Acceptance Criteria:**
 - [ ] Certificate list with domain, issuer, expiry, status
@@ -589,7 +589,7 @@ Settings UI to view, change, and disconnect the current domain configuration.
 
 **Status:** Done
 
-**File:** `server/frontend/src/components/settings/categories/SystemCategory.jsx`
+**Files:** `server/frontend/src/components/settings/categories/SystemUpdatesCard.jsx` and `server/frontend/src/components/settings/categories/GeneralCategory.jsx`
 
 **Effort:** 2h
 
