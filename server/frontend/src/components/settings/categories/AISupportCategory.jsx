@@ -1,4 +1,4 @@
-import { Bot, Key, Cpu, ShieldCheck } from "lucide-react";
+import { Bot, Key, Cpu, ShieldCheck, AlertCircle } from "lucide-react";
 import SettingsCard from "../SettingsCard.jsx";
 import Toggle from "../../common/Toggle.jsx";
 import Dropdown from "../../common/Dropdown.jsx";
@@ -6,6 +6,14 @@ import ValueDisplay from "../../common/ValueDisplay.jsx";
 
 export default function AISupportCategory({ settings, onSettingsChange }) {
   const ai = settings?.ai_support || {};
+  const availableModels = ai.available_models || [];
+  const modelOptions = availableModels.map((m) => ({
+    value: m.id,
+    label: m.id,
+  }));
+
+  const isConfigured = ai.device_token_set === true ||
+                        (ai.byok_enabled && ai.user_key_configured);
 
   function update(field, value) {
     onSettingsChange?.({ ...ai, [field]: value });
@@ -13,6 +21,68 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
 
   return (
     <div className="space-y-4">
+      {!isConfigured && (
+        <div className="bg-warning/10 border border-warning/20 rounded-large-element p-4 flex items-start gap-3">
+          <AlertCircle className="text-warning shrink-0 mt-0.5" size={20} />
+          <div className="flex-1">
+            <h3 className="text-primary font-mono text-sm mb-1">AI Support Not Configured</h3>
+            <p className="text-sm text-primary/60 mb-3">
+              Connect to the LibreServ support service to enable the AI help assistant. Your administrator should provide the server address, device token, and device ID.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-primary block mb-1" htmlFor="server-url">
+                  Support Server Address
+                </label>
+                <input
+                  id="server-url"
+                  type="url"
+                  placeholder="https://support.serv.libreloom.org"
+                  value={ai.server_url || ""}
+                  onChange={(e) => update("server_url", e.target.value)}
+                  className="w-full bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 border border-primary/10"
+                />
+                <p className="text-xs text-primary/40 mt-1">
+                  The address of the LibreServ support service that provides AI capabilities to your server.
+                </p>
+              </div>
+              <div>
+                <label className="text-sm text-primary block mb-1" htmlFor="device-token">
+                  Device Token
+                </label>
+                <input
+                  id="device-token"
+                  type="password"
+                  placeholder="Your device token"
+                  value={ai.device_token || ""}
+                  onChange={(e) => update("device_token", e.target.value)}
+                  className="w-full bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 border border-primary/10"
+                />
+                <p className="text-xs text-primary/40 mt-1">
+                  This authenticates your server to the support service. Your administrator provides this when setting up your subscription.
+                </p>
+              </div>
+              <div>
+                <label className="text-sm text-primary block mb-1" htmlFor="device-id">
+                  Device ID
+                </label>
+                <input
+                  id="device-id"
+                  type="text"
+                  placeholder="your-server-name"
+                  value={ai.device_id || ""}
+                  onChange={(e) => update("device_id", e.target.value)}
+                  className="w-full bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 border border-primary/10"
+                />
+                <p className="text-xs text-primary/40 mt-1">
+                  A unique name for this server, used to identify your subscription and track credit usage.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <SettingsCard icon={Bot} title="AI Assistant" padding={false} index={0}>
         <div className="px-5 py-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -23,25 +93,21 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
               </div>
             </div>
             <Dropdown
-              value={ai.default_model || "route/mimo-v2.5-pro"}
+              value={ai.default_model || ""}
               onChange={(val) => update("default_model", val)}
               width={200}
               bg="primary"
-              options={[
-                { value: "route/mimo-v2.5-pro", label: "MiMo V2.5 Pro" },
-                { value: "route/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
-                { value: "route/kimi-k2.6", label: "Kimi K2.6" },
-                { value: "route/deepseek-v3.2", label: "DeepSeek V3.2" },
-              ]}
+              placeholder={modelOptions.length === 0 ? "No models found" : "Select a model"}
+              options={modelOptions}
             />
           </div>
           <ValueDisplay
-            label="Inference Provider"
-            value={ai.inference_base_url || "Not configured"}
+            label="Support Service"
+            value={ai.server_url || "Not configured"}
           />
           <ValueDisplay
-            label="API Key"
-            value={ai.api_key_configured ? "Configured" : "Not set — contact your administrator"}
+            label="Connection"
+            value={ai.device_token_set ? "Connected" : "Not set — contact your administrator"}
           />
         </div>
       </SettingsCard>

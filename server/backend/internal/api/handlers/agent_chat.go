@@ -66,6 +66,10 @@ func NewAgentChatHandler(db *database.DB, dockerClient *docker.Client, backupSer
 	return h
 }
 
+func (h *AgentChatHandler) ModelRegistry() *agent.ModelRegistry {
+	return h.modelRegistry
+}
+
 func (h *AgentChatHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	userID, ok := getUserID(r)
 	if !ok {
@@ -149,7 +153,7 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 	}
 	cfg := config.Get()
 	if cfg == nil || (!hasInferenceKey(cfg)) {
-		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not available right now. The service needs to be configured by your administrator.")
+		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
 
@@ -168,18 +172,22 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 	if len(models) == 0 {
 		chatAgents := config.AgentsByTrigger("chat")
 		for _, a := range chatAgents {
-			models = append(models, a.Model)
+			if a.Model != "" {
+				models = append(models, a.Model)
+			}
 		}
 	}
-	if len(models) == 0 {
+	if len(models) == 0 && cfg.Support.DefaultModel != "" {
 		models = []string{cfg.Support.DefaultModel}
 	}
 	if len(models) == 0 {
-		models = []string{"route/mimo-v2.5-pro"}
+		response.JSONError(w, http.StatusServiceUnavailable, "No AI model is configured. Please go to Settings → AI Support and select a default model.")
+		return
 	}
 	primaryModel := models[0]
 	if primaryModel == "" {
-		primaryModel = "route/mimo-v2.5-pro"
+		response.JSONError(w, http.StatusServiceUnavailable, "No AI model is configured. Please go to Settings → AI Support and select a default model.")
+		return
 	}
 
 	plan := h.checker.PlanForUser(r.Context(), userID)
@@ -223,7 +231,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := config.Get()
 	if cfg == nil || (!hasInferenceKey(cfg)) {
-		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not available right now. The service needs to be configured by your administrator.")
+		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
 
@@ -450,7 +458,7 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 	}
 	cfg := config.Get()
 	if cfg == nil || (!hasInferenceKey(cfg)) {
-		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not available right now.")
+		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
 
@@ -756,8 +764,13 @@ func (h *AgentChatHandler) StopConversation(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *AgentChatHandler) GetModels(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Get()
+	if cfg == nil || (!hasInferenceKey(cfg)) {
+		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
+		return
+	}
 	if h.modelRegistry == nil {
-		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not available right now.")
+		response.JSONError(w, http.StatusInternalServerError, "Model registry not available.")
 		return
 	}
 	models, err := h.modelRegistry.List(r.Context())
@@ -835,7 +848,7 @@ func getUserID(r *http.Request) (string, bool) {
 }
 
 func hasInferenceKey(cfg *config.Config) bool {
-	if cfg.Support.InferenceAPIKey != "" {
+	if cfg.Support.DeviceToken != "" && cfg.Support.ServerURL != "" {
 		return true
 	}
 	return cfg.Support.BYOKEnabled && cfg.Support.UserAPIKey != ""

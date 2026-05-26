@@ -145,7 +145,8 @@ func (r *Repository) SeedFromConfig() error {
 		"updates.owner":                        cfg.Updates.Owner,
 		"updates.repo":                         cfg.Updates.Repo,
 		"support.inference_base_url":           cfg.Support.InferenceBaseURL,
-		"support.inference_api_key":            cfg.Support.InferenceAPIKey,
+		"support.device_token":                 cfg.Support.DeviceToken,
+		"support.device_id":                    cfg.Support.DeviceID,
 		"support.default_model":                cfg.Support.DefaultModel,
 		"support.byok_enabled":                 strconv.FormatBool(cfg.Support.BYOKEnabled),
 		"support.user_base_url":                cfg.Support.UserBaseURL,
@@ -288,8 +289,11 @@ func (r *Repository) LoadIntoConfig() error {
 	if v, ok := changes["support.inference_base_url"]; ok {
 		cfg.Support.InferenceBaseURL = v
 	}
-	if v, ok := changes["support.inference_api_key"]; ok {
-		cfg.Support.InferenceAPIKey = v
+	if v, ok := changes["support.device_token"]; ok {
+		cfg.Support.DeviceToken = v
+	}
+	if v, ok := changes["support.device_id"]; ok {
+		cfg.Support.DeviceID = v
 	}
 	if v, ok := changes["support.default_model"]; ok {
 		cfg.Support.DefaultModel = v
@@ -420,8 +424,10 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 	}
 
 	settings["ai_support"] = map[string]interface{}{
+		"server_url":             cfg.Support.ServerURL,
+		"device_token_set":       cfg.Support.DeviceToken != "",
+		"device_id":              cfg.Support.DeviceID,
 		"inference_base_url":     cfg.Support.InferenceBaseURL,
-		"api_key_configured":     cfg.Support.InferenceAPIKey != "",
 		"default_model":          cfg.Support.DefaultModel,
 		"byok_enabled":           cfg.Support.BYOKEnabled,
 		"user_key_configured":    cfg.Support.UserAPIKey != "",
@@ -655,10 +661,16 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.inference_base_url", baseURL, "string") },
 			})
 		}
-		if apiKey, ok := ai["inference_api_key"].(string); ok && apiKey != "" {
+		if deviceToken, ok := ai["device_token"].(string); ok && deviceToken != "" {
 			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Support.InferenceAPIKey = apiKey },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.inference_api_key", apiKey, "string") },
+				apply:  func() { cfg.Support.DeviceToken = deviceToken },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_token", deviceToken, "string") },
+			})
+		}
+		if deviceID, ok := ai["device_id"].(string); ok {
+			mutations = append(mutations, mutation{
+				apply:  func() { cfg.Support.DeviceID = deviceID },
+				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_id", deviceID, "string") },
 			})
 		}
 		if model, ok := ai["default_model"].(string); ok {

@@ -83,7 +83,10 @@ func (m *SelfHealingMonitor) checkAndHeal() {
 		return
 	}
 	cfg := config.Get()
-	if cfg == nil || !cfg.Support.SelfHealing || cfg.Support.InferenceAPIKey == "" {
+	if cfg == nil || !cfg.Support.SelfHealing {
+		return
+	}
+	if cfg.Support.DeviceToken == "" && !(cfg.Support.BYOKEnabled && cfg.Support.UserAPIKey != "") {
 		return
 	}
 
@@ -132,7 +135,11 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 	now := time.Now()
 	model := agentDef.Model
 	if model == "" {
-		model = "route/mimo-v2.5-pro"
+		model = cfg.Support.DefaultModel
+	}
+	if model == "" {
+		slog.Error("self-healing: no model configured for agent and no default model set")
+		return
 	}
 	conv := &conversation.Conversation{
 		ID:             convID,

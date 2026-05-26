@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Send, StopCircle, Plus, Bot, User, Shield, Camera, ChevronDown } from "lucide-react";
+import { Send, StopCircle, Plus, Bot, User, Shield, Camera, ChevronDown, AlertCircle } from "lucide-react";
 import HeaderCard from "../components/cards/HeaderCard.jsx";
 import Card from "../components/cards/Card.jsx";
 import Button from "../components/ui/Button.jsx";
@@ -8,13 +8,6 @@ import PlanPicker from "../components/agent/PlanPicker.jsx";
 import { useAgentChat } from "../hooks/useAgentChat.jsx";
 
 const PLAN_PICKER_DISMISSED_KEY = "libreserv_plan_picker_dismissed";
-
-const DEFAULT_MODELS = [
-  /* color-scan: ignore-next-line */
-  { id: "route/mimo-v2.5-pro", name: "MiMo V2.5 Pro", shape: "diamond", color: "#FF6B35" },
-  /* color-scan: ignore-next-line */
-  { id: "route/kimi-k2.6", name: "Kimi K2.6", shape: "circle", color: "#4ECDC4" },
-];
 
 export default function HelpPage() {
   const chat = useAgentChat();
@@ -25,7 +18,8 @@ export default function HelpPage() {
   );
   const [permissionMode, setPermissionMode] = useState("standard");
   const [showModelConfig, setShowModelConfig] = useState(false);
-  const [selectedModels, setSelectedModels] = useState(DEFAULT_MODELS.map((m) => m.id));
+  const [selectedModels, setSelectedModels] = useState([]);
+  const [aiConfigured, setAiConfigured] = useState(true);
   const messagesEndRef = useRef(null);
 
   const { loadConversations, loadSubscription, loadModels } = chat;
@@ -34,7 +28,23 @@ export default function HelpPage() {
     loadConversations();
     loadSubscription();
     loadModels();
+    checkAiConfigured();
   }, [loadConversations, loadSubscription, loadModels]);
+
+  async function checkAiConfigured() {
+    try {
+      const res = await fetch("/api/v1/settings/ai-support", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        const ai = data?.ai_support || {};
+        const configured = ai.device_token_set === true ||
+                          (ai.byok_enabled && ai.user_key_configured);
+        setAiConfigured(configured);
+      }
+    } catch {
+      setAiConfigured(false);
+    }
+  }
 
   const planId = chat.subscription?.plan?.id || chat.subscription?.subscription?.plan_id;
   const showPlanPicker = planId === "free" && !planPickerDismissed;
@@ -101,7 +111,7 @@ export default function HelpPage() {
   }
 
   function addModelSlot() {
-    const available = DEFAULT_MODELS.filter((m) => !selectedModels.includes(m.id));
+    const available = availableModelList.filter((m) => !selectedModels.includes(m.id));
     if (available.length > 0) {
       setSelectedModels((prev) => [...prev, available[0].id]);
     }
@@ -136,9 +146,7 @@ export default function HelpPage() {
 
   const isStreaming = chat.status === "streaming" || chat.status === "sending";
 
-  const availableModelList = chat.models.length > 0
-    ? chat.models
-    : DEFAULT_MODELS;
+  const availableModelList = chat.models;
 
   const creditUsed = chat.subscription?.usage?.used_usd || 0;
   const creditCap = chat.subscription?.plan?.credit_cap_usd || 0;
@@ -162,7 +170,20 @@ export default function HelpPage() {
           </p>
         }
       >
-        {null}
+        {!aiConfigured && (
+          <div className="bg-warning/10 border border-warning/20 rounded-large-element p-4 text-center">
+            <AlertCircle className="text-warning mx-auto mb-2" size={24} />
+            <h3 className="text-primary font-mono mb-1">AI Support Not Configured</h3>
+            <p className="text-sm text-primary/60 mb-3">
+              Set up your AI provider in Settings to enable the help assistant.
+            </p>
+            <a href="/settings#ai_support">
+              <Button variant="primary" size="sm">
+                Get Started with Help
+              </Button>
+            </a>
+          </div>
+        )}
       </HeaderCard>
 
       {chat.error && (
@@ -192,67 +213,84 @@ export default function HelpPage() {
           {!chat.activeConv ? (
             <Card noHeightAnim noPopIn className="flex-1 flex flex-col items-center justify-center min-h-[400px]">
               <div className="text-center max-w-md">
-                <Bot size={48} className="text-accent mx-auto mb-4" />
-                <h2 className="text-lg font-mono text-primary mb-2">How can we help?</h2>
-                <p className="text-sm text-primary/60 mb-4">
-                  Our AI agents work together to check your apps, read logs, diagnose issues, and fix problems. Just describe what you need.
-                </p>
+                {!aiConfigured ? (
+                  <>
+                    <AlertCircle size={48} className="text-warning mx-auto mb-4" />
+                    <h2 className="text-lg font-mono text-primary mb-2">AI Support Not Configured</h2>
+                    <p className="text-sm text-primary/60 mb-4">
+                      Set up your AI provider in Settings to enable the help assistant.
+                    </p>
+                    <a href="/settings#ai_support">
+                      <Button variant="primary" size="md">
+                        Get Started with Help
+                      </Button>
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    <Bot size={48} className="text-accent mx-auto mb-4" />
+                    <h2 className="text-lg font-mono text-primary mb-2">How can we help?</h2>
+                    <p className="text-sm text-primary/60 mb-4">
+                      Our AI agents work together to check your apps, read logs, diagnose issues, and fix problems. Just describe what you need.
+                    </p>
 
-                <button
-                  type="button"
-                  onClick={() => setShowModelConfig(!showModelConfig)}
-                  className="flex items-center gap-1 mx-auto mb-4 text-xs text-primary/50 hover:text-primary/70 cursor-pointer"
-                >
-                  <span>{selectedModels.length} agents configured</span>
-                  <ChevronDown size={12} className={showModelConfig ? "rotate-180" : ""} />
-                </button>
-
-                {showModelConfig && (
-                  <div className="bg-primary/5 rounded-large-element p-4 mb-4 text-left">
-                    <p className="text-xs text-primary/40 mb-3 uppercase tracking-wider">Agent Models</p>
-                    {selectedModels.map((modelId, i) => {
-                      return (
-                        <div key={i} className="flex items-center gap-2 mb-2">
-                          <span className="text-xs text-primary/60 font-mono w-16">Agent {i + 1}</span>
-                          <select
-                            value={modelId}
-                            onChange={(e) => changeModelSlot(i, e.target.value)}
-                            className="flex-1 bg-primary text-secondary rounded-large-element px-2 py-1 text-xs border border-primary/10"
-                          >
-                            {availableModelList.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.name || m.id}
-                              </option>
-                            ))}
-                          </select>
-                          {selectedModels.length > 2 && (
-                            <button
-                              type="button"
-                              onClick={() => removeModelSlot(i)}
-                              className="text-primary/30 hover:text-error text-xs"
-                            >
-                              ×
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
                     <button
                       type="button"
-                      onClick={addModelSlot}
-                      className="text-xs text-accent hover:text-accent/80 mt-1"
+                      onClick={() => setShowModelConfig(!showModelConfig)}
+                      className="flex items-center gap-1 mx-auto mb-4 text-xs text-primary/50 hover:text-primary/70 cursor-pointer"
                     >
-                      + Add Agent
+                      <span>{selectedModels.length} agents configured</span>
+                      <ChevronDown size={12} className={showModelConfig ? "rotate-180" : ""} />
                     </button>
-                    <p className="text-[10px] text-primary/30 mt-2">
-                      Minimum 2 agents required for consensus. More agents = broader perspective but higher credit usage.
-                    </p>
-                  </div>
-                )}
 
-                <Button variant="primary" size="md" onClick={handleStart}>
-                  <Plus size={16} /> Start a Conversation
-                </Button>
+                    {showModelConfig && (
+                      <div className="bg-primary/5 rounded-large-element p-4 mb-4 text-left">
+                        <p className="text-xs text-primary/40 mb-3 uppercase tracking-wider">Agent Models</p>
+                        {selectedModels.map((modelId, i) => {
+                          return (
+                            <div key={i} className="flex items-center gap-2 mb-2">
+                              <span className="text-xs text-primary/60 font-mono w-16">Agent {i + 1}</span>
+                              <select
+                                value={modelId}
+                                onChange={(e) => changeModelSlot(i, e.target.value)}
+                                className="flex-1 bg-primary text-secondary rounded-large-element px-2 py-1 text-xs border border-primary/10"
+                              >
+                                {availableModelList.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.name || m.id}
+                                  </option>
+                                ))}
+                              </select>
+                              {selectedModels.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeModelSlot(i)}
+                                  className="text-primary/30 hover:text-error text-xs"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          onClick={addModelSlot}
+                          className="text-xs text-accent hover:text-accent/80 mt-1"
+                        >
+                          + Add Agent
+                        </button>
+                        <p className="text-[10px] text-primary/30 mt-2">
+                          Minimum 2 agents required for consensus. More agents = broader perspective but higher credit usage.
+                        </p>
+                      </div>
+                    )}
+
+                    <Button variant="primary" size="md" onClick={handleStart}>
+                      <Plus size={16} /> Start a Conversation
+                    </Button>
+                  </>
+                )}
               </div>
             </Card>
           ) : (

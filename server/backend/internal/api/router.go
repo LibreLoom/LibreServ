@@ -89,7 +89,8 @@ func (s *Server) setupRoutes() {
 	// Initialize network handler if Caddy is available
 	var networkHandler *handlers.NetworkHandlers
 	if s.caddyManager != nil {
-		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager).WithACME(acmeHandler)
+		upnpService := s.appManager.GetUPnPService()
+		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager, upnpService).WithACME(acmeHandler)
 	}
 
 	// Initialize DNS provider manager
@@ -110,9 +111,13 @@ func (s *Server) setupRoutes() {
 	auditHandler := handlers.NewAuditHandler(s.audit)
 	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService, s.authService)
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
+	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager.GetUPnPService(), s.appManager, s.caddyManager)
 
 	// Initialize AI agent chat handler
 	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.dockerClient, s.backupService, s.authService)
+
+	// Wire the model registry into settings so the AI support category can list models dynamically
+	settingsHandler.SetModelRegistry(agentChatHandler.ModelRegistry())
 
 	// Configure authentication middleware with CSRF protection
 	authConfig := &middleware.AuthConfig{
@@ -318,6 +323,8 @@ func (s *Server) setupRoutes() {
 					r.Get("/caddyfile", networkHandler.GetCaddyfile)
 					r.Post("/test-backend", networkHandler.TestBackend)
 					r.Post("/domain/disconnect", networkHandler.DisconnectDomain)
+					r.Get("/port-forwarding-status", networkHandler.GetPortForwardingStatus)
+					r.Get("/upnp/status", networkHandler.GetUPnPStatus)
 				})
 			}
 
@@ -459,6 +466,14 @@ func (s *Server) setupRoutes() {
 			r.Route("/network/ddns", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/status", ddnsHandler.GetStatus)
+				r.Post("/update-now", ddnsHandler.ForceUpdate)
+				r.Post("/interval", ddnsHandler.SetInterval)
+			})
+
+			// Network connectivity status (admin only)
+			r.Route("/network/connectivity", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/", connectivityHandler.GetStatus)
 			})
 
 			// Audit logs (admin only)

@@ -40,8 +40,8 @@ func TestDefaultAgent1(t *testing.T) {
 	if a1.Trigger != "chat" {
 		t.Errorf("agent-1.Trigger = %q, want %q", a1.Trigger, "chat")
 	}
-	if a1.Model != "route/mimo-v2.5-pro" {
-		t.Errorf("agent-1.Model = %q, want %q", a1.Model, "route/mimo-v2.5-pro")
+	if a1.Model != "" {
+		t.Errorf("agent-1.Model = %q, want empty (resolves to default_model at runtime)", a1.Model)
 	}
 	if a1.AvatarShape != "diamond" {
 		t.Errorf("agent-1.AvatarShape = %q, want %q", a1.AvatarShape, "diamond")
@@ -63,8 +63,8 @@ func TestDefaultAgent2(t *testing.T) {
 	if a2 == nil {
 		t.Fatal("agent-2 not found")
 	}
-	if a2.Model != "route/kimi-k2.6" {
-		t.Errorf("agent-2.Model = %q, want %q", a2.Model, "route/kimi-k2.6")
+	if a2.Model != "" {
+		t.Errorf("agent-2.Model = %q, want empty (resolves to default_model at runtime)", a2.Model)
 	}
 	if a2.AvatarShape != "circle" {
 		t.Errorf("agent-2.AvatarShape = %q, want %q", a2.AvatarShape, "circle")

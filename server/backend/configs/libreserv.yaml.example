@@ -49,6 +49,9 @@ network:
             file: ""
             format: console
             level: ""
+    upnp:
+        enabled: false
+        timeout: 5
     acme:
         external:
             enabled: false
@@ -90,10 +93,22 @@ updates:
     owner: libreloom
     repo: libreserv
 support:
+    # server_url: the LibreServ support service that provides AI inference and billing.
+    # Your server connects to this for AI capabilities — the inference API key is held
+    # by the support service, never on your machine.
     server_url: "https://support.serv.libreloom.org"
+    # device_token: authenticates your server to the support service.
+    # Your administrator provides this when setting up your subscription.
+    device_token: ""
+    # device_id: a unique name for this server, used to identify your subscription
+    # and track credit usage. Must match what the support service has on file.
+    device_id: ""
+    # inference_base_url: only used for BYOK (Bring Your Own Key) mode.
+    # When using the shared support service, this is ignored.
     inference_base_url: "https://api.routing.run/v1"
-    inference_api_key: ""
-    default_model: "route/mimo-v2.5-pro"
+    # default_model: the AI model used when no specific model is selected.
+    # Available models are fetched live from the support service.
+    default_model: ""
     # billing_mode: how credit costs are calculated.
     #   "token"  — cost based on token usage (for token-billed providers)
     #   "request" — flat cost per request (for request-billed providers like routing.run)
@@ -103,27 +118,32 @@ support:
         turn_timeout: 5m
         snapshot_before_writes: true
         system_plan_id: "basic"
+    # agents: define AI agent personas. Model can be left empty to use default_model.
+    # Tools are grouped by name: "docker", "files", "diagnostics", "snapshots".
     agents:
         - id: agent-1
           trigger: chat
-          model: route/mimo-v2.5-pro
+          model: ""
           avatar_shape: diamond
           avatar_color: "#FF6B35"
           tools: ["docker", "files", "diagnostics", "snapshots"]
           max_turns: 50
         - id: agent-2
           trigger: chat
-          model: route/kimi-k2.6
+          model: ""
           avatar_shape: circle
           avatar_color: "#4ECDC4"
           tools: ["docker", "files", "diagnostics", "snapshots"]
           max_turns: 50
         - id: self-healing
           trigger: container_unhealthy
-          model: route/mimo-v2.5-pro
-          tools: ["docker", "diagnostics", "config_read"]
+          model: ""
+          tools: ["docker", "diagnostics", "files"]
           max_turns: 5
           permission_mode: auto
+    # pricing: per-1M-token costs for models. Only models with entries here will
+    # have accurate cost tracking. Models without pricing entries are tracked at $0 cost.
+    # Add entries for any model your provider offers if you want cost visibility.
     pricing:
         route/mimo-v2.5-pro:
             input_per_1m: 0.45

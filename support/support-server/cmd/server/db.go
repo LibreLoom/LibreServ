@@ -57,6 +57,25 @@ func migrate(db *sql.DB) error {
 		);
 		CREATE INDEX IF NOT EXISTS idx_credit_events_device ON credit_events(device_id);
 		CREATE INDEX IF NOT EXISTS idx_credit_events_created ON credit_events(created_at);
+		CREATE TABLE IF NOT EXISTS support_cases (
+			id TEXT PRIMARY KEY,
+			device_id TEXT NOT NULL,
+			summary TEXT NOT NULL,
+			session_code TEXT NOT NULL DEFAULT '',
+			contact TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'open',
+			scopes TEXT NOT NULL DEFAULT '[]',
+			created_at TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS case_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			case_id TEXT NOT NULL REFERENCES support_cases(id) ON DELETE CASCADE,
+			author TEXT NOT NULL,
+			text TEXT NOT NULL,
+			timestamp TIMESTAMP NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_case_messages_case ON case_messages(case_id);
 	`)
 	return err
 }
@@ -76,12 +95,12 @@ func (d *DB) GetDevice(deviceID string) (map[string]interface{}, error) {
 		return nil, err
 	}
 	return map[string]interface{}{
-		"device_id":     id,
-		"plan_id":       planID,
-		"status":        status,
-		"server_token":   token,
-		"created_at":     created,
-		"updated_at":     updated,
+		"device_id":    id,
+		"plan_id":      planID,
+		"status":       status,
+		"server_token": token,
+		"created_at":   created,
+		"updated_at":   updated,
 	}, nil
 }
 
@@ -177,10 +196,10 @@ func (d *DB) ListPlans() ([]map[string]interface{}, error) {
 func seedDefaultPlans(d *DB) {
 	plans := []struct {
 		id, name string
-		price     int
-		credit    float64
-		human     bool
-		heal      bool
+		price    int
+		credit   float64
+		human    bool
+		heal     bool
 	}{
 		{"free", "Free", 0, 0.0, false, false},
 		{"basic", "Basic", 1500, 10.0, false, true},
@@ -245,9 +264,9 @@ func handleGetSubscription(d *DB) http.HandlerFunc {
 func handleLinkSubscription(d *DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			DeviceID     string `json:"device_id"`
-			PlanID       string `json:"plan_id"`
-			ServerToken  string `json:"server_token"`
+			DeviceID    string `json:"device_id"`
+			PlanID      string `json:"plan_id"`
+			ServerToken string `json:"server_token"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
@@ -302,5 +321,299 @@ func handleListPlans(d *DB) http.HandlerFunc {
 			"plans": plans,
 			"count": len(plans),
 		})
+	}
+}
+
+func (d *DB) CreateCase(id, deviceID, summary, sessionCode, contact string, scopes []string) (*SupportCase, error) {
+	scopesJSON, _ := json.Marshal(scopes)
+	now := time.Now()
+	_, err := d.db.Exec(`
+		INSERT INTO support_cases (id, device_id, summary, session_code, contact, status, scopes, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, deviceID, summary, sessionCode, contact, string(StatusOpen), string(scopesJSON), now, now)
+	if err != nil {
+		return nil, err
+	}
+	return &SupportCase{
+		ID:          id,
+		DeviceID:    deviceID,
+		Summary:     summary,
+		SessionCode: sessionCode,
+		Contact:     contact,
+		Status:      StatusOpen,
+		Scopes:      scopes,
+		Messages:    []CaseMsg{},
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, nil
+}
+
+func (d *DB) GetCase(id string) (*SupportCase, error) {
+	row := d.db.QueryRow(`
+		SELECT id, device_id, summary, session_code, contact, status, scopes, created_at, updated_at
+		FROM support_cases WHERE id = ?
+	`, id)
+	var c SupportCase
+	var scopesJSON string
+	var sessionCode, contact sql.NullString
+	if err := row.Scan(&c.ID, &c.DeviceID, &c.Summary, &sessionCode, &contact, &c.Status, &scopesJSON, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	c.SessionCode = sessionCode.String
+	c.Contact = contact.String
+	_ = json.Unmarshal([]byte(scopesJSON), &c.Scopes)
+	messages, err := d.getMessages(id)
+	if err != nil {
+		return nil, err
+	}
+	c.Messages = messages
+	return &c, nil
+}
+
+func (d *DB) getMessages(caseID string) ([]CaseMsg, error) {
+	rows, err := d.db.Query(`
+		SELECT author, text, timestamp FROM case_messages WHERE case_id = ? ORDER BY timestamp
+	`, caseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	messages := []CaseMsg{}
+	for rows.Next() {
+		var m CaseMsg
+		if err := rows.Scan(&m.Author, &m.Text, &m.Timestamp); err != nil {
+			continue
+		}
+		messages = append(messages, m)
+	}
+	return messages, nil
+}
+
+func (d *DB) ListCases() ([]*SupportCase, error) {
+	rows, err := d.db.Query(`
+		SELECT id, device_id, summary, session_code, contact, status, scopes, created_at, updated_at
+		FROM support_cases ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cases := []*SupportCase{}
+	for rows.Next() {
+		var c SupportCase
+		var scopesJSON string
+		var sessionCode, contact sql.NullString
+		if err := rows.Scan(&c.ID, &c.DeviceID, &c.Summary, &sessionCode, &contact, &c.Status, &scopesJSON, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			continue
+		}
+		c.SessionCode = sessionCode.String
+		c.Contact = contact.String
+		_ = json.Unmarshal([]byte(scopesJSON), &c.Scopes)
+		messages, err := d.getMessages(c.ID)
+		if err != nil {
+			continue
+		}
+		c.Messages = messages
+		cases = append(cases, &c)
+	}
+	return cases, nil
+}
+
+func (d *DB) CaseExists(id string) (bool, error) {
+	var count int
+	err := d.db.QueryRow(`SELECT 1 FROM support_cases WHERE id = ?`, id).Scan(&count)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (d *DB) AddMessage(caseID, author, text string, timestamp time.Time) error {
+	_, err := d.db.Exec(`
+		INSERT INTO case_messages (case_id, author, text, timestamp) VALUES (?, ?, ?, ?)
+	`, caseID, author, text, timestamp)
+	if err != nil {
+		return err
+	}
+	_, err = d.db.Exec(`UPDATE support_cases SET updated_at = ? WHERE id = ?`, timestamp, caseID)
+	return err
+}
+
+func (d *DB) UpdateCaseStatus(id string, status CaseStatus, updatedAt time.Time) error {
+	res, err := d.db.Exec(`UPDATE support_cases SET status = ?, updated_at = ? WHERE id = ?`, string(status), updatedAt, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (d *DB) UpdateCaseScopes(id string, scopes []string, updatedAt time.Time) error {
+	scopesJSON, _ := json.Marshal(scopes)
+	res, err := d.db.Exec(`UPDATE support_cases SET scopes = ?, updated_at = ? WHERE id = ?`, string(scopesJSON), updatedAt, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func handleCreateCase(d *DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			DeviceID    string   `json:"device_id"`
+			Summary     string   `json:"summary"`
+			SessionCode string   `json:"session_code"`
+			Contact     string   `json:"contact"`
+			Scopes      []string `json:"scopes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.DeviceID == "" || req.Summary == "" {
+			http.Error(w, "device_id and summary required", http.StatusBadRequest)
+			return
+		}
+		id := generateID()
+		c, err := d.CreateCase(id, req.DeviceID, req.Summary, req.SessionCode, req.Contact, req.Scopes)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusCreated, c)
+	}
+}
+
+func handleListCases(d *DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cases, err := d.ListCases()
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"cases": cases,
+			"count": len(cases),
+		})
+	}
+}
+
+func handleGetCase(d *DB, id string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		c, err := d.GetCase(id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if c == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
+	}
+}
+
+func handleAddMessage(d *DB, id string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Author string `json:"author"`
+			Text   string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.Text == "" || req.Author == "" {
+			http.Error(w, "author and text required", http.StatusBadRequest)
+			return
+		}
+		exists, err := d.CaseExists(id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		if !exists {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		now := time.Now()
+		if err := d.AddMessage(id, req.Author, req.Text, now); err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		c, err := d.GetCase(id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
+	}
+}
+
+func handleUpdateStatus(d *DB, id string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Status CaseStatus `json:"status"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.Status == "" {
+			http.Error(w, "status required", http.StatusBadRequest)
+			return
+		}
+		now := time.Now()
+		if err := d.UpdateCaseStatus(id, req.Status, now); err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		c, err := d.GetCase(id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
+	}
+}
+
+func handleUpdateScopes(d *DB, id string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Scopes []string `json:"scopes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		now := time.Now()
+		if err := d.UpdateCaseScopes(id, req.Scopes, now); err != nil {
+			if err == sql.ErrNoRows {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		c, err := d.GetCase(id)
+		if err != nil {
+			http.Error(w, "database error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, c)
 	}
 }

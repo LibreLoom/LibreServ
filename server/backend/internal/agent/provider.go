@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 type Provider struct {
 	BaseURL    string
 	APIKey     string
+	DeviceID   string
 	HTTPClient *http.Client
 }
 
@@ -56,11 +58,16 @@ func NewSharedProviderFromConfig() *Provider {
 	if cfg == nil {
 		return nil
 	}
-	key := cfg.Support.InferenceAPIKey
-	if key == "" {
+	if cfg.Support.ServerURL == "" {
 		return nil
 	}
-	return NewProvider(cfg.Support.InferenceBaseURL, key)
+	deviceToken := cfg.Support.DeviceToken
+	if deviceToken == "" {
+		return nil
+	}
+	p := NewProvider(cfg.Support.ServerURL, deviceToken)
+	p.DeviceID = cfg.Support.DeviceID
+	return p
 }
 
 func calculateCost(model string, inputTokens, outputTokens, cacheTokens int) float64 {
@@ -136,6 +143,37 @@ type ModelsResponse struct {
 	Data []ModelInfo `json:"data"`
 }
 
+func (p *Provider) inferencePath() string {
+	if p.DeviceID != "" {
+		return "/api/v1/inference"
+	}
+	return ""
+}
+
+func (p *Provider) setAuthHeaders(req *http.Request) {
+	if p.DeviceID != "" {
+		req.Header.Set("Authorization", "Bearer "+p.APIKey)
+		req.Header.Set("X-Client-Role", "device")
+		req.Header.Set("X-Device-ID", p.DeviceID)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	}
+}
+
+func (p *Provider) chatCompletionsURL() string {
+	if p.DeviceID != "" {
+		return p.BaseURL + "/api/v1/inference/chat/completions"
+	}
+	return p.BaseURL + "/chat/completions"
+}
+
+func (p *Provider) modelsURL() string {
+	if p.DeviceID != "" {
+		return p.BaseURL + "/api/v1/inference/models"
+	}
+	return p.BaseURL + "/models"
+}
+
 func (p *Provider) Chat(ctx context.Context, model string, messages []Message, toolDefs []map[string]interface{}) (*AgentResponse, *UsageInfo, error) {
 	reqMsgs := make([]chatMessage, 0, len(messages))
 	for _, m := range messages {
@@ -169,18 +207,24 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []Message, t
 		return nil, nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+"/chat/completions", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(data))
 	if err != nil {
 		return nil, nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	p.setAuthHeaders(req)
 
 	resp, err := p.HTTPClient.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusPaymentRequired {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		slog.Warn("inference credit limit reached", "status", resp.StatusCode, "body", string(bodyBytes))
+		return nil, nil, fmt.Errorf("Your monthly AI support credit has been used up. Upgrade your plan in Settings to get more, or wait for next month's reset.")
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
@@ -226,11 +270,11 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []Message, t
 }
 
 func (p *Provider) Models(ctx context.Context) ([]ModelInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.BaseURL+"/models", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.modelsURL(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	p.setAuthHeaders(req)
 
 	resp, err := p.HTTPClient.Do(req)
 	if err != nil {
@@ -277,12 +321,12 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []Mess
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+"/chat/completions", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.chatCompletionsURL(), bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	p.setAuthHeaders(req)
 	req.Header.Set("Accept", "text/event-stream")
 
 	resp, err := p.HTTPClient.Do(req)

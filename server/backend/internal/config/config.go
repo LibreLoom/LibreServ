@@ -87,8 +87,9 @@ type UpdatesConfig struct {
 // SupportConfig defines AI support agent settings.
 type SupportConfig struct {
 	ServerURL        string                  `mapstructure:"server_url" yaml:"server_url"`
+	DeviceToken      string                  `mapstructure:"device_token" yaml:"device_token"`
+	DeviceID         string                  `mapstructure:"device_id" yaml:"device_id"`
 	InferenceBaseURL string                  `mapstructure:"inference_base_url" yaml:"inference_base_url"`
-	InferenceAPIKey  string                  `mapstructure:"inference_api_key" yaml:"inference_api_key"`
 	DefaultModel     string                  `mapstructure:"default_model" yaml:"default_model"`
 	BillingMode      string                  `mapstructure:"billing_mode" yaml:"billing_mode"`
 	Plans            []SupportPlan           `mapstructure:"plans" yaml:"plans"`
@@ -200,11 +201,18 @@ type Notifications struct {
 	WelcomeBody       string   `mapstructure:"welcome_body" yaml:"welcome_body"`
 }
 
-// NetworkConfig holds reverse proxy settings (Caddy)
+// NetworkConfig holds reverse proxy settings (Caddy) and UPnP.
 type NetworkConfig struct {
 	Caddy CaddyConfig `mapstructure:"caddy" yaml:"caddy"`
 	ACME  ACMEConfig  `mapstructure:"acme" yaml:"acme"`
 	DNS   DNSConfig   `mapstructure:"dns" yaml:"dns"`
+	UPnP  UPnPConfig  `mapstructure:"upnp" yaml:"upnp"`
+}
+
+// UPnPConfig holds UPnP port forwarding settings.
+type UPnPConfig struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
+	Timeout int  `mapstructure:"timeout" yaml:"timeout"`
 }
 
 // DNSConfig holds DNS provider settings for domain record management.
@@ -297,9 +305,10 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("network.caddy.logging.format", "console")
 
 	v.SetDefault("support.server_url", "https://support.serv.libreloom.org")
+	v.SetDefault("support.device_token", "")
+	v.SetDefault("support.device_id", "")
 	v.SetDefault("support.inference_base_url", "https://api.routing.run/v1")
-	v.SetDefault("support.inference_api_key", "")
-	v.SetDefault("support.default_model", "route/mimo-v2.5-pro")
+	v.SetDefault("support.default_model", "")
 	v.SetDefault("support.billing_mode", "token")
 	v.SetDefault("support.agent.max_turns", 50)
 	v.SetDefault("support.agent.turn_timeout", "5m")
@@ -322,7 +331,7 @@ func DefaultAgents() []AgentDefinition {
 		{
 			ID:          "agent-1",
 			Trigger:     "chat",
-			Model:       "route/mimo-v2.5-pro",
+			Model:       "",
 			AvatarShape: "diamond",
 			AvatarColor: "#FF6B35",
 			ToolNames:   []string{"docker", "files", "diagnostics", "snapshots"},
@@ -331,7 +340,7 @@ func DefaultAgents() []AgentDefinition {
 		{
 			ID:          "agent-2",
 			Trigger:     "chat",
-			Model:       "route/kimi-k2.6",
+			Model:       "",
 			AvatarShape: "circle",
 			AvatarColor: "#4ECDC4",
 			ToolNames:   []string{"docker", "files", "diagnostics", "snapshots"},
@@ -340,8 +349,8 @@ func DefaultAgents() []AgentDefinition {
 		{
 			ID:             "self-healing",
 			Trigger:        "container_unhealthy",
-			Model:          "route/mimo-v2.5-pro",
-			ToolNames:      []string{"docker", "diagnostics", "config_read"},
+			Model:          "",
+			ToolNames:      []string{"docker", "diagnostics", "files"},
 			MaxTurns:       5,
 			PermissionMode: "auto",
 		},

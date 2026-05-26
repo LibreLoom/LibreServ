@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
@@ -21,6 +22,7 @@ type SettingsHandler struct {
 	settingsService *settings.Service
 	securityService *security.Service
 	caddyManager    *network.CaddyManager
+	modelRegistry   *agent.ModelRegistry
 
 	testNotificationMu        sync.Mutex
 	testNotificationLastTime  map[string]time.Time
@@ -483,6 +485,10 @@ func validateEmail(email string) error {
 	return nil
 }
 
+func (h *SettingsHandler) SetModelRegistry(registry *agent.ModelRegistry) {
+	h.modelRegistry = registry
+}
+
 func (h *SettingsHandler) GetAISupport(w http.ResponseWriter, r *http.Request) {
 	if h.settingsService == nil {
 		JSONError(w, http.StatusInternalServerError, "Settings service not available")
@@ -497,6 +503,18 @@ func (h *SettingsHandler) GetAISupport(w http.ResponseWriter, r *http.Request) {
 	if aiSettings == nil {
 		aiSettings = map[string]interface{}{}
 	}
+
+	var availableModels []agent.ModelInfo
+	if h.modelRegistry != nil {
+		if models, err := h.modelRegistry.List(r.Context()); err == nil && models != nil {
+			availableModels = models
+		}
+	}
+	if availableModels == nil {
+		availableModels = []agent.ModelInfo{}
+	}
+	aiSettings["available_models"] = availableModels
+
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"ai_support": aiSettings,
 	})
