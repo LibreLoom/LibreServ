@@ -139,6 +139,8 @@ func (pm *PortManager) GetUsedPorts() map[int]string {
 }
 
 // IsAvailable checks if a port can be used for allocation.
+// NOTE: This has a TOCTOU race window between check and actual allocation.
+// Prefer Allocate() which atomically checks and reserves the port.
 // It checks both the internal tracking and verifies the port is free at the OS level.
 func (pm *PortManager) IsAvailable(port int) bool {
 	pm.mu.RLock()

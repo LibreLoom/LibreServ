@@ -13,6 +13,7 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
@@ -32,6 +33,16 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
+	origCfg := config.Get()
+	config.SetTestConfig(&config.Config{
+		Auth: config.AuthConfig{
+			AllowRegistration: true,
+		},
+	})
+	t.Cleanup(func() {
+		config.SetTestConfig(origCfg)
+	})
+
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	db, err := database.Open(dbPath)

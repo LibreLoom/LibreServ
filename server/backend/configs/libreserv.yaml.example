@@ -8,6 +8,9 @@ auth:
     jwt_secret: ""
     secret_file: ""
     csrf_secret: ""
+    # allow_registration controls whether anyone can create an account.
+    # Keep this off for private or admin-managed servers.
+    allow_registration: false
 apps:
     data_path: ./dev/apps
     catalog_path: ./apps
@@ -80,7 +83,7 @@ smtp:
     password: ""
     from: ""
     use_tls: false
-    skip_verify: false
+    skip_verify: false # WARNING: Setting this to true disables TLS certificate validation, allowing man-in-the-middle attacks on email notifications
 notify:
     enabled: false
     support_recipients: []

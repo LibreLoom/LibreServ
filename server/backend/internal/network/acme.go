@@ -125,6 +125,9 @@ func (a *ACMEManager) Issue(ctx context.Context, req ACMERequest) error {
 			}
 			return fmt.Errorf("domain required")
 		}
+		if err := ValidateDomain(req.Domain); err != nil {
+			return fmt.Errorf("invalid domain: %w", err)
+		}
 		err := a.issueExternalDNS01(ctx, req.Domain, req.Email)
 		if a.metrics != nil {
 			a.metrics.RecordCertIssuance(err == nil, certType, time.Since(start))
@@ -393,6 +396,9 @@ func (a *ACMEManager) pollIssued(ctx context.Context, domain string) error {
 // RequestWildcardCert issues a wildcard certificate (*.domain + domain) via lego
 // using the provided DNS provider config, and stores it in the configured certs path.
 func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email string, providerCfg *DNSProviderConfig) error {
+	if err := ValidateDomain(domain); err != nil {
+		return fmt.Errorf("invalid domain: %w", err)
+	}
 	legoProvider, legoEnv, err := legoProviderConfig(providerCfg)
 	if err != nil {
 		return err

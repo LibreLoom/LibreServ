@@ -6,6 +6,17 @@ services:
 {{- if .enable_gpu }}
     runtime: nvidia
 {{- end }}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
     ports:
       - "{{.api_port}}:11434"
     environment:

@@ -24,7 +24,7 @@ func (h *NetworkProbeHandler) DNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := network.ValidateHost(host); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		JSONError(w, http.StatusBadRequest, "Invalid hostname: "+err.Error())
 		return
 	}
 	res, err := network.ResolveHostname(r.Context(), host, 3*time.Second)
@@ -51,7 +51,7 @@ func (h *NetworkProbeHandler) ProbeTCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := network.ValidateHost(host); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		JSONError(w, http.StatusBadRequest, "Invalid hostname: "+err.Error())
 		return
 	}
 	port, err := strconv.Atoi(portStr)

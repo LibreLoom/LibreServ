@@ -3,6 +3,7 @@ package support
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
@@ -82,16 +83,26 @@ func (s *Service) CreateSession(ctx context.Context, req CreateRequest) (*Sessio
 	if len(req.Scopes) == 0 {
 		req.Scopes = []string{"diagnostics"}
 	}
-	id := generateID()
-	code := generateCode()
-	token := generateToken()
+	id, err := generateID()
+	if err != nil {
+		return nil, fmt.Errorf("generate session id: %w", err)
+	}
+	code, err := generateCode()
+	if err != nil {
+		return nil, fmt.Errorf("generate session code: %w", err)
+	}
+	token, err := generateToken()
+	if err != nil {
+		return nil, fmt.Errorf("generate session token: %w", err)
+	}
 	now := time.Now()
 	expires := now.Add(req.TTL)
+	tokenHash := hashToken(token)
 
 	if _, err := s.db.Exec(`
 		INSERT INTO support_sessions (id, code, token, scopes, status, expires_at, created_at, created_by, support_level, license_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, code, token, strings.Join(req.Scopes, ","), string(StatusActive), expires, now, req.CreatedBy, s.supportLevel(), s.licenseID()); err != nil {
+	`, id, code, tokenHash, strings.Join(req.Scopes, ","), string(StatusActive), expires, now, req.CreatedBy, s.supportLevel(), s.licenseID()); err != nil {
 		return nil, fmt.Errorf("create support session: %w", err)
 	}
 
@@ -187,8 +198,8 @@ func (s *Service) ValidateCode(ctx context.Context, code, token string) (*Sessio
 	row := s.db.QueryRow(`
 		SELECT id, code, token, scopes, status, expires_at, created_at, created_by, revoked_at, revoked_by, support_level, license_id
 		FROM support_sessions
-		WHERE code = ? AND token = ?
-	`, code, token)
+		WHERE code = ?
+	`, code)
 	var sess Session
 	var scopes string
 	var revokedAt sql.NullTime
@@ -204,9 +215,14 @@ func (s *Service) ValidateCode(ctx context.Context, code, token string) (*Sessio
 		_ = s.markExpired(ctx, sess.ID)
 		return nil, fmt.Errorf("session expired")
 	}
-	// Constant-time token comparison
-	if subtle.ConstantTimeCompare([]byte(token), []byte(sess.Token)) != 1 {
+	matches, needsUpgrade := tokenMatches(sess.Token, token)
+	if !matches {
 		return nil, fmt.Errorf("invalid session")
+	}
+	if needsUpgrade {
+		if err := s.upgradeTokenHash(ctx, sess.ID, token); err != nil {
+			log.Printf("failed to upgrade support session token hash: %v", err)
+		}
 	}
 	sess.Scopes = splitScopes(scopes)
 	if revokedAt.Valid {
@@ -247,22 +263,51 @@ func splitScopes(s string) []string {
 	return scopes
 }
 
-func generateCode() string {
+func generateCode() (string, error) {
 	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return strings.ToUpper(hex.EncodeToString(b))
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return strings.ToUpper(hex.EncodeToString(b)), nil
 }
 
-func generateID() string {
+func generateID() (string, error) {
 	b := make([]byte, 8)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
-func generateToken() string {
+func generateToken() (string, error) {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func tokenMatches(stored, token string) (bool, bool) {
+	hashed := hashToken(token)
+	if subtle.ConstantTimeCompare([]byte(stored), []byte(hashed)) == 1 {
+		return true, false
+	}
+	if subtle.ConstantTimeCompare([]byte(stored), []byte(token)) == 1 {
+		return true, true
+	}
+	return false, false
+}
+
+func (s *Service) upgradeTokenHash(ctx context.Context, sessionID, token string) error {
+	_, err := s.db.Exec(`
+		UPDATE support_sessions SET token = ? WHERE id = ?
+	`, hashToken(token), sessionID)
+	return err
 }
 
 func (s *Service) supportLevel() string {

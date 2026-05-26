@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -1069,7 +1070,7 @@ func createTarGzFromDir(srcDir string, w io.Writer) error {
 		}
 
 		if !info.IsDir() {
-			f, err := os.Open(path)
+			f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 			if err != nil {
 				return err
 			}

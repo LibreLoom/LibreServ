@@ -522,17 +522,19 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 
 	if t.Type == tests.TestTypeIntegration && t.ID == "docker-build" {
 		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: "/var/run/docker.sock",
-			Target: "/var/run/docker.sock",
+			Type:     mount.TypeBind,
+			Source:   "/var/run/docker.sock",
+			Target:   "/var/run/docker.sock",
+			ReadOnly: true,
 		})
 	}
 
 	if t.Type == tests.TestTypeE2E {
 		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: "/var/run/docker.sock",
-			Target: "/var/run/docker.sock",
+			Type:     mount.TypeBind,
+			Source:   "/var/run/docker.sock",
+			Target:   "/var/run/docker.sock",
+			ReadOnly: true,
 		})
 	}
 

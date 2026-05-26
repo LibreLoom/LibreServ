@@ -864,17 +864,9 @@ func (h *AgentChatHandler) validateSSEToken(token string) (*auth.Claims, error) 
 // extractSSEAuth extracts user identity for SSE connections.
 // EventSource cannot send custom headers, so we accept auth via:
 //  1. HttpOnly cookie (preferred — not exposed to JS or logs)
-//  2. ?token= query param (fallback — note: tokens in URLs may appear in
-//     proxy/access logs and browser history; prefer cookie when possible)
 func (h *AgentChatHandler) extractSSEAuth(r *http.Request) string {
 	if cookie, err := r.Cookie("libreserv_access"); err == nil && cookie.Value != "" {
 		claims, err := h.validateSSEToken(cookie.Value)
-		if err == nil && claims != nil {
-			return claims.UserID
-		}
-	}
-	if token := r.URL.Query().Get("token"); token != "" {
-		claims, err := h.validateSSEToken(token)
 		if err == nil && claims != nil {
 			return claims.UserID
 		}

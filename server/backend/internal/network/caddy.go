@@ -580,7 +580,7 @@ func (cm *CaddyManager) regenerateCaddyfileLocked() error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(cm.config.ConfigPath)
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -624,6 +624,13 @@ func (cm *CaddyManager) generateCaddyfileLocked() (string, error) {
 {
 	{{if .Email}}email {{.Email}}{{end}}
 	{{if not .AutoHTTPS}}auto_https off{{end}}
+	{{if .AutoHTTPS}}
+	tls {
+		on_demand {
+			rate_limit 10
+		}
+	}
+	{{end}}
 }
 
 {{if and .AutoHTTPS .HasRealDomains}}
@@ -652,6 +659,8 @@ http:// {
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 	}
 
 	# Logging
@@ -673,6 +682,7 @@ http:// {
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
 	}
 }
 {{end}}

@@ -47,6 +47,7 @@ type AuthConfig struct {
 	SecretFile         string `mapstructure:"secret_file" yaml:"secret_file"`
 	CSRFSecret         string `mapstructure:"csrf_secret" yaml:"csrf_secret"`
 	CloudEncryptionKey string `mapstructure:"cloud_encryption_key" yaml:"cloud_encryption_key"`
+	AllowRegistration  bool   `mapstructure:"allow_registration" yaml:"allow_registration"`
 }
 
 // ServerConfig defines HTTP server settings.
@@ -67,6 +68,8 @@ type RepoConfig struct {
 	Branch   string `mapstructure:"branch" yaml:"branch"`
 	Enabled  bool   `mapstructure:"enabled" yaml:"enabled"`
 	Priority int    `mapstructure:"priority" yaml:"priority"`
+	Username string `mapstructure:"username" yaml:"username"`
+	Password string `mapstructure:"password" yaml:"password"`
 }
 
 // AppsConfig defines app catalog and data paths.
@@ -290,6 +293,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("docker.timeout", "30s")
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.path", "/var/log/libreserv/libreserv.log")
+	v.SetDefault("auth.allow_registration", false)
 	v.SetDefault("smtp.port", 587)
 	v.SetDefault("network.caddy.mode", "disabled")
 	v.SetDefault("network.caddy.admin_api", "localhost:2019")

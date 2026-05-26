@@ -67,6 +67,7 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// #nosec G304 -- Path is strictly validated and resolved against an allowlist above
 	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to read file")
@@ -148,6 +149,7 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// #nosec G304 -- Path is strictly validated and resolved against an allowlist above
 	if err := os.WriteFile(cleanPath, []byte(req.Data), 0o640); err != nil {
 		JSONError(w, http.StatusInternalServerError, "failed to write file")
 		h.svc.LogAudit(r.Context(), &support.AuditEntry{

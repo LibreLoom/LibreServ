@@ -23,7 +23,8 @@ services:
       - CHOWN
       - SETGID
       - SETUID
-      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.name={{.app_name}}"

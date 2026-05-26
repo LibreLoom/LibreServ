@@ -244,12 +244,13 @@ func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 			h.auditLog.Log(r.Context(), "app.update", instanceID, "", "failure", err.Error(), nil)
 		}
 
-		if strings.HasPrefix(err.Error(), "needs_config:") {
-			JSONError(w, http.StatusConflict, err.Error())
+		msg := err.Error()
+		if strings.HasPrefix(msg, "needs_config:") {
+			JSONError(w, http.StatusConflict, strings.TrimPrefix(msg, "needs_config:"))
 			return
 		}
-		if strings.Contains(err.Error(), "pinned") {
-			JSONError(w, http.StatusConflict, err.Error())
+		if strings.Contains(msg, "pinned") {
+			JSONError(w, http.StatusConflict, "The app version is pinned and cannot be updated")
 			return
 		}
 

@@ -22,6 +22,8 @@ const STEP = {
   ERROR:     "error",
 };
 
+const SETUP_TOKEN_KEY = "libreserv_setup_token";
+
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
 function SetupShell({ children }) {
   return (
@@ -177,7 +179,10 @@ function LogoMark({ size = 64 }) {
 LogoMark.propTypes = { size: PropTypes.number };
 
 // ─── STEP: Welcome ────────────────────────────────────────────────────────────
-function WelcomeStep({ onBegin }) {
+function WelcomeStep({ onBegin, setupToken, onSetupTokenChange }) {
+  const inputClass =
+    "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
+
   return (
     <SetupShell>
       <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -198,6 +203,25 @@ function WelcomeStep({ onBegin }) {
           Let&rsquo;s get LibreServ set up for you.
         </p>
 
+        <div className="w-full text-left mb-8">
+          <label htmlFor="setup_code" className="block text-xs font-mono text-primary/60 tracking-wider uppercase mb-2">
+            Setup code (optional)
+          </label>
+          <input
+            id="setup_code"
+            name="setup_code"
+            type="text"
+            placeholder="Paste the setup code"
+            value={setupToken}
+            onChange={onSetupTokenChange}
+            className={inputClass}
+            autoComplete="off"
+          />
+          <p className="text-primary/40 text-xs mt-2 leading-relaxed">
+            If you&rsquo;re setting this up from another device, paste the setup code shown on the server screen.
+          </p>
+        </div>
+
         {/* CTA */}
         <button
           onClick={onBegin}
@@ -215,7 +239,11 @@ function WelcomeStep({ onBegin }) {
     </SetupShell>
   );
 }
-WelcomeStep.propTypes = { onBegin: PropTypes.func.isRequired };
+WelcomeStep.propTypes = {
+  onBegin: PropTypes.func.isRequired,
+  setupToken: PropTypes.string.isRequired,
+  onSetupTokenChange: PropTypes.func.isRequired,
+};
 
 // ─── STEP: Preflight ──────────────────────────────────────────────────────────
 const KNOWN_CHECKS = new Set([
@@ -327,13 +355,16 @@ function PreflightStep({ onPass }) {
     setError(null);
 
     try {
-      const res = await fetch("/api/v1/setup/preflight", { credentials: "include" });
-      const data = await res.json();
+      const res = await api("/setup/preflight", { allowNonOk: true, noRetry: true });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
       if (data.checks) {
         setChecks(data.checks);
         setHealthy(data.healthy);
       } else {
-        throw new Error(data.error ?? `HTTP ${res.status}`);
+        throw new Error("Server returned an unexpected response.");
       }
     } catch (err) {
       setError(`Could not reach the server: ${err.message}`);
@@ -949,6 +980,9 @@ export default function SetupPage() {
   const navigate        = useNavigate();
   const [step, setStep] = useState(null);
   const [error, setError] = useState(null);
+  const [setupToken, setSetupToken] = useState(() =>
+    (typeof window !== "undefined" ? localStorage.getItem(SETUP_TOKEN_KEY) : "") || ""
+  );
   const [showDomainWizard, setShowDomainWizard] = useState(false);
   const [showSmtpWizard, setShowSmtpWizard] = useState(false);
   const [initialSubStep, setInitialSubStep] = useState(null);
@@ -956,6 +990,17 @@ export default function SetupPage() {
   const { saveProgress, flushProgress } = useSetupProgress();
   const progressRef = useRef({});
   const savingRef = useRef(false);
+
+  const handleSetupTokenChange = useCallback((event) => {
+    const value = event.target.value.trim();
+    setSetupToken(value);
+    if (typeof window === "undefined") return;
+    if (value) {
+      localStorage.setItem(SETUP_TOKEN_KEY, value);
+    } else {
+      localStorage.removeItem(SETUP_TOKEN_KEY);
+    }
+  }, []);
 
   const advanceStep = useCallback(async (nextStep, subStep, stepData) => {
     const data = stepData || progressRef.current.stepData || {};
@@ -1148,7 +1193,13 @@ export default function SetupPage() {
   }
 
   if (step === STEP.WELCOME) {
-    return <WelcomeStep onBegin={handleBegin} />;
+    return (
+      <WelcomeStep
+        onBegin={handleBegin}
+        setupToken={setupToken}
+        onSetupTokenChange={handleSetupTokenChange}
+      />
+    );
   }
 
   if (step === STEP.PREFLIGHT) {

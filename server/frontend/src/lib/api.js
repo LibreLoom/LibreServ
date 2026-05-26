@@ -16,6 +16,14 @@ export default async function api(path, options = {}, retried = false) {
   const headers = {
     ...fetchOptions.headers,
   };
+  if (path.startsWith("/setup")) {
+    const setupToken = typeof window !== "undefined"
+      ? localStorage.getItem("libreserv_setup_token")
+      : "";
+    if (setupToken) {
+      headers["X-Setup-Token"] = setupToken;
+    }
+  }
   const res = await fetch(url, {
     credentials: "include",
     ...fetchOptions,

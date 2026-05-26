@@ -3,7 +3,7 @@ package email
 import (
 	"crypto/tls"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/smtp"
 	"strings"
 	"text/template"
@@ -106,8 +106,9 @@ func TestSMTP(cfg config.SMTPConfig) error {
 
 func resolveSkipVerify(skipVerify bool) bool {
 	if skipVerify {
+		slog.Warn("SMTP TLS certificate verification is disabled — connections are vulnerable to man-in-the-middle attacks")
 		if c := config.Get(); c != nil && c.Server.Mode == "production" {
-			log.Printf("warning: InsecureSkipVerify overridden to false in production mode")
+			slog.Warn("InsecureSkipVerify overridden to false in production mode — set smtp.skip_verify to false to suppress this warning")
 			return false
 		}
 	}

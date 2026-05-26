@@ -128,6 +128,7 @@ func (h *SetupHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 
 	userStatus, _ := h.authService.GetSetupStatus(r.Context())
 	state = h.reconcileSetupState(r.Context(), state, userStatus)
+	state.Nonce = ""
 	licenseStatus := LicenseSnapshot(h.license)
 
 	progress := map[string]interface{}{
@@ -227,7 +228,6 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set auth cookies to automatically log in the user
-	secure := isSecureRequest(r)
 	refreshExpiresAt := time.Now().Add(7 * 24 * time.Hour)
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
@@ -236,7 +236,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(tokens.Tokens.ExpiresAt, 0),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
+		Secure:   true,
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
@@ -245,7 +245,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
+		Secure:   true,
 	})
 
 	// Send a welcome email if SMTP is configured

@@ -279,12 +279,22 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 		cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
 			"-v", hostPath+":/cleanup",
 			"alpine:latest",
-			"sh", "-c", "chown -R "+owner+" /cleanup && chmod -R u+rw /cleanup",
+			"chown", "-R", owner, "/cleanup",
 		)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			log.Printf("Warning: failed to chown bind mount %s: %v (%s)", hostPath, err, strings.TrimSpace(string(output)))
 			continue
+		}
+
+		cmd2 := exec.CommandContext(ctx, "docker", "run", "--rm",
+			"-v", hostPath+":/cleanup",
+			"alpine:latest",
+			"chmod", "-R", "u+rw", "/cleanup",
+		)
+		output2, err2 := cmd2.CombinedOutput()
+		if err2 != nil {
+			log.Printf("Warning: failed to chmod bind mount %s: %v (%s)", hostPath, err2, strings.TrimSpace(string(output2)))
 		}
 	}
 
@@ -303,11 +313,21 @@ func ChownDir(ctx context.Context, dirPath string, uid, gid int) error {
 	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
 		"-v", dirPath+":/cleanup",
 		"alpine:latest",
-		"sh", "-c", "chown -R "+owner+" /cleanup && chmod -R u+rw /cleanup",
+		"chown", "-R", owner, "/cleanup",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("chown %s via alpine: %w (%s)", dirPath, err, strings.TrimSpace(string(output)))
+	}
+
+	cmd2 := exec.CommandContext(ctx, "docker", "run", "--rm",
+		"-v", dirPath+":/cleanup",
+		"alpine:latest",
+		"chmod", "-R", "u+rw", "/cleanup",
+	)
+	output2, err2 := cmd2.CombinedOutput()
+	if err2 != nil {
+		return fmt.Errorf("chmod %s via alpine: %w (%s)", dirPath, err2, strings.TrimSpace(string(output2)))
 	}
 
 	return nil
@@ -383,7 +403,7 @@ func ComposePinImageDigest(composePath string, appImage string, digest string) e
 		return fmt.Errorf("failed to marshal compose: %w", err)
 	}
 
-	if err := os.WriteFile(composePath, pinnedData, 0644); err != nil {
+	if err := os.WriteFile(composePath, pinnedData, 0600); err != nil {
 		return fmt.Errorf("failed to write compose file: %w", err)
 	}
 

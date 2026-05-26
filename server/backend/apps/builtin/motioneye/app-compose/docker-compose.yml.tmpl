@@ -11,7 +11,9 @@ services:
       - CHOWN
       - SETGID
       - SETUID
-      - DAC_OVERRIDE
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
     ports:
       - "{{.http_port}}:8765"
 {{- if .enable_network_cameras }}

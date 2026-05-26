@@ -71,6 +71,7 @@ test-coverage:
 
 FMT_SOURCES := $(shell find . -name '*.go' -not -path './.cache/*' -not -path './vendor/*' -not -path './dev/*' 2>/dev/null)
 GO_PKGS := ./cmd/... ./internal/...
+GO_ALL_PKGS := ./cmd/... ./internal/... ../../ci-source/... ../../support/...
 
 fmt-check:
 	@echo ">> Checking format"
@@ -89,8 +90,13 @@ govulncheck:
 	@./govulncheck-with-exemptions.sh $(GO_PKGS)
 
 gosec:
-	@echo ">> Running gosec"
+	@echo ">> Running gosec (backend)"
 	@gosec -severity high $(GO_PKGS)
+	@echo ">> Running gosec (ci-source)"
+	@cd ../../ci-source && gosec -severity high ./...
+	@echo ">> Running gosec (support)"
+	@cd ../../support/support-relay && gosec -severity high ./...
+	@cd ../../support/support-server && gosec -severity high ./...
 
 staticcheck:
 	@echo ">> Running staticcheck"

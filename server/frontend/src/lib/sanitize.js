@@ -21,7 +21,7 @@ export function sanitizeHTML(str) {
 
 /**
  * Sanitizes a string for safe display as text content
- * Removes all HTML tags completely
+ * Removes all HTML tags completely using DOMPurify
  * @param {string} str - The string to sanitize
  * @returns {string} - Plain text with HTML removed
  */
@@ -29,24 +29,9 @@ export function stripHTML(str) {
   if (!str || typeof str !== 'string') {
     return '';
   }
-  
-  // Remove script tags and their content
-  let sanitized = str.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-  
-  // Remove event handlers
-  sanitized = sanitized.replace(/\s*on\w+\s*=\s*["']?[^"'>]*["']?/gi, '');
-  
-  // Remove javascript: URLs
-  sanitized = sanitized.replace(/javascript:/gi, '');
-  
-  // Remove data: URLs that could contain scripts
-  sanitized = sanitized.replace(/data:text\/html/gi, '');
-  
-  // Remove other dangerous tags
-  const dangerousTags = /<(iframe|object|embed|form|input|textarea|button|select|option|style|link|meta|base|foreignObject)[^>]*>/gi;
-  sanitized = sanitized.replace(dangerousTags, '');
-  
-  return sanitized;
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 /**
@@ -88,24 +73,23 @@ export function sanitizeSVG(svg) {
 
 /**
  * Sanitizes a string for safe use in URLs
+ * Uses URL parser to validate, only allows http/https/mailto schemes.
  * @param {string} str - The string to sanitize
- * @returns {string} - Sanitized URL
+ * @returns {string} - Sanitized URL or empty string if invalid
  */
 export function sanitizeURL(str) {
   if (!str || typeof str !== 'string') {
     return '';
   }
-  
-  // Remove javascript: and data: protocols
-  const lower = str.toLowerCase().trim();
-  if (lower.startsWith('javascript:') || 
-      lower.startsWith('data:') || 
-      lower.startsWith('vbscript:') ||
-      lower.startsWith('file:')) {
+  try {
+    const url = new URL(str, window.location.origin);
+    if (!['http:', 'https:', 'mailto:'].includes(url.protocol)) {
+      return '';
+    }
+    return str;
+  } catch {
     return '';
   }
-  
-  return str;
 }
 
 /**

@@ -24,6 +24,9 @@ import (
 
 const DefaultResticVersion = "0.18.1"
 
+// downloadClient is a shared HTTP client with timeout for all restic downloads and signature checks (H-2).
+var downloadClient = &http.Client{Timeout: 120 * time.Second}
+
 var ExpectedResticHashes = map[string]string{
 	"linux/amd64":  "680838f19d67151adba227e1570cdd8af12c19cf1735783ed1ba928bc41f363d",
 	"linux/arm64":  "87f53fddde38764095e9c058a3b31834052c37e5826d2acf34e18923c006bd45",
@@ -171,7 +174,7 @@ func AutoProvision() (string, error) {
 
 	slog.Info("auto-provisioning restic binary", "url", url, "version", DefaultResticVersion)
 
-	resp, err := http.Get(url)
+	resp, err := downloadClient.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("download restic: %w", err)
 	}
@@ -238,7 +241,7 @@ func AutoProvision() (string, error) {
 
 func verifyChecksumFromRemote(version, goos, goarch, actualHash, tmpPath string) error {
 	checksumURL := fmt.Sprintf("https://github.com/restic/restic/releases/download/v%s/SHA256SUMS", version)
-	checksumResp, err := http.Get(checksumURL)
+	checksumResp, err := downloadClient.Get(checksumURL)
 	if err != nil {
 		return fmt.Errorf("could not fetch SHA256SUMS for verification: %w", err)
 	}
@@ -296,7 +299,7 @@ func verifySHA256SUMSSignature(version string, checksumBody []byte) error {
 	}
 
 	sigURL := fmt.Sprintf("https://github.com/restic/restic/releases/download/v%s/SHA256SUMS.asc", version)
-	sigResp, err := http.Get(sigURL)
+	sigResp, err := downloadClient.Get(sigURL)
 	if err != nil {
 		return fmt.Errorf("fetch SHA256SUMS.asc: %w", err)
 	}
@@ -321,10 +324,11 @@ func verifySHA256SUMSSignature(version string, checksumBody []byte) error {
 	checksumFile := filepath.Join(tmpDir, "SHA256SUMS")
 	sigFile := filepath.Join(tmpDir, "SHA256SUMS.asc")
 
-	if err := os.WriteFile(checksumFile, checksumBody, 0644); err != nil {
+	// 0600 for temp verification files (defense-in-depth)
+	if err := os.WriteFile(checksumFile, checksumBody, 0600); err != nil {
 		return fmt.Errorf("write checksum temp file: %w", err)
 	}
-	if err := os.WriteFile(sigFile, sigBody, 0644); err != nil {
+	if err := os.WriteFile(sigFile, sigBody, 0600); err != nil {
 		return fmt.Errorf("write signature temp file: %w", err)
 	}
 

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
 )
@@ -13,6 +14,12 @@ import (
 // Register handles POST /api/v1/auth/register
 // Creates a new user account
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Get()
+	if cfg == nil || !cfg.Auth.AllowRegistration {
+		JSONError(w, http.StatusForbidden, "Account creation is turned off on this server. Ask an administrator to create your account or enable signups in Settings.")
+		return
+	}
+
 	var req auth.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		JSONError(w, http.StatusBadRequest, "invalid request body")

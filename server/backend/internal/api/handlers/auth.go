@@ -22,15 +22,9 @@ const (
 	refreshCookieName = "libreserv_refresh"
 )
 
-func isSecureRequest(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
-}
+
 
 func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
-	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
 		Value:    "",
@@ -39,7 +33,7 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
+		Secure:   true,
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
@@ -49,7 +43,7 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
+		Secure:   true,
 	})
 }
 
@@ -139,7 +133,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "failed to set refresh token")
 		return
 	}
-	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
 		Value:    response.Tokens.AccessToken,
@@ -147,7 +140,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(response.Tokens.ExpiresAt, 0),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
+		Secure:   true,
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
@@ -156,7 +149,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
+		Secure:   true,
 	})
 	JSON(w, http.StatusOK, response.User.Sanitize())
 }
@@ -233,7 +226,6 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "failed to set refresh token")
 		return
 	}
-	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
 		Value:    tokens.AccessToken,
@@ -241,7 +233,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(tokens.ExpiresAt, 0),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
+		Secure:   true,
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
@@ -250,7 +242,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   secure,
+		Secure:   true,
 	})
 	JSON(w, http.StatusOK, map[string]string{"message": "refreshed"})
 }

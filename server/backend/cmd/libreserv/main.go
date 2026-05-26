@@ -138,6 +138,10 @@ func main() {
 		slog.Error("auth.cloud_encryption_key is not set — cloud backup credentials cannot be encrypted. Set LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY or auth.cloud_encryption_key in config")
 		os.Exit(1)
 	}
+	if cfg.Auth.CloudEncryptionKey == cfg.Auth.CSRFSecret {
+		slog.Error("auth.cloud_encryption_key cannot be the same as auth.csrf_secret for security reasons.")
+		os.Exit(1)
+	}
 	backupService.SetEncryptionKey(cfg.Auth.CloudEncryptionKey)
 
 	// Clean up ghost database backup records from previous "Save DB" downloads.
@@ -273,6 +277,11 @@ func main() {
 	authService := auth.NewService(db, cfg.Auth.JWTSecret, slog.Default())
 
 	setupService := setup.NewService(db)
+	if state, err := setupService.Ensure(context.Background()); err == nil && state.Status != setup.StatusComplete {
+		if state.Nonce != "" {
+			slog.Info("Setup code for remote setup. Use this code if you're setting up from another device.", "code", state.Nonce)
+		}
+	}
 	supportService := support.NewService(db, lic)
 	auditService := audit.NewService(db)
 

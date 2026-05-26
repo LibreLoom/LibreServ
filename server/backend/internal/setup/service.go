@@ -112,6 +112,15 @@ func (s *Service) IsComplete(ctx context.Context) bool {
 	return state.Status == StatusComplete
 }
 
+// SetupToken returns the current setup token (nonce).
+func (s *Service) SetupToken(ctx context.Context) (string, error) {
+	state, err := s.Ensure(ctx)
+	if err != nil {
+		return "", err
+	}
+	return state.Nonce, nil
+}
+
 func (s *Service) SaveProgress(ctx context.Context, currentStep, currentSubStep string, stepData map[string]interface{}) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

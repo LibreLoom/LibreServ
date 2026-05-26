@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
@@ -45,12 +46,17 @@ func (r *RepoClient) Pull(ctx context.Context) error {
 
 	if _, statErr := os.Stat(r.localPath); os.IsNotExist(statErr) {
 		r.logger.Info("Cloning repository", "url", r.config.URL, "branch", branch, "path", r.localPath)
+		var auth transport.AuthMethod
+		if r.config.Username != "" || r.config.Password != "" {
+			auth = &http.BasicAuth{Username: r.config.Username, Password: r.config.Password}
+		}
+
 		repo, err = git.PlainCloneContext(ctx, r.localPath, false, &git.CloneOptions{
 			URL:           r.config.URL,
 			ReferenceName: plumbing.NewBranchReferenceName(branch),
 			SingleBranch:  true,
 			Depth:         1,
-			Auth:          &http.BasicAuth{Username: "git", Password: ""},
+			Auth:          auth,
 		})
 		if err != nil {
 			r.mu.Lock()
@@ -68,11 +74,17 @@ func (r *RepoClient) Pull(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to get worktree: %w", err)
 		}
+
+		var auth transport.AuthMethod
+		if r.config.Username != "" || r.config.Password != "" {
+			auth = &http.BasicAuth{Username: r.config.Username, Password: r.config.Password}
+		}
+
 		err = worktree.PullContext(ctx, &git.PullOptions{
 			ReferenceName: plumbing.NewBranchReferenceName(branch),
 			SingleBranch:  true,
 			Depth:         1,
-			Auth:          &http.BasicAuth{Username: "git", Password: ""},
+			Auth:          auth,
 		})
 		if err != nil && err != git.NoErrAlreadyUpToDate {
 			r.mu.Lock()

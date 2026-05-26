@@ -128,6 +128,7 @@ func (s *Server) setupRoutes() {
 	}
 	// Setup guard ensures initial setup is complete before allowing access
 	setupGuard := middleware.RequireSetupComplete(s.setupService, s.authService)
+	setupAccess := middleware.SetupAccess(s.setupService)
 
 	// Public routes (no authentication required)
 	s.router.Group(func(r chi.Router) {
@@ -140,8 +141,11 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/v1/system/health/check", monitoringHandler.ComprehensiveHealthCheck)
 		r.Post("/api/v1/system/health/check/refresh", monitoringHandler.ComprehensiveHealthCheck)
 
-		// Prometheus metrics endpoint (public for scraping)
-		r.Get("/metrics", monitoringHandler.PrometheusMetrics)
+		// Prometheus metrics endpoint (public with rate limiting)
+		// NOTE: In production, restrict access via reverse proxy or move behind auth
+		r.With(middleware.RateLimit([]middleware.RateRule{
+			{Prefix: "/metrics", Limit: 30, Window: time.Minute},
+		})).Get("/metrics", monitoringHandler.PrometheusMetrics)
 
 		// API version info endpoint
 		r.Get("/api/version", healthHandler.Version)
@@ -152,26 +156,33 @@ func (s *Server) setupRoutes() {
 		// Setup routes (public, but only work when setup is incomplete)
 		r.Route("/setup", func(r chi.Router) {
 			r.Get("/status", setupHandler.GetStatus)
-			r.Post("/complete", setupHandler.CompleteSetup)
+			r.With(setupAccess).Post("/complete", setupHandler.CompleteSetup)
 			r.Get("/preflight", setupHandler.Preflight)
-			r.Put("/progress", setupHandler.SaveProgress)
-			r.Post("/progress/reset", setupHandler.ResetProgress)
-			r.Post("/dns/test", setupHandler.TestDNS)
-			r.Post("/dns/apply", setupHandler.ApplyDNS)
+			r.With(setupAccess).Put("/progress", setupHandler.SaveProgress)
+			r.With(setupAccess).Post("/progress/reset", setupHandler.ResetProgress)
+			r.With(setupAccess).Post("/dns/test", setupHandler.TestDNS)
+			r.With(setupAccess).Post("/dns/apply", setupHandler.ApplyDNS)
 			r.Get("/dns/status", setupHandler.GetDNSStatus)
-			r.Put("/smtp", setupHandler.SaveSMTP)
-			r.Post("/smtp/test", setupHandler.TestSMTP)
-			r.Post("/finalize", setupHandler.FinalizeSetup)
+			r.With(setupAccess).Put("/smtp", setupHandler.SaveSMTP)
+			r.With(setupAccess).Post("/smtp/test", setupHandler.TestSMTP)
+			r.With(setupAccess).Post("/finalize", setupHandler.FinalizeSetup)
 		})
 
 		// Public auth routes (login, register, password reset)
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
-			r.Post("/auth/login", authHandler.Login)
-			r.Post("/auth/register", authHandler.Register)
+			// Rate limiting specific to auth endpoints to prevent brute-force attacks
+			r.With(middleware.RateLimit([]middleware.RateRule{
+				{Prefix: "/api/v1/auth/login", Limit: 10, Window: time.Minute},
+			})).Post("/auth/login", authHandler.Login)
+			r.With(middleware.RateLimit([]middleware.RateRule{
+				{Prefix: "/api/v1/auth/register", Limit: 3, Window: time.Hour},
+			})).Post("/auth/register", authHandler.Register)
 
 			// Password reset endpoints (no auth required - token-based authentication)
-			r.Post("/auth/password-reset/request", authHandler.RequestPasswordReset)
+			r.With(middleware.RateLimit([]middleware.RateRule{
+				{Prefix: "/api/v1/auth/password-reset", Limit: 5, Window: time.Minute},
+			})).Post("/auth/password-reset/request", authHandler.RequestPasswordReset)
 			r.Post("/auth/password-reset/confirm", authHandler.ConfirmPasswordReset)
 			r.Post("/auth/password-reset/validate", authHandler.ValidateResetToken)
 			r.Get("/auth/password-reset/validate", authHandler.ValidateResetToken)

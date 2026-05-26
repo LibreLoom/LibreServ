@@ -16,7 +16,11 @@ services:
       - CHOWN
       - SETGID
       - SETUID
-      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
     depends_on:
       - redis
     labels:
@@ -38,7 +42,8 @@ services:
       - CHOWN
       - SETGID
       - SETUID
-      - DAC_OVERRIDE
+    security_opt:
+      - no-new-privileges:true
     labels:
       - "libreserv.app={{.instance_id}}"
       - "libreserv.app.component=redis"

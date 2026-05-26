@@ -186,18 +186,20 @@ func validateSecrets(cfg *config.Config, result *ValidationResult) {
 
 	if cfg.Auth.CloudEncryptionKey == "" {
 		result.Issues = append(result.Issues, SecurityIssue{
-			Severity:       "MEDIUM",
+			Severity:       "HIGH",
 			Category:       "Encryption",
-			Message:        "Cloud backup encryption key is not configured; will fall back to CSRF secret",
+			Message:        "Cloud backup encryption key is not configured",
 			Recommendation: "Set auth.cloud_encryption_key in config or LIBRESERV_AUTH_CLOUD_ENCRYPTION_KEY environment variable",
 		})
+		result.Passed = false
 	} else if cfg.Auth.CloudEncryptionKey == cfg.Auth.CSRFSecret {
 		result.Issues = append(result.Issues, SecurityIssue{
-			Severity:       "MEDIUM",
+			Severity:       "HIGH",
 			Category:       "Encryption",
 			Message:        "Cloud backup encryption key is the same as the CSRF secret",
 			Recommendation: "Use a dedicated key for auth.cloud_encryption_key to isolate cloud backup credential encryption from CSRF protection",
 		})
+		result.Passed = false
 	}
 }
 

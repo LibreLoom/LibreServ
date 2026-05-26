@@ -12,6 +12,17 @@ services:
 {{- end }}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
     environment:
       - "HOST=0.0.0.0"
       - "NODE_ENV=production"
@@ -52,6 +63,14 @@ services:
     image: mongo:7.0
     container_name: "{{.instance_id}}-mongodb"
     restart: always
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
     environment:
       - "MONGO_INITDB_ROOT_USERNAME=admin"
       - "MONGO_INITDB_ROOT_PASSWORD={{.mongo_root_password}}"
@@ -68,6 +87,14 @@ services:
     image: getmeili/meilisearch:v1.12
     container_name: "{{.instance_id}}-meilisearch"
     restart: always
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
     environment:
       - "MEILI_HOST=http://meilisearch:7700"
       - "MEILI_NO_ANALYTICS=true"

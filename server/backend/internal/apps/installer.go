@@ -21,7 +21,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
@@ -36,7 +35,6 @@ type Installer struct {
 	monitor         *monitoring.Monitor
 	metricsCache    *AppMetricsCache
 	portManager     *PortManager
-	upnpService     *network.UPnPService
 	registerBackend func(instanceID, backend, name string)
 	cleanupRoute    func(ctx context.Context, appID string) error
 	domainConfig    *DomainConfig // Temporary storage during install (used synchronously in Install())
@@ -46,7 +44,7 @@ type Installer struct {
 }
 
 // NewInstaller creates a new Installer
-func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *database.DB, appsDataDir string, monitor *monitoring.Monitor, metricsCache *AppMetricsCache, portManager *PortManager, upnpService *network.UPnPService) *Installer {
+func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *database.DB, appsDataDir string, monitor *monitoring.Monitor, metricsCache *AppMetricsCache, portManager *PortManager) *Installer {
 	return &Installer{
 		catalog:        catalog,
 		runtime:        runtime,
@@ -56,7 +54,6 @@ func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *databa
 		monitor:        monitor,
 		metricsCache:   metricsCache,
 		portManager:    portManager,
-		upnpService:    upnpService,
 		installOutputs: make(map[string]chan ScriptOutput),
 	}
 }
@@ -267,38 +264,6 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		for _, depPort := range appDef.Deployment.Ports {
 			if depPort.Host > 0 {
 				i.portManager.Reserve(depPort.Host, instanceID)
-			}
-		}
-
-		// Add UPnP port mappings if enabled
-		if i.upnpService != nil && i.upnpService.IsAvailable() {
-			for _, depPort := range appDef.Deployment.Ports {
-				if depPort.Host > 0 && depPort.Container > 0 {
-					protocol := strings.ToUpper(depPort.Protocol)
-					if protocol == "" {
-						protocol = "TCP"
-					}
-					mapping := &network.UPnPPortMapping{
-						ExternalPort: depPort.Host,
-						InternalPort: depPort.Container,
-						Protocol:     protocol,
-						Description:  fmt.Sprintf("LibreServ: %s (%s)", appDef.Name, instanceID),
-					}
-					if err := i.upnpService.AddPortMapping(mapping); err != nil {
-						i.logger.Warn("Failed to add UPnP port mapping",
-							"app_id", appDef.ID,
-							"instance_id", instanceID,
-							"port", depPort.Host,
-							"error", err)
-					} else {
-						i.logger.Info("Added UPnP port mapping",
-							"app_id", appDef.ID,
-							"instance_id", instanceID,
-							"external_port", depPort.Host,
-							"internal_port", depPort.Container,
-							"protocol", protocol)
-					}
-				}
 			}
 		}
 	}
@@ -693,7 +658,7 @@ func (i *Installer) processComposeTemplate(appDef *AppDefinition, installPath st
 
 	// Write processed compose file
 	destPath := filepath.Join(installPath, "docker-compose.yml")
-	if err := os.WriteFile(destPath, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(destPath, buf.Bytes(), 0600); err != nil {
 		return "", fmt.Errorf("failed to write compose file: %w", err)
 	}
 
@@ -819,25 +784,6 @@ func (i *Installer) Uninstall(ctx context.Context, instanceID string) error {
 				"error", err,
 				"action", "Manually remove with: sudo rm -rf "+installPath,
 			)
-		}
-	}
-
-	if i.upnpService != nil && i.upnpService.IsAvailable() {
-		i.logger.Info("Removing UPnP port mappings for app", "instance_id", instanceID)
-		usedPorts := i.portManager.GetUsedPorts()
-		for port, owner := range usedPorts {
-			if owner == instanceID {
-				if err := i.upnpService.RemovePortMapping(port, "TCP"); err != nil {
-					i.logger.Warn("Failed to remove UPnP port mapping",
-						"instance_id", instanceID,
-						"port", port,
-						"error", err)
-				} else {
-					i.logger.Info("Removed UPnP port mapping",
-						"instance_id", instanceID,
-						"port", port)
-				}
-			}
 		}
 	}
 

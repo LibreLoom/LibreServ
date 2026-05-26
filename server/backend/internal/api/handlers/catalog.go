@@ -171,6 +171,7 @@ func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {
 	}
 
 	iconPath := filepath.Join(app.CatalogPath, "icon.svg")
+	// #nosec G304 -- app.CatalogPath is verified from the system catalog list
 	svgData, err := os.ReadFile(iconPath)
 	if err != nil {
 		h.serveFallback(w, appID)
