@@ -22,8 +22,6 @@ const (
 	refreshCookieName = "libreserv_refresh"
 )
 
-
-
 func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,

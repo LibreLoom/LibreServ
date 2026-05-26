@@ -24,13 +24,6 @@ export default function HelpPage() {
 
   const { loadConversations, loadSubscription, loadModels } = chat;
 
-  useEffect(() => {
-    loadConversations();
-    loadSubscription();
-    loadModels();
-    checkAiConfigured();
-  }, [loadConversations, loadSubscription, loadModels]);
-
   async function checkAiConfigured() {
     try {
       const res = await fetch("/api/v1/settings/ai-support", { credentials: "include" });
@@ -42,9 +35,16 @@ export default function HelpPage() {
         setAiConfigured(configured);
       }
     } catch {
-      setAiConfigured(false);
+      // network error - silently ignore
     }
   }
+
+  useEffect(() => {
+    loadConversations();
+    loadSubscription();
+    loadModels();
+    checkAiConfigured(); // eslint-disable-line react-hooks/set-state-in-effect
+  }, [loadConversations, loadSubscription, loadModels]);
 
   const planId = chat.subscription?.plan?.id || chat.subscription?.subscription?.plan_id;
   const showPlanPicker = planId === "free" && !planPickerDismissed;

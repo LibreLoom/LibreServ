@@ -18,15 +18,17 @@ type NetworkHandlers struct {
 	appManager   *apps.Manager
 	checkLimiter *middleware.LeakyBucket
 	acmeHandler  *ACMEHandler
+	upnpService  *network.UPnPService
 }
 
 // NewNetworkHandlers creates new network handlers
-func NewNetworkHandlers(caddyManager *network.CaddyManager, appManager *apps.Manager) *NetworkHandlers {
+func NewNetworkHandlers(caddyManager *network.CaddyManager, appManager *apps.Manager, upnpService *network.UPnPService) *NetworkHandlers {
 	return &NetworkHandlers{
 		caddyManager: caddyManager,
 		appManager:   appManager,
 		checkLimiter: middleware.NewLeakyBucket(10, 30), // allow light bursts for typeahead checks
 		acmeHandler:  nil,
+		upnpService:  upnpService,
 	}
 }
 
@@ -381,6 +383,19 @@ func (h *NetworkHandlers) GetPortForwardingStatus(w http.ResponseWriter, r *http
 		},
 	}
 
+	JSON(w, http.StatusOK, status)
+}
+
+// GetUPnPStatus returns the UPnP port forwarding status
+// GET /api/v1/network/upnp/status
+func (h *NetworkHandlers) GetUPnPStatus(w http.ResponseWriter, r *http.Request) {
+	status := map[string]interface{}{
+		"enabled": false,
+		"message": "UPnP support is not yet implemented",
+	}
+	if h.upnpService != nil {
+		status["enabled"] = true
+	}
 	JSON(w, http.StatusOK, status)
 }
 

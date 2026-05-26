@@ -224,6 +224,11 @@ func (m *Manager) TriggerRepoPull(ctx context.Context) {
 	}
 }
 
+// GetUPnPService returns the UPnP service (stub for future implementation)
+func (m *Manager) GetUPnPService() *network.UPnPService {
+	return nil
+}
+
 // GetPortManager returns the port manager
 func (m *Manager) GetPortManager() *PortManager {
 	return m.portManager

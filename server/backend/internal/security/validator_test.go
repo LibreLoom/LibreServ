@@ -22,8 +22,8 @@ func secureConfig() *config.Config {
 			Mode: "production",
 		},
 		Auth: config.AuthConfig{
-			JWTSecret:  "a8f4e2d1b6c9e3f7a0d5c8b2e6f9a3d7c1e5b9a4f8d2e6c0b7a3f9d5e1c8b4a6",
-			CSRFSecret: "b7d3e1f9a5c8b2e6f0d4a7c3e9b5f1d8a2c6e0b4f7a3d9e5c1b8f4a6d2e7c3b0",
+			JWTSecret:          "a8f4e2d1b6c9e3f7a0d5c8b2e6f9a3d7c1e5b9a4f8d2e6c0b7a3f9d5e1c8b4a6",
+			CSRFSecret:         "b7d3e1f9a5c8b2e6f0d4a7c3e9b5f1d8a2c6e0b4f7a3d9e5c1b8f4a6d2e7c3b0",
 			CloudEncryptionKey: "some-long-secure-random-key-here-that-is-not-csrf-secret",
 		},
 		Docker: config.DockerConfig{

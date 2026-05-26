@@ -13,27 +13,29 @@ import (
 )
 
 type DDNSService struct {
-	db          *database.DB
-	providerMgr *DNSProviderManager
-	logger      *slog.Logger
-	auditLogger *audit.Service
-	currentIP   netip.Addr
-	mu          sync.RWMutex
-	stop        chan struct{}
-	stopped     chan struct{}
-	running     bool
-	lastUpdate  time.Time
-	lastError   error
+	db             *database.DB
+	providerMgr    *DNSProviderManager
+	logger         *slog.Logger
+	auditLogger    *audit.Service
+	currentIP      netip.Addr
+	mu             sync.RWMutex
+	stop           chan struct{}
+	stopped        chan struct{}
+	running        bool
+	lastUpdate     time.Time
+	lastError      error
+	updateInterval time.Duration
 }
 
 func NewDDNSService(db *database.DB, providerMgr *DNSProviderManager, auditLogger *audit.Service) *DDNSService {
 	return &DDNSService{
-		db:          db,
-		providerMgr: providerMgr,
-		logger:      slog.Default().With("component", "ddns"),
-		auditLogger: auditLogger,
-		stop:        make(chan struct{}),
-		stopped:     make(chan struct{}),
+		db:             db,
+		providerMgr:    providerMgr,
+		logger:         slog.Default().With("component", "ddns"),
+		auditLogger:    auditLogger,
+		stop:           make(chan struct{}),
+		stopped:        make(chan struct{}),
+		updateInterval: 5 * time.Minute,
 	}
 }
 
@@ -87,19 +89,34 @@ func (s *DDNSService) Status() (lastIP string, lastUpdate time.Time, lastError e
 func (s *DDNSService) run() {
 	defer close(s.stopped)
 
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
 	for {
+		s.mu.RLock()
+		interval := s.updateInterval
+		s.mu.RUnlock()
+
+		ticker := time.NewTicker(interval)
 		select {
 		case <-ticker.C:
+			ticker.Stop()
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			s.updateDNS(ctx)
 			cancel()
 		case <-s.stop:
+			ticker.Stop()
 			return
 		}
 	}
+}
+
+func (s *DDNSService) ForceUpdate(ctx context.Context) error {
+	return s.updateDNS(ctx)
+}
+
+func (s *DDNSService) SetInterval(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.updateInterval = d
+	s.logger.Info("DDNS update interval changed", "interval", d)
 }
 
 func (s *DDNSService) updateDNS(ctx context.Context) error {
