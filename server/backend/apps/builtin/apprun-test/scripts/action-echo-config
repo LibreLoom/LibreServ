@@ -1,0 +1,49 @@
+#!/bin/bash
+# action-echo-config - Print all config values for debugging
+# Exercises: reading all config keys, streaming output
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+echo "=== AppRun Test Suite — Full Configuration ==="
+echo ""
+echo "--- Instance ---"
+echo "  instance_id:  $(jq -r '.instance_id' "$CONFIG_FILE")"
+echo "  app_id:       $(jq -r '.app_id' "$CONFIG_FILE")"
+echo "  install_path: $(jq -r '.install_path' "$CONFIG_FILE")"
+echo "  app_data_path:$(jq -r '.app_data_path' "$CONFIG_FILE")"
+echo "  config_path:  $(jq -r '.config_path' "$CONFIG_FILE")"
+echo "  config_dir:   $(jq -r '.config_dir' "$CONFIG_FILE")"
+echo ""
+echo "--- Runtime ---"
+echo "  compose_file: $(jq -r '.runtime.compose_file' "$CONFIG_FILE")"
+echo "  project_name: $(jq -r '.runtime.project_name' "$CONFIG_FILE")"
+echo ""
+echo "--- Server Context ---"
+echo "  server_port:    $(jq -r '.server.server_port' "$CONFIG_FILE")"
+echo "  server_mode:    $(jq -r '.server.server_mode' "$CONFIG_FILE")"
+echo "  server_host:    $(jq -r '.server.server_host' "$CONFIG_FILE")"
+echo "  server_url:     $(jq -r '.server.server_url' "$CONFIG_FILE")"
+echo "  default_domain: $(jq -r '.server.default_domain' "$CONFIG_FILE")"
+echo "  caddy_mode:     $(jq -r '.server.caddy_mode' "$CONFIG_FILE")"
+echo "  acme_email:     $(jq -r '.server.acme_email' "$CONFIG_FILE")"
+echo "  smtp_host:      $(jq -r '.server.smtp_host' "$CONFIG_FILE")"
+echo "  smtp_port:      $(jq -r '.server.smtp_port' "$CONFIG_FILE")"
+echo "  smtp_username:  $(jq -r '.server.smtp_username' "$CONFIG_FILE")"
+echo "  smtp_from:      $(jq -r '.server.smtp_from' "$CONFIG_FILE")"
+echo "  smtp_use_tls:   $(jq -r '.server.smtp_use_tls' "$CONFIG_FILE")"
+echo "  smtp_skip_verify:$(jq -r '.server.smtp_skip_verify' "$CONFIG_FILE")"
+echo "  tunnel_enabled: $(jq -r '.server.tunnel_enabled' "$CONFIG_FILE")"
+echo "  tunnel_provider:$(jq -r '.server.tunnel_provider' "$CONFIG_FILE")"
+echo "  dns_provider:   $(jq -r '.server.dns_provider' "$CONFIG_FILE")"
+echo ""
+echo "--- Options ---"
+jq -r '.options | to_entries[] | "  \(.key): \(.value)"' "$CONFIG_FILE" 2>/dev/null || echo "  (none)"
+echo ""
+echo "=== End Configuration ==="
+exit 0

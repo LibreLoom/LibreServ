@@ -215,6 +215,18 @@ export function useAgentChat() {
     };
   }, []);
 
+  const resetChat = useCallback(() => {
+    setActiveConv(null);
+    setMessages([]);
+    setEvents([]);
+    setError(null);
+    setStatus("idle");
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, []);
+
   return {
     conversations,
     activeConv,
@@ -235,5 +247,6 @@ export function useAgentChat() {
     stopConversation,
     selectPlan,
     setError,
+    resetChat,
   };
 }

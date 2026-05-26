@@ -1,0 +1,31 @@
+#!/bin/bash
+# system-repair - AppRun Test Suite repair script
+# Exercises: checking container health, resetting state
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required as argument 1"
+    exit 1
+fi
+
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+CONFIG_DIR=$(jq -r '.config_dir' "$CONFIG_FILE")
+
+echo ">> [apprun-test] Running repair for instance $INSTANCE_ID"
+
+if [[ -f "$CONFIG_DIR/app-config/test.conf" ]]; then
+    echo ">> [apprun-test] Config file exists — verifying"
+else
+    echo ">> [apprun-test] Config file missing — recreating"
+    mkdir -p "$CONFIG_DIR/app-config"
+    echo "# Recreated by repair" > "$CONFIG_DIR/app-config/test.conf"
+fi
+
+mkdir -p "$APP_DATA_PATH/app-data"
+mkdir -p "$APP_DATA_PATH/app-logs"
+
+echo ">> [apprun-test] Repair completed successfully"
+exit 0

@@ -1,3 +1,4 @@
+import { useRef, useLayoutEffect } from "react";
 import { Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 
@@ -16,6 +17,37 @@ const sizes = {
   lg: "px-6 py-3 text-base",
 };
 
+function useSmoothResize(ref, enabled) {
+  const prev = useRef(null);
+  const init = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!enabled || !ref.current) return;
+
+    const el = ref.current;
+    const saved = el.style.width;
+    el.style.width = "max-content";
+    const next = el.offsetWidth;
+    el.style.width = saved;
+
+    if (!init.current) {
+      init.current = true;
+      prev.current = next;
+      el.style.width = `${next}px`;
+      return;
+    }
+
+    if (prev.current === next) return;
+
+    el.style.transition = "none";
+    el.style.width = `${prev.current}px`;
+    void el.offsetWidth;
+    el.style.transition = "width 250ms var(--motion-easing-emphasized-decelerate)";
+    el.style.width = `${next}px`;
+    prev.current = next;
+  });
+}
+
 export default function Button({
   children,
   variant = "primary",
@@ -23,14 +55,19 @@ export default function Button({
   loading = false,
   disabled = false,
   type = "button",
+  smoothResize = false,
   className = "",
   ...props
 }) {
   const variantClasses = variants[variant] || variants.primary;
   const sizeClasses = sizes[size] || sizes.md;
+  const ref = useRef(null);
+
+  useSmoothResize(ref, smoothResize);
 
   return (
     <button
+      ref={ref}
       type={type}
       disabled={disabled || loading}
       className={`
@@ -47,6 +84,7 @@ export default function Button({
         items-center
         justify-center
         gap-2
+        ${smoothResize ? "whitespace-nowrap" : ""}
         ${variantClasses}
         ${sizeClasses}
         ${className}
@@ -66,5 +104,6 @@ Button.propTypes = {
   loading: PropTypes.bool,
   disabled: PropTypes.bool,
   type: PropTypes.oneOf(['button', 'submit', 'reset']),
+  smoothResize: PropTypes.bool,
   className: PropTypes.string,
 };

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="16" fill="currentColor" opacity="0.1"/>
+  <path d="M20 44V28l12-8 12 8v16l-12 8-12-8z" stroke="currentColor" stroke-width="2" fill="none"/>
+  <circle cx="32" cy="34" r="4" fill="var(--accent, #767676)"/>
+  <path d="M32 26v-4M32 46v-4M24 34h-4M44 34h-4" stroke="var(--accent, #767676)" stroke-width="2"/>
+  <text x="32" y="56" text-anchor="middle" font-size="6" fill="currentColor" font-family="monospace">TEST</text>
+</svg>

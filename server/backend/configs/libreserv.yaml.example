@@ -55,6 +55,10 @@ network:
     upnp:
         enabled: false
         timeout: 5
+    tunnel:
+        provider: ""
+        token: ""
+        enabled: false
     acme:
         external:
             enabled: false

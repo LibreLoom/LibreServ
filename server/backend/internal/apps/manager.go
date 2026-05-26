@@ -92,6 +92,30 @@ func NewManager(
 	m.installer = NewInstaller(catalog, runtime, db, appsDataDir, monitor, m.metricsCache, m.portManager)
 	m.installer.SetCatalogPath(catalogPath)
 
+	// Build and inject server context for templates and scripts
+	cfg := config.Get()
+	serverCtx := NewServerContext(ServerContextConfig{
+		ServerPort:     cfg.Server.Port,
+		ServerMode:     cfg.Server.Mode,
+		ServerHost:     cfg.Server.Host,
+		DefaultDomain:  cfg.Network.Caddy.DefaultDomain,
+		CaddyMode:      cfg.Network.Caddy.Mode,
+		ACMEEmail:      cfg.Network.ACME.External.Email,
+		SMTPHost:       cfg.SMTP.Host,
+		SMTPPort:       cfg.SMTP.Port,
+		SMTPUsername:   cfg.SMTP.Username,
+		SMTPPassword:   cfg.SMTP.Password,
+		SMTPFrom:       cfg.SMTP.From,
+		SMTPUseTLS:     cfg.SMTP.UseTLS,
+		SMTPSkipVerify: cfg.SMTP.SkipVerify,
+		TunnelEnabled:  cfg.Network.Tunnel.Enabled,
+		TunnelProvider: cfg.Network.Tunnel.Provider,
+		TunnelToken:    cfg.Network.Tunnel.Token,
+		DNSProvider:    cfg.Network.DNS.Provider,
+	})
+	m.installer.SetServerContext(serverCtx)
+	m.scriptExecutor.SetServerContext(serverCtx)
+
 	// Set route cleanup callback for install failures
 	if m.caddyManager != nil {
 		m.installer.SetRouteCleanup(func(ctx context.Context, appID string) error {
@@ -792,6 +816,26 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 					app.Config[field.Name] = generateSecurePassword(24)
 				}
 			}
+		}
+		app.Config["server"] = map[string]interface{}{
+			"server_port":      m.installer.serverCtx.ServerPort,
+			"server_mode":      m.installer.serverCtx.ServerMode,
+			"server_host":      m.installer.serverCtx.ServerHost,
+			"server_url":       m.installer.serverCtx.ServerURL,
+			"default_domain":   m.installer.serverCtx.DefaultDomain,
+			"caddy_mode":       m.installer.serverCtx.CaddyMode,
+			"acme_email":       m.installer.serverCtx.ACMEEmail,
+			"smtp_host":        m.installer.serverCtx.SMTPHost,
+			"smtp_port":        m.installer.serverCtx.SMTPPort,
+			"smtp_username":    m.installer.serverCtx.SMTPUsername,
+			"smtp_password":    m.installer.serverCtx.SMTPPassword,
+			"smtp_from":        m.installer.serverCtx.SMTPFrom,
+			"smtp_use_tls":     m.installer.serverCtx.SMTPUseTLS,
+			"smtp_skip_verify": m.installer.serverCtx.SMTPSkipVerify,
+			"tunnel_enabled":   m.installer.serverCtx.TunnelEnabled,
+			"tunnel_provider":  m.installer.serverCtx.TunnelProvider,
+			"tunnel_token":     m.installer.serverCtx.TunnelToken,
+			"dns_provider":     m.installer.serverCtx.DNSProvider,
 		}
 		_, err := m.installer.processComposeTemplate(catalogApp, filepath.Join(m.appsDataDir, instanceID), app.Config)
 		if err != nil {
@@ -1521,4 +1565,124 @@ func (m *Manager) mergeExposedInfo(app *InstalledApp, catalogApp *AppDefinition)
 	}
 
 	return merged
+}
+
+var serverContextKeys = map[string]bool{
+	"server.mode":                  true,
+	"network.caddy.mode":           true,
+	"network.caddy.default_domain": true,
+	"network.caddy.email":          true,
+	"network.caddy.auto_https":     true,
+	"smtp.host":                    true,
+	"smtp.port":                    true,
+	"smtp.username":                true,
+	"smtp.password":                true,
+	"smtp.from":                    true,
+	"smtp.use_tls":                 true,
+	"smtp.skip_verify":             true,
+}
+
+// PropagateServerContext re-renders compose templates for all running apps
+// with the current server context and recreates containers whose compose changed.
+func (m *Manager) PropagateServerContext(ctx context.Context, changedKeys []string) {
+	affectsServerCtx := false
+	for _, k := range changedKeys {
+		if serverContextKeys[k] {
+			affectsServerCtx = true
+			break
+		}
+	}
+	if !affectsServerCtx {
+		return
+	}
+
+	cfg := config.Get()
+	newCtx := NewServerContext(ServerContextConfig{
+		ServerPort:     cfg.Server.Port,
+		ServerMode:     cfg.Server.Mode,
+		ServerHost:     cfg.Server.Host,
+		DefaultDomain:  cfg.Network.Caddy.DefaultDomain,
+		CaddyMode:      cfg.Network.Caddy.Mode,
+		ACMEEmail:      cfg.Network.ACME.External.Email,
+		SMTPHost:       cfg.SMTP.Host,
+		SMTPPort:       cfg.SMTP.Port,
+		SMTPUsername:   cfg.SMTP.Username,
+		SMTPPassword:   cfg.SMTP.Password,
+		SMTPFrom:       cfg.SMTP.From,
+		SMTPUseTLS:     cfg.SMTP.UseTLS,
+		SMTPSkipVerify: cfg.SMTP.SkipVerify,
+		TunnelEnabled:  cfg.Network.Tunnel.Enabled,
+		TunnelProvider: cfg.Network.Tunnel.Provider,
+		TunnelToken:    cfg.Network.Tunnel.Token,
+		DNSProvider:    cfg.Network.DNS.Provider,
+	})
+	m.installer.SetServerContext(newCtx)
+	m.scriptExecutor.SetServerContext(newCtx)
+
+	apps, err := m.ListInstalledApps(ctx)
+	if err != nil {
+		m.logger.Error("Failed to list apps for server context propagation", "error", err)
+		return
+	}
+
+	serverMap := map[string]interface{}{
+		"server_port":      newCtx.ServerPort,
+		"server_mode":      newCtx.ServerMode,
+		"server_host":      newCtx.ServerHost,
+		"server_url":       newCtx.ServerURL,
+		"default_domain":   newCtx.DefaultDomain,
+		"caddy_mode":       newCtx.CaddyMode,
+		"acme_email":       newCtx.ACMEEmail,
+		"smtp_host":        newCtx.SMTPHost,
+		"smtp_port":        newCtx.SMTPPort,
+		"smtp_username":    newCtx.SMTPUsername,
+		"smtp_password":    newCtx.SMTPPassword,
+		"smtp_from":        newCtx.SMTPFrom,
+		"smtp_use_tls":     newCtx.SMTPUseTLS,
+		"smtp_skip_verify": newCtx.SMTPSkipVerify,
+		"tunnel_enabled":   newCtx.TunnelEnabled,
+		"tunnel_provider":  newCtx.TunnelProvider,
+		"tunnel_token":     newCtx.TunnelToken,
+		"dns_provider":     newCtx.DNSProvider,
+	}
+
+	for _, app := range apps {
+		if app.Status != StatusRunning {
+			continue
+		}
+
+		catalogApp, err := m.catalog.GetApp(app.AppID)
+		if err != nil {
+			m.logger.Warn("Failed to get catalog app for propagation", "app_id", app.AppID, "error", err)
+			continue
+		}
+		if catalogApp.Deployment.ComposeFile == "" {
+			continue
+		}
+
+		app.Config["server"] = serverMap
+
+		composePath := filepath.Join(app.Path, "docker-compose.yml")
+		oldContent, _ := os.ReadFile(composePath)
+
+		newPath, err := m.installer.processComposeTemplate(catalogApp, app.Path, app.Config)
+		if err != nil {
+			m.logger.Warn("Failed to re-render compose for server context propagation",
+				"instance_id", app.ID, "error", err)
+			continue
+		}
+
+		newContent, _ := os.ReadFile(newPath)
+		if string(oldContent) == string(newContent) {
+			continue
+		}
+
+		m.logger.Info("Recreating app containers due to server context change",
+			"instance_id", app.ID, "app_id", app.AppID)
+
+		if err := m.runtime.ComposeUp(ctx, newPath); err != nil {
+			m.logger.Warn("Failed to recreate containers after server context change",
+				"instance_id", app.ID, "error", err)
+		}
+	}
 }

@@ -206,16 +206,24 @@ type Notifications struct {
 
 // NetworkConfig holds reverse proxy settings (Caddy) and UPnP.
 type NetworkConfig struct {
-	Caddy CaddyConfig `mapstructure:"caddy" yaml:"caddy"`
-	ACME  ACMEConfig  `mapstructure:"acme" yaml:"acme"`
-	DNS   DNSConfig   `mapstructure:"dns" yaml:"dns"`
-	UPnP  UPnPConfig  `mapstructure:"upnp" yaml:"upnp"`
+	Caddy  CaddyConfig  `mapstructure:"caddy" yaml:"caddy"`
+	ACME   ACMEConfig   `mapstructure:"acme" yaml:"acme"`
+	DNS    DNSConfig    `mapstructure:"dns" yaml:"dns"`
+	UPnP   UPnPConfig   `mapstructure:"upnp" yaml:"upnp"`
+	Tunnel TunnelConfig `mapstructure:"tunnel" yaml:"tunnel"`
 }
 
 // UPnPConfig holds UPnP port forwarding settings.
 type UPnPConfig struct {
 	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
 	Timeout int  `mapstructure:"timeout" yaml:"timeout"`
+}
+
+// TunnelConfig holds tunnel service settings.
+type TunnelConfig struct {
+	Provider string `mapstructure:"provider" yaml:"provider"`
+	Token    string `mapstructure:"token" yaml:"token"`
+	Enabled  bool   `mapstructure:"enabled" yaml:"enabled"`
 }
 
 // DNSConfig holds DNS provider settings for domain record management.

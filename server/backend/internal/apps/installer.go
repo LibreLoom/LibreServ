@@ -38,6 +38,7 @@ type Installer struct {
 	registerBackend func(instanceID, backend, name string)
 	cleanupRoute    func(ctx context.Context, appID string) error
 	domainConfig    *DomainConfig // Temporary storage during install (used synchronously in Install())
+	serverCtx       ServerContext
 
 	installOutputsMu sync.Mutex
 	installOutputs   map[string]chan ScriptOutput
@@ -81,6 +82,11 @@ func (i *Installer) SetDomainConfig(config *DomainConfig) {
 // ClearDomainConfig clears the domain configuration after install
 func (i *Installer) ClearDomainConfig() {
 	i.domainConfig = nil
+}
+
+// SetServerContext sets the server-level configuration context for template and script injection.
+func (i *Installer) SetServerContext(ctx ServerContext) {
+	i.serverCtx = ctx
 }
 
 // GetInstallOutputChannel returns the output channel for an active install, or nil if none exists.
@@ -162,6 +168,27 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	config["app_name"] = appName
 	config["puid"] = os.Getuid()
 	config["pgid"] = os.Getgid()
+
+	config["server"] = map[string]interface{}{
+		"server_port":      i.serverCtx.ServerPort,
+		"server_mode":      i.serverCtx.ServerMode,
+		"server_host":      i.serverCtx.ServerHost,
+		"server_url":       i.serverCtx.ServerURL,
+		"default_domain":   i.serverCtx.DefaultDomain,
+		"caddy_mode":       i.serverCtx.CaddyMode,
+		"acme_email":       i.serverCtx.ACMEEmail,
+		"smtp_host":        i.serverCtx.SMTPHost,
+		"smtp_port":        i.serverCtx.SMTPPort,
+		"smtp_username":    i.serverCtx.SMTPUsername,
+		"smtp_password":    i.serverCtx.SMTPPassword,
+		"smtp_from":        i.serverCtx.SMTPFrom,
+		"smtp_use_tls":     i.serverCtx.SMTPUseTLS,
+		"smtp_skip_verify": i.serverCtx.SMTPSkipVerify,
+		"tunnel_enabled":   i.serverCtx.TunnelEnabled,
+		"tunnel_provider":  i.serverCtx.TunnelProvider,
+		"tunnel_token":     i.serverCtx.TunnelToken,
+		"dns_provider":     i.serverCtx.DNSProvider,
+	}
 
 	config = i.generateAutoValues(appDef, config)
 
@@ -642,6 +669,27 @@ func (i *Installer) processComposeTemplate(appDef *AppDefinition, installPath st
 				return def
 			}
 			return val
+		},
+		"serverURL": func() string {
+			return i.serverCtx.ServerURL
+		},
+		"serverDomain": func() string {
+			return i.serverCtx.DefaultDomain
+		},
+		"smtpHost": func() string {
+			return i.serverCtx.SMTPHost
+		},
+		"smtpPort": func() int {
+			return i.serverCtx.SMTPPort
+		},
+		"smtpUser": func() string {
+			return i.serverCtx.SMTPUsername
+		},
+		"smtpPass": func() string {
+			return i.serverCtx.SMTPPassword
+		},
+		"smtpFrom": func() string {
+			return i.serverCtx.SMTPFrom
 		},
 	}
 

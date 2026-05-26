@@ -6,7 +6,6 @@ import api from "../lib/api";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Alert from "../components/common/Alert";
-import { useNavigate } from "react-router-dom";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
 
 function getLoginQuip() {
@@ -96,7 +95,6 @@ export default function Login() {
   const [showResetModal, setShowResetModal] = useState(false);
   const errorRef = useRef(null);
   const { login } = useAuth();
-  const navigate = useNavigate();
   const loginQuip = useMemo(() => getLoginQuip(), []);
   const { smtpConfigured } = useSettingsStatus();
   
@@ -181,7 +179,7 @@ export default function Login() {
     setLoading(true);
     try {
       await login(username, password);
-      navigate("/");
+      window.location.reload();
     } catch (err) {
       setErrorStatus(err.cause?.status || "NetworkError");
       setLoading(false);

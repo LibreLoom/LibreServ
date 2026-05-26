@@ -274,6 +274,10 @@ func main() {
 	appManager.Start(context.Background())
 	defer appManager.Stop()
 
+	settingsService.OnChange(func(changedKeys []string) {
+		go appManager.PropagateServerContext(context.Background(), changedKeys)
+	})
+
 	authService := auth.NewService(db, cfg.Auth.JWTSecret, slog.Default())
 
 	setupService := setup.NewService(db)

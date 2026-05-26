@@ -17,6 +17,23 @@ const alignmentClasses = {
    Guarantees a single semantic heading for screen readers.
    ====================================================================== */
 
+/**
+ * @typedef {object} HeaderCardProps
+ * @property {string} title
+ * @property {string} [id]
+ * @property {string} [align]
+ * @property {string} [className]
+ * @property {string} [titleClassName]
+ * @property {import('react').ReactNode} [leftContent]
+ * @property {import('react').ReactNode} [rightContent]
+ * @property {string} [rightContentClassName]
+ * @property {import('react').ReactNode} [bottomContent]
+ * @property {string} [bottomContentClassName]
+ * @property {boolean} [dynamicRounding]
+ * @property {import('react').ReactNode} [children]
+ */
+
+/** @param {HeaderCardProps} props */
 export default function HeaderCard({
   title,
   id,

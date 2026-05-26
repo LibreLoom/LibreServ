@@ -1,0 +1,31 @@
+#!/bin/bash
+# action-reset-data - Wipe all app data (confirmed action)
+# Exercises: destructive confirmed action with confirmation dialog
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+CONFIG_DIR=$(jq -r '.config_dir' "$CONFIG_FILE")
+
+echo ">> [apprun-test] Resetting all data for instance $INSTANCE_ID"
+echo ">> [apprun-test] This action was confirmed by the user"
+
+rm -rf "${APP_DATA_PATH:?}/app-data"/*
+rm -rf "${APP_DATA_PATH:?}/app-logs"/*
+rm -rf "${CONFIG_DIR:?}/app-config"/*
+
+mkdir -p "$APP_DATA_PATH/app-data"
+mkdir -p "$APP_DATA_PATH/app-logs"
+mkdir -p "$CONFIG_DIR/app-config"
+
+echo "# Reset by action-reset-data" > "$CONFIG_DIR/app-config/test.conf"
+
+echo ">> [apprun-test] Data reset completed"
+exit 0

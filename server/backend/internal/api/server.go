@@ -63,6 +63,7 @@ type Server struct {
 	dnsProviderMgr  *network.DNSProviderManager
 	acmeManager     *network.ACMEManager
 	ddnsService     *network.DDNSService
+	tunnelService   *network.TunnelService
 	// agentChat removed — field was unused
 	selfHealMonitor *agent.SelfHealingMonitor
 }
@@ -193,6 +194,14 @@ func NewServer(cfg ServerConfig) *Server {
 	// Initialize DDNS auto-update service
 	server.ddnsService = network.NewDDNSService(cfg.DB, server.dnsProviderMgr, cfg.AuditService)
 
+	// Initialize tunnel service
+	tunnelCfg := network.TunnelConfig{
+		Provider: network.TunnelProviderType(config.Get().Network.Tunnel.Provider),
+		Token:    config.Get().Network.Tunnel.Token,
+		Enabled:  config.Get().Network.Tunnel.Enabled,
+	}
+	server.tunnelService = network.NewTunnelService(tunnelCfg, filepath.Join(config.Get().Apps.DataPath, "bin"))
+
 	// Initialize self-healing monitor
 	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.DockerClient, cfg.DB)
 
@@ -201,6 +210,13 @@ func NewServer(cfg ServerConfig) *Server {
 
 	// Start DDNS service if enabled
 	server.ddnsService.Start()
+
+	// Start tunnel service if enabled
+	if server.tunnelService != nil {
+		if err := server.tunnelService.Start(context.Background()); err != nil {
+			logger.Warn("Failed to start tunnel service", "error", err)
+		}
+	}
 
 	// Start self-healing monitor if enabled
 	server.selfHealMonitor.Start()
@@ -228,6 +244,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("Shutting down HTTP server")
 	if s.ddnsService != nil {
 		s.ddnsService.Stop()
+	}
+	if s.tunnelService != nil {
+		s.tunnelService.Stop()
 	}
 	if s.selfHealMonitor != nil {
 		s.selfHealMonitor.Stop()

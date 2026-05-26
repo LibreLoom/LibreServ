@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle, Mail } from "lucide-react";
+import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle, Mail, Wifi, WifiOff, Shield, ArrowDown } from "lucide-react";
 import PropTypes from "prop-types";
 import api from "../lib/api";
+import { getConnectivityStatus } from "../lib/network-api";
 import DomainWizard from "../components/setup/DomainWizard";
 import SmtpWizard from "../components/smtp/SmtpWizard";
 import ConfirmModal from "../components/common/ConfirmModal";
@@ -12,14 +13,14 @@ import useSetupProgress from "../hooks/useSetupProgress";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
-  WELCOME:   "welcome",
-  PREFLIGHT: "preflight",
-  DOMAIN:    "domain",
-  SMTP:      "smtp",
-  ACCOUNT:   "account",
-  CREATING:  "creating",
-  COMPLETE:  "complete",
-  ERROR:     "error",
+  WELCOME:      "welcome",
+  PREFLIGHT:   "preflight",
+  REMOTE_ACCESS: "remote_access",
+  SMTP:        "smtp",
+  ACCOUNT:     "account",
+  CREATING:    "creating",
+  COMPLETE:    "complete",
+  ERROR:       "error",
 };
 
 const SETUP_TOKEN_KEY = "libreserv_setup_token";
@@ -51,7 +52,7 @@ SetupCard.propTypes = {
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
-const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.DOMAIN, STEP.SMTP, STEP.COMPLETE];
+const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.REMOTE_ACCESS, STEP.SMTP, STEP.COMPLETE];
 
 function StepDots({ current }) {
   const idx = VISIBLE_STEPS.indexOf(current);
@@ -788,14 +789,14 @@ function CompleteStep() {
   );
 }
 
-// ─── STEP: Domain intro ───────────────────────────────────────────────────────
+// ─── STEP: Remote Access intro ───────────────────────────────────────────────────
 function DomainIntroStep({ onStart, onSkip }) {
   const [showSkipModal, setShowSkipModal] = useState(false);
 
   return (
     <SetupShell>
       <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <StepDots current={STEP.DOMAIN} />
+        <StepDots current={STEP.REMOTE_ACCESS} />
 
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
@@ -803,18 +804,18 @@ function DomainIntroStep({ onStart, onSkip }) {
               <Globe className="w-5 h-5 text-primary/60" />
             </div>
             <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-              Connect a domain
+              Set up remote access
             </h2>
           </div>
           <p className="text-primary/50 text-sm leading-relaxed">
-            A custom domain gives you a memorable address for your apps and a secure connection (HTTPS) — so your data stays private.
+            Remote access lets you reach your apps from anywhere — not just from home. We'll help you set it up step by step.
           </p>
         </div>
 
         <div className="space-y-3 mb-8">
           {[
-            { label: "Set up your DNS provider", desc: "We support Cloudflare for managing your domain\u2019s address book" },
-            { label: "Point your domain to this server", desc: "Create the addresses so visitors find your apps" },
+            { label: "Connect a domain name", desc: "A domain gives your apps a memorable address and enables HTTPS" },
+            { label: "Configure your network", desc: "We'll detect your network type and set things up automatically" },
             { label: "Get a security certificate", desc: "Automatic HTTPS, for free, via Let\u2019s Encrypt" },
           ].map((item, i) => (
             <div key={i} className="flex items-start gap-3 py-2">
@@ -834,7 +835,7 @@ function DomainIntroStep({ onStart, onSkip }) {
             onClick={onStart}
             className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
           >
-            Start Domain Setup
+            Set Up Remote Access
             <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
           </button>
           <div className="text-center">
@@ -842,7 +843,7 @@ function DomainIntroStep({ onStart, onSkip }) {
               onClick={() => setShowSkipModal(true)}
               className="text-primary/30 hover:text-primary/50 font-mono text-xs motion-safe:transition-colors motion-safe:duration-150"
             >
-              Skip for now (Not recommended)
+              Skip for now (Local access only)
             </button>
           </div>
         </div>
@@ -853,8 +854,8 @@ function DomainIntroStep({ onStart, onSkip }) {
         onClose={() => setShowSkipModal(false)}
         onConfirm={onSkip}
         icon={AlertTriangle}
-        title="Skip domain setup?"
-        message="Without a domain name, you won't be able to access your apps when you're not home."
+        title="Skip remote access setup?"
+        message="Without remote access, your apps will only be reachable from this device. You can set this up later in Settings."
         variant="danger-undoable"
         confirmLabel="Skip anyway"
       />
@@ -864,6 +865,209 @@ function DomainIntroStep({ onStart, onSkip }) {
 DomainIntroStep.propTypes = {
   onStart: PropTypes.func.isRequired,
   onSkip:  PropTypes.func.isRequired,
+};
+
+// ─── STEP: NAT Detection ──────────────────────────────────────────────────────
+function NatGroupBadge({ label, desc, icon: Icon, color }) {
+  return (
+    <div className={`flex items-start gap-3 p-4 rounded-large-element border ${color}/20 bg-${color}/5`}>
+      <Icon className={`w-5 h-5 text-${color} mt-0.5 flex-shrink-0`} />
+      <div>
+        <p className={`font-mono text-sm text-${color}`}>{label}</p>
+        <p className="text-xs text-primary/40 mt-1">{desc}</p>
+      </div>
+    </div>
+  );
+}
+NatGroupBadge.propTypes = {
+  label: PropTypes.string.isRequired,
+  desc: PropTypes.string.isRequired,
+  icon: PropTypes.elementType.isRequired,
+  color: PropTypes.string.isRequired,
+};
+
+function NatDetectStep({ onContinue, onBack }) {
+  const [detecting, setDetecting] = useState(true);
+  const [natType, setNatType] = useState(null);
+  const [connectivity, setConnectivity] = useState(null);
+  const [detectError, setDetectError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getConnectivityStatus();
+        if (cancelled) return;
+        setNatType(data.nat_type || "unknown");
+        setConnectivity(data);
+        setDetecting(false);
+      } catch (err) {
+        if (cancelled) return;
+        setDetectError(err.message || "Could not detect network type");
+        setDetecting(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const natGroup = useMemo(() => {
+    if (!natType) return "unknown";
+    if (natType === "open") return "direct";
+    if (["full_cone", "restricted", "port_restricted"].includes(natType)) return "router_required";
+    if (["symmetric", "cgnat", "blocked"].includes(natType)) return "tunnel_needed";
+    return "unknown";
+  }, [natType]);
+
+  const groupInfo = useMemo(() => {
+    switch (natGroup) {
+      case "direct":
+        return {
+          label: "Direct access",
+          desc: "Your device is directly reachable from the internet. You can set up a domain and go.",
+          icon: Wifi,
+          color: "success",
+        };
+      case "router_required":
+        return {
+          label: "Router setup needed",
+          desc: "Your internet connection goes through a router. We can try to configure it automatically, or you can set up port forwarding manually.",
+          icon: Shield,
+          color: "warning",
+        };
+      case "tunnel_needed":
+        return {
+          label: "Tunnel required",
+          desc: "Your internet provider uses a shared connection (CGNAT) that blocks inbound access. A tunnel service like Cloudflare Tunnel can give you remote access instead.",
+          icon: WifiOff,
+          color: "error",
+        };
+      default:
+        return {
+          label: "Could not determine network type",
+          desc: "We'll proceed with domain setup. You can troubleshoot later in Settings.",
+          icon: AlertCircle,
+          color: "accent",
+        };
+    }
+  }, [natGroup]);
+
+  if (detecting) {
+    return (
+      <SetupShell>
+        <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <StepDots current={STEP.REMOTE_ACCESS} />
+          <div className="flex flex-col items-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary/40 mb-4" />
+            <p className="font-mono text-sm text-primary/60">Detecting your network type…</p>
+            <p className="text-xs text-primary/30 mt-2">This takes a few seconds</p>
+          </div>
+        </SetupCard>
+      </SetupShell>
+    );
+  }
+
+  if (detectError) {
+    return (
+      <SetupShell>
+        <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <StepDots current={STEP.REMOTE_ACCESS} />
+          <div className="flex flex-col items-center py-8 text-center">
+            <AlertCircle className="w-8 h-8 text-primary/40 mb-4" />
+            <p className="font-mono text-sm text-primary/60 mb-2">Could not detect network type</p>
+            <p className="text-xs text-primary/35 mb-6">{detectError}</p>
+            <div className="flex flex-col gap-3 w-full">
+              <button
+                onClick={onContinue}
+                className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                Continue Anyway
+                <ArrowRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={onBack}
+                className="text-primary/30 hover:text-primary/50 font-mono text-xs motion-safe:transition-colors motion-safe:duration-150"
+              >
+                Go back
+              </button>
+            </div>
+          </div>
+        </SetupCard>
+      </SetupShell>
+    );
+  }
+
+  return (
+    <SetupShell>
+      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <StepDots current={STEP.REMOTE_ACCESS} />
+
+        <div className="mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
+              <Wifi className="w-5 h-5 text-primary/60" />
+            </div>
+            <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
+              Network detected
+            </h2>
+          </div>
+          <p className="text-primary/50 text-sm leading-relaxed">
+            We checked how your device connects to the internet. Here's what we found.
+          </p>
+        </div>
+
+        <NatGroupBadge
+          label={groupInfo.label}
+          desc={groupInfo.desc}
+          icon={groupInfo.icon}
+          color={groupInfo.color}
+        />
+
+        {natGroup === "router_required" && connectivity?.upnp?.available && !connectivity?.upnp?.enabled && (
+          <div className="mt-4 flex items-start gap-3 p-3 rounded-large-element bg-primary/5 border border-primary/10">
+            <Shield className="w-4 h-4 text-primary/40 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-primary/50">
+              Your router supports automatic port forwarding (UPnP). We can enable this later in Settings to make setup easier.
+            </p>
+          </div>
+        )}
+
+        {natGroup === "tunnel_needed" && (
+          <div className="mt-4 flex items-start gap-3 p-3 rounded-large-element bg-primary/5 border border-primary/10">
+            <ArrowDown className="w-4 h-4 text-primary/40 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-primary/50">
+              You can still set up a domain for local HTTPS, but for access from outside your home, you'll need a tunnel. We'll guide you through that after domain setup.
+            </p>
+          </div>
+        )}
+
+        {connectivity?.public_ip && (
+          <p className="mt-4 text-[10px] font-mono text-primary/20">
+            Public IP: {connectivity.public_ip}
+          </p>
+        )}
+
+        <div className="flex flex-col gap-3 mt-8">
+          <button
+            onClick={onContinue}
+            className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          >
+            {natGroup === "tunnel_needed" ? "Set Up Domain + Tunnel" : "Set Up Domain"}
+            <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+          </button>
+          <button
+            onClick={onBack}
+            className="text-primary/30 hover:text-primary/50 font-mono text-xs motion-safe:transition-colors motion-safe:duration-150"
+          >
+            Go back
+          </button>
+        </div>
+      </SetupCard>
+    </SetupShell>
+  );
+}
+NatDetectStep.propTypes = {
+  onContinue: PropTypes.func.isRequired,
+  onBack: PropTypes.func.isRequired,
 };
 
 // ─── STEP: SMTP intro ──────────────────────────────────────────────────────────
@@ -984,6 +1188,7 @@ export default function SetupPage() {
     (typeof window !== "undefined" ? localStorage.getItem(SETUP_TOKEN_KEY) : "") || ""
   );
   const [showDomainWizard, setShowDomainWizard] = useState(false);
+  const [showNatDetect, setShowNatDetect] = useState(false);
   const [showSmtpWizard, setShowSmtpWizard] = useState(false);
   const [initialSubStep, setInitialSubStep] = useState(null);
   const [initialStepData, setInitialStepData] = useState({});
@@ -1052,8 +1257,8 @@ export default function SetupPage() {
 
           if (step === STEP.ACCOUNT) {
             if (savedData.account_completed) {
-              setStep(STEP.DOMAIN);
-              saveProgress(STEP.DOMAIN, "", { ...savedData });
+              setStep(STEP.REMOTE_ACCESS);
+              saveProgress(STEP.REMOTE_ACCESS, "", { ...savedData });
               return;
             }
             setStep(STEP.ACCOUNT);
@@ -1062,21 +1267,21 @@ export default function SetupPage() {
             return;
           }
 
-          if (step === STEP.DOMAIN) {
-            if (savedData.domain_completed || savedData.domain_skipped) {
+          if (step === STEP.REMOTE_ACCESS) {
+            if (savedData.remote_access_completed || savedData.remote_access_skipped) {
               setStep(STEP.SMTP);
               saveProgress(STEP.SMTP, "", { ...savedData });
               return;
             }
             if (saved.current_sub_step) {
               const sub = UNSAFE_SUB_STEPS.has(saved.current_sub_step) ? "token_input" : saved.current_sub_step;
-              setStep(STEP.DOMAIN);
+              setStep(STEP.REMOTE_ACCESS);
               setInitialSubStep(sub);
               setInitialStepData(savedData);
               setShowDomainWizard(true);
-              progressRef.current = { step: STEP.DOMAIN, subStep: sub, stepData: savedData };
+              progressRef.current = { step: STEP.REMOTE_ACCESS, subStep: sub, stepData: savedData };
               if (sub !== saved.current_sub_step) {
-                saveProgress(STEP.DOMAIN, sub, savedData);
+                saveProgress(STEP.REMOTE_ACCESS, sub, savedData);
               }
               return;
             }
@@ -1129,17 +1334,27 @@ export default function SetupPage() {
   }, [advanceStep]);
 
   const handleStartDomainWizard = useCallback(() => {
+    setShowNatDetect(true);
+    setInitialSubStep(null);
+  }, []);
+
+  const handleNatDetectContinue = useCallback(() => {
+    setShowNatDetect(false);
     setShowDomainWizard(true);
     setInitialSubStep(null);
   }, []);
 
+  const handleNatDetectBack = useCallback(() => {
+    setShowNatDetect(false);
+  }, []);
+
   const handleDomainComplete = useCallback(() => {
-    const data = { ...(progressRef.current.stepData || {}), domain_completed: true };
+    const data = { ...(progressRef.current.stepData || {}), remote_access_completed: true };
     advanceStep(STEP.SMTP, "", data);
   }, [advanceStep]);
 
   const handleDomainSkip = useCallback(() => {
-    const data = { ...(progressRef.current.stepData || {}), domain_skipped: true };
+    const data = { ...(progressRef.current.stepData || {}), remote_access_skipped: true };
     advanceStep(STEP.SMTP, "", data);
   }, [advanceStep]);
 
@@ -1171,7 +1386,7 @@ export default function SetupPage() {
 
   const handleAccountSuccess = useCallback((adminEmail) => {
     const data = { ...(progressRef.current.stepData || {}), account_completed: true, admin_email: adminEmail };
-    advanceStep(STEP.DOMAIN, "", data);
+    advanceStep(STEP.REMOTE_ACCESS, "", data);
   }, [advanceStep]);
 
   const handleAccountError = useCallback((msg) => {
@@ -1206,7 +1421,15 @@ export default function SetupPage() {
     return <PreflightStep onPass={handlePreflightPass} />;
   }
 
-  if (step === STEP.DOMAIN) {
+  if (step === STEP.REMOTE_ACCESS) {
+    if (showNatDetect) {
+      return (
+        <NatDetectStep
+          onContinue={handleNatDetectContinue}
+          onBack={handleNatDetectBack}
+        />
+      );
+    }
     if (showDomainWizard) {
       return (
         <DomainWizard

@@ -112,6 +112,7 @@ func (s *Server) setupRoutes() {
 	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService, s.authService)
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
 	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager.GetUPnPService(), s.appManager, s.caddyManager)
+	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
 
 	// Initialize AI agent chat handler
 	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.dockerClient, s.backupService, s.authService)
@@ -485,6 +486,14 @@ func (s *Server) setupRoutes() {
 			r.Route("/network/connectivity", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", connectivityHandler.GetStatus)
+			})
+
+			// Tunnel service (admin only)
+			r.Route("/network/tunnel", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/status", tunnelHandler.GetStatus)
+				r.Post("/enable", tunnelHandler.Enable)
+				r.Post("/disable", tunnelHandler.Disable)
 			})
 
 			// Audit logs (admin only)

@@ -10,7 +10,7 @@ import (
 )
 
 type SetIntervalRequest struct {
-	IntervalSeconds int `json:"interval_seconds"`
+	IntervalMinutes int `json:"interval_minutes"`
 }
 
 type DDNSHandler struct {
@@ -26,6 +26,7 @@ type DDNSStatusResponse struct {
 	CurrentIP  string `json:"current_ip,omitempty"`
 	LastUpdate string `json:"last_update,omitempty"`
 	LastError  string `json:"last_error,omitempty"`
+	Interval   int    `json:"interval_minutes"`
 }
 
 func (h *DDNSHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +35,7 @@ func (h *DDNSHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	resp := DDNSStatusResponse{
 		Running:   h.service.IsRunning(),
 		CurrentIP: lastIP,
+		Interval:  int(h.service.GetInterval().Minutes()),
 	}
 
 	if !lastUpdate.IsZero() {
@@ -51,12 +53,12 @@ func (h *DDNSHandler) ForceUpdate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	if err := h.service.ForceUpdate(ctx); err != nil {
-		JSONError(w, http.StatusInternalServerError, "DDNS update failed")
+	if err := h.service.UpdateDNS(ctx); err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to update: "+err.Error())
 		return
 	}
 
-	JSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "DDNS update triggered"})
+	JSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
 func (h *DDNSHandler) SetInterval(w http.ResponseWriter, r *http.Request) {
@@ -66,15 +68,11 @@ func (h *DDNSHandler) SetInterval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.IntervalSeconds < 60 {
-		JSONError(w, http.StatusBadRequest, "interval must be at least 60 seconds")
+	if req.IntervalMinutes < 1 || req.IntervalMinutes > 60 {
+		JSONError(w, http.StatusBadRequest, "interval must be between 1 and 60 minutes")
 		return
 	}
 
-	h.service.SetInterval(time.Duration(req.IntervalSeconds) * time.Second)
-
-	JSON(w, http.StatusOK, map[string]interface{}{
-		"status":           "ok",
-		"interval_seconds": req.IntervalSeconds,
-	})
+	h.service.SetInterval(time.Duration(req.IntervalMinutes) * time.Minute)
+	JSON(w, http.StatusOK, map[string]int{"interval_minutes": req.IntervalMinutes})
 }

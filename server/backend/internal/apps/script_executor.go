@@ -26,6 +26,7 @@ type ScriptExecutor struct {
 	dockerClient *docker.Client
 	basePath     string
 	catalogPath  string
+	serverCtx    ServerContext
 }
 
 func NewScriptExecutor(logger *slog.Logger, dockerClient *docker.Client, basePath string) *ScriptExecutor {
@@ -44,6 +45,10 @@ func NewScriptExecutorWithCatalog(logger *slog.Logger, dockerClient *docker.Clie
 		basePath:     basePath,
 		catalogPath:  catalogPath,
 	}
+}
+
+func (e *ScriptExecutor) SetServerContext(ctx ServerContext) {
+	e.serverCtx = ctx
 }
 
 // validateInstanceID ensures the instance ID is safe and prevents path traversal
@@ -155,6 +160,7 @@ func (e *ScriptExecutor) ExecuteAt(ctx context.Context, instanceID, scriptPath, 
 			ComposeFile: filepath.Join(installPath, "docker-compose.yml"),
 			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
 		},
+		Server:  e.serverCtx,
 		Options: options,
 	}
 
@@ -276,6 +282,7 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 			ComposeFile: filepath.Join(installPath, "docker-compose.yml"),
 			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
 		},
+		Server:  e.serverCtx,
 		Options: options,
 	}
 

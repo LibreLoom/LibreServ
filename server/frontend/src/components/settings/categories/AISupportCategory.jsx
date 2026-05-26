@@ -25,13 +25,13 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
         <div className="bg-warning/10 border border-warning/20 rounded-large-element p-4 flex items-start gap-3">
           <AlertCircle className="text-warning shrink-0 mt-0.5" size={20} />
           <div className="flex-1">
-            <h3 className="text-primary font-mono text-sm mb-1">AI Support Not Configured</h3>
-            <p className="text-sm text-primary/60 mb-3">
+            <h3 className="text-secondary font-mono text-sm mb-1">AI Support Not Configured</h3>
+            <p className="text-sm text-secondary/70 mb-3">
               Connect to the LibreServ support service to enable the AI help assistant. Your administrator should provide the server address, device token, and device ID.
             </p>
             <div className="space-y-3">
               <div>
-                <label className="text-sm text-primary block mb-1" htmlFor="server-url">
+                <label className="text-sm text-secondary block mb-1" htmlFor="server-url">
                   Support Server Address
                 </label>
                 <input
@@ -42,12 +42,12 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
                   onChange={(e) => update("server_url", e.target.value)}
                   className="w-full bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 border border-primary/10"
                 />
-                <p className="text-xs text-primary/40 mt-1">
+                <p className="text-xs text-secondary/70 mt-1">
                   The address of the LibreServ support service that provides AI capabilities to your server.
                 </p>
               </div>
               <div>
-                <label className="text-sm text-primary block mb-1" htmlFor="device-token">
+                <label className="text-sm text-secondary block mb-1" htmlFor="device-token">
                   Device Token
                 </label>
                 <input
@@ -58,12 +58,12 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
                   onChange={(e) => update("device_token", e.target.value)}
                   className="w-full bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 border border-primary/10"
                 />
-                <p className="text-xs text-primary/40 mt-1">
+                <p className="text-xs text-secondary/70 mt-1">
                   This authenticates your server to the support service. Your administrator provides this when setting up your subscription.
                 </p>
               </div>
               <div>
-                <label className="text-sm text-primary block mb-1" htmlFor="device-id">
+                <label className="text-sm text-secondary block mb-1" htmlFor="device-id">
                   Device ID
                 </label>
                 <input
@@ -74,7 +74,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
                   onChange={(e) => update("device_id", e.target.value)}
                   className="w-full bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 border border-primary/10"
                 />
-                <p className="text-xs text-primary/40 mt-1">
+                <p className="text-xs text-secondary/70 mt-1">
                   A unique name for this server, used to identify your subscription and track credit usage.
                 </p>
               </div>
@@ -88,7 +88,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-primary">Default Model</div>
-              <div className="text-sm text-accent mt-0.5">
+              <div className="text-sm text-primary/70 mt-0.5">
                 Which AI model the assistant uses to understand and respond to your questions
               </div>
             </div>
@@ -114,7 +114,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
 
       <SettingsCard icon={Key} title="Bring Your Own Key" padding={false} index={1}>
         <div className="px-5 py-4 space-y-3">
-          <p className="text-sm text-primary/60">
+          <p className="text-sm text-primary/70">
             If your administrator has enabled this, you can use your own AI provider API key instead of the shared one. Your key is stored securely and never shared with other users.
           </p>
           <Toggle
@@ -137,7 +137,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
                   onChange={(e) => update("user_api_key", e.target.value)}
                   className="w-full bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 border border-primary/10"
                 />
-                <p className="text-xs text-primary/40 mt-1">
+                <p className="text-xs text-primary/60 mt-1">
                   {ai.user_key_configured
                     ? "A key is already saved. Enter a new one to replace it."
                     : "Find your key on your AI provider's website under Settings or API Keys."}
@@ -155,7 +155,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
                   onChange={(e) => update("user_base_url", e.target.value)}
                   className="w-full bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 border border-primary/10"
                 />
-                <p className="text-xs text-primary/40 mt-1">
+                <p className="text-xs text-primary/60 mt-1">
                   Only change this if your provider uses a different address than the default.
                 </p>
               </div>
@@ -169,7 +169,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-primary">Billing Mode</div>
-              <div className="text-sm text-accent mt-0.5">
+              <div className="text-sm text-primary/70 mt-0.5">
                 How credit costs are calculated — per token used, or a flat amount per request
               </div>
             </div>
@@ -187,7 +187,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-primary">Max Steps Per Conversation</div>
-              <div className="text-sm text-accent mt-0.5">
+              <div className="text-sm text-primary/70 mt-0.5">
                 How many actions the assistant can take before asking you again
               </div>
             </div>
@@ -207,7 +207,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-primary">Time Per Step</div>
-              <div className="text-sm text-accent mt-0.5">
+              <div className="text-sm text-primary/70 mt-0.5">
                 How long the assistant waits for each action before giving up
               </div>
             </div>
@@ -235,7 +235,7 @@ export default function AISupportCategory({ settings, onSettingsChange }) {
 
       <SettingsCard icon={ShieldCheck} title="Self-Healing" padding={false} index={3}>
         <div className="px-5 py-4 space-y-3">
-          <p className="text-sm text-primary/60">
+          <p className="text-sm text-primary/70">
             When enabled, the assistant can automatically detect and fix common problems like crashed apps or unhealthy containers — without you needing to ask.
           </p>
           <Toggle

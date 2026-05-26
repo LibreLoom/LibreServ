@@ -112,11 +112,22 @@ func (m *DNSProviderManager) SetupWildcardDNS(ctx context.Context, cfg *DNSProvi
 		return fmt.Errorf("zone is required")
 	}
 	s := p.Records()
-	if err := SetARecord(ctx, s, zone, "", ip, defaultDNSTTL); err != nil {
-		return fmt.Errorf("set apex A record: %w", err)
+
+	if ip.Is4() {
+		if err := SetARecord(ctx, s, zone, "", ip, defaultDNSTTL); err != nil {
+			return fmt.Errorf("set apex A record: %w", err)
+		}
+		if err := SetARecord(ctx, s, zone, "*", ip, defaultDNSTTL); err != nil {
+			return fmt.Errorf("set wildcard A record: %w", err)
+		}
+	} else if ip.Is6() {
+		if err := SetAAAARecord(ctx, s, zone, "", ip, defaultDNSTTL); err != nil {
+			return fmt.Errorf("set apex AAAA record: %w", err)
+		}
+		if err := SetAAAARecord(ctx, s, zone, "*", ip, defaultDNSTTL); err != nil {
+			return fmt.Errorf("set wildcard AAAA record: %w", err)
+		}
 	}
-	if err := SetARecord(ctx, s, zone, "*", ip, defaultDNSTTL); err != nil {
-		return fmt.Errorf("set wildcard A record: %w", err)
-	}
+
 	return nil
 }

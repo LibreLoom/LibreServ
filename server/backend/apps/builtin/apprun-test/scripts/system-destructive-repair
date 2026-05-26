@@ -1,0 +1,31 @@
+#!/bin/bash
+# system-destructive-repair - AppRun Test Suite destructive repair
+# Exercises: wiping data and starting fresh
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required as argument 1"
+    exit 1
+fi
+
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+APP_DATA_PATH=$(jq -r '.app_data_path' "$CONFIG_FILE")
+CONFIG_DIR=$(jq -r '.config_dir' "$CONFIG_FILE")
+
+echo ">> [apprun-test] Running destructive repair for instance $INSTANCE_ID"
+echo ">> [apprun-test] WARNING: This will wipe all data"
+
+rm -rf "${APP_DATA_PATH:?}/app-data"/*
+rm -rf "${APP_DATA_PATH:?}/app-logs"/*
+rm -rf "${CONFIG_DIR:?}/app-config"/*
+
+mkdir -p "$APP_DATA_PATH/app-data"
+mkdir -p "$APP_DATA_PATH/app-logs"
+mkdir -p "$CONFIG_DIR/app-config"
+
+echo "# Reset by destructive repair" > "$CONFIG_DIR/app-config/test.conf"
+
+echo ">> [apprun-test] Destructive repair completed successfully"
+exit 0

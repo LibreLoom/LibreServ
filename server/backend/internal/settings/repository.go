@@ -346,8 +346,9 @@ func (r *Repository) IsEmpty() (bool, error) {
 }
 
 type Service struct {
-	repo *Repository
-	mu   sync.RWMutex
+	repo              *Repository
+	mu                sync.RWMutex
+	onChangeCallbacks []func(changedKeys []string)
 }
 
 func NewService(db *sql.DB) *Service {
@@ -356,6 +357,10 @@ func NewService(db *sql.DB) *Service {
 
 func (s *Service) Repository() *Repository {
 	return s.repo
+}
+
+func (s *Service) OnChange(fn func(changedKeys []string)) {
+	s.onChangeCallbacks = append(s.onChangeCallbacks, fn)
 }
 
 func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, error) {
@@ -452,10 +457,15 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 	}
 
 	type mutation struct {
+		key    string
 		apply  func()
 		commit func(tx *sql.Tx) error
 	}
 	var mutations []mutation
+
+	addMutation := func(key string, apply func(), commit func(tx *sql.Tx) error) {
+		mutations = append(mutations, mutation{key: key, apply: apply, commit: commit})
+	}
 
 	if loggingRaw, ok := updates["logging"]; ok {
 		logging, _ := loggingRaw.(map[string]interface{})
@@ -469,16 +479,16 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			if !validLevels[level] {
 				return fmt.Errorf("invalid logging level: must be one of debug, info, warn, error")
 			}
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Logging.Level = level },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "logging.level", level, "string") },
-			})
+			addMutation("logging.level",
+				func() { cfg.Logging.Level = level },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "logging.level", level, "string") },
+			)
 		}
 		if path, ok := logging["path"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Logging.Path = path },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "logging.path", path, "string") },
-			})
+			addMutation("logging.path",
+				func() { cfg.Logging.Path = path },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "logging.path", path, "string") },
+			)
 		}
 	}
 
@@ -488,52 +498,52 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			return fmt.Errorf("invalid smtp format")
 		}
 		if host, ok := smtp["host"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.SMTP.Host = host },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.host", host, "string") },
-			})
+			addMutation("smtp.host",
+				func() { cfg.SMTP.Host = host },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.host", host, "string") },
+			)
 		}
 		if port, ok := toInt(smtp["port"]); ok {
 			if port < 1 || port > 65535 {
 				return fmt.Errorf("invalid smtp port: must be between 1 and 65535")
 			}
 			p := port
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.SMTP.Port = p },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.port", strconv.Itoa(p), "int") },
-			})
+			addMutation("smtp.port",
+				func() { cfg.SMTP.Port = p },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.port", strconv.Itoa(p), "int") },
+			)
 		}
 		if username, ok := smtp["username"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.SMTP.Username = username },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.username", username, "string") },
-			})
+			addMutation("smtp.username",
+				func() { cfg.SMTP.Username = username },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.username", username, "string") },
+			)
 		}
 		if password, ok := smtp["password"].(string); ok && password != "" {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.SMTP.Password = password },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.password", password, "string") },
-			})
+			addMutation("smtp.password",
+				func() { cfg.SMTP.Password = password },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.password", password, "string") },
+			)
 		}
 		if from, ok := smtp["from"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.SMTP.From = from },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.from", from, "string") },
-			})
+			addMutation("smtp.from",
+				func() { cfg.SMTP.From = from },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.from", from, "string") },
+			)
 		}
 		if useTLS, ok := toBool(smtp["use_tls"]); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.SMTP.UseTLS = useTLS },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.use_tls", strconv.FormatBool(useTLS), "bool") },
-			})
+			addMutation("smtp.use_tls",
+				func() { cfg.SMTP.UseTLS = useTLS },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "smtp.use_tls", strconv.FormatBool(useTLS), "bool") },
+			)
 		}
 		if skipVerify, ok := toBool(smtp["skip_verify"]); ok {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.SMTP.SkipVerify = skipVerify },
-				commit: func(tx *sql.Tx) error {
+			addMutation("smtp.skip_verify",
+				func() { cfg.SMTP.SkipVerify = skipVerify },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "smtp.skip_verify", strconv.FormatBool(skipVerify), "bool")
 				},
-			})
+			)
 		}
 	}
 
@@ -543,42 +553,42 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			return fmt.Errorf("invalid notify format")
 		}
 		if enabled, ok := toBool(notify["enabled"]); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Notify.Enabled = enabled },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.enabled", strconv.FormatBool(enabled), "bool") },
-			})
+			addMutation("notify.enabled",
+				func() { cfg.Notify.Enabled = enabled },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.enabled", strconv.FormatBool(enabled), "bool") },
+			)
 		}
 		if recipients, ok := toStringSlice(notify["support_recipients"]); ok {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Notify.SupportRecipients = recipients },
-				commit: func(tx *sql.Tx) error {
+			addMutation("notify.support_recipients",
+				func() { cfg.Notify.SupportRecipients = recipients },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "notify.support_recipients", stringSliceToCSV(recipients), "json")
 				},
-			})
+			)
 		}
 		if subject, ok := notify["support_subject"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Notify.SupportSubject = subject },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.support_subject", subject, "string") },
-			})
+			addMutation("notify.support_subject",
+				func() { cfg.Notify.SupportSubject = subject },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.support_subject", subject, "string") },
+			)
 		}
 		if body, ok := notify["support_body"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Notify.SupportBody = body },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.support_body", body, "string") },
-			})
+			addMutation("notify.support_body",
+				func() { cfg.Notify.SupportBody = body },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.support_body", body, "string") },
+			)
 		}
 		if subject, ok := notify["welcome_subject"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Notify.WelcomeSubject = subject },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.welcome_subject", subject, "string") },
-			})
+			addMutation("notify.welcome_subject",
+				func() { cfg.Notify.WelcomeSubject = subject },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.welcome_subject", subject, "string") },
+			)
 		}
 		if body, ok := notify["welcome_body"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Notify.WelcomeBody = body },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.welcome_body", body, "string") },
-			})
+			addMutation("notify.welcome_body",
+				func() { cfg.Notify.WelcomeBody = body },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "notify.welcome_body", body, "string") },
+			)
 		}
 	}
 
@@ -592,36 +602,36 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			if !validModes[mode] {
 				return fmt.Errorf("invalid caddy mode: %s", mode)
 			}
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Network.Caddy.Mode = mode },
-				commit: func(tx *sql.Tx) error {
+			addMutation("network.caddy.mode",
+				func() { cfg.Network.Caddy.Mode = mode },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "network.caddy.mode", mode, "string")
 				},
-			})
+			)
 		}
 		if defaultDomain, ok := proxy["default_domain"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Network.Caddy.DefaultDomain = defaultDomain },
-				commit: func(tx *sql.Tx) error {
+			addMutation("network.caddy.default_domain",
+				func() { cfg.Network.Caddy.DefaultDomain = defaultDomain },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "network.caddy.default_domain", defaultDomain, "string")
 				},
-			})
+			)
 		}
 		if sslEmail, ok := proxy["ssl_email"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Network.Caddy.Email = sslEmail },
-				commit: func(tx *sql.Tx) error {
+			addMutation("network.caddy.email",
+				func() { cfg.Network.Caddy.Email = sslEmail },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "network.caddy.email", sslEmail, "string")
 				},
-			})
+			)
 		}
 		if autoHTTPS, ok := toBool(proxy["auto_https"]); ok {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Network.Caddy.AutoHTTPS = autoHTTPS },
-				commit: func(tx *sql.Tx) error {
+			addMutation("network.caddy.auto_https",
+				func() { cfg.Network.Caddy.AutoHTTPS = autoHTTPS },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "network.caddy.auto_https", strconv.FormatBool(autoHTTPS), "bool")
 				},
-			})
+			)
 		}
 	}
 
@@ -631,22 +641,22 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			return fmt.Errorf("invalid updates format")
 		}
 		if baseURL, ok := updatesCfg["base_url"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Updates.BaseURL = baseURL },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.base_url", baseURL, "string") },
-			})
+			addMutation("updates.base_url",
+				func() { cfg.Updates.BaseURL = baseURL },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.base_url", baseURL, "string") },
+			)
 		}
 		if owner, ok := updatesCfg["owner"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Updates.Owner = owner },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.owner", owner, "string") },
-			})
+			addMutation("updates.owner",
+				func() { cfg.Updates.Owner = owner },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.owner", owner, "string") },
+			)
 		}
 		if repo, ok := updatesCfg["repo"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Updates.Repo = repo },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.repo", repo, "string") },
-			})
+			addMutation("updates.repo",
+				func() { cfg.Updates.Repo = repo },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "updates.repo", repo, "string") },
+			)
 		}
 	}
 
@@ -656,93 +666,98 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			return fmt.Errorf("invalid ai_support format")
 		}
 		if baseURL, ok := ai["inference_base_url"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Support.InferenceBaseURL = baseURL },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.inference_base_url", baseURL, "string") },
-			})
+			addMutation("support.inference_base_url",
+				func() { cfg.Support.InferenceBaseURL = baseURL },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.inference_base_url", baseURL, "string") },
+			)
 		}
 		if deviceToken, ok := ai["device_token"].(string); ok && deviceToken != "" {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Support.DeviceToken = deviceToken },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_token", deviceToken, "string") },
-			})
+			addMutation("support.device_token",
+				func() { cfg.Support.DeviceToken = deviceToken },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_token", deviceToken, "string") },
+			)
 		}
 		if deviceID, ok := ai["device_id"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Support.DeviceID = deviceID },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_id", deviceID, "string") },
-			})
+			addMutation("support.device_id",
+				func() { cfg.Support.DeviceID = deviceID },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_id", deviceID, "string") },
+			)
 		}
 		if model, ok := ai["default_model"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Support.DefaultModel = model },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.default_model", model, "string") },
-			})
+			addMutation("support.default_model",
+				func() { cfg.Support.DefaultModel = model },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.default_model", model, "string") },
+			)
 		}
 		if byokEnabled, ok := toBool(ai["byok_enabled"]); ok {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Support.BYOKEnabled = byokEnabled },
-				commit: func(tx *sql.Tx) error {
+			addMutation("support.byok_enabled",
+				func() { cfg.Support.BYOKEnabled = byokEnabled },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "support.byok_enabled", strconv.FormatBool(byokEnabled), "bool")
 				},
-			})
+			)
 		}
 		if userAPIKey, ok := ai["user_api_key"].(string); ok && userAPIKey != "" {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Support.UserAPIKey = userAPIKey },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.user_api_key", userAPIKey, "string") },
-			})
+			addMutation("support.user_api_key",
+				func() { cfg.Support.UserAPIKey = userAPIKey },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.user_api_key", userAPIKey, "string") },
+			)
 		}
 		if userBaseURL, ok := ai["user_base_url"].(string); ok {
-			mutations = append(mutations, mutation{
-				apply:  func() { cfg.Support.UserBaseURL = userBaseURL },
-				commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.user_base_url", userBaseURL, "string") },
-			})
+			addMutation("support.user_base_url",
+				func() { cfg.Support.UserBaseURL = userBaseURL },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.user_base_url", userBaseURL, "string") },
+			)
 		}
 		if maxTurns, ok := toInt(ai["agent_max_turns"]); ok && maxTurns > 0 && maxTurns <= 100 {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Support.Agent.MaxTurns = maxTurns },
-				commit: func(tx *sql.Tx) error {
+			addMutation("support.agent.max_turns",
+				func() { cfg.Support.Agent.MaxTurns = maxTurns },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "support.agent.max_turns", strconv.Itoa(maxTurns), "int")
 				},
-			})
+			)
 		}
 		if turnTimeout, ok := ai["agent_turn_timeout"].(string); ok {
 			if d, err := time.ParseDuration(turnTimeout); err == nil && d >= time.Second && d <= 30*time.Minute {
-				mutations = append(mutations, mutation{
-					apply:  func() { cfg.Support.Agent.TurnTimeout = d },
-					commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.agent.turn_timeout", turnTimeout, "string") },
-				})
+				addMutation("support.agent.turn_timeout",
+					func() { cfg.Support.Agent.TurnTimeout = d },
+					func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.agent.turn_timeout", turnTimeout, "string") },
+				)
 			}
 		}
 		if snapshotBeforeWrites, ok := toBool(ai["snapshot_before_writes"]); ok {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Support.Agent.SnapshotBeforeWrites = snapshotBeforeWrites },
-				commit: func(tx *sql.Tx) error {
+			addMutation("support.agent.snapshot_before_writes",
+				func() { cfg.Support.Agent.SnapshotBeforeWrites = snapshotBeforeWrites },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "support.agent.snapshot_before_writes", strconv.FormatBool(snapshotBeforeWrites), "bool")
 				},
-			})
+			)
 		}
 		if selfHealing, ok := toBool(ai["self_healing"]); ok {
-			mutations = append(mutations, mutation{
-				apply: func() { cfg.Support.SelfHealing = selfHealing },
-				commit: func(tx *sql.Tx) error {
+			addMutation("support.self_healing",
+				func() { cfg.Support.SelfHealing = selfHealing },
+				func(tx *sql.Tx) error {
 					return s.repo.SetTx(tx, "support.self_healing", strconv.FormatBool(selfHealing), "bool")
 				},
-			})
+			)
 		}
 		if billingMode, ok := ai["billing_mode"].(string); ok {
 			if billingMode == "token" || billingMode == "request" {
-				mutations = append(mutations, mutation{
-					apply:  func() { cfg.Support.BillingMode = billingMode },
-					commit: func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.billing_mode", billingMode, "string") },
-				})
+				addMutation("support.billing_mode",
+					func() { cfg.Support.BillingMode = billingMode },
+					func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.billing_mode", billingMode, "string") },
+				)
 			}
 		}
 	}
 
 	if len(mutations) == 0 {
 		return nil
+	}
+
+	var changedKeys []string
+	for _, m := range mutations {
+		changedKeys = append(changedKeys, m.key)
 	}
 
 	tx, err := s.repo.db.BeginTx(ctx, nil)
@@ -773,6 +788,10 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 
 	if _, ok := updates["logging"]; ok {
 		logger.Init(cfg.Logging)
+	}
+
+	for _, fn := range s.onChangeCallbacks {
+		fn(changedKeys)
 	}
 
 	return nil

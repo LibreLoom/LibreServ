@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
-import { Clock, Server, CheckCircle, RefreshCw, Database } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Clock, Server, CheckCircle, AlertCircle, XCircle, WifiOff, RefreshCw, Database } from "lucide-react";
 
 import StatCard from "../components/cards/StatCard";
 import HeaderCard from "../components/cards/HeaderCard";
@@ -14,6 +14,7 @@ import { dashboard as greetingMessages } from "../assets/greetings";
 import { useUser } from "../hooks/useUser";
 import { useUptime } from "../hooks/useUptime";
 import { useMonitoring } from "../hooks/useMonitoring";
+import { useConnectivity, getRemoteAccessStatus } from "../hooks/useConnectivity";
 
 import {
   getBreakdownItems,
@@ -82,6 +83,8 @@ export default function Dashboard() {
   const { data: uptimeSeconds } = useUptime();
   const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
   const { data: resources } = useMonitoring(refreshInterval);
+  const { data: connectivity } = useConnectivity(30000);
+  const navigate = useNavigate();
 
   // Store server uptime and fetch timestamp for drift-free calculation
   const uptimeDataRef = useRef({ serverUptime: 0, fetchTime: 0 });
@@ -157,21 +160,30 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, []);
 
-  const systemStatus = useMemo(
-    () => ({
-      status: "online",
-      text: "All Systems Operational",
-      icon: CheckCircle,
-      className: "text-accent",
-    }),
-    [],
+  const remoteAccessStatus = useMemo(
+    () => getRemoteAccessStatus(connectivity),
+    [connectivity],
   );
+
+  const StatusIconComponent = useMemo(() => {
+    switch (remoteAccessStatus.icon) {
+      case "check-circle":
+        return CheckCircle;
+      case "alert-circle":
+        return AlertCircle;
+      case "x-circle":
+        return XCircle;
+      case "wifi-off":
+        return WifiOff;
+      default:
+        return CheckCircle;
+    }
+  }, [remoteAccessStatus.icon]);
 
   const greetingBase = greeting.endsWith(", ")
     ? greeting.slice(0, -2)
     : greeting;
   const showUsername = user?.username;
-  const StatusIcon = systemStatus.icon;
   const greetingTitle = (
     <span className="inline-flex flex-wrap items-center justify-center gap-2">
       <span>{showUsername ? `${greetingBase},` : greetingBase}</span>
@@ -186,13 +198,18 @@ export default function Dashboard() {
     </span>
   );
   const statusBadge = (
-    <span className="inline-flex items-center gap-2 text-xs md:text-sm font-semibold">
-      <StatusIcon
-        className={`w-4 h-4 md:w-5 md:h-5 ${systemStatus.className}`}
+    <button
+      type="button"
+      onClick={() => navigate("/settings/network")}
+      className="inline-flex items-center gap-2 text-xs md:text-sm font-semibold hover:opacity-80 transition-opacity cursor-pointer"
+      title="Click to view remote access settings"
+    >
+      <StatusIconComponent
+        className={`w-4 h-4 md:w-5 md:h-5 ${remoteAccessStatus.className}`}
         aria-hidden="true"
       />
-      <span>{systemStatus.text}</span>
-    </span>
+      <span>{remoteAccessStatus.text}</span>
+    </button>
   );
   const refreshControl = (
     <div className="flex items-center gap-2 text-xs md:text-sm text-secondary/70">

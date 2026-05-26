@@ -1,0 +1,298 @@
+id: apprun-test
+name: AppRun Test Suite
+description: Comprehensive test app that exercises every AppRun feature — template functions, config types, scripts, health checks, exposed info, custom actions, backends, and all deployment options
+version: 1.0.0
+category: development
+website: https://gt.plainskill.net/LibreLoom/LibreServ
+repository: https://gt.plainskill.net/LibreLoom/LibreServ
+featured: true
+
+deployment:
+  compose_file: app-compose/docker-compose.yml.tmpl
+  ports:
+    - host: 8880
+      container: 80
+      protocol: tcp
+      name: ui
+    - host: 8881
+      container: 81
+      protocol: tcp
+      name: api
+    - host: 8882
+      container: 82
+      protocol: udp
+      name: metrics
+  volumes:
+    - name: app-data
+      mount_path: /data
+    - name: app-config
+      mount_path: /config
+      read_only: true
+    - name: app-logs
+      mount_path: /logs
+  environment:
+    ENV_FROM_DEPLOYMENT: "deployed-value"
+    ENV_TEMPLATE_REF: "{{.string_field}}"
+  labels:
+    test.label.one: "value-one"
+    test.label.two: "value-two"
+  network_mode: ""
+  restart_policy: unless-stopped
+  depends_on: []
+  capabilities: []
+  gpu:
+    supported: true
+    required: false
+    runtime: nvidia
+  backends:
+    - name: internal-api
+      url: http://localhost:8881
+
+configuration:
+  - name: http_port
+    label: HTTP Port
+    description: The port your app's main page opens on in your web browser
+    type: port
+    default: 8880
+    required: true
+    env_var: APP_HTTP_PORT
+  - name: api_port
+    label: API Port
+    description: The port used for background data requests between the app and your browser
+    type: port
+    default: 8881
+    required: true
+    env_var: APP_API_PORT
+  - name: metrics_port
+    label: Metrics Port
+    description: The port used for collecting performance data about the app
+    type: port
+    default: 8882
+    required: false
+    env_var: APP_METRICS_PORT
+  - name: string_field
+    label: Text Field
+    description: A plain text setting — try typing anything here
+    type: string
+    default: "hello-world"
+    required: true
+    env_var: APP_STRING_FIELD
+  - name: password_field
+    label: Secret Password
+    description: A hidden password — this is automatically created if you leave it blank
+    type: password
+    required: false
+    env_var: APP_PASSWORD
+  - name: number_field
+    label: Number Setting
+    description: A whole number or decimal — controls how many things the app processes at once
+    type: number
+    default: 42
+    required: false
+    env_var: APP_NUMBER
+  - name: boolean_field
+    label: Enable Feature
+    description: Turn this on or off — controls whether the app runs in advanced mode
+    type: boolean
+    default: true
+    required: false
+    env_var: APP_BOOLEAN
+  - name: select_field
+    label: Mode
+    description: Choose how the app behaves from the list below
+    type: select
+    options:
+      - "basic"
+      - "standard"
+      - "advanced"
+    default: "standard"
+    required: true
+    env_var: APP_MODE
+  - name: validated_field
+    label: Code
+    description: A value that must match a specific pattern — only lowercase letters and numbers are allowed
+    type: string
+    default: "abc123"
+    required: true
+    validation: "^[a-z0-9]+$"
+    env_var: APP_CODE
+
+exposed_info:
+  - name: password_field
+    label: "Generated Password"
+    description: "The automatically created password for this app"
+    type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+  - name: setup_token
+    label: "Setup Token"
+    description: "A one-time token created during setup — you may need this for first-time configuration"
+    type: password
+    group: credentials
+    copyable: true
+    revealable: true
+    mask_by_default: true
+  - name: string_field
+    label: "Text Value"
+    description: "The text value you set for this app"
+    type: string
+    group: connection
+    copyable: true
+    revealable: false
+    mask_by_default: false
+  - name: base_url
+    label: "Access Address"
+    description: "The web address you use to open this app in your browser"
+    type: url
+    group: connection
+    copyable: true
+    revealable: false
+    mask_by_default: false
+  - name: admin_username
+    label: "Admin Username"
+    description: "The username for the app's built-in administrator account"
+    type: username
+    group: credentials
+    advanced: false
+    copyable: true
+    revealable: false
+    mask_by_default: false
+  - name: advanced_token
+    label: "Advanced Token"
+    description: "A token for advanced API access — only needed if you are connecting other tools to this app"
+    type: password
+    group: credentials
+    advanced: true
+    copyable: true
+    revealable: true
+    mask_by_default: true
+
+health_check:
+  type: http
+  endpoint: /health.json
+  port: 8880
+  interval: 15s
+  timeout: 5s
+  retries: 3
+
+requirements:
+  min_ram: "64M"
+  min_cpu: 0.1
+  min_disk: "10M"
+  arch:
+    - amd64
+    - arm64
+
+updates:
+  strategy: notify
+  backup_before_update: true
+
+features:
+  read_only: false
+  no_uninstall: false
+  experimental: true
+  requires_root: false
+  requires_gpu: false
+  supported_os:
+    - linux
+    - darwin
+  unsupported_os:
+    - windows
+  min_ram: 64
+  min_cpu: 1
+  access_model: integrated_users
+  backup: supported
+  update_behavior:
+    automatic: false
+    requires_downtime: true
+    supports_rollback: true
+  sso: true
+  custom_domains: true
+  resource_hints:
+    single_instance: true
+    privileged_required: false
+
+scripts:
+  system:
+    setup: scripts/system-setup
+    update: scripts/system-update
+    repair: scripts/system-repair
+    destructive_repair: scripts/system-destructive-repair
+    backup: scripts/system-backup
+    restore: scripts/system-restore
+  actions:
+    - name: echo-config
+      label: Show Configuration
+      description: Prints all the settings this app is using — useful for checking that everything was set up correctly
+      script: scripts/action-echo-config
+      icon: settings
+      confirm:
+        enabled: false
+      execution:
+        timeout: 30
+        stream_output: true
+    - name: reset-data
+      label: Reset App Data
+      description: Deletes all saved data and starts fresh — this cannot be undone, so make sure you want to do this
+      script: scripts/action-reset-data
+      icon: warning
+      confirm:
+        enabled: true
+        message: "This will permanently delete all of this app's saved data. Are you sure?"
+        type: destructive
+      execution:
+        timeout: 60
+        stream_output: false
+    - name: run-with-options
+      label: Custom Command
+      description: Runs a command with settings you choose — pick what kind of operation and how long it should take
+      script: scripts/action-with-options
+      icon: play
+      confirm:
+        enabled: false
+      options:
+        - name: operation
+          label: Operation
+          description: What kind of operation to perform
+          type: select
+          required: true
+          default: "read"
+          options:
+            - value: "read"
+              label: "Read data"
+            - value: "write"
+              label: "Write data"
+            - value: "delete"
+              label: "Delete data"
+        - name: iterations
+          label: Iterations
+          description: How many times to repeat the operation
+          type: number
+          required: false
+          default: 1
+          min: 1
+          max: 100
+        - name: dry_run
+          label: Dry Run
+          description: "Simulate the operation without making real changes — a safe way to test"
+          type: boolean
+          default: true
+          required: false
+        - name: passphrase
+          label: Passphrase
+          description: "An optional secret phrase — only needed if the operation requires verification"
+          type: password
+          required: false
+          secret: true
+        - name: target_path
+          label: Target Path
+          description: "Where to direct the operation — use only lowercase letters, numbers, and hyphens"
+          type: string
+          required: false
+          default: "default"
+          validation: "^[a-z0-9-]+$"
+      execution:
+        timeout: 120
+        stream_output: true

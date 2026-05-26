@@ -1,5 +1,6 @@
-import { CheckCircle2, XCircle, Info, X } from "lucide-react";
+import { CheckCircle2, XCircle, Info, X, ChevronDown } from "lucide-react";
 import PropTypes from "prop-types";
+import { useState, useRef, useEffect } from "react";
 import { useToast } from "../../context/ToastContext";
 
 const TYPE_CONFIG = {
@@ -17,9 +18,32 @@ const TYPE_CONFIG = {
   },
 };
 
-function Toast({ toast, onDismiss }) {
+function Toast({ toast, onDismiss, onPause, onResume }) {
   const config = TYPE_CONFIG[toast.type] || TYPE_CONFIG.info;
   const Icon = config.icon;
+  const [expanded, setExpanded] = useState(false);
+  const [isTruncated, setIsTruncated] = useState(false);
+  const messageRef = useRef(null);
+
+  useEffect(() => {
+    const el = messageRef.current;
+    if (el) {
+      setIsTruncated(el.scrollWidth > el.clientWidth);
+    }
+  }, [toast.message, expanded]);
+
+  const handleToggle = () => {
+    if (toast.exiting) return;
+    if (!isTruncated) return;
+
+    if (!expanded) {
+      setExpanded(true);
+      onPause(toast.id);
+    } else {
+      setExpanded(false);
+      onResume(toast.id);
+    }
+  };
 
   return (
     <div
@@ -27,15 +51,17 @@ function Toast({ toast, onDismiss }) {
       aria-live="polite"
       className={`
         flex items-start gap-3
-        min-w-[280px] max-w-[380px]
+        min-w-[280px] ${expanded ? "max-w-[500px]" : "max-w-[380px]"}
         bg-secondary text-primary
         rounded-large-element
         border border-primary/10
         shadow-lg
         p-3
         ${toast.exiting ? "animate-toast-exit" : "animate-toast-enter"}
+        ${isTruncated ? "cursor-pointer hover:bg-primary/5" : ""}
+        transition-colors
       `}
-      onClick={() => !toast.exiting && onDismiss(toast.id)}
+      onClick={handleToggle}
     >
       <div
         className={`
@@ -48,9 +74,20 @@ function Toast({ toast, onDismiss }) {
       </div>
 
       <div className="flex-1 min-w-0 py-0.5">
-        <p className="font-mono text-sm font-medium text-primary truncate">
-          {toast.message}
-        </p>
+        <div className="flex items-center gap-1">
+          <p
+            ref={messageRef}
+            className={`font-mono text-sm font-medium text-primary ${expanded ? "" : "truncate"}`}
+          >
+            {toast.message}
+          </p>
+          {isTruncated && (
+            <ChevronDown
+              size={14}
+              className={`text-primary/30 transition-transform ${expanded ? "rotate-180" : ""}`}
+            />
+          )}
+        </div>
         {toast.description && (
           <p className="text-xs text-primary/60 mt-1 leading-relaxed">
             {toast.description}
@@ -84,7 +121,7 @@ Toast.propTypes = {
 };
 
 export default function Toaster() {
-  const { toasts, dismissToast } = useToast();
+  const { toasts, dismissToast, pauseToast, resumeToast } = useToast();
 
   if (toasts.length === 0) return null;
 
@@ -95,7 +132,13 @@ export default function Toaster() {
       aria-label="Notifications"
     >
       {toasts.map((toast) => (
-        <Toast key={toast.id} toast={toast} onDismiss={dismissToast} />
+        <Toast
+          key={toast.id}
+          toast={toast}
+          onDismiss={dismissToast}
+          onPause={pauseToast}
+          onResume={resumeToast}
+        />
       ))}
     </div>
   );

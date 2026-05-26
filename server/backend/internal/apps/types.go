@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"fmt"
 	"maps"
 	"slices"
 	"time"
@@ -443,6 +444,87 @@ type ScriptExecutionResponse struct {
 	StreamURL   string        `json:"stream_url,omitempty"`
 }
 
+type ServerContext struct {
+	ServerPort     int    `json:"server_port" yaml:"server_port"`
+	ServerMode     string `json:"server_mode" yaml:"server_mode"`
+	ServerHost     string `json:"server_host" yaml:"server_host"`
+	ServerURL      string `json:"server_url" yaml:"server_url"`
+	DefaultDomain  string `json:"default_domain" yaml:"default_domain"`
+	CaddyMode      string `json:"caddy_mode" yaml:"caddy_mode"`
+	ACMEEmail      string `json:"acme_email" yaml:"acme_email"`
+	SMTPHost       string `json:"smtp_host" yaml:"smtp_host"`
+	SMTPPort       int    `json:"smtp_port" yaml:"smtp_port"`
+	SMTPUsername   string `json:"smtp_username" yaml:"smtp_username"`
+	SMTPPassword   string `json:"smtp_password" yaml:"smtp_password"`
+	SMTPFrom       string `json:"smtp_from" yaml:"smtp_from"`
+	SMTPUseTLS     bool   `json:"smtp_use_tls" yaml:"smtp_use_tls"`
+	SMTPSkipVerify bool   `json:"smtp_skip_verify" yaml:"smtp_skip_verify"`
+	TunnelEnabled  bool   `json:"tunnel_enabled" yaml:"tunnel_enabled"`
+	TunnelProvider string `json:"tunnel_provider" yaml:"tunnel_provider"`
+	TunnelToken    string `json:"tunnel_token" yaml:"tunnel_token"`
+	DNSProvider    string `json:"dns_provider" yaml:"dns_provider"`
+}
+
+func NewServerContext(cfg ServerContextConfig) ServerContext {
+	scheme := "http"
+	if cfg.CaddyMode == "enabled" && cfg.DefaultDomain != "" {
+		scheme = "https"
+	}
+	host := cfg.DefaultDomain
+	if host == "" {
+		host = cfg.ServerHost
+		if host == "0.0.0.0" || host == "127.0.0.1" || host == "" {
+			host = "localhost"
+		}
+	}
+	port := cfg.ServerPort
+	serverURL := fmt.Sprintf("%s://%s", scheme, host)
+	if (scheme == "http" && port != 80) || (scheme == "https" && port != 443) {
+		serverURL = fmt.Sprintf("%s:%d", serverURL, port)
+	}
+
+	return ServerContext{
+		ServerPort:     cfg.ServerPort,
+		ServerMode:     cfg.ServerMode,
+		ServerHost:     cfg.ServerHost,
+		ServerURL:      serverURL,
+		DefaultDomain:  cfg.DefaultDomain,
+		CaddyMode:      cfg.CaddyMode,
+		ACMEEmail:      cfg.ACMEEmail,
+		SMTPHost:       cfg.SMTPHost,
+		SMTPPort:       cfg.SMTPPort,
+		SMTPUsername:   cfg.SMTPUsername,
+		SMTPPassword:   cfg.SMTPPassword,
+		SMTPFrom:       cfg.SMTPFrom,
+		SMTPUseTLS:     cfg.SMTPUseTLS,
+		SMTPSkipVerify: cfg.SMTPSkipVerify,
+		TunnelEnabled:  cfg.TunnelEnabled,
+		TunnelProvider: cfg.TunnelProvider,
+		TunnelToken:    cfg.TunnelToken,
+		DNSProvider:    cfg.DNSProvider,
+	}
+}
+
+type ServerContextConfig struct {
+	ServerPort     int
+	ServerMode     string
+	ServerHost     string
+	DefaultDomain  string
+	CaddyMode      string
+	ACMEEmail      string
+	SMTPHost       string
+	SMTPPort       int
+	SMTPUsername   string
+	SMTPPassword   string
+	SMTPFrom       string
+	SMTPUseTLS     bool
+	SMTPSkipVerify bool
+	TunnelEnabled  bool
+	TunnelProvider string
+	TunnelToken    string
+	DNSProvider    string
+}
+
 type ScriptExecutionConfig struct {
 	InstanceID  string                 `json:"instance_id"`
 	AppID       string                 `json:"app_id"`
@@ -451,6 +533,7 @@ type ScriptExecutionConfig struct {
 	ConfigPath  string                 `json:"config_path"`
 	ConfigDir   string                 `json:"config_dir"`
 	Runtime     RuntimeInfo            `json:"runtime"`
+	Server      ServerContext          `json:"server"`
 	Options     map[string]interface{} `json:"options"`
 }
 

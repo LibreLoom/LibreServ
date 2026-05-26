@@ -1,0 +1,45 @@
+#!/bin/bash
+# action-with-options - Custom action with user-supplied options
+# Exercises: all ScriptOption types (select, number, boolean, password, string with validation, min/max, secret)
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required"
+    exit 1
+fi
+
+OPERATION=$(jq -r '.options.operation // "read"' "$CONFIG_FILE")
+ITERATIONS=$(jq -r '.options.iterations // 1' "$CONFIG_FILE")
+DRY_RUN=$(jq -r '.options.dry_run // true' "$CONFIG_FILE")
+PASSPHRASE=$(jq -r '.options.passphrase // ""' "$CONFIG_FILE")
+TARGET_PATH=$(jq -r '.options.target_path // "default"' "$CONFIG_FILE")
+
+echo ">> [apprun-test] Custom command starting..."
+echo ">>   operation:   $OPERATION"
+echo ">>   iterations:  $ITERATIONS"
+echo ">>   dry_run:     $DRY_RUN"
+echo ">>   passphrase:  ${PASSPHRASE:+[REDACTED]}${PASSPHRASE:-[none]}"
+echo ">>   target_path: $TARGET_PATH"
+
+if [[ "$ITERATIONS" -lt 1 ]]; then
+    echo "ERROR: iterations must be at least 1"
+    exit 1
+fi
+
+if [[ "$ITERATIONS" -gt 100 ]]; then
+    echo "ERROR: iterations must be at most 100"
+    exit 1
+fi
+
+for ((i=1; i<=ITERATIONS; i++)); do
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo ">> [dry-run] Would $OPERATION on $TARGET_PATH (iteration $i/$ITERATIONS)"
+    else
+        echo ">> [live] $OPERATION on $TARGET_PATH (iteration $i/$ITERATIONS)"
+    fi
+done
+
+echo ">> [apprun-test] Custom command completed"
+exit 0

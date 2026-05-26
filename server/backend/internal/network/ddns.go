@@ -13,30 +13,49 @@ import (
 )
 
 type DDNSService struct {
-	db             *database.DB
-	providerMgr    *DNSProviderManager
-	logger         *slog.Logger
-	auditLogger    *audit.Service
-	currentIP      netip.Addr
-	mu             sync.RWMutex
-	stop           chan struct{}
-	stopped        chan struct{}
-	running        bool
-	lastUpdate     time.Time
-	lastError      error
-	updateInterval time.Duration
+	db          *database.DB
+	providerMgr *DNSProviderManager
+	logger      *slog.Logger
+	auditLogger *audit.Service
+	currentIP   netip.Addr
+	interval    time.Duration
+	mu          sync.RWMutex
+	stop        chan struct{}
+	stopped     chan struct{}
+	running     bool
+	lastUpdate  time.Time
+	lastError   error
 }
 
 func NewDDNSService(db *database.DB, providerMgr *DNSProviderManager, auditLogger *audit.Service) *DDNSService {
 	return &DDNSService{
-		db:             db,
-		providerMgr:    providerMgr,
-		logger:         slog.Default().With("component", "ddns"),
-		auditLogger:    auditLogger,
-		stop:           make(chan struct{}),
-		stopped:        make(chan struct{}),
-		updateInterval: 5 * time.Minute,
+		db:          db,
+		providerMgr: providerMgr,
+		logger:      slog.Default().With("component", "ddns"),
+		auditLogger: auditLogger,
+		interval:    5 * time.Minute,
+		stop:        make(chan struct{}),
+		stopped:     make(chan struct{}),
 	}
+}
+
+func (s *DDNSService) SetInterval(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d < time.Minute {
+		d = time.Minute
+	}
+	if d > 60*time.Minute {
+		d = 60 * time.Minute
+	}
+	s.interval = d
+	s.logger.Debug("DDNS interval updated", "interval", d)
+}
+
+func (s *DDNSService) GetInterval() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.interval
 }
 
 func (s *DDNSService) Start() {
@@ -89,37 +108,26 @@ func (s *DDNSService) Status() (lastIP string, lastUpdate time.Time, lastError e
 func (s *DDNSService) run() {
 	defer close(s.stopped)
 
-	for {
-		s.mu.RLock()
-		interval := s.updateInterval
-		s.mu.RUnlock()
+	s.mu.RLock()
+	interval := s.interval
+	s.mu.RUnlock()
 
-		ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
 		select {
 		case <-ticker.C:
-			ticker.Stop()
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			s.updateDNS(ctx)
+			s.UpdateDNS(ctx)
 			cancel()
 		case <-s.stop:
-			ticker.Stop()
 			return
 		}
 	}
 }
 
-func (s *DDNSService) ForceUpdate(ctx context.Context) error {
-	return s.updateDNS(ctx)
-}
-
-func (s *DDNSService) SetInterval(d time.Duration) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.updateInterval = d
-	s.logger.Info("DDNS update interval changed", "interval", d)
-}
-
-func (s *DDNSService) updateDNS(ctx context.Context) error {
+func (s *DDNSService) UpdateDNS(ctx context.Context) error {
 	publicIP, err := DetectPublicIP(ctx)
 	if err != nil {
 		s.logger.Warn("Failed to detect public IP", "error", err)
@@ -151,7 +159,10 @@ func (s *DDNSService) updateDNS(ctx context.Context) error {
 	}
 
 	if cfg == nil || !cfg.Enabled {
-		s.logger.Debug("DNS provider not configured, skipping update")
+		s.logger.Debug("DNS provider not configured, IP tracked but no DNS update")
+		s.mu.Lock()
+		s.lastUpdate = time.Now()
+		s.mu.Unlock()
 		return nil
 	}
 

@@ -1,0 +1,27 @@
+#!/bin/bash
+# system-update - AppRun Test Suite update script
+# Exercises: reading config, checking version, re-rendering config files
+
+set -euo pipefail
+
+CONFIG_FILE="${1:-}"
+if [[ -z "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config file path required as argument 1"
+    exit 1
+fi
+
+INSTANCE_ID=$(jq -r '.instance_id' "$CONFIG_FILE")
+INSTALL_PATH=$(jq -r '.install_path' "$CONFIG_FILE")
+CONFIG_DIR=$(jq -r '.config_dir' "$CONFIG_FILE")
+
+echo ">> [apprun-test] Running update for instance $INSTANCE_ID"
+
+if [[ -f "$CONFIG_DIR/app-config/test.conf" ]]; then
+    echo ">> [apprun-test] Existing config preserved"
+fi
+
+UPDATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+echo "updated_at=${UPDATED_AT}" >> "$CONFIG_DIR/app-config/test.conf"
+
+echo ">> [apprun-test] Update completed successfully"
+exit 0

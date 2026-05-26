@@ -1,0 +1,112 @@
+services:
+  apprun-test-main:
+    image: alpine:3.21
+    container_name: "{{.instance_id}}-main"
+    restart: unless-stopped
+    command: >
+      sh -c "mkdir -p /www /data /logs &&
+        echo '{\"status\":\"ok\",\"instance\":\"{{.instance_id}}\",\"app\":\"{{.app_name}}\"}' > /www/health.json &&
+        echo '<!DOCTYPE html><html><head><title>AppRun Test</title></head><body><h1>AppRun Test Suite</h1><p>instance: {{.instance_id}}</p><p>mode: {{.select_field}}</p></body></html>' > /www/index.html &&
+        while true; do
+          echo 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n'$(cat /www/health.json) | nc -l -p 80 -q 0 > /dev/null 2>&1;
+          echo 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n'$(cat /www/index.html) | nc -l -p 81 -q 0 > /dev/null 2>&1;
+        done"
+    ports:
+      - "{{.http_port}}:80"
+      - "{{.api_port}}:81"
+      - "{{.metrics_port}}:82/udp"
+    environment:
+      - "INSTANCE_ID={{.instance_id}}"
+      - "INSTALL_PATH={{.install_path}}"
+      - "APP_NAME={{.app_name}}"
+      - "PUID={{.puid}}"
+      - "PGID={{.pgid}}"
+      - "STRING_FIELD={{.string_field}}"
+      - "PASSWORD_FIELD={{.password_field}}"
+      - "NUMBER_FIELD={{.number_field}}"
+      - "BOOLEAN_FIELD={{.boolean_field}}"
+      - "SELECT_FIELD={{.select_field}}"
+      - "VALIDATED_FIELD={{.validated_field}}"
+      - "DEPLOY_ENV={{.ENV_FROM_DEPLOYMENT}}"
+      - "DEPLOY_TEMPLATE_REF={{.ENV_TEMPLATE_REF}}"
+      - "GENERATED_PW_16={{generatePassword 16}}"
+      - "GENERATED_PW_32={{generatePassword 32}}"
+      - "DATA_PATH={{ dataPath }}"
+      - "CONFIG_PATH={{ configPath }}"
+      - "SERVER_URL={{ serverURL }}"
+      - "SERVER_DOMAIN={{ serverDomain }}"
+      - "SMTP_HOST={{ smtpHost }}"
+      - "SMTP_PORT={{ smtpPort }}"
+      - "SMTP_USER={{ smtpUser }}"
+      - "SMTP_PASS={{ smtpPass }}"
+      - "SMTP_FROM={{ smtpFrom }}"
+      - "DEFAULT_FALLBACK={{default "fallback-unused" .nonexistent_field}}"
+      - "EXISTING_FALLBACK={{default "should-not-appear" .string_field}}"
+      - "SERVER_PORT={{.server.server_port}}"
+      - "SERVER_MODE={{.server.server_mode}}"
+      - "SERVER_HOST={{.server.server_host}}"
+      - "CADDY_MODE={{.server.caddy_mode}}"
+      - "DEFAULT_DOMAIN={{.server.default_domain}}"
+      - "ACME_EMAIL={{.server.acme_email}}"
+      - "SMTP_HOST_CTX={{.server.smtp_host}}"
+      - "SMTP_PORT_CTX={{.server.smtp_port}}"
+      - "SMTP_USER_CTX={{.server.smtp_username}}"
+      - "SMTP_PASS_CTX={{.server.smtp_password}}"
+      - "SMTP_FROM_CTX={{.server.smtp_from}}"
+      - "SMTP_TLS={{.server.smtp_use_tls}}"
+      - "SMTP_SKIP_VERIFY={{.server.smtp_skip_verify}}"
+      - "TUNNEL_ENABLED={{.server.tunnel_enabled}}"
+      - "TUNNEL_PROVIDER={{.server.tunnel_provider}}"
+      - "DNS_PROVIDER={{.server.dns_provider}}"
+    volumes:
+      - "{{ dataPath }}/app-data:/data:z"
+      - "{{ configPath }}/app-config:/config:ro,z"
+      - "{{ dataPath }}/app-logs:/logs:z"
+    {{if .boolean_field}}
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"
+      - "test.label.one=value-one"
+      - "test.label.two=value-two"
+      - "test.boolean.enabled=true"
+    {{else}}
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.name={{.app_name}}"
+      - "test.label.one=value-one"
+      - "test.label.two=value-two"
+      - "test.boolean.enabled=false"
+    {{end}}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+    networks:
+      - apprun-test-net
+
+  apprun-test-helper:
+    image: alpine:3.21
+    container_name: "{{.instance_id}}-helper"
+    restart: unless-stopped
+    command: >
+      sh -c "echo 'helper-{{.select_field}} mode active' &&
+        while true; do echo 'HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nhelper-ok' | nc -l -p 8080 -q 0 > /dev/null 2>&1; done"
+    environment:
+      - "HELLO=helper"
+      - "MODE={{.select_field}}"
+    labels:
+      - "libreserv.app={{.instance_id}}"
+      - "libreserv.app.component=helper"
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    networks:
+      - apprun-test-net
+
+networks:
+  apprun-test-net:
+    driver: bridge

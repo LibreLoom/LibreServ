@@ -182,21 +182,19 @@ export default function SecurityCategory() {
         padding={false}
         index={0}
         headerActions={
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Filter size={14} className="text-accent" />
+            <div className="flex items-center gap-3">
               <Dropdown
                 value={filter}
                 onChange={setFilter}
                 width={80}
+                bg="primary"
                 options={[
-                  { value: "24h", label: "24h" },
-                  { value: "7d", label: "7d" },
-                  { value: "30d", label: "30d" },
+                  { value: "24h", label: "24 hours" },
+                  { value: "7d", label: "7 days" },
+                  { value: "30d", label: "30 days" },
                   { value: "all", label: "All" },
                 ]}
               />
-            </div>
             {lastUpdated && (
               <span className="text-xs text-accent hidden sm:inline">
                 {formatTimestamp(lastUpdated.toISOString(), use12HourTime)}

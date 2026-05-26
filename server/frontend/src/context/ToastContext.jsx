@@ -19,7 +19,7 @@ export function ToastProvider({ children, maxToasts = 5 }) {
   const dismissToast = useCallback((id) => {
     const timers = timersRef.current;
     if (timers.has(id)) {
-      clearTimeout(timers.get(id));
+      clearTimeout(timers.get(id).timer);
       timers.delete(id);
     }
     setToasts((prev) =>
@@ -29,6 +29,32 @@ export function ToastProvider({ children, maxToasts = 5 }) {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 420);
   }, []);
+
+  const pauseToast = useCallback((id) => {
+    const timers = timersRef.current;
+    if (!timers.has(id)) return;
+
+    const timerInfo = timers.get(id);
+    if (timerInfo.timer) {
+      clearTimeout(timerInfo.timer);
+      const elapsed = Date.now() - timerInfo.startedAt;
+      const remaining = Math.max(0, timerInfo.remaining - elapsed);
+      timers.set(id, { timer: null, remaining, startedAt: null });
+    }
+  }, []);
+
+  const resumeToast = useCallback((id) => {
+    const timers = timersRef.current;
+    if (!timers.has(id)) return;
+
+    const timerInfo = timers.get(id);
+    if (!timerInfo.timer && timerInfo.remaining > 0) {
+      const timer = setTimeout(() => {
+        dismissToast(id);
+      }, timerInfo.remaining);
+      timers.set(id, { timer, remaining: timerInfo.remaining, startedAt: Date.now() });
+    }
+  }, [dismissToast]);
 
   const addToast = useCallback(
     ({ type = "info", message, description, duration }) => {
@@ -49,7 +75,7 @@ export function ToastProvider({ children, maxToasts = 5 }) {
         if (newToasts.length > maxToasts) {
           const removed = newToasts.shift();
           if (removed && timersRef.current.has(removed.id)) {
-            clearTimeout(timersRef.current.get(removed.id));
+            clearTimeout(timersRef.current.get(removed.id).timer);
             timersRef.current.delete(removed.id);
           }
         }
@@ -60,7 +86,7 @@ export function ToastProvider({ children, maxToasts = 5 }) {
         const timer = setTimeout(() => {
           dismissToast(id);
         }, toastDuration);
-        timersRef.current.set(id, timer);
+        timersRef.current.set(id, { timer, remaining: toastDuration, startedAt: Date.now() });
       }
 
       return id;
@@ -69,7 +95,7 @@ export function ToastProvider({ children, maxToasts = 5 }) {
   );
 
   const clearToasts = useCallback(() => {
-    timersRef.current.forEach((timer) => clearTimeout(timer));
+    timersRef.current.forEach((timerInfo) => clearTimeout(timerInfo.timer));
     timersRef.current.clear();
     setToasts([]);
   }, []);
@@ -78,6 +104,8 @@ export function ToastProvider({ children, maxToasts = 5 }) {
     toasts,
     addToast,
     dismissToast,
+    pauseToast,
+    resumeToast,
     clearToasts,
   };
 
