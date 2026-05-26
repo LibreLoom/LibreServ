@@ -37,28 +37,28 @@ var Profiles = map[string]*Profile{
 	"quick": {
 		ID:          "quick",
 		Name:        "Quick",
-		Description: "Fast feedback - format, vet, unit tests, lint (5 tests)",
-		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "frontend-lint", "frontend-test"},
+		Description: "Fast feedback - format, vet, unit tests, build, lint, typecheck (7 tests)",
+		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-build", "go-rollback-test", "frontend-lint", "frontend-test", "frontend-typecheck"},
 	},
 	"backend": {
 		ID:          "backend",
 		Name:        "Backend",
-		Description: "Backend tests - format, vet, unit tests, build, rollback, coverage (6 tests)",
-		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-build", "go-rollback-test", "coverage"},
+		Description: "Backend tests - format, vet, unit tests, race, build, rollback, coverage (7 tests)",
+		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test", "coverage"},
 	},
 	"frontend": {
 		ID:          "frontend",
 		Name:        "Frontend",
-		Description: "Frontend tests - lint, test, build, color scan (4 tests)",
-		TestIDs:     []string{"frontend-lint", "frontend-test", "frontend-build", "frontend-colors"},
+		Description: "Frontend tests - lint, test, build, typecheck, color scan (5 tests)",
+		TestIDs:     []string{"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors"},
 	},
 	"deep": {
 		ID:          "deep",
 		Name:        "Deep",
-		Description: "Comprehensive - race detection, rollback, all fuzz, e2e (24 tests)",
+		Description: "Comprehensive - race detection, rollback, build, all fuzz, e2e (26 tests)",
 		TestIDs: []string{
-			"go-fmt", "go-vet", "go-test", "go-race", "go-rollback-test",
-			"frontend-lint", "frontend-test", "frontend-build",
+			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
+			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"fuzz-docker-unmarshal", "fuzz-docker-marshal",
 			"fuzz-apps-definition", "fuzz-apps-script",
 			"fuzz-network-caddyfile", "fuzz-network-route", "fuzz-network-backend",
@@ -86,10 +86,10 @@ var Profiles = map[string]*Profile{
 	"full": {
 		ID:          "full",
 		Name:        "Full",
-		Description: "Complete test suite - all 30 tests",
+		Description: "Complete test suite - all 31 tests",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
-			"frontend-lint", "frontend-test", "frontend-build", "frontend-colors",
+			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"fuzz-docker-unmarshal", "fuzz-docker-marshal",
 			"fuzz-apps-definition", "fuzz-apps-script",
 			"fuzz-network-caddyfile", "fuzz-network-route", "fuzz-network-backend",
@@ -103,10 +103,10 @@ var Profiles = map[string]*Profile{
 	"nofuzz": {
 		ID:          "nofuzz",
 		Name:        "No Fuzz",
-		Description: "Everything except fuzz tests - full suite minus fuzzing (18 tests)",
+		Description: "Everything except fuzz tests - full suite minus fuzzing (19 tests)",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
-			"frontend-lint", "frontend-test", "frontend-build", "frontend-colors",
+			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"govulncheck", "gosec", "staticcheck",
 			"coverage", "docker-build",
 			"e2e",

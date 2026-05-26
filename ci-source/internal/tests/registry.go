@@ -170,6 +170,17 @@ func addFrontendTests() {
 		WorkDir:     "/repo/server/frontend",
 		Timeout:     10 * time.Minute,
 	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "frontend-typecheck",
+		Name:        "Frontend TypeScript Check",
+		Description: "Run tsc --noEmit to validate types across JSX files",
+		Type:        TestTypeUnit,
+		Container:   "node:20-alpine",
+		Command:     "npm install --no-fund && npm run typecheck",
+		WorkDir:     "/repo/server/frontend",
+		Timeout:     10 * time.Minute,
+	})
 }
 
 func addFuzzTests() {
