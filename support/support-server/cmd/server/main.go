@@ -74,7 +74,13 @@ func main() {
 		log.Printf("WARNING: inference proxy disabled — INFERENCE_BASE_URL and INFERENCE_API_KEY not set")
 	}
 
-	mux.Handle("/api/cases", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
+	// Rate limiters
+	generalRL := newRateLimiter(0.5, 30)   // 30 req/min per IP, burst 30
+	inferenceRL := newRateLimiter(1.0, 60) // 60 req/min per device, burst 60
+	generalMiddleware := rateLimitMiddleware(generalRL)
+	inferenceMiddleware := rateLimitDeviceMiddleware(inferenceRL)
+
+	casesHandler := authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			handleListCases(db)(w, r)
@@ -83,9 +89,10 @@ func main() {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-	}))
+	})
+	mux.Handle("/api/cases", generalMiddleware(casesHandler))
 
-	mux.Handle("/api/cases/", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
+	casesSubHandler := authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/api/cases/")
 		if path == "" {
 			http.Error(w, "case id required", http.StatusBadRequest)
@@ -124,9 +131,10 @@ func main() {
 		default:
 			http.Error(w, "not found", http.StatusNotFound)
 		}
-	}))
+	})
+	mux.Handle("/api/cases/", generalMiddleware(casesSubHandler))
 
-	mux.Handle("/api/subscriptions", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
+	subHandler := authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			handleGetSubscription(db).ServeHTTP(w, r)
@@ -135,27 +143,32 @@ func main() {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-	}))
+	})
+	mux.Handle("/api/subscriptions", generalMiddleware(subHandler))
 
-	mux.Handle("/api/subscriptions/credits", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
+	creditsHandler := authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		handleReportCredits(db).ServeHTTP(w, r)
-	}))
+	})
+	mux.Handle("/api/subscriptions/credits", generalMiddleware(creditsHandler))
 
-	mux.Handle("/api/plans", authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
+	plansHandler := authHandler(adminToken, deviceToken, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		handleListPlans(db).ServeHTTP(w, r)
-	}))
+	})
+	mux.Handle("/api/plans", generalMiddleware(plansHandler))
 
 	if proxy != nil {
-		mux.Handle("/api/v1/inference/chat/completions", authHandler(adminToken, deviceToken, proxy.HandleChatCompletions))
-		mux.Handle("/api/v1/inference/models", authHandler(adminToken, deviceToken, proxy.HandleModels))
+		completionsHandler := authHandler(adminToken, deviceToken, proxy.HandleChatCompletions)
+		modelsHandler := authHandler(adminToken, deviceToken, proxy.HandleModels)
+		mux.Handle("/api/v1/inference/chat/completions", inferenceMiddleware(completionsHandler))
+		mux.Handle("/api/v1/inference/models", inferenceMiddleware(modelsHandler))
 	}
 
 	server := &http.Server{
