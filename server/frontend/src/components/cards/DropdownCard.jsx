@@ -3,6 +3,9 @@ import Card from "./Card";
 import MiniStatCard from "./MiniStatCard";
 import CollapsibleSection from "../common/CollapsibleSection";
 
+/**
+ * @param {{ title?: any, subtitle?: any, value: any, breakdownItems?: any[], defaultOpen?: boolean, Icon?: any }} _
+ */
 export default function DropdownCard({
   title,
   subtitle,

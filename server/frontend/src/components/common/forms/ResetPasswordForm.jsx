@@ -2,6 +2,9 @@ import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Lock } from "lucide-react";
 
+/**
+ * @param {{ user: any, onSuccess?: any, onCancel?: any }} _
+ */
 export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();
   const [formData, setFormData] = useState({
@@ -9,7 +12,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
     newPassword: "",
   });
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState({});
+  const [errors, setErrors] = useState(/** @type {Record<string, string>} */ ({}));
 
   const handleChange = useCallback(
     (field) => (e) => {
@@ -41,7 +44,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
       e.preventDefault();
       const validationErrors = validateForm();
       if (Object.keys(validationErrors).length > 0) {
-        setErrors(validationErrors);
+        setErrors(/** @type {any} */ (validationErrors));
         return;
       }
 

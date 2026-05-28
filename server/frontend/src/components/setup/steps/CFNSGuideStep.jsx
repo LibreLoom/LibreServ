@@ -12,6 +12,7 @@ const STEPS = [
   "Wait for activation &mdash; usually a few minutes, up to 24 hours",
 ];
 
+/** @param {{ confirmed: any, onConfirmChange: any, onBack?: any }} _ */
 export default function CFNSGuideStep({ confirmed, onConfirmChange }) {
   return (
     <div>

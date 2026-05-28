@@ -7,7 +7,8 @@ let onopen, onmessage, onerror;
 function createMockEventSource() {
   let closed = false;
 
-  globalThis.EventSource = class MockEventSource {
+  // @ts-ignore
+  const MockEventSource = class {
     constructor() {
       this.close = () => { closed = true; };
       this.readyState = 0;
@@ -19,6 +20,11 @@ function createMockEventSource() {
     get onerror() { return onerror; }
     set onerror(fn) { onerror = fn; }
   };
+  MockEventSource.CONNECTING = 0;
+  MockEventSource.OPEN = 1;
+  MockEventSource.CLOSED = 2;
+  // @ts-expect-error — mock doesn't match EventSource constructor signature
+  globalThis.EventSource = MockEventSource;
 
   const triggerOpen = () => { if (onopen) onopen(); };
   const triggerMessage = (data) => { if (onmessage) onmessage({ data: JSON.stringify(data) }); };

@@ -23,6 +23,9 @@ function restoreString(val) {
   return typeof val === "string" ? val : "";
 }
 
+/**
+ * @param {{ onComplete: any, onSkip: any, onDismiss: any, initialSubStep?: any, initialStepData?: any, saveProgress?: any, open?: boolean, onClose?: any }} _
+ */
 export default function DomainWizard({ onComplete, onSkip, onDismiss, initialSubStep, initialStepData, saveProgress, open = false }) {
   const initData = initialStepData || {};
 

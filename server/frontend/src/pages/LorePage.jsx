@@ -12,6 +12,7 @@ export default function LorePage() {
 
   useEffect(() => {
     // Load markdown content lazily so the main bundle stays lean.
+    // @ts-ignore - dynamic import for lore markdown
     import("../../../../.lore/lore.md?raw")
       .then((module) => {
         setLoreContent(module.default);
@@ -99,8 +100,9 @@ export default function LorePage() {
                     />
                   ),
                   li: (props) => <li className="mb-1" {...props} />,
-                  code: ({ inline, ...props }) =>
-                    inline ? (
+                  code: (props) => {
+                    const { inline } = /** @type {{ inline?: boolean }} */ (props);
+                    return inline ? (
                       <code
                         className="bg-secondary px-1 py-0.5 rounded text-sm"
                         {...props}
@@ -110,7 +112,8 @@ export default function LorePage() {
                         className="block bg-accent text-secondary p-4 rounded mb-4 overflow-x-auto"
                         {...props}
                       />
-                    ),
+                    );
+                  },
                   hr: (props) => (
                     <hr className="my-6 border-accent" {...props} />
                   ),

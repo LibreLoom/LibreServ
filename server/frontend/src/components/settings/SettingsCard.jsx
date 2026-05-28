@@ -7,8 +7,7 @@ const STAGGER_DELAY_MS = 50;
  * Standardized settings card with staggered fly-in-from-bottom animation.
  * Drop-in replacement for Card in settings pages.
  *
- * @param {number} index - Position in the stagger sequence (0-based).
- *                          Determines animation delay (index × 50ms).
+ * @param {{ index?: number, [key: string]: any }} _
  */
 function SettingsCard({ index = 0, ...props }) {
   const delay = index * STAGGER_DELAY_MS;

@@ -30,6 +30,10 @@ function Wrapper({ children, authOverrides }) {
   );
 }
 
+/**
+ * @param {any} ui
+ * @param {{ authOverrides?: any, [key: string]: any }} [options]
+ */
 export function renderWithProviders(ui, { authOverrides, ...options } = {}) {
   return render(ui, {
     wrapper: (props) => <Wrapper {...props} authOverrides={authOverrides} />,

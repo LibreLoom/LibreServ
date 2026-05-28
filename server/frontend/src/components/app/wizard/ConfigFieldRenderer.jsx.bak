@@ -4,7 +4,6 @@ import { useState } from "react";
 import Dropdown from "../../common/Dropdown";
 import AnimatedCheckbox from "../../ui/AnimatedCheckbox";
 
-/** @param {{ field: any, value: any, onChange: any, disabled?: any }} _ */
 function ConfigFieldRenderer({ field, value, onChange, disabled }) {
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState(null);

@@ -1,5 +1,6 @@
 import { Wrench, Play, Loader2 } from "lucide-react";
 
+/** @param {{ action: any, onExecute: any, disabled?: any, loading?: any }} _ */
 export function ActionCard({ action, onExecute, disabled, loading }) {
   const hasOptions = action.options?.length > 0;
 

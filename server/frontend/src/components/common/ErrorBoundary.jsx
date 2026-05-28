@@ -68,7 +68,7 @@ class ErrorBoundary extends Component {
               </p>
             </div>
 
-             {import.meta.env.DEV && this.state.error && (
+             {/** @type {any} */ (import.meta).env?.DEV && this.state.error && (
                <div className="bg-secondary text-primary rounded-large-element p-5 mb-6 ring-2 ring-accent/30">
                  <div className="flex items-center gap-2 mb-4">
                    <Bug className="w-5 h-5 text-accent" />
@@ -136,6 +136,9 @@ class ErrorBoundary extends Component {
   }
 }
 
+/**
+ * @param {{ children?: any, fallback?: any, onError?: any }} _
+ */
 export class ErrorBoundaryWithFallback extends Component {
   constructor(props) {
     super(props);

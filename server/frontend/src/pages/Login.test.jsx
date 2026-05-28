@@ -19,7 +19,7 @@ vi.mock("../context/ToastContext", () => ({
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = /** @type {any} */ (await importOriginal());
   return {
     ...actual,
     useNavigate: () => mockNavigate,
@@ -58,7 +58,7 @@ describe("Login", () => {
 
   it("calls login with credentials on submit", async () => {
     const user = userEvent.setup();
-    const loginFn = vi.fn().mockResolvedValue(undefined);
+    const loginFn = /** @type {any} */ (vi.fn()).mockResolvedValue(undefined);
     renderWithProviders(<Login />, { authOverrides: { login: loginFn } });
 
     await user.type(screen.getByLabelText("Username"), "admin");
@@ -71,9 +71,8 @@ describe("Login", () => {
 
   it("shows 401 error message on auth failure", async () => {
     const user = userEvent.setup();
-    const loginFn = vi.fn().mockRejectedValue({
-      cause: { status: 401 },
-    });
+    const loginFn = /** @type {any} */ (vi.fn());
+    loginFn.mockRejectedValue({ cause: { status: 401 } });
     renderWithProviders(<Login />, { authOverrides: { login: loginFn } });
 
     await user.type(screen.getByLabelText("Username"), "admin");
@@ -87,9 +86,8 @@ describe("Login", () => {
 
   it("shows 429 error message on rate limit", async () => {
     const user = userEvent.setup();
-    const loginFn = vi.fn().mockRejectedValue({
-      cause: { status: 429 },
-    });
+    const loginFn = /** @type {any} */ (vi.fn());
+    loginFn.mockRejectedValue({ cause: { status: 429 } });
     renderWithProviders(<Login />, { authOverrides: { login: loginFn } });
 
     await user.type(screen.getByLabelText("Username"), "admin");
@@ -103,7 +101,8 @@ describe("Login", () => {
 
   it("shows network error message on fetch failure", async () => {
     const user = userEvent.setup();
-    const loginFn = vi.fn().mockRejectedValue(new Error("down"));
+    const loginFn = /** @type {any} */ (vi.fn());
+    loginFn.mockRejectedValue(new Error("down"));
     renderWithProviders(<Login />, { authOverrides: { login: loginFn } });
 
     await user.type(screen.getByLabelText("Username"), "admin");

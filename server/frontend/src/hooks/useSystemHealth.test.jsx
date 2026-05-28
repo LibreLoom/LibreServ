@@ -11,9 +11,9 @@ import api from "../lib/api";
 
 describe("useSystemHealth", () => {
   it("returns health data when API succeeds", async () => {
-    api.mockResolvedValue({
+    vi.mocked(api).mockResolvedValue(/** @type {any} */({
       json: () => Promise.resolve({ status: "ok", checks: { cpu: "passed" } }),
-    });
+    }));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (
@@ -28,7 +28,7 @@ describe("useSystemHealth", () => {
   });
 
   it("handles API errors", async () => {
-    api.mockRejectedValue(new Error("fail"));
+    vi.mocked(api).mockRejectedValue(new Error("fail"));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (

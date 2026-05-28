@@ -5,7 +5,7 @@ import { renderWithProviders } from "../test/test-utils";
 
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual = /** @type {Record<string, unknown>} */ (await importOriginal());
   return {
     ...actual,
     useNavigate: () => mockNavigate,
@@ -74,8 +74,8 @@ const mockInstalled = [
 describe("AppsPage", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    useCatalog.mockReturnValue({ data: mockCatalog, isLoading: false, error: null });
-    useApps.mockReturnValue({ data: mockInstalled, isLoading: false, error: null });
+    vi.mocked(useCatalog).mockReturnValue(/** @type {any} */({ data: mockCatalog, isLoading: false, error: null }));
+    vi.mocked(useApps).mockReturnValue(/** @type {any} */({ data: mockInstalled, isLoading: false, error: null }));
   });
 
   it("renders the page title", () => {
@@ -136,15 +136,15 @@ describe("AppsPage", () => {
   });
 
   it("shows error state when catalog fails to load", () => {
-    useCatalog.mockReturnValue({ data: [], isLoading: false, error: new Error("fail") });
-    useApps.mockReturnValue({ data: [], isLoading: false, error: null });
+    vi.mocked(useCatalog).mockReturnValue(/** @type {any} */({ data: [], isLoading: false, error: new Error("fail") }));
+    vi.mocked(useApps).mockReturnValue(/** @type {any} */({ data: [], isLoading: false, error: null }));
     renderWithProviders(<AppsPage />);
     expect(screen.getByText("Failed to load app catalog. Please try again.")).toBeInTheDocument();
   });
 
   it("shows loading overlay when data is loading", () => {
-    useCatalog.mockReturnValue({ data: [], isLoading: true, error: null });
-    useApps.mockReturnValue({ data: [], isLoading: true, error: null });
+    vi.mocked(useCatalog).mockReturnValue(/** @type {any} */({ data: [], isLoading: true, error: null }));
+    vi.mocked(useApps).mockReturnValue(/** @type {any} */({ data: [], isLoading: true, error: null }));
     renderWithProviders(<AppsPage />);
     expect(screen.getByText("Loading apps...")).toBeInTheDocument();
   });

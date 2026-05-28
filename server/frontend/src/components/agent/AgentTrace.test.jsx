@@ -1,30 +1,31 @@
 /* color-scan: ignore-file - test fixtures with intentional avatar colors */
+import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import AgentTrace, { AgentAvatar } from "./AgentTrace.jsx";
+import AgentTrace, { AgentDot } from "./AgentTrace.jsx";
 
 function makeEvent(type, overrides = {}) {
   return { type, ...overrides };
 }
 
-describe("AgentAvatar", () => {
+describe("AgentDot", () => {
   it("renders with diamond shape", () => {
-    const { container } = render(<AgentAvatar shape="diamond" color="#FF6B35" />);
-    const el = container.firstChild;
+    const { container } = render(<AgentDot shape="diamond" color="#FF6B35" />);
+    const el = /** @type {HTMLElement} */ (container.firstChild);
     expect(el).toBeTruthy();
     expect(el.style.backgroundColor).toBe("rgb(255, 107, 53)");
   });
 
   it("renders with circle shape", () => {
-    const { container } = render(<AgentAvatar shape="circle" color="#4ECDC4" />);
-    const el = container.firstChild;
+    const { container } = render(<AgentDot shape="circle" color="#4ECDC4" />);
+    const el = /** @type {HTMLElement} */ (container.firstChild);
     expect(el).toBeTruthy();
     expect(el.className).toContain("rounded-full");
   });
 
   it("renders with custom size", () => {
-    const { container } = render(<AgentAvatar shape="circle" color="#4ECDC4" size={32} />);
-    const el = container.firstChild;
+    const { container } = render(<AgentDot shape="circle" color="#4ECDC4" size={32} />);
+    const el = /** @type {HTMLElement} */ (container.firstChild);
     expect(el.style.width).toBe("32px");
     expect(el.style.height).toBe("32px");
   });

@@ -7,6 +7,9 @@ const ICONS = {
   email: Mail,
 };
 
+/**
+ * @param {{ label?: any, name: any, type?: string, value: any, onChange: any, placeholder?: any, error?: any, icon?: any, required?: boolean, disabled?: boolean, autoComplete?: any }} _
+ */
 export default function FormInput({
   label,
   name,

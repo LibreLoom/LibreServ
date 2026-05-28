@@ -31,6 +31,7 @@ function formatBytes(bytes) {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
+/** @param {{ app: any }} _ */
 function AppCardInner({ app }) {
   const [isNarrow, ref] = useIsNarrow(220);
   const isRunning = app.status === "running";
@@ -133,6 +134,7 @@ function NoAppsCard() {
   );
 }
 
+/** @param {{ refreshInterval?: number }} _ */
 export default function AppCards({ refreshInterval = 30000 }) {
   const { data: apps = [], isLoading, error } = useApps(refreshInterval);
 

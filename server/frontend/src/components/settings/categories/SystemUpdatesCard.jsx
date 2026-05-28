@@ -332,8 +332,9 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
                     />
                   ),
                   li: (props) => <li className="mb-1 text-secondary/90" {...props} />,
-                  code: ({ inline, ...props }) =>
-                    inline ? (
+                  code: (props) => {
+                    const { inline } = /** @type {{ inline?: boolean }} */ (props);
+                    return inline ? (
                       <code
                         className="bg-secondary/20 px-1 py-0.5 rounded text-sm text-secondary"
                         {...props}
@@ -342,7 +343,8 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
                       <pre className="block bg-accent/30 text-secondary p-4 rounded mb-3 overflow-x-auto last:mb-0">
                         <code className="text-xs font-mono block" {...props} />
                       </pre>
-                    ),
+                    );
+                  },
                   hr: (props) => (
                     <hr className="my-4 border-secondary/30" {...props} />
                   ),

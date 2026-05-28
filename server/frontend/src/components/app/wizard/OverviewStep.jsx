@@ -34,6 +34,7 @@ const ACCESS_MODEL_INFO = {
   },
 };
 
+/** @param {{ icon: any, label: any, value: any, warning?: any }} _ */
 function RequirementBadge({ icon: Icon, label, value, warning }) {
   return (
     <div
@@ -49,6 +50,7 @@ function RequirementBadge({ icon: Icon, label, value, warning }) {
   );
 }
 
+/** @param {{ info: any }} _ */
 function FeatureWarning({ info }) {
   if (!info) return null;
 
@@ -76,6 +78,7 @@ function FeatureWarning({ info }) {
   );
 }
 
+/** @param {{ app: any, features?: any, onContinue: any, onBack: any }} _ */
 function OverviewStep({ app, features, onContinue, onBack }) {
   const accessInfo = ACCESS_MODEL_INFO[features?.access_model] || ACCESS_MODEL_INFO.integrated_users;
   const requirements = app?.requirements || {};

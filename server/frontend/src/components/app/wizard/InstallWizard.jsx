@@ -10,6 +10,9 @@ import NoDomainWarningStep from "./NoDomainWarningStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
 
+/**
+ * @param {{ appId: any }} _
+ */
 function InstallWizard({ appId }) {
   const navigate = useNavigate();
   const { request } = useAuth();
@@ -18,7 +21,7 @@ function InstallWizard({ appId }) {
   const [step, setStep] = useState(1);
   const [app, setApp] = useState(null);
   const [features, setFeatures] = useState(null);
-  const [config, setConfig] = useState({});
+  const [config, setConfig] = useState(/** @type {Record<string, any>} */ ({}));
   const [instance, setInstance] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

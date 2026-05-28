@@ -22,6 +22,7 @@ function scriptOptionToField(option) {
   };
 }
 
+/** @param {{ action: any, onClose: any, onExecute: any, actionLoading?: any }} _ */
 export function ActionOptionsModal({ action, onClose, onExecute }) {
   const [options, setOptions] = useState(() => {
     const initial = {};

@@ -6,7 +6,7 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 
 /**
  * @typedef {object} ModalCardProps
- * @property {string} [title]
+ * @property {import('react').ReactNode} [title]
  * @property {import('react').ReactNode|function({close: function}): import('react').ReactNode} [children]
  * @property {() => void} [onClose]
  * @property {boolean} [showCloseButton]

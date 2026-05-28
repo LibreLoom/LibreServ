@@ -16,10 +16,10 @@ describe("AuthError", () => {
 
 describe("api", () => {
   it("prepends /api/v1 to the path", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(/** @type {any} */ ({
       ok: true,
       status: 200,
-    });
+    }));
 
     await api("/apps");
     expect(fetchSpy).toHaveBeenCalledWith(
@@ -29,10 +29,10 @@ describe("api", () => {
   });
 
   it("passes through options and headers", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(/** @type {any} */ ({
       ok: true,
       status: 200,
-    });
+    }));
 
     await api("/auth/login", {
       method: "POST",
@@ -50,10 +50,10 @@ describe("api", () => {
   });
 
   it("throws on non-ok response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(/** @type {any} */ ({
       ok: false,
       status: 404,
-    });
+    }));
 
     await expect(api("/missing")).rejects.toThrow(
       "Request failed with status: 404",
@@ -61,7 +61,7 @@ describe("api", () => {
   });
 
   it("returns response on success", async () => {
-    const mockRes = { ok: true, status: 200, json: () => Promise.resolve({}) };
+    const mockRes = /** @type {any} */ ({ ok: true, status: 200, json: () => Promise.resolve({}) });
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(mockRes);
 
     const res = await api("/health");
@@ -70,13 +70,13 @@ describe("api", () => {
 
   it("skips refresh for auth endpoints", async () => {
     const refreshSpy = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockImplementation((url, _opts) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(/** @type {any} */ ((url, _opts) => {
       if (url === "/api/v1/auth/login") {
         return Promise.resolve({ ok: false, status: 401 });
       }
       refreshSpy(url);
       return Promise.resolve({ ok: true, status: 200 });
-    });
+    }));
 
     await expect(
       api("/auth/login", { method: "POST", body: "{}" }),
@@ -86,13 +86,13 @@ describe("api", () => {
 
   it("skips refresh when noRetry option set", async () => {
     const refreshSpy = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(/** @type {any} */ ((url) => {
       if (url === "/api/v1/apps") {
         return Promise.resolve({ ok: false, status: 401 });
       }
       refreshSpy(url);
       return Promise.resolve({ ok: true, status: 200 });
-    });
+    }));
 
     await expect(api("/apps", { noRetry: true })).rejects.toThrow(
       "Request failed with status: 401",
@@ -102,7 +102,7 @@ describe("api", () => {
 
   it("attempts refresh on 401 and retries", async () => {
     let callCount = 0;
-    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(/** @type {any} */ ((url) => {
       callCount++;
       if (url === "/api/v1/apps" && callCount === 1) {
         return Promise.resolve({ ok: false, status: 401 });
@@ -118,14 +118,14 @@ describe("api", () => {
         });
       }
       return Promise.resolve({ ok: true, status: 200 });
-    });
+    }));
 
     const res = await api("/apps");
     expect(res.ok).toBe(true);
   });
 
   it("throws AuthError when refresh fails", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(/** @type {any} */ ((url) => {
       if (url === "/api/v1/apps") {
         return Promise.resolve({ ok: false, status: 401 });
       }
@@ -133,7 +133,7 @@ describe("api", () => {
         return Promise.resolve({ ok: false, status: 401 });
       }
       return Promise.resolve({ ok: true, status: 200 });
-    });
+    }));
 
     await expect(api("/apps")).rejects.toThrow(
       "Session expired. Please log in again.",
@@ -141,7 +141,7 @@ describe("api", () => {
   });
 
   it("throws AuthError on refresh network error", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation((url) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(/** @type {any} */ ((url) => {
       if (url === "/api/v1/apps") {
         return Promise.resolve({ ok: false, status: 401 });
       }
@@ -149,7 +149,7 @@ describe("api", () => {
         return Promise.reject(new Error("network down"));
       }
       return Promise.resolve({ ok: true, status: 200 });
-    });
+    }));
 
     await expect(api("/apps")).rejects.toThrow(
       "Session expired. Please log in again.",

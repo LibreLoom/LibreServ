@@ -20,15 +20,18 @@ function sanitizeSVG(svgText) {
     return "";
   }
   try {
-    const clean = DOMPurify.sanitize(svgText, SVG_PURIFY_OPTS);
+    const clean = String(DOMPurify.sanitize(svgText, SVG_PURIFY_OPTS));
     const wrapper = document.createElement("div");
-    wrapper.appendChild(clean);
+    wrapper.innerHTML = clean;
     return wrapper.innerHTML;
   } catch {
     return "";
   }
 }
 
+/**
+ * @param {{ appId: any, size?: number, className?: string }} _
+ */
 export default function AppIcon({ appId, size = 48, className = "" }) {
   const [svg, setSvg] = useState("");
   const [failed, setFailed] = useState(false);
@@ -42,7 +45,7 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    fetch(`/api/v1/catalog/${appId}/icon?v=${Date.now()}`, { signal: controller.signal })
+    fetch(/** @type {string} */ (`/api/v1/catalog/${appId}/icon?v=${Date.now()}`), { signal: controller.signal })
       .then((res) => res.text())
       .then((svgText) => {
         if (controller.signal.aborted || !mountedRef.current) return;

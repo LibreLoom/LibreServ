@@ -44,6 +44,9 @@ const PLANS = [
   },
 ];
 
+/**
+ * @param {{ currentPlanId?: any, onSelect: any, onSkip?: any }} _
+ */
 export default function PlanPicker({ currentPlanId, onSelect, onSkip }) {
   const [selected, setSelected] = useState(currentPlanId || "free");
 

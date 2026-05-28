@@ -17,7 +17,7 @@ import { ChevronDown } from "lucide-react";
  * @property {string} [id]
  */
 
-/** @param {DropdownProps} props */
+/** @param {DropdownProps & { [key: string]: any }} props */
 export default function Dropdown({
   options,
   value,

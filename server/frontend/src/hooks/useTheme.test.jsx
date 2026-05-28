@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { ThemeContext } from "../context/ThemeContext.jsx";
 import { useTheme } from "./useTheme.jsx";
@@ -9,6 +9,7 @@ describe("useTheme", () => {
       theme: "dark",
       resolvedTheme: "dark",
       toggleTheme: () => {},
+      // color-scan: ignore-next-line -- mock theme data, not actual UI colors
       colors: { primary: "#000", secondary: "#fff", accent: "#767676" },
     };
     const wrapper = ({ children }) => (

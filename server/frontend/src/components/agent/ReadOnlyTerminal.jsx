@@ -2,6 +2,9 @@ import { useState, useRef, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Terminal, Copy, Check } from "lucide-react";
 
+/**
+ * @param {{ content: any, title?: any, maxHeight?: string }} _
+ */
 export default function ReadOnlyTerminal({ content, title, maxHeight = "300px" }) {
   const [copied, setCopied] = useState(false);
   const termRef = useRef(null);

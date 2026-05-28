@@ -1,6 +1,9 @@
 import React from "react";
 
-export default React.memo(function LoadingFast({
+/**
+ * @param {{ label?: string, heading?: string, disableAnimation?: boolean, className?: string, testId?: string }} _
+ */
+function LoadingFast({
   label = "Loading...",
   heading = "Warming up",
   disableAnimation = false,
@@ -33,9 +36,9 @@ export default React.memo(function LoadingFast({
           className="relative h-1 w-full overflow-hidden rounded-full bg-secondary/10"
           role="progressbar"
           aria-label="Loading progress"
-          aria-valuenow="50"
-          aria-valuemin="0"
-          aria-valuemax="100"
+          aria-valuenow={50}
+          aria-valuemin={0}
+          aria-valuemax={100}
         >
           {/* Primary Bar */}
           <div
@@ -49,4 +52,6 @@ export default React.memo(function LoadingFast({
       </div>
     </div>
   );
-});
+}
+
+export default React.memo(LoadingFast);

@@ -72,7 +72,7 @@ describe("useErrorHandler", () => {
 describe("useApiErrorHandler", () => {
   it("handles 401 errors", () => {
     const { result } = renderHook(() => useApiErrorHandler());
-    const err = new Error("unauthorized");
+    const err = /** @type {any} */ (new Error("unauthorized"));
     err.cause = { status: 401 };
     act(() => result.current.handleApiError(err));
     expect(result.current.error.message).toContain("session has expired");
@@ -80,7 +80,7 @@ describe("useApiErrorHandler", () => {
 
   it("handles 403 errors", () => {
     const { result } = renderHook(() => useApiErrorHandler());
-    const err = new Error("forbidden");
+    const err = /** @type {any} */ (new Error("forbidden"));
     err.cause = { status: 403 };
     act(() => result.current.handleApiError(err));
     expect(result.current.error.message).toContain("do not have permission");
@@ -88,7 +88,7 @@ describe("useApiErrorHandler", () => {
 
   it("handles 404 errors", () => {
     const { result } = renderHook(() => useApiErrorHandler());
-    const err = new Error("not found");
+    const err = /** @type {any} */ (new Error("not found"));
     err.cause = { status: 404 };
     act(() => result.current.handleApiError(err));
     expect(result.current.error.message).toContain("was not found");
@@ -96,7 +96,7 @@ describe("useApiErrorHandler", () => {
 
   it("handles 429 errors", () => {
     const { result } = renderHook(() => useApiErrorHandler());
-    const err = new Error("rate limited");
+    const err = /** @type {any} */ (new Error("rate limited"));
     err.cause = { status: 429 };
     act(() => result.current.handleApiError(err));
     expect(result.current.error.message).toContain("Too many requests");
@@ -106,7 +106,7 @@ describe("useApiErrorHandler", () => {
     const { result } = renderHook(() => useApiErrorHandler());
     for (const code of [500, 502, 503]) {
       act(() => result.current.clearError());
-      const err = new Error("server error");
+      const err = /** @type {any} */ (new Error("server error"));
       err.cause = { status: code };
       act(() => result.current.handleApiError(err));
       expect(result.current.error.message).toBe("Server error. Please try again later.");
@@ -132,7 +132,7 @@ describe("useApiErrorHandler", () => {
 
 describe("withErrorHandling HOC", () => {
   it("returns a component wrapping the original", () => {
-    const MockComp = vi.fn().mockReturnValue(null);
+    const MockComp = /** @type {any} */ (vi.fn().mockReturnValue(null));
     const Wrapped = withErrorHandling(MockComp);
     expect(Wrapped).toBeInstanceOf(Function);
   });

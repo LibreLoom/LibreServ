@@ -21,6 +21,9 @@ function buildInitialConfig(preset) {
   };
 }
 
+/**
+ * @param {{ onComplete: any, onSkip: any, onDismiss: any, saveProgress?: any, open?: boolean, initialSubStep?: any, initialStepData?: any, testRecipient?: string, inSetup?: boolean }} _
+ */
 export default function SmtpWizard({ onComplete, onSkip, onDismiss, saveProgress, open = false, initialSubStep, testRecipient = "", inSetup = false }) {
   const [wizStep, setWizStep] = useState(initialSubStep || WIZ.PROVIDER_PICK);
   const [preset, setPreset] = useState(null);

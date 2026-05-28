@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import { Check, X, Loader2 } from "lucide-react";
 
+/** @param {{ label: any, done?: any, failed?: any, spinner?: any, children?: any }} _ */
 export default function StatusRow({ label, done, failed, spinner, children }) {
   return (
     <div className="flex items-start gap-3 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200">

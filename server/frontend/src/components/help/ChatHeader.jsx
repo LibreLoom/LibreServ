@@ -119,6 +119,9 @@ ModelPill.propTypes = {
   onChange: PropTypes.func.isRequired,
 };
 
+/**
+ * @param {{ model: any, onModelChange: any, modelOptions?: any, permissionMode: any, onPermissionModeChange: any, creditUsed: any, creditCap: any, planName: any, sidebarOpen: any, onToggleSidebar: any }} _
+ */
 function ChatHeader({
   model,
   onModelChange,

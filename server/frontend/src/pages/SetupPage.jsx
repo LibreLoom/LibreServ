@@ -560,6 +560,7 @@ function PasswordStrengthBar({ score }) {
 }
 PasswordStrengthBar.propTypes = { score: PropTypes.number.isRequired };
 
+/** @param {{ id: any, label: any, hint?: any, children: any }} _ */
 function FormField({ id, label, hint, children }) {
   return (
     <div>
@@ -1193,7 +1194,7 @@ export default function SetupPage() {
   const [initialSubStep, setInitialSubStep] = useState(null);
   const [initialStepData, setInitialStepData] = useState({});
   const { saveProgress, flushProgress } = useSetupProgress();
-  const progressRef = useRef({});
+  const progressRef = useRef(/** @type {{ step?: string, subStep?: string, stepData?: Record<string, any> }} */ ({}));
   const savingRef = useRef(false);
 
   const handleSetupTokenChange = useCallback((event) => {

@@ -25,7 +25,7 @@ export function reportError(error, context = {}) {
     url: window.location.href,
   };
 
-  if (import.meta.env.DEV) {
+  if (/** @type {any} */ (import.meta).env?.DEV) {
     console.group(`🐛 Error Report [${errorId}]`);
     console.error('Error:', error);
     console.log('Context:', enrichedContext);
@@ -68,7 +68,7 @@ export function setupGlobalErrorHandlers() {
   });
 
   // Handle rejected promises in React (if using React 16+ error boundaries)
-  if (window.__REACT_ERROR_OVERLAY_GLOBAL_HOOK__) {
+  if (/** @type {any} */ (window).__REACT_ERROR_OVERLAY_GLOBAL_HOOK__) {
     const originalErrorHandler = console.error;
     console.error = function(...args) {
       // Check if this is a React error

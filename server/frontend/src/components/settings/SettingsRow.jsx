@@ -1,3 +1,6 @@
+/**
+ * @param {{ label: any, description?: any, children: any, className?: string, hideDivider?: boolean, compact?: boolean, mono?: boolean, stack?: boolean }} _
+ */
 export default function SettingsRow({
   label,
   description,

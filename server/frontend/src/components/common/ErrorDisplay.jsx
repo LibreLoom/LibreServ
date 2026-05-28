@@ -11,6 +11,9 @@ const secondaryBtn =
 "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0 " +
    "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
 
+/**
+ * @param {{ message: any, type?: string, onDismiss?: any, dismissible?: boolean, children?: any }} _
+ */
 export function ErrorDisplay({
   message,
   type = "error",
@@ -74,6 +77,7 @@ export function InlineError({ message, className = "" }) {
   );
 }
 
+/** @param {{ errors: any, onRetry?: any }} _ */
 export function FormErrorSummary({ errors, onRetry }) {
   const errorEntries = Object.entries(errors).filter(([_, value]) => value);
 
@@ -102,6 +106,7 @@ export function FormErrorSummary({ errors, onRetry }) {
   );
 }
 
+/** @param {{ error: any, onRetry?: any, onDismiss?: any }} _ */
 export function ApiError({ error, onRetry, onDismiss }) {
   if (!error) return null;
 

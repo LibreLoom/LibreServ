@@ -92,9 +92,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   RoutesCardProps = null;
   DebugCardProps = null;
-  listRoutes.mockResolvedValue(mockRoutes);
-  getCaddyStatus.mockResolvedValue(mockStatus);
-  getCaddyfile.mockResolvedValue("# Caddyfile\n{\n\tauto_https off\n}");
+  /** @type {any} */ (listRoutes).mockResolvedValue(mockRoutes);
+  /** @type {any} */ (getCaddyStatus).mockResolvedValue(mockStatus);
+  /** @type {any} */ (getCaddyfile).mockResolvedValue("# Caddyfile\n{\n\tauto_https off\n}");
 });
 
 describe("NetworkCategory", () => {
@@ -127,8 +127,8 @@ describe("NetworkCategory", () => {
   });
 
   it("passes loading and error state to RoutesCard", async () => {
-    listRoutes.mockImplementation(() => new Promise(() => {}));
-    getCaddyStatus.mockImplementation(() => new Promise(() => {}));
+    /** @type {any} */ (listRoutes).mockImplementation(() => new Promise(() => {}));
+    /** @type {any} */ (getCaddyStatus).mockImplementation(() => new Promise(() => {}));
 
     renderWithProviders(<NetworkCategory settings={{}} />);
 
@@ -138,7 +138,7 @@ describe("NetworkCategory", () => {
   });
 
   it("passes error to RoutesCard on load failure", async () => {
-    listRoutes.mockRejectedValue(new Error("Network error"));
+    /** @type {any} */ (listRoutes).mockRejectedValue(new Error("Network error"));
 
     renderWithProviders(<NetworkCategory settings={{}} />);
 

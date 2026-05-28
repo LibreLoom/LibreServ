@@ -27,7 +27,7 @@ function AdvancedSection({ show, onToggle, advancedSortedGroups, advancedGrouped
         onClick={onToggle}
         className="group flex w-full items-center justify-between gap-3 rounded-large-element px-4 py-3 text-left font-mono text-sm text-secondary/50 hover:bg-secondary/5 motion-safe:transition-all"
         aria-expanded={show}
-        aria-controls={contentId.current}
+        aria-controls={contentId}
       >
         <span className="uppercase tracking-wider text-xs">Advanced Information</span>
         <ChevronDown
@@ -40,7 +40,7 @@ function AdvancedSection({ show, onToggle, advancedSortedGroups, advancedGrouped
 
       <div
         ref={contentRef}
-        id={contentId.current}
+        id={contentId}
         className="overflow-hidden motion-safe:transition-[max-height,opacity] motion-safe:duration-500 motion-safe:ease-in-out"
         style={{ maxHeight: show ? `${height}px` : "0px", opacity: show ? 1 : 0 }}
         role="region"

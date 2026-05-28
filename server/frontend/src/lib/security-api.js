@@ -14,9 +14,10 @@ import api from "./api.js";
  * @param {string} filters.severity - Severity filter (info, warning, critical)
  * @returns {Promise<Array>} Security events
  */
+/** @param {{ limit?: number, since?: string, type?: string, severity?: string }} [filters] */
 export async function getSecurityEvents(filters = {}) {
   const params = new URLSearchParams();
-  if (filters.limit) params.append("limit", filters.limit);
+  if (filters.limit) params.append("limit", /** @type {any} */ (filters.limit));
   if (filters.since) params.append("since", filters.since);
   if (filters.type) params.append("type", filters.type);
   if (filters.severity) params.append("severity", filters.severity);
@@ -34,6 +35,7 @@ export async function getSecurityEvents(filters = {}) {
  * @param {string} options.since - ISO timestamp for stats period
  * @returns {Promise<Object>} Security statistics
  */
+/** @param {{ since?: string }} [options] */
 export async function getSecurityStats(options = {}) {
   const params = new URLSearchParams();
   if (options.since) params.append("since", options.since);
@@ -129,8 +131,8 @@ export function getSeverityColor(severity) {
  * @returns {string} Formatted timestamp
  */
 export function formatTimestamp(timestamp, use12Hour = false) {
-  const date = new Date(timestamp);
-  const now = new Date();
+  const date = /** @type {any} */ (new Date(timestamp));
+  const now = /** @type {any} */ (new Date());
   const diffMs = now - date;
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);

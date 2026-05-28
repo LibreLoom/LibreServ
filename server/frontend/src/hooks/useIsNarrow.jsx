@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 
+/**
+ * @param {number} [threshold]
+ * @returns {[boolean, import('react').RefObject<null>]}
+ */
 export function useIsNarrow(threshold = 220) {
   const [isNarrow, setIsNarrow] = useState(false);
   const ref = useRef(null);

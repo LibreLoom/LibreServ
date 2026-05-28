@@ -11,6 +11,7 @@ const ALIGN = {
   right: "text-right",
 };
 
+/** @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string }} _ */
 export default function Table({ columns, data, rowKey, scrollable, maxHeight, className = "" }) {
   const wrapperStyle = scrollable ? { maxHeight: maxHeight || "24rem" } : undefined;
 

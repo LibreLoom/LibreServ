@@ -15,6 +15,7 @@ function getFullOutput(lines) {
     .join("");
 }
 
+/** @param {{ streamUrl: any, title: any, onComplete: any, onError: any, patternMap?: any }} _ */
 export function ProgressFeedback({
   streamUrl,
   title,

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Copy, Check } from "lucide-react";
 import ModalCard from "../../cards/ModalCard";
 
+/** @param {{ result: any, onClose: any, action?: any }} _ */
 export function ActionResultModal({ result, onClose }) {
   const [showVerbose, setShowVerbose] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -69,7 +70,9 @@ export function ActionResultModal({ result, onClose }) {
 
   return (
     <ModalCard title={result.success ? "Action Completed" : "Action Failed"} onClose={onClose}>
-      {({ close }) => (
+      {({ close }) => {
+        const closeHandler = /** @type {Function} */ (close);
+        return (
         <div className="space-y-4">
           <div
             className={`flex items-center gap-3 p-3 rounded-large-element ${
@@ -142,13 +145,14 @@ export function ActionResultModal({ result, onClose }) {
           )}
 
           <button
-            onClick={close}
+            onClick={/** @type {import('react').MouseEventHandler<HTMLButtonElement>} */ (closeHandler)}
             className="w-full px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors font-mono"
           >
             Close
           </button>
         </div>
-      )}
+      );
+      }}
     </ModalCard>
   );
 }

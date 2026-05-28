@@ -9,6 +9,7 @@ import SettingsCard from "../SettingsCard";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 
+/** @param {{ index?: number, settings?: any }} _ */
 function FactoryResetCard({ index = 2 }) {
   const { request, logout } = useAuth();
   const { addToast } = useToast();

@@ -13,6 +13,7 @@ const REFRESH_INTERVALS = [
   { label: "1 hour", value: 3600000 },
 ];
 
+/** @param {{ value: any, onChange: any, onOpenChange?: any }} _ */
 export default function RefreshDropdown({ value, onChange, onOpenChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });

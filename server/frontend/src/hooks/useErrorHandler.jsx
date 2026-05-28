@@ -3,13 +3,7 @@ import { useState, useCallback } from 'react';
 /**
  * Custom hook for handling errors in async operations
  * 
- * @returns {Object} Error handling utilities
- * @returns {Error|null} error - Current error state
- * @returns {boolean} isError - Whether an error exists
- * @returns {Function} setError - Set error manually
- * @returns {Function} clearError - Clear current error
- * @returns {Function} handleError - Wrap async functions with error handling
- * @returns {Function} withErrorHandling - HOF for wrapping async functions
+ * @returns {{ error: Error|null, isError: boolean, setError: Function, clearError: Function, handleError: Function, withErrorHandling: Function }}
  * 
  * @example
  * const { error, isError, clearError, handleError } = useErrorHandler();
@@ -66,8 +60,8 @@ export function useErrorHandler() {
 /**
  * Higher-order component for adding error handling to components
  * 
- * @param {React.Component} WrappedComponent - Component to wrap
- * @returns {React.Component} Component with error handling
+ * @param {import('react').ComponentType<any>} WrappedComponent - Component to wrap
+ * @returns {import('react').ComponentType<any>} Component with error handling
  * 
  * @example
  * const MyComponentWithError = withErrorHandling(MyComponent);

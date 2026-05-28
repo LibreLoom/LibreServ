@@ -11,9 +11,9 @@ import api from "../lib/api";
 
 describe("useMonitoring", () => {
   it("returns resources when API succeeds", async () => {
-    api.mockResolvedValue({
+    vi.mocked(api).mockResolvedValue(/** @type {any} */({
       json: () => Promise.resolve({ resources: { cpu: 0.5, ram: 0.3, disk: 0.2, net: 0.1 } }),
-    });
+    }));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (
@@ -27,9 +27,9 @@ describe("useMonitoring", () => {
   });
 
   it("throws error when resources are missing", async () => {
-    api.mockResolvedValue({
+    vi.mocked(api).mockResolvedValue(/** @type {any} */({
       json: () => Promise.resolve({}),
-    });
+    }));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (

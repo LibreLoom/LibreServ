@@ -23,6 +23,7 @@ type DDNSService struct {
 	stop        chan struct{}
 	stopped     chan struct{}
 	running     bool
+	ready       chan struct{}
 	lastUpdate  time.Time
 	lastError   error
 }
@@ -36,6 +37,7 @@ func NewDDNSService(db *database.DB, providerMgr *DNSProviderManager, auditLogge
 		interval:    5 * time.Minute,
 		stop:        make(chan struct{}),
 		stopped:     make(chan struct{}),
+		ready:       make(chan struct{}),
 	}
 }
 
@@ -60,14 +62,20 @@ func (s *DDNSService) GetInterval() time.Duration {
 
 func (s *DDNSService) Start() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.running {
+		s.mu.Unlock()
 		return
 	}
 
+	s.stop = make(chan struct{})
+	s.stopped = make(chan struct{})
+	s.ready = make(chan struct{})
 	s.running = true
+	s.mu.Unlock()
+
 	go s.run()
+	<-s.ready
 	s.logger.Info("DDNS auto-update service started")
 }
 
@@ -111,16 +119,18 @@ func (s *DDNSService) run() {
 	s.mu.RLock()
 	interval := s.interval
 	s.mu.RUnlock()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	close(s.ready)
 
 	for {
+		ticker := time.NewTicker(interval)
 		select {
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			s.UpdateDNS(ctx)
 			cancel()
+			s.mu.RLock()
+			interval = s.interval
+			s.mu.RUnlock()
 		case <-s.stop:
 			return
 		}

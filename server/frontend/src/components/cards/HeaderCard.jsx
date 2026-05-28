@@ -19,7 +19,7 @@ const alignmentClasses = {
 
 /**
  * @typedef {object} HeaderCardProps
- * @property {string} title
+ * @property {any} title
  * @property {string} [id]
  * @property {string} [align]
  * @property {string} [className]

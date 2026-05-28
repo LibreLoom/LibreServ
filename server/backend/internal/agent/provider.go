@@ -143,13 +143,6 @@ type ModelsResponse struct {
 	Data []ModelInfo `json:"data"`
 }
 
-func (p *Provider) inferencePath() string {
-	if p.DeviceID != "" {
-		return "/api/v1/inference"
-	}
-	return ""
-}
-
 func (p *Provider) setAuthHeaders(req *http.Request) {
 	if p.DeviceID != "" {
 		req.Header.Set("Authorization", "Bearer "+p.APIKey)
@@ -223,7 +216,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []Message, t
 	if resp.StatusCode == http.StatusPaymentRequired {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		slog.Warn("inference credit limit reached", "status", resp.StatusCode, "body", string(bodyBytes))
-		return nil, nil, fmt.Errorf("Your monthly AI support credit has been used up. Upgrade your plan in Settings to get more, or wait for next month's reset.")
+		return nil, nil, fmt.Errorf("your monthly AI support credit has been used up; upgrade your plan in Settings to get more, or wait for next month's reset")
 	}
 
 	if resp.StatusCode != http.StatusOK {

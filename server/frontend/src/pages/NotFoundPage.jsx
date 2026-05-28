@@ -246,10 +246,10 @@ export default function NotFoundPage({ includeMain = true }) {
   // (No interactive elements inside today, but this prevents future foot-guns.)
   const panelA11yProps = isInvestigationOpen
     ? {}
-    : {
+    : /** @type {{ "aria-hidden"?: boolean, inert?: boolean }} */ ({
         "aria-hidden": true,
-        inert: "",
-      };
+        inert: true,
+      });
 
   // Shared button/link base class:
   // We use focus-visible:ring-* for keyboard focus indicators and apply ring utilities for hover/focus states.

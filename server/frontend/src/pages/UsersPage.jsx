@@ -9,10 +9,14 @@ import Pill from "../components/common/Pill";
 import api from "../lib/api";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 
-function formatLastLogin(dateString) {
+/**
+ * @param {any} dateString
+ * @param {any} [_unused]
+ */
+function formatLastLogin(dateString, _unused) {
   if (!dateString) return "Never";
-  const date = new Date(dateString);
-  const now = new Date();
+  const date = /** @type {any} */ (new Date(dateString));
+  const now = /** @type {any} */ (new Date());
   const diffMs = now - date;
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);

@@ -1,6 +1,9 @@
 import IconCircle from "../ui/IconCircle";
 import PropTypes from "prop-types";
 
+/**
+ * @param {{ icon?: any, title?: any, subtitle?: any, children?: any, actions?: any, className?: string }} _
+ */
 export default function BaseCard({
   icon: Icon,
   title,

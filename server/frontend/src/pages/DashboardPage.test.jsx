@@ -82,9 +82,9 @@ describe("DashboardPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearMockStorage();
-    useUser.mockReturnValue({ data: { username: "testuser" } });
-    useUptime.mockReturnValue({ data: 3600 });
-    useMonitoring.mockReturnValue({ data: { cpu: 0.5, ram: 0.3, disk: 0.2, net: 0.1 } });
+    vi.mocked(useUser).mockReturnValue(/** @type {any} */({ data: { username: "testuser" } }));
+    vi.mocked(useUptime).mockReturnValue(/** @type {any} */({ data: 3600 }));
+    vi.mocked(useMonitoring).mockReturnValue(/** @type {any} */({ data: { cpu: 0.5, ram: 0.3, disk: 0.2, net: 0.1 } }));
   });
 
   it("renders the dashboard title", () => {
@@ -115,7 +115,7 @@ describe("DashboardPage", () => {
   });
 
   it("renders with loading state when no resources", () => {
-    useMonitoring.mockReturnValue({ data: null });
+    vi.mocked(useMonitoring).mockReturnValue(/** @type {any} */({ data: null }));
     renderWithProviders(<Dashboard />);
     const dropdownCard = screen.getByTestId("dropdown-card");
     expect(dropdownCard.textContent).toContain("Loading...");
@@ -127,10 +127,10 @@ describe("DashboardPage", () => {
   });
 
   it("shows repo status when data available", async () => {
-    api.mockResolvedValue({
+    vi.mocked(api).mockResolvedValue(/** @type {any} */({
       ok: true,
       json: () => Promise.resolve([{ last_pull: "2024-01-15T10:30:00Z" }]),
-    });
+    }));
     renderWithProviders(<Dashboard />);
     expect(await screen.findByText(/App repository/)).toBeInTheDocument();
   });

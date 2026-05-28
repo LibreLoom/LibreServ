@@ -25,6 +25,7 @@ const REGISTRAR_META = {
   },
 };
 
+/** @param {{ registrar: any, onContinue: any, onBack?: any }} _ */
 export default function SearchDomainStep({ registrar, onContinue }) {
   const meta = REGISTRAR_META[registrar] ?? { Icon: GlobeIcon, label: registrar, url: "#" };
   const { Icon, label, url } = meta;

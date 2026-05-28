@@ -190,8 +190,8 @@ export default function RepoStatusCard({ index = 0 }) {
 
   const formatLastPull = (dateStr) => {
     if (!dateStr || dateStr === "0001-01-01T00:00:00Z") return "Never";
-    const date = new Date(dateStr);
-    const now = new Date();
+    const date = /** @type {any} */ (new Date(dateStr));
+    const now = /** @type {any} */ (new Date());
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
     if (diffMins < 1) return "Just now";

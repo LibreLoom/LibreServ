@@ -14,6 +14,7 @@ const GUIDE_STEPS = [
   "Copy the token and paste it above",
 ];
 
+/** @param {{ token: any, onTokenChange: any, email: any, onEmailChange: any, error: any, onEnter: any, loading?: any, onTest?: any, onBack?: any }} _ */
 export default function TokenInputStep({ token, onTokenChange, email, onEmailChange, error, onEnter }) {
   const [showToken, setShowToken] = useState(false);
 

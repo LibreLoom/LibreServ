@@ -9,7 +9,7 @@
  * @property {(error: string) => boolean} match - Predicate to detect this error type
  * @property {string} tip - User-facing remediation guidance
  * @property {'warning' | 'critical'} severity - How urgent is this issue
- * @property {string[]} categories - Which check categories this applies to (optional)
+ * @property {string[]} [categories] - Which check categories this applies to (optional)
  */
 
 /** @type {ErrorRemediationRule[]} */

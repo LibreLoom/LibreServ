@@ -10,7 +10,7 @@ import api from "../lib/api";
 
 describe("useSetupProgress", () => {
   it("saves progress via PUT to /setup/progress", async () => {
-    api.mockResolvedValue({ ok: true });
+    vi.mocked(api).mockResolvedValue(/** @type {any} */({ ok: true }));
 
     const { result } = renderHook(() => useSetupProgress());
     let promise;
@@ -31,16 +31,21 @@ describe("useSetupProgress", () => {
   });
 
   it("increments sequence number on each save", async () => {
-    api.mockResolvedValue({ ok: true });
+    vi.mocked(api).mockResolvedValue(/** @type {any} */({ ok: true }));
 
     const { result } = renderHook(() => useSetupProgress());
-    let r1, r2;
+    /** @type {{ seq: number } | undefined} */
+    let r1;
+    /** @type {{ seq: number } | undefined} */
+    let r2;
     await act(async () => {
       r1 = await result.current.saveProgress("step1", "", {});
       r2 = await result.current.saveProgress("step2", "", {});
     });
 
-    expect(r1.seq).toBeLessThan(r2.seq);
+    expect(r1).toBeDefined();
+    expect(r2).toBeDefined();
+    expect(/** @type {{ seq: number }} */ (r1).seq).toBeLessThan(/** @type {{ seq: number }} */ (r2).seq);
   });
 
   it("flushProgress resolves when no in-flight request", async () => {
@@ -50,7 +55,7 @@ describe("useSetupProgress", () => {
 
   it("flushProgress awaits in-flight request", async () => {
     let resolveApi;
-    api.mockReturnValue(new Promise((resolve) => { resolveApi = resolve; }));
+    vi.mocked(api).mockReturnValue(new Promise((resolve) => { resolveApi = resolve; }));
 
     const { result } = renderHook(() => useSetupProgress());
     let savePromise;

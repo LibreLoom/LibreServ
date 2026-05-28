@@ -11,7 +11,7 @@ import api from "../lib/api";
 
 describe("useSettingsStatus", () => {
   it("returns false for both when API fails", async () => {
-    api.mockRejectedValue(new Error("fail"));
+    vi.mocked(api).mockRejectedValue(new Error("fail"));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (
@@ -26,13 +26,13 @@ describe("useSettingsStatus", () => {
   });
 
   it("detects SMTP and domain configured", async () => {
-    api
-      .mockResolvedValueOnce({
+    vi.mocked(api)
+      .mockResolvedValueOnce(/** @type {any} */({
         json: () => Promise.resolve({ checks: { smtp: { status: "passed", details: {} } } }),
-      })
-      .mockResolvedValueOnce({
+      }))
+      .mockResolvedValueOnce(/** @type {any} */({
         json: () => Promise.resolve({ proxy: { default_domain: "example.com" } }),
-      });
+      }));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (
@@ -47,13 +47,13 @@ describe("useSettingsStatus", () => {
   });
 
   it("detects optional SMTP as not configured", async () => {
-    api
-      .mockResolvedValueOnce({
+    vi.mocked(api)
+      .mockResolvedValueOnce(/** @type {any} */({
         json: () => Promise.resolve({ checks: { smtp: { status: "passed", details: { optional: true } } } }),
-      })
-      .mockResolvedValueOnce({
+      }))
+      .mockResolvedValueOnce(/** @type {any} */({
         json: () => Promise.resolve({ proxy: { default_domain: "example.com" } }),
-      });
+      }));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (
@@ -67,13 +67,13 @@ describe("useSettingsStatus", () => {
   });
 
   it("detects localhost domain as not configured", async () => {
-    api
-      .mockResolvedValueOnce({
+    vi.mocked(api)
+      .mockResolvedValueOnce(/** @type {any} */({
         json: () => Promise.resolve({ checks: { smtp: { status: "passed", details: {} } } }),
-      })
-      .mockResolvedValueOnce({
+      }))
+      .mockResolvedValueOnce(/** @type {any} */({
         json: () => Promise.resolve({ proxy: { default_domain: "localhost" } }),
-      });
+      }));
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (

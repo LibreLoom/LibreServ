@@ -8,6 +8,9 @@ import Toggle from "../common/Toggle";
 import { useAuth } from "../../hooks/useAuth";
 import { testBackend } from "../../lib/network-api";
 
+/**
+ * @param {{ open: boolean, onClose: any, mode: string, route?: any, defaultDomain?: any, apps?: any[], onSuccess?: any }} _
+ */
 export default function RouteModal({ open, onClose, mode, route, defaultDomain, apps, onSuccess }) {
   const { request } = useAuth();
   const [formData, setFormData] = useState({
@@ -19,7 +22,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
     enabled: true,
   });
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState({});
+  const [errors, setErrors] = useState(/** @type {Record<string, string>} */ ({}));
   const [isClosing, setIsClosing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [testingBackend, setTestingBackend] = useState(false);
@@ -192,7 +195,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
     e.preventDefault();
     const validationErrors = validateForm();
     if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
+      setErrors(/** @type {any} */ (validationErrors));
       return;
     }
 
@@ -206,23 +209,23 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
       let endpoint;
 
       if (mode === "create") {
-        body = {
-          subdomain: formData.subdomain.trim(),
-          domain: formData.domain.trim(),
+        body = /** @type {{ [key: string]: any }} */ ({
+          subdomain: formData.subdomain,
+          domain: formData.domain,
           app_id: formData.appId,
           ssl: formData.ssl,
-        };
+        });
         if (formData.backendName) {
           body.backend_name = formData.backendName;
         }
         method = "POST";
         endpoint = "/network/routes";
       } else {
-        body = {
+        body = /** @type {{ [key: string]: any }} */ ({
           app_id: formData.appId,
           ssl: formData.ssl,
           enabled: formData.enabled,
-        };
+        });
         if (formData.backendName) {
           body.backend_name = formData.backendName;
         }

@@ -48,6 +48,9 @@ function useSmoothResize(ref, enabled) {
   });
 }
 
+/**
+ * @param {{ children?: any, variant?: string, size?: string, loading?: boolean, disabled?: boolean, type?: "button" | "reset" | "submit", className?: string, [key: string]: any }} _
+ */
 export default function Button({
   children,
   variant = "primary",
