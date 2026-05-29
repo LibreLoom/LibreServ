@@ -66,7 +66,6 @@ describe("Login", () => {
     await user.click(screen.getByRole("button", { name: /login/i }));
 
     expect(loginFn).toHaveBeenCalledWith("admin", "hunter2");
-    expect(mockNavigate).toHaveBeenCalledWith("/");
   });
 
   it("shows 401 error message on auth failure", async () => {

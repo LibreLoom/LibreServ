@@ -11,23 +11,28 @@ function makeEvent(type, overrides = {}) {
 describe("AgentDot", () => {
   it("renders with diamond shape", () => {
     const { container } = render(<AgentDot shape="diamond" color="#FF6B35" />);
-    const el = /** @type {HTMLElement} */ (container.firstChild);
-    expect(el).toBeTruthy();
-    expect(el.style.backgroundColor).toBe("rgb(255, 107, 53)");
+    const svg = /** @type {SVGSVGElement} */ (container.firstChild);
+    expect(svg).toBeTruthy();
+    const rect = svg.querySelector("rect");
+    expect(rect).toBeTruthy();
+    expect(rect.getAttribute("fill")).toBe("#FF6B35");
   });
 
   it("renders with circle shape", () => {
     const { container } = render(<AgentDot shape="circle" color="#4ECDC4" />);
-    const el = /** @type {HTMLElement} */ (container.firstChild);
-    expect(el).toBeTruthy();
-    expect(el.className).toContain("rounded-full");
+    const svg = /** @type {SVGSVGElement} */ (container.firstChild);
+    expect(svg).toBeTruthy();
+    expect(svg.classList.contains("inline-block")).toBe(true);
+    const circle = svg.querySelector("circle");
+    expect(circle).toBeTruthy();
+    expect(circle.getAttribute("fill")).toBe("#4ECDC4");
   });
 
   it("renders with custom size", () => {
     const { container } = render(<AgentDot shape="circle" color="#4ECDC4" size={32} />);
-    const el = /** @type {HTMLElement} */ (container.firstChild);
-    expect(el.style.width).toBe("32px");
-    expect(el.style.height).toBe("32px");
+    const svg = /** @type {SVGSVGElement} */ (container.firstChild);
+    expect(svg.getAttribute("width")).toBe("32");
+    expect(svg.getAttribute("height")).toBe("32");
   });
 });
 
@@ -55,7 +60,7 @@ describe("AgentTrace", () => {
     ];
     render(<AgentTrace events={events} />);
 
-    const btn = screen.getByRole("button", { expanded: false });
+    const btn = screen.getByRole("button", { name: /agents?\s+deliberating/ });
     await user.click(btn);
 
     expect(screen.getByText("Checking logs...")).toBeTruthy();
@@ -64,29 +69,31 @@ describe("AgentTrace", () => {
   it("shows consensus results", async () => {
     const user = userEvent.setup();
     const events = [
-      makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35" }),
-      makeEvent("consensus", { result: "approved", votes: [{ agent_id: "agent-2", decision: "approve" }] }),
+      makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35", turn: 1 }),
+      makeEvent("proposal", { id: "prop-1", agent_id: "agent-1", proposal_type: "write", tool_calls: [{ id: "tc-1", name: "docker_restart", arguments: "{}", agent_id: "agent-1" }], turn: 1 }),
+      makeEvent("consensus", { proposal_id: "prop-1", result: "approved", votes: [{ agent_id: "agent-1", decision: "approve" }] }),
     ];
     render(<AgentTrace events={events} />);
 
-    const btn = screen.getByRole("button", { expanded: false });
+    const btn = screen.getByRole("button", { name: /agents?\s+deliberating/ });
     await user.click(btn);
 
-    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(screen.getByText("approved")).toBeTruthy();
   });
 
   it("shows rejected consensus", async () => {
     const user = userEvent.setup();
     const events = [
-      makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35" }),
-      makeEvent("consensus", { result: "rejected", votes: [{ agent_id: "agent-2", decision: "reject" }] }),
+      makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35", turn: 1 }),
+      makeEvent("proposal", { id: "prop-1", agent_id: "agent-1", proposal_type: "final_response", turn: 1 }),
+      makeEvent("consensus", { proposal_id: "prop-1", result: "rejected", votes: [{ agent_id: "agent-1", decision: "reject" }] }),
     ];
     render(<AgentTrace events={events} />);
 
-    const btn = screen.getByRole("button", { expanded: false });
+    const btn = screen.getByRole("button", { name: /agents?\s+deliberating/ });
     await user.click(btn);
 
-    expect(screen.getByText("Rejected")).toBeTruthy();
+    expect(screen.getByText("rejected")).toBeTruthy();
   });
 
   it("shows snapshot count", () => {
@@ -101,29 +108,39 @@ describe("AgentTrace", () => {
   it("shows tool calls per agent", async () => {
     const user = userEvent.setup();
     const events = [
-      makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35" }),
-      makeEvent("tool_call", { id: "tc-1", name: "docker_logs", agent_id: "agent-1" }),
+      makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35", turn: 1 }),
+      makeEvent("tool_call", { id: "tc-1", name: "docker_logs", agent_id: "agent-1", turn: 1 }),
       makeEvent("tool_result", { id: "tc-1", content: "connection refused", is_error: false }),
     ];
     render(<AgentTrace events={events} />);
 
-    const btn = screen.getByRole("button", { expanded: false });
-    await user.click(btn);
+    const mainBtn = screen.getByRole("button", { name: /agents?\s+deliberating/ });
+    await user.click(mainBtn);
 
-    expect(screen.getByText(/1 action/)).toBeTruthy();
+    const turnBtn = screen.getByRole("button", { name: /Turn 1/ });
+    await user.click(turnBtn);
+
+    expect(screen.getByText("Docker logs")).toBeTruthy();
   });
 
   it("shows agent vote badges", async () => {
     const user = userEvent.setup();
     const events = [
-      makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35" }),
-      makeEvent("agent_thinking", { agent_id: "agent-2", avatar_shape: "circle", avatar_color: "#4ECDC4" }),
-      makeEvent("vote", { agent_id: "agent-2", decision: "approve", reason: "safe" }),
+      makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35", turn: 1 }),
+      makeEvent("agent_thinking", { agent_id: "agent-2", avatar_shape: "circle", avatar_color: "#4ECDC4", turn: 1 }),
+      makeEvent("proposal", { id: "prop-1", agent_id: "agent-1", proposal_type: "final_response", turn: 1 }),
+      makeEvent("vote", { proposal_id: "prop-1", agent_id: "agent-2", decision: "approve", reason: "safe", avatar_shape: "circle", avatar_color: "#4ECDC4" }),
     ];
     render(<AgentTrace events={events} />);
 
-    const btn = screen.getByRole("button", { expanded: false });
-    await user.click(btn);
+    const mainBtn = screen.getByRole("button", { name: /agents?\s+deliberating/ });
+    await user.click(mainBtn);
+
+    const turnBtn = screen.getByRole("button", { name: /Turn 1/ });
+    await user.click(turnBtn);
+
+    const propBtn = screen.getByRole("button", { name: /Final response/ });
+    await user.click(propBtn);
 
     expect(screen.getByText("safe")).toBeTruthy();
   });

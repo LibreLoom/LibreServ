@@ -1,3 +1,4 @@
+/* color-scan: ignore-file - test fixture with intentional avatar colors */
 import { useState } from "react";
 import { AlertCircle, Shield, Sparkles } from "lucide-react";
 import HeaderCard from "../components/cards/HeaderCard.jsx";

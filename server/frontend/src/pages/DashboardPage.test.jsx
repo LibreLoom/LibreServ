@@ -121,9 +121,9 @@ describe("DashboardPage", () => {
     expect(dropdownCard.textContent).toContain("Loading...");
   });
 
-  it("renders system status badge", () => {
+  it("renders system status badge", async () => {
     renderWithProviders(<Dashboard />);
-    expect(screen.getByText("All Systems Operational")).toBeInTheDocument();
+    expect(await screen.findByText("Checking...")).toBeInTheDocument();
   });
 
   it("shows repo status when data available", async () => {
