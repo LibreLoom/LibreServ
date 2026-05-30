@@ -89,3 +89,4 @@ func TestRestoreDatabase_RequiresChecksumWhenEnabled(t *testing.T) {
 		t.Fatalf("expected restore to fail without checksum when VerifyChecksum=true")
 	}
 }
+

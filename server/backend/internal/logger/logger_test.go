@@ -27,3 +27,4 @@ func TestInitCreatesLogFileAndWrites(t *testing.T) {
 		t.Fatalf("log file missing message; contents: %q", string(data))
 	}
 }
+
