@@ -281,9 +281,10 @@ func main() {
 	authService := auth.NewService(db, cfg.Auth.JWTSecret, slog.Default())
 
 	setupService := setup.NewService(db)
+	setupService.SetupCodePath = setup.DefaultSetupCodePath
 	if state, err := setupService.Ensure(context.Background()); err == nil && state.Status != setup.StatusComplete {
 		if state.Nonce != "" {
-			slog.Info("Setup code for remote setup. Use this code if you're setting up from another device.", "code", state.Nonce)
+			slog.Info("Setup code. Enter this code in the web setup to continue from another device.", "code", state.Nonce)
 		}
 	}
 	supportService := support.NewService(db, lic)
@@ -329,6 +330,14 @@ func main() {
 	appManager.StartInstalledApps(context.Background())
 	appManager.RefreshMetrics(context.Background())
 
+	var mdnsService *network.MDNSService
+	if cfg.Network.MDNS.Enabled {
+		mdnsService = network.NewMDNSService(cfg.Server.Host, cfg.Server.Port)
+		if err := mdnsService.Start(); err != nil {
+			slog.Warn("failed to start mDNS advertisement", "error", err)
+		}
+	}
+
 	// Graceful shutdown on SIGINT/SIGTERM
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -347,6 +356,9 @@ func main() {
 		defer cancel()
 		_ = server.Shutdown(ctx)
 		_ = dockerClient.Close()
+		if mdnsService != nil {
+			mdnsService.Stop()
+		}
 
 		// Re-execute the current binary
 		execPath, _ := os.Executable()
@@ -360,6 +372,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(ctx)
+	if mdnsService != nil {
+		mdnsService.Stop()
+	}
 	_ = dockerClient.Close()
 }
 

@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,13 +34,17 @@ type State struct {
 }
 
 type Service struct {
-	db *database.DB
-	mu sync.Mutex
+	db            *database.DB
+	mu            sync.Mutex
+	SetupCodePath string
 }
 
 func NewService(db *database.DB) *Service {
 	return &Service{db: db}
 }
+
+// DefaultSetupCodePath is the well-known path on LibreServ ISOs.
+const DefaultSetupCodePath = "/etc/libreserv/setup-code"
 
 func (s *Service) Ensure(ctx context.Context) (*State, error) {
 	s.mu.Lock()
@@ -49,19 +55,19 @@ func (s *Service) Ensure(ctx context.Context) (*State, error) {
 		return state, nil
 	}
 
-	nonce := generateNonce()
+	code := s.readSetupCode()
 	now := time.Now()
 	_, err = s.db.Exec(`
 		INSERT INTO setup_state (id, status, nonce, started_at, current_step, step_data)
 		VALUES (1, ?, ?, ?, ?, '{}')
-	`, StatusPending, nonce, now, StepWelcome)
+	`, StatusPending, code, now, StepWelcome)
 	if err != nil {
 		return nil, fmt.Errorf("init setup state: %w", err)
 	}
 
 	return &State{
 		Status:      StatusPending,
-		Nonce:       nonce,
+		Nonce:       code,
 		StartedAt:   &now,
 		CurrentStep: StepWelcome,
 		StepData:    map[string]interface{}{},
@@ -78,15 +84,22 @@ func (s *Service) MarkInProgress(ctx context.Context) (*State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	nonce := generateNonce()
+	state, err := s.get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get state for mark in progress: %w", err)
+	}
+
 	now := time.Now()
-	_, err := s.db.Exec(`
-		UPDATE setup_state SET status = ?, nonce = ?, started_at = ? WHERE id = 1
-	`, StatusInProgress, nonce, now)
+	_, err = s.db.Exec(`
+		UPDATE setup_state SET status = ?, started_at = ? WHERE id = 1
+	`, StatusInProgress, now)
 	if err != nil {
 		return nil, fmt.Errorf("mark in progress: %w", err)
 	}
-	return &State{Status: StatusInProgress, Nonce: nonce, StartedAt: &now}, nil
+
+	state.Status = StatusInProgress
+	state.StartedAt = &now
+	return state, nil
 }
 
 func (s *Service) MarkComplete(ctx context.Context) (*State, error) {
@@ -224,10 +237,28 @@ func (n *sqlNullTime) Scan(value interface{}) error {
 	}
 }
 
-func generateNonce() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+var noAmbigChars = []rune("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+
+func (s *Service) readSetupCode() string {
+	if s.SetupCodePath != "" {
+		data, err := os.ReadFile(s.SetupCodePath)
+		if err == nil {
+			code := strings.TrimSpace(string(data))
+			if len(code) == 6 {
+				return code
+			}
+		}
+	}
+	return generateRandomCode()
+}
+
+func generateRandomCode() string {
+	code := make([]rune, 6)
+	for i := range code {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(noAmbigChars))))
+		code[i] = noAmbigChars[n.Int64()]
+	}
+	return string(code)
 }
 
 func nullIfEmpty(s string) interface{} {

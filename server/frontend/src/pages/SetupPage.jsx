@@ -219,7 +219,7 @@ function WelcomeStep({ onBegin, setupToken, onSetupTokenChange }) {
             autoComplete="off"
           />
           <p className="text-primary/40 text-xs mt-2 leading-relaxed">
-            If you&rsquo;re setting this up from another device, paste the setup code shown on the server screen.
+            Enter the setup code from the card included with your device.
           </p>
         </div>
 

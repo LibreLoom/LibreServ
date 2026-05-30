@@ -52,6 +52,8 @@ network:
             file: ""
             format: console
             level: ""
+    mdns:
+        enabled: true
     upnp:
         enabled: false
         timeout: 5
