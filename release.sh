@@ -156,13 +156,39 @@ check_git_status() {
         fi
     fi
     
-    # Check if tag already exists locally
+    log_info "Git status OK"
+}
+
+# Validate tag doesn't conflict (early, before expensive operations)
+validate_tag() {
+    log_info "Validating tag $VERSION_TAG..."
+    
     if git rev-parse "$VERSION_TAG" >/dev/null 2>&1; then
-        log_warn "Tag $VERSION_TAG already exists locally"
-        log_info "Will handle existing tag/release in release creation step"
+        if [ "$FORCE" = true ]; then
+            log_warn "Local tag $VERSION_TAG exists, deleting (--force)..."
+            git tag -d "$VERSION_TAG"
+        else
+            log_error "Git tag $VERSION_TAG already exists locally"
+            echo "Delete it with: git tag -d $VERSION_TAG"
+            echo "Or re-run with --force"
+            exit 1
+        fi
     fi
     
-    log_info "Git status OK"
+    REMOTE_EXISTS=$(git ls-remote --tags origin "refs/tags/$VERSION_TAG" 2>/dev/null | grep -c . || true)
+    if [ "$REMOTE_EXISTS" -gt 0 ]; then
+        if [ "$FORCE" = true ]; then
+            log_warn "Remote tag $VERSION_TAG exists, deleting (--force)..."
+            git push --delete origin "$VERSION_TAG" 2>/dev/null || true
+        else
+            log_error "Tag $VERSION_TAG already exists remotely"
+            echo "Delete it with: git push --delete origin $VERSION_TAG && git tag -d $VERSION_TAG"
+            echo "Or re-run with --force"
+            exit 1
+        fi
+    fi
+    
+    log_info "Tag validated successfully"
 }
 
 # Run CI suite
@@ -344,17 +370,15 @@ TEMPLATE
     fi
 }
 
-# Create release on Gitea
-create_gitea_release() {
-    log_step "Creating Gitea Release"
+# Create draft release on Gitea (empty notes — validates tag + API before user writes notes)
+create_draft_release() {
+    log_step "Creating Draft Release on Gitea"
     echo ""
     
-    # Check if release already exists
-    log_info "Checking for existing release..."
+    # Check if release already exists and handle it
     EXISTING=$(curl -s -H "Authorization: token $GITEA_TOKEN" \
         "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG")
     
-    # Use jq to parse ID if available, otherwise use grep with better regex
     if command -v jq &> /dev/null; then
         EXISTING_ID=$(echo "$EXISTING" | jq -r '.id // empty')
     else
@@ -362,80 +386,29 @@ create_gitea_release() {
     fi
     
     if [ -n "$EXISTING_ID" ]; then
-        log_warn "Release $VERSION_TAG already exists (ID: $EXISTING_ID)"
-        echo ""
-        echo "Existing release URL: ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
-        echo ""
-        
         if [ "$FORCE" = true ]; then
-            log_info "--force specified, deleting existing release..."
-            DELETE_RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE \
-                -H "Authorization: token $GITEA_TOKEN" \
-                "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$EXISTING_ID")
-            
-            DELETE_CODE=$(echo "$DELETE_RESPONSE" | tail -n1)
-            if [ "$DELETE_CODE" != "204" ] && [ "$DELETE_CODE" != "200" ]; then
-                log_error "Failed to delete existing release (HTTP $DELETE_CODE)"
-                echo "Response: $(echo "$DELETE_RESPONSE" | sed '$d')"
-                exit 1
-            fi
+            log_info "Deleting existing release (--force)..."
+            curl -s -X DELETE -H "Authorization: token $GITEA_TOKEN" \
+                "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$EXISTING_ID" > /dev/null
             log_info "Deleted existing release"
         else
-            echo "Options:"
-            echo "  1. Delete existing release and recreate (release will be deleted now)"
-            echo "  2. Use a different version tag"
-            echo "  3. Cancel"
-            echo ""
-            read -p "Choose option (1/2/3): " choice
-            
-            case "$choice" in
-                1)
-                    log_info "Deleting existing release..."
-                    DELETE_RESPONSE=$(curl -s -w "\n%{http_code}" -X DELETE \
-                        -H "Authorization: token $GITEA_TOKEN" \
-                        "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$EXISTING_ID")
-                    
-                    DELETE_CODE=$(echo "$DELETE_RESPONSE" | tail -n1)
-                    if [ "$DELETE_CODE" != "204" ] && [ "$DELETE_CODE" != "200" ]; then
-                        log_error "Failed to delete existing release (HTTP $DELETE_CODE)"
-                        echo "Response: $(echo "$DELETE_RESPONSE" | sed '$d')"
-                        exit 1
-                    fi
-                    log_info "Deleted existing release"
-                    ;;
-                2)
-                    log_info "Please re-run with a different version tag"
-                    exit 0
-                    ;;
-                3|*)
-                    log_info "Cancelled"
-                    exit 0
-                    ;;
-            esac
+            log_error "Release $VERSION_TAG already exists"
+            echo "Use --force to delete and recreate"
+            exit 1
         fi
     fi
     
-    log_info "Creating draft release..."
+    PRERELEASE_FLAG="false"
+    [ "$PRERELEASE" = true ] && PRERELEASE_FLAG="true"
     
-    # Escape release notes for JSON (preserve newlines, escape quotes and backslashes)
-    ESCAPED_NOTES=$(echo "$RELEASE_NOTES" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-    
-    # Set prerelease flag
-    if [ "$PRERELEASE" = true ]; then
-        PRERELEASE_FLAG="true"
-        log_info "Marking as pre-release (unstable)"
-    else
-        PRERELEASE_FLAG="false"
-    fi
-    
-    # Create release with proper error handling
+    log_info "Creating draft release (validating API)..." 
     HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
         -H "Authorization: token $GITEA_TOKEN" \
         -H "Content-Type: application/json" \
         -d "{
             \"tag_name\": \"$VERSION_TAG\",
             \"name\": \"Release $VERSION_TAG\",
-            \"body\": \"$ESCAPED_NOTES\",
+            \"body\": \"\",
             \"draft\": true,
             \"prerelease\": $PRERELEASE_FLAG
         }" \
@@ -447,10 +420,11 @@ create_gitea_release() {
     if [ "$HTTP_CODE" != "201" ]; then
         log_error "Failed to create release (HTTP $HTTP_CODE)"
         echo "Response: $RESPONSE_BODY"
+        log_info "Cleaning up local tag..."
+        git tag -d "$VERSION_TAG" 2>/dev/null || true
         exit 1
     fi
     
-    # Extract release ID using jq if available
     if command -v jq &> /dev/null; then
         RELEASE_ID=$(echo "$RESPONSE_BODY" | jq -r '.id')
     else
@@ -460,10 +434,41 @@ create_gitea_release() {
     if [ -z "$RELEASE_ID" ] || [ "$RELEASE_ID" = "null" ]; then
         log_error "Failed to parse release ID from response"
         echo "Response: $RESPONSE_BODY"
+        log_info "Cleaning up local tag..."
+        git tag -d "$VERSION_TAG" 2>/dev/null || true
         exit 1
     fi
     
-    log_info "Created draft release (ID: $RELEASE_ID)"
+    log_info "Draft release created successfully (ID: $RELEASE_ID) — API is working"
+    log_info "Now write your release notes"
+}
+
+# Update the draft release with the written notes
+update_release_with_notes() {
+    log_step "Updating Release Notes"
+    echo ""
+    
+    ESCAPED_NOTES=$(echo "$RELEASE_NOTES" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+    
+    HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
+        -H "Authorization: token $GITEA_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"body\": \"$ESCAPED_NOTES\"}" \
+        "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
+    
+    HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+    
+    if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+        log_error "Failed to update release notes (HTTP $HTTP_CODE)"
+        echo "Response: $(echo "$HTTP_RESPONSE" | sed '$d')"
+        log_warn "Release notes saved locally — paste them manually at:"
+        echo "  ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/edit/$RELEASE_ID"
+        echo ""
+        echo "Notes content:"
+        echo "$RELEASE_NOTES"
+    else
+        log_info "Release notes updated"
+    fi
 }
 
 # Upload assets to Gitea
@@ -587,6 +592,25 @@ cleanup() {
     fi
 }
 
+# Create and push git tag
+create_and_push_tag() {
+    log_step "Creating Git Tag"
+    echo ""
+    log_info "Creating git tag $VERSION_TAG..."
+    
+    git tag -a "$VERSION_TAG" -m "Release $VERSION_TAG"
+    
+    log_info "Pushing tag to Gitea..."
+    if ! git push origin "$VERSION_TAG"; then
+        log_error "Failed to push tag to remote"
+        echo "Cleaning up local tag..."
+        git tag -d "$VERSION_TAG"
+        exit 1
+    fi
+    
+    log_info "Git tag created and pushed successfully"
+}
+
 # Main
 main() {
     print_banner
@@ -613,6 +637,7 @@ main() {
     prompt_token
     prompt_version
     check_git_status
+    validate_tag
     
     echo ""
     log_info "Ready to create release $VERSION_TAG"
@@ -625,7 +650,6 @@ main() {
     
     run_ci
     build_binaries
-    create_release_notes
     
     if [ "$DRY_RUN" = true ]; then
         echo ""
@@ -647,32 +671,14 @@ main() {
         exit 0
     fi
     
-    # Create and push git tag first
-    log_step "Creating Git Tag"
-    echo ""
-    log_info "Creating git tag $VERSION_TAG..."
+    # Risky operations first (tag + API) — validates everything before user writes notes
+    create_and_push_tag
+    create_draft_release
     
-    if git rev-parse "$VERSION_TAG" >/dev/null 2>&1; then
-        log_error "Git tag $VERSION_TAG already exists locally"
-        echo "Delete it with: git tag -d $VERSION_TAG"
-        exit 1
-    fi
+    # Only now ask for release notes — all risky ops have passed
+    create_release_notes
+    update_release_with_notes
     
-    git tag -a "$VERSION_TAG" -m "Release $VERSION_TAG"
-    
-    log_info "Pushing tag to Gitea..."
-    if ! git push origin "$VERSION_TAG"; then
-        log_error "Failed to push tag to remote"
-        echo "Cleaning up local tag..."
-        git tag -d "$VERSION_TAG"
-        exit 1
-    fi
-    
-    log_info "Git tag created and pushed successfully"
-    
-    create_gitea_release
-    
-    # Debug: show release ID after creation
     echo ""
     echo "DEBUG: About to upload assets"
     echo "DEBUG: RELEASE_ID = $RELEASE_ID"
