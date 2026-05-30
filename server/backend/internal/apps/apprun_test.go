@@ -1299,14 +1299,14 @@ func TestAppRunTest_ScriptPathValidation(t *testing.T) {
 }
 
 func TestAppRunTest_InstanceIDGeneration(t *testing.T) {
+	hexRe := regexp.MustCompile(`^[a-f0-9]+$`)
 	ids := map[string]bool{}
 	for i := 0; i < 100; i++ {
 		id := generateInstanceID()
 		if len(id) != 16 {
 			t.Errorf("expected 16-char instance ID, got %d chars: %s", len(id), id)
 		}
-		matched, _ := regexp.MatchString(`^[a-f0-9]+$`, id)
-		if !matched {
+		if !hexRe.MatchString(id) {
 			t.Errorf("instance ID should be hex, got: %s", id)
 		}
 		if ids[id] {

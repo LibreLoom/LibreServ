@@ -10,5 +10,7 @@ export default defineConfig({
     css: false,
     include: ["src/**/*.test.{js,jsx}"],
     testTimeout: 15000,
+    teardownTimeout: 30000,
+    pool: "forks",
   },
 });
