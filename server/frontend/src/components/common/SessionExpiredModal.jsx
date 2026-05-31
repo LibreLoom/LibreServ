@@ -13,9 +13,7 @@ export default function SessionExpiredModal({ isOpen, onClose }) {
     onClose?.();
   }
 
-  if (!isOpen || !me) return null;
-
-  if (!isOpen) return null;
+  if (!isOpen || me) return null;
 
   return (
     <ModalCard 

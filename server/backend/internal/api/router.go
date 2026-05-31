@@ -114,6 +114,9 @@ func (s *Server) setupRoutes() {
 	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager.GetUPnPService(), s.appManager, s.caddyManager)
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
 
+	// Initialize Connect handler
+	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker)
+
 	// Initialize AI agent chat handler
 	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.dockerClient, s.backupService, s.authService)
 
@@ -172,7 +175,7 @@ func (s *Server) setupRoutes() {
 			r.With(setupAccess).Post("/finalize", setupHandler.FinalizeSetup)
 		})
 
-		// Public auth routes (login, register, password reset)
+		// Public auth routes (login, register, password reset, token refresh)
 		r.Group(func(r chi.Router) {
 			r.Use(setupGuard)
 			// Rate limiting specific to auth endpoints to prevent brute-force attacks
@@ -191,6 +194,9 @@ func (s *Server) setupRoutes() {
 			r.Post("/auth/password-reset/validate", authHandler.ValidateResetToken)
 			r.Get("/auth/password-reset/validate", authHandler.ValidateResetToken)
 
+			// Token refresh (no access token required - uses refresh token cookie)
+			r.Post("/auth/refresh", authHandler.RefreshToken)
+
 			// Public catalog icon endpoint (for app icons)
 			r.Get("/catalog/{appId}/icon", catalogHandler.GetAppIcon)
 
@@ -203,9 +209,8 @@ func (s *Server) setupRoutes() {
 			// CSRF protection on mutating routes
 			r.Use(middleware.CSRF(authConfig.CSRFSecret))
 
-			// Auth - authenticated user endpoints including logout and refresh
+			// Auth - authenticated user endpoints
 			r.Post("/auth/logout", authHandler.Logout)
-			r.Post("/auth/refresh", authHandler.RefreshToken)
 			r.Get("/auth/me", authHandler.Me)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
 			r.Get("/auth/csrf", csrfHandler.GetToken)
@@ -489,6 +494,16 @@ func (s *Server) setupRoutes() {
 			r.Route("/network/connectivity", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", connectivityHandler.GetStatus)
+			})
+
+			// Connect — LibreServ Connect integration
+			r.Route("/connect", func(r chi.Router) {
+				r.Get("/status", connectHandler.Status)
+				r.Put("/activate", connectHandler.Activate)
+				r.Post("/deactivate", connectHandler.Deactivate)
+				r.Put("/services", connectHandler.UpdateServices)
+				r.Get("/usage", connectHandler.Usage)
+				r.Get("/info", connectHandler.Info)
 			})
 
 			// Tunnel service (admin only)

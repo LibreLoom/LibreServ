@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import api, { AuthError } from "../lib/api";
+import { resetSessionExpiredShown } from "../utils/sessionExpiredHandler";
 import { AuthContext } from "./AuthContextContext";
 
 export function AuthProvider({ children }) {
@@ -62,6 +63,7 @@ export function AuthProvider({ children }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
+    resetSessionExpiredShown();
     const [meResponse, csrfResponse] = await Promise.all([
       api("/auth/me"),
       api("/auth/csrf"),
