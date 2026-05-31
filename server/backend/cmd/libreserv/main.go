@@ -332,7 +332,11 @@ func main() {
 
 	var mdnsService *network.MDNSService
 	if cfg.Network.MDNS.Enabled {
-		mdnsService = network.NewMDNSService(cfg.Server.Host, cfg.Server.Port)
+		mdnsPort := cfg.Server.Port
+		if cfg.Network.Caddy.Mode == "enabled" {
+			mdnsPort = 80
+		}
+		mdnsService = network.NewMDNSService(cfg.Server.Host, mdnsPort)
 		if err := mdnsService.Start(); err != nil {
 			slog.Warn("failed to start mDNS advertisement", "error", err)
 		}
