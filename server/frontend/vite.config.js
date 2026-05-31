@@ -32,10 +32,20 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            proxyReq.setHeader("X-Forwarded-For", req.socket?.remoteAddress || "");
+          });
+        },
       },
       "/health": {
         target: "http://localhost:8080",
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, req) => {
+            proxyReq.setHeader("X-Forwarded-For", req.socket?.remoteAddress || "");
+          });
+        },
       },
     },
   },

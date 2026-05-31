@@ -904,11 +904,44 @@ func (h *SetupHandler) FinalizeSetup(w http.ResponseWriter, r *http.Request) {
 
 // isLocalIP returns true when the request originates from the local machine.
 // Display mode (loopback) is exempt from needing a setup code.
+// When behind a trusted proxy (Vite dev server, Caddy), forwarded headers
+// are checked to find the real client IP.
 func isLocalIP(r *http.Request) bool {
 	host := r.RemoteAddr
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	remote := net.ParseIP(host)
+	if remote == nil {
+		return false
+	}
+
+	if !remote.IsLoopback() {
+		return false
+	}
+
+	// RemoteAddr is loopback — could be a direct connection or a proxy.
+	// If from a trusted proxy, check forwarded headers for the real client IP.
+	if isTrustedProxyIP(remote) {
+		for _, header := range []string{"X-Forwarded-For", "X-Real-IP"} {
+			if val := r.Header.Get(header); val != "" {
+				parts := strings.Split(val, ",")
+				ipStr := strings.TrimSpace(parts[len(parts)-1])
+				if ip := net.ParseIP(ipStr); ip != nil {
+					return ip.IsLoopback()
+				}
+			}
+		}
+	}
+
+	return true
+}
+
+func isTrustedProxyIP(ip net.IP) bool {
+	for _, network := range middleware.TrustedProxyNets() {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
