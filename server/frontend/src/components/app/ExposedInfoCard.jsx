@@ -100,7 +100,7 @@ export function ExposedInfoCard({ info }) {
           href={String(field.value)}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-accent hover:underline"
+          className="link-accent"
         >
           {String(field.value)}
         </a>

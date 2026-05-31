@@ -39,6 +39,7 @@ type Config struct {
 	Notify   Notifications  `mapstructure:"notify" yaml:"notify"`
 	Updates  UpdatesConfig  `mapstructure:"updates" yaml:"updates"`
 	Support  SupportConfig  `mapstructure:"support" yaml:"support"`
+	Connect  ConnectConfig  `mapstructure:"connect" yaml:"connect"`
 }
 
 // AuthConfig holds auth-related settings.
@@ -103,6 +104,11 @@ type SupportConfig struct {
 	UserAPIKey       string                  `mapstructure:"user_api_key" yaml:"user_api_key"`
 	UserBaseURL      string                  `mapstructure:"user_base_url" yaml:"user_base_url"`
 	SelfHealing      bool                    `mapstructure:"self_healing" yaml:"self_healing"`
+}
+
+type ConnectConfig struct {
+	Enabled bool   `mapstructure:"enabled" yaml:"enabled"`
+	Token   string `mapstructure:"token" yaml:"token"`
 }
 
 type AgentDefinition struct {

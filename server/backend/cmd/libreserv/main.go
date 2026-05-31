@@ -18,6 +18,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
@@ -301,6 +302,10 @@ func main() {
 	scheduler.Start()
 	defer scheduler.Stop()
 
+	connectClient := connect.NewClientFromEnv()
+	connectChecker := connect.NewEntitlementChecker(connectClient)
+	connectChecker.Refresh()
+
 	server := api.NewServer(api.ServerConfig{
 		Host:            cfg.Server.Host,
 		Port:            cfg.Server.Port,
@@ -318,6 +323,8 @@ func main() {
 		SysChecker:      sysChecker,
 		AuditService:    auditService,
 		SettingsService: settingsService,
+		ConnectClient:   connectClient,
+		ConnectChecker:  connectChecker,
 	}).WithJobQueue(jobQueue)
 
 	errCh := make(chan error, 1)

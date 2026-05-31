@@ -23,6 +23,7 @@ const LorePage = lazy(() => import("./pages/LorePage"));
 const ErrorBoundaryDemo = lazy(() => import("./pages/ErrorBoundaryDemo"));
 const ErrorDisplayDemo = lazy(() => import("./pages/ErrorDisplayDemo"));
 const HelpUIDemo = lazy(() => import("./pages/HelpUIDemo"));
+const DemoConnectPage = lazy(() => import("./pages/DemoConnectPage"));
 
 
 function RequireAuth({ children }) {
@@ -119,6 +120,7 @@ export default function App() {
 <Route path="/demo/error-boundary" element={<ErrorBoundaryDemo />} />
           <Route path="/demo/error-display" element={<ErrorDisplayDemo />} />
           <Route path="/demo/help-ui" element={<HelpUIDemo />} />
+          <Route path="/demo/connect" element={<DemoConnectPage />} />
           </Route>
           {/* Public routes outside auth requirement */}
           <Route path="/setup" element={<SetupPage />} />

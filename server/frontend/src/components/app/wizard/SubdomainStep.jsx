@@ -179,7 +179,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
               setSubdomain(suggested);
               handleSubdomainChange({ target: { value: suggested } });
             }}
-            className="text-xs font-mono text-secondary/50 hover:text-secondary/80 underline"
+            className="text-xs font-mono link-accent"
           >
             Use suggested: {suggested}
           </button>

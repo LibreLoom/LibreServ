@@ -46,7 +46,7 @@ export default function ModalCard({
     setIsClosing(true);
     setTimeout(() => {
       onClose?.();
-    }, 200);
+    }, 300);
   }, [isClosing, onClose]);
 
   const content = typeof children === "function" ? children({ close: handleClose }) : children;

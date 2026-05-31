@@ -475,7 +475,7 @@ export default function AppDetailPage() {
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label="Open app (opens in new tab)"
-                  className="text-lg font-mono text-primary hover:underline flex items-center gap-1"
+                  className="text-lg font-mono link-accent-card flex items-center gap-1"
                 >
                   Open App
                   <ExternalLink size={14} aria-hidden="true" />

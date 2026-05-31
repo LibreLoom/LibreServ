@@ -652,3 +652,18 @@ body {
         transform: none;
     }
 }
+
+/* Link utilities — surface-aware inline link styling */
+@utility link-accent {
+  @apply underline underline-offset-2 text-accent motion-safe:transition-colors;
+  &:hover {
+    color: var(--secondary);
+  }
+}
+
+@utility link-accent-card {
+  @apply underline underline-offset-2 text-accent motion-safe:transition-colors;
+  &:hover {
+    color: var(--primary);
+  }
+}

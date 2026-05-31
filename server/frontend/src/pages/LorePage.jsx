@@ -119,7 +119,7 @@ export default function LorePage() {
                   ),
                   a: (props) => (
                     <a
-                      className="text-secondary/80 underline hover:no-underline"
+                      className="link-accent"
                       {...props}
                     />
                   ),

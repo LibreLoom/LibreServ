@@ -350,7 +350,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
                   ),
                   a: (props) => (
                     <a
-                      className="text-secondary underline hover:no-underline"
+                      className="link-accent-card"
                       {...props}
                     />
                   ),

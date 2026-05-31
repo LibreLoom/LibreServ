@@ -22,6 +22,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
@@ -66,6 +67,8 @@ type Server struct {
 	tunnelService   *network.TunnelService
 	// agentChat removed — field was unused
 	selfHealMonitor *agent.SelfHealingMonitor
+	connectClient   connect.Client
+	connectChecker  *connect.EntitlementChecker
 }
 
 // ServerConfig holds configuration for creating a new Server
@@ -86,6 +89,8 @@ type ServerConfig struct {
 	SysChecker      *system.UpdateChecker
 	AuditService    *audit.Service
 	SettingsService *settings.Service
+	ConnectClient   connect.Client
+	ConnectChecker  *connect.EntitlementChecker
 }
 
 // JobQueue interface for job queue operations
@@ -162,6 +167,8 @@ func NewServer(cfg ServerConfig) *Server {
 		audit:           cfg.AuditService,
 		securityService: securityService,
 		settingsService: cfg.SettingsService,
+		connectClient:   cfg.ConnectClient,
+		connectChecker:  cfg.ConnectChecker,
 	}
 
 	staticFS, staticSource, err := loadStaticFS()

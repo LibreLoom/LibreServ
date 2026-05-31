@@ -12,6 +12,7 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
  * @property {string} [title]
  * @property {import('react').ReactNode} [headerActions]
  * @property {boolean} [padding]
+ * @property {(event: React.AnimationEvent) => void} [onAnimationEnd]
  */
 
 /** @param {CardProps} props */
@@ -24,6 +25,7 @@ function Card({
   title,
   headerActions,
   padding = true,
+  onAnimationEnd,
 }) {
   const { outerRef, innerRef } = useAnimatedHeight();
 
@@ -37,6 +39,7 @@ function Card({
     return (
       <div
         className={`bg-secondary text-primary rounded-large-element ${padding ? "p-5" : ""} ${animationClass} ${className}`}
+        onAnimationEnd={onAnimationEnd}
       >
         {hasHeader && (
           <div className={`flex items-center justify-between px-4 py-3 border-b border-primary/10 ${padding ? "-mx-5 -mt-5 mb-0" : ""}`}>
@@ -61,6 +64,7 @@ function Card({
       <div
         ref={innerRef}
         className={`bg-secondary text-primary rounded-large-element ${animationClass} ${className}`}
+        onAnimationEnd={onAnimationEnd}
       >
         {hasHeader && (
           <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
@@ -86,6 +90,7 @@ Card.propTypes = {
   title: PropTypes.string,
   headerActions: PropTypes.node,
   padding: PropTypes.bool,
+  onAnimationEnd: PropTypes.func,
 };
 
 export default memo(Card);
