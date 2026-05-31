@@ -3,10 +3,12 @@ package handlers
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -138,11 +140,44 @@ func (h *SetupHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"setup_state": state,
-		"user_status": userStatus,
-		"license":     licenseStatus,
-		"progress":    progress,
+		"setup_state":   state,
+		"user_status":   userStatus,
+		"license":       licenseStatus,
+		"progress":      progress,
+		"code_required": !isLocalIP(r),
 	})
+}
+
+// ValidateCode handles POST /api/v1/setup/validate-code
+// Validates the setup code and returns success/failure.
+// This is a separate step before the wizard begins so users get
+// immediate feedback on whether their setup code is correct.
+func (h *SetupHandler) ValidateCode(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.Code == "" {
+		JSONError(w, http.StatusBadRequest, "setup code is required")
+		return
+	}
+
+	expected, err := h.setupService.SetupToken(r.Context())
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "failed to check setup code")
+		return
+	}
+
+	submitted := strings.ToLower(strings.TrimSpace(req.Code))
+	if subtle.ConstantTimeCompare([]byte(submitted), []byte(strings.ToLower(expected))) != 1 {
+		JSONError(w, http.StatusForbidden, "Invalid setup code. Check the code on your device card and try again.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // CompleteSetup handles POST /api/v1/setup/complete
@@ -865,4 +900,15 @@ func (h *SetupHandler) FinalizeSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{"message": "setup finalized"})
+}
+
+// isLocalIP returns true when the request originates from the local machine.
+// Display mode (loopback) is exempt from needing a setup code.
+func isLocalIP(r *http.Request) bool {
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

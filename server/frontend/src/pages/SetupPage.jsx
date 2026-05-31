@@ -13,6 +13,7 @@ import useSetupProgress from "../hooks/useSetupProgress";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
+  SETUP_CODE:  "setup_code",
   WELCOME:      "welcome",
   PREFLIGHT:   "preflight",
   REMOTE_ACCESS: "remote_access",
@@ -179,8 +180,44 @@ function LogoMark({ size = 64 }) {
 }
 LogoMark.propTypes = { size: PropTypes.number };
 
-// ─── STEP: Welcome ────────────────────────────────────────────────────────────
-function WelcomeStep({ onBegin, setupToken, onSetupTokenChange }) {
+// ─── STEP: Setup Code ─────────────────────────────────────────────────────────
+function SetupCodeStep({ onCodeVerified }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = useCallback(async () => {
+    const trimmed = code.replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 6);
+    if (trimmed.length !== 6) {
+      setError("Please enter a 6-character setup code.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api("/setup/validate-code", {
+        method: "POST",
+        body: JSON.stringify({ code: trimmed }),
+      });
+      if (!res.ok) {
+        const msg = res.status === 429
+          ? "Too many attempts. Please wait a minute and try again."
+          : "Invalid setup code. Check the code on your device card.";
+        setError(msg);
+        return;
+      }
+      onCodeVerified(trimmed);
+    } catch {
+      setError("Could not reach the server. Make sure you are on the same network.");
+    } finally {
+      setLoading(false);
+    }
+  }, [code, onCodeVerified]);
+
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === "Enter" && !loading) handleSubmit();
+  }, [handleSubmit, loading]);
+
   const inputClass =
     "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
@@ -191,12 +228,76 @@ function WelcomeStep({ onBegin, setupToken, onSetupTokenChange }) {
           <LogoMark size={120} />
         </div>
 
-        {/* Headline */}
+        <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
+          Enter your setup code
+        </h1>
+
+        <p className="text-primary/42 text-base leading-relaxed mb-10 max-w-[20rem]">
+          Enter the 6-character code from the card included with your device.
+        </p>
+
+        <div className="w-full mb-6">
+          <input
+            className={inputClass + " text-center text-2xl tracking-[0.3em]"}
+            placeholder="______"
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6));
+              setError("");
+            }}
+            onKeyDown={handleKeyDown}
+            autoComplete="off"
+            autoFocus
+            disabled={loading}
+          />
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 text-red-500 text-sm mb-6">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <button
+          onClick={handleSubmit}
+          disabled={loading || code.length !== 6}
+          className="group inline-flex items-center gap-2.5 rounded-pill bg-primary text-secondary px-9 py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.03] active:scale-[0.98] disabled:opacity-40 disabled:hover:scale-100"
+        >
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <>
+              Verify
+              <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+            </>
+          )}
+        </button>
+
+        <p className="mt-9 text-xs text-primary/20">
+          LibreServ &bull; Self-hosted cloud platform
+        </p>
+      </SetupCard>
+    </SetupShell>
+  );
+}
+SetupCodeStep.propTypes = {
+  onCodeVerified: PropTypes.func.isRequired,
+};
+
+// ─── STEP: Welcome ────────────────────────────────────────────────────────────
+function WelcomeStep({ onBegin }) {
+  return (
+    <SetupShell>
+      <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+        <div className="mb-10 flex h-36 w-36 items-center justify-center rounded-full border border-primary/12 bg-primary/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+          <LogoMark size={120} />
+        </div>
+
         <h1 className="font-mono text-5xl font-normal text-primary tracking-tight mb-4">
           Welcome.
         </h1>
 
-        {/* Subtext */}
         <p className="text-primary/68 text-xl leading-[1.65] mb-5 max-w-[22rem]">
           It&rsquo;s great to see you here.
         </p>
@@ -204,26 +305,6 @@ function WelcomeStep({ onBegin, setupToken, onSetupTokenChange }) {
           Let&rsquo;s get LibreServ set up for you.
         </p>
 
-        <div className="w-full text-left mb-8">
-          <label htmlFor="setup_code" className="block text-xs font-mono text-primary/60 tracking-wider uppercase mb-2">
-            Setup code (optional)
-          </label>
-          <input
-            id="setup_code"
-            name="setup_code"
-            type="text"
-            placeholder="Paste the setup code"
-            value={setupToken}
-            onChange={onSetupTokenChange}
-            className={inputClass}
-            autoComplete="off"
-          />
-          <p className="text-primary/40 text-xs mt-2 leading-relaxed">
-            Enter the setup code from the card included with your device.
-          </p>
-        </div>
-
-        {/* CTA */}
         <button
           onClick={onBegin}
           className="group inline-flex items-center gap-2.5 rounded-pill bg-primary text-secondary px-9 py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.03] active:scale-[0.98]"
@@ -232,7 +313,6 @@ function WelcomeStep({ onBegin, setupToken, onSetupTokenChange }) {
           <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
         </button>
 
-        {/* Fine print */}
         <p className="mt-9 text-xs text-primary/20">
           LibreServ &bull; Self-hosted cloud platform
         </p>
@@ -242,8 +322,6 @@ function WelcomeStep({ onBegin, setupToken, onSetupTokenChange }) {
 }
 WelcomeStep.propTypes = {
   onBegin: PropTypes.func.isRequired,
-  setupToken: PropTypes.string.isRequired,
-  onSetupTokenChange: PropTypes.func.isRequired,
 };
 
 // ─── STEP: Preflight ──────────────────────────────────────────────────────────
@@ -1197,15 +1275,10 @@ export default function SetupPage() {
   const progressRef = useRef(/** @type {{ step?: string, subStep?: string, stepData?: Record<string, any> }} */ ({}));
   const savingRef = useRef(false);
 
-  const handleSetupTokenChange = useCallback((event) => {
-    const value = event.target.value.trim();
-    setSetupToken(value);
-    if (typeof window === "undefined") return;
-    if (value) {
-      localStorage.setItem(SETUP_TOKEN_KEY, value);
-    } else {
-      localStorage.removeItem(SETUP_TOKEN_KEY);
-    }
+  const handleCodeVerified = useCallback((code) => {
+    setSetupToken(code);
+    localStorage.setItem(SETUP_TOKEN_KEY, code);
+    setStep(STEP.WELCOME);
   }, []);
 
   const advanceStep = useCallback(async (nextStep, subStep, stepData) => {
@@ -1248,6 +1321,14 @@ export default function SetupPage() {
         const data = await res.json();
         if (data.setup_state?.status === "complete") {
           navigate("/");
+          return;
+        }
+
+        const hasToken = setupToken && setupToken.length === 6;
+        const needsCode = data.code_required === true;
+
+        if (needsCode && !hasToken) {
+          setStep(STEP.SETUP_CODE);
           return;
         }
 
@@ -1325,7 +1406,7 @@ export default function SetupPage() {
       }
     };
     check();
-  }, [navigate, saveProgress]);
+  }, [navigate, saveProgress, setupToken]);
 
   const handleBegin = useCallback(() => advanceStep(STEP.PREFLIGHT), [advanceStep]);
 
@@ -1408,13 +1489,13 @@ export default function SetupPage() {
     return <ErrorStep message={error ?? "An unexpected error occurred."} />;
   }
 
+  if (step === STEP.SETUP_CODE) {
+    return <SetupCodeStep onCodeVerified={handleCodeVerified} />;
+  }
+
   if (step === STEP.WELCOME) {
     return (
-      <WelcomeStep
-        onBegin={handleBegin}
-        setupToken={setupToken}
-        onSetupTokenChange={handleSetupTokenChange}
-      />
+      <WelcomeStep onBegin={handleBegin} />
     );
   }
 

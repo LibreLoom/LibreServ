@@ -157,6 +157,9 @@ func (s *Server) setupRoutes() {
 		// Setup routes (public, but only work when setup is incomplete)
 		r.Route("/setup", func(r chi.Router) {
 			r.Get("/status", setupHandler.GetStatus)
+			r.With(middleware.RateLimit([]middleware.RateRule{
+				{Prefix: "/api/v1/setup/validate-code", Limit: 5, Window: time.Minute},
+			})).Post("/validate-code", setupHandler.ValidateCode)
 			r.With(setupAccess).Post("/complete", setupHandler.CompleteSetup)
 			r.Get("/preflight", setupHandler.Preflight)
 			r.With(setupAccess).Put("/progress", setupHandler.SaveProgress)
