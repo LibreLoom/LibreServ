@@ -7,7 +7,10 @@ import (
 	"net"
 
 	"github.com/hashicorp/mdns"
+	"github.com/miekg/dns"
 )
+
+const mdnsTTL = 120
 
 type MDNSService struct {
 	server *mdns.Server
@@ -34,7 +37,7 @@ func (m *MDNSService) Start() error {
 		return nil
 	}
 
-	zone, err := mdns.NewMDNSService(
+	svc, err := mdns.NewMDNSService(
 		"LibreServ",
 		"_http._tcp",
 		"local.",
@@ -46,6 +49,8 @@ func (m *MDNSService) Start() error {
 	if err != nil {
 		return fmt.Errorf("create mdns service: %w", err)
 	}
+
+	zone := &libreservZone{MDNSService: svc, ips: ips}
 
 	server, err := mdns.NewServer(&mdns.Config{
 		Zone:              zone,
@@ -116,3 +121,38 @@ func localIPs() ([]net.IP, error) {
 func (m *MDNSService) stdLog() *log.Logger {
 	return slog.NewLogLogger(m.logger.Handler(), slog.LevelDebug)
 }
+
+// libreservZone wraps mdns.MDNSService and adds A record responses for
+// libreserv.local so that http://libreserv.local resolves in the browser.
+type libreservZone struct {
+	*mdns.MDNSService
+	ips []net.IP
+}
+
+func (z *libreservZone) Records(q dns.Question) []dns.RR {
+	if q.Name == "libreserv.local." && (q.Qtype == dns.TypeA || q.Qtype == dns.TypeANY) {
+		var rrs []dns.RR
+		for _, ip := range z.ips {
+			if ip4 := ip.To4(); ip4 != nil {
+				rrs = append(rrs, &dns.A{
+					Hdr: dns.RR_Header{
+						Name:   "libreserv.local.",
+						Rrtype: dns.TypeA,
+						Class:  dns.ClassINET,
+						Ttl:    mdnsTTL,
+					},
+					A: ip4,
+				})
+			}
+		}
+		if q.Qtype == dns.TypeANY && len(rrs) > 0 {
+			extra := z.MDNSService.Records(q)
+			rrs = append(rrs, extra...)
+		}
+		return rrs
+	}
+	return z.MDNSService.Records(q)
+}
+
+// Ensure Zone interface is satisfied at compile time.
+var _ mdns.Zone = (*libreservZone)(nil)
