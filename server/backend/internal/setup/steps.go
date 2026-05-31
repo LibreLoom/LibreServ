@@ -1,12 +1,13 @@
 package setup
 
 var validMainSteps = map[string]bool{
-	StepWelcome:   true,
-	StepPreflight: true,
-	StepDomain:    true,
-	StepSMTP:      true,
-	StepAccount:   true,
-	StepComplete:  true,
+	StepWelcome:      true,
+	StepPreflight:    true,
+	StepDomain:       true,
+	StepRemoteAccess: true,
+	StepSMTP:         true,
+	StepAccount:      true,
+	StepComplete:     true,
 }
 
 var validSubSteps = map[string]bool{
@@ -27,28 +28,31 @@ var validSubSteps = map[string]bool{
 }
 
 var allowedStepDataKeys = map[string]bool{
-	"preflight_passed":  true,
-	"account_completed": true,
-	"admin_email":       true,
-	"domain_completed":  true,
-	"domain_skipped":    true,
-	"has_domain":        true,
-	"provider":          true,
-	"registrar":         true,
-	"domain_name":       true,
-	"cf_ns_confirmed":   true,
-	"smtp_completed":    true,
-	"smtp_skipped":      true,
-	"smtp_provider":     true,
+	"preflight_passed":        true,
+	"account_completed":       true,
+	"admin_email":             true,
+	"domain_completed":        true,
+	"domain_skipped":          true,
+	"remote_access_completed": true,
+	"remote_access_skipped":   true,
+	"has_domain":              true,
+	"provider":                true,
+	"registrar":               true,
+	"domain_name":             true,
+	"cf_ns_confirmed":         true,
+	"smtp_completed":          true,
+	"smtp_skipped":            true,
+	"smtp_provider":           true,
 }
 
 const (
-	StepWelcome   = "welcome"
-	StepPreflight = "preflight"
-	StepDomain    = "domain"
-	StepSMTP      = "smtp"
-	StepAccount   = "account"
-	StepComplete  = "complete"
+	StepWelcome      = "welcome"
+	StepPreflight    = "preflight"
+	StepDomain       = "domain"
+	StepRemoteAccess = "remote_access"
+	StepSMTP         = "smtp"
+	StepAccount      = "account"
+	StepComplete     = "complete"
 )
 
 const (
