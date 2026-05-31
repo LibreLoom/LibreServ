@@ -458,6 +458,18 @@ download_catalog() {
     fi
 }
 
+# Generate a 6-character no-ambiguous setup code
+generate_setup_code() {
+    local chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    local code=""
+    for i in 1 2 3 4 5 6; do
+        local byte
+        byte=$(dd if=/dev/urandom bs=1 count=1 2>/dev/null | od -An -tu1 | tr -d ' ')
+        code="${code}${chars:$((byte % ${#chars})):1}"
+    done
+    echo "$code"
+}
+
 # Create default config
 create_config() {
     if [ -f "${CONFIG_DIR}/libreserv.yaml" ]; then
@@ -489,6 +501,12 @@ EOF
     # Explicitly set ownership and permissions on config file
     chown "${USER}:${USER}" "${CONFIG_DIR}/libreserv.yaml"
     chmod 640 "${CONFIG_DIR}/libreserv.yaml"
+
+    # Generate setup code for the included card/documentation
+    SETUP_CODE="$(generate_setup_code)"
+    echo "$SETUP_CODE" > "${CONFIG_DIR}/setup-code"
+    chown "${USER}:${USER}" "${CONFIG_DIR}/setup-code"
+    chmod 640 "${CONFIG_DIR}/setup-code"
 }
 
 # Create systemd service
@@ -635,6 +653,10 @@ get_ip_address() {
 print_post_install() {
     local ip
     ip="$(get_ip_address)"
+    local setup_code
+    if [ -f "${CONFIG_DIR}/setup-code" ]; then
+        setup_code="$(cat "${CONFIG_DIR}/setup-code")"
+    fi
 
     echo ""
     echo -e "${GREEN}========================================${NC}"
@@ -643,14 +665,36 @@ print_post_install() {
     echo ""
     echo -e "Installed version: ${BLUE}${INSTALL_VERSION}${NC}"
     echo ""
+
+    if [ -n "$setup_code" ]; then
+        echo -e "${YELLOW}┌─────────────────────────────────────────────┐${NC}"
+        echo -e "${YELLOW}│                                               │${NC}"
+        printf "${YELLOW}│${NC}  Setup code:  ${BLUE}%-6s${NC}                        ${YELLOW}│${NC}\n" "$setup_code"
+        echo -e "${YELLOW}│                                               │${NC}"
+        echo -e "${YELLOW}│  Write this down. You will need it to         │${NC}"
+        echo -e "${YELLOW}│  complete the web setup.                      │${NC}"
+        echo -e "${YELLOW}│                                               │${NC}"
+        echo -e "${YELLOW}└─────────────────────────────────────────────┘${NC}"
+        echo ""
+    fi
+
     echo -e "Next steps:"
     echo ""
     echo -e "  1. Open your browser and navigate to:"
-    echo -e "     ${BLUE}http://${ip}:8080${NC}"
+    ip_msg="http://${ip}:8080"
+    echo -e "     ${BLUE}${ip_msg}${NC}"
     echo ""
-    echo -e "  2. Complete the setup wizard to create your admin account"
-    echo ""
-    echo -e "  3. Install your first app from the catalog"
+    if [ -n "$setup_code" ]; then
+        echo -e "  2. Enter the setup code: ${YELLOW}${setup_code}${NC}"
+        echo ""
+        echo -e "  3. Complete the setup wizard to create your admin account"
+        echo ""
+        echo -e "  4. Install your first app from the catalog"
+    else
+        echo -e "  2. Complete the setup wizard to create your admin account"
+        echo ""
+        echo -e "  3. Install your first app from the catalog"
+    fi
     echo ""
     echo -e "Service commands:"
     if [ "$NO_SYSTEMD" = true ]; then
