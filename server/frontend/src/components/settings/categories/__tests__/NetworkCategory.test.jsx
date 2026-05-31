@@ -7,24 +7,32 @@ vi.mock("../../../../lib/network-api", () => ({
   getCaddyStatus: vi.fn(),
   listRoutes: vi.fn(),
   getCaddyfile: vi.fn().mockResolvedValue("# Caddyfile\n{\n\tauto_https off\n}"),
+  getConnectivityStatus: vi.fn().mockResolvedValue(null),
+  getUPnPStatus: vi.fn().mockResolvedValue(null),
+  getDDNSStatus: vi.fn().mockResolvedValue(null),
+  getTunnelStatus: vi.fn().mockResolvedValue({ available: false, enabled: false }),
+  ddnsForceUpdate: vi.fn(),
+  ddnsSetInterval: vi.fn(),
 }));
+
+const mockRequest = vi.fn().mockImplementation((path) => {
+  if (path === "/apps") {
+    return Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        apps: [
+          { id: "app-nextcloud", name: "Nextcloud", status: "running", backends: [{ name: "ui", url: "http://localhost:8080" }] },
+        ],
+        total: 1,
+      }),
+    });
+  }
+  return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+});
 
 vi.mock("../../../../hooks/useAuth", () => ({
   useAuth: () => ({
-    request: vi.fn().mockImplementation((path) => {
-      if (path === "/apps") {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({
-            apps: [
-              { id: "app-nextcloud", name: "Nextcloud", status: "running", backends: [{ name: "ui", url: "http://localhost:8080" }] },
-            ],
-            total: 1,
-          }),
-        });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
-    }),
+    request: mockRequest,
   }),
 }));
 
