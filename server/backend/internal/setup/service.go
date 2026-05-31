@@ -52,6 +52,25 @@ func (s *Service) Ensure(ctx context.Context) (*State, error) {
 
 	state, err := s.get(ctx)
 	if err == nil {
+		// Always reconcile the nonce with the file on disk (file is source of truth
+		// for installations with a physical setup code card).
+		if fileCode := s.readCodeFromFile(); fileCode != "" && fileCode != state.Nonce {
+			_, err := s.db.Exec(`UPDATE setup_state SET nonce = ? WHERE id = 1`, fileCode)
+			if err != nil {
+				return nil, fmt.Errorf("update nonce from file: %w", err)
+			}
+			state.Nonce = fileCode
+			return state, nil
+		}
+		// Migrate old 32-hex nonces to new 6-char format (dev mode, no file).
+		if len(state.Nonce) != 6 {
+			newCode := generateRandomCode()
+			_, err := s.db.Exec(`UPDATE setup_state SET nonce = ? WHERE id = 1`, newCode)
+			if err != nil {
+				return nil, fmt.Errorf("migrate nonce to 6-char: %w", err)
+			}
+			state.Nonce = newCode
+		}
 		return state, nil
 	}
 
@@ -239,15 +258,27 @@ func (n *sqlNullTime) Scan(value interface{}) error {
 
 var noAmbigChars = []rune("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 
+// readCodeFromFile reads the 6-char code from the file on disk.
+// Returns empty string if no file is configured or the file doesn't exist.
+func (s *Service) readCodeFromFile() string {
+	if s.SetupCodePath == "" {
+		return ""
+	}
+	data, err := os.ReadFile(s.SetupCodePath)
+	if err != nil {
+		return ""
+	}
+	code := strings.TrimSpace(string(data))
+	if len(code) == 6 {
+		return code
+	}
+	return ""
+}
+
+// readSetupCode prefers the file on disk, falling back to random generation for dev.
 func (s *Service) readSetupCode() string {
-	if s.SetupCodePath != "" {
-		data, err := os.ReadFile(s.SetupCodePath)
-		if err == nil {
-			code := strings.TrimSpace(string(data))
-			if len(code) == 6 {
-				return code
-			}
-		}
+	if c := s.readCodeFromFile(); c != "" {
+		return c
 	}
 	return generateRandomCode()
 }
