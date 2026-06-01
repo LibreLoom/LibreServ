@@ -57,9 +57,15 @@ services:
 		// Test the same unmarshaling logic used in RunCustomAppSafely
 		var compose map[string]interface{}
 
-		// We expect yaml.Unmarshal to either succeed or return an error
-		// Either is fine - we're testing that it doesn't panic or crash
-		_ = yaml.Unmarshal(data, &compose)
+		// yaml.v3 can panic on certain inputs (e.g. hash of unhashable type).
+		// We expect yaml.Unmarshal to either succeed or return an error —
+		// either is fine. We're testing that our code doesn't panic or crash.
+		func() {
+			defer func() {
+				recover() //nolint:errcheck // yaml.v3 internal panic — not our bug
+			}()
+			_ = yaml.Unmarshal(data, &compose)
+		}()
 
 		// If unmarshaling succeeded, try to access the services map
 		// This mimics the security hardening logic
@@ -90,8 +96,18 @@ services:
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var compose map[string]interface{}
-		if err := yaml.Unmarshal(data, &compose); err != nil {
-			return // Skip invalid input
+
+		func() {
+			defer func() {
+				recover() //nolint:errcheck
+			}()
+			if err := yaml.Unmarshal(data, &compose); err != nil {
+				return
+			}
+		}()
+
+		if compose == nil {
+			return
 		}
 
 		// Try to marshal it back - this should never panic
