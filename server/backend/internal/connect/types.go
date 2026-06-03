@@ -19,20 +19,20 @@ const (
 )
 
 type ConnectPlan struct {
-	ID    PlanID `json:"id"`
-	Name  string `json:"name"`
+	ID   PlanID `json:"id"`
+	Name string `json:"name"`
 }
 
 type ServiceID string
 
 const (
-	ServiceSMTP     ServiceID = "smtp"
-	ServiceDomain   ServiceID = "domain"
-	ServiceBackup   ServiceID = "backup"
-	ServiceTunnel   ServiceID = "tunnel"
-	ServiceACME     ServiceID = "acme"
-	ServiceAI       ServiceID = "ai"
-	ServiceSupport  ServiceID = "support"
+	ServiceSMTP    ServiceID = "smtp"
+	ServiceDomain  ServiceID = "domain"
+	ServiceBackup  ServiceID = "backup"
+	ServiceTunnel  ServiceID = "tunnel"
+	ServiceACME    ServiceID = "acme"
+	ServiceAI      ServiceID = "ai"
+	ServiceSupport ServiceID = "support"
 )
 
 var AllServices = []ServiceID{
@@ -46,16 +46,16 @@ var AllServices = []ServiceID{
 }
 
 type ServiceStatus struct {
-	State   ServiceState       `json:"state"`
-	Label   string             `json:"label"`
-	Details map[string]string  `json:"details,omitempty"`
+	State   ServiceState      `json:"state"`
+	Label   string            `json:"label"`
+	Details map[string]string `json:"details,omitempty"`
 }
 
 type ConnectStatus struct {
-	Connected bool                     `json:"connected"`
-	Plan      *ConnectPlan             `json:"plan,omitempty"`
+	Connected bool                        `json:"connected"`
+	Plan      *ConnectPlan                `json:"plan,omitempty"`
 	Services  map[ServiceID]ServiceStatus `json:"services"`
-	TokenHint string                   `json:"token_hint,omitempty"`
+	TokenHint string                      `json:"token_hint,omitempty"`
 }
 
 type UsageSummary struct {
@@ -67,7 +67,7 @@ type UsageSummary struct {
 }
 
 type ServiceToggleRequest struct {
-	Service ServiceID   `json:"service"`
+	Service ServiceID    `json:"service"`
 	State   ServiceState `json:"state"`
 }
 
@@ -99,9 +99,9 @@ type DomainCredentials struct {
 }
 
 type BackupCredentials struct {
-	RepoType string `json:"repo_type"`
-	RepoPath string `json:"repo_path"`
-	Password string `json:"password"`
+	RepoType string            `json:"repo_type"`
+	RepoPath string            `json:"repo_path"`
+	Password string            `json:"password"`
 	Env      map[string]string `json:"env,omitempty"`
 }
 
@@ -111,15 +111,15 @@ type TunnelCredentials struct {
 }
 
 type ConnectInfo struct {
-	Plans      []PlanInfo              `json:"plans"`
-	PlanLimits map[PlanID]PlanLimits   `json:"plan_limits"`
+	Plans      []PlanInfo            `json:"plans"`
+	PlanLimits map[PlanID]PlanLimits `json:"plan_limits"`
 }
 
 type PlanInfo struct {
-	ID          PlanID `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	PriceMonthly int   `json:"price_monthly"`
+	ID           PlanID `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	PriceMonthly int    `json:"price_monthly"`
 }
 
 type PlanLimits struct {

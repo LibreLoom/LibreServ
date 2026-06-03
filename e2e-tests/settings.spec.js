@@ -8,6 +8,7 @@ async function ensureSetup(request) {
   
   if (status.setup_state?.status === 'pending') {
     const setupResponse = await request.post(`${BASE_URL}/api/v1/setup/complete`, {
+      headers: { 'X-Setup-Token': process.env.E2E_SETUP_TOKEN || '' },
       data: {
         admin_username: 'admin',
         admin_password: 'hunter2hunter2',

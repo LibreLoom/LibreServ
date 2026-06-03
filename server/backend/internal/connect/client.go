@@ -22,16 +22,16 @@ type Client interface {
 }
 
 type Config struct {
-	Token   string
-	BaseURL string
+	Token      string
+	BaseURL    string
 	HTTPClient *http.Client
 }
 
 type RealClient struct {
-	token    string
-	baseURL  string
-	client   *http.Client
-	mu       sync.RWMutex
+	token   string
+	baseURL string
+	client  *http.Client
+	mu      sync.RWMutex
 }
 
 func NewRealClient(cfg Config) *RealClient {
@@ -197,11 +197,11 @@ func (c *RealClient) Info(ctx context.Context) (*ConnectInfo, error) {
 }
 
 type FakeClient struct {
-	mu         sync.RWMutex
-	token      string
-	connected  bool
-	plan       *ConnectPlan
-	services   map[ServiceID]ServiceStatus
+	mu        sync.RWMutex
+	token     string
+	connected bool
+	plan      *ConnectPlan
+	services  map[ServiceID]ServiceStatus
 }
 
 func NewFakeClient() *FakeClient {
@@ -282,8 +282,8 @@ func (f *FakeClient) Provision(ctx context.Context, service ServiceID) (*Provisi
 	switch service {
 	case ServiceSMTP:
 		creds.SMTP = &SMTPCredentials{
-			Host: "smtp.libreloom.org",
-			Port: 587,
+			Host:     "smtp.libreloom.org",
+			Port:     587,
 			Username: fmt.Sprintf("server-%s", f.token[:8]),
 			Password: "provisioned-smtp-password",
 			From:     fmt.Sprintf("server@%s.servers.libreloom.org", f.token[:8]),

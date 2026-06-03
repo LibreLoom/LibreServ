@@ -663,8 +663,18 @@ function scanLine(
   }
   while ((match = applyRe.exec(strippedLine)) !== null) {
     const classes = match[1] ?? "";
-    const classMatches = classes.match(tailwindUtilityRe);
-    if (classMatches && classMatches.length > 0) {
+    // Validate that matched Tailwind utilities are actual color utilities
+    const utilityRe = new RegExp(tailwindUtilityRe.source, "g");
+    let hasColorUtility = false;
+    let m;
+    while ((m = utilityRe.exec(classes)) !== null) {
+      const colorName = m[1]?.toLowerCase();
+      if (TAILWIND_COLOR_NAMES.has(colorName)) {
+        hasColorUtility = true;
+        break;
+      }
+    }
+    if (hasColorUtility) {
       recordMatch(
         results,
         filePath,
@@ -676,7 +686,17 @@ function scanLine(
         allLines,
       );
     }
-    if (tailwindArbitraryRe.test(classes)) {
+    const arbitraryRe = new RegExp(tailwindArbitraryRe.source, "g");
+    let hasHardcodedArbitrary = false;
+    let a;
+    while ((a = arbitraryRe.exec(classes)) !== null) {
+      const arbitraryValue = a[1] ?? "";
+      if (hasHardcodedColorValue(arbitraryValue)) {
+        hasHardcodedArbitrary = true;
+        break;
+      }
+    }
+    if (hasHardcodedArbitrary) {
       recordMatch(
         results,
         filePath,

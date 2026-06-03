@@ -1,6 +1,7 @@
 package connect
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -19,7 +20,7 @@ func (e *EntitlementChecker) Refresh() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	status, err := e.client.Status(nil)
+	status, err := e.client.Status(context.TODO())
 	if err != nil {
 		return
 	}

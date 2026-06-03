@@ -10,8 +10,8 @@ import (
 )
 
 type ConnectHandler struct {
-	client   connect.Client
-	checker  *connect.EntitlementChecker
+	client  connect.Client
+	checker *connect.EntitlementChecker
 }
 
 func NewConnectHandler(client connect.Client, checker *connect.EntitlementChecker) *ConnectHandler {

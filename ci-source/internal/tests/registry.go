@@ -334,7 +334,13 @@ func addE2ETests() {
 			echo "Running Playwright tests..."
 			cd /repo/e2e-tests
 			npm ci 2>/dev/null || npm install
-			E2E_BASE_URL=http://libreserv-e2e:$SERVER_PORT npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
+			SETUP_CODE=$(docker logs libreserv-e2e 2>&1 | grep -oP '"code":"[^"]*"' | head -1 | grep -oP '[^"]*$')
+			if [ -n "$SETUP_CODE" ]; then
+				echo "Extracted setup token: $SETUP_CODE"
+			else
+				echo "WARNING: Could not extract setup token from logs"
+			fi
+			E2E_BASE_URL=http://libreserv-e2e:$SERVER_PORT E2E_SETUP_TOKEN=$SETUP_CODE npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
 			
 			# Cleanup
 			docker stop libreserv-e2e || true
