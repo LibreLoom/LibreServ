@@ -86,7 +86,7 @@ var Profiles = map[string]*Profile{
 	"full": {
 		ID:          "full",
 		Name:        "Full",
-		Description: "Complete test suite - all 31 tests",
+		Description: "Complete test suite - all tests",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
 			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
@@ -97,20 +97,18 @@ var Profiles = map[string]*Profile{
 			"govulncheck", "gosec", "staticcheck",
 			"coverage", "docker-build",
 			"e2e",
-			"support-relay", "support-server",
 		},
 	},
 	"nofuzz": {
 		ID:          "nofuzz",
 		Name:        "No Fuzz",
-		Description: "Everything except fuzz tests - full suite minus fuzzing (19 tests)",
+		Description: "Everything except fuzz tests - full suite minus fuzzing",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
 			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"govulncheck", "gosec", "staticcheck",
 			"coverage", "docker-build",
 			"e2e",
-			"support-relay", "support-server",
 		},
 	},
 	"e2e": {

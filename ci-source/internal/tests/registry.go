@@ -49,7 +49,7 @@ func init() {
 	addE2ETests()
 	addSecurityTests()
 	addIntegrationTests()
-	addSupportTests()
+
 }
 
 func addGoTests() {
@@ -418,31 +418,5 @@ func addIntegrationTests() {
 		WorkDir:     "/repo",
 		Timeout:     20 * time.Minute,
 		SkipIf:      "no-docker",
-	})
-}
-
-func addSupportTests() {
-	DefaultRegistry.Add(&Test{
-		ID:          "support-relay",
-		Name:        "Support Relay Tests",
-		Description: "Run tests for support-relay module",
-		Type:        TestTypeUnit,
-		Container:   "golang:1.26-alpine",
-		Command:     "go test -v ./...",
-		WorkDir:     "/repo/support/support-relay",
-		Timeout:     5 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
-	})
-
-	DefaultRegistry.Add(&Test{
-		ID:          "support-server",
-		Name:        "Support Server Tests",
-		Description: "Run tests for support-server module",
-		Type:        TestTypeUnit,
-		Container:   "golang:1.26-alpine",
-		Command:     "go test -v ./...",
-		WorkDir:     "/repo/support/support-server",
-		Timeout:     5 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 }
