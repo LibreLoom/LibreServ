@@ -1,0 +1,54 @@
+server:
+    address: ""
+    port: 8080
+
+database:
+    path: connect.db
+
+auth:
+    device_token_secret: CHANGE_ME
+    admin_token_secret: CHANGE_ME
+    session_ttl_hours: 168
+
+stripe:
+    enabled: false
+    secret_key: ""
+    webhook_secret: ""
+
+crypto:
+    enabled: false
+    btc_address: ""
+    eth_address: ""
+    reconcile_url: ""
+
+smtp:
+    host: smtp.libreloom.org
+    port: 587
+    username: ""
+    password: ""
+    from: noreply@libreloom.org
+    use_tls: true
+
+dns:
+    provider: cloudflare
+    api_token: ""
+    zone: libreloom.org
+    nameservers: []
+
+inference:
+    provider: neuralwatt
+    base_url: https://inference.neuralwatt.dev/v1
+    api_key: ""
+    enabled: false
+
+backup:
+    provider: r2
+    endpoint: ""
+    access_key: ""
+    secret_key: ""
+    bucket_prefix: libreserv-backup
+
+tunnel:
+    provider: cloudflare
+    api_token: ""
+    account_id: ""
