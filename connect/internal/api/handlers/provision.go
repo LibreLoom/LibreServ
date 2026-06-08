@@ -50,13 +50,11 @@ func (h *ProvisionHandler) Provision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID := middleware.GetDeviceID(r.Context())
-	creds := h.generateCredentials(deviceID, req.Service)
-
-	// Upsert credentials record
-	sub := deviceID[len(deviceID)-8:]
-	if len(sub) < 8 {
-		sub = deviceID
+	if deviceID == "" {
+		JSONError(w, http.StatusUnauthorized, "device authentication required")
+		return
 	}
+	creds := h.generateCredentials(deviceID, req.Service)
 
 	_, _ = h.db.ExecContext(r.Context(),
 		`INSERT INTO service_credentials (id, device_id, service_type, credentials_json, provisioned_at, is_active)
@@ -71,9 +69,9 @@ func (h *ProvisionHandler) Provision(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProvisionHandler) generateCredentials(deviceID, service string) map[string]any {
-	sub := deviceID[len(deviceID)-8:]
-	if len(sub) < 8 {
-		sub = deviceID
+	sub := deviceID
+	if len(deviceID) >= 8 {
+		sub = deviceID[len(deviceID)-8:]
 	}
 
 	switch service {

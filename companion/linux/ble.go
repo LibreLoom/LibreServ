@@ -209,6 +209,10 @@ func (c *bleClient) doRequest(ctx context.Context, req proxyRequest) (*proxyResp
 		c.mu.Unlock()
 	}()
 
+	if c.proxyReqChar == nil {
+		return nil, errors.New("BLE proxy request characteristic not available")
+	}
+
 	j, err := json.Marshal(req)
 	if err != nil {
 		return nil, err

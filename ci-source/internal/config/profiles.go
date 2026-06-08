@@ -97,6 +97,7 @@ var Profiles = map[string]*Profile{
 			"govulncheck", "gosec", "staticcheck",
 			"coverage", "docker-build",
 			"e2e",
+			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 		},
 	},
 	"nofuzz": {
@@ -109,6 +110,7 @@ var Profiles = map[string]*Profile{
 			"govulncheck", "gosec", "staticcheck",
 			"coverage", "docker-build",
 			"e2e",
+			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 		},
 	},
 	"e2e": {

@@ -124,6 +124,54 @@ func addGoTests() {
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-fmt",
+		Name:        "Connect Go Format Check",
+		Description: "Check that Connect Go files are properly formatted",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "gofmt -l $(find . -name '*.go' | grep -v vendor)",
+		WorkDir:     "/repo/connect",
+		Timeout:     1 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-vet",
+		Name:        "Connect Go Vet",
+		Description: "Run go vet on Connect code",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "go vet ./...",
+		WorkDir:     "/repo/connect",
+		Timeout:     3 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-test",
+		Name:        "Connect Unit Tests",
+		Description: "Run all Connect Go unit tests",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -v ./...",
+		WorkDir:     "/repo/connect",
+		Timeout:     5 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-build",
+		Name:        "Connect Build",
+		Description: "Verify that Connect compiles successfully",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "go build ./...",
+		WorkDir:     "/repo/connect",
+		Timeout:     3 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
 }
 
 func addFrontendTests() {

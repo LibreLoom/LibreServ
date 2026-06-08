@@ -43,6 +43,11 @@ func GetDeviceID(ctx context.Context) string {
 	return id
 }
 
+// WithDeviceID attaches a device ID to a context for testing.
+func WithDeviceID(ctx context.Context, deviceID string) context.Context {
+	return context.WithValue(ctx, deviceContext{}, deviceID)
+}
+
 func extractBearer(r *http.Request) string {
 	h := r.Header.Get("Authorization")
 	if !strings.HasPrefix(h, "Bearer ") {

@@ -261,14 +261,15 @@ func (s *proxyServer) handleProxyReqWrite(client bluetooth.Connection, offset in
 	s.mu.Unlock()
 }
 
-func (s *proxyServer) executeHTTP(id, method, path string, headers map[string]string, body io.Reader) {
+// dispatchHTTP routes the request through the internal chi router and returns
+// the response as a slice of proxyResponse chunks. It does not interact with BLE.
+func (s *proxyServer) dispatchHTTP(method, path string, headers map[string]string, body io.Reader) ([]proxyResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	httpReq, err := http.NewRequest(method, "http://localhost"+path, body)
 	if err != nil {
-		s.sendProxyError(id, http.StatusBadRequest, "Could not understand that request. Please check the address and try again.")
-		return
+		return nil, err
 	}
 	httpReq = httpReq.WithContext(ctx)
 	for k, v := range headers {
@@ -277,8 +278,7 @@ func (s *proxyServer) executeHTTP(id, method, path string, headers map[string]st
 
 	router := getRouter()
 	if router == nil {
-		s.sendProxyError(id, http.StatusServiceUnavailable, "router not ready")
-		return
+		return nil, fmt.Errorf("router not ready")
 	}
 
 	rec := httptest.NewRecorder()
@@ -293,16 +293,15 @@ func (s *proxyServer) executeHTTP(id, method, path string, headers map[string]st
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		s.sendProxyError(id, http.StatusInternalServerError, "The server had trouble reading the response. Please try again.")
-		return
+		return nil, err
 	}
 
-	const maxChunk = 500
+	const maxChunk = 300 // ~300 raw bytes → ~400 base64 → fits comfortably in 512-byte BLE MTU
 	chunks := chunkBytes(respBody, maxChunk)
 
+	var out []proxyResponse
 	for i, chunk := range chunks {
 		pr := proxyResponse{
-			ID:         id,
 			Status:     resp.StatusCode,
 			StatusText: resp.Status,
 			Headers:    hdrMap,
@@ -315,7 +314,20 @@ func (s *proxyServer) executeHTTP(id, method, path string, headers map[string]st
 			pr.StatusText = ""
 			pr.Headers = nil
 		}
-		j, _ := json.Marshal(pr)
+		out = append(out, pr)
+	}
+	return out, nil
+}
+
+func (s *proxyServer) executeHTTP(id, method, path string, headers map[string]string, body io.Reader) {
+	chunks, err := s.dispatchHTTP(method, path, headers, body)
+	if err != nil {
+		s.sendProxyError(id, http.StatusBadRequest, "Could not understand that request. Please check the address and try again.")
+		return
+	}
+	for i := range chunks {
+		chunks[i].ID = id
+		j, _ := json.Marshal(chunks[i])
 		if s.proxyRespChar != nil {
 			_, _ = s.proxyRespChar.Write(j)
 		}
