@@ -1,17 +1,11 @@
-import { useState, useCallback } from "react";
-import PropTypes from "prop-types";
-import { Mail, Bell, RefreshCw, ExternalLink, AlertTriangle, ShieldAlert } from "lucide-react";
+import { useState } from "react";
+import { Mail, Bell, RefreshCw } from "lucide-react";
 import Toggle from "../../common/Toggle";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import Alert from "../../common/Alert";
-import ValueDisplay from "../../common/ValueDisplay";
-import Pill from "../../common/Pill";
 import SettingsCard from "../SettingsCard";
-import Button from "../../ui/Button";
-import ConfirmModal from "../../common/ConfirmModal";
-import SmtpWizard from "../../smtp/SmtpWizard";
-import { SMTP_PRESETS } from "../../smtp/smtp-wiz-constants";
+import SettingsRow from "../SettingsRow.jsx";
 import { useToast } from "../../../context/ToastContext";
 
 const FREQUENCY_OPTIONS = [
@@ -74,149 +68,9 @@ const HEALTH_NOTIFICATION_OPTIONS = [
   },
 ];
 
-function detectPresetFromHost(host) {
-  for (const [id, p] of Object.entries(SMTP_PRESETS)) {
-    if (id === "custom") continue;
-    if (p.host && host === p.host) return id;
-  }
-  return "custom";
-}
-
-function SmtpStatusCard({ smtp, onReconfigure, onDisconnect }) {
-  const { addToast } = useToast();
-  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-
-  const smtpConfigured = smtp?.configured || false;
-  const host = smtp?.host || "";
-  const from = smtp?.from || "";
-  const preset = detectPresetFromHost(host);
-  const providerLabel = SMTP_PRESETS[preset]?.label || "Custom";
-
-  const handleDisconnect = useCallback(async () => {
-    setDisconnecting(true);
-    try {
-      const csrfRes = await fetch("/api/v1/auth/csrf");
-      const csrfData = await csrfRes.json();
-      const csrfToken = csrfData.csrf_token;
-
-      const res = await fetch("/api/v1/notify/config", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": csrfToken,
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          smtp: { host: "", port: 587, username: "", password: "", from: "", use_tls: false, skip_verify: false },
-        }),
-      });
-
-      if (res.ok) {
-        addToast({ type: "warning", message: "Email provider disconnected" });
-        onDisconnect();
-        setShowDisconnectModal(false);
-      } else {
-        const data = await res.json();
-        addToast({ type: "error", message: data.error || "Failed to disconnect SMTP" });
-      }
-    } catch (err) {
-      addToast({ type: "error", message: err.message });
-    } finally {
-      setDisconnecting(false);
-    }
-  }, [addToast, onDisconnect]);
-
-  if (!smtpConfigured) {
-    return (
-      <SettingsCard icon={Mail} title="Email Delivery" index={0}>
-        <div className="flex flex-col items-center text-center py-8">
-          <div className="inline-flex items-center gap-4 px-8 py-4 rounded-pill bg-accent/15 text-accent mb-8 border border-accent/20">
-            <Mail size={28} />
-            <span className="font-mono text-lg tracking-wide">Not Configured</span>
-          </div>
-          <p className="text-sm text-primary/60 max-w-xs mb-8 leading-relaxed">
-            LibreServ needs an email provider to deliver password resets and notifications. Since you control your own server, you choose who sends on your behalf.
-          </p>
-          <Button
-            variant="primary"
-            onClick={onReconfigure}
-            className="w-full max-w-sm"
-          >
-            <ExternalLink size={16} />
-            Set Up Email Delivery
-          </Button>
-        </div>
-      </SettingsCard>
-    );
-  }
-
-  return (
-    <>
-      <SettingsCard icon={Mail} title="Email Delivery" padding={false} index={0}>
-        <div className="px-4 pb-4 pt-3 space-y-2">
-          <div className="flex items-center justify-between py-2 px-3 border border-primary/10 rounded-large-element bg-primary/5">
-            <span className="text-sm text-primary font-medium">Status</span>
-            <Pill variant="accent">
-              <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-              Connected
-            </Pill>
-          </div>
-          <ValueDisplay label="Provider" value={providerLabel} />
-          <ValueDisplay label="Server" value={host} />
-          <ValueDisplay label="From" value={from} />
-
-          <div className="flex gap-3 pt-2">
-            <Button
-              variant="accent"
-              className="flex-1"
-              onClick={onReconfigure}
-            >
-              Change Email Provider
-            </Button>
-            <Button
-              variant="danger"
-              className="flex-1"
-              onClick={() => setShowDisconnectModal(true)}
-            >
-              Disconnect
-            </Button>
-          </div>
-
-          <div className="flex items-start gap-2 px-3 py-2.5 rounded-pill bg-warning/10 border border-warning/20">
-            <ShieldAlert size={16} className="text-warning mt-0.5 flex-shrink-0" />
-            <div className="text-xs text-warning leading-relaxed">
-              <strong className="font-mono">Warning:</strong> Disconnecting will disable all email notifications, password resets, and welcome emails.
-            </div>
-          </div>
-        </div>
-      </SettingsCard>
-
-      <ConfirmModal
-        open={showDisconnectModal}
-        onClose={() => setShowDisconnectModal(false)}
-        onConfirm={handleDisconnect}
-        icon={AlertTriangle}
-        title="Disconnect Email Provider"
-        message={`Disconnect ${providerLabel}? Email notifications and password resets will stop working.`}
-        variant="danger"
-        confirmLabel="Disconnect"
-        loading={disconnecting}
-      />
-    </>
-  );
-}
-
-SmtpStatusCard.propTypes = {
-  smtp:          PropTypes.object,
-  onReconfigure: PropTypes.func.isRequired,
-  onDisconnect:  PropTypes.func.isRequired,
-};
-
 export default function NotificationsCategory({ settings, onSettingsChange }) {
   const { addToast } = useToast();
   const [testing, setTesting] = useState(false);
-  const [showSmtpWizard, setShowSmtpWizard] = useState(false);
 
   const handleTestNotification = async () => {
     try {
@@ -260,43 +114,23 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
     onSettingsChange?.({ ...settings, [key]: !settings[key] });
   };
 
-  const handleSmtpReconfigure = () => {
-    setShowSmtpWizard(true);
-  };
-
-  const handleSmtpDisconnect = () => {
-    onSettingsChange?.({
-      ...settings,
-      smtp: {
-        host: "",
-        port: 587,
-        username: "",
-        from: "",
-        use_tls: false,
-        skip_verify: false,
-        configured: false,
-      },
-    });
-  };
-
-  const handleSmtpWizardComplete = () => {
-    setShowSmtpWizard(false);
-    window.location.reload();
-  };
-
-  const handleSmtpWizardSkip = () => {
-    setShowSmtpWizard(false);
-  };
-
   const smtpConfigured = settings?.smtp?.configured || false;
 
   return (
     <div className="space-y-4">
-      <SmtpStatusCard
-        smtp={settings?.smtp}
-        onReconfigure={handleSmtpReconfigure}
-        onDisconnect={handleSmtpDisconnect}
-      />
+      <SettingsCard icon={Mail} title="Email / SMTP" padding={false} index={0}>
+        <SettingsRow
+          label="Email provider configuration"
+          description={smtpConfigured ? "Connected — change provider in External Services" : "Not configured — set up in External Services"}
+        >
+          <a
+            href="#external_services"
+            className="text-xs link-accent-card px-3 py-1.5 rounded-pill bg-primary border-2 border-secondary/10"
+          >
+            External Services →
+          </a>
+        </SettingsRow>
+      </SettingsCard>
 
       {smtpConfigured && (
         <SettingsCard icon={Mail} title="Test Email" padding={false} index={1}>
@@ -421,14 +255,6 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
         </div>
       </SettingsCard>
 
-      {showSmtpWizard && (
-        <SmtpWizard
-          open={showSmtpWizard}
-          onComplete={handleSmtpWizardComplete}
-          onSkip={handleSmtpWizardSkip}
-          onDismiss={() => setShowSmtpWizard(false)}
-        />
-      )}
     </div>
   );
 }

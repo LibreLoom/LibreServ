@@ -40,7 +40,7 @@ export default function ConnectStatusCard({
               email, a domain name, backups, and more. Everything in one place.
             </p>
             <Button onClick={() => setShowTokenInput(true)}>
-              Connect to LibreServ
+              Add Connect
             </Button>
             <p className="text-xs text-accent">
               Don't have an account?{" "}
@@ -56,6 +56,7 @@ export default function ConnectStatusCard({
 
         {showTokenInput && (
           <ModalCard title="Enter Your Connect Token" onClose={() => setShowTokenInput(false)} size="md">
+            {({close}) => (
             <div className="space-y-4">
               <p className="text-sm text-accent">
                 Go to{" "}
@@ -82,11 +83,12 @@ export default function ConnectStatusCard({
                 >
                   {loading ? "Connecting..." : "Connect"}
                 </Button>
-                <Button variant="accent" onClick={() => setShowTokenInput(false)}>
+                <Button variant="accent" onClick={close}>
                   Back
                 </Button>
               </div>
             </div>
+            )}
           </ModalCard>
         )}
       </>

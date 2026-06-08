@@ -1,7 +1,8 @@
-import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup, Globe, Bell, Bot } from "lucide-react";
+import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup, Globe, Bell, Bot, Plug } from "lucide-react";
 import SettingsUserCard from "./SettingsUserCard";
 
 const CATEGORIES = [
+	{ id: "external_services", label: "External Services", icon: Plug },
 	{ id: "general", label: "General", icon: Settings },
 	{ id: "appearance", label: "Appearance", icon: Palette },
 	{ id: "backups", label: "Backups", icon: DatabaseBackup },

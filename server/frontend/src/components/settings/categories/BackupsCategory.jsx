@@ -4,11 +4,12 @@ import { useToast } from "../../../context/ToastContext";
 import { DatabaseBackup, Download, Trash2, AlertTriangle, RotateCcw, Loader2 } from "lucide-react";
 import LocalBackupsCard from "../../backups/LocalBackupsCard";
 import DatabaseBackupCard from "../../backups/DatabaseBackupCard";
-import BackupRepoConfig from "../../backups/BackupRepoConfig";
 import ScheduleForm from "../../backups/ScheduleForm";
 import ConfirmModal from "../../common/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 import Dropdown from "../../common/Dropdown";
+import SettingsCard from "../SettingsCard.jsx";
+import SettingsRow from "../SettingsRow.jsx";
 
 export default function BackupsCategory() {
   const { request } = useAuth();
@@ -230,7 +231,19 @@ export default function BackupsCategory() {
 
       <ScheduleForm />
 
-      <BackupRepoConfig />
+      <SettingsCard icon={DatabaseBackup} title="Backup Destinations" padding={false} index={3}>
+        <SettingsRow
+          label="Where your backups are stored"
+          description="Configure S3, B2, SFTP, or Connect storage destinations"
+        >
+          <a
+            href="#external_services"
+            className="text-xs link-accent-card px-3 py-1.5 rounded-pill bg-primary border-2 border-secondary/10"
+          >
+            External Services →
+          </a>
+        </SettingsRow>
+      </SettingsCard>
 
       {showCreateModal && (
         <ModalCard

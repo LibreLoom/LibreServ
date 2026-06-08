@@ -3,13 +3,18 @@ import { Sparkles, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
+import { getConnectWarning } from "./connect-utils.js";
+import { updateConnectService } from "../../lib/connect-api.js";
 
-export default function AIServiceModal({ open, onClose, service }) {
+export default function AIServiceModal({ open, onClose, service, connectStatus = null, csrfToken = "" }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
+  const [saving, setSaving] = useState(false);
 
   if (!open) return null;
+
+  const connectWarning = getConnectWarning("ai", connectStatus);
 
   const stateLabel =
     service?.state === "connected"
@@ -20,6 +25,7 @@ export default function AIServiceModal({ open, onClose, service }) {
 
   return (
     <ModalCard title="AI Assistant" onClose={onClose} size="md">
+      {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
@@ -47,7 +53,18 @@ export default function AIServiceModal({ open, onClose, service }) {
           }
         />
 
-        {useConnect ? (
+        {useConnect && connectWarning.show ? (
+          <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm text-secondary">
+              <AlertTriangle size={16} className="text-warning shrink-0" />
+              {connectWarning.label}
+            </div>
+            <p className="text-xs text-accent">
+              Connect needs to be connected and your plan must support this service
+              before the AI assistant can be used through Connect.
+            </p>
+          </div>
+        ) : useConnect ? (
           <div className="space-y-3">
             <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm text-primary">
@@ -74,7 +91,7 @@ export default function AIServiceModal({ open, onClose, service }) {
               chosen provider.
             </p>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5">API Key</label>
+              <label className="block text-xs text-accent font-medium mb-1.5 px-4">API Key</label>
               <input
                 type="password"
                 placeholder="sk-..."
@@ -82,7 +99,7 @@ export default function AIServiceModal({ open, onClose, service }) {
               />
             </div>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5">Base URL</label>
+              <label className="block text-xs text-accent font-medium mb-1.5 px-4">Base URL</label>
               <input
                 type="text"
                 placeholder="https://api.openai.com/v1"
@@ -90,7 +107,7 @@ export default function AIServiceModal({ open, onClose, service }) {
               />
             </div>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5">Default Model</label>
+              <label className="block text-xs text-accent font-medium mb-1.5 px-4">Default Model</label>
               <input
                 type="text"
                 placeholder="gpt-4o"
@@ -101,14 +118,25 @@ export default function AIServiceModal({ open, onClose, service }) {
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="accent" onClick={onClose}>
+          <Button variant="accent" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={onClose}>
+          <Button onClick={async () => {
+            setSaving(true);
+            try {
+              await updateConnectService("ai", useConnect ? "connected" : "byo", csrfToken);
+              close();
+            } catch (e) {
+              console.error("Failed to save AI service config:", e);
+            } finally {
+              setSaving(false);
+            }
+          }} disabled={saving} loading={saving}>
             Save
           </Button>
         </div>
       </div>
+      )}
     </ModalCard>
   );
 }

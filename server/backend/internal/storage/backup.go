@@ -811,6 +811,27 @@ func (s *BackupService) GetRepoStats(ctx context.Context, repoID string) (map[st
 	return s.resticEngine.Stats(ctx, *repoConfig)
 }
 
+// GetRepositoryRecoveryKey decrypts and returns the recovery key (password)
+// for a given backup repository. This is the key needed to restore backups
+// from this repository on a new server.
+func (s *BackupService) GetRepositoryRecoveryKey(ctx context.Context, repoID string) (string, error) {
+	repo, err := s.GetRepository(ctx, repoID)
+	if err != nil {
+		return "", fmt.Errorf("repository not found: %w", err)
+	}
+
+	password := repo.Password
+	if s.encryptionKey != "" && password != "" {
+		decPass, decErr := decryptAESGCM(password, s.encryptionKey)
+		if decErr != nil {
+			return "", fmt.Errorf("could not decrypt recovery key: %w", decErr)
+		}
+		password = decPass
+	}
+
+	return password, nil
+}
+
 // --- Internal helpers ---
 
 func (s *BackupService) getOrCreateRepoForApp(ctx context.Context, appID string) (*restic.RepoConfig, string, error) {

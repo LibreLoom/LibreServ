@@ -3,12 +3,13 @@ import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, ToggleLeft, ToggleRigh
 import PropTypes from "prop-types";
 import ConfirmModal from "../../common/ConfirmModal";
 import SettingsCard from "../SettingsCard";
+import SettingsRow from "../SettingsRow.jsx";
 import RoutesCard from "../../backups/RoutesCard";
 import DebugCard from "../../backups/DebugCard";
 import RouteModal from "../RouteModal";
-import DomainWizard from "../../setup/DomainWizard";
 
-import DomainManagementCard from "./DomainManagementCard";
+
+
 import ValueDisplay from "../../common/ValueDisplay";
 import Button from "../../ui/Button";
 import { useAuth } from "../../../hooks/useAuth";
@@ -313,29 +314,6 @@ function CGNATGuidanceCard({ connectivity, index }) {
 }
 CGNATGuidanceCard.propTypes = { connectivity: PropTypes.object, index: PropTypes.number };
 
-function TunnelCard({ tunnel, index }) {
-  if (!tunnel || !tunnel.available) return null;
-
-  return (
-    <SettingsCard icon={Shield} title="Tunnel" index={index}>
-      <div className="px-5 py-4 space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <ValueDisplay
-            label="Status"
-            value={tunnel.enabled
-              ? <span className="text-success">Connected</span>
-              : <span className="text-secondary/50">Not Set Up</span>
-            }
-            mono={false}
-          />
-          {tunnel.url && <ValueDisplay label="URL" value={tunnel.url} />}
-        </div>
-      </div>
-    </SettingsCard>
-  );
-}
-TunnelCard.propTypes = { tunnel: PropTypes.object, index: PropTypes.number };
-
 export default function NetworkCategory({ settings }) {
   const { request } = useAuth();
   const { addToast } = useToast();
@@ -352,7 +330,6 @@ export default function NetworkCategory({ settings }) {
   const [routeToDelete, setRouteToDelete] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
-  const [domainWizardOpen, setDomainWizardOpen] = useState(false);
   const [connectivity, setConnectivity] = useState(null);
   const [upnpStatus, setUpnpStatus] = useState(null);
   const [ddnsStatus, setDdnsStatus] = useState(null);
@@ -476,16 +453,6 @@ export default function NetworkCategory({ settings }) {
     }
   }, [routeToDelete, request, loadData, addToast]);
 
-  const handleDomainWizardComplete = useCallback(() => {
-    setDomainWizardOpen(false);
-    loadData();
-    addToast({ type: "success", message: "Domain configuration updated" });
-  }, [loadData, addToast]);
-
-  const handleDomainWizardSkip = useCallback(() => {
-    setDomainWizardOpen(false);
-  }, []);
-
   const appLinkedRoute = routeToDelete?.app_id
     ? apps?.find((a) => a.id === routeToDelete.app_id)?.name
     : null;
@@ -496,19 +463,39 @@ export default function NetworkCategory({ settings }) {
     <div className="space-y-6">
       <RemoteAccessStatusCard connectivity={connectivity} index={cardIndex++} />
 
-      <DomainManagementCard
-        currentDomain={defaultDomain}
-        onDomainChange={() => window.location.reload()}
-        onChangeDomain={() => setDomainWizardOpen(true)}
-      />
+      <SettingsCard icon={Globe} title="Domain & DNS" padding={false} index={cardIndex++}>
+        <SettingsRow
+          label="Configure your domain"
+          description={defaultDomain ? `Current: ${defaultDomain}` : "No domain configured"}
+        >
+          <a
+            href="#external_services"
+            className="text-xs link-accent-card px-3 py-1.5 rounded-pill bg-primary border-2 border-secondary/10"
+          >
+            External Services →
+          </a>
+        </SettingsRow>
+      </SettingsCard>
+
+      <SettingsCard icon={Shield} title="Tunnel" padding={false} index={cardIndex++}>
+        <SettingsRow
+          label="Tunnel service"
+          description={tunnelStatus?.enabled ? "Connected" : "Not configured"}
+        >
+          <a
+            href="#external_services"
+            className="text-xs link-accent-card px-3 py-1.5 rounded-pill bg-primary border-2 border-secondary/10"
+          >
+            External Services →
+          </a>
+        </SettingsRow>
+      </SettingsCard>
 
       <IPMonitorCard ddns={ddnsStatus} index={cardIndex++} />
 
       <UPnPCard upnp={upnpStatus} index={cardIndex++} />
 
       <PortForwardingGuideCard connectivity={connectivity} index={cardIndex++} />
-
-      <TunnelCard tunnel={tunnelStatus} index={cardIndex++} />
 
       <CGNATGuidanceCard connectivity={connectivity} index={cardIndex++} />
 
@@ -586,13 +573,6 @@ export default function NetworkCategory({ settings }) {
         )}
       </ConfirmModal>
 
-      <DomainWizard
-        open={domainWizardOpen}
-        onClose={() => setDomainWizardOpen(false)}
-        onComplete={handleDomainWizardComplete}
-        onSkip={handleDomainWizardSkip}
-        onDismiss={() => setDomainWizardOpen(false)}
-      />
     </div>
   );
 }

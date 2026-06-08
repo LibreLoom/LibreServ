@@ -9,6 +9,7 @@ import PropTypes from "prop-types";
  * @property {boolean} [disabled]
  * @property {import('react').ElementType} [iconOn]
  * @property {import('react').ElementType} [iconOff]
+ * @property {import('react').ReactNode} [badge]
  * @property {string} [className]
  */
 
@@ -21,6 +22,7 @@ export default function Toggle({
   disabled = false,
   iconOn,
   iconOff,
+  badge,
   className = "",
 }) {
   const IconOn = iconOn;
@@ -31,7 +33,12 @@ export default function Toggle({
     <div className={`flex items-center justify-between ${className}`}>
       {(label || description) && (
         <div className="flex-1 min-w-0 pr-4">
-          {label && <div className="font-medium text-primary text-sm">{label}</div>}
+          {label && (
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-primary text-sm">{label}</span>
+              {badge}
+            </div>
+          )}
           {description && (
             <div id={descriptionId} className="text-sm text-accent mt-0.5">
               {description}
@@ -74,5 +81,6 @@ Toggle.propTypes = {
   disabled: PropTypes.bool,
   iconOn: PropTypes.elementType,
   iconOff: PropTypes.elementType,
+  badge: PropTypes.node,
   className: PropTypes.string,
 };

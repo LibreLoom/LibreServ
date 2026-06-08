@@ -217,7 +217,6 @@ func defaultServiceStates() map[ServiceID]ServiceStatus {
 		ServiceDomain:  {State: ServiceDisabled, Label: "Domain & DNS"},
 		ServiceBackup:  {State: ServiceDisabled, Label: "Cloud Backup Storage"},
 		ServiceTunnel:  {State: ServiceDisabled, Label: "Tunnel"},
-		ServiceACME:    {State: ServiceDisabled, Label: "SSL Certificates"},
 		ServiceAI:      {State: ServiceDisabled, Label: "AI Assistant"},
 		ServiceSupport: {State: ServiceDisabled, Label: "Human Support"},
 	}

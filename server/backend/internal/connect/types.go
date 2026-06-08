@@ -40,7 +40,6 @@ var AllServices = []ServiceID{
 	ServiceDomain,
 	ServiceBackup,
 	ServiceTunnel,
-	ServiceACME,
 	ServiceAI,
 	ServiceSupport,
 }

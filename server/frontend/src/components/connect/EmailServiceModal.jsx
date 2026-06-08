@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Mail, Check } from "lucide-react";
+import { Mail, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
+import { getConnectWarning } from "./connect-utils.js";
+import { updateConnectService } from "../../lib/connect-api.js";
 
-export default function EmailServiceModal({ open, onClose, service }) {
+export default function EmailServiceModal({ open, onClose, service, connectStatus = null, csrfToken = "" }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     host: "",
     port: "587",
@@ -19,6 +22,8 @@ export default function EmailServiceModal({ open, onClose, service }) {
 
   if (!open) return null;
 
+  const connectWarning = getConnectWarning("smtp", connectStatus);
+
   const stateLabel =
     service?.state === "connected"
       ? "Connected"
@@ -28,6 +33,7 @@ export default function EmailServiceModal({ open, onClose, service }) {
 
   return (
     <ModalCard title="Email / SMTP" onClose={onClose} size="md">
+      {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
@@ -56,7 +62,18 @@ export default function EmailServiceModal({ open, onClose, service }) {
           }
         />
 
-        {useConnect ? (
+        {useConnect && connectWarning.show ? (
+          <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm text-secondary">
+              <AlertTriangle size={16} className="text-warning shrink-0" />
+              {connectWarning.label}
+            </div>
+            <p className="text-xs text-accent">
+              Connect needs to be connected and your plan must support this service
+              before email delivery can be handled automatically.
+            </p>
+          </div>
+        ) : useConnect ? (
           <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-primary">
               <Check size={16} className="text-accent" />
@@ -75,7 +92,7 @@ export default function EmailServiceModal({ open, onClose, service }) {
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5">SMTP Host</label>
+                <label className="block text-xs text-accent font-medium mb-1.5 px-4">SMTP Host</label>
                 <input
                   type="text"
                   value={form.host}
@@ -85,7 +102,7 @@ export default function EmailServiceModal({ open, onClose, service }) {
                 />
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5">Port</label>
+                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Port</label>
                 <input
                   type="text"
                   value={form.port}
@@ -95,7 +112,7 @@ export default function EmailServiceModal({ open, onClose, service }) {
                 />
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5">Username</label>
+                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Username</label>
                 <input
                   type="text"
                   value={form.username}
@@ -105,7 +122,7 @@ export default function EmailServiceModal({ open, onClose, service }) {
                 />
               </div>
               <div className="col-span-2 sm:col-span-1">
-                <label className="block text-xs text-accent font-medium mb-1.5">Password</label>
+                <label className="block text-xs text-accent font-medium mb-1.5 px-4">Password</label>
                 <input
                   type="password"
                   value={form.password}
@@ -115,7 +132,7 @@ export default function EmailServiceModal({ open, onClose, service }) {
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs text-accent font-medium mb-1.5">From Address</label>
+                <label className="block text-xs text-accent font-medium mb-1.5 px-4">From Address</label>
                 <input
                   type="email"
                   value={form.from}
@@ -135,14 +152,29 @@ export default function EmailServiceModal({ open, onClose, service }) {
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="accent" onClick={onClose}>
+          <Button variant="accent" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={onClose}>
+          <Button onClick={async () => {
+            setSaving(true);
+            try {
+              if (useConnect) {
+                await updateConnectService("smtp", "connected", csrfToken);
+              } else {
+                await updateConnectService("smtp", "byo", csrfToken);
+              }
+              close();
+            } catch (e) {
+              console.error("Failed to save email service config:", e);
+            } finally {
+              setSaving(false);
+            }
+          }} disabled={saving} loading={saving}>
             Save
           </Button>
         </div>
       </div>
+      )}
     </ModalCard>
   );
 }

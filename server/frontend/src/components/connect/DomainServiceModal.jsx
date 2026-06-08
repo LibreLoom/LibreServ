@@ -1,8 +1,11 @@
 import { useState } from "react";
-import { Globe, Check } from "lucide-react";
+import { Globe, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
+import Dropdown from "../common/Dropdown.jsx";
 import Button from "../ui/Button.jsx";
+import { getConnectWarning } from "./connect-utils.js";
+import { updateConnectService } from "../../lib/connect-api.js";
 
 const DNS_PROVIDERS = [
   { value: "cloudflare", label: "Cloudflare" },
@@ -12,10 +15,11 @@ const DNS_PROVIDERS = [
   { value: "namecheap", label: "Namecheap" },
 ];
 
-export default function DomainServiceModal({ open, onClose, service }) {
+export default function DomainServiceModal({ open, onClose, service, connectStatus = null, csrfToken = "" }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     domain: "",
     provider: "cloudflare",
@@ -24,6 +28,8 @@ export default function DomainServiceModal({ open, onClose, service }) {
   });
 
   if (!open) return null;
+
+  const connectWarning = getConnectWarning("domain", connectStatus);
 
   const stateLabel =
     service?.state === "connected"
@@ -34,6 +40,7 @@ export default function DomainServiceModal({ open, onClose, service }) {
 
   return (
     <ModalCard title="Domain & DNS" onClose={onClose} size="md">
+      {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
@@ -61,7 +68,18 @@ export default function DomainServiceModal({ open, onClose, service }) {
           }
         />
 
-        {useConnect ? (
+        {useConnect && connectWarning.show ? (
+          <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm text-secondary">
+              <AlertTriangle size={16} className="text-warning shrink-0" />
+              {connectWarning.label}
+            </div>
+            <p className="text-xs text-accent">
+              Connect needs to be connected and your plan must support this service
+              before your domain can be managed automatically.
+            </p>
+          </div>
+        ) : useConnect ? (
           <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-primary">
               <Check size={16} className="text-accent" />
@@ -78,7 +96,7 @@ export default function DomainServiceModal({ open, onClose, service }) {
               Connect your own domain. We'll help set up DNS records.
             </p>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5">Your Domain</label>
+              <label className="block text-xs text-accent font-medium mb-1.5 px-4">Your Domain</label>
               <input
                 type="text"
                 value={form.domain}
@@ -88,19 +106,18 @@ export default function DomainServiceModal({ open, onClose, service }) {
               />
             </div>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5">DNS Provider</label>
-              <select
+              <label className="block text-xs text-accent font-medium mb-1.5 px-4">DNS Provider</label>
+              <Dropdown
+                options={DNS_PROVIDERS}
                 value={form.provider}
-                onChange={(e) => setForm({ ...form, provider: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
-              >
-                {DNS_PROVIDERS.map((p) => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
+                onChange={(v) => setForm({ ...form, provider: v })}
+                placeholder="Select a DNS provider"
+                fullWidth
+                bg="primary"
+              />
             </div>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5">API Token</label>
+              <label className="block text-xs text-accent font-medium mb-1.5 px-4">API Token</label>
               <input
                 type="password"
                 value={form.apiToken}
@@ -116,14 +133,25 @@ export default function DomainServiceModal({ open, onClose, service }) {
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="accent" onClick={onClose}>
+          <Button variant="accent" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={onClose}>
+          <Button onClick={async () => {
+            setSaving(true);
+            try {
+              await updateConnectService("domain", useConnect ? "connected" : "byo", csrfToken);
+              close();
+            } catch (e) {
+              console.error("Failed to save domain config:", e);
+            } finally {
+              setSaving(false);
+            }
+          }} disabled={saving} loading={saving}>
             Save
           </Button>
         </div>
       </div>
+      )}
     </ModalCard>
   );
 }

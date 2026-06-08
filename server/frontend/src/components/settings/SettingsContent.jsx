@@ -6,9 +6,11 @@ import BackupsCategory from "./categories/BackupsCategory.jsx";
 import NetworkCategory from "./categories/NetworkCategory.jsx";
 import NotificationsCategory from "./categories/NotificationsCategory.jsx";
 import AISupportCategory from "./categories/AISupportCategory.jsx";
+import ExternalServicesCategory from "./categories/ExternalServicesCategory.jsx";
 import SaveStatusIndicator from "../common/SaveStatusIndicator.jsx";
 
 const CATEGORY_TITLES = {
+	external_services: "External Services",
 	general: "General Settings",
 	appearance: "Appearance",
 	backups: "Backups",
@@ -20,6 +22,7 @@ const CATEGORY_TITLES = {
 };
 
 const CATEGORY_COMPONENTS = {
+	external_services: ExternalServicesCategory,
 	general: GeneralCategory,
 	appearance: AppearanceCategory,
 	backups: BackupsCategory,
@@ -59,6 +62,12 @@ export default function SettingsContent({
   saveStatus = "idle",
   onRetrySave,
   onSavedComplete,
+  connectStatus,
+  onActivateConnect,
+  onDeactivateConnect,
+  onOpenPlanPage,
+  connectLoading,
+  connectRepos = [],
 }) {
   const CategoryComponent = CATEGORY_COMPONENTS[category] || GeneralCategory;
   const title = CATEGORY_TITLES[category] || "Settings";
@@ -109,6 +118,15 @@ export default function SettingsContent({
         return {
           settings: notificationsSettings,
           onSettingsChange: onNotificationsSettingsChange,
+        };
+      case "external_services":
+        return {
+          connectStatus,
+          onActivateConnect,
+          onDeactivateConnect,
+          onOpenPlanPage,
+          loading: connectLoading,
+          repos: connectRepos,
         };
       case "about":
         return { settings };

@@ -1,15 +1,21 @@
 import { useState } from "react";
-import { Waypoints, Check } from "lucide-react";
+import { Waypoints, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
+import { getConnectWarning } from "./connect-utils.js";
+import { updateConnectService } from "../../lib/connect-api.js";
 
-export default function TunnelServiceModal({ open, onClose, service }) {
+export default function TunnelServiceModal({ open, onClose, service, connectStatus = null, csrfToken = "" }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
+  const [tunnelToken, setTunnelToken] = useState("");
+  const [saving, setSaving] = useState(false);
 
   if (!open) return null;
+
+  const connectWarning = getConnectWarning("tunnel", connectStatus);
 
   const stateLabel =
     service?.state === "connected"
@@ -20,6 +26,7 @@ export default function TunnelServiceModal({ open, onClose, service }) {
 
   return (
     <ModalCard title="Tunnel" onClose={onClose} size="md">
+      {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
           <div className="p-2 rounded-full bg-primary/10">
@@ -47,7 +54,18 @@ export default function TunnelServiceModal({ open, onClose, service }) {
           }
         />
 
-        {useConnect ? (
+        {useConnect && connectWarning.show ? (
+          <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+            <div className="flex items-center gap-2 text-sm text-secondary">
+              <AlertTriangle size={16} className="text-warning shrink-0" />
+              {connectWarning.label}
+            </div>
+            <p className="text-xs text-accent">
+              Connect needs to be connected and your plan must support this service
+              before a tunnel can be managed automatically.
+            </p>
+          </div>
+        ) : useConnect ? (
           <div className="bg-primary/5 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-primary">
               <Check size={16} className="text-accent" />
@@ -63,9 +81,11 @@ export default function TunnelServiceModal({ open, onClose, service }) {
               Bring your own tunnel. We currently support Cloudflare Tunnel.
             </p>
             <div>
-              <label className="block text-xs text-accent font-medium mb-1.5">Tunnel Token</label>
+              <label className="block text-xs text-accent font-medium mb-1.5 px-4">Tunnel Token</label>
               <input
                 type="password"
+                value={tunnelToken}
+                onChange={(e) => setTunnelToken(e.target.value)}
                 placeholder="Cloudflare Tunnel token"
                 className="w-full px-4 py-2.5 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors text-sm"
               />
@@ -74,14 +94,25 @@ export default function TunnelServiceModal({ open, onClose, service }) {
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="accent" onClick={onClose}>
+          <Button variant="accent" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={onClose}>
+          <Button onClick={async () => {
+            setSaving(true);
+            try {
+              await updateConnectService("tunnel", useConnect ? "connected" : "byo", csrfToken);
+              close();
+            } catch (e) {
+              console.error("Failed to save tunnel config:", e);
+            } finally {
+              setSaving(false);
+            }
+          }} disabled={saving} loading={saving}>
             Save
           </Button>
         </div>
       </div>
+      )}
     </ModalCard>
   );
 }

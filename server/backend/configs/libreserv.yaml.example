@@ -61,6 +61,8 @@ network:
         provider: ""
         token: ""
         enabled: false
+    bluetooth:
+        enabled: false
     acme:
         external:
             enabled: false

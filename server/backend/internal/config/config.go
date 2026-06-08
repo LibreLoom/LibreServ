@@ -212,12 +212,13 @@ type Notifications struct {
 
 // NetworkConfig holds reverse proxy settings (Caddy), mDNS, and UPnP.
 type NetworkConfig struct {
-	Caddy  CaddyConfig  `mapstructure:"caddy" yaml:"caddy"`
-	MDNS   MDNSConfig   `mapstructure:"mdns" yaml:"mdns"`
-	ACME   ACMEConfig   `mapstructure:"acme" yaml:"acme"`
-	DNS    DNSConfig    `mapstructure:"dns" yaml:"dns"`
-	UPnP   UPnPConfig   `mapstructure:"upnp" yaml:"upnp"`
-	Tunnel TunnelConfig `mapstructure:"tunnel" yaml:"tunnel"`
+	Caddy     CaddyConfig     `mapstructure:"caddy" yaml:"caddy"`
+	MDNS      MDNSConfig      `mapstructure:"mdns" yaml:"mdns"`
+	ACME      ACMEConfig      `mapstructure:"acme" yaml:"acme"`
+	DNS       DNSConfig       `mapstructure:"dns" yaml:"dns"`
+	UPnP      UPnPConfig      `mapstructure:"upnp" yaml:"upnp"`
+	Tunnel    TunnelConfig    `mapstructure:"tunnel" yaml:"tunnel"`
+	Bluetooth BluetoothConfig `mapstructure:"bluetooth" yaml:"bluetooth"`
 }
 
 // MDNSConfig holds mDNS advertisement settings.
@@ -236,6 +237,11 @@ type TunnelConfig struct {
 	Provider string `mapstructure:"provider" yaml:"provider"`
 	Token    string `mapstructure:"token" yaml:"token"`
 	Enabled  bool   `mapstructure:"enabled" yaml:"enabled"`
+}
+
+// BluetoothConfig holds BLE peripheral settings for the companion app.
+type BluetoothConfig struct {
+	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
 }
 
 // DNSConfig holds DNS provider settings for domain record management.
@@ -328,6 +334,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("network.caddy.logging.output", "stdout")
 	v.SetDefault("network.caddy.logging.format", "console")
 	v.SetDefault("network.mdns.enabled", true)
+	v.SetDefault("network.bluetooth.enabled", false)
 
 	v.SetDefault("support.server_url", "https://support.serv.libreloom.org")
 	v.SetDefault("support.device_token", "")

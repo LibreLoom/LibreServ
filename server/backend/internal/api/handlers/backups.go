@@ -650,3 +650,24 @@ func (h *BackupHandlers) GetRepoStats(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusOK, stats)
 }
+
+func (h *BackupHandlers) GetRepositoryRecoveryKey(w http.ResponseWriter, r *http.Request) {
+	repoID := chi.URLParam(r, "repoID")
+	if repoID == "" {
+		JSONError(w, http.StatusBadRequest, "Repository ID required.")
+		return
+	}
+
+	key, err := h.backupService.GetRepositoryRecoveryKey(r.Context(), repoID)
+	if err != nil {
+		log.Printf("GetRepositoryRecoveryKey: failed for repo %s: %v", repoID, err)
+		JSONError(w, http.StatusInternalServerError, "Could not retrieve recovery key. Please try again.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"repo_id":      repoID,
+		"recovery_key": key,
+		"warning":      "Keep this key safe. Without it, your backups cannot be restored.",
+	})
+}

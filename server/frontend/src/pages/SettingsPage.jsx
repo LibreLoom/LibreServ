@@ -14,6 +14,11 @@ import {
   getNotifications,
   updateNotifications,
 } from "../lib/notifications-api.js";
+import {
+  getConnectStatus,
+  activateConnect,
+  deactivateConnect,
+} from "../lib/connect-api.js";
 import { ArrowLeft } from "lucide-react";
 import NotificationsCategory from "../components/settings/categories/NotificationsCategory";
 
@@ -40,10 +45,12 @@ export default function SettingsPage() {
   const [securitySettings, setSecuritySettings] = useState(null);
   const [notificationsSettings, setNotificationsSettings] = useState(null);
   const [aiSettings, setAISettings] = useState(null);
+  const [connectStatus, setConnectStatus] = useState(null);
+  const [connectLoading, setConnectLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState(() => {
     const hash = window.location.hash.slice(1);
-    const validCategories = ["general", "appearance", "backups", "ai_support", "security", "network", "notifications", "about"];
+    const validCategories = ["external_services", "general", "appearance", "backups", "ai_support", "security", "network", "notifications", "about"];
     return validCategories.includes(hash) ? hash : "general";
   });
   const [showMobileContent, setShowMobileContent] = useState(false);
@@ -57,16 +64,18 @@ export default function SettingsPage() {
   const loadData = useCallback(async () => {
     try {
       setError(null);
-      const [settingsData, securityData, notificationsData, aiData] = await Promise.all([
+      const [settingsData, securityData, notificationsData, aiData, connectData] = await Promise.all([
         getSettings(),
         getSecuritySettings(),
         getNotifications(),
         getAISettings(),
+        getConnectStatus().catch(() => null),
       ]);
       setSettings(settingsData);
       setSecuritySettings(securityData);
       setNotificationsSettings(notificationsData);
       setAISettings(aiData?.ai_support || null);
+      setConnectStatus(connectData);
       if (securityData && typeof securityData.use_12_hour_time === "boolean") {
         setUse12HourTime(securityData.use_12_hour_time);
       }
@@ -79,7 +88,6 @@ export default function SettingsPage() {
   }, [setUse12HourTime]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData();
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
@@ -204,6 +212,34 @@ export default function SettingsPage() {
     scheduleSave();
   };
 
+  const handleActivateConnect = async (token) => {
+    setConnectLoading(true);
+    try {
+      const result = await activateConnect(token, csrfToken);
+      setConnectStatus(result);
+    } catch (err) {
+      console.error("Failed to activate Connect:", err);
+    } finally {
+      setConnectLoading(false);
+    }
+  };
+
+  const handleDeactivateConnect = async () => {
+    setConnectLoading(true);
+    try {
+      await deactivateConnect(csrfToken);
+      setConnectStatus({ connected: false, services: {} });
+    } catch (err) {
+      console.error("Failed to deactivate Connect:", err);
+    } finally {
+      setConnectLoading(false);
+    }
+  };
+
+  const handleOpenPlanPage = () => {
+    window.open("https://connect.serv.libreloom.org", "_blank");
+  };
+
   const handleRetrySave = () => {
     performSave();
   };
@@ -273,6 +309,11 @@ export default function SettingsPage() {
             saveStatus={saveStatus}
             onRetrySave={handleRetrySave}
             onSavedComplete={handleSavedComplete}
+            connectStatus={connectStatus}
+            onActivateConnect={handleActivateConnect}
+            onDeactivateConnect={handleDeactivateConnect}
+            onOpenPlanPage={handleOpenPlanPage}
+            connectLoading={connectLoading}
           />
         </div>
       </div>
@@ -327,6 +368,11 @@ export default function SettingsPage() {
               saveStatus={saveStatus}
               onRetrySave={handleRetrySave}
               onSavedComplete={handleSavedComplete}
+              connectStatus={connectStatus}
+              onActivateConnect={handleActivateConnect}
+              onDeactivateConnect={handleDeactivateConnect}
+              onOpenPlanPage={handleOpenPlanPage}
+              connectLoading={connectLoading}
             />
           </div>
         )}

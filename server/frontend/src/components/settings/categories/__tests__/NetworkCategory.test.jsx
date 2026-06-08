@@ -37,7 +37,7 @@ vi.mock("../../../../hooks/useAuth", () => ({
 }));
 
 vi.mock("../../../../components/cards/Card", () => ({
-  default: ({ children }) => <div data-testid="card">{children}</div>,
+  default: ({ children }) => <>{children}</>,
 }));
 
 let RoutesCardProps = null;
@@ -110,7 +110,7 @@ describe("NetworkCategory", () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("card")).toBeInTheDocument();
+      expect(screen.getByText("Running")).toBeInTheDocument();
     });
 
     expect(screen.getByText("v2.8.1")).toBeInTheDocument();
@@ -159,7 +159,7 @@ describe("NetworkCategory", () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Local Access Only/)).toBeInTheDocument();
+      expect(screen.getByText(/No domain configured/)).toBeInTheDocument();
     });
   });
 
@@ -167,7 +167,7 @@ describe("NetworkCategory", () => {
     renderWithProviders(<NetworkCategory settings={{ proxy: { default_domain: "example.com" } }} />);
 
     await waitFor(() => {
-      expect(screen.getByText("example.com")).toBeInTheDocument();
+      expect(screen.getByText(/Current:\s*example\.com/)).toBeInTheDocument();
     });
   });
 

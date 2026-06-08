@@ -4,17 +4,15 @@ import {
   Globe,
   Database,
   Waypoints,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import Card from "../cards/Card.jsx";
-import ConnectStatusCard from "./ConnectStatusCard.jsx";
-import EmailServiceModal from "./EmailServiceModal.jsx";
-import DomainServiceModal from "./DomainServiceModal.jsx";
-import BackupServiceModal from "./BackupServiceModal.jsx";
-import TunnelServiceModal from "./TunnelServiceModal.jsx";
-import SSLServiceModal from "./SSLServiceModal.jsx";
-import AIServiceModal from "./AIServiceModal.jsx";
+import Card from "../../cards/Card.jsx";
+import ConnectStatusCard from "../../connect/ConnectStatusCard.jsx";
+import EmailServiceModal from "../../connect/EmailServiceModal.jsx";
+import DomainServiceModal from "../../connect/DomainServiceModal.jsx";
+import BackupServiceModal from "../../connect/BackupServiceModal.jsx";
+import TunnelServiceModal from "../../connect/TunnelServiceModal.jsx";
+import AIServiceModal from "../../connect/AIServiceModal.jsx";
 
 const SERVICE_META = [
   {
@@ -32,10 +30,6 @@ const SERVICE_META = [
   {
     id: "tunnel", Icon: Waypoints, title: "Tunnel",
     desc: "Access your server behind a firewall or CGNAT.",
-  },
-  {
-    id: "acme", Icon: ShieldCheck, title: "SSL Certificates",
-    desc: "Secure connections to your apps with automatic certificates.",
   },
   {
     id: "ai", Icon: Sparkles, title: "AI Assistant",
@@ -57,6 +51,7 @@ export default function ExternalServicesCategory({
   onDeactivateConnect,
   onOpenPlanPage,
   loading = false,
+  csrfToken = "",
 }) {
   const [openModal, setOpenModal] = useState(null);
 
@@ -134,32 +129,37 @@ export default function ExternalServicesCategory({
         open={openModal === "smtp"}
         onClose={closeModal}
         service={services?.smtp}
+        connectStatus={connectStatus}
+        csrfToken={csrfToken}
       />
       <DomainServiceModal
         open={openModal === "domain"}
         onClose={closeModal}
         service={services?.domain}
+        connectStatus={connectStatus}
+        csrfToken={csrfToken}
       />
       <BackupServiceModal
         open={openModal === "backup"}
         onClose={closeModal}
         service={services?.backup}
         repos={repos}
+        connectStatus={connectStatus}
+        csrfToken={csrfToken}
       />
       <TunnelServiceModal
         open={openModal === "tunnel"}
         onClose={closeModal}
         service={services?.tunnel}
-      />
-      <SSLServiceModal
-        open={openModal === "acme"}
-        onClose={closeModal}
-        service={services?.acme}
+        connectStatus={connectStatus}
+        csrfToken={csrfToken}
       />
       <AIServiceModal
         open={openModal === "ai"}
         onClose={closeModal}
         service={services?.ai}
+        connectStatus={connectStatus}
+        csrfToken={csrfToken}
       />
     </div>
   );

@@ -328,6 +328,7 @@ func (s *Server) setupRoutes() {
 
 				// Backup repository stats
 				r.Get("/repos/{repoID}/stats", backupHandler.GetRepoStats)
+				r.Get("/repos/{repoID}/recovery-key", backupHandler.GetRepositoryRecoveryKey)
 			})
 
 			// Network / Caddy - reverse proxy and routing management

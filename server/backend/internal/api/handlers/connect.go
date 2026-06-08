@@ -157,7 +157,6 @@ func defaultServiceStatuses() map[connect.ServiceID]connect.ServiceStatus {
 		connect.ServiceDomain:  {State: connect.ServiceDisabled, Label: "Domain & DNS"},
 		connect.ServiceBackup:  {State: connect.ServiceDisabled, Label: "Cloud Backup Storage"},
 		connect.ServiceTunnel:  {State: connect.ServiceDisabled, Label: "Tunnel"},
-		connect.ServiceACME:    {State: connect.ServiceDisabled, Label: "SSL Certificates"},
 		connect.ServiceAI:      {State: connect.ServiceDisabled, Label: "AI Assistant"},
 		connect.ServiceSupport: {State: connect.ServiceDisabled, Label: "Human Support"},
 	}

@@ -28,6 +28,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/logger"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/network/bluetooth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
@@ -327,6 +328,20 @@ func main() {
 		ConnectChecker:  connectChecker,
 	}).WithJobQueue(jobQueue)
 
+	bluetooth.SetRouter(server.Router())
+	bleSvc := bluetooth.NewService("", slog.Default())
+	if cfg.Network.Bluetooth.Enabled {
+		setupCode, err := setupService.SetupToken(context.Background())
+		if err != nil {
+			slog.Warn("failed to retrieve setup code, skipping bluetooth", "error", err)
+		} else {
+			bleSvc = bluetooth.NewService(setupCode, slog.Default())
+			if err := bleSvc.Start(); err != nil {
+				slog.Warn("failed to start bluetooth service", "error", err)
+			}
+		}
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := server.Start(); err != nil {
@@ -370,6 +385,7 @@ func main() {
 		if mdnsService != nil {
 			mdnsService.Stop()
 		}
+		bleSvc.Stop()
 
 		// Re-execute the current binary
 		execPath, _ := os.Executable()
@@ -386,6 +402,7 @@ func main() {
 	if mdnsService != nil {
 		mdnsService.Stop()
 	}
+	bleSvc.Stop()
 	_ = dockerClient.Close()
 }
 

@@ -1,16 +1,15 @@
 import { useState } from "react";
 import Button from "../components/ui/Button.jsx";
-import { Mail, Globe, Database, Waypoints, ShieldCheck, Sparkles } from "lucide-react";
+import { Mail, Globe, Database, Waypoints, Sparkles } from "lucide-react";
 
 import ConnectStatusCard from "../components/connect/ConnectStatusCard.jsx";
 import EmailServiceModal from "../components/connect/EmailServiceModal.jsx";
 import DomainServiceModal from "../components/connect/DomainServiceModal.jsx";
 import BackupServiceModal from "../components/connect/BackupServiceModal.jsx";
 import TunnelServiceModal from "../components/connect/TunnelServiceModal.jsx";
-import SSLServiceModal from "../components/connect/SSLServiceModal.jsx";
 import AIServiceModal from "../components/connect/AIServiceModal.jsx";
 import RecoveryKeyCard from "../components/connect/RecoveryKeyCard.jsx";
-import ExternalServicesCategory from "../components/connect/ExternalServicesCategory.jsx";
+import ExternalServicesCategory from "../components/settings/categories/ExternalServicesCategory.jsx";
 
 const MOCK_FREE_STATUS = {
   connected: false,
@@ -20,7 +19,6 @@ const MOCK_FREE_STATUS = {
     domain: { state: "disabled", label: "Domain & DNS" },
     backup: { state: "disabled", label: "Cloud Backup Storage" },
     tunnel: { state: "disabled", label: "Tunnel" },
-    acme: { state: "disabled", label: "SSL Certificates" },
     ai: { state: "disabled", label: "AI Assistant" },
   },
 };
@@ -34,7 +32,6 @@ const MOCK_CONNECTED_FREE_STATUS = {
     domain: { state: "connected", label: "Domain & DNS", details: { domain: "demo.free.connect.serv.libreloom.org" } },
     backup: { state: "disabled", label: "Cloud Backup Storage" },
     tunnel: { state: "connected", label: "Tunnel", details: { speed: "1 Mbps", transfer: "1 GB/mo" } },
-    acme: { state: "connected", label: "SSL Certificates" },
     ai: { state: "connected", label: "AI Assistant", details: { model: "free router", privacy: "not guaranteed" } },
   },
 };
@@ -48,7 +45,6 @@ const MOCK_CONNECTED_ONE_STATUS = {
     domain: { state: "connected", label: "Domain & DNS", details: { domain: "demo.servers.libreloom.org" } },
     backup: { state: "connected", label: "Cloud Backup Storage", details: { storage: "S3", limit: "unlimited" } },
     tunnel: { state: "connected", label: "Tunnel", details: { speed: "Full" } },
-    acme: { state: "connected", label: "SSL Certificates" },
     ai: { state: "connected", label: "AI Assistant" },
   },
 };
@@ -179,9 +175,6 @@ export default function DemoConnectPage() {
           <Button variant="outline" onClick={() => setModalToShow("tunnel")}>
             <Waypoints size={16} /> Tunnel
           </Button>
-          <Button variant="outline" onClick={() => setModalToShow("ssl")}>
-            <ShieldCheck size={16} /> SSL
-          </Button>
           <Button variant="outline" onClick={() => setModalToShow("ai")}>
             <Sparkles size={16} /> AI
           </Button>
@@ -205,11 +198,6 @@ export default function DemoConnectPage() {
         />
         <TunnelServiceModal
           open={modalToShow === "tunnel"}
-          onClose={() => setModalToShow(null)}
-          service={{ state: "connected" }}
-        />
-        <SSLServiceModal
-          open={modalToShow === "ssl"}
           onClose={() => setModalToShow(null)}
           service={{ state: "connected" }}
         />
