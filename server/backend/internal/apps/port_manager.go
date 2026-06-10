@@ -190,6 +190,8 @@ func (pm *PortManager) isAvailableLocked(port int) bool {
 	return true
 }
 
+const pendingMarker = "!pending"
+
 // Allocate tries to assign the preferred port. If taken, scans upward to find
 // the next available port. Returns the allocated port or an error if none found.
 // It verifies port availability at both the internal tracking level and OS level.
@@ -199,6 +201,7 @@ func (pm *PortManager) Allocate(preferred int) (int, error) {
 
 	// Try preferred first (checks both DB and OS level via isAvailableLocked)
 	if pm.isAvailableLocked(preferred) && pm.isPortFreeAtOSLocked(preferred) {
+		pm.usedPorts[preferred] = pendingMarker
 		return preferred, nil
 	}
 
@@ -211,6 +214,7 @@ func (pm *PortManager) Allocate(preferred int) (int, error) {
 
 	for attempt := 0; attempt < MaxScanAttempts; attempt++ {
 		if pm.isAvailableLocked(port) && pm.isPortFreeAtOSLocked(port) {
+			pm.usedPorts[port] = pendingMarker
 			return port, nil
 		}
 		port++
