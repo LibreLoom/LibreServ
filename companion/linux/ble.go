@@ -20,44 +20,67 @@ func generateID() string {
 	return fmt.Sprintf("req-%d", atomic.AddUint64(&requestCounter, 1))
 }
 
+type connectStatus int
+
+const (
+	statusScanning  connectStatus = iota
+	statusFound                   // msg = device name
+	statusConnected               // BLE connected
+	statusAuthed                  // Authenticated, proxy started
+	statusFailed                  // msg = error text
+	statusLost                    // msg = error text
+)
+
+// bleClient manages the BLE connection, authentication, and HTTP proxying.
 type bleClient struct {
-	setupCode string
-	logger    *slog.Logger
-
-	adapter  *bluetooth.Adapter
-	device   bluetooth.Device
-	authChar bluetooth.DeviceCharacteristic
-	authStatusChar bluetooth.DeviceCharacteristic
-	proxyReqChar   bluetooth.DeviceCharacteristic
-	proxyRespChar  bluetooth.DeviceCharacteristic
-
 	mu        sync.Mutex
+	setupCode string
 	connected bool
 	authed    bool
 	pending   map[string]chan *proxyResponse
+
+	adapter        *bluetooth.Adapter
+	device         bluetooth.Device
+	authChar       *bluetooth.DeviceCharacteristic
+	authStatusChar *bluetooth.DeviceCharacteristic
+	proxyReqChar   *bluetooth.DeviceCharacteristic
+	proxyRespChar  *bluetooth.DeviceCharacteristic
+
+	proxy  *proxyServer
+	lostCh chan struct{} // signaled when connection is lost
 }
 
-func newBLEClient(setupCode string, logger *slog.Logger) *bleClient {
+func newBLEClient() *bleClient {
 	return &bleClient{
-		setupCode: setupCode,
-		logger:    logger,
-		pending:   make(map[string]chan *proxyResponse),
+		pending: make(map[string]chan *proxyResponse),
+		lostCh:  make(chan struct{}, 1),
 	}
 }
 
-func (c *bleClient) connect() error {
-	c.adapter = bluetooth.DefaultAdapter
+// connect scans for a LibreServ device, authenticates, and starts the proxy.
+// It calls onStatus from a background goroutine to report progress.
+// It blocks until the connection either succeeds (statusAuthed) or fails (statusFailed).
+func (c *bleClient) connect(setupCode string, onStatus func(connectStatus, string)) {
+	c.mu.Lock()
+	c.setupCode = setupCode
+	c.connected = false
+	c.authed = false
+	c.mu.Unlock()
 
+	onStatus(statusScanning, "")
+
+	c.adapter = bluetooth.DefaultAdapter
 	if err := c.adapter.Enable(); err != nil {
-		return fmt.Errorf("bluetooth enable: %w", err)
+		onStatus(statusFailed, fmt.Sprintf("Could not enable Bluetooth. Make sure Bluetooth is turned on in your system settings. (%v)", err))
+		return
 	}
 
-	c.logger.Info("Scanning for LibreServ device...")
-
+	// Scan for the LibreServ device
 	found := make(chan bluetooth.ScanResult, 1)
+	scanTimeout := 30 * time.Second
 
 	go func() {
-		time.Sleep(30 * time.Second)
+		time.Sleep(scanTimeout)
 		_ = c.adapter.StopScan()
 	}()
 
@@ -72,37 +95,50 @@ func (c *bleClient) connect() error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("scan failed: %w", err)
+		onStatus(statusFailed, fmt.Sprintf("Could not scan for devices. Make sure Bluetooth is turned on. (%v)", err))
+		return
 	}
 
 	var target bluetooth.ScanResult
 	select {
 	case target = <-found:
-		// discovered
-	case <-time.After(30 * time.Second):
-		return errors.New("no LibreServ device found within 30 seconds")
+		// found
+	case <-time.After(scanTimeout):
+		onStatus(statusFailed, "No LibreServ device found nearby. Make sure your device is powered on and within Bluetooth range (about 10 meters).")
+		return
 	}
 
-	if err := c.adapter.StopScan(); err != nil {
-		c.logger.Warn("failed to stop scan", "error", err)
+	_ = c.adapter.StopScan()
+	name := target.LocalName()
+	if name == "" {
+		name = "LibreServ"
 	}
+	onStatus(statusFound, name)
 
-	c.logger.Info("Found LibreServ", "name", target.LocalName(), "address", target.Address.String())
-
+	// Connect
 	device, err := c.adapter.Connect(target.Address, bluetooth.ConnectionParams{})
 	if err != nil {
-		return fmt.Errorf("connect failed: %w", err)
+		onStatus(statusFailed, fmt.Sprintf("Could not connect to %s. Try moving closer to the device and try again.", name))
+		return
 	}
 
 	c.device = device
-	c.logger.Info("Connected to LibreServ")
+	c.mu.Lock()
+	c.connected = true
+	c.mu.Unlock()
+	onStatus(statusConnected, name)
 
+	// Discover services + characteristics
 	services, err := device.DiscoverServices([]bluetooth.UUID{serviceUUID})
 	if err != nil {
-		return fmt.Errorf("discover services: %w", err)
+		onStatus(statusFailed, "Could not discover services on the device. Try restarting your device and try again.")
+		c.disconnect()
+		return
 	}
 	if len(services) == 0 {
-		return errors.New("service not found on device")
+		onStatus(statusFailed, "The LibreServ Bluetooth service was not found on the device. Make sure your device is running a compatible version.")
+		c.disconnect()
+		return
 	}
 
 	chars, err := services[0].DiscoverCharacteristics([]bluetooth.UUID{
@@ -112,58 +148,59 @@ func (c *bleClient) connect() error {
 		charProxyResp,
 	})
 	if err != nil {
-		return fmt.Errorf("discover characteristics: %w", err)
+		onStatus(statusFailed, "Could not set up the Bluetooth connection. Try again.")
+		c.disconnect()
+		return
 	}
 
-	for _, ch := range chars {
-		switch ch.UUID() {
+	for i := range chars {
+		switch chars[i].UUID() {
 		case charAuth:
-			c.authChar = ch
+			c.authChar = &chars[i]
 		case charAuthStatus:
-			c.authStatusChar = ch
+			c.authStatusChar = &chars[i]
 		case charProxyReq:
-			c.proxyReqChar = ch
+			c.proxyReqChar = &chars[i]
 		case charProxyResp:
-			c.proxyRespChar = ch
+			c.proxyRespChar = &chars[i]
 		}
 	}
 
+	// Enable notifications
 	if err := c.authStatusChar.EnableNotifications(c.onAuthStatus); err != nil {
-		return fmt.Errorf("auth status notify: %w", err)
+		onStatus(statusFailed, "Could not set up Bluetooth notifications. Try again.")
+		c.disconnect()
+		return
 	}
 	if err := c.proxyRespChar.EnableNotifications(c.onProxyResponse); err != nil {
-		return fmt.Errorf("proxy resp notify: %w", err)
+		onStatus(statusFailed, "Could not set up Bluetooth notifications. Try again.")
+		c.disconnect()
+		return
 	}
 
+	// Authenticate
 	if err := c.authenticate(); err != nil {
-		return fmt.Errorf("authentication: %w", err)
+		onStatus(statusFailed, "Authentication failed. Check that the code matches the one printed on your device.")
+		c.disconnect()
+		return
 	}
 
-	c.connected = true
-	return nil
+	onStatus(statusAuthed, name)
 }
 
 func (c *bleClient) onAuthStatus(buf []byte) {
 	var s authStatus
 	if err := json.Unmarshal(buf, &s); err != nil {
-		c.logger.Warn("malformed auth status", "error", err)
 		return
 	}
 	c.mu.Lock()
-	if s.OK {
-		c.authed = true
-		c.logger.Info("BLE authentication succeeded")
-	} else {
-		c.authed = false
-		c.logger.Warn("BLE authentication failed", "message", s.Message)
-	}
+	c.authed = s.OK
 	c.mu.Unlock()
 }
 
 func (c *bleClient) onProxyResponse(buf []byte) {
 	var pr proxyResponse
 	if err := json.Unmarshal(buf, &pr); err != nil {
-		c.logger.Warn("malformed proxy response", "error", err)
 		return
 	}
 	c.mu.Lock()
@@ -198,6 +235,18 @@ func (c *bleClient) authenticate() error {
 	return errors.New("authentication timed out after 5 seconds")
 }
 
+// startProxy starts the local HTTP proxy and returns the listen address.
+func (c *bleClient) startProxy() string {
+	c.proxy = newProxyServer("127.0.0.1:18080", c)
+	go func() {
+		if err := c.proxy.Start(); err != nil {
+			slog.Error("proxy server failed", "error", err)
+		}
+	}()
+	return "127.0.0.1:18080"
+}
+
+// doRequest sends an HTTP request through BLE and returns the response.
 func (c *bleClient) doRequest(ctx context.Context, req proxyRequest) (*proxyResponse, error) {
 	ch := make(chan *proxyResponse, 16)
 	c.mu.Lock()
@@ -209,7 +258,7 @@ func (c *bleClient) doRequest(ctx context.Context, req proxyRequest) (*proxyResp
 		c.mu.Unlock()
 	}()
 
-	if c.proxyReqChar == nil {
+	if c.proxyReqChar == nil || *c.proxyReqChar == (bluetooth.DeviceCharacteristic{}) {
 		return nil, errors.New("BLE proxy request characteristic not available")
 	}
 
@@ -253,5 +302,26 @@ func (c *bleClient) doRequest(ctx context.Context, req proxyRequest) (*proxyResp
 }
 
 func (c *bleClient) disconnect() error {
-	return c.device.Disconnect()
+	c.mu.Lock()
+	c.connected = false
+	c.authed = false
+	c.mu.Unlock()
+
+	// Signal connection loss
+	select {
+	case c.lostCh <- struct{}{}:
+	default:
+	}
+
+	if c.device.Address.String() != "" {
+		return c.device.Disconnect()
+	}
+	return nil
+}
+
+// waitForConnectionLoss blocks until the BLE connection is lost.
+// Returns true if lost, false if the channel was closed.
+func (c *bleClient) waitForConnectionLoss() bool {
+	_, ok := <-c.lostCh
+	return ok
 }

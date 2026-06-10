@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">LibreServ Companion</string>
-    <string name="setup_code_hint">Enter setup code from your LibreServ device</string>
+    <string name="app_name">LibreServ</string>
+    <string name="setup_code_hint">6-character code from your device</string>
     <string name="connect">Connect</string>
 </resources>

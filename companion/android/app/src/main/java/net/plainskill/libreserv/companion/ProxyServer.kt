@@ -11,7 +11,7 @@ import java.io.ByteArrayInputStream
 class ProxyServer(private val bleManager: BleManager, port: Int) : NanoHTTPD(port) {
 
     override fun serve(session: IHTTPSession): Response {
-        val method = session.method.name()
+        val method = session.method.name
         val path = session.uri
         val query = session.queryParameterString?.let { "?$it" } ?: ""
         val fullPath = if (query.isNotEmpty()) "$path$query" else path

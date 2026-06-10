@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"strings"
 	"testing"
-	"time"
 )
 
 func accumulateResponse(queue <-chan *proxyResponse) (*proxyResponse, error) {
@@ -97,19 +97,12 @@ func TestAccumulateResponse_Timeout(t *testing.T) {
 	}
 }
 
-func TestDoRequest_Timeout(t *testing.T) {
-	c := newBLEClient("TEST", nil)
-	c.proxyReqChar = nil // prevent panic on write
-
-	ch := make(chan *proxyResponse, 1)
-	c.pending["req-1"] = ch
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
+func TestDoRequest_NotAvailable(t *testing.T) {
+	c := newBLEClient()
+	ctx := context.Background()
 	req := proxyRequest{ID: "req-1", Method: "GET", Path: "/", Final: true}
 	_, err := c.doRequest(ctx, req)
-	if err == nil {
-		t.Fatal("expected timeout error")
+	if err == nil || !strings.Contains(err.Error(), "not available") {
+		t.Fatalf("expected 'not available' error, got: %v", err)
 	}
 }

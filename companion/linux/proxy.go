@@ -16,8 +16,8 @@ type proxyServer struct {
 	logger *slog.Logger
 }
 
-func newProxyServer(addr string, client *bleClient, logger *slog.Logger) *proxyServer {
-	return &proxyServer{addr: addr, client: client, logger: logger}
+func newProxyServer(addr string, client *bleClient) *proxyServer {
+	return &proxyServer{addr: addr, client: client, logger: slog.Default()}
 }
 
 func (p *proxyServer) Start() error {

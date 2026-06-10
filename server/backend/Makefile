@@ -33,6 +33,20 @@ run: build
 	@echo ">> Running $(APP_NAME)"
 	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) serve --config ./configs/libreserv.yaml
 
+ble-build:
+	@echo ">> Building backend with BLE support"
+	@mkdir -p $(BIN_DIR)
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags "libreserv_ble" $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
+
+ble-run: ble-build
+	@if [ ! -f ./configs/libreserv.yaml ]; then \
+		echo "Error: ./configs/libreserv.yaml not found. Copy it from the example:"; \
+		echo "  cp configs/libreserv.yaml.example configs/libreserv.yaml"; \
+		exit 1; \
+	fi
+	@echo ">> Running $(APP_NAME) with BLE"
+	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) serve --config ./configs/libreserv.yaml
+
 frontend:
 	@echo ">> Installing frontend deps"
 	@cd ../frontend && npm ci

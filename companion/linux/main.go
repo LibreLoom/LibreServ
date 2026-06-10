@@ -1,61 +1,60 @@
 package main
 
 import (
-	"flag"
-	"fmt"
-	"log/slog"
+	_ "embed"
 	"os"
 	"os/exec"
-	"os/signal"
-	"strings"
-	"syscall"
+
+	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
+	"github.com/diamondburned/gotk4/pkg/gdkpixbuf/v2"
+	"github.com/diamondburned/gotk4/pkg/gio/v2"
+	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 )
 
+//go:embed logo.svg
+var logoSVG []byte
+
 func main() {
-	var (
-		setupCode  = flag.String("code", "", "LibreServ setup code (6 characters)")
-		proxyAddr  = flag.String("addr", "127.0.0.1:18080", "Local proxy address")
-		noBrowser  = flag.Bool("no-browser", false, "Do not open a browser automatically")
-	)
-	flag.Parse()
+	app := adw.NewApplication("net.plainskill.libreserv.companion", gio.ApplicationFlagsNone)
+	app.Connect("activate", func() { onActivate(app) })
 
-	if *setupCode == "" {
-		fmt.Fprintln(os.Stderr, "Usage: libreserv-ble-companion -code=ABCDEF")
-		fmt.Fprintln(os.Stderr, "The setup code is printed on your LibreServ device.")
-		os.Exit(1)
+	if os.Getenv("LIBRESERV_SETUP_CODE") != "" {
+		app.SetFlags(app.Flags() | gio.ApplicationNonUnique)
 	}
 
-	logger := slog.Default()
+	app.Run(os.Args)
+}
 
-	ble := newBLEClient(strings.ToUpper(*setupCode), logger)
-	if err := ble.connect(); err != nil {
-		logger.Error("Failed to connect to LibreServ via BLE", "error", err)
-		os.Exit(1)
-	}
-	defer func() {
-		_ = ble.disconnect()
-	}()
+func onActivate(app *adw.Application) {
+	window := adw.NewApplicationWindow(&app.Application)
+	window.SetTitle("LibreServ")
+	window.SetDefaultSize(420, 600)
 
-	proxy := newProxyServer(*proxyAddr, ble, logger)
-	go func() {
-		if err := proxy.Start(); err != nil {
-			logger.Error("Proxy server failed", "error", err)
-			os.Exit(1)
-		}
-	}()
+	logoPaintable := loadLogo()
+	ble := newBLEClient()
 
-	url := "http://" + *proxyAddr
-	if !*noBrowser {
-		logger.Info("Opening browser", "url", url)
-		_ = openBrowser(url)
-	}
-	logger.Info("LibreServ is available over Bluetooth", "url", url)
+	connectView := newConnectView(ble, logoPaintable, func(proxyAddr string) {
+		url := "http://" + proxyAddr
+		openBrowser(url)
+		window.Close()
+	})
 
-	// Block until interrupted
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-	logger.Info("Shutting down")
+	window.SetContent(connectView)
+	window.Show()
+}
+
+func loadLogo() *gtk.Picture {
+	loader := gdkpixbuf.NewPixbufLoader()
+	loader.Write(logoSVG)
+	loader.Close()
+	pixbuf := loader.Pixbuf()
+	texture := gdk.NewTextureForPixbuf(pixbuf)
+	pic := gtk.NewPictureForPaintable(texture)
+	pic.SetSizeRequest(96, 96)
+	pic.SetContentFit(gtk.ContentFitScaleDown)
+	pic.SetCanShrink(true)
+	return pic
 }
 
 func openBrowser(url string) error {

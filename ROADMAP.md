@@ -42,6 +42,8 @@ Installs an app -> It works -> Creates backup -> Done
 | P1 | DNS Provider Integration | Remote access requires domain | Done (Cloudflare) |
 | P1 | System Health Display | User confidence | Done |
 | P2 | Network Routes UI | Manage app access | Mostly done, needs polish |
+| P2 | BLE Companion (Linux) | Reach UI without network | In progress (Libadwaita GTK4 app built) |
+| P3 | BLE Companion (Android) | Same flow on Android | Deferred to team — null-safe code in repo, APK builds clean |
 
 ---
 
@@ -97,6 +99,31 @@ Installs an app -> It works -> Creates backup -> Done
 - Plain-language error messages
 - Technical details logged server-side
 - Checks grouped by category (system, storage, network)
+
+### T1.1.6. BLE Companion App
+
+**Status:** In progress (Linux companion rebuilt with Libadwaita UI; Android null-safe build in repo, deferred to team; no iOS companion planned)
+
+**Goal:** Let users reach the LibreServ Web UI over Bluetooth LE when normal network routing is unavailable (e.g., during first-run setup, on a disconnected LAN, or when mDNS/routing fails).
+
+**Architecture:** Three-part system:
+
+1. **Server-side BLE peripheral** (`server/backend/internal/network/bluetooth/`) — GATT service advertising the LibreServ UUID, authenticating companions with the 6-char setup code, and proxying HTTP requests through the internal chi router (no TCP loopback). Build-tag gated: only compiled with `BUILD_TAGS=libreserv_ble make build` or `make ble-run`. Without the tag, a no-op stub is used.
+
+2. **Linux companion** (`companion/linux/`) — Libadwaita GTK4 app with a minimal connection helper (logo, setup code entry, Connect button, status). On success, starts a local HTTP proxy on `127.0.0.1:18080` and opens the browser via `xdg-open`. Built with `gotk4` + `gotk4-adwaita`.
+
+3. **Android companion** (`companion/android/`) — Null-safe Kotlin build in repo, ready for the team. Same scan → connect → authenticate → proxy flow with a WebView. Shows a "Connection lost — reconnecting…" banner on BLE disconnect. Targets API 26+ (Android 8.0+).
+
+**GATT Service UUID:** `5a494c42-6572-6572-7600-000000000000` (4 characteristics: Auth write, Auth Status notify, Proxy Request write, Proxy Response notify).
+
+**Remaining work (Linux):**
+- [ ] BLE toggle/status in Settings → Network UI
+- [ ] Linux companion: MTU negotiation (currently relies on default ~23-byte usable MTU)
+- [ ] Linux companion: WebKitGTK embedded WebView (deferred — opens external browser currently)
+
+**Remaining work (Android):** Deferred to LibreServ team.
+
+**Not planned:** iOS companion.
 
 ---
 

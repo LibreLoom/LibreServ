@@ -94,8 +94,12 @@ class BleManager(private val context: Context) {
         if (char == null) return
         g.setCharacteristicNotification(char, true)
         val desc = char.getDescriptor(CLIENT_CONFIG_UUID)
-        desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-        g.writeDescriptor(desc)
+        if (desc != null) {
+            desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            g.writeDescriptor(desc)
+        } else {
+            Log.w(TAG, "CCCD descriptor missing on ${char.uuid} — relying on setCharacteristicNotification only")
+        }
     }
 
     private fun handleAuthStatus(data: ByteArray) {
@@ -218,6 +222,10 @@ class BleManager(private val context: Context) {
         } finally {
             pending.remove(id)
         }
+    }
+
+    fun isConnected(): Boolean {
+        return connected
     }
 
     fun disconnect() {

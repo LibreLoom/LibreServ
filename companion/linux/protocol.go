@@ -46,3 +46,18 @@ type authStatus struct {
 	Message   string `json:"message,omitempty"`
 	Timestamp int64  `json:"ts"`
 }
+
+func chunkBytes(data []byte, size int) [][]byte {
+	if len(data) == 0 {
+		return [][]byte{{}}
+	}
+	var out [][]byte
+	for i := 0; i < len(data); i += size {
+		j := i + size
+		if j > len(data) {
+			j = len(data)
+		}
+		out = append(out, data[i:j])
+	}
+	return out
+}
