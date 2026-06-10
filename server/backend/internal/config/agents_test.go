@@ -1,8 +1,13 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
+
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
+}
 
 func TestDefaultAgents(t *testing.T) {
 	agents := DefaultAgents()
@@ -49,6 +54,12 @@ func TestDefaultAgent1(t *testing.T) {
 	if a1.AvatarColor != "#FF6B35" {
 		t.Errorf("agent-1.AvatarColor = %q, want %q", a1.AvatarColor, "#FF6B35")
 	}
+	if a1.SystemPrompt == "" {
+		t.Error("agent-1.SystemPrompt should not be empty — agents need distinct roles")
+	}
+	if !contains(a1.SystemPrompt, "Research") {
+		t.Error("agent-1.SystemPrompt should identify as Research Agent")
+	}
 }
 
 func TestDefaultAgent2(t *testing.T) {
@@ -68,6 +79,12 @@ func TestDefaultAgent2(t *testing.T) {
 	}
 	if a2.AvatarShape != "circle" {
 		t.Errorf("agent-2.AvatarShape = %q, want %q", a2.AvatarShape, "circle")
+	}
+	if a2.SystemPrompt == "" {
+		t.Error("agent-2.SystemPrompt should not be empty — agents need distinct roles")
+	}
+	if !contains(a2.SystemPrompt, "Review") {
+		t.Error("agent-2.SystemPrompt should identify as Review & Safety Agent")
 	}
 }
 
@@ -158,6 +175,25 @@ func TestAgentDefinitionCustomConfig(t *testing.T) {
 	}
 	if agent.Model != "route/deepseek-v4-pro" {
 		t.Errorf("custom.Model = %q, want %q", agent.Model, "route/deepseek-v4-pro")
+	}
+}
+
+func TestDefaultAgentsHaveDistinctRoles(t *testing.T) {
+	agents := DefaultAgents()
+	var a1, a2 *AgentDefinition
+	for i := range agents {
+		switch agents[i].ID {
+		case "agent-1":
+			a1 = &agents[i]
+		case "agent-2":
+			a2 = &agents[i]
+		}
+	}
+	if a1 == nil || a2 == nil {
+		t.Fatal("missing agent-1 or agent-2")
+	}
+	if a1.SystemPrompt == a2.SystemPrompt {
+		t.Error("agent-1 and agent-2 must have distinct SystemPrompts — identical prompts create an echo chamber that wastes tokens")
 	}
 }
 

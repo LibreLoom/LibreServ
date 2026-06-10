@@ -380,7 +380,16 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	var agents []*agent.Agent
 	for _, am := range agentModels {
-		agents = append(agents, agent.NewAgent(am.ID, am.Model, am.AvatarShape, am.AvatarColor, systemPrompt, provider))
+		// Each agent should use its own system prompt from its definition.
+		// This ensures agents have distinct roles rather than being an echo chamber.
+		agentPrompt := systemPrompt // fallback to shared prompt
+		for _, def := range chatAgentDefs {
+			if def.ID == am.ID && def.SystemPrompt != "" {
+				agentPrompt = def.SystemPrompt
+				break
+			}
+		}
+		agents = append(agents, agent.NewAgent(am.ID, am.Model, am.AvatarShape, am.AvatarColor, agentPrompt, provider))
 	}
 
 	loop := agent.NewLoop(agents, registry, h.creditService, plan, loopConfig, cfg.Support.BillingMode, userID, convID)
@@ -669,8 +678,19 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			continue
 		}
-		fmt.Fprintf(w, "data: %s\n\n", encoded)
-		_ = rc.Flush()
+
+		// Detect SSE client disconnect: if the write or flush fails,
+		// the client has gone away. Stop the loop to prevent credit waste.
+		if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", encoded); writeErr != nil {
+			slog.Info("agent SSE: client disconnected, stopping loop", "conversation_id", convID, "error", writeErr)
+			l.loop.Stop()
+			break
+		}
+		if flushErr := rc.Flush(); flushErr != nil {
+			slog.Info("agent SSE: flush failed (client gone), stopping loop", "conversation_id", convID, "error", flushErr)
+			l.loop.Stop()
+			break
+		}
 
 		_ = h.conversationStore.SaveEvent(dbCtx, convID, string(evt.Type), encoded)
 	}

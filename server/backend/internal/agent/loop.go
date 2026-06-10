@@ -465,7 +465,7 @@ func (l *Loop) handleProposals(ctx context.Context, proposals []proposal) bool {
 	if l.writeExecuted {
 		l.messages = append(l.messages, Message{
 			Role:    RoleSystem,
-			Content: "A write action has been executed. STOP calling tools and produce a final_response to the user immediately. No further checks are needed.",
+			Content: "A write action has been executed. If you have all the information needed to answer the user, produce a final_response now. Only call more tools if further verification is genuinely needed.",
 		})
 	}
 
@@ -561,6 +561,41 @@ func (l *Loop) getVote(ctx context.Context, agent *Agent, prop *proposal) VoteDa
 		proposalDesc = fmt.Sprintf("Agent %s proposes this response to the user:\n\n%s", prop.agentID, prop.response)
 	}
 
+	// Provide recent conversation context so the voter can make an informed decision.
+	// Include the last ~10 messages (or all if fewer), focusing on user messages,
+	// tool results, and agent messages.
+	const maxContextEntries = 10
+	contextStart := len(l.messages) - maxContextEntries
+	if contextStart < 0 {
+		contextStart = 0
+	}
+	var contextParts []string
+	for _, m := range l.messages[contextStart:] {
+		switch m.Role {
+		case RoleUser:
+			contextParts = append(contextParts, fmt.Sprintf("User: %s", m.Content))
+		case RoleAssistant:
+			if m.Content != "" {
+				contextParts = append(contextParts, fmt.Sprintf("Agent %s: %s", m.AgentID, m.Content))
+			}
+		case RoleTool:
+			snippet := m.Content
+			if len(snippet) > 300 {
+				snippet = snippet[:300] + "..."
+			}
+			contextParts = append(contextParts, fmt.Sprintf("Tool result for %s: %s", m.ToolCallID, snippet))
+		case RoleSystem:
+			if m.AgentID != "" {
+				contextParts = append(contextParts, fmt.Sprintf("[Agent %s] %s", m.AgentID, m.Content))
+			}
+		}
+	}
+
+	contextSummary := "No prior context available."
+	if len(contextParts) > 0 {
+		contextSummary = strings.Join(contextParts, "\n")
+	}
+
 	voteDefs := []map[string]interface{}{
 		{
 			"type": "function",
@@ -588,7 +623,7 @@ func (l *Loop) getVote(ctx context.Context, agent *Agent, prop *proposal) VoteDa
 
 	voteMsgs := []Message{
 		{Role: RoleSystem, Content: l.buildVotingPrompt()},
-		{Role: RoleUser, Content: proposalDesc},
+		{Role: RoleUser, Content: fmt.Sprintf("Conversation context:\n%s\n\nCurrent proposal:\n%s", contextSummary, proposalDesc)},
 	}
 
 	callCtx, cancel := context.WithTimeout(ctx, l.config.TurnTimeout)

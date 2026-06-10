@@ -130,7 +130,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 		},
 		{
 			Name:        "docker_restart",
-			Description: "Restart a Docker container. Use this when an app is stuck or needs a fresh start.",
+			Description: "Restart a Docker container. Use this when an app is stuck or needs a fresh start. Requires user permission.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -140,7 +140,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 				"required": ["container"]
 			}`),
 			IsResearch:         false,
-			RequiresPermission: false,
+			RequiresPermission: true,
 			Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
 				var params struct {
 					Container string `json:"container"`
@@ -164,7 +164,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 		},
 		{
 			Name:        "docker_stop",
-			Description: "Stop a running Docker container.",
+			Description: "Stop a running Docker container. Requires user permission since it affects service availability.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -173,7 +173,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 				"required": ["container"]
 			}`),
 			IsResearch:         false,
-			RequiresPermission: false,
+			RequiresPermission: true,
 			Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
 				var params struct {
 					Container string `json:"container"`
@@ -192,7 +192,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 		},
 		{
 			Name:        "docker_start",
-			Description: "Start a stopped Docker container.",
+			Description: "Start a stopped Docker container. Requires user permission since it may have been stopped intentionally.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -201,7 +201,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 				"required": ["container"]
 			}`),
 			IsResearch:         false,
-			RequiresPermission: false,
+			RequiresPermission: true,
 			Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
 				var params struct {
 					Container string `json:"container"`
@@ -223,28 +223,32 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 
 func redactSensitiveFields(parsed map[string]interface{}) {
 	if config, ok := parsed["Config"].(map[string]interface{}); ok {
-		config["Env"] = "[REDACTED: contains secrets]"
+		if env, ok := config["Env"].([]interface{}); ok {
+			// Redact individual env vars that contain secrets, but keep non-secret vars visible
+			// so the agent can diagnose configuration issues.
+			redacted := make([]interface{}, len(env))
+			for i, v := range env {
+				s, ok := v.(string)
+				if !ok {
+					redacted[i] = v
+					continue
+				}
+				parts := strings.SplitN(s, "=", 2)
+				if len(parts) == 2 && isSecretKey(parts[0], parts[1]) {
+					redacted[i] = parts[0] + "=••••••••"
+				} else {
+					redacted[i] = s
+				}
+			}
+			config["Env"] = redacted
+		}
 		if _, hasLabels := config["Labels"]; hasLabels {
 			redactMapValues(config, "Labels")
 		}
 	}
 	if hostConfig, ok := parsed["HostConfig"].(map[string]interface{}); ok {
-		if binds, ok := hostConfig["Binds"].([]interface{}); ok {
-			redacted := make([]string, len(binds))
-			for i := range binds {
-				redacted[i] = "[REDACTED: may contain credentials in mount paths]"
-			}
-			hostConfig["Binds"] = redacted
-		}
 		if _, hasLabels := hostConfig["Labels"]; hasLabels {
 			redactMapValues(hostConfig, "Labels")
-		}
-	}
-	if netSettings, ok := parsed["NetworkSettings"].(map[string]interface{}); ok {
-		if ports, ok := netSettings["Ports"].(map[string]interface{}); ok {
-			for key := range ports {
-				ports[key] = "[REDACTED: contains host binding details]"
-			}
 		}
 	}
 }
