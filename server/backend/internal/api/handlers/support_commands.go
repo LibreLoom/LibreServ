@@ -41,7 +41,6 @@ var allowedCommands = map[string]bool{
 	"tail":       true,
 	"journalctl": true,
 	"ps":         true,
-	"top":        false, // disallow by default
 }
 
 var commandArgValidators = map[string]func([]string) error{
@@ -108,7 +107,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, req.Command, req.Args...)

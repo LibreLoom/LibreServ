@@ -474,6 +474,7 @@ func (s *Server) setupRoutes() {
 				// AI support settings (admin only for changes)
 				r.Get("/ai-support", settingsHandler.GetAISupport)
 				r.With(middleware.RequireRole("admin")).Put("/ai-support", settingsHandler.UpdateAISupport)
+				r.With(middleware.RequireRole("admin")).Post("/ai-support/models", settingsHandler.FetchModels)
 			})
 
 			// System updates (admin only)

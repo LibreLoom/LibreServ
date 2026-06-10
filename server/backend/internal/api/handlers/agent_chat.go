@@ -41,8 +41,10 @@ type AgentChatHandler struct {
 }
 
 type agentLoopEntry struct {
-	loop   *agent.Loop
-	cancel context.CancelFunc
+	loop      *agent.Loop
+	cancel    context.CancelFunc
+	proposals map[string]*agent.ProposalData
+	mu        sync.Mutex
 }
 
 func NewAgentChatHandler(db *database.DB, dockerClient *docker.Client, backupService *storage.BackupService, authService *auth.Service) *AgentChatHandler {
@@ -586,6 +588,23 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 				}
 			}
 		}
+		if evt.Type == agent.EventProposal {
+			data, _ := json.Marshal(evt.Data)
+			var pd agent.ProposalData
+			if err := json.Unmarshal(data, &pd); err == nil {
+				h.mu.Lock()
+				entry, ok := h.activeLoops[convID]
+				h.mu.Unlock()
+				if ok {
+					entry.mu.Lock()
+					if entry.proposals == nil {
+						entry.proposals = make(map[string]*agent.ProposalData)
+					}
+					entry.proposals[pd.ID] = &pd
+					entry.mu.Unlock()
+				}
+			}
+		}
 		if evt.Type == agent.EventProposal || evt.Type == agent.EventVote || evt.Type == agent.EventConsensus {
 			reviewJSON, _ := json.Marshal(evt.Data)
 			reviewMsg := &conversation.Message{
@@ -604,7 +623,7 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 				data, _ := json.Marshal(evt.Data)
 				var cd agent.ConsensusData
 				if err := json.Unmarshal(data, &cd); err == nil && cd.Result == "approved" {
-					pd := findPendingProposal(convID, cd.ProposalID)
+					pd := h.findPendingProposal(convID, cd.ProposalID)
 					if pd != nil {
 						for _, tc := range pd.ToolCalls {
 							approvedBy := "consensus"
@@ -886,6 +905,17 @@ Key principles:
 - You can see what other agents have discovered. Build on their findings rather than repeating the same checks.`
 }
 
-func findPendingProposal(convID, proposalID string) *agent.ProposalData {
-	return nil
+func (h *AgentChatHandler) findPendingProposal(convID, proposalID string) *agent.ProposalData {
+	h.mu.Lock()
+	entry, ok := h.activeLoops[convID]
+	h.mu.Unlock()
+	if !ok {
+		return nil
+	}
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.proposals == nil {
+		return nil
+	}
+	return entry.proposals[proposalID]
 }

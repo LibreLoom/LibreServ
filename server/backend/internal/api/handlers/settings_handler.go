@@ -538,3 +538,33 @@ func (h *SettingsHandler) UpdateAISupport(w http.ResponseWriter, r *http.Request
 	}
 	JSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
+
+func (h *SettingsHandler) FetchModels(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r.Context())
+	if user == nil || user.Role != "admin" {
+		JSONError(w, http.StatusForbidden, "Only administrators can fetch models.")
+		return
+	}
+	var req struct {
+		BaseURL string `json:"base_url"`
+		APIKey  string `json:"api_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "Could not understand the request. Please check the format and try again.")
+		return
+	}
+	if req.BaseURL == "" || req.APIKey == "" {
+		JSONError(w, http.StatusBadRequest, "Base URL and API key are required.")
+		return
+	}
+	provider := agent.NewProvider(req.BaseURL, req.APIKey)
+	models, err := provider.Models(r.Context())
+	if err != nil {
+		slog.Error("failed to fetch models from provider", "error", err, "base_url", req.BaseURL)
+		JSONError(w, http.StatusBadGateway, "Could not fetch models from your provider. Check that the address and key are correct.")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"models": models,
+	})
+}

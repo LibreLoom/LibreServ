@@ -33,6 +33,7 @@ function HelpChatLayout({
   pendingPermissions,
   onAllowPermission,
   onDenyPermission,
+  onOpenSettings,
   error,
 }) {
   const [input, setInput] = useState("");
@@ -72,6 +73,7 @@ function HelpChatLayout({
             planName={planName}
             sidebarOpen={sidebarOpen}
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            onOpenSettings={onOpenSettings}
           />
 
           {error && (
@@ -168,6 +170,7 @@ HelpChatLayout.propTypes = {
   pendingPermissions: PropTypes.array,
   onAllowPermission: PropTypes.func,
   onDenyPermission: PropTypes.func,
+  onOpenSettings: PropTypes.func,
   error: PropTypes.string,
 };
 

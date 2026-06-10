@@ -198,3 +198,9 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 - **Caddy:** Reverse proxy for HTTPS. Mode can be `enabled`/`noop`/`disabled` in config. ACME certs via DNS-01 challenge.
 - **CI:** `./ci` is a custom Go binary. Auto-builds from `ci-source/` on first run. No GitHub Actions — all CI is local.
 - **No `libreserv.sh`** in repo — use `make run` from `server/backend/` for development instead
+
+## Frontend Components
+
+- **Dropdown** — Always use the project's `Dropdown` component (`src/components/common/Dropdown.jsx`) instead of a raw `<select>`. It accepts `options` as `Array<{value: string, label: string}>`, supports `fullWidth`, `bg` ( `"primary"` | `"secondary"`), and `onChange(value: string)`.
+- **Model fetch endpoint** — `POST /settings/ai-support/models` (admin-only) accepts `{ base_url, api_key }` and returns `{ models: [] }` fetched live from the provider. Use this to populate model Dropdowns in AI config modals.
+- **ChatHeader crash guard** — `ChatHeader`'s `ModelPill` must guard against empty `modelOptions` (e.g. `resolvedModelOptions[0]?.value || ""`), because `chat.models` starts empty before `loadModels` resolves.

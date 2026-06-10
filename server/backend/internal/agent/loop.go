@@ -519,11 +519,11 @@ func (l *Loop) getVote(ctx context.Context, agent *Agent, prop *proposal) VoteDa
 		l.emitUsageUpdate(agent.ID, usage)
 	}
 
-	decision := "approve"
+	decision := "reject"
 	reason := ""
 	if err != nil {
-		decision = "approve"
-		reason = "voting call failed, defaulting to approve"
+		decision = "reject"
+		reason = "voting call failed, defaulting to reject for safety"
 	} else if len(resp.ToolCalls) > 0 {
 		for _, tc := range resp.ToolCalls {
 			if tc.Name != "cast_vote" {
@@ -602,6 +602,8 @@ func (l *Loop) executeTool(ctx context.Context, agentID string, tc AgentToolCall
 			return "", fmt.Errorf("stopped while waiting for permission")
 		case <-ctx.Done():
 			return "", fmt.Errorf("context cancelled while waiting for permission")
+		case <-time.After(l.config.TurnTimeout):
+			return "", fmt.Errorf("timed out waiting for permission after %v", l.config.TurnTimeout)
 		}
 	}
 
@@ -789,8 +791,10 @@ func (l *Loop) emitUsageUpdate(agentID string, usage *UsageInfo) {
 func (l *Loop) emit(e Event) {
 	select {
 	case l.events <- e:
-	default:
-		slog.Warn("agent loop: event channel full, dropping event", "type", e.Type)
+	case <-l.stopCh:
+		return
+	case <-time.After(10 * time.Second):
+		slog.Error("agent loop: event channel full, dropping event", "type", e.Type)
 	}
 }
 
@@ -798,10 +802,14 @@ func (l *Loop) emitDone(reason string) {
 	done := Event{Type: EventDone, Data: DoneData{Reason: reason}}
 	select {
 	case l.events <- done:
+	case <-l.stopCh:
+		return
 	default:
 		slog.Warn("agent loop: event channel full during done, forcing send", "reason", reason)
 		select {
 		case l.events <- done:
+		case <-l.stopCh:
+			return
 		case <-time.After(5 * time.Second):
 			slog.Error("agent loop: could not deliver done event", "reason", reason)
 		}

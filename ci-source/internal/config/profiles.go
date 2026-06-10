@@ -43,8 +43,8 @@ var Profiles = map[string]*Profile{
 	"backend": {
 		ID:          "backend",
 		Name:        "Backend",
-		Description: "Backend tests - format, vet, unit tests, race, build, rollback, coverage (7 tests)",
-		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test", "coverage"},
+		Description: "Backend tests - format, vet, unit tests, race, build, rollback, coverage, BLE (9 tests)",
+		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test", "coverage", "go-ble-vet", "go-ble-test"},
 	},
 	"frontend": {
 		ID:          "frontend",
@@ -55,15 +55,17 @@ var Profiles = map[string]*Profile{
 	"deep": {
 		ID:          "deep",
 		Name:        "Deep",
-		Description: "Comprehensive - race detection, rollback, build, all fuzz, e2e (26 tests)",
+		Description: "Comprehensive - race detection, rollback, build, all fuzz, e2e, BLE companion (30 tests)",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
+			"go-ble-vet", "go-ble-test",
 			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"fuzz-docker-unmarshal", "fuzz-docker-marshal",
 			"fuzz-apps-definition", "fuzz-apps-script",
 			"fuzz-network-caddyfile", "fuzz-network-route", "fuzz-network-backend",
 			"fuzz-config-main", "fuzz-config-smtp", "fuzz-config-docker", "fuzz-config-caddy", "fuzz-config-acme",
 			"e2e",
+			"companion-linux-build", "companion-linux-test",
 		},
 	},
 	"security": {
@@ -89,6 +91,7 @@ var Profiles = map[string]*Profile{
 		Description: "Complete test suite - all tests",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
+			"go-ble-vet", "go-ble-test",
 			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"fuzz-docker-unmarshal", "fuzz-docker-marshal",
 			"fuzz-apps-definition", "fuzz-apps-script",
@@ -98,6 +101,7 @@ var Profiles = map[string]*Profile{
 			"coverage", "docker-build",
 			"e2e",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
+			"companion-linux-build", "companion-linux-test",
 		},
 	},
 	"nofuzz": {
@@ -106,11 +110,13 @@ var Profiles = map[string]*Profile{
 		Description: "Everything except fuzz tests - full suite minus fuzzing",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
+			"go-ble-vet", "go-ble-test",
 			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"govulncheck", "gosec", "staticcheck",
 			"coverage", "docker-build",
 			"e2e",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
+			"companion-linux-build", "companion-linux-test",
 		},
 	},
 	"e2e": {

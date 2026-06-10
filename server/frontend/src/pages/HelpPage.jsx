@@ -1,32 +1,33 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Globe, Key } from "lucide-react";
 import HeaderCard from "../components/cards/HeaderCard.jsx";
 import Card from "../components/cards/Card.jsx";
 import Button from "../components/ui/Button.jsx";
 import EmptyState from "../components/common/EmptyState.jsx";
-import Alert from "../components/common/Alert.jsx";
 import HelpChatLayout from "../components/help/HelpChatLayout.jsx";
-import PlanPicker from "../components/help/PlanPicker.jsx";
+import AgentConfigModal from "../components/help/AgentConfigModal.jsx";
 import { useAgentChat } from "../hooks/useAgentChat.jsx";
-
-const PLAN_PICKER_DISMISSED_KEY = "libreserv_plan_picker_dismissed";
+import { useAuth } from "../hooks/useAuth.jsx";
+import { useToast } from "../context/ToastContext";
 
 export default function HelpPage() {
   const chat = useAgentChat();
+  useAuth();
+  const { addToast } = useToast();
   const [aiConfigured, setAiConfigured] = useState(null);
+  const [showConfigModal, setShowConfigModal] = useState(false);
   const [permissionMode, setPermissionMode] = useState("standard");
   const [model, setModel] = useState("");
-  const [planPickerDismissed, setPlanPickerDismissed] = useState(
-    () => localStorage.getItem(PLAN_PICKER_DISMISSED_KEY) === "true"
-  );
   const [dismissedPerms, setDismissedPerms] = useState(new Set());
 
   useEffect(() => {
-    chat.loadConversations();
-    chat.loadSubscription();
-    chat.loadModels();
+    if (aiConfigured === true) {
+      chat.loadConversations();
+      chat.loadSubscription();
+      chat.loadModels();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [aiConfigured]);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,10 +36,9 @@ export default function HelpPage() {
       .then((data) => {
         if (cancelled) return;
         const ai = data?.ai_support || {};
-        setAiConfigured(
-          ai.device_token_set === true ||
-            (ai.byok_enabled && ai.user_key_configured)
-        );
+        const hasAgents = Array.isArray(ai.agents) && ai.agents.length > 0;
+        const hasBYOK = ai.byok_enabled === true && ai.user_key_configured === true;
+        setAiConfigured(hasAgents || hasBYOK);
       })
       .catch(() => {
         if (!cancelled) setAiConfigured(false);
@@ -48,12 +48,11 @@ export default function HelpPage() {
     };
   }, []);
 
-  const planId =
-    chat.subscription?.plan?.id ||
-    chat.subscription?.subscription?.plan_id ||
-    "basic";
-  const showPlanPicker =
-    !planPickerDismissed && planId === "free" && aiConfigured;
+  // Surface agent-chat errors as toasts so the user always sees them
+  useEffect(() => {
+    if (!chat.error) return;
+    addToast({ type: "error", message: chat.error });
+  }, [chat.error, addToast]);
 
   const creditUsed = chat.subscription?.usage?.used_usd || 0;
   const creditCap = chat.subscription?.plan?.credit_cap_usd || 0;
@@ -113,7 +112,13 @@ export default function HelpPage() {
           permissionMode,
           models: model ? [model] : [],
         });
-        if (!conv) return;
+        if (!conv) {
+          addToast({
+            type: "error",
+            message: "Could not start a conversation. Check your AI settings.",
+          });
+          return;
+        }
         const sent = await chat.sendMessage(conv.id, content);
         if (sent) chat.streamEvents(conv.id);
         return;
@@ -122,7 +127,7 @@ export default function HelpPage() {
       const sent = await chat.sendMessage(chat.activeConv.id, content);
       if (sent) chat.streamEvents(chat.activeConv.id);
     },
-    [chat, permissionMode, model]
+    [chat, permissionMode, model, addToast]
   );
 
   const handleAllowPermission = useCallback(
@@ -159,21 +164,6 @@ export default function HelpPage() {
     [chat]
   );
 
-  const handlePlanSelect = useCallback(
-    async (selectedPlanId) => {
-      await chat.selectPlan(selectedPlanId);
-      setPlanPickerDismissed(true);
-      localStorage.setItem(PLAN_PICKER_DISMISSED_KEY, "true");
-      chat.loadSubscription();
-    },
-    [chat]
-  );
-
-  const handlePlanSkip = useCallback(() => {
-    setPlanPickerDismissed(true);
-    localStorage.setItem(PLAN_PICKER_DISMISSED_KEY, "true");
-  }, []);
-
   return (
     <main
       className="bg-primary text-secondary px-8 pt-5 pb-32"
@@ -187,23 +177,6 @@ export default function HelpPage() {
         leftContent={null}
         rightContent={null}
       ></HeaderCard>
-
-      {chat.error && (
-        <div className="mt-4">
-          <Alert
-            variant="error"
-            message={chat.error}
-            className="max-w-2xl"
-          />
-          <button
-            type="button"
-            onClick={() => chat.setError(null)}
-            className="ml-3 mt-1 text-xs text-error/70 hover:text-error underline motion-safe:transition-colors cursor-pointer"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       {aiConfigured === null && (
         <div className="mt-6 flex justify-center">
@@ -221,35 +194,50 @@ export default function HelpPage() {
 
       {aiConfigured === false && (
         <div className="mt-6">
-          <Card noHeightAnim noPopIn>
+          <Card noHeightAnim className="max-w-2xl mx-auto">
             <EmptyState
               icon={AlertCircle}
               title="AI Support Not Configured"
-              description="Set up your AI provider in Settings to enable the help assistant. You need a subscription or your own API key."
+              description="To use the help assistant you need AI access. Choose how you want to connect."
               action={
-                <a href="/settings#ai_support">
-                  <Button variant="primary" size="md">
-                    Set up AI Support
+                <div className="space-y-3">
+                  <Button
+                    variant="primary"
+                    size="md"
+                    className="w-full"
+                    onClick={() => { window.location.href = "/settings#external_services"; }}
+                  >
+                    <Globe size={16} />
+                    Set up via LibreServ Connect
                   </Button>
-                </a>
+                  <p className="text-xs text-primary/60 max-w-sm mx-auto px-4">
+                    Connect bundles AI, backups, email and more. Or use your own key from a provider like{" "}
+                    <button
+                      type="button"
+                      onClick={() => { window.open("https://portal.neuralwatt.com/auth/register?ref=NW-MAX-YRBX", "_blank"); }}
+                      className="link-accent-card bg-transparent border-none p-0 cursor-pointer"
+                    >
+                      Neuralwatt
+                    </button>.
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setShowConfigModal(true)}
+                  >
+                    <Key size={14} />
+                    Bring your own AI key
+                  </Button>
+                </div>
               }
             />
           </Card>
         </div>
       )}
 
-      {showPlanPicker && (
-        <div className="mt-6">
-          <PlanPicker
-            currentPlanId={planId}
-            onSelect={handlePlanSelect}
-            onSkip={handlePlanSkip}
-            plans={chat.subscription?.available_plans || []}
-          />
-        </div>
-      )}
-
-      {aiConfigured === true && !showPlanPicker && (
+      {aiConfigured === true && (
+        <>
         <HelpChatLayout
           messages={chat.messages}
           events={chat.events}
@@ -271,9 +259,27 @@ export default function HelpPage() {
           onAllowPermission={handleAllowPermission}
           onDenyPermission={handleDenyPermission}
           pendingPermissions={pendingPermissions}
-          error={null}
+          onOpenSettings={() => setShowConfigModal(true)}
+          error={chat.error}
         />
+        </>
       )}
+      <AgentConfigModal
+        open={showConfigModal}
+        onClose={() => setShowConfigModal(false)}
+        onSaved={() => {
+          // Re-check configuration after saving
+          fetch("/api/v1/settings/ai-support", { credentials: "include" })
+            .then((res) => (res.ok ? res.json() : Promise.reject()))
+            .then((data) => {
+              const ai = data?.ai_support || {};
+              const hasAgents = Array.isArray(ai.agents) && ai.agents.length > 0;
+              const hasBYOK = ai.byok_enabled === true && ai.user_key_configured === true;
+              setAiConfigured(hasAgents || hasBYOK);
+            })
+            .catch(() => setAiConfigured(false));
+        }}
+      />
     </main>
   );
 }

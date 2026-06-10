@@ -1,6 +1,6 @@
 /* color-scan: ignore-file - test fixture with intentional avatar colors */
 import { useState } from "react";
-import { AlertCircle, Shield, Sparkles } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import HeaderCard from "../components/cards/HeaderCard.jsx";
 import Card from "../components/cards/Card.jsx";
 import Button from "../components/ui/Button.jsx";
@@ -9,7 +9,6 @@ import Alert from "../components/common/Alert.jsx";
 import Pill from "../components/common/Pill.jsx";
 import SegmentedControl from "../components/common/SegmentedControl.jsx";
 import Dropdown from "../components/common/Dropdown.jsx";
-import PlanPicker from "../components/help/PlanPicker.jsx";
 import ChatMessage from "../components/help/ChatMessage.jsx";
 import ChatPermissionPrompt from "../components/help/ChatPermissionPrompt.jsx";
 import ChatStreamingIndicator from "../components/help/ChatStreamingIndicator.jsx";
@@ -87,39 +86,6 @@ export default function HelpUIDemo() {
           </Card>
         </Section>
 
-        <Section title="PlanPicker">
-          <PlanPicker currentPlanId="basic" onSelect={() => {}} onSkip={() => {}} plans={[
-            {
-              id: "basic",
-              name: "Basic Support",
-              price: "$15/mo",
-              credit: "$10 credit",
-              features: [
-                "$10 monthly credit for AI actions",
-                "AI can inspect, diagnose, and restart apps",
-                "Automatic problem fixing for crashed apps",
-                "Safety reviewer checks every action",
-              ],
-              unavailable: ["No option to escalate to a human"],
-              icon: Shield,
-            },
-            {
-              id: "premium",
-              name: "Premium Support",
-              price: "$25/mo",
-              credit: "$20 credit",
-              features: [
-                "$20 monthly credit for AI actions",
-                "Everything in Basic, plus:",
-                "Automatic problem fixing enabled by default",
-                "Option to escalate to a human for help",
-              ],
-              unavailable: [],
-              icon: Sparkles,
-            },
-          ]} />
-        </Section>
-
         <Section title="ChatHeader">
           <Card noHeightAnim noPopIn padding={false}>
             <ChatHeader
@@ -132,6 +98,7 @@ export default function HelpUIDemo() {
               planName="Basic"
               sidebarOpen={sidebarOpen}
               onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+              onOpenSettings={() => {}}
             />
           </Card>
         </Section>

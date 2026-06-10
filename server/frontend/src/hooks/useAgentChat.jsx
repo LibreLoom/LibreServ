@@ -1,8 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuth } from "./useAuth.jsx";
+import { useToast } from "../context/ToastContext";
 
 export function useAgentChat() {
   const { request } = useAuth();
+  const { addToast } = useToast();
   const [conversations, setConversations] = useState([]);
   const [activeConv, setActiveConv] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -45,7 +47,7 @@ export function useAgentChat() {
       const data = await res.json();
       setSubscription(data);
     } catch {
-      // non-critical
+      // Silently ignore — non-critical background load
     }
   }, [request]);
 
@@ -56,7 +58,7 @@ export function useAgentChat() {
       const data = await res.json();
       setModels(data.models || []);
     } catch {
-      // non-critical
+      // Silently ignore — non-critical background load
     }
   }, [request]);
 
@@ -174,9 +176,9 @@ export function useAgentChat() {
         body: JSON.stringify({ tool_call_id: toolCallId, approved }),
       });
     } catch {
-      // permission response failed
+      addToast({ type: "error", message: "Could not send your permission response. Please try again." });
     }
-  }, [request]);
+  }, [request, addToast]);
 
   const stopConversation = useCallback(async (convId) => {
     try {
@@ -187,9 +189,9 @@ export function useAgentChat() {
       }
       setStatus("idle");
     } catch {
-      // stop failed
+      addToast({ type: "error", message: "Could not stop the agent. Please try again." });
     }
-  }, [request]);
+  }, [request, addToast]);
 
   const selectPlan = useCallback(async (planId) => {
     try {
@@ -202,9 +204,9 @@ export function useAgentChat() {
       const data = await res.json();
       setSubscription(data);
     } catch {
-      // plan selection failed
+      addToast({ type: "error", message: "Could not update your plan. Please try again." });
     }
-  }, [request]);
+  }, [request, addToast]);
 
   useEffect(() => {
     return () => {

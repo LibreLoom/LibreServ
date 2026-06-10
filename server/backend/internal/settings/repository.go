@@ -3,6 +3,7 @@ package settings
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -156,6 +157,12 @@ func (r *Repository) SeedFromConfig() error {
 		"support.agent.snapshot_before_writes": strconv.FormatBool(cfg.Support.Agent.SnapshotBeforeWrites),
 		"support.self_healing":                 strconv.FormatBool(cfg.Support.SelfHealing),
 		"support.billing_mode":                 cfg.Support.BillingMode,
+	}
+
+	if len(cfg.Support.Agents) > 0 {
+		if agentsJSON, err := json.Marshal(cfg.Support.Agents); err == nil {
+			settings["support.agents"] = string(agentsJSON)
+		}
 	}
 
 	for key, value := range settings {
@@ -328,6 +335,12 @@ func (r *Repository) LoadIntoConfig() error {
 			cfg.Support.BillingMode = v
 		}
 	}
+	if v, ok := changes["support.agents"]; ok && v != "" {
+		var agents []config.AgentDefinition
+		if err := json.Unmarshal([]byte(v), &agents); err == nil {
+			cfg.Support.Agents = agents
+		}
+	}
 
 	if _, ok := changes["logging.level"]; ok {
 		logger.Init(cfg.Logging)
@@ -429,11 +442,7 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 	}
 
 	settings["ai_support"] = map[string]interface{}{
-		"server_url":             cfg.Support.ServerURL,
-		"device_token_set":       cfg.Support.DeviceToken != "",
-		"device_id":              cfg.Support.DeviceID,
 		"inference_base_url":     cfg.Support.InferenceBaseURL,
-		"default_model":          cfg.Support.DefaultModel,
 		"byok_enabled":           cfg.Support.BYOKEnabled,
 		"user_key_configured":    cfg.Support.UserAPIKey != "",
 		"user_base_url":          cfg.Support.UserBaseURL,
@@ -441,7 +450,7 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 		"agent_turn_timeout":     cfg.Support.Agent.TurnTimeout.String(),
 		"snapshot_before_writes": cfg.Support.Agent.SnapshotBeforeWrites,
 		"self_healing":           cfg.Support.SelfHealing,
-		"billing_mode":           cfg.Support.BillingMode,
+		"agents":                 cfg.Support.Agents,
 	}
 
 	return settings, nil
@@ -749,6 +758,21 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				)
 			}
 		}
+		if agentsRaw, ok := ai["agents"]; ok {
+			if agentsJSON, err := json.Marshal(agentsRaw); err == nil {
+				addMutation("support.agents",
+					func() {
+						var agents []config.AgentDefinition
+						if err := json.Unmarshal(agentsJSON, &agents); err == nil {
+							cfg.Support.Agents = agents
+						}
+					},
+					func(tx *sql.Tx) error {
+						return s.repo.SetTx(tx, "support.agents", string(agentsJSON), "json")
+					},
+				)
+			}
+		}
 	}
 
 	if len(mutations) == 0 {
@@ -804,7 +828,7 @@ func typeFor(key string) string {
 	case "smtp.use_tls", "smtp.skip_verify", "notify.enabled",
 		"support.byok_enabled", "support.agent.snapshot_before_writes", "support.self_healing":
 		return "bool"
-	case "notify.support_recipients", "cors.allowed_origins":
+	case "notify.support_recipients", "cors.allowed_origins", "support.agents":
 		return "json"
 	case "updates.base_url", "updates.owner", "updates.repo":
 		return "string"

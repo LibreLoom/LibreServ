@@ -5,7 +5,6 @@ import AboutCategory from "./categories/AboutCategory.jsx";
 import BackupsCategory from "./categories/BackupsCategory.jsx";
 import NetworkCategory from "./categories/NetworkCategory.jsx";
 import NotificationsCategory from "./categories/NotificationsCategory.jsx";
-import AISupportCategory from "./categories/AISupportCategory.jsx";
 import ExternalServicesCategory from "./categories/ExternalServicesCategory.jsx";
 import SaveStatusIndicator from "../common/SaveStatusIndicator.jsx";
 
@@ -14,7 +13,6 @@ const CATEGORY_TITLES = {
 	general: "General Settings",
 	appearance: "Appearance",
 	backups: "Backups",
-	ai_support: "AI Support",
 	security: "Security",
 	network: "Network",
 	notifications: "Notifications",
@@ -26,7 +24,6 @@ const CATEGORY_COMPONENTS = {
 	general: GeneralCategory,
 	appearance: AppearanceCategory,
 	backups: BackupsCategory,
-	ai_support: AISupportCategory,
 	security: SecurityCategory,
 	network: NetworkCategory,
 	notifications: NotificationsCategory,
@@ -47,8 +44,6 @@ export default function SettingsContent({
   onLoggingChange,
   updateSettings,
   onUpdateSettingsChange,
-  aiSettings,
-  onAISettingsChange,
   colors,
   setColors,
   darkColors,
@@ -101,11 +96,6 @@ export default function SettingsContent({
         };
       case "backups":
         return {};
-      case "ai_support":
-        return {
-          settings: { ai_support: aiSettings },
-          onSettingsChange: onAISettingsChange,
-        };
       case "security":
         return {
           settings: securitySettings,

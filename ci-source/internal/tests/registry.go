@@ -66,6 +66,30 @@ func addGoTests() {
 	})
 
 	DefaultRegistry.Add(&Test{
+		ID:          "go-ble-vet",
+		Name:        "Go BLE Vet",
+		Description: "Run go vet on BLE-tagged code",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "go vet -tags libreserv_ble ./...",
+		WorkDir:     "/repo/server/backend",
+		Timeout:     3 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "go-ble-test",
+		Name:        "Go BLE Unit Tests",
+		Description: "Run Go unit tests with libreserv_ble build tag",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -tags libreserv_ble -v ./internal/network/bluetooth/...",
+		WorkDir:     "/repo/server/backend",
+		Timeout:     5 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+	})
+
+	DefaultRegistry.Add(&Test{
 		ID:          "go-vet",
 		Name:        "Go Vet",
 		Description: "Run go vet to detect suspicious constructs",
@@ -169,6 +193,30 @@ func addGoTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "go build ./...",
 		WorkDir:     "/repo/connect",
+		Timeout:     3 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "companion-linux-build",
+		Name:        "Linux Companion Build",
+		Description: "Verify the Linux companion binary compiles",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "go build -o /tmp/libreserv-ble-companion .",
+		WorkDir:     "/repo/companion/linux",
+		Timeout:     3 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "companion-linux-test",
+		Name:        "Linux Companion Tests",
+		Description: "Run Go tests for the Linux BLE companion app",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "go test -v ./...",
+		WorkDir:     "/repo/companion/linux",
 		Timeout:     3 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})

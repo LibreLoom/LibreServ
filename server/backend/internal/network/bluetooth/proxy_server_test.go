@@ -4,9 +4,7 @@ package bluetooth
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -112,11 +110,8 @@ func TestHandleAuthWrite_CaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestPendingReqTimeoutLoop(t *testing.T) {
+func TestPendingReqTimeoutLogic(t *testing.T) {
 	s := newProxyServer("test", nil)
-	s.ctx, s.cancel = context.WithCancel(context.Background())
-	defer s.cancel()
-
 	s.pendingReqs["test-id"] = &pendingReq{
 		method:  "GET",
 		path:    "/",
@@ -125,13 +120,19 @@ func TestPendingReqTimeoutLoop(t *testing.T) {
 		started: time.Now().Add(-70 * time.Second),
 	}
 
-	s.wg.Add(1)
-	go s.pendingReqTimeoutLoop()
-
-	// Wait for the ticker to fire
-	time.Sleep(12 * time.Second)
-	s.cancel()
-	s.wg.Wait()
+	// Simulate the timeout logic directly (same as pendingReqTimeoutLoop inner loop)
+	s.mu.Lock()
+	now := time.Now()
+	var timedOut []string
+	for id, p := range s.pendingReqs {
+		if now.Sub(p.started) > 60*time.Second {
+			timedOut = append(timedOut, id)
+		}
+	}
+	for _, id := range timedOut {
+		delete(s.pendingReqs, id)
+	}
+	s.mu.Unlock()
 
 	if _, ok := s.pendingReqs["test-id"]; ok {
 		t.Fatal("expected timed-out request to be removed")

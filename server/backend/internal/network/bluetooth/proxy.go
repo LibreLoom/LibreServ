@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,9 @@ type pendingReq struct {
 }
 
 func newProxyServer(setupCode string, logger *slog.Logger) *proxyServer {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	return &proxyServer{
 		setupCode:   setupCode,
 		logger:      logger,
@@ -188,7 +192,7 @@ func (s *proxyServer) handleAuthWrite(client bluetooth.Connection, offset int, v
 		OK:        false,
 		Timestamp: time.Now().Unix(),
 	}
-	if code == s.setupCode {
+	if strings.EqualFold(code, s.setupCode) {
 		s.authed = true
 		status.OK = true
 		s.logger.Info("BLE auth succeeded")
@@ -209,7 +213,7 @@ func (s *proxyServer) handleProxyReqWrite(client bluetooth.Connection, offset in
 	authed := s.authed
 	s.mu.RUnlock()
 	if !authed {
-		s.sendProxyError("", http.StatusForbidden, "not authenticated")
+		s.sendProxyError("", http.StatusForbidden, "You are not connected yet. Check your setup code and authenticate first.")
 		return
 	}
 
@@ -369,7 +373,7 @@ func (s *proxyServer) pendingReqTimeoutLoop() {
 			}
 			s.mu.Unlock()
 			for _, id := range timedOut {
-				s.sendProxyError(id, http.StatusRequestTimeout, "request timed out")
+				s.sendProxyError(id, http.StatusRequestTimeout, "The server did not respond in time. Please try again.")
 			}
 		}
 	}

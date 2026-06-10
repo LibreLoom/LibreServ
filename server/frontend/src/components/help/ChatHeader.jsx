@@ -1,5 +1,5 @@
 import PropTypes from "prop-types";
-import { PanelLeftClose, PanelLeftOpen, ChevronDown } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, ChevronDown, Settings } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import Pill from "../common/Pill.jsx";
@@ -120,7 +120,7 @@ ModelPill.propTypes = {
 };
 
 /**
- * @param {{ model: any, onModelChange: any, modelOptions?: any, permissionMode: any, onPermissionModeChange: any, creditUsed: any, creditCap: any, planName: any, sidebarOpen: any, onToggleSidebar: any }} _
+ * @param {{ model: any, onModelChange: any, modelOptions?: any, permissionMode: any, onPermissionModeChange: any, creditUsed: any, creditCap: any, planName: any, sidebarOpen: any, onToggleSidebar: any, onOpenSettings: any }} _
  */
 function ChatHeader({
   model,
@@ -133,6 +133,7 @@ function ChatHeader({
   planName,
   sidebarOpen,
   onToggleSidebar,
+  onOpenSettings,
 }) {
   const resolvedModelOptions = modelOptions || [
     { value: "route/mimo-v2.5-pro", label: "Mimo v2.5 Pro" },
@@ -152,7 +153,7 @@ function ChatHeader({
       </button>
 
       <ModelPill
-        value={model || resolvedModelOptions[0].value}
+        value={model || resolvedModelOptions[0]?.value || ""}
         options={resolvedModelOptions}
         onChange={onModelChange}
       />
@@ -164,6 +165,17 @@ function ChatHeader({
       />
 
       <div className="flex-1" />
+
+      {onOpenSettings && (
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="rounded-pill bg-primary/10 text-primary/50 hover:text-primary hover:bg-primary/15 motion-safe:transition-colors p-1.5 focus-visible:ring-2 focus-visible:ring-accent"
+          aria-label="Open AI assistant settings"
+        >
+          <Settings size={14} />
+        </button>
+      )}
 
       <ChatCreditBar used={creditUsed} cap={creditCap} planName={planName} />
     </div>
@@ -183,6 +195,7 @@ ChatHeader.propTypes = {
   planName: PropTypes.string,
   sidebarOpen: PropTypes.bool,
   onToggleSidebar: PropTypes.func,
+  onOpenSettings: PropTypes.func,
 };
 
 export default ChatHeader;

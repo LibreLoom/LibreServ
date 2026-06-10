@@ -33,3 +33,15 @@ export async function updateAISettings(aiSettings, csrfToken) {
   });
   return res.json();
 }
+
+export async function fetchAIModels(baseURL, apiKey, csrfToken) {
+  const res = await api("/settings/ai-support/models", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
+    },
+    body: JSON.stringify({ base_url: baseURL, api_key: apiKey }),
+  });
+  return res.json();
+}
