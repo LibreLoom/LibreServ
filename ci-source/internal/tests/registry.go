@@ -427,16 +427,30 @@ func addE2ETests() {
 			done
 
 			# Run playwright tests (connect to server via container name)
+			# Complete setup via docker exec (localhost bypasses setup access check).
+			# The setup token is never logged, so non-local requests can't get it.
+			echo "Completing setup via docker exec..."
+			for i in $(seq 1 30); do
+				SETUP_RESULT=$(docker exec libreserv-e2e wget -qO- --post-data='{"admin_username":"admin","admin_password":"hunter2hunter2","admin_email":"admin@example.com"}' --header='Content-Type: application/json' http://localhost:8080/api/v1/setup/complete 2>&1)
+				if echo "$SETUP_RESULT" | grep -q "setup complete"; then
+					echo "Setup completed successfully"
+					break
+				fi
+				sleep 1
+			done
+			if ! echo "$SETUP_RESULT" | grep -q "setup complete"; then
+				echo "ERROR: Setup failed: $SETUP_RESULT"
+				docker stop libreserv-e2e || true
+				docker rm libreserv-e2e || true
+				docker network rm libreserv-e2e-net || true
+				exit 1
+			fi
+
+			# Run playwright tests (setup already complete, no token needed)
 			echo "Running Playwright tests..."
 			cd /repo/e2e-tests
 			npm ci 2>/dev/null || npm install
-			SETUP_CODE=$(docker logs libreserv-e2e 2>&1 | grep -oP '"code":"[^"]*"' | head -1 | grep -oP '[^"]*$')
-			if [ -n "$SETUP_CODE" ]; then
-				echo "Extracted setup token: $SETUP_CODE"
-			else
-				echo "WARNING: Could not extract setup token from logs"
-			fi
-			E2E_BASE_URL=http://libreserv-e2e:$SERVER_PORT E2E_SETUP_TOKEN=$SETUP_CODE npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
+			E2E_BASE_URL=http://libreserv-e2e:$SERVER_PORT npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
 			
 			# Cleanup
 			docker stop libreserv-e2e || true

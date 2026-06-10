@@ -8,8 +8,13 @@ async function ensureSetup(page) {
   
   // Only complete setup if pending, otherwise wait for it to be done
   if (status.setup_state?.status === 'pending') {
+    const setupHeaders = {};
+    const token = process.env.E2E_SETUP_TOKEN;
+    if (token) {
+      setupHeaders['X-Setup-Token'] = token;
+    }
     const setupResponse = await page.request.post(`${BASE_URL}/api/v1/setup/complete`, {
-      headers: { 'X-Setup-Token': process.env.E2E_SETUP_TOKEN || '' },
+      headers: setupHeaders,
       data: {
         admin_username: 'admin',
         admin_password: 'hunter2hunter2',

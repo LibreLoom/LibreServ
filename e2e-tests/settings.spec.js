@@ -7,8 +7,13 @@ async function ensureSetup(request) {
   const status = await statusResponse.json();
   
   if (status.setup_state?.status === 'pending') {
+    const setupHeaders = {};
+    const token = process.env.E2E_SETUP_TOKEN;
+    if (token) {
+      setupHeaders['X-Setup-Token'] = token;
+    }
     const setupResponse = await request.post(`${BASE_URL}/api/v1/setup/complete`, {
-      headers: { 'X-Setup-Token': process.env.E2E_SETUP_TOKEN || '' },
+      headers: setupHeaders,
       data: {
         admin_username: 'admin',
         admin_password: 'hunter2hunter2',
@@ -39,14 +44,26 @@ async function login(request) {
   });
   
   expect(loginResponse.ok()).toBeTruthy();
-  return loginResponse;
+  
+  // Extract the access token cookie from Set-Cookie header
+  const setCookie = loginResponse.headers()['set-cookie'] || '';
+  const match = setCookie.match(/libreserv_access=([^;]+)/);
+  if (match) {
+    return { token: match[1] };
+  }
+  
+  // Fallback: try body tokens
+  const body = await loginResponse.json();
+  return { token: body.tokens?.access_token || '' };
 }
 
 test.describe('LibreServ Settings', () => {
   test('should show backend API settings with correct values', async ({ request }) => {
-    await login(request);
+    const { token } = await login(request);
     
-    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`);
+    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`, {
+      headers: { 'Cookie': `libreserv_access=${token}` }
+    });
     expect(settingsResponse.ok()).toBeTruthy();
     
     const settings = await settingsResponse.json();
@@ -65,9 +82,11 @@ test.describe('LibreServ Settings', () => {
   });
 
   test('should show proxy settings when caddy is configured', async ({ request }) => {
-    await login(request);
+    const { token } = await login(request);
     
-    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`);
+    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`, {
+      headers: { 'Cookie': `libreserv_access=${token}` }
+    });
     const settings = await settingsResponse.json();
     
     if (settings.proxy) {
@@ -82,9 +101,11 @@ test.describe('LibreServ Settings', () => {
   });
 
   test('should show logging settings with correct values', async ({ request }) => {
-    await login(request);
+    const { token } = await login(request);
     
-    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`);
+    const settingsResponse = await request.get(`${BASE_URL}/api/v1/settings`, {
+      headers: { 'Cookie': `libreserv_access=${token}` }
+    });
     const settings = await settingsResponse.json();
     
     expect(settings.logging).toBeDefined();
