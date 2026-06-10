@@ -22,5 +22,4 @@ gradle.properties
 *.jks
 *.keystore
 
-# Generated test fixtures
-app/src/test/
+
