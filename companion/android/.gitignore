@@ -2,6 +2,11 @@
 .gradle/
 build/
 
+# Gradle wrapper scripts (generated, not tracked)
+gradlew
+gradlew.bat
+gradle/
+
 # Local config
 local.properties
 gradle.properties
@@ -16,3 +21,6 @@ gradle.properties
 # Keystore
 *.jks
 *.keystore
+
+# Generated test fixtures
+app/src/test/
