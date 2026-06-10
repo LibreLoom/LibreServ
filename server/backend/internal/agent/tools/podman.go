@@ -9,17 +9,18 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
-func DockerTools(dockerClient *docker.Client) []*Tool {
-	if dockerClient == nil {
+func PodmanTools(client *docker.Client) []*Tool {
+	if client == nil {
 		return nil
 	}
 
 	return []*Tool{
 		{
-			Name:        "docker_ps",
-			Description: "List all Docker containers and their status (running, stopped, healthy, unhealthy).",
+			Name:        "podman_ps",
+			Description: "List all running apps and their status.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -29,7 +30,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 			IsResearch:         true,
 			RequiresPermission: false,
 			Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
-				containers, err := dockerClient.ListContainersAll(ctx)
+				containers, err := client.ListContainersAll(ctx)
 				if err != nil {
 					return "", fmt.Errorf("unable to list containers: %w", err)
 				}
@@ -55,8 +56,8 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 			},
 		},
 		{
-			Name:        "docker_logs",
-			Description: "Get recent logs from a Docker container. Use this to diagnose errors or check application output.",
+			Name:        "podman_logs",
+			Description: "Get recent logs from an app. Use this to diagnose errors or check output.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -81,7 +82,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 				if params.Tail == "" {
 					params.Tail = "50"
 				}
-				reader, err := dockerClient.ContainerLogs(ctx, params.Container, false, params.Tail)
+				reader, err := client.ContainerLogs(ctx, params.Container, runtime.LogOptions{Follow: false, Tail: params.Tail})
 				if err != nil {
 					return "", fmt.Errorf("unable to get logs for %s: %w", params.Container, err)
 				}
@@ -94,8 +95,8 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 			},
 		},
 		{
-			Name:        "docker_inspect",
-			Description: "Get detailed information about a Docker container. Environment variables are redacted for security.",
+			Name:        "podman_inspect",
+			Description: "Get detailed information about an app. Environment variables are redacted for security.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -115,7 +116,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 				if params.Container == "" {
 					return "", fmt.Errorf("container name is required")
 				}
-				result, err := dockerClient.InspectContainer(ctx, params.Container)
+				result, err := client.InspectContainer(ctx, params.Container)
 				if err != nil {
 					return "", fmt.Errorf("unable to inspect %s: %w", params.Container, err)
 				}
@@ -129,8 +130,8 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 			},
 		},
 		{
-			Name:        "docker_restart",
-			Description: "Restart a Docker container. Use this when an app is stuck or needs a fresh start. Requires user permission.",
+			Name:        "podman_restart",
+			Description: "Restart an app. Use this when an app is stuck or needs a fresh start. Requires user permission.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -156,15 +157,15 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 					params.Timeout = 10
 				}
 				timeout := time.Duration(params.Timeout) * time.Second
-				if err := dockerClient.RestartContainer(ctx, params.Container, timeout); err != nil {
+				if err := client.RestartContainer(ctx, params.Container, timeout); err != nil {
 					return "", fmt.Errorf("unable to restart %s: %w", params.Container, err)
 				}
 				return fmt.Sprintf("Container %s restarted successfully", params.Container), nil
 			},
 		},
 		{
-			Name:        "docker_stop",
-			Description: "Stop a running Docker container. Requires user permission since it affects service availability.",
+			Name:        "podman_stop",
+			Description: "Stop a running app. Requires user permission since it affects service availability.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -184,15 +185,15 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 				if params.Container == "" {
 					return "", fmt.Errorf("container name is required")
 				}
-				if err := dockerClient.StopContainer(ctx, params.Container); err != nil {
+				if err := client.StopContainer(ctx, params.Container); err != nil {
 					return "", fmt.Errorf("unable to stop %s: %w", params.Container, err)
 				}
 				return fmt.Sprintf("Container %s stopped", params.Container), nil
 			},
 		},
 		{
-			Name:        "docker_start",
-			Description: "Start a stopped Docker container. Requires user permission since it may have been stopped intentionally.",
+			Name:        "podman_start",
+			Description: "Start a stopped app. Requires user permission since it may have been stopped intentionally.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -212,7 +213,7 @@ func DockerTools(dockerClient *docker.Client) []*Tool {
 				if params.Container == "" {
 					return "", fmt.Errorf("container name is required")
 				}
-				if err := dockerClient.StartContainer(ctx, params.Container); err != nil {
+				if err := client.StartContainer(ctx, params.Container); err != nil {
 					return "", fmt.Errorf("unable to start %s: %w", params.Container, err)
 				}
 				return fmt.Sprintf("Container %s started", params.Container), nil

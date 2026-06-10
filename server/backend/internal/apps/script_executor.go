@@ -23,25 +23,25 @@ var instanceIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 type ScriptExecutor struct {
 	logger       *slog.Logger
-	dockerClient *docker.Client
+	runtimeClient *docker.Client
 	basePath     string
 	catalogPath  string
 	serverCtx    ServerContext
 }
 
-func NewScriptExecutor(logger *slog.Logger, dockerClient *docker.Client, basePath string) *ScriptExecutor {
+func NewScriptExecutor(logger *slog.Logger, runtimeClient *docker.Client, basePath string) *ScriptExecutor {
 	return &ScriptExecutor{
 		logger:       logger,
-		dockerClient: dockerClient,
+		runtimeClient: runtimeClient,
 		basePath:     basePath,
 		catalogPath:  "",
 	}
 }
 
-func NewScriptExecutorWithCatalog(logger *slog.Logger, dockerClient *docker.Client, basePath, catalogPath string) *ScriptExecutor {
+func NewScriptExecutorWithCatalog(logger *slog.Logger, runtimeClient *docker.Client, basePath, catalogPath string) *ScriptExecutor {
 	return &ScriptExecutor{
 		logger:       logger,
-		dockerClient: dockerClient,
+		runtimeClient: runtimeClient,
 		basePath:     basePath,
 		catalogPath:  catalogPath,
 	}

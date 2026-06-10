@@ -27,9 +27,9 @@ export const ERROR_REMEDIATIONS = [
     severity: 'critical'
   },
   {
-    id: 'docker',
-    match: (err) => /docker|container|daemon/i.test(err),
-    tip: 'Docker (the app runtime) needs to be running. Try restarting your device, or ask the person who set up your LibreServ for help.',
+    id: 'runtime',
+    match: (err) => /podman|container|daemon|runtime/i.test(err),
+    tip: 'The container engine (Podman) needs to be running. Try restarting your device, or ask the person who set up your LibreServ for help.',
     severity: 'critical'
   },
   {

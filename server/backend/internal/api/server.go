@@ -51,7 +51,7 @@ type Server struct {
 	staticFS        fs.FS
 	assetsHandler   http.Handler
 	staticSource    string
-	dockerClient    *docker.Client
+	runtimeClient    *docker.Client
 	caddyManager    *network.CaddyManager
 	setupService    *setup.Service
 	supportService  *support.Service
@@ -81,7 +81,7 @@ type ServerConfig struct {
 	AuthService     *auth.Service
 	Monitor         *monitoring.Monitor
 	BackupService   *storage.BackupService
-	DockerClient    *docker.Client
+	RuntimeClient    *docker.Client
 	CaddyManager    *network.CaddyManager
 	SetupService    *setup.Service
 	SupportService  *support.Service
@@ -158,7 +158,7 @@ func NewServer(cfg ServerConfig) *Server {
 		backupService:   cfg.BackupService,
 		devMode:         cfg.DevMode,
 		logger:          logger,
-		dockerClient:    cfg.DockerClient,
+		runtimeClient:    cfg.RuntimeClient,
 		caddyManager:    cfg.CaddyManager,
 		setupService:    cfg.SetupService,
 		supportService:  cfg.SupportService,
@@ -210,7 +210,7 @@ func NewServer(cfg ServerConfig) *Server {
 	server.tunnelService = network.NewTunnelService(tunnelCfg, filepath.Join(config.Get().Apps.DataPath, "bin"))
 
 	// Initialize self-healing monitor
-	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.DockerClient, cfg.DB)
+	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.RuntimeClient, cfg.DB)
 
 	// Setup routes
 	server.setupRoutes()

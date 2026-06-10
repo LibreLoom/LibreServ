@@ -59,7 +59,7 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 		log.Printf("Stopping app %s for restore", targetAppID)
 		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		if err := s.docker.ComposeStop(stopCtx, appPath); err != nil {
+		if err := s.runtime.ComposeStop(stopCtx, appPath); err != nil {
 			cancel()
 			result.Error = fmt.Errorf("failed to stop app %s before restore: %w", targetAppID, err)
 			log.Printf("RestoreApp: failed to stop app %s: %v", targetAppID, err)
@@ -169,7 +169,7 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 		log.Printf("Starting app %s after restore", targetAppID)
 		startCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		if err := s.docker.ComposeUp(startCtx, appPath); err != nil {
+		if err := s.runtime.ComposeUp(startCtx, appPath); err != nil {
 			log.Printf("Warning: failed to start app %s after restore: %v", targetAppID, err)
 			_, _ = s.db.Exec("UPDATE apps SET status = 'stopped', updated_at = ? WHERE id = ?", time.Now(), targetAppID)
 		} else {

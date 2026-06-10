@@ -29,9 +29,9 @@ func NewSupportHandler(svc *support.Service, lic middleware.LicenseChecker) *Sup
 var allowedScopes = map[string]bool{
 	"diagnostics":     true,
 	"files-ro":        true,
-	"files-ro+docker": true,
+	"files-ro+runtime": true,
 	"files-rw":        true,
-	"files-rw+docker": true,
+	"files-rw+runtime": true,
 	"shell-lite":      true,
 	"shell-full":      true,
 }

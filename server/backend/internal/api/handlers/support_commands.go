@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ type commandRequest struct {
 }
 
 var allowedCommands = map[string]bool{
-	"docker":     true,
+	"podman":     true,
 	"df":         true,
 	"ls":         true,
 	"cat":        true,
@@ -44,7 +45,7 @@ var allowedCommands = map[string]bool{
 }
 
 var commandArgValidators = map[string]func([]string) error{
-	"docker":     validateDockerArgs,
+	"podman":     validatePodmanArgs,
 	"cat":        validateFileReadArgs,
 	"tail":       validateFileReadArgs,
 	"ls":         validateLsArgs,
@@ -94,7 +95,8 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 		policy.Allow = append(policy.Allow, cfg.Apps.DataPath, cfg.Logging.Path)
 	}
 	policy.Allow = append(policy.Allow, support.SafeWorkdir())
-	policy.Deny = append(policy.Deny, "/var/lib/docker")
+	policy.Deny = append(policy.Deny, "/var/lib/containers")
+	policy.Deny = append(policy.Deny, filepath.Join(os.Getenv("HOME"), ".local/share/containers"))
 	if err := validateCommandPaths(policy, req.Command, req.Args); err != nil {
 		JSONError(w, http.StatusForbidden, "path not allowed")
 		return
@@ -154,7 +156,8 @@ func (h *SupportCommandHandler) validateSessionAndPolicy(code, token string) (*s
 	if cfg != nil {
 		policy.Allow = append(policy.Allow, cfg.Apps.DataPath, cfg.Logging.Path)
 	}
-	policy.Deny = append(policy.Deny, "/var/lib/docker")
+	policy.Deny = append(policy.Deny, "/var/lib/containers")
+	policy.Deny = append(policy.Deny, filepath.Join(os.Getenv("HOME"), ".local/share/containers"))
 	return sess, policy, nil
 }
 
@@ -165,8 +168,8 @@ func errString(err error) string {
 	return err.Error()
 }
 
-func validateDockerArgs(args []string) error {
-	if err := support.ValidateDockerArgs(args); err != nil {
+func validatePodmanArgs(args []string) error {
+	if err := support.ValidatePodmanArgs(args); err != nil {
 		return err
 	}
 	for _, arg := range args {
@@ -186,7 +189,7 @@ func validateFileReadArgs(args []string) error {
 	if cfg != nil {
 		policy.Allow = append(policy.Allow, cfg.Apps.DataPath, cfg.Logging.Path)
 	}
-	policy.Deny = append(policy.Deny, "/var/lib/docker")
+	policy.Deny = append(policy.Deny, "/var/lib/containers")
 
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "-") {

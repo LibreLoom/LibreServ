@@ -100,7 +100,7 @@ function SystemHealthCardInner({ systemHealth, resources }) {
       <div className="space-y-1 mb-4">
         <HealthIndicator name="API Server" status={checks.api || "unknown"} />
         <HealthIndicator name="Database" status={checks.database || "unknown"} />
-        <HealthIndicator name="Docker" status={checks.docker || "unknown"} />
+        <HealthIndicator name="Runtime" status={checks.runtime || "unknown"} />
         <HealthIndicator name="SMTP" status={checks.smtp || "not_configured"} />
       </div>
 
@@ -120,7 +120,7 @@ SystemHealthCardInner.propTypes = {  systemHealth: PropTypes.shape({
     checks: PropTypes.shape({
       api: PropTypes.string,
       database: PropTypes.string,
-      docker: PropTypes.string,
+      runtime: PropTypes.string,
       smtp: PropTypes.string,
     }),
   }),

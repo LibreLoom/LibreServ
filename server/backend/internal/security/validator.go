@@ -87,7 +87,7 @@ func ValidateConfig() *ValidationResult {
 	validateSecrets(cfg, result)
 	validateNetworkBindings(cfg, result)
 	validateLogging(cfg, result)
-	validateDocker(cfg, result)
+	validateRuntime(cfg, result)
 	validateCSRF(cfg, result)
 
 	return result
@@ -232,16 +232,16 @@ func validateLogging(cfg *config.Config, result *ValidationResult) {
 	}
 }
 
-func validateDocker(cfg *config.Config, result *ValidationResult) {
-	if cfg.Docker.Method == "tcp" {
+func validateRuntime(cfg *config.Config, result *ValidationResult) {
+	if cfg.Runtime.Method == "tcp" {
 		severity := "HIGH"
 		if result.IsDevMode {
 			severity = "CRITICAL"
 		}
 		result.Issues = append(result.Issues, SecurityIssue{
 			Severity:       severity,
-			Category:       "Docker",
-			Message:        "Docker connection via TCP without TLS",
+			Category:       "Runtime",
+			Message:        "Container runtime connection via TCP without TLS",
 			Recommendation: "Use Unix socket or SSH method, or enable TLS for TCP connections",
 		})
 		result.Passed = false

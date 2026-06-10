@@ -36,7 +36,7 @@ func validateCommandPaths(policy *support.PathPolicy, cmd string, args []string)
 		}
 	case "journalctl":
 		// No path args; skip
-	case "docker":
+	case "podman":
 		// Allowed if no volume mounts are manipulated; skip here
 	case "df":
 		// No path args

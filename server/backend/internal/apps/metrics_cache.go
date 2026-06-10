@@ -107,15 +107,15 @@ func (c *AppMetricsCache) refreshApp(ctx context.Context, appID string) {
 	metrics := &AppMetrics{}
 
 	if c.metricsCollector != nil && status == StatusRunning {
-		dockerMetrics, err := c.metricsCollector.CollectAppMetrics(ctx, appID)
+		runtimeMetrics, err := c.metricsCollector.CollectAppMetrics(ctx, appID)
 		if err != nil {
 			c.logger.Debug("failed to collect metrics", "appID", appID, "error", err)
 		} else {
-			metrics.CPUPercent = dockerMetrics.CPUPercent
-			metrics.MemoryUsage = dockerMetrics.MemoryUsage
-			metrics.MemoryLimit = dockerMetrics.MemoryLimit
-			metrics.NetworkRx = dockerMetrics.NetworkRx
-			metrics.NetworkTx = dockerMetrics.NetworkTx
+			metrics.CPUPercent = runtimeMetrics.CPUPercent
+			metrics.MemoryUsage = runtimeMetrics.MemoryUsage
+			metrics.MemoryLimit = runtimeMetrics.MemoryLimit
+			metrics.NetworkRx = runtimeMetrics.NetworkRx
+			metrics.NetworkTx = runtimeMetrics.NetworkTx
 		}
 	}
 

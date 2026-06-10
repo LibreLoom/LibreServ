@@ -80,7 +80,7 @@ func TestSetupStatusAndComplete(t *testing.T) {
 	}
 }
 
-func TestPreflightAllowsMissingDocker(t *testing.T) {
+func TestPreflightAllowsMissingRuntime(t *testing.T) {
 	deps := newTestSetupHandler(t)
 
 	rec := httptest.NewRecorder()
@@ -105,17 +105,17 @@ func TestPreflightAllowsMissingDocker(t *testing.T) {
 		t.Fatalf("expected checks map in response")
 	}
 
-	dockerCheck, ok := checks["docker"].(map[string]interface{})
+	runtimeCheck, ok := checks["runtime"].(map[string]interface{})
 	if !ok {
-		t.Fatalf("expected docker check in response")
+		t.Fatalf("expected runtime check in response")
 	}
 
-	if status, _ := dockerCheck["status"].(string); status != "ok" {
-		t.Fatalf("expected docker status ok, got %#v", dockerCheck["status"])
+	if status, _ := runtimeCheck["status"].(string); status != "ok" {
+		t.Fatalf("expected runtime status ok, got %#v", runtimeCheck["status"])
 	}
 
-	if _, exists := checks["docker_optional"]; exists {
-		t.Fatalf("did not expect docker_optional marker when docker handler is nil")
+	if _, exists := checks["runtime_optional"]; exists {
+		t.Fatalf("did not expect runtime_optional marker when runtime handler is nil")
 	}
 
 	diskCheck, ok := checks["disk_space"].(map[string]interface{})

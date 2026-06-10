@@ -29,7 +29,7 @@ import (
 
 type BackupService struct {
 	db            *database.DB
-	docker        *docker.Client
+	runtime       *docker.Client
 	basePath      string
 	appDataPath   string
 	resticEngine  *restic.Engine
@@ -38,10 +38,10 @@ type BackupService struct {
 	encryptionKey string
 }
 
-func NewBackupService(db *database.DB, docker *docker.Client, basePath, appDataPath string) *BackupService {
+func NewBackupService(db *database.DB, runtime *docker.Client, basePath, appDataPath string) *BackupService {
 	svc := &BackupService{
 		db:          db,
-		docker:      docker,
+		runtime:     runtime,
 		basePath:    basePath,
 		appDataPath: appDataPath,
 	}
@@ -136,13 +136,13 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 
 	if opts.StopBeforeBackup && appStatus == "running" {
 		log.Printf("Stopping app %s for backup", appID)
-		if err := s.docker.ComposeStop(ctx, appPath); err != nil {
+		if err := s.runtime.ComposeStop(ctx, appPath); err != nil {
 			result.Error = fmt.Errorf("failed to stop app: %w", err)
 			return result, result.Error
 		}
 		defer func() {
 			log.Printf("Restarting app %s after backup", appID)
-			_ = s.docker.ComposeUp(ctx, appPath)
+			_ = s.runtime.ComposeUp(ctx, appPath)
 		}()
 	}
 

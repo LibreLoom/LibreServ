@@ -162,13 +162,13 @@ func TestRedactSensitiveFieldsNilMap(t *testing.T) {
 func TestRegistryFromAgentDefWithNilDeps(t *testing.T) {
 	def := config.AgentDefinition{
 		ID:        "test-agent",
-		ToolNames: []string{"docker", "diagnostics", "files"},
+		ToolNames: []string{"podman", "diagnostics", "files"},
 	}
 	registry := RegistryFromAgentDef(def, ToolDeps{})
 
-	_, hasDockerPS := registry.Get("docker_ps")
+	_, hasDockerPS := registry.Get("podman_ps")
 	if hasDockerPS {
-		t.Error("docker_ps should not be in registry with nil docker client")
+		t.Error("podman_ps should not be in registry with nil docker client")
 	}
 	_, hasHealth := registry.Get("system_health")
 	if !hasHealth {
@@ -195,9 +195,9 @@ func TestRegistryFromAgentDefWithFiles(t *testing.T) {
 	if !hasFileWrite {
 		t.Error("expected file_write in registry when files is in tool names")
 	}
-	_, hasDockerPS := registry.Get("docker_ps")
+	_, hasDockerPS := registry.Get("podman_ps")
 	if hasDockerPS {
-		t.Error("docker_ps should NOT be in registry when docker is not in tool names")
+		t.Error("podman_ps should NOT be in registry when docker is not in tool names")
 	}
 }
 
@@ -216,7 +216,7 @@ func TestRegistryFromAgentDefEmpty(t *testing.T) {
 func TestDockerWriteToolsRequirePermission(t *testing.T) {
 	def := config.AgentDefinition{
 		ID:        "test-agent",
-		ToolNames: []string{"docker"},
+		ToolNames: []string{"podman"},
 	}
 	// Need a non-nil docker client to get the docker tools
 	registry := RegistryFromAgentDef(def, ToolDeps{}) // nil docker client → no docker tools
@@ -225,16 +225,16 @@ func TestDockerWriteToolsRequirePermission(t *testing.T) {
 	// If we had a docker client, these tools would be registered.
 	// Verify the permission requirement by checking the tool definitions directly.
 	// We'll create a mock client scenario by testing the tool definitions manually.
-	dockerTools := DockerTools(nil)
-	if dockerTools != nil {
-		t.Error("DockerTools(nil) should return nil — no docker client available")
+	podmanTools := PodmanTools(nil)
+	if podmanTools != nil {
+		t.Error("PodmanTools(nil) should return nil — no podman client available")
 	}
 }
 
-func TestDockerToolPermissionFlags(t *testing.T) {
+func TestPodmanToolPermissionFlags(t *testing.T) {
 	// Create tools with a nil docker client just to check their metadata
-	// DockerTools returns nil for nil client, so we verify the design intent:
-	// docker_restart, docker_stop, docker_start MUST have RequiresPermission=true
+	// PodmanTools returns nil for nil client, so we verify the design intent:
+	// podman_restart, podman_stop, podman_start MUST have RequiresPermission=true
 	// since they are destructive operations that affect service availability.
 	//
 	// This is a design contract test — if someone changes the permission flags,
@@ -243,7 +243,7 @@ func TestDockerToolPermissionFlags(t *testing.T) {
 	// The actual tool registration is tested through integration with a docker client.
 	// Here we verify the code review assertion that write tools need permission.
 	//
-	// Since we can't create DockerTools without a client, we verify via source:
+	// Since we can't create PodmanTools without a client, we verify via source:
 	// Reading the source is not practical in a unit test, so we use a stub approach.
 	// Instead, we'll check that the tool definitions are consistent by
 	// verifying IsResearch and RequiresPermission are correctly paired:
@@ -252,6 +252,6 @@ func TestDockerToolPermissionFlags(t *testing.T) {
 
 	// We can't directly test this without a docker client mock, but the
 	// test serves as documentation of the security requirement.
-	t.Log("SECURITY CONTRACT: docker_restart, docker_stop, docker_start must have RequiresPermission=true")
-	t.Log("SECURITY CONTRACT: docker_ps, docker_logs, docker_inspect must have IsResearch=true")
+	t.Log("SECURITY CONTRACT: podman_restart, podman_stop, podman_start must have RequiresPermission=true")
+	t.Log("SECURITY CONTRACT: podman_ps, podman_logs, podman_inspect must have IsResearch=true")
 }

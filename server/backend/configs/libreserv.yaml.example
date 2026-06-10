@@ -16,7 +16,7 @@ apps:
     catalog_path: ./apps
     repos: []
     repo_pull_interval: 6h
-docker:
+runtime:
     method: auto
     socket_path: ""
     tcp:
@@ -29,6 +29,7 @@ docker:
         user: ""
         key_path: ""
     timeout: 30s
+    binary: podman
 logging:
     level: info
     path: ./dev/logs
@@ -66,8 +67,8 @@ network:
     acme:
         external:
             enabled: false
-            use_docker: false
-            docker_image: ""
+            use_podman: false
+            container_image: ""
             data_path: ""
             dns_provider: ""
             dns_env: {}
@@ -130,26 +131,26 @@ support:
         snapshot_before_writes: true
         system_plan_id: "basic"
     # agents: define AI agent personas. Model can be left empty to use default_model.
-    # Tools are grouped by name: "docker", "files", "diagnostics", "snapshots".
+    # Tools are grouped by name: "podman", "files", "diagnostics", "snapshots".
     agents:
         - id: agent-1
           trigger: chat
           model: ""
           avatar_shape: diamond
           avatar_color: "#FF6B35"
-          tools: ["docker", "files", "diagnostics", "snapshots"]
+          tools: ["podman", "files", "diagnostics", "snapshots"]
           max_turns: 50
         - id: agent-2
           trigger: chat
           model: ""
           avatar_shape: circle
           avatar_color: "#4ECDC4"
-          tools: ["docker", "files", "diagnostics", "snapshots"]
+          tools: ["podman", "files", "diagnostics", "snapshots"]
           max_turns: 50
         - id: self-healing
           trigger: container_unhealthy
           model: ""
-          tools: ["docker", "diagnostics", "files"]
+          tools: ["podman", "diagnostics", "files"]
           max_turns: 5
           permission_mode: auto
     # pricing: per-1M-token costs for models. Only models with entries here will

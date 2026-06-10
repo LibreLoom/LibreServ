@@ -25,7 +25,7 @@ LibreServ/
 │   │   ├── apps/             # App lifecycle + catalog
 │   │   ├── auth/             # JWT authentication
 │   │   ├── database/         # SQLite + migrations (internal/database/migrations/)
-│   │   ├── docker/           # Docker integration
+│   │   ├── docker/           # Container runtime (Podman) integration
 │   │   ├── network/          # Caddy, ACME, DNS providers, DDNS
 │   │   ├── storage/          # Backup service (restic + tar fallback)
 │   │   ├── jobqueue/         # Background jobs
@@ -99,7 +99,7 @@ LibreServ's users are **not technical**. The product goal is "99% of users shoul
 - **Always** explain what to **do**, not just what went wrong. A bad error: `"SMTP connection refused"`. A good error: `"Could not connect to your email provider. Check that the server address and port are correct in Settings → Email."`
 - **Always** explain where a value comes from before asking for it. A bare input field labeled "API Token" is a failure. Say: `"Your API token is on cloudflare.com → Profile → API Tokens → Create Token."`
 - **Always** explain why something is needed, not just what it is. A user doesn't care what DNS is — they care that `"We need this so your apps can be reached at addresses like nextcloud.yourdomain.com instead of a numbered IP address."` Every settings field, every wizard step, every permission prompt must answer "why do you need this?" before asking for it.
-- Technical terms that need plain-language treatment at point of use: SMTP, SSH, DNS, ACME, TLS/HTTPS, CSRF, JWT, port, subdomain, Caddy, Docker, API, webhook, OIDC, DNS-01, DDNS
+- Technical terms that need plain-language treatment at point of use: SMTP, SSH, DNS, ACME, TLS/HTTPS, CSRF, JWT, port, subdomain, Caddy, Podman, API, webhook, OIDC, DNS-01, DDNS
 
 This applies to frontend UI, API error messages shown to users, and any documentation a user might see. It does **not** apply to code comments, log entries, or internal developer docs.
 
@@ -110,7 +110,7 @@ This applies to frontend UI, API error messages shown to users, and any document
 - Auth context: `middleware.GetUser(ctx)` returns `*middleware.User`, `middleware.GetUserID(ctx)` returns `(string, bool)`
 - Env var prefix: `LIBRESERV_` (viper), e.g. `LIBRESERV_SERVER_PORT`, `LIBRESERV_AUTH_JWT_SECRET`
 - Run `go fmt` before commit; `go vet` must pass
-- Integration tests: build tag `integration`, require Docker:
+- Integration tests: build tag `integration`, require Podman:
   ```bash
   go test -v -tags=integration ./tests/integration/...
   ```
@@ -161,7 +161,7 @@ npm test -- --coverage                                 # With coverage
 npm test -- --watch                                    # Watch mode
 ```
 
-### Integration (requires Docker)
+### Integration (requires Podman)
 ```bash
 cd server/backend
 go test -v -tags=integration ./tests/integration/...
@@ -190,7 +190,7 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 ## Key Notes
 
 - **Database:** SQLite. Multiple migration files in `internal/database/migrations/`
-- **Docker:** Required for app runtime (`docker compose` v2). Integration tests also need Docker.
+- **Container Runtime:** Required for app runtime (`podman compose`). Integration tests also need Podman.
 - **Config:** `server/backend/configs/libreserv.yaml` — must be created from `.example` before first run
 - **Secrets:** If `jwt_secret`/`csrf_secret` are empty at startup, LibreServ generates and persists them to the config file. If config is read-only, set `LIBRESERV_AUTH_JWT_SECRET` / `LIBRESERV_AUTH_CSRF_SECRET` env vars instead.
 - **Frontend build output:** `server/backend/OS/dist/` (gitignored). Production binaries with embedded frontend: `BUILD_TAGS=embedfront make build`

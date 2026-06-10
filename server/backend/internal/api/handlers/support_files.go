@@ -47,7 +47,7 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "invalid session")
 		return
 	}
-	if !hasScope(session.Scopes, "files-ro") && !hasScope(session.Scopes, "files-ro+docker") {
+	if !hasScope(session.Scopes, "files-ro") && !hasScope(session.Scopes, "files-ro+runtime") {
 		JSONError(w, http.StatusForbidden, "scope files-ro required")
 		return
 	}
@@ -111,7 +111,7 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "invalid session")
 		return
 	}
-	if !hasScope(session.Scopes, "files-rw") && !hasScope(session.Scopes, "files-rw+docker") {
+	if !hasScope(session.Scopes, "files-rw") && !hasScope(session.Scopes, "files-rw+runtime") {
 		JSONError(w, http.StatusForbidden, "scope files-rw required")
 		return
 	}
@@ -187,8 +187,8 @@ func (h *SupportFileHandler) validateSessionAndPolicy(code, token string) (*supp
 	if cfg != nil {
 		policy.Allow = append(policy.Allow, cfg.Apps.DataPath, cfg.Logging.Path)
 	}
-	// Deny docker internals always
-	policy.Deny = append(policy.Deny, "/var/lib/docker")
+	// Deny container storage always
+	policy.Deny = append(policy.Deny, "/var/lib/containers")
 	_ = policy.EnsureScratch("/tmp/libreserv-support")
 	return sess, policy, nil
 }

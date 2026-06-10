@@ -148,7 +148,7 @@ type AppFeatures struct {
 	ResourceHints  ResourceHints  `yaml:"resource_hints,omitempty" json:"resource_hints,omitempty"`
 }
 
-// DeploymentConfig contains Docker deployment settings
+// DeploymentConfig contains container deployment settings
 type DeploymentConfig struct {
 	// ComposeFile is the path to compose template (.yml.tmpl) relative to app directory
 	ComposeFile string `yaml:"compose_file" json:"compose_file"`

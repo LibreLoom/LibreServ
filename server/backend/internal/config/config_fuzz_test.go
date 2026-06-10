@@ -22,7 +22,7 @@ auth:
 apps:
   data_path: /data/apps
   catalog_path: /app/catalog
-docker:
+runtime:
   method: socket
   socket_path: /var/run/docker.sock
 logging:
@@ -41,7 +41,7 @@ server:
   port: 3000
 auth:
   secret_file: /etc/libreserv/secret
-docker:
+runtime:
   method: tcp
   tcp:
     host: 192.168.1.100
@@ -66,7 +66,7 @@ server:
   host: ""
 auth:
   jwt_secret: ""
-docker:
+runtime:
   method: ""
   timeout: -999
 `))
@@ -105,7 +105,7 @@ network:
 		_ = cfg.Server.Port
 		_ = cfg.Server.Host
 		_ = cfg.Auth.JWTSecret
-		_ = cfg.Docker.Method
+		_ = cfg.Runtime.Method
 		_ = cfg.Logging.Level
 	})
 }
@@ -169,14 +169,14 @@ method: auto
 `))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		var docker DockerConfig
-		_ = yaml.Unmarshal(data, &docker)
+		var runtime RuntimeConfig
+		_ = yaml.Unmarshal(data, &runtime)
 
-		_ = docker.Method
-		_ = docker.SocketPath
-		_ = docker.Timeout
-		_ = docker.TCP.Host
-		_ = docker.SSH.User
+		_ = runtime.Method
+		_ = runtime.SocketPath
+		_ = runtime.Timeout
+		_ = runtime.TCP.Host
+		_ = runtime.SSH.User
 	})
 }
 
@@ -225,8 +225,8 @@ config_path: ""
 func FuzzExternalACMEConfigUnmarshal(f *testing.F) {
 	f.Add([]byte(`
 enabled: true
-use_docker: true
-docker_image: goacme/lego:latest
+use_runtime: true
+container_image: goacme/lego:latest
 data_path: /data/acme
 dns_provider: cloudflare
 email: admin@example.com

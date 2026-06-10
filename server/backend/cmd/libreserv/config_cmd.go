@@ -231,14 +231,14 @@ func resolveConfigValue(key string, cfg *config.Config) string {
 		case "catalog_path":
 			return cfg.Apps.CatalogPath
 		}
-	case "docker":
+	case "runtime":
 		switch parts[1] {
 		case "method":
-			return cfg.Docker.Method
+			return cfg.Runtime.Method
 		case "socket_path":
-			return cfg.Docker.SocketPath
+			return cfg.Runtime.SocketPath
 		case "timeout":
-			return cfg.Docker.Timeout.String()
+			return cfg.Runtime.Timeout.String()
 		}
 	case "logging":
 		switch parts[1] {

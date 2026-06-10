@@ -47,7 +47,7 @@ export default function ConnectingStep({ domain, connectStatus, publicIP, applyE
         <div className="mt-5 space-y-3">
           <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10">
             <p className="text-sm text-primary/80">
-              {applyError ?? "Certificate issuance is not available on this system. Please ensure either the certificate tool is installed or Docker is running."}
+              {applyError ?? "Certificate issuance is not available on this system. Please ensure either the certificate tool is installed or the container engine is running."}
             </p>
           </div>
           <div className="flex gap-3">

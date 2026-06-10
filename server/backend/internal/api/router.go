@@ -27,7 +27,7 @@ func (s *Server) setupRoutes() {
 	appsHandler.SetAuditLogger(s)
 	authHandler := handlers.NewAuthHandler(s.authService, s.securityService, s.db)
 	securityHandler := handlers.NewSecurityHandler(s.securityService)
-	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.dockerClient, s.appManager.GetMetricsCache())
+	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.runtimeClient, s.appManager.GetMetricsCache())
 	backupHandler := handlers.NewBackupHandlers(s.backupService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
 	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService, s.caddyManager)
@@ -46,17 +46,17 @@ func (s *Server) setupRoutes() {
 	// Configure external ACME settings for certificate management
 	ext := config.Get().Network.ACME.External
 	extCfg := network.ExternalACMEConfig{
-		Enabled:     ext.Enabled,
-		UseDocker:   ext.UseDocker,
-		DockerImage: ext.DockerImage,
-		DataPath:    ext.DataPath,
-		DNSProvider: ext.DNSProvider,
-		DNSEnv:      ext.DNSEnv,
-		Email:       ext.Email,
-		Staging:     ext.Staging,
-		CADirURL:    ext.CADirURL,
-		KeyType:     ext.KeyType,
-		CertsPath:   ext.CertsPath,
+		Enabled:        ext.Enabled,
+		UsePodman:      ext.UsePodman,
+		ContainerImage: ext.ContainerImage,
+		DataPath:       ext.DataPath,
+		DNSProvider:    ext.DNSProvider,
+		DNSEnv:         ext.DNSEnv,
+		Email:          ext.Email,
+		Staging:        ext.Staging,
+		CADirURL:       ext.CADirURL,
+		KeyType:        ext.KeyType,
+		CertsPath:      ext.CertsPath,
 	}
 	// Default cert destination to Caddy's configured cert dir if unset.
 	if extCfg.CertsPath == "" && s.caddyManager != nil {
@@ -97,11 +97,11 @@ func (s *Server) setupRoutes() {
 	s.dnsProviderMgr = network.NewDNSProviderManager(s.db)
 
 	// Initialize setup handler with all required dependencies
-	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.dockerClient, s.licenseService, s.dnsProviderMgr, s.acmeManager, s.caddyManager, s.settingsService)
+	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.runtimeClient, s.licenseService, s.dnsProviderMgr, s.acmeManager, s.caddyManager, s.settingsService)
 
 	// Initialize support and system handlers
 	supportHandler := handlers.NewSupportHandler(s.supportService, s.licenseService)
-	supportDiagHandler := handlers.NewSupportDiagnosticsHandler(s.authService, s.dockerClient)
+	supportDiagHandler := handlers.NewSupportDiagnosticsHandler(s.authService, s.runtimeClient)
 	supportSessionValidator := handlers.NewSupportSessionValidationHandler(s.supportService)
 	supportFileHandler := handlers.NewSupportFileHandler(s.supportService)
 	supportCommandHandler := handlers.NewSupportCommandHandler(s.supportService)
@@ -118,7 +118,7 @@ func (s *Server) setupRoutes() {
 	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker)
 
 	// Initialize AI agent chat handler
-	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.dockerClient, s.backupService, s.authService)
+	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.runtimeClient, s.backupService, s.authService)
 
 	// Wire the model registry into settings so the AI support category can list models dynamically
 	settingsHandler.SetModelRegistry(agentChatHandler.ModelRegistry())
@@ -234,7 +234,7 @@ func (s *Server) setupRoutes() {
 			})
 
 			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
-			logsHandler := handlers.NewLogsHandler(docker.NewRuntimeAdapter(s.dockerClient))
+			logsHandler := handlers.NewLogsHandler(docker.NewRuntimeAdapter(s.runtimeClient))
 
 			// Apps management - installed apps
 			r.Route("/apps", func(r chi.Router) {

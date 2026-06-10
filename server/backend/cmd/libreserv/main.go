@@ -118,14 +118,14 @@ func main() {
 		slog.Warn("license load failed", "error", err)
 	}
 
-	dockerClient, err := docker.NewClient(cfg.Docker)
+	runtimeClient, err := docker.NewClient(cfg.Runtime)
 	if err != nil {
-		slog.Error("failed to initialize docker client", "error", err)
+		slog.Error("failed to initialize container runtime", "error", err)
 		os.Exit(1)
 	}
 
-	runtimeClient := docker.NewRuntimeAdapter(dockerClient)
-	monitor := monitoring.NewMonitor(db, runtimeClient, cfg.Apps.DataPath)
+	runtimeAdapter := docker.NewRuntimeAdapter(runtimeClient)
+	monitor := monitoring.NewMonitor(db, runtimeAdapter, cfg.Apps.DataPath)
 	monitor.Start()
 	defer monitor.Stop()
 
@@ -133,7 +133,7 @@ func main() {
 	restic.CleanupLeakedPasswordFiles()
 
 	backupBase := filepath.Join(cfg.Apps.DataPath, "backups")
-	backupService := storage.NewBackupService(db, dockerClient, backupBase, cfg.Apps.DataPath)
+	backupService := storage.NewBackupService(db, runtimeClient, backupBase, cfg.Apps.DataPath)
 	backupService.SetServerSecret(cfg.Auth.JWTSecret)
 
 	if cfg.Auth.CloudEncryptionKey == "" {
@@ -198,17 +198,17 @@ func main() {
 		}
 
 		acmeManager = acmeManager.WithExternal(network.ExternalACMEConfig{
-			Enabled:     cfg.Network.ACME.External.Enabled,
-			UseDocker:   cfg.Network.ACME.External.UseDocker,
-			DockerImage: cfg.Network.ACME.External.DockerImage,
-			DataPath:    cfg.Network.ACME.External.DataPath,
-			DNSProvider: cfg.Network.ACME.External.DNSProvider,
-			DNSEnv:      cfg.Network.ACME.External.DNSEnv,
-			Email:       cfg.Network.ACME.External.Email,
-			Staging:     cfg.Network.ACME.External.Staging,
-			CADirURL:    cfg.Network.ACME.External.CADirURL,
-			KeyType:     cfg.Network.ACME.External.KeyType,
-			CertsPath:   cfg.Network.ACME.External.CertsPath,
+			Enabled:        cfg.Network.ACME.External.Enabled,
+			UsePodman:      cfg.Network.ACME.External.UsePodman,
+			ContainerImage: cfg.Network.ACME.External.ContainerImage,
+			DataPath:       cfg.Network.ACME.External.DataPath,
+			DNSProvider:    cfg.Network.ACME.External.DNSProvider,
+			DNSEnv:         cfg.Network.ACME.External.DNSEnv,
+			Email:          cfg.Network.ACME.External.Email,
+			Staging:        cfg.Network.ACME.External.Staging,
+			CADirURL:       cfg.Network.ACME.External.CADirURL,
+			KeyType:        cfg.Network.ACME.External.KeyType,
+			CertsPath:      cfg.Network.ACME.External.CertsPath,
 		})
 	}
 
@@ -262,7 +262,7 @@ func main() {
 	appManager, err := apps.NewManager(
 		cfg.Apps.CatalogPath,
 		cfg.Apps.DataPath,
-		runtimeClient,
+		runtimeAdapter,
 		db,
 		monitor,
 		backupService,
@@ -316,7 +316,7 @@ func main() {
 		AuthService:     authService,
 		Monitor:         monitor,
 		BackupService:   backupService,
-		DockerClient:    dockerClient,
+		RuntimeClient:    runtimeClient,
 		CaddyManager:    caddyManager,
 		SetupService:    setupService,
 		SupportService:  supportService,
@@ -381,7 +381,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = server.Shutdown(ctx)
-		_ = dockerClient.Close()
+		_ = runtimeClient.Close()
 		if mdnsService != nil {
 			mdnsService.Stop()
 		}
@@ -403,7 +403,7 @@ func main() {
 		mdnsService.Stop()
 	}
 	bleSvc.Stop()
-	_ = dockerClient.Close()
+	_ = runtimeClient.Close()
 }
 
 // ensureSecrets autogenerates JWT/CSRF/cloud-encryption secrets if missing and persists them.

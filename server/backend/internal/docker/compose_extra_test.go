@@ -132,12 +132,13 @@ services:
 	}
 	argsFile := filepath.Join(dir, "args.txt")
 	stub := "#!/bin/sh\necho \"$@\" > " + argsFile + "\n"
-	if err := os.WriteFile(filepath.Join(stubDir, "docker"), []byte(stub), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(stubDir, "podman"), []byte(stub), 0o755); err != nil {
 		t.Fatalf("write stub: %v", err)
 	}
 	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	cm := NewComposeManager(nil)
+	fakeClient := &Client{binary: filepath.Join(stubDir, "podman")}
+	cm := NewComposeManager(fakeClient)
 	if err := cm.RunCustomAppSafely(context.Background(), project); err != nil {
 		t.Fatalf("RunCustomAppSafely: %v", err)
 	}
@@ -147,7 +148,7 @@ services:
 		t.Fatalf("read args: %v", err)
 	}
 	if !strings.Contains(string(data), "compose -f "+composePath+" up -d --remove-orphans") {
-		t.Fatalf("unexpected docker args: %q", string(data))
+		t.Fatalf("unexpected podman args: %q", string(data))
 	}
 
 	raw, err := os.ReadFile(composePath)

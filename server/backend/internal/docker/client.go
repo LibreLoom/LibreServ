@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,31 +13,40 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 )
 
-// Client wraps the Docker API client and context.
+// Client wraps the container runtime API client and context.
 type Client struct {
-	cli *client.Client
-	ctx context.Context
+	cli    *client.Client
+	ctx    context.Context
+	binary string
 }
 
-// NewClient creates a new Docker client based on configuration
-// Implements Recommendation #1: Multi-Method Docker Connection
-func NewClient(cfg config.DockerConfig) (*Client, error) {
+// NewClient creates a new runtime client based on configuration
+func NewClient(cfg config.RuntimeConfig) (*Client, error) {
+	binary := cfg.Binary
+	if binary == "" {
+		binary = "podman"
+	}
+
+	var c *Client
+	var err error
 	switch cfg.Method {
 	case "auto":
-		c, err := autoDetectConnection()
-		if err != nil {
-			return nil, err
-		}
-		return c, nil
+		c, err = autoDetectConnection()
 	case "socket":
-		return connectViaSocket(cfg.SocketPath)
+		c, err = connectViaSocket(cfg.SocketPath)
 	case "tcp":
-		return connectViaTCP(cfg.TCP)
+		c, err = connectViaTCP(cfg.TCP)
 	case "ssh":
-		return connectViaSSH(cfg.SSH)
+		c, err = connectViaSSH(cfg.SSH)
 	default:
-		return nil, fmt.Errorf("unknown docker connection method: %s", cfg.Method)
+		return nil, fmt.Errorf("unknown runtime connection method: %s", cfg.Method)
 	}
+	if err != nil {
+		return nil, err
+	}
+	c.binary = binary
+	setDefaultBinary(binary)
+	return c, nil
 }
 
 func autoDetectConnection() (*Client, error) {
@@ -48,11 +58,10 @@ func autoDetectConnection() (*Client, error) {
 		}
 	}
 
-	// 2. Try common socket paths
+	// 2. Try common socket paths (Podman only)
 	socketPaths := []string{
-		"/var/run/docker.sock", // Linux standard
-		fmt.Sprintf("/Users/%s/.docker/run/docker.sock", os.Getenv("USER")), // Mac standard
-		"//./pipe/docker_engine", // Windows standard
+		fmt.Sprintf("/run/user/%d/podman/podman.sock", os.Getuid()),
+		"/run/podman/podman.sock",
 	}
 
 	for _, path := range socketPaths {
@@ -63,7 +72,8 @@ func autoDetectConnection() (*Client, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("docker daemon not found (tried env and common sockets)")
+	// No socket found, but return a client anyway so compose operations can still work.
+	return &Client{cli: nil, ctx: context.Background()}, nil
 }
 
 func connectViaSocket(socketPath string) (*Client, error) {
@@ -75,7 +85,7 @@ func connectViaSocket(socketPath string) (*Client, error) {
 		client.WithHost(socketPath),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to socket: %w", err)
+		return nil, fmt.Errorf("failed to connect to runtime socket: %w", err)
 	}
 	return &Client{cli: cli, ctx: context.Background()}, nil
 }
@@ -89,7 +99,7 @@ func connectViaTCP(cfg config.TCPConfig) (*Client, error) {
 	if cfg.UseTLS {
 		// TLS requires certificate files to be configured
 		if cfg.CertPath == "" {
-			return nil, fmt.Errorf("docker TLS enabled but cert_path not configured")
+			return nil, fmt.Errorf("runtime TLS enabled but cert_path not configured")
 		}
 
 		// Check if certificate files exist
@@ -100,7 +110,7 @@ func connectViaTCP(cfg config.TCPConfig) (*Client, error) {
 		}
 		for _, f := range certFiles {
 			if _, err := os.Stat(f); os.IsNotExist(err) {
-				return nil, fmt.Errorf("docker TLS certificate file not found: %s", f)
+				return nil, fmt.Errorf("runtime TLS certificate file not found: %s", f)
 			}
 		}
 
@@ -132,23 +142,35 @@ func connectViaSSH(cfg config.SSHConfig) (*Client, error) {
 	return &Client{cli: cli, ctx: context.Background()}, nil
 }
 
-// HealthCheck verifies connection to the daemon
+// HealthCheck verifies that the runtime binary is available on the system.
+// Since container operations now use the Podman CLI, this checks that the
+// configured binary (e.g. "podman") is in PATH rather than a socket.
 func (c *Client) HealthCheck() error {
-	if c.cli == nil {
-		return fmt.Errorf("docker daemon not configured")
+	if c == nil {
+		return fmt.Errorf("container runtime not configured")
 	}
-
-	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
+	binary := c.Binary()
+	if binary == "" {
+		binary = "podman"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	_, err := c.cli.Ping(ctx, client.PingOptions{})
-	if err != nil {
-		return fmt.Errorf("docker daemon not responding: %w", err)
+	cmd := exec.CommandContext(ctx, binary, "--version")
+	if _, err := cmd.Output(); err != nil {
+		return fmt.Errorf("container runtime not responding: %w", err)
 	}
 	return nil
 }
 
-// Close releases the underlying Docker client.
+// Binary returns the configured runtime command binary (e.g. "podman").
+func (c *Client) Binary() string {
+	if c == nil || c.binary == "" {
+		return "podman"
+	}
+	return c.binary
+}
+
+// Close releases the underlying runtime client.
 func (c *Client) Close() error {
 	if c.cli != nil {
 		return c.cli.Close()
@@ -160,36 +182,24 @@ func (c *Client) Close() error {
 
 // ComposeUp starts containers defined in a compose file
 func (c *Client) ComposeUp(ctx context.Context, composePath string) error {
-	if c.cli == nil {
-		return fmt.Errorf("docker not available in dev mode")
-	}
 	cm := NewComposeManager(c)
 	return cm.Up(ctx, composePath)
 }
 
 // ComposeDown stops and removes containers defined in a compose file
 func (c *Client) ComposeDown(ctx context.Context, composePath string) error {
-	if c.cli == nil {
-		return fmt.Errorf("docker not available in dev mode")
-	}
 	cm := NewComposeManager(c)
 	return cm.Down(ctx, composePath)
 }
 
 // ComposePull pulls images defined in a compose file
 func (c *Client) ComposePull(ctx context.Context, composePath string) error {
-	if c.cli == nil {
-		return fmt.Errorf("docker not available in dev mode")
-	}
 	cm := NewComposeManager(c)
 	return cm.Pull(ctx, composePath)
 }
 
 // ComposeStop stops containers without removing them
 func (c *Client) ComposeStop(ctx context.Context, composePath string) error {
-	if c.cli == nil {
-		return fmt.Errorf("docker not available in dev mode")
-	}
 	cm := NewComposeManager(c)
 	return cm.Stop(ctx, composePath)
 }

@@ -36,7 +36,7 @@ type HealthCheckConfig struct {
 	HTTP *HTTPCheckConfig `yaml:"http,omitempty" json:"http,omitempty"`
 	// TCP health check
 	TCP *TCPCheckConfig `yaml:"tcp,omitempty" json:"tcp,omitempty"`
-	// Container health check (relies on Docker)
+	// Container health check (relies on container runtime)
 	Container *ContainerCheckConfig `yaml:"container,omitempty" json:"container,omitempty"`
 	// Command health check
 	Command *CommandCheckConfig `yaml:"command,omitempty" json:"command,omitempty"`

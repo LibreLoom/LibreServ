@@ -26,7 +26,7 @@ func secureConfig() *config.Config {
 			CSRFSecret:         "b7d3e1f9a5c8b2e6f0d4a7c3e9b5f1d8a2c6e0b4f7a3d9e5c1b8f4a6d2e7c3b0",
 			CloudEncryptionKey: "some-long-secure-random-key-here-that-is-not-csrf-secret",
 		},
-		Docker: config.DockerConfig{
+		Runtime: config.RuntimeConfig{
 			Method: "socket",
 		},
 		Logging: config.LoggingConfig{
@@ -193,22 +193,22 @@ func TestValidateConfig_EmptyCORS(t *testing.T) {
 	})
 }
 
-func TestValidateConfig_DockerTCP(t *testing.T) {
+func TestValidateConfig_RuntimeTCP(t *testing.T) {
 	cfg := secureConfig()
-	cfg.Docker.Method = "tcp"
+	cfg.Runtime.Method = "tcp"
 	withConfig(cfg, func() {
 		result := ValidateConfig()
 		if result.Passed {
-			t.Error("Docker TCP should fail")
+			t.Error("Runtime TCP should fail")
 		}
 		var found bool
 		for _, issue := range result.Issues {
-			if issue.Category == "Docker" && strings.Contains(issue.Message, "TCP") {
+			if issue.Category == "Runtime" && strings.Contains(issue.Message, "TCP") {
 				found = true
 			}
 		}
 		if !found {
-			t.Error("expected Docker TCP issue")
+			t.Error("expected Runtime TCP issue")
 		}
 	})
 }

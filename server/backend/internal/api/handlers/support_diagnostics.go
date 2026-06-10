@@ -14,14 +14,14 @@ import (
 // SupportDiagnosticsHandler exposes lightweight diagnostics for support purposes.
 type SupportDiagnosticsHandler struct {
 	auth   *auth.Service
-	docker *docker.Client
+	runtime *docker.Client
 }
 
 // NewSupportDiagnosticsHandler creates a handler for diagnostics checks.
-func NewSupportDiagnosticsHandler(authService *auth.Service, dockerClient *docker.Client) *SupportDiagnosticsHandler {
+func NewSupportDiagnosticsHandler(authService *auth.Service, runtimeClient *docker.Client) *SupportDiagnosticsHandler {
 	return &SupportDiagnosticsHandler{
 		auth:   authService,
-		docker: dockerClient,
+		runtime: runtimeClient,
 	}
 }
 
@@ -43,11 +43,11 @@ func (h *SupportDiagnosticsHandler) Get(w http.ResponseWriter, r *http.Request) 
 	check("database", func() error {
 		return h.auth.DBHealth()
 	})
-	check("docker", func() error {
-		if h.docker == nil {
+	check("runtime", func() error {
+		if h.runtime == nil {
 			return nil
 		}
-		return h.docker.HealthCheck()
+		return h.runtime.HealthCheck()
 	})
 	check("data_path_writable", func() error {
 		return checkPathWritable(cfg.Apps.DataPath)

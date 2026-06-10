@@ -11,13 +11,11 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
-
-	"github.com/moby/moby/api/types/container"
 )
 
 type SelfHealingMonitor struct {
 	db           *database.DB
-	dockerClient *docker.Client
+	runtimeClient *docker.Client
 	provider     *Provider
 	convStore    *conversation.Store
 	creditSvc    *subscription.CreditService
@@ -26,10 +24,10 @@ type SelfHealingMonitor struct {
 	stopCh       chan struct{}
 }
 
-func NewSelfHealingMonitor(dockerClient *docker.Client, db *database.DB) *SelfHealingMonitor {
+func NewSelfHealingMonitor(runtimeClient *docker.Client, db *database.DB) *SelfHealingMonitor {
 	m := &SelfHealingMonitor{
 		db:           db,
-		dockerClient: dockerClient,
+		runtimeClient: runtimeClient,
 		interval:     5 * time.Minute,
 		stopCh:       make(chan struct{}),
 	}
@@ -79,7 +77,7 @@ func (m *SelfHealingMonitor) run() {
 }
 
 func (m *SelfHealingMonitor) checkAndHeal() {
-	if m.dockerClient == nil {
+	if m.runtimeClient == nil {
 		return
 	}
 	cfg := config.Get()
@@ -93,7 +91,7 @@ func (m *SelfHealingMonitor) checkAndHeal() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	containers, err := m.dockerClient.ListContainersAll(ctx)
+	containers, err := m.runtimeClient.ListContainersAll(ctx)
 	if err != nil {
 		slog.Error("self-healing: failed to list containers", "error", err)
 		return
@@ -101,9 +99,7 @@ func (m *SelfHealingMonitor) checkAndHeal() {
 
 	var unhealthy []string
 	for _, c := range containers {
-		if c.Health != nil && c.Health.Status == container.Unhealthy {
-			unhealthy = append(unhealthy, c.ID)
-		} else if c.State == container.StateExited || c.State == container.StateDead {
+		if c.State == "exited" || c.State == "dead" {
 			unhealthy = append(unhealthy, c.ID)
 		}
 	}
@@ -171,7 +167,7 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 	}
 
 	registry := tools.RegistryFromAgentDef(*agentDef, tools.ToolDeps{
-		DockerClient: m.dockerClient,
+		RuntimeClient: m.runtimeClient,
 	})
 
 	maxTurns := agentDef.MaxTurns

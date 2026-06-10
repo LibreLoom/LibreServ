@@ -66,7 +66,7 @@ func (r *Registry) ToolDefinitions() []map[string]interface{} {
 }
 
 type ToolDeps struct {
-	DockerClient  *docker.Client
+	RuntimeClient  *docker.Client
 	PathPolicy    *support.PathPolicy
 	BackupService *storage.BackupService
 }
@@ -74,9 +74,9 @@ type ToolDeps struct {
 func RegistryFromAgentDef(def config.AgentDefinition, deps ToolDeps) *Registry {
 	r := NewRegistry()
 	available := map[string][]*Tool{
-		"docker":      DockerTools(deps.DockerClient),
+		"podman":      PodmanTools(deps.RuntimeClient),
 		"files":       FileTools(deps.PathPolicy),
-		"diagnostics": DiagnosticTools(deps.DockerClient),
+		"diagnostics": DiagnosticTools(deps.RuntimeClient),
 		"snapshots":   SnapshotTools(deps.BackupService),
 	}
 	for _, name := range def.ToolNames {

@@ -8,11 +8,11 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
 )
 
-func DiagnosticTools(dockerClient *docker.Client) []*Tool {
+func DiagnosticTools(runtimeClient *docker.Client) []*Tool {
 	tools := []*Tool{
 		{
 			Name:        "system_health",
-			Description: "Get a composite health summary: Docker daemon, running containers, system resources (CPU, memory, disk), and basic endpoint health checks.",
+			Description: "Get a composite health summary: container runtime, running containers, system resources (CPU, memory, disk), and basic endpoint health checks.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {}
@@ -21,14 +21,14 @@ func DiagnosticTools(dockerClient *docker.Client) []*Tool {
 			RequiresPermission: false,
 			Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
 				result := make(map[string]interface{})
-				if dockerClient != nil {
-					if err := dockerClient.HealthCheck(); err != nil {
-						result["docker_daemon"] = map[string]interface{}{"status": "unhealthy", "error": err.Error()}
+				if runtimeClient != nil {
+					if err := runtimeClient.HealthCheck(); err != nil {
+						result["runtime"] = map[string]interface{}{"status": "unhealthy", "error": err.Error()}
 					} else {
-						result["docker_daemon"] = map[string]interface{}{"status": "healthy"}
+						result["runtime"] = map[string]interface{}{"status": "healthy"}
 					}
 					// Aggregate container states
-					containers, err := dockerClient.ListContainersAll(ctx)
+					containers, err := runtimeClient.ListContainersAll(ctx)
 					if err != nil {
 						result["containers"] = map[string]interface{}{"error": err.Error()}
 					} else {
@@ -37,7 +37,7 @@ func DiagnosticTools(dockerClient *docker.Client) []*Tool {
 							summary = append(summary, map[string]interface{}{
 								"names":  c.Names,
 								"image":  c.Image,
-								"state":  string(c.State),
+								"state":  c.State,
 								"status": c.Status,
 							})
 						}
@@ -50,10 +50,10 @@ func DiagnosticTools(dockerClient *docker.Client) []*Tool {
 		},
 	}
 
-	if dockerClient != nil {
+	if runtimeClient != nil {
 		tools = append(tools, &Tool{
-			Name:        "docker_health",
-			Description: "Check the health status of a specific Docker container.",
+			Name:        "runtime_health",
+			Description: "Check the health status of a specific container.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -73,7 +73,7 @@ func DiagnosticTools(dockerClient *docker.Client) []*Tool {
 				if params.Container == "" {
 					return "", fmt.Errorf("container name is required")
 				}
-				result, err := dockerClient.InspectContainer(ctx, params.Container)
+				result, err := runtimeClient.InspectContainer(ctx, params.Container)
 				if err != nil {
 					return "", fmt.Errorf("unable to check health for %s: %w", params.Container, err)
 				}
@@ -81,20 +81,8 @@ func DiagnosticTools(dockerClient *docker.Client) []*Tool {
 				if err := json.Unmarshal(result.Raw, &parsed); err != nil {
 					return string(result.Raw), nil
 				}
-				state, _ := parsed["State"].(map[string]interface{})
-				out := map[string]interface{}{
-					"container": params.Container,
-					"status":    "unknown",
-				}
-				if state != nil {
-					if s, ok := state["Status"].(string); ok {
-						out["status"] = s
-					}
-					if h, ok := state["Health"].(map[string]interface{}); ok {
-						out["health"] = h
-					}
-				}
-				data, _ := json.MarshalIndent(out, "", "  ")
+				redactSensitiveFields(parsed)
+				data, _ := json.MarshalIndent(parsed, "", "  ")
 				return string(data), nil
 			},
 		})

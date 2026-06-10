@@ -3,15 +3,15 @@ package monitoring
 import "errors"
 
 var (
-	// ErrDockerUnavailable indicates monitoring could not access Docker (client missing, daemon down, or permission denied).
-	ErrDockerUnavailable = errors.New("docker unavailable")
+	// ErrRuntimeUnavailable indicates monitoring could not access the container runtime (client missing, daemon down, or permission denied).
+	ErrRuntimeUnavailable = errors.New("runtime unavailable")
 	// ErrNoContainers indicates no containers could be found for the requested app/project.
 	ErrNoContainers = errors.New("no containers found")
 )
 
-// IsDockerUnavailable reports whether the error indicates Docker is unavailable.
-func IsDockerUnavailable(err error) bool {
-	return errors.Is(err, ErrDockerUnavailable)
+// IsRuntimeUnavailable reports whether the error indicates the container runtime is unavailable.
+func IsRuntimeUnavailable(err error) bool {
+	return errors.Is(err, ErrRuntimeUnavailable)
 }
 
 // IsNoContainers reports whether the error indicates no containers were found.

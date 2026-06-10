@@ -84,6 +84,7 @@ services:
       - SETGID
       - SETUID
       - NET_BIND_SERVICE
+      - DAC_OVERRIDE
     networks:
       - apprun-test-net
 
@@ -104,6 +105,7 @@ services:
       - ALL
     cap_add:
       - NET_BIND_SERVICE
+      - DAC_OVERRIDE
     networks:
       - apprun-test-net
 

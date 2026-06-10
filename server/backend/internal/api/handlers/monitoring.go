@@ -152,18 +152,18 @@ func (hcc *HealthCheckCache) Set(result *ComprehensiveHealthResponse) {
 type MonitoringHandlers struct {
 	monitor      *monitoring.Monitor
 	db           *database.DB
-	docker       *docker.Client
+	runtime       *docker.Client
 	mailer       func() (*email.Sender, error)
 	metricsCache *apps.AppMetricsCache
 	healthCache  *HealthCheckCache
 }
 
 // NewMonitoringHandlers creates new monitoring handlers
-func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, dockerClient *docker.Client, metricsCache *apps.AppMetricsCache) *MonitoringHandlers {
+func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, runtimeClient *docker.Client, metricsCache *apps.AppMetricsCache) *MonitoringHandlers {
 	h := &MonitoringHandlers{
 		monitor:      monitor,
 		db:           db,
-		docker:       dockerClient,
+		runtime:       runtimeClient,
 		mailer:       email.NewSender,
 		metricsCache: metricsCache,
 		healthCache:  NewHealthCheckCache(30 * time.Second),
@@ -316,8 +316,8 @@ func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Reques
 
 	metrics, err := h.monitor.GetAppMetrics(r.Context(), appID)
 	if err != nil {
-		if monitoring.IsDockerUnavailable(err) {
-			JSONError(w, http.StatusServiceUnavailable, "docker service unavailable")
+		if monitoring.IsRuntimeUnavailable(err) {
+			JSONError(w, http.StatusServiceUnavailable, "Container runtime is not available. Please check that Podman is installed and running.")
 			return
 		}
 		if monitoring.IsNoContainers(err) {
@@ -410,8 +410,8 @@ func (h *MonitoringHandlers) RegisterHealthCheck(w http.ResponseWriter, r *http.
 	}
 
 	if err := h.monitor.RegisterApp(appID, config); err != nil {
-		if monitoring.IsDockerUnavailable(err) {
-			JSONError(w, http.StatusServiceUnavailable, "docker service unavailable")
+		if monitoring.IsRuntimeUnavailable(err) {
+			JSONError(w, http.StatusServiceUnavailable, "Container runtime is not available. Please check that Podman is installed and running.")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "failed to register health checks")
@@ -451,12 +451,12 @@ func (h *MonitoringHandlers) SystemHealth(w http.ResponseWriter, r *http.Request
 		dbStatus = "unhealthy"
 	}
 
-	dockerStatus := "unknown"
-	if h.docker != nil {
-		if err := h.docker.HealthCheck(); err != nil {
-			dockerStatus = "unhealthy"
+	runtimeStatus := "unknown"
+	if h.runtime != nil {
+		if err := h.runtime.HealthCheck(); err != nil {
+			runtimeStatus = "unhealthy"
 		} else {
-			dockerStatus = "healthy"
+			runtimeStatus = "healthy"
 		}
 	}
 
@@ -484,7 +484,7 @@ func (h *MonitoringHandlers) SystemHealth(w http.ResponseWriter, r *http.Request
 		"checks": map[string]interface{}{
 			"api":      "healthy",
 			"database": dbStatus,
-			"docker":   dockerStatus,
+			"runtime":  runtimeStatus,
 			"smtp":     smtpStatus,
 		},
 		"resources":          cached.Resources,
@@ -563,14 +563,14 @@ func (h *MonitoringHandlers) runComprehensiveHealthChecks(ctx context.Context) *
 		return true, "Database connection successful", nil
 	})
 
-	runCheck("docker", "system", func() (bool, string, interface{}) {
-		if h.docker == nil {
-			return false, "Docker client not initialized", nil
+	runCheck("runtime", "system", func() (bool, string, interface{}) {
+		if h.runtime == nil {
+			return false, "Runtime client not initialized", nil
 		}
-		if err := h.docker.HealthCheck(); err != nil {
-			return false, "Docker daemon unreachable: " + err.Error(), nil
+		if err := h.runtime.HealthCheck(); err != nil {
+			return false, "Runtime unreachable: " + err.Error(), nil
 		}
-		return true, "Docker daemon is running", nil
+		return true, "Runtime is running", nil
 	})
 
 	runCheck("api_server", "system", func() (bool, string, interface{}) {

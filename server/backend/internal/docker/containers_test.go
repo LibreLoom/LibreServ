@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"testing"
 )
 
@@ -9,9 +10,7 @@ import (
 // returns an error (or zero containers), not a panic.
 func TestListContainersByLabel_NoDaemon(t *testing.T) {
 	c := &Client{cli: nil, ctx: nil}
-	if _, err := c.ListContainersByLabel("libreserv.app=test"); err == nil {
-		// If no error, that's fine; if daemon is not available, an error is also expected.
-		// The main goal is to avoid panic.
+	if _, err := c.ListContainersByLabel(context.Background(), "libreserv.app=test"); err == nil {
 		t.Log("ListContainersByLabel returned without error (daemon likely available in env)")
 	}
 }

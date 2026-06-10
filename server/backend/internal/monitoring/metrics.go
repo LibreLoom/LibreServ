@@ -23,11 +23,11 @@ func NewMetricsCollector(rts rt.ContainerRuntime) *MetricsCollector {
 // CollectContainerMetrics collects metrics for a specific container
 func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containerID string) (*Metrics, error) {
 	if m.runtime == nil {
-		return nil, fmt.Errorf("%w: runtime not available", ErrDockerUnavailable)
+		return nil, fmt.Errorf("%w: runtime not available", ErrRuntimeUnavailable)
 	}
 	stats, err := m.runtime.GetContainerStats(ctx, containerID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to get container stats: %v", ErrDockerUnavailable, err)
+		return nil, fmt.Errorf("%w: failed to get container stats: %v", ErrRuntimeUnavailable, err)
 	}
 
 	return m.parseStats(stats), nil
@@ -36,11 +36,11 @@ func (m *MetricsCollector) CollectContainerMetrics(ctx context.Context, containe
 // CollectAppMetrics collects metrics for all containers belonging to an app
 func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) (*Metrics, error) {
 	if m.runtime == nil {
-		return nil, fmt.Errorf("%w: runtime not available", ErrDockerUnavailable)
+		return nil, fmt.Errorf("%w: runtime not available", ErrRuntimeUnavailable)
 	}
 	containers, err := m.runtime.ListContainersAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrDockerUnavailable, err)
+		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrRuntimeUnavailable, err)
 	}
 
 	aggregated := &Metrics{
@@ -74,12 +74,12 @@ func (m *MetricsCollector) CollectAppMetrics(ctx context.Context, appID string) 
 // CollectSystemMetrics collects aggregate metrics across all running containers.
 func (m *MetricsCollector) CollectSystemMetrics(ctx context.Context) (*SystemMetrics, error) {
 	if m.runtime == nil {
-		return nil, fmt.Errorf("%w: runtime not available", ErrDockerUnavailable)
+		return nil, fmt.Errorf("%w: runtime not available", ErrRuntimeUnavailable)
 	}
 
 	containers, err := m.runtime.ListContainersAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrDockerUnavailable, err)
+		return nil, fmt.Errorf("%w: failed to list containers: %v", ErrRuntimeUnavailable, err)
 	}
 
 	out := &SystemMetrics{

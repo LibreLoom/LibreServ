@@ -64,7 +64,7 @@ func NewDefaultPolicy(extraAllow []string) *PathPolicy {
 	return &PathPolicy{
 		Allow: append(base, extraAllow...),
 		Deny: []string{
-			"/var/lib/docker", // docker internals
+			"/var/lib/containers", // container storage
 			"/proc",
 			"/sys",
 			"/dev",

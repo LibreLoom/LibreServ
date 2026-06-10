@@ -1,6 +1,6 @@
 const DEFAULT_PATTERNS = [
-  { match: /docker compose pull/i, message: "Downloading application files..." },
-  { match: /docker compose up/i, message: "Starting application services..." },
+  { match: /podman compose pull/i, message: "Downloading application files..." },
+  { match: /podman compose up/i, message: "Starting application services..." },
   { match: /pulling/i, message: "Downloading images..." },
   { match: /created network/i, message: "Setting up networking..." },
   { match: /system-setup/i, message: "Configuring application..." },

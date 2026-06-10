@@ -242,7 +242,7 @@ npm test -- --watch
 ### Integration Tests
 
 ```bash
-# These require Docker running
+# These require Podman running
 cd server/backend
 go test -v -tags=integration ./tests/integration/...
 ```

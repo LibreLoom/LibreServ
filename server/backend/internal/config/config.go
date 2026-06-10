@@ -30,7 +30,7 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database" yaml:"database"`
 	Auth     AuthConfig     `mapstructure:"auth" yaml:"auth"`
 	Apps     AppsConfig     `mapstructure:"apps" yaml:"apps"`
-	Docker   DockerConfig   `mapstructure:"docker" yaml:"docker"`
+	Runtime  RuntimeConfig  `mapstructure:"runtime" yaml:"runtime"`
 	Logging  LoggingConfig  `mapstructure:"logging" yaml:"logging"`
 	Network  NetworkConfig  `mapstructure:"network" yaml:"network"`
 	CORS     CORSConfig     `mapstructure:"cors" yaml:"cors"`
@@ -149,16 +149,17 @@ type AgentConfig struct {
 	SystemPlanID         string        `mapstructure:"system_plan_id" yaml:"system_plan_id"`
 }
 
-// DockerConfig defines Docker connection settings.
-type DockerConfig struct {
+// RuntimeConfig defines container runtime connection settings.
+type RuntimeConfig struct {
 	Method     string        `mapstructure:"method" yaml:"method"`
 	SocketPath string        `mapstructure:"socket_path" yaml:"socket_path"`
 	TCP        TCPConfig     `mapstructure:"tcp" yaml:"tcp"`
 	SSH        SSHConfig     `mapstructure:"ssh" yaml:"ssh"`
 	Timeout    time.Duration `mapstructure:"timeout" yaml:"timeout"`
+	Binary     string        `mapstructure:"binary" yaml:"binary"`
 }
 
-// TCPConfig defines TCP Docker connection settings.
+// TCPConfig defines TCP container runtime connection settings.
 type TCPConfig struct {
 	Host     string `mapstructure:"host" yaml:"host"`
 	Port     int    `mapstructure:"port" yaml:"port"`
@@ -166,7 +167,7 @@ type TCPConfig struct {
 	CertPath string `mapstructure:"cert_path" yaml:"cert_path"`
 }
 
-// SSHConfig defines SSH Docker connection settings.
+// SSHConfig defines SSH container runtime connection settings.
 type SSHConfig struct {
 	Host    string `mapstructure:"host" yaml:"host"`
 	User    string `mapstructure:"user" yaml:"user"`
@@ -258,9 +259,9 @@ type ACMEConfig struct {
 
 // ExternalACMEConfig holds external ACME issuer settings.
 type ExternalACMEConfig struct {
-	Enabled     bool              `mapstructure:"enabled" yaml:"enabled"`
-	UseDocker   bool              `mapstructure:"use_docker" yaml:"use_docker"`
-	DockerImage string            `mapstructure:"docker_image" yaml:"docker_image"`
+	Enabled        bool              `mapstructure:"enabled" yaml:"enabled"`
+	UsePodman      bool              `mapstructure:"use_podman" yaml:"use_podman"`
+	ContainerImage string            `mapstructure:"container_image" yaml:"container_image"`
 	DataPath    string            `mapstructure:"data_path" yaml:"data_path"`
 	DNSProvider string            `mapstructure:"dns_provider" yaml:"dns_provider"`
 	DNSEnv      map[string]string `mapstructure:"dns_env" yaml:"dns_env"`
@@ -316,8 +317,9 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("updates.base_url", "https://gt.plainskill.net/api/v1")
 	v.SetDefault("updates.owner", "libreloom")
 	v.SetDefault("updates.repo", "libreserv")
-	v.SetDefault("docker.method", "auto")
-	v.SetDefault("docker.timeout", "30s")
+	v.SetDefault("runtime.method", "auto")
+	v.SetDefault("runtime.timeout", "30s")
+	v.SetDefault("runtime.binary", "podman")
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.path", "/var/log/libreserv/libreserv.log")
 	v.SetDefault("auth.allow_registration", false)
@@ -367,7 +369,7 @@ func DefaultAgents() []AgentDefinition {
 			Model:       "",
 			AvatarShape: "diamond",
 			AvatarColor: "#FF6B35",
-			ToolNames:   []string{"docker", "files", "diagnostics", "snapshots"},
+			ToolNames:   []string{"podman", "files", "diagnostics", "snapshots"},
 			MaxTurns:    50,
 			SystemPrompt: `You are the Research Agent in a multi-agent support team. Your job is to investigate problems thoroughly before any action is taken.
 
@@ -388,7 +390,7 @@ When you have enough information to recommend a solution, STOP calling tools and
 			Model:       "",
 			AvatarShape: "circle",
 			AvatarColor: "#4ECDC4",
-			ToolNames:   []string{"docker", "files", "diagnostics", "snapshots"},
+			ToolNames:   []string{"podman", "files", "diagnostics", "snapshots"},
 			MaxTurns:    50,
 			SystemPrompt: `You are the Review & Safety Agent in a multi-agent support team. Your job is to verify findings, review proposals, and ensure safe execution.
 
@@ -407,7 +409,7 @@ When all evidence supports a clear answer, STOP calling tools and produce a fina
 			ID:             "self-healing",
 			Trigger:        "container_unhealthy",
 			Model:          "",
-			ToolNames:      []string{"docker", "diagnostics", "files"},
+			ToolNames:      []string{"podman", "diagnostics", "files"},
 			MaxTurns:       5,
 			PermissionMode: "auto",
 		},

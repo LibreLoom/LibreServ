@@ -59,7 +59,7 @@ Installs an app -> It works -> Creates backup -> Done
 
 - Welcome screen with plain-language intro
 - Admin account creation (username, password, email)
-- Preflight checks (Docker, DB, disk space, permissions)
+- Preflight checks (container runtime, DB, disk space, permissions)
 - Domain configuration step (Cloudflare or nameserver fallback)
 - SMTP setup step with provider presets (Proton, Resend, Postmark, Custom)
 - Auto-redirect to dashboard on completion
@@ -200,7 +200,7 @@ The current app templates are stubs only suitable for basic dev testing. All lif
 - Audit and decide which apps to keep, replace, or add
 - Rewrite all lifecycle scripts from scratch with real logic
 - Implement proper update (image pull, data migration, restart), repair (health checks, config validation, container recovery), backup (data export, metadata), and restore (data import, validation) for each app
-- Test each script against real Docker containers
+- Test each script against real Podman containers
 
 #### T2.1.6. Custom App Upload and URL Install
 
@@ -270,7 +270,7 @@ The current app templates are stubs only suitable for basic dev testing. All lif
 
 - Dashboard widget showing overall system health
 - Real-time CPU, Memory, and Disk usage bars with warning thresholds
-- Health indicators for API, Database, Docker, and SMTP services
+- Health indicators for API, Database, container runtime, and SMTP services
 - Color-coded status (Healthy/Unhealthy/Warning/Unknown)
 - Auto-refresh with dashboard refresh interval
 
@@ -764,13 +764,13 @@ Create a formal threat model for LibreServ.
 - [ ] Risk assessment with mitigations
 - [ ] Security architecture diagram
 
-#### T4.2.6. Docker Security Hardening
+#### T4.2.6. Container Runtime Security Hardening
 
 **Status:** Not started
 
 **Effort:** 3h
 
-Document and enforce Docker security best practices.
+Document and enforce container runtime security best practices.
 
 **Acceptance Criteria:**
 - [ ] App sandboxing documentation
@@ -794,7 +794,7 @@ Document and enforce Docker security best practices.
 
 **Status:** Hopefully done?
 
-Full implementation in install.sh: correct user/group, After=docker, Restart=always, security hardening (NoNewPrivileges, ProtectSystem, ProtectHome, PrivateTmp).
+Full implementation in install.sh: correct user/group, Restart=always, security hardening (NoNewPrivileges, ProtectSystem, ProtectHome, PrivateTmp).
 
 #### T4.3.3. Configurable Server Port
 
@@ -1024,7 +1024,7 @@ The current backup system duplicates entire app volumes as tar archives. This do
 - File-level restore: `ListBackupFiles`, `DumpBackupFile`, `RestoreBackupFiles` (selective restore)
 - API handlers + routes for repos, file browse, capabilities
 - Frontend: `BackupFileBrowser.jsx`, `BackupRepoConfig.jsx`, updated `LocalBackupsCard.jsx`
-- Restic binary bundling: Makefile `restic-fetch`, `embedrestic` build tag for self-contained releases, runtime auto-provision with checksum verification, install.sh and Dockerfile provisioning
+- Restic binary bundling: Makefile `restic-fetch`, `embedrestic` build tag for self-contained releases, runtime auto-provision with checksum verification, install.sh provisioning
 - 33 tests (26 storage + 7 restic engine) all passing
 
 **User Journey:**
@@ -1077,7 +1077,7 @@ Extensions to the app repository and update system (T6.1/T6.2 are the core imple
 |------|--------|--------|-------|
 | Private repo support | 4h | Not started | SSH key or HTTPS token auth for private repositories. |
 | Push-based revocation notifications | 3h | Not started | Webhook/push mechanism for faster malicious revocation alerts instead of 6h polling. |
-| Post-pull digest verification | 2h | Not started | Run `docker image inspect` after pull to verify the pulled image digest matches the manifest. Defense-in-depth on top of Docker's own pull-by-digest enforcement. |
+| Post-pull digest verification | 2h | Not started | Run `podman image inspect` after pull to verify the pulled image digest matches the manifest. Defense-in-depth on top of Podman's own pull-by-digest enforcement. |
 | Release channels (stable/beta/nightly) | 5h | Not started | Use the `channel` field already in the manifest schema. Add channel selection UI and per-channel filtering in the catalog. |
 | Staged/canary rollout | 4h | Not started | Percentage-based rollout for new app versions. e.g., roll out to 5% of installs first, monitor errors, expand. |
 | Batch "Update All" API | 2h | Not started | `POST /api/v1/apps/updates/batch` endpoint to update all apps at once. Scheduler already does this internally for auto-update apps; expose it to users. |
@@ -1170,7 +1170,7 @@ flowchart TB
         T421[T4.2.1: Auth Audit]
         T424[T4.2.4: Container Scanning]
         T425[T4.2.5: Threat Model]
-        T426[T4.2.6: Docker Security]
+        T426[T4.2.6: Container Runtime Security]
         T432[T4.3.2: Systemd Service]
         T433[T4.3.3: Configurable Port]
         T434[T4.3.4: Debian ISO Builder]

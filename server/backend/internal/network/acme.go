@@ -46,7 +46,7 @@ type ACMEManager struct {
 	auto              bool
 	external          ExternalACMEConfig
 	metrics           *monitoring.CaddyMetrics
-	useDockerOverride *bool
+	usePodmanOverride *bool
 }
 
 // NewACMEManager creates a new ACME manager.
@@ -62,9 +62,9 @@ func NewACMEManager(adminAPI, configPath string) *ACMEManager {
 
 // ExternalACMEConfig configures external ACME issuance (lego).
 type ExternalACMEConfig struct {
-	Enabled     bool              `json:"enabled"`
-	UseDocker   bool              `json:"use_docker"`
-	DockerImage string            `json:"docker_image"`
+	Enabled        bool              `json:"enabled"`
+	UsePodman      bool              `json:"use_podman"`
+	ContainerImage string            `json:"container_image"`
 	DataPath    string            `json:"data_path"`
 	DNSProvider string            `json:"dns_provider"`
 	DNSEnv      map[string]string `json:"dns_env"`
@@ -87,16 +87,16 @@ func (a *ACMEManager) WithExternal(cfg ExternalACMEConfig) *ACMEManager {
 	return a
 }
 
-// WithUseDocker overrides the UseDocker setting for cert issuance.
-// Use ClearUseDockerOverride to remove the override.
-func (a *ACMEManager) WithUseDocker(useDocker bool) *ACMEManager {
-	a.useDockerOverride = &useDocker
+// WithUsePodman overrides the UsePodman setting for cert issuance.
+// Use ClearUsePodmanOverride to remove the override.
+func (a *ACMEManager) WithUsePodman(usePodman bool) *ACMEManager {
+	a.usePodmanOverride = &usePodman
 	return a
 }
 
-// ClearUseDockerOverride removes the UseDocker override, reverting to config-file setting.
-func (a *ACMEManager) ClearUseDockerOverride() {
-	a.useDockerOverride = nil
+// ClearUsePodmanOverride removes the UsePodman override, reverting to config-file setting.
+func (a *ACMEManager) ClearUsePodmanOverride() {
+	a.usePodmanOverride = nil
 }
 
 // WithMetrics sets the metrics collector for ACME operations
@@ -224,8 +224,8 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 	if cfg.DataPath == "" {
 		cfg.DataPath = "./data/acme"
 	}
-	if cfg.DockerImage == "" {
-		cfg.DockerImage = "goacme/lego:latest"
+	if cfg.ContainerImage == "" {
+		cfg.ContainerImage = "goacme/lego:latest"
 	}
 	if cfg.KeyType == "" {
 		cfg.KeyType = "rsa2048"
@@ -242,8 +242,8 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 	_ = os.MkdirAll(cfg.CertsPath, 0o750)
 
 	// Run lego to obtain/renew the cert into cfg.DataPath/certificates/.
-	if cfg.UseDocker {
-		if err := a.runLegoDocker(ctx, cfg, []string{domain}, email); err != nil {
+	if cfg.UsePodman {
+		if err := a.runLegoPodman(ctx, cfg, []string{domain}, email); err != nil {
 			return err
 		}
 	} else {
@@ -274,9 +274,9 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 	return nil
 }
 
-func (a *ACMEManager) runLegoDocker(ctx context.Context, cfg ExternalACMEConfig, domains []string, email string) error {
-	if _, err := exec.LookPath("docker"); err != nil {
-		return fmt.Errorf("docker not found (required for external acme): %w", err)
+func (a *ACMEManager) runLegoPodman(ctx context.Context, cfg ExternalACMEConfig, domains []string, email string) error {
+	if _, err := exec.LookPath("podman"); err != nil {
+		return fmt.Errorf("podman not found (required for external acme): %w", err)
 	}
 	args := []string{
 		"run", "--rm",
@@ -288,7 +288,7 @@ func (a *ACMEManager) runLegoDocker(ctx context.Context, cfg ExternalACMEConfig,
 		}
 		args = append(args, "-e", fmt.Sprintf("%s=%s", k, v))
 	}
-	args = append(args, cfg.DockerImage,
+	args = append(args, cfg.ContainerImage,
 		"--path", "/lego",
 		"--accept-tos",
 		"--email", email,
@@ -305,17 +305,17 @@ func (a *ACMEManager) runLegoDocker(ctx context.Context, cfg ExternalACMEConfig,
 	}
 	args = append(args, "run")
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, "podman", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("lego docker run failed: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("lego podman run failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
 func (a *ACMEManager) runLegoBinary(ctx context.Context, cfg ExternalACMEConfig, domains []string, email string) error {
 	if _, err := exec.LookPath("lego"); err != nil {
-		return fmt.Errorf("lego binary not found (set use_docker=true or install lego): %w", err)
+		return fmt.Errorf("lego binary not found (set use_podman=true or install lego): %w", err)
 	}
 	args := []string{
 		"--path", cfg.DataPath,
@@ -404,14 +404,14 @@ func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email str
 		return err
 	}
 	legoDomain := "*." + domain
-	useDocker := a.external.UseDocker
-	if a.useDockerOverride != nil {
-		useDocker = *a.useDockerOverride
+	usePodman := a.external.UsePodman
+	if a.usePodmanOverride != nil {
+		usePodman = *a.usePodmanOverride
 	}
 	cfg := ExternalACMEConfig{
-		Enabled:     true,
-		UseDocker:   useDocker,
-		DockerImage: a.external.DockerImage,
+		Enabled:        true,
+		UsePodman:      usePodman,
+		ContainerImage: a.external.ContainerImage,
 		DataPath:    a.external.DataPath,
 		DNSProvider: legoProvider,
 		DNSEnv:      legoEnv,
@@ -442,9 +442,9 @@ func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email str
 	_ = os.MkdirAll(cfg.CertsPath, 0o750)
 
 	domains := []string{legoDomain, domain}
-	if cfg.UseDocker {
-		if err := a.runLegoDocker(ctx, cfg, domains, email); err != nil {
-			return fmt.Errorf("lego docker run: %w", err)
+	if cfg.UsePodman {
+		if err := a.runLegoPodman(ctx, cfg, domains, email); err != nil {
+			return fmt.Errorf("lego podman run: %w", err)
 		}
 	} else {
 		if err := a.runLegoBinary(ctx, cfg, domains, email); err != nil {

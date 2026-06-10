@@ -70,7 +70,7 @@ describe("AgentTrace", () => {
     const user = userEvent.setup();
     const events = [
       makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35", turn: 1 }),
-      makeEvent("proposal", { id: "prop-1", agent_id: "agent-1", proposal_type: "write", tool_calls: [{ id: "tc-1", name: "docker_restart", arguments: "{}", agent_id: "agent-1" }], turn: 1 }),
+      makeEvent("proposal", { id: "prop-1", agent_id: "agent-1", proposal_type: "write", tool_calls: [{ id: "tc-1", name: "podman_restart", arguments: "{}", agent_id: "agent-1" }], turn: 1 }),
       makeEvent("consensus", { proposal_id: "prop-1", result: "approved", votes: [{ agent_id: "agent-1", decision: "approve" }] }),
     ];
     render(<AgentTrace events={events} />);
@@ -109,7 +109,7 @@ describe("AgentTrace", () => {
     const user = userEvent.setup();
     const events = [
       makeEvent("agent_thinking", { agent_id: "agent-1", avatar_shape: "diamond", avatar_color: "#FF6B35", turn: 1 }),
-      makeEvent("tool_call", { id: "tc-1", name: "docker_logs", agent_id: "agent-1", turn: 1 }),
+      makeEvent("tool_call", { id: "tc-1", name: "podman_logs", agent_id: "agent-1", turn: 1 }),
       makeEvent("tool_result", { id: "tc-1", content: "connection refused", is_error: false }),
     ];
     render(<AgentTrace events={events} />);
@@ -120,7 +120,7 @@ describe("AgentTrace", () => {
     const turnBtn = screen.getByRole("button", { name: /Turn 1/ });
     await user.click(turnBtn);
 
-    expect(screen.getByText("Docker logs")).toBeTruthy();
+    expect(screen.getByText("Podman logs")).toBeTruthy();
   });
 
   it("shows agent vote badges", async () => {

@@ -84,7 +84,7 @@ export default function AgentConfigModal({ open, onClose, onSaved }) {
       permission_mode: "standard",
       avatar_shape: "circle",
       avatar_color: colors[idx % colors.length],
-      tools: ["docker", "files", "diagnostics", "snapshots"],
+      tools: ["podman", "files", "diagnostics", "snapshots"],
     };
     setSettings((prev) => ({
       ...prev,

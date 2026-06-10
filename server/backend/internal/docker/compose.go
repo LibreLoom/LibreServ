@@ -13,12 +13,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ComposeManager manages docker compose operations.
+var defaultBinary = "podman"
+
+func setDefaultBinary(b string) {
+	if b != "" {
+		defaultBinary = b
+	}
+}
+
+func runtimeBinary() string {
+	if defaultBinary != "" {
+		return defaultBinary
+	}
+	return "podman"
+}
+
+// ComposeManager manages compose operations.
 type ComposeManager struct {
 	client *Client
 }
 
-// NewComposeManager creates a compose manager for a Docker client.
+// NewComposeManager creates a compose manager for a runtime client.
 func NewComposeManager(client *Client) *ComposeManager {
 	return &ComposeManager{client: client}
 }
@@ -100,7 +115,7 @@ func extractBindMountPaths(composePath string) ([]string, error) {
 }
 
 // CreateVolumeDirs pre-creates host-side bind mount directories from a compose file.
-// This prevents docker compose from creating them as root when it sets up bind mounts.
+// This prevents the runtime from creating them as root when setting up bind mounts.
 func CreateVolumeDirs(composePath string) error {
 	paths, err := extractBindMountPaths(composePath)
 	if err != nil {
@@ -128,7 +143,7 @@ func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
 
 	composeFile, workDir := cm.getComposeArgs(composePath)
 
-	cmd := exec.CommandContext(ctx, "docker", "compose",
+	cmd := exec.CommandContext(ctx, cm.client.Binary(), "compose",
 		"-f", composeFile,
 		"up", "-d", "--remove-orphans")
 
@@ -144,7 +159,7 @@ func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
 func (cm *ComposeManager) Down(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
 
-	cmd := exec.CommandContext(ctx, "docker", "compose",
+	cmd := exec.CommandContext(ctx, cm.client.Binary(), "compose",
 		"-f", composeFile,
 		"down")
 
@@ -160,7 +175,7 @@ func (cm *ComposeManager) Down(ctx context.Context, composePath string) error {
 func (cm *ComposeManager) Pull(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
 
-	cmd := exec.CommandContext(ctx, "docker", "compose",
+	cmd := exec.CommandContext(ctx, cm.client.Binary(), "compose",
 		"-f", composeFile,
 		"pull")
 
@@ -177,7 +192,7 @@ func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
 	composeFile, workDir := cm.getComposeArgs(composePath)
 
 	// Try graceful stop first
-	cmd := exec.CommandContext(ctx, "docker", "compose",
+	cmd := exec.CommandContext(ctx, cm.client.Binary(), "compose",
 		"-f", composeFile,
 		"stop", "--timeout", "2") // 2 second timeout for graceful stop
 
@@ -188,7 +203,7 @@ func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
 		killCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 
-		killCmd := exec.CommandContext(killCtx, "docker", "compose",
+		killCmd := exec.CommandContext(killCtx, cm.client.Binary(), "compose",
 			"-f", composeFile,
 			"down", "--timeout", "0")
 
@@ -276,7 +291,7 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 			continue
 		}
 
-		cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+		cmd := exec.CommandContext(ctx, runtimeBinary(), "run", "--rm",
 			"-v", hostPath+":/cleanup",
 			"alpine:latest",
 			"chown", "-R", owner, "/cleanup",
@@ -287,7 +302,7 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 			continue
 		}
 
-		cmd2 := exec.CommandContext(ctx, "docker", "run", "--rm",
+		cmd2 := exec.CommandContext(ctx, runtimeBinary(), "run", "--rm",
 			"-v", hostPath+":/cleanup",
 			"alpine:latest",
 			"chmod", "-R", "u+rw", "/cleanup",
@@ -310,7 +325,7 @@ func ChownDir(ctx context.Context, dirPath string, uid, gid int) error {
 
 	owner := fmt.Sprintf("%d:%d", uid, gid)
 
-	cmd := exec.CommandContext(ctx, "docker", "run", "--rm",
+	cmd := exec.CommandContext(ctx, runtimeBinary(), "run", "--rm",
 		"-v", dirPath+":/cleanup",
 		"alpine:latest",
 		"chown", "-R", owner, "/cleanup",
@@ -320,7 +335,7 @@ func ChownDir(ctx context.Context, dirPath string, uid, gid int) error {
 		return fmt.Errorf("chown %s via alpine: %w (%s)", dirPath, err, strings.TrimSpace(string(output)))
 	}
 
-	cmd2 := exec.CommandContext(ctx, "docker", "run", "--rm",
+	cmd2 := exec.CommandContext(ctx, runtimeBinary(), "run", "--rm",
 		"-v", dirPath+":/cleanup",
 		"alpine:latest",
 		"chmod", "-R", "u+rw", "/cleanup",
@@ -335,14 +350,14 @@ func ChownDir(ctx context.Context, dirPath string, uid, gid int) error {
 
 func composeError(action string, output []byte, err error) error {
 	outStr := string(output)
-	if strings.Contains(outStr, "Cannot connect to Docker daemon") {
-		return fmt.Errorf("docker daemon not running or not accessible")
+	if strings.Contains(outStr, "Cannot connect to the Docker daemon") || strings.Contains(outStr, "Cannot connect to Podman") {
+		return fmt.Errorf("container runtime not running or not accessible")
 	}
 	if strings.Contains(outStr, "permission denied") {
-		return fmt.Errorf("permission denied accessing docker socket")
+		return fmt.Errorf("permission denied accessing runtime socket")
 	}
-	if strings.Contains(outStr, "is not a docker command") || strings.Contains(outStr, "unknown command \"compose\"") {
-		return fmt.Errorf("docker compose v2 is required (install Docker Compose plugin)")
+	if strings.Contains(outStr, "unknown command \"compose\"") || strings.Contains(outStr, "looking up compose provider failed") {
+		return fmt.Errorf("compose provider not found (install podman-compose or docker-compose)")
 	}
 	return fmt.Errorf("compose %s failed: %s: %w", action, outStr, err)
 }

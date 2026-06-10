@@ -124,7 +124,7 @@ get_distro_info() {
     DISTRO_VERSION_CODENAME="${VERSION_CODENAME:-}"
     DISTRO_VERSION_ID="${VERSION_ID:-}"
 
-    # Map derivatives to their parent distro for Docker repo purposes
+    # Map derivatives to their parent distro for package repository purposes
     case "$DISTRO" in
         linuxmint|pop|elementary|neon|zorin)
             DISTRO="ubuntu"
@@ -146,90 +146,50 @@ run_systemctl() {
     systemctl "$@"
 }
 
-# Install Docker if needed
-install_docker() {
-    if command -v docker >/dev/null 2>&1; then
-        log_info "Docker is already installed: $(docker --version)"
-        if ! run_systemctl is-active --quiet docker 2>/dev/null; then
-            log_info "Starting Docker service..."
-            run_systemctl start docker
-        fi
+# Install Podman if needed
+install_runtime() {
+    if command -v podman >/dev/null 2>&1; then
+        log_info "Podman is already installed: $(podman --version)"
         return
     fi
 
-    log_info "Installing Docker..."
+    log_info "Installing Podman..."
 
     get_distro_info
 
     case "$DISTRO" in
         ubuntu|debian)
             apt-get update -qq
-            apt-get install -y -qq ca-certificates curl gnupg
-            install -m 0755 -d /etc/apt/keyrings
-            if ! command -v gpg >/dev/null 2>&1; then
-                apt-get install -y -qq gnupg
-            fi
-            curl -fsSL "https://download.docker.com/linux/${DISTRO}/gpg" | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            chmod a+r /etc/apt/keyrings/docker.gpg
-
-            if [ -z "$DISTRO_VERSION_CODENAME" ]; then
-                DISTRO_VERSION_CODENAME="$(lsb_release -cs 2>/dev/null || echo "focal")"
-                log_warn "Could not detect version codename, using: ${DISTRO_VERSION_CODENAME}"
-            fi
-
-            echo "deb [arch=${ARCH} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${DISTRO} ${DISTRO_VERSION_CODENAME} stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-            apt-get update -qq
-            apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            run_systemctl enable docker
-            run_systemctl start docker
+            apt-get install -y -qq podman podman-compose
             ;;
-        fedora)
-            dnf -y -q install dnf-plugins-core
-            dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
-            dnf install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-            run_systemctl enable docker
-            run_systemctl start docker
-            ;;
-        rhel|centos)
+        fedora|rhel|centos)
             if command -v dnf >/dev/null 2>&1; then
-                dnf -y -q install dnf-plugins-core
-                dnf config-manager --add-repo "https://download.docker.com/linux/rhel/docker-ce.repo"
-                dnf install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                dnf install -y -q podman podman-compose
             elif command -v yum >/dev/null 2>&1; then
-                yum install -y -q yum-utils
-                yum-config-manager --add-repo "https://download.docker.com/linux/rhel/docker-ce.repo"
-                yum install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+                yum install -y -q podman podman-compose
             else
                 log_error "No supported package manager found (dnf or yum required)"
                 exit 1
             fi
-            run_systemctl enable docker
-            run_systemctl start docker
             ;;
         opensuse-leap|opensuse-tumbleweed|sles)
-            zypper -q install -y docker docker-compose-plugin
-            run_systemctl enable docker
-            run_systemctl start docker
+            zypper -q install -y podman podman-compose
             ;;
         arch|manjaro|endeavouros)
-            pacman -Sy --noconfirm docker
-            run_systemctl enable docker
-            run_systemctl start docker
+            pacman -Sy --noconfirm podman podman-compose
             ;;
         alpine)
-            apk add docker docker-compose
-            rc-update add docker default
-            rc-service docker start
+            apk add podman podman-compose
             log_warn "Alpine uses OpenRC, not systemd. Service management differs."
             ;;
         *)
             log_error "Unsupported Linux distribution: $DISTRO"
-            log_error "Please install Docker manually: https://docs.docker.com/engine/install/"
+            log_error "Please install Podman manually"
             exit 1
             ;;
     esac
 
-    log_info "Docker installed successfully"
+    log_info "Podman installed successfully"
 }
 
 # Create user if not exists
@@ -246,10 +206,6 @@ create_user() {
         exit 1
     }
 
-    if getent group docker >/dev/null 2>&1; then
-        usermod -aG docker "${USER}"
-        log_info "Added ${USER} to docker group"
-    fi
 }
 
 # Create directories with proper ownership and permissions
@@ -527,8 +483,7 @@ create_systemd_service() {
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
 Description=LibreServ Platform
-After=network.target docker.service
-Requires=docker.service
+After=network.target
 
 [Service]
 Type=simple
@@ -801,7 +756,7 @@ do_install() {
     check_dependencies
     detect_system
 
-    install_docker
+    install_runtime
 
     create_user
     create_directories

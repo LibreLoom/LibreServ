@@ -119,7 +119,7 @@ func (m *Monitor) RegisterApp(appID string, config HealthCheckConfig) error {
 
 	if config.Container != nil {
 		if m.runtime == nil {
-			return fmt.Errorf("%w: container checks require runtime", ErrDockerUnavailable)
+			return fmt.Errorf("%w: container checks require runtime", ErrRuntimeUnavailable)
 		}
 		checks = append(checks, NewContainerCheck(*config.Container, m.runtime))
 	}
@@ -127,7 +127,7 @@ func (m *Monitor) RegisterApp(appID string, config HealthCheckConfig) error {
 	// If no specific checks configured, add a default container check
 	if len(checks) == 0 {
 		if m.runtime == nil {
-			return fmt.Errorf("%w: no checks configured and runtime is unavailable", ErrDockerUnavailable)
+			return fmt.Errorf("%w: no checks configured and runtime is unavailable", ErrRuntimeUnavailable)
 		}
 		checks = append(checks, NewContainerCheck(ContainerCheckConfig{
 			ContainerName: appID,

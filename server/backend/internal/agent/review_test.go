@@ -69,7 +69,7 @@ func TestAgentMessageData(t *testing.T) {
 func TestToolCallDataWithAgentID(t *testing.T) {
 	data := ToolCallData{
 		ID:        "call_1",
-		Name:      "docker_restart",
+		Name:      "podman_restart",
 		Arguments: json.RawMessage(`{"container":"nginx"}`),
 		AgentID:   "agent-1",
 	}

@@ -38,7 +38,7 @@ LibreServ implements the following security measures:
 
 ### Container Security
 - Non-root container configurations where possible
-- Hardened Docker Compose with pinned image tags
+- Hardened container runtime with pinned image tags
 - Network isolation recommendations
 
 ## Rate Limiting
@@ -66,8 +66,8 @@ Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-R
 ## Automated Scanning
 
 This project uses automated security scanning:
-- **Dependency Scanning**: Weekly Trivy scans for Go and Docker dependencies
-- **Container Scanning**: Docker image vulnerability scanning
+- **Dependency Scanning**: Weekly Trivy scans for Go and container dependencies
+- **Container Scanning**: Container image vulnerability scanning
 - **Go Vulnerability Check**: govulncheck for Go packages
 - **Static Application Security Testing (SAST)**: gosec and staticcheck on every push
 

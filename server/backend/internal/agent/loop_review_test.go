@@ -104,7 +104,7 @@ func TestProposalDataSerialization(t *testing.T) {
 		AgentID: "agent-1",
 		Type:    "write",
 		ToolCalls: []ToolCallData{
-			{ID: "call_1", Name: "docker_restart", Arguments: json.RawMessage(`{"container":"nginx"}`), AgentID: "agent-1"},
+			{ID: "call_1", Name: "podman_restart", Arguments: json.RawMessage(`{"container":"nginx"}`), AgentID: "agent-1"},
 		},
 	}
 	b, err := json.Marshal(data)

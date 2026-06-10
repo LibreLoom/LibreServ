@@ -57,9 +57,9 @@ const HEALTH_NOTIFICATION_OPTIONS = [
     description: "When disk space is low",
   },
   {
-    key: "notify_on_docker_failure",
-    label: "Docker failures",
-    description: "When Docker daemon fails",
+    key: "notify_on_runtime_failure",
+    label: "Runtime failures",
+    description: "When the container engine fails",
   },
   {
     key: "notify_on_database_issue",
@@ -242,8 +242,8 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                       settings?.notify_on_health_alert || false,
                     notify_on_disk_warning:
                       settings?.notify_on_disk_warning || false,
-                    notify_on_docker_failure:
-                      settings?.notify_on_docker_failure || false,
+                    notify_on_runtime_failure:
+                      settings?.notify_on_runtime_failure || false,
                     notify_on_database_issue:
                       settings?.notify_on_database_issue || false,
                   }}

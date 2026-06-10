@@ -42,7 +42,7 @@ type SetupHandler struct {
 	mu              sync.Mutex
 	authService     *auth.Service
 	setupService    *setup.Service
-	docker          *docker.Client
+	runtime          *docker.Client
 	mailer          func() (*email.Sender, error)
 	license         middleware.LicenseChecker
 	dnsProviderMgr  *network.DNSProviderManager
@@ -55,7 +55,7 @@ type SetupHandler struct {
 func NewSetupHandler(
 	authService *auth.Service,
 	setupService *setup.Service,
-	dockerClient *docker.Client,
+	runtimeClient *docker.Client,
 	license middleware.LicenseChecker,
 	dnsProviderMgr *network.DNSProviderManager,
 	acmeManager *network.ACMEManager,
@@ -65,7 +65,7 @@ func NewSetupHandler(
 	return &SetupHandler{
 		authService:     authService,
 		setupService:    setupService,
-		docker:          dockerClient,
+		runtime:          runtimeClient,
 		mailer:          email.NewSender,
 		license:         license,
 		dnsProviderMgr:  dnsProviderMgr,
@@ -77,9 +77,9 @@ func NewSetupHandler(
 
 // checkCertCapability returns whether cert issuance is possible and the method to use.
 func (h *SetupHandler) checkCertCapability() (available bool, method string) {
-	if h.docker != nil {
-		if err := h.docker.HealthCheck(); err == nil {
-			return true, "docker"
+	if h.runtime != nil {
+		if err := h.runtime.HealthCheck(); err == nil {
+			return true, "podman"
 		}
 	}
 	if _, err := exec.LookPath("lego"); err == nil {
@@ -362,12 +362,12 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	check("docker", "system", func() error {
-		if h.docker == nil {
+	check("runtime", "system", func() error {
+		if h.runtime == nil {
 			return nil
 		}
-		if err := h.docker.HealthCheck(); err != nil {
-			results["docker_optional"] = true
+		if err := h.runtime.HealthCheck(); err != nil {
+			results["runtime_optional"] = true
 			return nil
 		}
 		return nil
@@ -630,8 +630,8 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		certAvail, certMethod := h.checkCertCapability()
-		if certAvail && certMethod == "docker" {
-			h.acmeManager.WithUseDocker(true)
+		if certAvail && certMethod == "podman" {
+			h.acmeManager.WithUsePodman(true)
 		}
 		err := h.acmeManager.RequestWildcardCert(context.Background(), req.Domain, req.Email, cfg)
 		h.dnsState.mu.Lock()
@@ -640,7 +640,7 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 			h.dnsState.certError = err.Error()
 		}
 		h.dnsState.mu.Unlock()
-		h.acmeManager.ClearUseDockerOverride()
+		h.acmeManager.ClearUsePodmanOverride()
 		if err != nil {
 			slog.Error("wildcard cert request failed", "domain", req.Domain, "error", err)
 		} else {

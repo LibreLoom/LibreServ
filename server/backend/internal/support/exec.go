@@ -14,10 +14,10 @@ func SafeWorkdir() string {
 	return dir
 }
 
-// ValidateDockerArgs enforces a minimal allowlist of docker subcommands and blocks dangerous flags.
-func ValidateDockerArgs(args []string) error {
+// ValidatePodmanArgs enforces a minimal allowlist of podman subcommands and blocks dangerous flags.
+func ValidatePodmanArgs(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("docker subcommand required")
+		return fmt.Errorf("podman subcommand required")
 	}
 	sub := args[0]
 	allowedSubs := map[string]bool{
@@ -29,19 +29,19 @@ func ValidateDockerArgs(args []string) error {
 		"logs":    true,
 	}
 	if !allowedSubs[sub] {
-		return fmt.Errorf("docker subcommand not allowed: %s", sub)
+		return fmt.Errorf("podman subcommand not allowed: %s", sub)
 	}
 	for _, a := range args[1:] {
-		if isDangerousDockerFlag(a) {
-			return fmt.Errorf("docker flag not allowed: %s", a)
+		if isDangerousContainerFlag(a) {
+			return fmt.Errorf("podman flag not allowed: %s", a)
 		}
 	}
 	return nil
 }
 
-// isDangerousDockerFlag checks if an argument is a dangerous docker flag.
+// isDangerousContainerFlag checks if an argument is a dangerous container flag.
 // Handles various flag formats: -v, --volume, --volume=path, -v=path
-func isDangerousDockerFlag(arg string) bool {
+func isDangerousContainerFlag(arg string) bool {
 	la := strings.ToLower(arg)
 
 	// Strip leading dashes and extract flag name (before any '=')

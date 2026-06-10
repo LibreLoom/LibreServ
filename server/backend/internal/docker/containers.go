@@ -4,126 +4,329 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/client"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
 
-// ContainerStats summarizes container resource usage.
-type ContainerStats struct {
-	CPUPercent  float64 `json:"cpu_percent"`
-	MemoryUsage uint64  `json:"memory_usage"`
-	MemoryLimit uint64  `json:"memory_limit"`
-	NetworkRx   uint64  `json:"network_rx"`
-	NetworkTx   uint64  `json:"network_tx"`
+// podmanContainer matches the JSON output of `podman ps --format json`.
+type podmanContainer struct {
+	Id     string            `json:"Id"`
+	Names  []string          `json:"Names"`
+	Image  string            `json:"Image"`
+	State  string            `json:"State"`
+	Status string            `json:"Status"`
+	Labels map[string]string `json:"Labels"`
 }
 
-// ListContainersByLabel returns containers matching a label filter.
-func (c *Client) ListContainersByLabel(label string) ([]container.Summary, error) {
-	if c == nil || c.cli == nil {
-		return nil, errors.New("docker client not initialized")
-	}
-	f := make(client.Filters).Add("label", label)
-
-	result, err := c.cli.ContainerList(c.ctx, client.ContainerListOptions{
-		All:     true,
-		Filters: f,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.Items, nil
+// podmanInspectResult matches the JSON output of `podman inspect`.
+type podmanInspectResult struct {
+	Id     string          `json:"Id"`
+	Name   string          `json:"Name"`
+	Config podmanConfig    `json:"Config"`
+	State  podmanState      `json:"State"`
 }
 
-// ListContainersAll returns all containers (running and stopped).
-func (c *Client) ListContainersAll(ctx context.Context) ([]container.Summary, error) {
-	if c == nil || c.cli == nil {
-		return nil, errors.New("docker client not initialized")
-	}
-	result, err := c.cli.ContainerList(ctx, client.ContainerListOptions{
-		All: true,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.Items, nil
+// podmanConfig matches a subset of `podman inspect` Config.
+type podmanConfig struct {
+	Tty bool `json:"Tty"`
 }
 
-// GetContainerStats retrieves real-time stats.
-func (c *Client) GetContainerStats(ctx context.Context, containerID string) (*ContainerStats, error) {
-	stats, err := c.cli.ContainerStats(ctx, containerID, client.ContainerStatsOptions{})
+// podmanState matches a subset of `podman inspect` State.
+type podmanState struct {
+	Status      string `json:"Status"`
+	Running     bool   `json:"Running"`
+	Paused      bool   `json:"Paused"`
+	Restarting  bool   `json:"Restarting"`
+	OOMKilled   bool   `json:"OOMKilled"`
+	Dead        bool   `json:"Dead"`
+	Pid         int    `json:"Pid"`
+	ExitCode    int    `json:"ExitCode"`
+	Error       string `json:"Error"`
+	StartedAt   string `json:"StartedAt"`
+	FinishedAt  string `json:"FinishedAt"`
+}
+
+// podmanStatsResult matches the JSON output of `podman stats --no-stream --format json`.
+type podmanStatsResult struct {
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+	CPUPercent  string `json:"cpu_percent"`
+	MemUsage    string `json:"mem_usage"`
+	BlockIO     string `json:"block_io"`
+	NetIO       string `json:"net_io"`
+}
+
+// runtimeBinary returns the configured runtime binary (podman by default).
+func (c *Client) runtimeBinary() string {
+	if c == nil || c.binary == "" {
+		return "podman"
+	}
+	return c.binary
+}
+
+// ListContainersByLabel returns containers matching a label selector using the Podman CLI.
+func (c *Client) ListContainersByLabel(ctx context.Context, label string) ([]runtime.ContainerInfo, error) {
+	args := []string{"ps", "-a", "--filter", "label=" + label, "--format", "json"}
+	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
+	out, err := cmd.Output()
 	if err != nil {
+		return nil, fmt.Errorf("podman ps failed: %w", err)
+	}
+
+	var containers []podmanContainer
+	if len(out) == 0 || string(out) == "[]\n" {
+		return nil, nil
+	}
+	if err := json.Unmarshal(out, &containers); err != nil {
 		return nil, err
 	}
-	defer stats.Body.Close()
 
-	var v container.StatsResponse
-	if err := json.NewDecoder(stats.Body).Decode(&v); err != nil {
+	var result []runtime.ContainerInfo
+	for _, pc := range containers {
+		result = append(result, runtime.ContainerInfo{
+			ID:     pc.Id,
+			Names:  pc.Names,
+			Image:  pc.Image,
+			State:  pc.State,
+			Status: pc.Status,
+			Labels: pc.Labels,
+		})
+	}
+	return result, nil
+}
+
+// ListContainersAll returns all containers (running and stopped) using the Podman CLI.
+func (c *Client) ListContainersAll(ctx context.Context) ([]runtime.ContainerInfo, error) {
+	args := []string{"ps", "-a", "--format", "json"}
+	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("podman ps failed: %w", err)
+	}
+
+	var containers []podmanContainer
+	if len(out) == 0 || string(out) == "[]\n" {
+		return nil, nil
+	}
+	if err := json.Unmarshal(out, &containers); err != nil {
 		return nil, err
 	}
 
-	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage) - float64(v.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(v.CPUStats.SystemUsage) - float64(v.PreCPUStats.SystemUsage)
+	var result []runtime.ContainerInfo
+	for _, pc := range containers {
+		result = append(result, runtime.ContainerInfo{
+			ID:     pc.Id,
+			Names:  pc.Names,
+			Image:  pc.Image,
+			State:  pc.State,
+			Status: pc.Status,
+			Labels: pc.Labels,
+		})
+	}
+	return result, nil
+}
 
-	cpuPercent := 0.0
-	if systemDelta > 0.0 && cpuDelta > 0.0 {
-		cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+// GetContainerStats retrieves real-time stats using the Podman CLI.
+func (c *Client) GetContainerStats(ctx context.Context, containerID string) (*runtime.ContainerStats, error) {
+	args := []string{"stats", "--no-stream", "--format", "json", containerID}
+	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("podman stats failed: %w", err)
 	}
 
-	return &ContainerStats{
-		CPUPercent:  cpuPercent,
-		MemoryUsage: v.MemoryStats.Usage,
-		MemoryLimit: v.MemoryStats.Limit,
+	var statsResults []podmanStatsResult
+	if err := json.Unmarshal(out, &statsResults); err != nil {
+		return nil, err
+	}
+	if len(statsResults) == 0 {
+		return nil, errors.New("no stats returned")
+	}
+
+	r := statsResults[0]
+	cpuPct, err := parsePercent(r.CPUPercent)
+	if err != nil {
+		cpuPct = 0
+	}
+
+	memUsage, memLimit, _ := parseMemUsage(r.MemUsage)
+	_, _, netRx, netTx := parseNetIO(r.NetIO)
+
+	return &runtime.ContainerStats{
+		CPUPercent:  cpuPct,
+		MemoryUsage: memUsage,
+		MemoryLimit: memLimit,
+		NetworkRx:   netRx,
+		NetworkTx:   netTx,
 	}, nil
 }
 
-// InspectContainer returns detailed information about a container.
-func (c *Client) InspectContainer(ctx context.Context, containerID string) (client.ContainerInspectResult, error) {
-	if c == nil || c.cli == nil {
-		return client.ContainerInspectResult{}, errors.New("docker client not initialized")
+// InspectContainer returns detailed information about a container using the Podman CLI.
+func (c *Client) InspectContainer(ctx context.Context, containerID string) (*runtime.ContainerInspectResult, error) {
+	args := []string{"inspect", containerID}
+	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("podman inspect failed: %w", err)
 	}
-	return c.cli.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+
+	var result []podmanInspectResult
+	if err := json.Unmarshal(out, &result); err != nil {
+		return nil, err
+	}
+	if len(result) == 0 {
+		return nil, errors.New("no inspect result returned")
+	}
+
+	ins := result[0]
+	return &runtime.ContainerInspectResult{
+		ID:   ins.Id,
+		Name: ins.Name,
+		TTY:  ins.Config.Tty,
+		State: runtime.ContainerState{
+			Running:     ins.State.Running,
+			Paused:      ins.State.Paused,
+			Restarting:  ins.State.Restarting,
+			OOMKilled:   ins.State.OOMKilled,
+			Dead:        ins.State.Dead,
+			Pid:         ins.State.Pid,
+			ExitCode:    ins.State.ExitCode,
+			Error:       ins.State.Error,
+			StartedAt:   ins.State.StartedAt,
+			FinishedAt:  ins.State.FinishedAt,
+			HealthState: "",
+		},
+		Raw: out,
+	}, nil
 }
 
-// ContainerLogs retrieves logs from a container.
-func (c *Client) ContainerLogs(ctx context.Context, containerID string, follow bool, tail string) (io.ReadCloser, error) {
-	if c == nil || c.cli == nil {
-		return nil, errors.New("docker client not initialized")
+// ContainerLogs retrieves logs from a container using the Podman CLI.
+func (c *Client) ContainerLogs(ctx context.Context, containerID string, options runtime.LogOptions) (io.ReadCloser, error) {
+	args := []string{"logs", containerID}
+	if options.Follow {
+		args = append(args, "--follow")
 	}
-	opts := client.ContainerLogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Follow:     follow,
-		Tail:       tail,
+	if options.Tail != "" && options.Tail != "all" {
+		args = append(args, "--tail", options.Tail)
 	}
-	return c.cli.ContainerLogs(ctx, containerID, opts)
+
+	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+
+	// Combine stdout and stderr into a single ReadCloser.
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = io.Copy(pw, stdout)
+		_ = stdout.Close()
+		_, _ = io.Copy(pw, stderr)
+		_ = stderr.Close()
+		_ = cmd.Wait()
+		_ = pw.Close()
+	}()
+	return pr, nil
 }
 
-// RestartContainer restarts a container with an optional timeout.
+// RestartContainer restarts a container using the Podman CLI.
 func (c *Client) RestartContainer(ctx context.Context, containerID string, timeout time.Duration) error {
-	if c == nil || c.cli == nil {
-		return errors.New("docker client not initialized")
+	secs := strconv.Itoa(int(timeout.Seconds()))
+	args := []string{"restart", "-t", secs, containerID}
+	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("podman restart failed: %w (output: %s)", err, string(out))
 	}
-	_, err := c.cli.ContainerRestart(ctx, containerID, client.ContainerRestartOptions{})
-	return err
+	return nil
 }
 
-// StopContainer stops a running container.
+// StopContainer stops a running container using the Podman CLI.
 func (c *Client) StopContainer(ctx context.Context, containerID string) error {
-	if c == nil || c.cli == nil {
-		return errors.New("docker client not initialized")
+	args := []string{"stop", containerID}
+	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("podman stop failed: %w (output: %s)", err, string(out))
 	}
-	_, err := c.cli.ContainerStop(ctx, containerID, client.ContainerStopOptions{})
-	return err
+	return nil
 }
 
-// StartContainer starts a stopped container.
+// StartContainer starts a stopped container using the Podman CLI.
 func (c *Client) StartContainer(ctx context.Context, containerID string) error {
-	if c == nil || c.cli == nil {
-		return errors.New("docker client not initialized")
+	args := []string{"start", containerID}
+	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("podman start failed: %w (output: %s)", err, string(out))
 	}
-	_, err := c.cli.ContainerStart(ctx, containerID, client.ContainerStartOptions{})
-	return err
+	return nil
+}
+
+// --- helpers ---
+
+func parsePercent(s string) (float64, error) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, "%")
+	return strconv.ParseFloat(s, 64)
+}
+
+func parseMemUsage(s string) (usage uint64, limit uint64, ok bool) {
+	parts := strings.Split(s, " / ")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	u, err1 := parseByteSize(strings.TrimSpace(parts[0]))
+	l, err2 := parseByteSize(strings.TrimSpace(parts[1]))
+	return u, l, err1 == nil && err2 == nil
+}
+
+func parseNetIO(s string) (txStr string, rxStr string, tx uint64, rx uint64) {
+	parts := strings.Split(s, " / ")
+	if len(parts) != 2 {
+		return "", "", 0, 0
+	}
+	txStr = strings.TrimSpace(parts[0])
+	rxStr = strings.TrimSpace(parts[1])
+	txVal, _ := parseByteSize(txStr)
+	rxVal, _ := parseByteSize(rxStr)
+	return txStr, rxStr, txVal, rxVal
+}
+
+func parseByteSize(s string) (uint64, error) {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, ",", "")
+	if len(s) == 0 {
+		return 0, nil
+	}
+	mult := float64(1)
+	for _, unit := range []struct {
+		suffix string
+		mult   float64
+	}{
+		{"TB", 1e12}, {"GB", 1e9}, {"MB", 1e6}, {"kB", 1e3},
+		{"T", 1e12}, {"G", 1e9}, {"M", 1e6}, {"K", 1e3},
+	} {
+		if strings.HasSuffix(s, unit.suffix) {
+			mult = unit.mult
+			s = strings.TrimSuffix(s, unit.suffix)
+			break
+		}
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0, err
+	}
+	return uint64(f * mult), nil
 }

@@ -329,7 +329,7 @@ const KNOWN_CHECKS = new Set([
   "database", "database_writable", "data_path_writable", "logs_path_writable",
   "caddy_config_writable", "caddy_certs_writable",
   "acme_data_writable", "acme_certs_writable",
-  "disk_space", "docker",
+  "disk_space", "runtime",
 ]);
 
 const CHECK_LABELS = {
@@ -342,7 +342,7 @@ const CHECK_LABELS = {
   acme_data_writable:   "Certificate data",
   acme_certs_writable:  "Certificate storage",
   disk_space:           "Disk space",
-  docker:               "Docker",
+  runtime:              "Runtime",
 };
 
 const CATEGORY_LABELS = {

@@ -25,11 +25,11 @@ const MOCK_TRACE_EVENTS = [
   { type: "agent_thinking", agent_id: "researcher", avatar_shape: "diamond", avatar_color: "#FF6B35", model: "route/mimo-v2.5-pro", turn: 1 },
   { type: "agent_thinking", agent_id: "reviewer", avatar_shape: "circle", avatar_color: "#4ECDC4", model: "route/kimi-k2.6", turn: 1 },
   { type: "agent_message", agent_id: "researcher", avatar_shape: "diamond", avatar_color: "#FF6B35", content: "Checking container status and disk usage...", turn: 1 },
-  { type: "tool_call", id: "tc-1", name: "docker_inspect", agent_id: "researcher", arguments: "{\"container\":\"nextcloud\"}", turn: 1 },
+  { type: "tool_call", id: "tc-1", name: "podman_inspect", agent_id: "researcher", arguments: "{\"container\":\"nextcloud\"}", turn: 1 },
   { type: "tool_result", id: "tc-1", content: "Container nextcloud: status=unhealthy, disk=98%", is_error: false, turn: 1 },
-  { type: "tool_call", id: "tc-2", name: "docker_restart", agent_id: "researcher", arguments: "{\"container\":\"nextcloud\"}", turn: 1 },
+  { type: "tool_call", id: "tc-2", name: "podman_restart", agent_id: "researcher", arguments: "{\"container\":\"nextcloud\"}", turn: 1 },
   { type: "usage_update", turn_cost_usd: 0.0234, total_cost_usd: 0.0234, input_tokens: 1520, output_tokens: 340, cache_tokens: 800, remaining_usd: 9.98, turn: 1 },
-  { type: "proposal", id: "prop-1", agent_id: "researcher", proposal_type: "write", tool_calls: [{ id: "tc-2", name: "docker_restart", arguments: "{\"container\":\"nextcloud\"}", agent_id: "researcher" }], turn: 1 },
+  { type: "proposal", id: "prop-1", agent_id: "researcher", proposal_type: "write", tool_calls: [{ id: "tc-2", name: "podman_restart", arguments: "{\"container\":\"nextcloud\"}", agent_id: "researcher" }], turn: 1 },
   { type: "vote", proposal_id: "prop-1", agent_id: "reviewer", avatar_shape: "circle", avatar_color: "#4ECDC4", decision: "approve", reason: "Safe to restart — container is unhealthy.", turn: 1 },
   { type: "consensus", proposal_id: "prop-1", result: "approved", votes: [{ agent_id: "reviewer", decision: "approve", reason: "Safe to restart." }], turn: 1 },
   { type: "snapshot_created", snapshot_id: "snap-1", tool_call_id: "tc-2", turn: 1 },
@@ -117,7 +117,7 @@ export default function HelpUIDemo() {
         <Section title="ChatPermissionPrompt">
           <div className="bg-secondary/50 rounded-large-element p-5">
             <ChatPermissionPrompt
-              toolName="docker_restart"
+              toolName="podman_restart"
               reason="Restarting the Nextcloud container to restore service"
               onAllow={() => {}}
               onDeny={() => {}}

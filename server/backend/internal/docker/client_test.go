@@ -4,8 +4,8 @@ import "testing"
 
 func TestDetectSocketArgs(t *testing.T) {
 	paths := []string{
-		"/var/run/docker.sock",
-		"unix:///var/run/docker.sock",
+		"/run/user/1000/podman/podman.sock",
+		"unix:///run/user/1000/podman/podman.sock",
 	}
 	for _, p := range paths {
 		if _, err := connectViaSocket(p); err == nil {

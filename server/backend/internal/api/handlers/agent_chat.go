@@ -27,7 +27,7 @@ import (
 
 type AgentChatHandler struct {
 	db                *database.DB
-	dockerClient      *docker.Client
+	runtimeClient      *docker.Client
 	backupService     *storage.BackupService
 	authService       *auth.Service
 	conversationStore *conversation.Store
@@ -47,10 +47,10 @@ type agentLoopEntry struct {
 	mu        sync.Mutex
 }
 
-func NewAgentChatHandler(db *database.DB, dockerClient *docker.Client, backupService *storage.BackupService, authService *auth.Service) *AgentChatHandler {
+func NewAgentChatHandler(db *database.DB, runtimeClient *docker.Client, backupService *storage.BackupService, authService *auth.Service) *AgentChatHandler {
 	h := &AgentChatHandler{
 		db:            db,
-		dockerClient:  dockerClient,
+		runtimeClient:  runtimeClient,
 		backupService: backupService,
 		authService:   authService,
 		activeLoops:   make(map[string]*agentLoopEntry),
@@ -340,13 +340,13 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}{ID: "agent-1", Model: cfg.Support.DefaultModel, AvatarShape: "diamond", AvatarColor: "#FF6B35"})
 	}
 
-	toolNames := []string{"docker", "files", "diagnostics", "snapshots"}
+	toolNames := []string{"podman", "files", "diagnostics", "snapshots"}
 	if len(chatAgentDefs) > 0 {
 		toolNames = chatAgentDefs[0].ToolNames
 	}
 	agentDefForTools := config.AgentDefinition{ToolNames: toolNames}
 	registry := tools.RegistryFromAgentDef(agentDefForTools, tools.ToolDeps{
-		DockerClient:  h.dockerClient,
+		RuntimeClient:  h.runtimeClient,
 		PathPolicy:    support.NewDefaultPolicy(nil),
 		BackupService: h.backupService,
 	})

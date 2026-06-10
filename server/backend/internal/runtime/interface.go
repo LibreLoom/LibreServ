@@ -54,6 +54,7 @@ type ContainerInspectResult struct {
 	Name  string
 	TTY   bool
 	State ContainerState
+	Raw   []byte // original JSON payload for tools that need it
 }
 
 // ContainerState represents the running state of a container
