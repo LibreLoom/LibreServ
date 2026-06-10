@@ -103,6 +103,7 @@ type SupportConfig struct {
 	BYOKEnabled      bool                    `mapstructure:"byok_enabled" yaml:"byok_enabled"`
 	UserAPIKey       string                  `mapstructure:"user_api_key" yaml:"user_api_key"`
 	UserBaseURL      string                  `mapstructure:"user_base_url" yaml:"user_base_url"`
+	UserAPIFormat    string                  `mapstructure:"user_api_format" yaml:"user_api_format"`
 	SelfHealing      bool                    `mapstructure:"self_healing" yaml:"self_healing"`
 }
 
@@ -112,15 +113,15 @@ type ConnectConfig struct {
 }
 
 type AgentDefinition struct {
-	ID             string   `mapstructure:"id" yaml:"id"`
-	Trigger        string   `mapstructure:"trigger" yaml:"trigger"`
-	Model          string   `mapstructure:"model" yaml:"model"`
-	AvatarShape    string   `mapstructure:"avatar_shape" yaml:"avatar_shape"`
-	AvatarColor    string   `mapstructure:"avatar_color" yaml:"avatar_color"`
-	ToolNames      []string `mapstructure:"tools" yaml:"tools"`
-	MaxTurns       int      `mapstructure:"max_turns" yaml:"max_turns"`
-	PermissionMode string   `mapstructure:"permission_mode" yaml:"permission_mode"`
-	SystemPrompt   string   `mapstructure:"system_prompt" yaml:"system_prompt"`
+	ID             string   `mapstructure:"id" yaml:"id" json:"id"`
+	Trigger        string   `mapstructure:"trigger" yaml:"trigger" json:"trigger"`
+	Model          string   `mapstructure:"model" yaml:"model" json:"model"`
+	AvatarShape    string   `mapstructure:"avatar_shape" yaml:"avatar_shape" json:"avatar_shape"`
+	AvatarColor    string   `mapstructure:"avatar_color" yaml:"avatar_color" json:"avatar_color"`
+	ToolNames      []string `mapstructure:"tools" yaml:"tools" json:"tools"`
+	MaxTurns       int      `mapstructure:"max_turns" yaml:"max_turns" json:"max_turns"`
+	PermissionMode string   `mapstructure:"permission_mode" yaml:"permission_mode" json:"permission_mode"`
+	SystemPrompt   string   `mapstructure:"system_prompt" yaml:"system_prompt" json:"system_prompt"`
 }
 
 type ModelPricing struct {

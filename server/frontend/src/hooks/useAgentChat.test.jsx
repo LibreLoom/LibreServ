@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { AuthContext } from "../context/AuthContextContext.js";
+import { ToastProvider } from "../context/ToastContext.jsx";
 import { useAgentChat } from "./useAgentChat.jsx";
 
 function mockRequest(url, opts = {}) {
@@ -48,7 +49,9 @@ function createWrapper() {
   };
   return {
     wrapper: ({ children }) => (
-      <AuthContext.Provider value={mockAuth}>{children}</AuthContext.Provider>
+      <AuthContext.Provider value={mockAuth}>
+        <ToastProvider>{children}</ToastProvider>
+      </AuthContext.Provider>
     ),
     mockAuth,
   };
@@ -182,7 +185,9 @@ describe("useAgentChat", () => {
       initialized: true,
     };
     const wrapper = ({ children }) => (
-      <AuthContext.Provider value={mockAuth}>{children}</AuthContext.Provider>
+      <AuthContext.Provider value={mockAuth}>
+        <ToastProvider>{children}</ToastProvider>
+      </AuthContext.Provider>
     );
 
     const { result } = renderHook(() => useAgentChat(), { wrapper });

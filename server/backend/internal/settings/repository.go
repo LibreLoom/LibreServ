@@ -152,6 +152,7 @@ func (r *Repository) SeedFromConfig() error {
 		"support.byok_enabled":                 strconv.FormatBool(cfg.Support.BYOKEnabled),
 		"support.user_base_url":                cfg.Support.UserBaseURL,
 		"support.user_api_key":                 cfg.Support.UserAPIKey,
+		"support.user_api_format":              cfg.Support.UserAPIFormat,
 		"support.agent.max_turns":              strconv.Itoa(cfg.Support.Agent.MaxTurns),
 		"support.agent.turn_timeout":           cfg.Support.Agent.TurnTimeout.String(),
 		"support.agent.snapshot_before_writes": strconv.FormatBool(cfg.Support.Agent.SnapshotBeforeWrites),
@@ -314,6 +315,9 @@ func (r *Repository) LoadIntoConfig() error {
 	if v, ok := changes["support.user_api_key"]; ok {
 		cfg.Support.UserAPIKey = v
 	}
+	if v, ok := changes["support.user_api_format"]; ok {
+		cfg.Support.UserAPIFormat = v
+	}
 	if v, ok := changes["support.agent.max_turns"]; ok {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Support.Agent.MaxTurns = n
@@ -446,6 +450,7 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 		"byok_enabled":           cfg.Support.BYOKEnabled,
 		"user_key_configured":    cfg.Support.UserAPIKey != "",
 		"user_base_url":          cfg.Support.UserBaseURL,
+		"user_api_format":        cfg.Support.UserAPIFormat,
 		"agent_max_turns":        cfg.Support.Agent.MaxTurns,
 		"agent_turn_timeout":     cfg.Support.Agent.TurnTimeout.String(),
 		"snapshot_before_writes": cfg.Support.Agent.SnapshotBeforeWrites,
@@ -716,6 +721,12 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			addMutation("support.user_base_url",
 				func() { cfg.Support.UserBaseURL = userBaseURL },
 				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.user_base_url", userBaseURL, "string") },
+			)
+		}
+		if userAPIFormat, ok := ai["user_api_format"].(string); ok && (userAPIFormat == "openai" || userAPIFormat == "anthropic") {
+			addMutation("support.user_api_format",
+				func() { cfg.Support.UserAPIFormat = userAPIFormat },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.user_api_format", userAPIFormat, "string") },
 			)
 		}
 		if maxTurns, ok := toInt(ai["agent_max_turns"]); ok && maxTurns > 0 && maxTurns <= 100 {

@@ -546,8 +546,9 @@ func (h *SettingsHandler) FetchModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		BaseURL string `json:"base_url"`
-		APIKey  string `json:"api_key"`
+		BaseURL   string `json:"base_url"`
+		APIKey    string `json:"api_key"`
+		APIFormat string `json:"api_format"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		JSONError(w, http.StatusBadRequest, "Could not understand the request. Please check the format and try again.")
@@ -558,6 +559,9 @@ func (h *SettingsHandler) FetchModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	provider := agent.NewProvider(req.BaseURL, req.APIKey)
+	if req.APIFormat == "anthropic" {
+		provider.APIFormat = "anthropic"
+	}
 	models, err := provider.Models(r.Context())
 	if err != nil {
 		slog.Error("failed to fetch models from provider", "error", err, "base_url", req.BaseURL)

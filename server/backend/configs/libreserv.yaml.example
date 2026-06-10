@@ -125,7 +125,7 @@ support:
     #   "request" — flat cost per request (for request-billed providers like routing.run)
     billing_mode: "token"
     agent:
-        max_turns: 50
+        max_turns: 10
         turn_timeout: 5m
         snapshot_before_writes: true
         system_plan_id: "basic"

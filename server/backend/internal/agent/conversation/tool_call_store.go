@@ -41,6 +41,7 @@ func (s *ToolCallStore) Insert(ctx context.Context, tc *ToolCallRecord) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO tool_calls (id, conversation_id, message_id, tool_name, tool_args, status, result, error, snapshot_id, approved_by, created_at, executed_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO NOTHING
 	`, tc.ID, tc.ConversationID, tc.MessageID, tc.ToolName, string(tc.ToolArgs), tc.Status, tc.Result, tc.Error, tc.SnapshotID, tc.ApprovedBy, tc.CreatedAt, executedAt)
 	if err != nil {
 		return fmt.Errorf("insert tool_call: %w", err)

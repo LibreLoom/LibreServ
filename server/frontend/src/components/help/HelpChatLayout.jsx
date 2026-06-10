@@ -89,9 +89,11 @@ function HelpChatLayout({
               <ChatEmpty onSuggestionClick={handleSuggestion} />
             ) : (
               <>
-                {messages.map((msg, i) => (
-                  <ChatMessage key={i} role={msg.role} content={msg.content} />
-                ))}
+                {messages
+                  .filter((msg) => msg.visibility !== "internal" && msg.role !== "system" && msg.role !== "tool")
+                  .map((msg, i) => (
+                    <ChatMessage key={msg.id || i} role={msg.role} content={msg.content} />
+                  ))}
 
                 {isStreaming && messages[messages.length - 1]?.role !== "assistant" && (
                   <ChatStreamingIndicator />

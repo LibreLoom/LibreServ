@@ -36,15 +36,17 @@ export default function AgentConfigModal({ open, onClose, onSaved }) {
   const fetchProviderModels = async () => {
     const baseURL = settings?.user_base_url || settings?.inference_base_url || "";
     const apiKey = settings?.user_api_key || "";
+    const apiFormat = settings?.user_api_format || "openai";
     if (!baseURL || !apiKey) {
       addToast({ type: "error", message: "Enter a provider URL and API key before fetching models." });
       return;
     }
     setIsFetchingModels(true);
     try {
-      const data = await fetchAIModels(baseURL, apiKey, csrfToken);
-      setFetchedModels(data?.models || []);
-      addToast({ type: "success", message: `Found ${(data?.models || []).length} models.` });
+      const result = await fetchAIModels(baseURL, apiKey, csrfToken, apiFormat);
+      const models = result?.data?.models || result?.models || [];
+      setFetchedModels(models);
+      addToast({ type: "success", message: `Found ${models.length} models.` });
     } catch {
       addToast({ type: "error", message: "Could not fetch models. Check your provider URL and API key." });
     } finally {
@@ -72,6 +74,7 @@ export default function AgentConfigModal({ open, onClose, onSaved }) {
 
   const addAgent = () => {
     const idx = (settings?.agents?.length || 0) + 1;
+    // color-scan: ignore-next-line Agent avatar color palette (distinct hues for multi-agent visual identity)
     const colors = ["#FF6B35", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"];
     const newAgent = {
       id: `agent-${idx}`,
@@ -240,6 +243,22 @@ export default function AgentConfigModal({ open, onClose, onSaved }) {
             />
             {settings?.byok_enabled && (
               <div className="space-y-3 pt-2">
+                <div>
+                  <label className="block text-xs text-accent mb-1">API Format</label>
+                  <Dropdown
+                    value={settings?.user_api_format || "openai"}
+                    onChange={(val) => updateField("user_api_format", val)}
+                    fullWidth
+                    bg="primary"
+                    options={[
+                      { value: "openai", label: "OpenAI (Chat Completions)" },
+                      { value: "anthropic", label: "Anthropic (Messages)" },
+                    ]}
+                  />
+                  <p className="text-xs text-accent mt-1">
+                    Choose the format your provider uses. Most providers (OpenAI, Makora, Together, Groq) use OpenAI. Umans uses Anthropic.
+                  </p>
+                </div>
                 <div>
                   <label className="block text-xs text-accent mb-1">API Key</label>
                   <input

@@ -34,14 +34,14 @@ export async function updateAISettings(aiSettings, csrfToken) {
   return res.json();
 }
 
-export async function fetchAIModels(baseURL, apiKey, csrfToken) {
+export async function fetchAIModels(baseURL, apiKey, csrfToken, apiFormat = "openai") {
   const res = await api("/settings/ai-support/models", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
     },
-    body: JSON.stringify({ base_url: baseURL, api_key: apiKey }),
+    body: JSON.stringify({ base_url: baseURL, api_key: apiKey, api_format: apiFormat }),
   });
   return res.json();
 }

@@ -75,6 +75,13 @@ type Loop struct {
 	totalCost   float64
 	userID      string
 	convID      string
+	// dedupKey → result cache across turns in this conversation
+	toolResultCache map[string]string
+	// tracks whether we already emitted an EventAgentResponse so we can
+	// fall back to a default message when the loop ends without one.
+	responseEmitted bool
+	// tracks whether any write proposal was fully successful.
+	writeExecuted bool
 
 	events   chan Event
 	stopCh   chan struct{}
@@ -89,18 +96,19 @@ type Loop struct {
 
 func NewLoop(agents []*Agent, registry *tools.Registry, credits *subscription.CreditService, plan *subscription.Plan, config LoopConfig, billingMode, userID, convID string) *Loop {
 	return &Loop{
-		agents:        agents,
-		registry:      registry,
-		credits:       credits,
-		plan:          plan,
-		config:        config,
-		billingMode:   billingMode,
-		userID:        userID,
-		convID:        convID,
-		events:        make(chan Event, 256),
-		stopCh:        make(chan struct{}),
-		consumerReady: make(chan struct{}),
-		pendingPerm:   make(map[string]chan bool),
+		agents:          agents,
+		registry:        registry,
+		credits:         credits,
+		plan:            plan,
+		config:          config,
+		billingMode:     billingMode,
+		userID:          userID,
+		convID:          convID,
+		toolResultCache: make(map[string]string),
+		events:          make(chan Event, 256),
+		stopCh:          make(chan struct{}),
+		consumerReady:   make(chan struct{}),
+		pendingPerm:     make(map[string]chan bool),
 	}
 }
 
@@ -127,15 +135,21 @@ func (l *Loop) Stop() {
 func (l *Loop) Run(ctx context.Context, userMessage string) {
 	defer close(l.events)
 
+	slog.Debug("agent loop starting", "conv_id", l.convID, "agents", len(l.agents))
+
 	select {
 	case <-l.consumerReady:
+		slog.Debug("agent loop consumer ready", "conv_id", l.convID)
 	case <-l.stopCh:
+		slog.Debug("agent loop stopped before consumer", "conv_id", l.convID)
 		l.emitDone("user_stopped")
 		return
 	case <-ctx.Done():
+		slog.Debug("agent loop context cancelled before consumer", "conv_id", l.convID, "err", ctx.Err())
 		l.emitDone("context_cancelled")
 		return
 	case <-time.After(30 * time.Second):
+		slog.Debug("agent loop consumer timeout", "conv_id", l.convID)
 		l.emitDone("no_consumer")
 		return
 	}
@@ -282,14 +296,7 @@ func (l *Loop) processAgentResults(ctx context.Context, results []agentResult) [
 		for _, tc := range r.toolCalls {
 			tool, ok := l.registry.Get(tc.Name)
 			if !ok {
-				l.emitToolCall(r.agentID, tc)
-				resultContent := fmt.Sprintf("unknown tool: %s", tc.Name)
-				l.emitToolResult(r.agentID, tc.ID, resultContent, true)
-				sharedUpdates = append(sharedUpdates, Message{
-					Role:    RoleSystem,
-					AgentID: r.agentID,
-					Content: fmt.Sprintf("[Agent %s] Called %s — unknown tool", r.agentID, tc.Name),
-				})
+				readCalls = append(readCalls, tc) // Treat unknown as read so it's executed and the model learns
 				continue
 			}
 			if tool.IsResearch {
@@ -299,19 +306,79 @@ func (l *Loop) processAgentResults(ctx context.Context, results []agentResult) [
 			}
 		}
 
+		// Record the agent's assistant message (with tool calls + any text) into history
+		// so the next turn can see what tools were called and in what order
+		if len(r.toolCalls) > 0 || r.content != "" {
+			var tcs []ToolCallMessage
+			for _, tc := range r.toolCalls {
+				tcs = append(tcs, ToolCallMessage{
+					ID:        tc.ID,
+					Name:      tc.Name,
+					Arguments: tc.Arguments,
+				})
+			}
+			sharedUpdates = append(sharedUpdates, Message{
+				Role:      RoleAssistant,
+				AgentID:   r.agentID,
+				Content:   r.content,
+				ToolCalls: tcs,
+			})
+		}
+
 		for _, tc := range readCalls {
+			// Stable cache key: tool name + canonical args JSON
+			cacheKey := tc.Name + "|" + string(tc.Arguments)
+			var resultContent string
+			var isErr bool
+
+			if cachedResult, ok := l.toolResultCache[cacheKey]; ok {
+				l.emitToolCall(r.agentID, tc)
+				resultContent = cachedResult
+				isErr = false
+				l.emitToolResult(r.agentID, tc.ID, cachedResult, false)
+				sharedUpdates = append(sharedUpdates, Message{
+					Role:       RoleTool,
+					AgentID:    r.agentID,
+					ToolCallID: tc.ID,
+					Content:    resultContent,
+				})
+				sharedUpdates = append(sharedUpdates, Message{
+					Role:    RoleSystem,
+					AgentID: r.agentID,
+					Content: fmt.Sprintf("[Agent %s] Called %s — Result (cached): %s", r.agentID, tc.Name, truncate(resultContent, 500)),
+				})
+				continue
+			}
+
 			l.emitToolCall(r.agentID, tc)
 			result, toolErr := l.executeTool(ctx, r.agentID, tc)
-			isErr := toolErr != nil
-			resultContent := result
+			isErr = toolErr != nil
+			resultContent = result
 			if toolErr != nil {
 				resultContent = toolErr.Error()
 			}
 			l.emitToolResult(r.agentID, tc.ID, resultContent, isErr)
+			if !isErr {
+				l.toolResultCache[cacheKey] = resultContent
+			}
+			sharedUpdates = append(sharedUpdates, Message{
+				Role:       RoleTool,
+				AgentID:    r.agentID,
+				ToolCallID: tc.ID,
+				Content:    resultContent,
+			})
 			sharedUpdates = append(sharedUpdates, Message{
 				Role:    RoleSystem,
 				AgentID: r.agentID,
 				Content: fmt.Sprintf("[Agent %s] Called %s — Result: %s", r.agentID, tc.Name, truncate(resultContent, 500)),
+			})
+		}
+
+		if len(readCalls) == 0 && len(writeCalls) == 0 && r.content == "" && len(r.toolCalls) > 0 {
+			sharedUpdates = append(sharedUpdates, Message{
+				Role:    RoleSystem,
+				AgentID: r.agentID,
+				Content: fmt.Sprintf("[Agent %s] produced no actionable output this turn.", r.agentID),
 			})
 		}
 
@@ -365,6 +432,7 @@ func (l *Loop) handleProposals(ctx context.Context, proposals []proposal) bool {
 
 		approved := l.runConsensus(ctx, &prop)
 		if approved {
+			propSuccess := true
 			for _, tc := range prop.toolCalls {
 				l.emitToolCall(prop.agentID, tc)
 				result, toolErr := l.executeWriteTool(ctx, prop.agentID, tc)
@@ -373,12 +441,18 @@ func (l *Loop) handleProposals(ctx context.Context, proposals []proposal) bool {
 				if toolErr != nil {
 					resultContent = toolErr.Error()
 				}
+				if isErr {
+					propSuccess = false
+				}
 				l.emitToolResult(prop.agentID, tc.ID, resultContent, isErr)
 				l.messages = append(l.messages, Message{
 					Role:    RoleSystem,
 					AgentID: prop.agentID,
 					Content: fmt.Sprintf("[Consensus Approved] Agent %s executed %s — Result: %s", prop.agentID, tc.Name, truncate(resultContent, 500)),
 				})
+			}
+			if propSuccess {
+				l.writeExecuted = true
 			}
 		} else {
 			l.messages = append(l.messages, Message{
@@ -388,10 +462,19 @@ func (l *Loop) handleProposals(ctx context.Context, proposals []proposal) bool {
 		}
 	}
 
+	if l.writeExecuted {
+		l.messages = append(l.messages, Message{
+			Role:    RoleSystem,
+			Content: "A write action has been executed. STOP calling tools and produce a final_response to the user immediately. No further checks are needed.",
+		})
+	}
+
 	if finalResp != nil {
 		approved := l.runConsensus(ctx, finalResp)
 		if approved {
-			l.emit(Event{Type: EventAgentResponse, Data: AgentResponseData{Content: finalResp.response}})
+			if l.emitAgentResponse(finalResp.response) {
+				l.responseEmitted = true
+			}
 			l.emitDone("complete")
 			return true
 		}
@@ -798,7 +881,28 @@ func (l *Loop) emit(e Event) {
 	}
 }
 
+func (l *Loop) emitAgentResponse(content string) bool {
+	select {
+	case l.events <- Event{Type: EventAgentResponse, Data: AgentResponseData{Content: content}}:
+		return true
+	case <-l.stopCh:
+		return false
+	case <-time.After(10 * time.Second):
+		slog.Error("agent loop: event channel full, dropping agent_response")
+		return false
+	}
+}
+
 func (l *Loop) emitDone(reason string) {
+	if !l.responseEmitted {
+		msg := "The agents reached the turn limit, but the task may not be complete. Please check your apps or try again with a more specific request."
+		if l.writeExecuted {
+			msg = "The requested action has been completed."
+		}
+		if l.emitAgentResponse(msg) {
+			l.responseEmitted = true
+		}
+	}
 	done := Event{Type: EventDone, Data: DoneData{Reason: reason}}
 	select {
 	case l.events <- done:

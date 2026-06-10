@@ -67,7 +67,8 @@ AgentDot.propTypes = {
 
 function ToolCallRow({ call, result }) {
   const [open, setOpen] = useState(false);
-  const label = call.name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  const name = call?.name || "unknown";
+  const label = name.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
   const statusPill = result?.is_error
     ? <Pill variant="error">failed</Pill>
@@ -127,7 +128,7 @@ ToolCallRow.propTypes = {
 
 function ProposalRow({ proposal, consensus, votes, toolResults }) {
   const [open, setOpen] = useState(false);
-  const isWrite = proposal.proposal_type === "write";
+  const isWrite = proposal?.proposal_type === "write";
   const approved = consensus?.result === "approved";
   const hasConsensus = !!consensus;
 
@@ -148,19 +149,19 @@ function ProposalRow({ proposal, consensus, votes, toolResults }) {
         {isWrite ? <Zap size={10} className="text-warning shrink-0" /> : <Cpu size={10} className="text-info shrink-0" />}
         {statusPill}
         <span className="flex-1 text-left truncate">
-          {isWrite
-            ? proposal.tool_calls?.map((tc) => tc.name.replace(/_/g, " ")).join(", ")
+          {isWrite && proposal?.tool_calls && proposal.tool_calls.length > 0
+            ? proposal.tool_calls.map((tc) => (tc?.name || "unknown").replace(/_/g, " ")).join(", ")
             : "Final response"}
         </span>
         <ChevronDown size={10} className={`shrink-0 motion-safe:transition-transform duration-200 ${open ? "rotate-180" : "rotate-0"}`} />
       </button>
       <SmoothReveal open={open}>
         <div className="ml-1 mt-1.5 space-y-2">
-          {proposal.tool_calls?.map((tc) => (
+          {proposal?.tool_calls?.map((tc, idx) => (
             <ToolCallRow
-              key={tc.id}
+              key={tc?.id || `tc-${idx}`}
               call={tc}
-              result={toolResults.find((r) => r.id === tc.id)}
+              result={toolResults?.find((r) => r?.id === tc?.id)}
             />
           ))}
           {proposal.response && (
@@ -168,16 +169,16 @@ function ProposalRow({ proposal, consensus, votes, toolResults }) {
               {proposal.response}
             </div>
           )}
-          {votes?.length > 0 && (
+          {votes && votes.length > 0 && (
             <div className="space-y-1">
               {votes.map((v, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  <AgentDot shape={v.avatar_shape} color={v.avatar_color} size={10} />
-                  {v.decision === "approve"
+                <div key={`vote-${i}`} className="flex items-center gap-2 text-xs">
+                  <AgentDot shape={v?.avatar_shape} color={v?.avatar_color} size={10} />
+                  {v?.decision === "approve"
                     ? <Pill variant="success">approve</Pill>
                     : <Pill variant="error">reject</Pill>
                   }
-                  <span className="font-mono text-primary/50 truncate">{v.reason}</span>
+                  <span className="font-mono text-primary/50 truncate">{v?.reason || ""}</span>
                 </div>
               ))}
             </div>
@@ -329,15 +330,18 @@ export default function AgentTrace({ events }) {
 
   const totalCost = usageEvents.reduce((sum, u) => sum + (u.total_cost_usd || 0), 0);
 
-  const allEventsWithTurn = events.map((e) => {
-    if (e.turn) return e;
-    const turnIdx = turnStartEvents.findIndex((t) => {
-      const tPos = events.indexOf(t);
-      const ePos = events.indexOf(e);
-      return tPos > ePos ? false : (turnStartEvents[turnStartEvents.indexOf(t) + 1] ? events.indexOf(turnStartEvents[turnStartEvents.indexOf(t) + 1]) > ePos : true);
-    });
-    return { ...e, turn: turnIdx >= 0 ? turnStartEvents[turnIdx].turn : 1 };
-  });
+  const turnByIndex = [];
+  let runningTurn = 1;
+  for (const evt of events) {
+    if (evt.type === "turn_start" && evt.turn) {
+      runningTurn = evt.turn;
+    }
+    turnByIndex.push(runningTurn);
+  }
+  const allEventsWithTurn = events.map((e, i) => ({
+    ...e,
+    turn: e.turn || turnByIndex[i],
+  }));
 
   return (
     <div className="text-xs">

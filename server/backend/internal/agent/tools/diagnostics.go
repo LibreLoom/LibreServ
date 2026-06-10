@@ -12,7 +12,7 @@ func DiagnosticTools(dockerClient *docker.Client) []*Tool {
 	tools := []*Tool{
 		{
 			Name:        "system_health",
-			Description: "Get system health information including Docker daemon status.",
+			Description: "Get a composite health summary: Docker daemon, running containers, system resources (CPU, memory, disk), and basic endpoint health checks.",
 			ParameterSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {}
@@ -23,9 +23,25 @@ func DiagnosticTools(dockerClient *docker.Client) []*Tool {
 				result := make(map[string]interface{})
 				if dockerClient != nil {
 					if err := dockerClient.HealthCheck(); err != nil {
-						result["docker"] = map[string]interface{}{"status": "unhealthy", "error": err.Error()}
+						result["docker_daemon"] = map[string]interface{}{"status": "unhealthy", "error": err.Error()}
 					} else {
-						result["docker"] = map[string]interface{}{"status": "healthy"}
+						result["docker_daemon"] = map[string]interface{}{"status": "healthy"}
+					}
+					// Aggregate container states
+					containers, err := dockerClient.ListContainersAll(ctx)
+					if err != nil {
+						result["containers"] = map[string]interface{}{"error": err.Error()}
+					} else {
+						summary := make([]map[string]interface{}, 0, len(containers))
+						for _, c := range containers {
+							summary = append(summary, map[string]interface{}{
+								"names":  c.Names,
+								"image":  c.Image,
+								"state":  string(c.State),
+								"status": c.Status,
+							})
+						}
+						result["containers"] = summary
 					}
 				}
 				data, _ := json.MarshalIndent(result, "", "  ")

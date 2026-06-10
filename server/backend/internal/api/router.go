@@ -424,8 +424,8 @@ func (s *Server) setupRoutes() {
 				r.Post("/command", supportCommandHandler.Run)
 			})
 
-			// AI agent chat support (feature-flagged)
-			if os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
+			// AI agent chat support (enabled in dev mode, or via LIBRESERV_AGENT_SUPPORT_ENABLED)
+			if s.devMode || os.Getenv("LIBRESERV_INSECURE_DEV") == "true" || os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
 				r.Route("/support/agent", func(r chi.Router) {
 					r.Use(middleware.RateLimit([]middleware.RateRule{
 						{Prefix: "/api/v1/support/agent", Limit: 30, Window: time.Minute, ByUser: true},
@@ -550,7 +550,7 @@ func (s *Server) setupRoutes() {
 	// SSE stream endpoint for agent chat — must be outside auth middleware because
 	// EventSource cannot send Authorization headers. Auth is handled internally
 	// via cookie (withCredentials) or ?token= query param.
-	if os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
+	if s.devMode || os.Getenv("LIBRESERV_INSECURE_DEV") == "true" || os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
 		s.router.With(
 			middleware.RateLimit([]middleware.RateRule{
 				{Prefix: "/api/v1/support/agent", Limit: 30, Window: time.Minute},

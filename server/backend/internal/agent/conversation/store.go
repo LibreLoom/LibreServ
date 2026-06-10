@@ -19,6 +19,7 @@ type Conversation struct {
 	PlanID         string     `json:"plan_id"`
 	PermissionMode string     `json:"permission_mode"`
 	Model          string     `json:"model"`
+	Title          string     `json:"title,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	ResolvedAt     *time.Time `json:"resolved_at,omitempty"`
@@ -45,10 +46,14 @@ func NewStore(db *database.DB) *Store {
 }
 
 func (s *Store) Create(ctx context.Context, conv *Conversation) error {
+	var triggerAppID interface{}
+	if conv.TriggerAppID != "" {
+		triggerAppID = conv.TriggerAppID
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO agent_conversations (id, user_id, status, trigger_type, trigger_app_id, plan_id, permission_mode, model, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, conv.ID, conv.UserID, conv.Status, conv.TriggerType, conv.TriggerAppID, conv.PlanID, conv.PermissionMode, conv.Model, conv.CreatedAt, conv.UpdatedAt)
+	`, conv.ID, conv.UserID, conv.Status, conv.TriggerType, triggerAppID, conv.PlanID, conv.PermissionMode, conv.Model, conv.CreatedAt, conv.UpdatedAt)
 	return err
 }
 
@@ -81,10 +86,11 @@ func (s *Store) ListByUser(ctx context.Context, userID string, limit, offset int
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, status, trigger_type, trigger_app_id, plan_id, permission_mode, model, created_at, updated_at, resolved_at
-		FROM agent_conversations
-		WHERE user_id = ?
-		ORDER BY created_at DESC
+		SELECT c.id, c.user_id, c.status, c.trigger_type, c.trigger_app_id, c.plan_id, c.permission_mode, c.model, c.created_at, c.updated_at, c.resolved_at,
+			COALESCE((SELECT content FROM conversation_messages WHERE conversation_id = c.id AND role = 'user' AND visibility = 'visible' ORDER BY created_at ASC LIMIT 1), '') as first_message
+		FROM agent_conversations c
+		WHERE c.user_id = ?
+		ORDER BY c.created_at DESC
 		LIMIT ? OFFSET ?
 	`, userID, limit, offset)
 	if err != nil {
@@ -97,8 +103,12 @@ func (s *Store) ListByUser(ctx context.Context, userID string, limit, offset int
 		var c Conversation
 		var triggerAppID sql.NullString
 		var resolvedAt sql.NullTime
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Status, &c.TriggerType, &triggerAppID, &c.PlanID, &c.PermissionMode, &c.Model, &c.CreatedAt, &c.UpdatedAt, &resolvedAt); err != nil {
+		var firstMsg sql.NullString
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Status, &c.TriggerType, &triggerAppID, &c.PlanID, &c.PermissionMode, &c.Model, &c.CreatedAt, &c.UpdatedAt, &resolvedAt, &firstMsg); err != nil {
 			return nil, fmt.Errorf("scan conversation row: %w", err)
+		}
+		if firstMsg.Valid && firstMsg.String != "" {
+			c.Title = firstMsg.String
 		}
 		if triggerAppID.Valid {
 			c.TriggerAppID = triggerAppID.String
@@ -150,8 +160,16 @@ func (s *Store) Messages(ctx context.Context, conversationID string, limit, offs
 	var msgs []*Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.ContentType, &m.Visibility, &m.ToolCalls, &m.Metadata, &m.CreatedAt); err != nil {
+		var toolCallsJSON sql.NullString
+		var metadataJSON sql.NullString
+		if err := rows.Scan(&m.ID, &m.ConversationID, &m.Role, &m.Content, &m.ContentType, &m.Visibility, &toolCallsJSON, &metadataJSON, &m.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan message row: %w", err)
+		}
+		if toolCallsJSON.Valid {
+			m.ToolCalls = json.RawMessage(toolCallsJSON.String)
+		}
+		if metadataJSON.Valid {
+			m.Metadata = json.RawMessage(metadataJSON.String)
 		}
 		msgs = append(msgs, &m)
 	}
@@ -214,4 +232,44 @@ func (s *Store) FindActiveByTrigger(ctx context.Context, triggerType, triggerApp
 		c.ResolvedAt = &resolvedAt.Time
 	}
 	return &c, nil
+}
+
+// EventRecord mirrors a single agent event for persistence.
+type EventRecord struct {
+	ID             int64     `json:"id"`
+	ConversationID string    `json:"conversation_id"`
+	EventType      string    `json:"event_type"`
+	EventData      string    `json:"event_data"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+func (s *Store) SaveEvent(ctx context.Context, convID, eventType string, eventData []byte) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO conversation_events (conversation_id, event_type, event_data)
+		VALUES (?, ?, ?)
+	`, convID, eventType, string(eventData))
+	return err
+}
+
+func (s *Store) Events(ctx context.Context, convID string, limit, offset int) ([]EventRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, conversation_id, event_type, event_data, created_at
+		FROM conversation_events
+		WHERE conversation_id = ?
+		ORDER BY id ASC
+		LIMIT ? OFFSET ?
+	`, convID, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var records []EventRecord
+	for rows.Next() {
+		var r EventRecord
+		if err := rows.Scan(&r.ID, &r.ConversationID, &r.EventType, &r.EventData, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		records = append(records, r)
+	}
+	return records, rows.Err()
 }

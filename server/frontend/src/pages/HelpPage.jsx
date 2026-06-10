@@ -81,10 +81,7 @@ export default function HelpPage() {
     () =>
       chat.conversations.slice(0, 10).map((conv) => ({
         id: conv.id,
-        title:
-          conv.trigger_type === "manual"
-            ? "Manual"
-            : conv.trigger_app_id || "Chat",
+        title: conv.title || (conv.trigger_type === "manual" ? "Manual" : conv.trigger_app_id || "Conversation"),
         date: conv.created_at
           ? new Date(conv.created_at).toLocaleDateString()
           : "",
@@ -104,10 +101,14 @@ export default function HelpPage() {
 
   const handleSend = useCallback(
     async (text) => {
+      if (isStreaming) return;
       const content = (text || "").trim();
       if (!content) return;
 
-      if (!chat.activeConv?.id) {
+      if (!chat.activeConv?.id || chat.activeConv.status !== "active") {
+        if (chat.activeConv?.status && chat.activeConv.status !== "active") {
+          chat.resetChat();
+        }
         const conv = await chat.startConversation({
           permissionMode,
           models: model ? [model] : [],
@@ -127,7 +128,7 @@ export default function HelpPage() {
       const sent = await chat.sendMessage(chat.activeConv.id, content);
       if (sent) chat.streamEvents(chat.activeConv.id);
     },
-    [chat, permissionMode, model, addToast]
+    [chat, permissionMode, model, addToast, isStreaming]
   );
 
   const handleAllowPermission = useCallback(
