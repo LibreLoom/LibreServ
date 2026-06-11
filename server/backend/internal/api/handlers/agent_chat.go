@@ -19,16 +19,12 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
 )
 
+// AgentChatHandler handles all agent conversation API endpoints.
 type AgentChatHandler struct {
 	db                *database.DB
-	runtimeClient      *docker.Client
-	backupService     *storage.BackupService
 	authService       *auth.Service
 	conversationStore *conversation.Store
 	toolCallStore     *conversation.ToolCallStore
@@ -41,19 +37,16 @@ type AgentChatHandler struct {
 }
 
 type agentLoopEntry struct {
-	loop      *agent.Loop
-	cancel    context.CancelFunc
-	proposals map[string]*agent.ProposalData
-	mu        sync.Mutex
+	loop   *agent.Loop
+	cancel context.CancelFunc
 }
 
-func NewAgentChatHandler(db *database.DB, runtimeClient *docker.Client, backupService *storage.BackupService, authService *auth.Service) *AgentChatHandler {
+// NewAgentChatHandler creates a new handler with all required dependencies.
+func NewAgentChatHandler(db *database.DB, authService *auth.Service) *AgentChatHandler {
 	h := &AgentChatHandler{
-		db:            db,
-		runtimeClient:  runtimeClient,
-		backupService: backupService,
-		authService:   authService,
-		activeLoops:   make(map[string]*agentLoopEntry),
+		db:          db,
+		authService: authService,
+		activeLoops: make(map[string]*agentLoopEntry),
 	}
 	if db != nil {
 		h.conversationStore = conversation.NewStore(db)
@@ -68,10 +61,12 @@ func NewAgentChatHandler(db *database.DB, runtimeClient *docker.Client, backupSe
 	return h
 }
 
+// ModelRegistry returns the model registry for use by settings handler.
 func (h *AgentChatHandler) ModelRegistry() *agent.ModelRegistry {
 	return h.modelRegistry
 }
 
+// ListConversations returns the user's recent conversations.
 func (h *AgentChatHandler) ListConversations(w http.ResponseWriter, r *http.Request) {
 	userID, ok := getUserID(r)
 	if !ok {
@@ -81,14 +76,10 @@ func (h *AgentChatHandler) ListConversations(w http.ResponseWriter, r *http.Requ
 	limit := 20
 	offset := 0
 	if l := r.URL.Query().Get("limit"); l != "" {
-		if v, err := fmt.Sscanf(l, "%d", &limit); err != nil || v != 1 {
-			limit = 20
-		}
+		fmt.Sscanf(l, "%d", &limit)
 	}
 	if o := r.URL.Query().Get("offset"); o != "" {
-		if v, err := fmt.Sscanf(o, "%d", &offset); err != nil || v != 1 {
-			offset = 0
-		}
+		fmt.Sscanf(o, "%d", &offset)
 	}
 	convs, err := h.conversationStore.ListByUser(r.Context(), userID, limit, offset)
 	if err != nil {
@@ -105,6 +96,7 @@ func (h *AgentChatHandler) ListConversations(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// GetConversation returns a single conversation with its messages.
 func (h *AgentChatHandler) GetConversation(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
@@ -143,12 +135,13 @@ func (h *AgentChatHandler) GetConversation(w http.ResponseWriter, r *http.Reques
 }
 
 type createConversationRequest struct {
-	TriggerType    string   `json:"trigger_type"`
-	TriggerAppID   string   `json:"trigger_app_id,omitempty"`
-	PermissionMode string   `json:"permission_mode,omitempty"`
-	Models         []string `json:"models,omitempty"`
+	TriggerType    string `json:"trigger_type"`
+	TriggerAppID   string `json:"trigger_app_id,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+	Model          string `json:"model,omitempty"`
 }
 
+// CreateConversation starts a new agent conversation.
 func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Request) {
 	userID, ok := getUserID(r)
 	if !ok {
@@ -156,7 +149,7 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 		return
 	}
 	cfg := config.Get()
-	if cfg == nil || (!hasInferenceKey(cfg)) {
+	if cfg == nil || !hasInferenceKey(cfg) {
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
@@ -172,24 +165,14 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 	if req.PermissionMode == "" {
 		req.PermissionMode = "standard"
 	}
-	models := req.Models
-	if len(models) == 0 {
-		chatAgents := config.AgentsByTrigger("chat")
-		for _, a := range chatAgents {
-			if a.Model != "" {
-				models = append(models, a.Model)
-			}
-		}
+	model := req.Model
+	if model == "" {
+		model = cfg.Support.Agent.MainModel
 	}
-	if len(models) == 0 && cfg.Support.DefaultModel != "" {
-		models = []string{cfg.Support.DefaultModel}
+	if model == "" {
+		model = cfg.Support.DefaultModel
 	}
-	if len(models) == 0 {
-		response.JSONError(w, http.StatusServiceUnavailable, "No AI model is configured. Please go to Settings → AI Support and select a default model.")
-		return
-	}
-	primaryModel := models[0]
-	if primaryModel == "" {
+	if model == "" {
 		response.JSONError(w, http.StatusServiceUnavailable, "No AI model is configured. Please go to Settings → AI Support and select a default model.")
 		return
 	}
@@ -206,7 +189,7 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 		TriggerAppID:   req.TriggerAppID,
 		PlanID:         plan.ID,
 		PermissionMode: req.PermissionMode,
-		Model:          strings.Join(models, ","),
+		Model:          model,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
@@ -222,6 +205,7 @@ type sendMessageRequest struct {
 	Content string `json:"content"`
 }
 
+// SendMessage sends a message to the agent and starts the loop.
 func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
@@ -234,7 +218,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := config.Get()
-	if cfg == nil || (!hasInferenceKey(cfg)) {
+	if cfg == nil || !hasInferenceKey(cfg) {
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
@@ -253,147 +237,102 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Atomically check and reserve the active loop slot to prevent race conditions.
 	h.mu.Lock()
 	if _, exists := h.activeLoops[convID]; exists {
 		h.mu.Unlock()
 		response.JSONError(w, http.StatusConflict, "The agent is already working on this conversation. Please wait for it to finish before sending another message.")
 		return
 	}
+	// Reserve immediately.
+	h.activeLoops[convID] = &agentLoopEntry{}
 	h.mu.Unlock()
 
 	var req sendMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.mu.Lock()
+		delete(h.activeLoops, convID)
+		h.mu.Unlock()
 		response.JSONError(w, http.StatusBadRequest, "Could not understand your message. Please try again.")
 		return
 	}
 	content := strings.TrimSpace(req.Content)
 	if content == "" {
+		h.mu.Lock()
+		delete(h.activeLoops, convID)
+		h.mu.Unlock()
 		response.JSONError(w, http.StatusBadRequest, "Please type a message before sending.")
 		return
 	}
 
 	provider := agent.NewProviderFromConfig()
 	if provider == nil {
+		h.mu.Lock()
+		delete(h.activeLoops, convID)
+		h.mu.Unlock()
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not available right now.")
 		return
 	}
 
-	chatAgentDefs := config.AgentsByTrigger("chat")
-	var agentModels []struct {
-		ID          string
-		Model       string
-		AvatarShape string
-		AvatarColor string
+	// Determine the agent model.
+	agentModel := conv.Model
+	if agentModel == "" {
+		agentModel = cfg.Support.Agent.MainModel
+	}
+	if agentModel == "" {
+		agentModel = cfg.Support.DefaultModel
 	}
 
-	conversationModels := strings.Split(conv.Model, ",")
-	if len(conversationModels) > 0 && conversationModels[0] != "" {
-		for i, m := range conversationModels {
-			m = strings.TrimSpace(m)
-			if m == "" {
-				continue
-			}
-			aID := fmt.Sprintf("agent-%d", i+1)
-			avatarShape := "circle"
-			avatarColor := "#4ECDC4"
-			for _, def := range chatAgentDefs {
-				if def.Model == m {
-					aID = def.ID
-					avatarShape = def.AvatarShape
-					avatarColor = def.AvatarColor
-					break
-				}
-			}
-			if avatarShape == "" {
-				shapes := []string{"diamond", "circle", "triangle", "hexagon", "square"}
-				colors := []string{"#FF6B35", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"}
-				avatarShape = shapes[i%len(shapes)]
-				avatarColor = colors[i%len(colors)]
-			}
-			agentModels = append(agentModels, struct {
-				ID          string
-				Model       string
-				AvatarShape string
-				AvatarColor string
-			}{ID: aID, Model: m, AvatarShape: avatarShape, AvatarColor: avatarColor})
+	// Build system prompt.
+	systemPrompt := cfg.Support.Agent.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = buildSystemPrompt()
+	}
+
+	// Create the agent.
+	ag := agent.NewAgent("libreserv-agent", agentModel, "diamond", "#FF6B35", systemPrompt, provider)
+
+	// Create the review model (if enabled).
+	var reviewModel *agent.ReviewModel
+	if cfg.Support.Agent.ReviewEnabled {
+		reviewModelID := cfg.Support.Agent.ReviewModel
+		if reviewModelID == "" {
+			reviewModelID = agentModel // default to same model
 		}
-	}
-	if len(agentModels) == 0 {
-		for i, def := range chatAgentDefs {
-			agentModels = append(agentModels, struct {
-				ID          string
-				Model       string
-				AvatarShape string
-				AvatarColor string
-			}{ID: def.ID, Model: def.Model, AvatarShape: def.AvatarShape, AvatarColor: def.AvatarColor})
-			if i >= 1 {
-				break
-			}
-		}
-	}
-	if len(agentModels) == 0 {
-		agentModels = append(agentModels, struct {
-			ID          string
-			Model       string
-			AvatarShape string
-			AvatarColor string
-		}{ID: "agent-1", Model: cfg.Support.DefaultModel, AvatarShape: "diamond", AvatarColor: "#FF6B35"})
+		reviewModel = agent.NewReviewModel(provider, reviewModelID)
 	}
 
-	toolNames := []string{"podman", "files", "diagnostics", "snapshots"}
-	if len(chatAgentDefs) > 0 {
-		toolNames = chatAgentDefs[0].ToolNames
-	}
-	agentDefForTools := config.AgentDefinition{ToolNames: toolNames}
-	registry := tools.RegistryFromAgentDef(agentDefForTools, tools.ToolDeps{
-		RuntimeClient:  h.runtimeClient,
-		PathPolicy:    support.NewDefaultPolicy(nil),
-		BackupService: h.backupService,
-	})
+	// Build the tool registry.
+	registry := tools.StandardRegistry()
 
+	// Get plan and build loop config.
 	plan := h.checker.PlanForUser(r.Context(), userID)
 
-	loopConfig := agent.LoopConfig{
-		MaxTurns:             cfg.Support.Agent.MaxTurns,
-		TurnTimeout:          cfg.Support.Agent.TurnTimeout,
-		PermissionMode:       conv.PermissionMode,
-		SnapshotBeforeWrites: cfg.Support.Agent.SnapshotBeforeWrites,
-		MaxContextMessages:   80,
+	dataDirs := cfg.Support.Agent.DataDirs
+	if len(dataDirs) == 0 {
+		dataDirs = []string{"/var/lib/libreserv", "/etc/libreserv"}
 	}
-	if loopConfig.MaxTurns == 0 {
+
+	loopConfig := agent.LoopConfig{
+		MaxTurns:           cfg.Support.Agent.MaxTurns,
+		TurnTimeout:        cfg.Support.Agent.TurnTimeout,
+		PermissionMode:     conv.PermissionMode,
+		MaxContextMessages: 80,
+		DataDirs:           dataDirs,
+	}
+	if loopConfig.MaxTurns <= 0 {
 		loopConfig.MaxTurns = 10
 	}
 	if loopConfig.MaxTurns > 15 {
 		loopConfig.MaxTurns = 15
 	}
-	if loopConfig.TurnTimeout == 0 {
+	if loopConfig.TurnTimeout <= 0 {
 		loopConfig.TurnTimeout = 5 * time.Minute
 	}
 
-	systemPrompt := ""
-	if len(chatAgentDefs) > 0 && chatAgentDefs[0].SystemPrompt != "" {
-		systemPrompt = chatAgentDefs[0].SystemPrompt
-	}
-	if systemPrompt == "" {
-		systemPrompt = buildSystemPrompt(loopConfig.MaxTurns)
-	}
+	loop := agent.NewLoop(ag, registry, reviewModel, h.creditService, plan, loopConfig, cfg.Support.BillingMode, userID, convID)
 
-	var agents []*agent.Agent
-	for _, am := range agentModels {
-		// Each agent should use its own system prompt from its definition.
-		// This ensures agents have distinct roles rather than being an echo chamber.
-		agentPrompt := systemPrompt // fallback to shared prompt
-		for _, def := range chatAgentDefs {
-			if def.ID == am.ID && def.SystemPrompt != "" {
-				agentPrompt = def.SystemPrompt
-				break
-			}
-		}
-		agents = append(agents, agent.NewAgent(am.ID, am.Model, am.AvatarShape, am.AvatarColor, agentPrompt, provider))
-	}
-
-	loop := agent.NewLoop(agents, registry, h.creditService, plan, loopConfig, cfg.Support.BillingMode, userID, convID)
-
+	// Load conversation history.
 	history, _ := h.conversationStore.Messages(r.Context(), convID, 100, 0)
 	if len(history) > 0 {
 		var histMsgs []agent.Message
@@ -408,6 +347,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 					msg.ToolCalls = tcs
 				}
 			}
+			// Tool messages carry their tool_call_id in metadata.
 			if m.Role == "tool" && m.Metadata != nil {
 				var meta struct {
 					ToolCallID string `json:"tool_call_id"`
@@ -421,6 +361,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		loop.LoadHistory(histMsgs)
 	}
 
+	// Save the user message.
 	userMsg := &conversation.Message{
 		ID:             conversation.GenerateID(),
 		ConversationID: convID,
@@ -437,6 +378,8 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Update the reserved slot with the real loop.
 	h.mu.Lock()
 	h.activeLoops[convID] = &agentLoopEntry{loop: loop, cancel: cancel}
 	h.mu.Unlock()
@@ -457,6 +400,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// StreamConversation streams agent events to the client via SSE.
 func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
@@ -472,7 +416,7 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 		}
 	}
 	cfg := config.Get()
-	if cfg == nil || (!hasInferenceKey(cfg)) {
+	if cfg == nil || !hasInferenceKey(cfg) {
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
@@ -496,10 +440,6 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Use a background context with timeout for database operations within the
-	// SSE stream. The request context (r.Context()) can be cancelled when the
-	// HTTP connection drops, but we still need to persist events that were
-	// already generated by the agent loop.
 	dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer dbCancel()
 
@@ -515,7 +455,9 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 	l.loop.MarkConsumerReady()
 	events := l.loop.Events()
 	for evt := range events {
-		if evt.Type == agent.EventAgentResponse {
+		// Persist important events.
+		switch evt.Type {
+		case agent.EventAgentResponse:
 			data, _ := json.Marshal(evt.Data)
 			var resp agent.AgentResponseData
 			if err := json.Unmarshal(data, &resp); err == nil && resp.Content != "" {
@@ -528,12 +470,10 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 					Visibility:     "visible",
 					CreatedAt:      time.Now(),
 				}
-				if err := h.conversationStore.AddMessage(dbCtx, msg); err != nil {
-					slog.Error("failed to save agent response", "conversation_id", convID, "error", err)
-				}
+				_ = h.conversationStore.AddMessage(dbCtx, msg)
 			}
-		}
-		if evt.Type == agent.EventToolCall {
+
+		case agent.EventToolCall:
 			data, _ := json.Marshal(evt.Data)
 			var tc agent.ToolCallData
 			if err := json.Unmarshal(data, &tc); err == nil {
@@ -550,14 +490,11 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 					ContentType:    "tool_call",
 					Visibility:     "internal",
 					ToolCalls:      tcsJSON,
-					Metadata:       json.RawMessage(fmt.Sprintf(`{"agent_id":"%s"}`, tc.AgentID)),
 					CreatedAt:      time.Now(),
 				}
-				if err := h.conversationStore.AddMessage(dbCtx, assistantMsg); err != nil {
-					slog.Error("failed to save tool call", "conversation_id", convID, "error", err)
-				}
+				_ = h.conversationStore.AddMessage(dbCtx, assistantMsg)
 				if h.toolCallStore != nil {
-					if err := h.toolCallStore.Insert(dbCtx, &conversation.ToolCallRecord{
+					_ = h.toolCallStore.Insert(dbCtx, &conversation.ToolCallRecord{
 						ID:             tc.ID,
 						ConversationID: convID,
 						MessageID:      assistantMsg.ID,
@@ -565,17 +502,14 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 						ToolArgs:       tc.Arguments,
 						Status:         "pending",
 						CreatedAt:      time.Now(),
-					}); err != nil {
-						slog.Error("failed to audit tool call", "tool_call_id", tc.ID, "error", err)
-					}
+					})
 				}
 			}
-		}
-		if evt.Type == agent.EventToolResult {
+
+		case agent.EventToolResult:
 			data, _ := json.Marshal(evt.Data)
 			var tr agent.ToolResultData
 			if err := json.Unmarshal(data, &tr); err == nil {
-				metaJSON, _ := json.Marshal(map[string]string{"tool_call_id": tr.ID, "agent_id": tr.AgentID})
 				toolMsg := &conversation.Message{
 					ID:             conversation.GenerateID(),
 					ConversationID: convID,
@@ -583,12 +517,9 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 					Content:        tr.Content,
 					ContentType:    "tool_result",
 					Visibility:     "internal",
-					Metadata:       metaJSON,
 					CreatedAt:      time.Now(),
 				}
-				if err := h.conversationStore.AddMessage(dbCtx, toolMsg); err != nil {
-					slog.Error("failed to save tool result", "conversation_id", convID, "error", err)
-				}
+				_ = h.conversationStore.AddMessage(dbCtx, toolMsg)
 				if h.toolCallStore != nil {
 					status := "completed"
 					var errStr string
@@ -602,65 +533,25 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 							resultContent = resultContent[:10000]
 						}
 					}
-					if err := h.toolCallStore.UpdateResult(dbCtx, tr.ID, status, resultContent, errStr); err != nil {
-						slog.Error("failed to audit tool result", "tool_call_id", tr.ID, "error", err)
-					}
+					_ = h.toolCallStore.UpdateResult(dbCtx, tr.ID, status, resultContent, errStr)
 				}
 			}
-		}
-		if evt.Type == agent.EventProposal {
+
+		case agent.EventToolReview:
+			// Persist review verdicts as internal system messages.
 			data, _ := json.Marshal(evt.Data)
-			var pd agent.ProposalData
-			if err := json.Unmarshal(data, &pd); err == nil {
-				h.mu.Lock()
-				entry, ok := h.activeLoops[convID]
-				h.mu.Unlock()
-				if ok {
-					entry.mu.Lock()
-					if entry.proposals == nil {
-						entry.proposals = make(map[string]*agent.ProposalData)
-					}
-					entry.proposals[pd.ID] = &pd
-					entry.mu.Unlock()
-				}
-			}
-		}
-		if evt.Type == agent.EventProposal || evt.Type == agent.EventVote || evt.Type == agent.EventConsensus {
-			reviewJSON, _ := json.Marshal(evt.Data)
 			reviewMsg := &conversation.Message{
 				ID:             conversation.GenerateID(),
 				ConversationID: convID,
 				Role:           "system",
-				Content:        string(reviewJSON),
-				ContentType:    "deliberation",
+				Content:        string(data),
+				ContentType:    "tool_review",
 				Visibility:     "internal",
 				CreatedAt:      time.Now(),
 			}
-			if err := h.conversationStore.AddMessage(dbCtx, reviewMsg); err != nil {
-				slog.Error("failed to save deliberation event", "conversation_id", convID, "error", err)
-			}
-			if evt.Type == agent.EventConsensus && h.toolCallStore != nil {
-				data, _ := json.Marshal(evt.Data)
-				var cd agent.ConsensusData
-				if err := json.Unmarshal(data, &cd); err == nil && cd.Result == "approved" {
-					pd := h.findPendingProposal(convID, cd.ProposalID)
-					if pd != nil {
-						for _, tc := range pd.ToolCalls {
-							approvedBy := "consensus"
-							_ = h.toolCallStore.UpdateApprovedBy(dbCtx, tc.ID, approvedBy)
-						}
-					}
-				}
-			}
-		}
-		if evt.Type == agent.EventSnapshotCreated && h.toolCallStore != nil {
-			data, _ := json.Marshal(evt.Data)
-			var sc agent.SnapshotCreatedData
-			if err := json.Unmarshal(data, &sc); err == nil && sc.ToolCallID != "" && sc.SnapshotID != "" {
-				_ = h.toolCallStore.UpdateSnapshotID(dbCtx, sc.ToolCallID, sc.SnapshotID)
-			}
-		}
-		if evt.Type == agent.EventDone {
+			_ = h.conversationStore.AddMessage(dbCtx, reviewMsg)
+
+		case agent.EventDone:
 			data, _ := json.Marshal(evt.Data)
 			var done agent.DoneData
 			if err := json.Unmarshal(data, &done); err == nil {
@@ -668,19 +559,16 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 				if done.Reason == "user_stopped" {
 					newStatus = "cancelled"
 				}
-				if err := h.conversationStore.UpdateStatus(dbCtx, convID, newStatus); err != nil {
-					slog.Error("failed to update conversation status", "conversation_id", convID, "error", err)
-				}
+				_ = h.conversationStore.UpdateStatus(dbCtx, convID, newStatus)
 			}
 		}
 
+		// Stream the event to the client.
 		encoded, err := json.Marshal(evt)
 		if err != nil {
 			continue
 		}
 
-		// Detect SSE client disconnect: if the write or flush fails,
-		// the client has gone away. Stop the loop to prevent credit waste.
 		if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", encoded); writeErr != nil {
 			slog.Info("agent SSE: client disconnected, stopping loop", "conversation_id", convID, "error", writeErr)
 			l.loop.Stop()
@@ -696,6 +584,7 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// ListToolCalls returns the audit trail of tool calls for a conversation.
 func (h *AgentChatHandler) ListToolCalls(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
@@ -731,6 +620,7 @@ func (h *AgentChatHandler) ListToolCalls(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+// RespondPermission handles the user's response to a permission request.
 func (h *AgentChatHandler) RespondPermission(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
@@ -780,6 +670,7 @@ func (h *AgentChatHandler) RespondPermission(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// StopConversation stops a running agent loop.
 func (h *AgentChatHandler) StopConversation(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
@@ -808,16 +699,15 @@ func (h *AgentChatHandler) StopConversation(w http.ResponseWriter, r *http.Reque
 	}
 
 	entry.loop.Stop()
-	if err := h.conversationStore.UpdateStatus(r.Context(), convID, "cancelled"); err != nil {
-		slog.Error("failed to cancel conversation", "conversation_id", convID, "error", err)
-	}
+	_ = h.conversationStore.UpdateStatus(r.Context(), convID, "cancelled")
 
 	response.JSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
 
+// GetModels returns available AI models from the configured provider.
 func (h *AgentChatHandler) GetModels(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
-	if cfg == nil || (!hasInferenceKey(cfg)) {
+	if cfg == nil || !hasInferenceKey(cfg) {
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
@@ -837,6 +727,7 @@ func (h *AgentChatHandler) GetModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetSubscription returns the user's subscription and usage.
 func (h *AgentChatHandler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 	userID, ok := getUserID(r)
 	if !ok {
@@ -858,6 +749,7 @@ func (h *AgentChatHandler) GetSubscription(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// UpdateSubscription changes the user's plan.
 func (h *AgentChatHandler) UpdateSubscription(w http.ResponseWriter, r *http.Request) {
 	userID, ok := getUserID(r)
 	if !ok {
@@ -894,6 +786,8 @@ func (h *AgentChatHandler) UpdateSubscription(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// --- Helpers ---
+
 func getUserID(r *http.Request) (string, bool) {
 	id, ok := middleware.GetUserID(r.Context())
 	return id, ok
@@ -913,9 +807,6 @@ func (h *AgentChatHandler) validateSSEToken(token string) (*auth.Claims, error) 
 	return h.authService.ValidateAccessToken(token)
 }
 
-// extractSSEAuth extracts user identity for SSE connections.
-// EventSource cannot send custom headers, so we accept auth via:
-//  1. HttpOnly cookie (preferred — not exposed to JS or logs)
 func (h *AgentChatHandler) extractSSEAuth(r *http.Request) string {
 	if cookie, err := r.Cookie("libreserv_access"); err == nil && cookie.Value != "" {
 		claims, err := h.validateSSEToken(cookie.Value)
@@ -926,39 +817,17 @@ func (h *AgentChatHandler) extractSSEAuth(r *http.Request) string {
 	return ""
 }
 
-func buildSystemPrompt(maxTurns int) string {
-	if maxTurns <= 0 {
-		maxTurns = 10
-	}
-	return fmt.Sprintf(`You are the LibreServ Support Agent, an AI assistant that helps users manage their self-hosted server. You work alongside other agents as a team — together you research problems, propose solutions, and must reach unanimous agreement before making changes or responding to the user.
+func buildSystemPrompt() string {
+	return `You are the LibreServ Support Agent. You help non-technical users manage their self-hosted server running LibreServ (a platform for running apps like Nextcloud, SearXNG, Home Assistant, and others).
 
-Key principles:
-- Research freely: check containers, read logs, inspect health — no approval needed for read-only actions.
-- Propose writes carefully: any changes (restarting containers, editing files, modifying config) require all agents to agree before execution.
-- Respond in plain language: the user is not technical. Never expose model names, tool names, error codes, or internal reasoning.
-- Explain what you are doing: before making changes, explain what you are about to do and why.
+Key rules:
+- Use plain language. Never mention model names, tool names, error codes, or technical jargon in your responses.
+- Before making changes, explain what you are about to do and why in simple terms.
+- Research freely: check container status, read logs, inspect files — this doesn't affect anything.
+- Modifying things (restarting apps, editing files, changing settings) will be reviewed for safety before happening.
+- If you need to do something that could disrupt the user's apps, they will be asked to confirm.
 - If something goes wrong, suggest clear next steps the user can follow.
-- You can see what other agents have discovered. Build on their findings rather than repeating the same checks.
+- Keep your responses concise and actionable. Don't explain what you already checked unless the user asks.
 
-CRITICAL WORKFLOW RULES:
-- After you call a tool, its result is provided in the next turn. WAIT for those results rather than calling the same tool again.
-- DO NOT repeat a tool call with the same arguments. The result is already cached and available to all agents.
-- When you have enough information to answer the user's question, STOP calling tools and produce a final response directly in plain language.
-- If the user's question is simple (e.g., "check health", "list apps"), 1-3 tool calls are usually enough. More than 5 tool calls for a single question wastes turns and costs money.
-- The system enforces a maximum of %d turns. You MUST reach a conclusion before then.`, maxTurns)
-}
-
-func (h *AgentChatHandler) findPendingProposal(convID, proposalID string) *agent.ProposalData {
-	h.mu.Lock()
-	entry, ok := h.activeLoops[convID]
-	h.mu.Unlock()
-	if !ok {
-		return nil
-	}
-	entry.mu.Lock()
-	defer entry.mu.Unlock()
-	if entry.proposals == nil {
-		return nil
-	}
-	return entry.proposals[proposalID]
+You have access to bash (for running commands), read (for viewing files), write (for creating files), and edit (for making targeted changes to files). Use them wisely. Don't repeat tool calls that already produced results.`
 }

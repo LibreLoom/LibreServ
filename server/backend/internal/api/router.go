@@ -118,7 +118,7 @@ func (s *Server) setupRoutes() {
 	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker)
 
 	// Initialize AI agent chat handler
-	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.runtimeClient, s.backupService, s.authService)
+	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.authService)
 
 	// Wire the model registry into settings so the AI support category can list models dynamically
 	settingsHandler.SetModelRegistry(agentChatHandler.ModelRegistry())

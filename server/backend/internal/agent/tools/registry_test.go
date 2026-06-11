@@ -1,94 +1,105 @@
 package tools
 
 import (
-	"context"
-	"encoding/json"
 	"testing"
 )
 
-func TestRegistryRegisterAndGet(t *testing.T) {
-	r := NewRegistry()
-
-	tool := &Tool{
-		Name:        "test_tool",
-		Description: "A test tool",
-		IsResearch:  true,
-		Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
-			return "ok", nil
-		},
+func TestStandardRegistry(t *testing.T) {
+	r := StandardRegistry()
+	if r == nil {
+		t.Fatal("StandardRegistry returned nil")
 	}
-	r.Register(tool)
 
-	got, ok := r.Get("test_tool")
-	if !ok {
-		t.Fatal("expected to find registered tool")
+	// All four pi-style tools should be registered.
+	expected := []string{"bash", "read", "write", "edit"}
+	for _, name := range expected {
+		tool, ok := r.Get(name)
+		if !ok {
+			t.Errorf("tool %q not found in registry", name)
+			continue
+		}
+		if tool.Name != name {
+			t.Errorf("tool.Name = %q, want %q", tool.Name, name)
+		}
 	}
-	if got.Name != "test_tool" {
-		t.Errorf("got.Name = %q, want %q", got.Name, "test_tool")
-	}
-}
 
-func TestRegistryGetNonexistent(t *testing.T) {
-	r := NewRegistry()
-	_, ok := r.Get("nonexistent")
-	if ok {
-		t.Error("expected tool not to be found")
+	all := r.All()
+	if len(all) != 4 {
+		t.Errorf("All() = %d tools, want 4", len(all))
 	}
 }
 
-func TestRegistryToolDefinitions(t *testing.T) {
-	r := NewRegistry()
-	r.Register(&Tool{
-		Name:            "tool_a",
-		Description:     "Tool A",
-		ParameterSchema: json.RawMessage(`{"type": "object"}`),
-		IsResearch:      true,
-	})
-	r.Register(&Tool{
-		Name:               "tool_b",
-		Description:        "Tool B",
-		ParameterSchema:    json.RawMessage(`{"type": "object"}`),
-		IsResearch:         false,
-		RequiresPermission: true,
-	})
-
+func TestToolDefinitions(t *testing.T) {
+	r := StandardRegistry()
 	defs := r.ToolDefinitions()
-	if len(defs) != 2 {
-		t.Fatalf("ToolDefinitions() returned %d definitions, want 2", len(defs))
+	if len(defs) != 4 {
+		t.Fatalf("ToolDefinitions() = %d, want 4", len(defs))
 	}
 
 	names := map[string]bool{}
-	for _, d := range defs {
-		if fn, ok := d["function"].(map[string]interface{}); ok {
-			if name, ok := fn["name"].(string); ok {
-				names[name] = true
-			}
+	for _, def := range defs {
+		fn, ok := def["function"].(map[string]interface{})
+		if !ok {
+			t.Fatal("tool definition missing 'function' key")
 		}
+		name, ok := fn["name"].(string)
+		if !ok {
+			t.Fatal("tool definition missing function.name")
+		}
+		names[name] = true
 	}
-	if !names["tool_a"] || !names["tool_b"] {
-		t.Error("missing expected tool definitions")
+
+	for _, expected := range []string{"bash", "read", "write", "edit"} {
+		if !names[expected] {
+			t.Errorf("tool definition missing for %q", expected)
+		}
 	}
 }
 
-func TestToolExecution(t *testing.T) {
-	tool := &Tool{
-		Name:        "echo",
-		Description: "Echo tool",
-		IsResearch:  true,
-		Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
-			var params struct {
-				Message string `json:"message"`
-			}
-			json.Unmarshal(args, &params)
-			return params.Message, nil
-		},
+func TestToolClassification(t *testing.T) {
+	r := StandardRegistry()
+
+	// bash, write, edit should always be reviewed.
+	for _, name := range []string{"bash", "write", "edit"} {
+		tool, ok := r.Get(name)
+		if !ok {
+			t.Fatal("tool not found:", name)
+		}
+		if !tool.AlwaysReview {
+			t.Errorf("%s.AlwaysReview = false, want true", name)
+		}
+		if tool.AlwaysRequirePermission {
+			t.Errorf("%s.AlwaysRequirePermission = true, want false", name)
+		}
 	}
 
-	result, err := tool.Execute(context.Background(), json.RawMessage(`{"message": "hello"}`))
-	if err != nil {
-		t.Fatalf("Execute() error: %v", err)
+	// read should not always be reviewed (has special path checking).
+	readTool, ok := r.Get("read")
+	if !ok {
+		t.Fatal("read tool not found")
 	}
-	if result != "hello" {
-		t.Errorf("Execute() = %q, want %q", result, "hello")
+	if readTool.AlwaysReview {
+		t.Error("read.AlwaysReview = true, want false")
+	}
+	if readTool.PathExtractor == nil {
+		t.Error("read.PathExtractor should be set for data-dir checking")
+	}
+}
+
+func TestReadToolPathExtractor(t *testing.T) {
+	r := StandardRegistry()
+	readTool, ok := r.Get("read")
+	if !ok {
+		t.Fatal("read tool not found")
+	}
+
+	path := readTool.PathExtractor([]byte(`{"path": "/var/lib/libreserv/test.txt"}`))
+	if path != "/var/lib/libreserv/test.txt" {
+		t.Errorf("PathExtractor = %q, want %q", path, "/var/lib/libreserv/test.txt")
+	}
+
+	empty := readTool.PathExtractor([]byte(`{}`))
+	if empty != "" {
+		t.Errorf("PathExtractor({}) = %q, want empty", empty)
 	}
 }

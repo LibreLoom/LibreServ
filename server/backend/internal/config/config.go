@@ -99,7 +99,6 @@ type SupportConfig struct {
 	Plans            []SupportPlan           `mapstructure:"plans" yaml:"plans"`
 	Agent            AgentConfig             `mapstructure:"agent" yaml:"agent"`
 	Pricing          map[string]ModelPricing `mapstructure:"pricing" yaml:"pricing"`
-	Agents           []AgentDefinition       `mapstructure:"agents" yaml:"agents"`
 	BYOKEnabled      bool                    `mapstructure:"byok_enabled" yaml:"byok_enabled"`
 	UserAPIKey       string                  `mapstructure:"user_api_key" yaml:"user_api_key"`
 	UserBaseURL      string                  `mapstructure:"user_base_url" yaml:"user_base_url"`
@@ -110,18 +109,6 @@ type SupportConfig struct {
 type ConnectConfig struct {
 	Enabled bool   `mapstructure:"enabled" yaml:"enabled"`
 	Token   string `mapstructure:"token" yaml:"token"`
-}
-
-type AgentDefinition struct {
-	ID             string   `mapstructure:"id" yaml:"id" json:"id"`
-	Trigger        string   `mapstructure:"trigger" yaml:"trigger" json:"trigger"`
-	Model          string   `mapstructure:"model" yaml:"model" json:"model"`
-	AvatarShape    string   `mapstructure:"avatar_shape" yaml:"avatar_shape" json:"avatar_shape"`
-	AvatarColor    string   `mapstructure:"avatar_color" yaml:"avatar_color" json:"avatar_color"`
-	ToolNames      []string `mapstructure:"tools" yaml:"tools" json:"tools"`
-	MaxTurns       int      `mapstructure:"max_turns" yaml:"max_turns" json:"max_turns"`
-	PermissionMode string   `mapstructure:"permission_mode" yaml:"permission_mode" json:"permission_mode"`
-	SystemPrompt   string   `mapstructure:"system_prompt" yaml:"system_prompt" json:"system_prompt"`
 }
 
 type ModelPricing struct {
@@ -143,10 +130,14 @@ type SupportPlan struct {
 
 // AgentConfig defines agent loop parameters.
 type AgentConfig struct {
-	MaxTurns             int           `mapstructure:"max_turns" yaml:"max_turns"`
-	TurnTimeout          time.Duration `mapstructure:"turn_timeout" yaml:"turn_timeout"`
-	SnapshotBeforeWrites bool          `mapstructure:"snapshot_before_writes" yaml:"snapshot_before_writes"`
-	SystemPlanID         string        `mapstructure:"system_plan_id" yaml:"system_plan_id"`
+	MainModel     string        `mapstructure:"main_model" yaml:"main_model"`
+	ReviewModel   string        `mapstructure:"review_model" yaml:"review_model"`
+	ReviewEnabled bool          `mapstructure:"review_enabled" yaml:"review_enabled"`
+	SystemPrompt  string        `mapstructure:"system_prompt" yaml:"system_prompt"`
+	MaxTurns      int           `mapstructure:"max_turns" yaml:"max_turns"`
+	TurnTimeout   time.Duration `mapstructure:"turn_timeout" yaml:"turn_timeout"`
+	DataDirs      []string      `mapstructure:"data_dirs" yaml:"data_dirs"`
+	SystemPlanID  string        `mapstructure:"system_plan_id" yaml:"system_plan_id"`
 }
 
 // RuntimeConfig defines container runtime connection settings.
@@ -345,10 +336,11 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("support.inference_base_url", "https://api.routing.run/v1")
 	v.SetDefault("support.default_model", "")
 	v.SetDefault("support.billing_mode", "token")
-	v.SetDefault("support.agent.max_turns", 50)
+	v.SetDefault("support.agent.max_turns", 10)
 	v.SetDefault("support.agent.turn_timeout", "5m")
-	v.SetDefault("support.agent.snapshot_before_writes", true)
+	v.SetDefault("support.agent.review_enabled", true)
 	v.SetDefault("support.agent.system_plan_id", "basic")
+	v.SetDefault("support.agent.data_dirs", []string{"/var/lib/libreserv", "/etc/libreserv"})
 
 	v.SetDefault("support.pricing.route/mimo-v2.5-pro.input_per_1m", 0.45)
 	v.SetDefault("support.pricing.route/mimo-v2.5-pro.output_per_1m", 1.00)
@@ -359,90 +351,6 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("support.pricing.route/deepseek-v4-pro.input_per_1m", 0.49)
 	v.SetDefault("support.pricing.route/deepseek-v4-pro.output_per_1m", 0.74)
 	v.SetDefault("support.pricing.route/deepseek-v4-pro.cache_per_1m", 0.003)
-}
-
-func DefaultAgents() []AgentDefinition {
-	return []AgentDefinition{
-		{
-			ID:          "agent-1",
-			Trigger:     "chat",
-			Model:       "",
-			AvatarShape: "diamond",
-			AvatarColor: "#FF6B35",
-			ToolNames:   []string{"podman", "files", "diagnostics", "snapshots"},
-			MaxTurns:    50,
-			SystemPrompt: `You are the Research Agent in a multi-agent support team. Your job is to investigate problems thoroughly before any action is taken.
-
-Your responsibilities:
-- Run diagnostic commands (list containers, read logs, check health, inspect config).
-- Identify the root cause of any issue the user reports.
-- Propose specific, actionable solutions — never vague suggestions.
-- When you have found the problem, clearly state your findings and what action you recommend.
-- If another agent has already investigated, build on their findings instead of repeating the same checks.
-
-IMPORTANT: Do NOT call the same tool with the same arguments that another agent has already called. Results are shared across all agents. Duplicate tool calls waste turns and money.
-
-When you have enough information to recommend a solution, STOP calling tools and produce your recommendation. Do not keep researching beyond what is needed.`,
-		},
-		{
-			ID:          "agent-2",
-			Trigger:     "chat",
-			Model:       "",
-			AvatarShape: "circle",
-			AvatarColor: "#4ECDC4",
-			ToolNames:   []string{"podman", "files", "diagnostics", "snapshots"},
-			MaxTurns:    50,
-			SystemPrompt: `You are the Review & Safety Agent in a multi-agent support team. Your job is to verify findings, review proposals, and ensure safe execution.
-
-Your responsibilities:
-- Verify what the Research Agent finds by running complementary checks (e.g., if they checked container status, you check logs or health details).
-- When reviewing write proposals (restarts, file edits), confirm the action is justified by the evidence, that a snapshot exists, and that it will not cause data loss.
-- If you find a problem the Research Agent missed, state it clearly.
-- When voting on proposals, be critical: approve only if the action is clearly justified and safe; reject if evidence is thin or the action seems risky.
-- Produce the final user-facing response in plain, friendly language. Never expose tool names, model names, error codes, or internal reasoning.
-
-IMPORTANT: Do NOT repeat tool calls that have already been made. Results are shared. Focus on VERIFYING, not re-discovering.
-
-When all evidence supports a clear answer, STOP calling tools and produce a final response.`,
-		},
-		{
-			ID:             "self-healing",
-			Trigger:        "container_unhealthy",
-			Model:          "",
-			ToolNames:      []string{"podman", "diagnostics", "files"},
-			MaxTurns:       5,
-			PermissionMode: "auto",
-		},
-	}
-}
-
-func AgentByID(id string) *AgentDefinition {
-	cfg := Get()
-	agents := cfg.Support.Agents
-	if len(agents) == 0 {
-		agents = DefaultAgents()
-	}
-	for i := range agents {
-		if agents[i].ID == id {
-			return &agents[i]
-		}
-	}
-	return nil
-}
-
-func AgentsByTrigger(trigger string) []AgentDefinition {
-	cfg := Get()
-	agents := cfg.Support.Agents
-	if len(agents) == 0 {
-		agents = DefaultAgents()
-	}
-	var matched []AgentDefinition
-	for _, a := range agents {
-		if a.Trigger == trigger {
-			matched = append(matched, a)
-		}
-	}
-	return matched
 }
 
 // LoadConfig loads configuration from disk and environment.

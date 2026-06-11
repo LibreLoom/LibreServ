@@ -3,7 +3,6 @@ package settings
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -155,15 +154,12 @@ func (r *Repository) SeedFromConfig() error {
 		"support.user_api_format":              cfg.Support.UserAPIFormat,
 		"support.agent.max_turns":              strconv.Itoa(cfg.Support.Agent.MaxTurns),
 		"support.agent.turn_timeout":           cfg.Support.Agent.TurnTimeout.String(),
-		"support.agent.snapshot_before_writes": strconv.FormatBool(cfg.Support.Agent.SnapshotBeforeWrites),
+		"support.agent.review_enabled":         strconv.FormatBool(cfg.Support.Agent.ReviewEnabled),
+		"support.agent.main_model":             cfg.Support.Agent.MainModel,
+		"support.agent.review_model":           cfg.Support.Agent.ReviewModel,
+		"support.agent.system_prompt":          cfg.Support.Agent.SystemPrompt,
 		"support.self_healing":                 strconv.FormatBool(cfg.Support.SelfHealing),
 		"support.billing_mode":                 cfg.Support.BillingMode,
-	}
-
-	if len(cfg.Support.Agents) > 0 {
-		if agentsJSON, err := json.Marshal(cfg.Support.Agents); err == nil {
-			settings["support.agents"] = string(agentsJSON)
-		}
 	}
 
 	for key, value := range settings {
@@ -328,21 +324,12 @@ func (r *Repository) LoadIntoConfig() error {
 			cfg.Support.Agent.TurnTimeout = d
 		}
 	}
-	if v, ok := changes["support.agent.snapshot_before_writes"]; ok {
-		cfg.Support.Agent.SnapshotBeforeWrites, _ = strconv.ParseBool(v)
-	}
 	if v, ok := changes["support.self_healing"]; ok {
 		cfg.Support.SelfHealing, _ = strconv.ParseBool(v)
 	}
 	if v, ok := changes["support.billing_mode"]; ok {
 		if v == "token" || v == "request" {
 			cfg.Support.BillingMode = v
-		}
-	}
-	if v, ok := changes["support.agents"]; ok && v != "" {
-		var agents []config.AgentDefinition
-		if err := json.Unmarshal([]byte(v), &agents); err == nil {
-			cfg.Support.Agents = agents
 		}
 	}
 
@@ -453,9 +440,11 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 		"user_api_format":        cfg.Support.UserAPIFormat,
 		"agent_max_turns":        cfg.Support.Agent.MaxTurns,
 		"agent_turn_timeout":     cfg.Support.Agent.TurnTimeout.String(),
-		"snapshot_before_writes": cfg.Support.Agent.SnapshotBeforeWrites,
-		"self_healing":           cfg.Support.SelfHealing,
-		"agents":                 cfg.Support.Agents,
+		"review_enabled":          cfg.Support.Agent.ReviewEnabled,
+		"main_model":              cfg.Support.Agent.MainModel,
+		"review_model":            cfg.Support.Agent.ReviewModel,
+		"system_prompt":           cfg.Support.Agent.SystemPrompt,
+		"self_healing":            cfg.Support.SelfHealing,
 	}
 
 	return settings, nil
@@ -745,14 +734,6 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				)
 			}
 		}
-		if snapshotBeforeWrites, ok := toBool(ai["snapshot_before_writes"]); ok {
-			addMutation("support.agent.snapshot_before_writes",
-				func() { cfg.Support.Agent.SnapshotBeforeWrites = snapshotBeforeWrites },
-				func(tx *sql.Tx) error {
-					return s.repo.SetTx(tx, "support.agent.snapshot_before_writes", strconv.FormatBool(snapshotBeforeWrites), "bool")
-				},
-			)
-		}
 		if selfHealing, ok := toBool(ai["self_healing"]); ok {
 			addMutation("support.self_healing",
 				func() { cfg.Support.SelfHealing = selfHealing },
@@ -766,21 +747,6 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				addMutation("support.billing_mode",
 					func() { cfg.Support.BillingMode = billingMode },
 					func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.billing_mode", billingMode, "string") },
-				)
-			}
-		}
-		if agentsRaw, ok := ai["agents"]; ok {
-			if agentsJSON, err := json.Marshal(agentsRaw); err == nil {
-				addMutation("support.agents",
-					func() {
-						var agents []config.AgentDefinition
-						if err := json.Unmarshal(agentsJSON, &agents); err == nil {
-							cfg.Support.Agents = agents
-						}
-					},
-					func(tx *sql.Tx) error {
-						return s.repo.SetTx(tx, "support.agents", string(agentsJSON), "json")
-					},
 				)
 			}
 		}
@@ -837,9 +803,9 @@ func typeFor(key string) string {
 	case "smtp.port", "support.agent.max_turns":
 		return "int"
 	case "smtp.use_tls", "smtp.skip_verify", "notify.enabled",
-		"support.byok_enabled", "support.agent.snapshot_before_writes", "support.self_healing":
+		"support.byok_enabled", "support.agent.review_enabled", "support.self_healing":
 		return "bool"
-	case "notify.support_recipients", "cors.allowed_origins", "support.agents":
+	case "notify.support_recipients", "cors.allowed_origins":
 		return "json"
 	case "updates.base_url", "updates.owner", "updates.repo":
 		return "string"

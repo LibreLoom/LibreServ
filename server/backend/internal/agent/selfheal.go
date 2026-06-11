@@ -13,23 +13,26 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
 )
 
+// SelfHealingMonitor watches for unhealthy containers and dispatches
+// an agent to diagnose and fix them automatically.
 type SelfHealingMonitor struct {
-	db           *database.DB
+	db            *database.DB
 	runtimeClient *docker.Client
-	provider     *Provider
-	convStore    *conversation.Store
-	creditSvc    *subscription.CreditService
-	checker      *subscription.Checker
-	interval     time.Duration
-	stopCh       chan struct{}
+	provider      *Provider
+	convStore     *conversation.Store
+	creditSvc     *subscription.CreditService
+	checker       *subscription.Checker
+	interval      time.Duration
+	stopCh        chan struct{}
 }
 
+// NewSelfHealingMonitor creates a new monitor.
 func NewSelfHealingMonitor(runtimeClient *docker.Client, db *database.DB) *SelfHealingMonitor {
 	m := &SelfHealingMonitor{
-		db:           db,
+		db:            db,
 		runtimeClient: runtimeClient,
-		interval:     5 * time.Minute,
-		stopCh:       make(chan struct{}),
+		interval:      5 * time.Minute,
+		stopCh:        make(chan struct{}),
 	}
 	if db != nil {
 		m.creditSvc = subscription.NewCreditService(db)
@@ -40,6 +43,7 @@ func NewSelfHealingMonitor(runtimeClient *docker.Client, db *database.DB) *SelfH
 	return m
 }
 
+// Start begins the monitoring loop.
 func (m *SelfHealingMonitor) Start() {
 	cfg := config.Get()
 	if cfg == nil || !cfg.Support.SelfHealing {
@@ -58,6 +62,7 @@ func (m *SelfHealingMonitor) Start() {
 	go m.run()
 }
 
+// Stop terminates the monitoring loop.
 func (m *SelfHealingMonitor) Stop() {
 	close(m.stopCh)
 }
@@ -121,35 +126,27 @@ func (m *SelfHealingMonitor) checkAndHeal() {
 }
 
 func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID string, cfg *config.Config) {
-	agentDef := config.AgentByID("self-healing")
-	if agentDef == nil {
-		slog.Error("self-healing: no agent definition found for 'self-healing'")
+	model := cfg.Support.Agent.MainModel
+	if model == "" {
+		model = cfg.Support.DefaultModel
+	}
+	if model == "" {
+		slog.Error("self-healing: no model configured")
 		return
 	}
 
 	convID := conversation.GenerateID()
 	now := time.Now()
-	model := agentDef.Model
-	if model == "" {
-		model = cfg.Support.DefaultModel
-	}
-	if model == "" {
-		slog.Error("self-healing: no model configured for agent and no default model set")
-		return
-	}
 	conv := &conversation.Conversation{
 		ID:             convID,
 		UserID:         "system",
 		Status:         "active",
 		TriggerType:    "self_healing",
 		TriggerAppID:   containerID,
-		PermissionMode: agentDef.PermissionMode,
+		PermissionMode: "auto",
 		Model:          model,
 		CreatedAt:      now,
 		UpdatedAt:      now,
-	}
-	if conv.PermissionMode == "" {
-		conv.PermissionMode = "auto"
 	}
 	if err := m.convStore.Create(ctx, conv); err != nil {
 		slog.Error("self-healing: failed to create conversation", "error", err)
@@ -166,29 +163,40 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 		}
 	}
 
-	registry := tools.RegistryFromAgentDef(*agentDef, tools.ToolDeps{
-		RuntimeClient: m.runtimeClient,
-	})
+	// Use the standard pi-style tool set.
+	registry := tools.StandardRegistry()
 
-	maxTurns := agentDef.MaxTurns
-	if maxTurns == 0 {
-		maxTurns = 5
+	// Build the review model — self-healing uses it but auto-approves "review" verdicts.
+	var reviewModel *ReviewModel
+	if cfg.Support.Agent.ReviewEnabled {
+		reviewModelID := cfg.Support.Agent.ReviewModel
+		if reviewModelID == "" {
+			reviewModelID = model
+		}
+		reviewModel = NewReviewModel(m.provider, reviewModelID)
 	}
-	systemPrompt := agentDef.SystemPrompt
+
+	systemPrompt := cfg.Support.Agent.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = buildSelfHealingPrompt()
 	}
 
 	agentInst := NewAgent("self-healing", model, "", "", systemPrompt, m.provider)
-	loopConfig := LoopConfig{
-		MaxTurns:             maxTurns,
-		TurnTimeout:          2 * time.Minute,
-		PermissionMode:       agentDef.PermissionMode,
-		SnapshotBeforeWrites: cfg.Support.Agent.SnapshotBeforeWrites,
-		MaxContextMessages:   30,
+
+	maxTurns := cfg.Support.Agent.MaxTurns
+	if maxTurns <= 0 || maxTurns > 5 {
+		maxTurns = 5
 	}
 
-	loop := NewLoop([]*Agent{agentInst}, registry, m.creditSvc, plan, loopConfig, cfg.Support.BillingMode, "system", convID)
+	loopConfig := LoopConfig{
+		MaxTurns:           maxTurns,
+		TurnTimeout:        2 * time.Minute,
+		PermissionMode:     "auto", // auto-approve user permission requests
+		MaxContextMessages: 30,
+		DataDirs:           cfg.Support.Agent.DataDirs,
+	}
+
+	loop := NewLoop(agentInst, registry, reviewModel, m.creditSvc, plan, loopConfig, cfg.Support.BillingMode, "system", convID)
 
 	go func() {
 		eventsCh := loop.Events()
@@ -199,7 +207,7 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 			}
 		}()
 		loop.MarkConsumerReady()
-		loop.Run(ctx, "A container ("+containerID+") appears unhealthy or has stopped. Please check its status and attempt to restart it. If it fails again, investigate the logs and explain the problem in plain language.")
+		loop.Run(ctx, "A container ("+containerID+") appears unhealthy or has stopped. Check its status, try to restart it. If it keeps failing, investigate logs and explain the problem in plain language.")
 		<-done
 		if err := m.convStore.UpdateStatus(ctx, convID, "resolved"); err != nil {
 			slog.Error("self-healing: failed to resolve conversation", "conv_id", convID, "error", err)
@@ -208,5 +216,5 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 }
 
 func buildSelfHealingPrompt() string {
-	return `You are the LibreServ Self-Healing Agent, an automated assistant that detects and fixes common server problems. When a container is unhealthy or stopped, you: 1) Check its status and recent logs, 2) Attempt to restart it, 3) If it fails, investigate the logs and explain the problem. You operate automatically — the user is not watching. Keep your responses concise and actionable. Never expose raw technical details. If you cannot fix the problem, state clearly what the user should do.`
+	return `You are the LibreServ Self-Healing Agent, an automated assistant that detects and fixes common server problems. When a container is unhealthy or stopped, you: 1) Check its status and recent logs, 2) Attempt to restart it, 3) If it fails, investigate the logs and explain the problem. You operate automatically — the user is not watching. Keep your responses concise and actionable. Never expose technical details like model names, tool names, or error codes. If you cannot fix the problem, state clearly what the user should do next.`
 }

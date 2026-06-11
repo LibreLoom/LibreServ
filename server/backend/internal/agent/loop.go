@@ -14,6 +14,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
 )
 
+// MessageRole classifies a message in the agent conversation.
 type MessageRole string
 
 const (
@@ -23,70 +24,50 @@ const (
 	RoleTool      MessageRole = "tool"
 )
 
+// Message is a single entry in the conversation.
 type Message struct {
 	Role       MessageRole       `json:"role"`
 	Content    string            `json:"content,omitempty"`
 	ToolCalls  []ToolCallMessage `json:"tool_calls,omitempty"`
 	ToolCallID string            `json:"tool_call_id,omitempty"`
-	AgentID    string            `json:"agent_id,omitempty"`
 }
 
+// ToolCallMessage represents a tool call in an assistant message.
 type ToolCallMessage struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 }
 
+// LoopConfig controls the agent loop's behavior.
 type LoopConfig struct {
-	MaxTurns             int
-	TurnTimeout          time.Duration
-	PermissionMode       string
-	SnapshotBeforeWrites bool
-	MaxContextMessages   int
+	MaxTurns           int
+	TurnTimeout        time.Duration
+	PermissionMode     string // "standard" or "auto"
+	MaxContextMessages int
+	DataDirs           []string // paths that trigger user permission for read tool
 }
 
-type proposal struct {
-	id        string
-	agentID   string
-	propType  string
-	toolCalls []AgentToolCall
-	response  string
-}
-
-type agentResult struct {
-	agentID     string
-	avatarShape string
-	avatarColor string
-	content     string
-	toolCalls   []AgentToolCall
-	usage       *UsageInfo
-	err         error
-}
-
+// Loop runs a single agent with tool execution and review pipeline.
 type Loop struct {
-	agents      []*Agent
-	registry    *tools.Registry
-	credits     *subscription.CreditService
-	plan        *subscription.Plan
-	config      LoopConfig
-	billingMode string
-	messages    []Message
-	turnCount   int
-	totalCost   float64
-	userID      string
-	convID      string
-	// dedupKey → result cache across turns in this conversation
-	toolResultCache map[string]string
-	// tracks whether we already emitted an EventAgentResponse so we can
-	// fall back to a default message when the loop ends without one.
-	responseEmitted bool
-	// tracks whether any write proposal was fully successful.
-	writeExecuted bool
+	agent        *Agent
+	registry     *tools.Registry
+	reviewModel  *ReviewModel
+	credits      *subscription.CreditService
+	plan         *subscription.Plan
+	config       LoopConfig
+	billingMode  string
+	messages     []Message
+	turnCount    int
+	totalCost    float64
+	userID       string
+	convID       string
+	userRequest  string // original user message, used in review context
 
 	events   chan Event
 	stopCh   chan struct{}
 	stopOnce sync.Once
-	// mu was removed — field was unused (U1000)
+
 	consumerReady chan struct{}
 	readyOnce     sync.Once
 
@@ -94,62 +75,85 @@ type Loop struct {
 	pendingPermMu sync.Mutex
 }
 
-func NewLoop(agents []*Agent, registry *tools.Registry, credits *subscription.CreditService, plan *subscription.Plan, config LoopConfig, billingMode, userID, convID string) *Loop {
+// NewLoop creates a new agent loop.
+func NewLoop(agent *Agent, registry *tools.Registry, reviewModel *ReviewModel, credits *subscription.CreditService, plan *subscription.Plan, config LoopConfig, billingMode, userID, convID string) *Loop {
+	if config.MaxTurns <= 0 {
+		config.MaxTurns = 10
+	}
+	if config.MaxContextMessages <= 0 {
+		config.MaxContextMessages = 80
+	}
 	return &Loop{
-		agents:          agents,
-		registry:        registry,
-		credits:         credits,
-		plan:            plan,
-		config:          config,
-		billingMode:     billingMode,
-		userID:          userID,
-		convID:          convID,
-		toolResultCache: make(map[string]string),
-		events:          make(chan Event, 256),
-		stopCh:          make(chan struct{}),
-		consumerReady:   make(chan struct{}),
-		pendingPerm:     make(map[string]chan bool),
+		agent:         agent,
+		registry:      registry,
+		reviewModel:   reviewModel,
+		credits:       credits,
+		plan:          plan,
+		config:        config,
+		billingMode:   billingMode,
+		userID:        userID,
+		convID:        convID,
+		events:        make(chan Event, 256),
+		stopCh:        make(chan struct{}),
+		consumerReady: make(chan struct{}),
+		pendingPerm:   make(map[string]chan bool),
 	}
 }
 
+// Events returns the event stream channel.
 func (l *Loop) Events() <-chan Event {
 	return l.events
 }
 
+// MarkConsumerReady signals that the SSE consumer is connected.
 func (l *Loop) MarkConsumerReady() {
 	l.readyOnce.Do(func() {
 		close(l.consumerReady)
 	})
 }
 
+// LoadHistory loads previous messages into the loop.
 func (l *Loop) LoadHistory(msgs []Message) {
 	l.messages = append(l.messages[:0], msgs...)
 }
 
+// Stop terminates the loop.
 func (l *Loop) Stop() {
 	l.stopOnce.Do(func() {
 		close(l.stopCh)
 	})
 }
 
+// HandlePermissionResponse delivers the user's permission decision.
+func (l *Loop) HandlePermissionResponse(id string, approved bool) {
+	l.pendingPermMu.Lock()
+	ch, ok := l.pendingPerm[id]
+	l.pendingPermMu.Unlock()
+	if ok {
+		select {
+		case ch <- approved:
+		default:
+		}
+	}
+}
+
+// Run executes the agent loop for a single user message.
 func (l *Loop) Run(ctx context.Context, userMessage string) {
 	defer close(l.events)
 
-	slog.Debug("agent loop starting", "conv_id", l.convID, "agents", len(l.agents))
+	l.userRequest = userMessage
+
+	slog.Debug("agent loop starting", "conv_id", l.convID)
 
 	select {
 	case <-l.consumerReady:
-		slog.Debug("agent loop consumer ready", "conv_id", l.convID)
 	case <-l.stopCh:
-		slog.Debug("agent loop stopped before consumer", "conv_id", l.convID)
 		l.emitDone("user_stopped")
 		return
 	case <-ctx.Done():
-		slog.Debug("agent loop context cancelled before consumer", "conv_id", l.convID, "err", ctx.Err())
 		l.emitDone("context_cancelled")
 		return
 	case <-time.After(30 * time.Second):
-		slog.Debug("agent loop consumer timeout", "conv_id", l.convID)
 		l.emitDone("no_consumer")
 		return
 	}
@@ -168,258 +172,91 @@ func (l *Loop) Run(ctx context.Context, userMessage string) {
 		}
 
 		l.turnCount++
-		l.emit(Event{Type: EventTurnStart, Data: TurnStartData{Turn: l.turnCount}})
 
-		if len(l.agents) == 0 {
-			l.emit(Event{Type: EventError, Data: ErrorData{Message: "no agents configured"}})
+		l.emit(Event{Type: EventAgentThinking, Data: AgentThinkingData{
+			Model:       l.agent.Model,
+			AvatarShape: l.agent.AvatarShape,
+			AvatarColor: l.agent.AvatarColor,
+		}})
+
+		// Build context for this turn.
+		msgs := l.buildMessages()
+
+		callCtx, cancel := context.WithTimeout(ctx, l.config.TurnTimeout)
+		resp, usage, err := l.agent.Call(callCtx, msgs, l.registry.ToolDefinitions())
+		cancel()
+
+		if err != nil {
+			l.emit(Event{Type: EventError, Data: ErrorData{Message: err.Error()}})
 			l.emitDone("error")
 			return
 		}
 
-		results := l.runAgentsConcurrently(ctx)
+		// Track usage.
+		if usage != nil {
+			l.totalCost += usage.CostUSD
+			_ = l.deductCredits(ctx, l.agent.Model, usage)
+			l.emitUsageUpdate(usage)
+		}
 
-		proposals := l.processAgentResults(ctx, results)
+		// Emit any text the agent produced.
+		if resp.Content != "" {
+			l.emit(Event{Type: EventAgentMessage, Data: AgentMessageData{Content: resp.Content}})
+		}
 
-		if len(proposals) > 0 {
-			finished := l.handleProposals(ctx, proposals)
+		// Process tool calls through the review pipeline.
+		if len(resp.ToolCalls) > 0 {
+			finished := l.processToolCalls(ctx, resp)
 			if finished {
 				return
 			}
-		}
-
-		anyActivity := false
-		for _, r := range results {
-			if r.err == nil && (len(r.toolCalls) > 0 || r.content != "") {
-				anyActivity = true
-				break
-			}
-		}
-		if !anyActivity && len(proposals) == 0 {
-			l.emitDone("complete")
-			return
-		}
-	}
-
-	l.emitDone("max_turns")
-}
-
-func (l *Loop) runAgentsConcurrently(ctx context.Context) []agentResult {
-	for _, a := range l.agents {
-		l.emit(Event{Type: EventAgentThinking, Data: AgentThinkingData{
-			AgentID:     a.ID,
-			AvatarShape: a.AvatarShape,
-			AvatarColor: a.AvatarColor,
-			Model:       a.Model,
-		}})
-	}
-
-	results := make([]agentResult, len(l.agents))
-	var wg sync.WaitGroup
-
-	for i, a := range l.agents {
-		wg.Add(1)
-		go func(idx int, agent *Agent) {
-			defer wg.Done()
-
-			callCtx, cancel := context.WithTimeout(ctx, l.config.TurnTimeout)
-			defer cancel()
-
-			msgs := l.buildAgentMessages()
-			if l.config.MaxContextMessages > 0 && len(msgs) > l.config.MaxContextMessages {
-				summarized, err := l.summarizeOldMessages(callCtx, msgs)
-				if err != nil {
-					results[idx] = agentResult{agentID: agent.ID, avatarShape: agent.AvatarShape, avatarColor: agent.AvatarColor, err: err}
-					return
-				}
-				msgs = summarized
-			}
-
-			resp, usage, err := agent.Call(callCtx, msgs, l.registry.ToolDefinitions())
-
-			r := agentResult{
-				agentID:     agent.ID,
-				avatarShape: agent.AvatarShape,
-				avatarColor: agent.AvatarColor,
-			}
-			if err != nil {
-				r.err = err
-			} else {
-				r.content = resp.Content
-				r.toolCalls = resp.ToolCalls
-				r.usage = usage
-			}
-			results[idx] = r
-		}(i, a)
-	}
-
-	wg.Wait()
-	return results
-}
-
-func (l *Loop) buildAgentMessages() []Message {
-	msgs := make([]Message, 0, len(l.messages))
-	msgs = append(msgs, l.messages...)
-	return msgs
-}
-
-func (l *Loop) processAgentResults(ctx context.Context, results []agentResult) []proposal {
-	var proposals []proposal
-	var sharedUpdates []Message
-
-	for _, r := range results {
-		if r.err != nil {
-			l.emit(Event{Type: EventError, Data: ErrorData{Message: fmt.Sprintf("agent %s: %s", r.agentID, r.err.Error())}})
 			continue
 		}
 
-		if r.usage != nil {
-			l.totalCost += r.usage.CostUSD
-			if err := l.deductCredits(ctx, l.agentModel(r.agentID), r.usage); err != nil {
-				if err == subscription.ErrCreditExceeded {
-					l.emitDone("credits_exceeded")
-					return nil
-				}
-			}
-			l.emitUsageUpdate(r.agentID, r.usage)
+		// No tool calls and has content → final response.
+		if resp.Content != "" {
+			l.emitAgentResponse(resp.Content)
+			l.emitDone("complete")
+			return
 		}
 
-		if r.content != "" {
-			l.emit(Event{Type: EventAgentMessage, Data: AgentMessageData{
-				AgentID:     r.agentID,
-				AvatarShape: r.avatarShape,
-				AvatarColor: r.avatarColor,
-				Content:     r.content,
-			}})
-		}
-
-		var readCalls, writeCalls []AgentToolCall
-		for _, tc := range r.toolCalls {
-			tool, ok := l.registry.Get(tc.Name)
-			if !ok {
-				readCalls = append(readCalls, tc) // Treat unknown as read so it's executed and the model learns
-				continue
-			}
-			if tool.IsResearch {
-				readCalls = append(readCalls, tc)
-			} else {
-				writeCalls = append(writeCalls, tc)
-			}
-		}
-
-		// Record the agent's assistant message (with tool calls + any text) into history
-		// so the next turn can see what tools were called and in what order
-		if len(r.toolCalls) > 0 || r.content != "" {
-			var tcs []ToolCallMessage
-			for _, tc := range r.toolCalls {
-				tcs = append(tcs, ToolCallMessage{
-					ID:        tc.ID,
-					Name:      tc.Name,
-					Arguments: tc.Arguments,
-				})
-			}
-			sharedUpdates = append(sharedUpdates, Message{
-				Role:      RoleAssistant,
-				AgentID:   r.agentID,
-				Content:   r.content,
-				ToolCalls: tcs,
-			})
-		}
-
-		for _, tc := range readCalls {
-			// Stable cache key: tool name + canonical args JSON
-			cacheKey := tc.Name + "|" + string(tc.Arguments)
-			var resultContent string
-			var isErr bool
-
-			if cachedResult, ok := l.toolResultCache[cacheKey]; ok {
-				l.emitToolCall(r.agentID, tc)
-				resultContent = cachedResult
-				isErr = false
-				l.emitToolResult(r.agentID, tc.ID, cachedResult, false)
-				sharedUpdates = append(sharedUpdates, Message{
-					Role:       RoleTool,
-					AgentID:    r.agentID,
-					ToolCallID: tc.ID,
-					Content:    resultContent,
-				})
-				sharedUpdates = append(sharedUpdates, Message{
-					Role:    RoleSystem,
-					AgentID: r.agentID,
-					Content: fmt.Sprintf("[Agent %s] Called %s — Result (cached): %s", r.agentID, tc.Name, truncate(resultContent, 500)),
-				})
-				continue
-			}
-
-			l.emitToolCall(r.agentID, tc)
-			result, toolErr := l.executeTool(ctx, r.agentID, tc)
-			isErr = toolErr != nil
-			resultContent = result
-			if toolErr != nil {
-				resultContent = toolErr.Error()
-			}
-			l.emitToolResult(r.agentID, tc.ID, resultContent, isErr)
-			if !isErr {
-				l.toolResultCache[cacheKey] = resultContent
-			}
-			sharedUpdates = append(sharedUpdates, Message{
-				Role:       RoleTool,
-				AgentID:    r.agentID,
-				ToolCallID: tc.ID,
-				Content:    resultContent,
-			})
-			sharedUpdates = append(sharedUpdates, Message{
-				Role:    RoleSystem,
-				AgentID: r.agentID,
-				Content: fmt.Sprintf("[Agent %s] Called %s — Result: %s", r.agentID, tc.Name, truncate(resultContent, 500)),
-			})
-		}
-
-		if len(readCalls) == 0 && len(writeCalls) == 0 && r.content == "" && len(r.toolCalls) > 0 {
-			sharedUpdates = append(sharedUpdates, Message{
-				Role:    RoleSystem,
-				AgentID: r.agentID,
-				Content: fmt.Sprintf("[Agent %s] produced no actionable output this turn.", r.agentID),
-			})
-		}
-
-		if len(writeCalls) > 0 {
-			proposals = append(proposals, proposal{
-				id:        generateProposalID(),
-				agentID:   r.agentID,
-				propType:  "write",
-				toolCalls: writeCalls,
-			})
-		}
-
-		if len(r.toolCalls) == 0 && r.content != "" {
-			proposals = append(proposals, proposal{
-				id:       generateProposalID(),
-				agentID:  r.agentID,
-				propType: "final_response",
-				response: r.content,
-			})
-		}
+		// No tools and no content — agent had nothing to say.
+		// Add a nudge to keep it going.
+		l.messages = append(l.messages, Message{
+			Role:    RoleSystem,
+			Content: "You produced no output. If you need more information, use the available tools. If you have an answer, respond in plain language.",
+		})
 	}
 
-	l.messages = append(l.messages, sharedUpdates...)
-	return proposals
+	// Max turns reached.
+	msg := "I've reached the limit of what I can check automatically. You may want to try a more specific question, or check your apps directly."
+	if l.emitAgentResponse(msg) {
+		// response emitted
+	}
+	l.emitDone("max_turns")
 }
 
-func (l *Loop) handleProposals(ctx context.Context, proposals []proposal) bool {
-	writeFirst := make([]proposal, 0, len(proposals))
-	var finalResp *proposal
-	for _, p := range proposals {
-		if p.propType == "final_response" {
-			if finalResp == nil {
-				p2 := p
-				finalResp = &p2
-			}
-		} else {
-			writeFirst = append(writeFirst, p)
-		}
+// processToolCalls handles the tool execution pipeline for one agent turn.
+// Returns true if the loop should stop (error or final response emitted).
+func (l *Loop) processToolCalls(ctx context.Context, resp *AgentResponse) bool {
+	// Record the assistant message in history.
+	var tcs []ToolCallMessage
+	for _, tc := range resp.ToolCalls {
+		tcs = append(tcs, ToolCallMessage{
+			ID:        tc.ID,
+			Name:      tc.Name,
+			Arguments: tc.Arguments,
+		})
 	}
+	l.messages = append(l.messages, Message{
+		Role:      RoleAssistant,
+		Content:   resp.Content,
+		ToolCalls: tcs,
+	})
 
-	for _, prop := range writeFirst {
+	// Process each tool call.
+	allDenied := true
+	for _, tc := range resp.ToolCalls {
 		select {
 		case <-l.stopCh:
 			l.emitDone("user_stopped")
@@ -430,340 +267,257 @@ func (l *Loop) handleProposals(ctx context.Context, proposals []proposal) bool {
 		default:
 		}
 
-		approved := l.runConsensus(ctx, &prop)
-		if approved {
-			propSuccess := true
-			for _, tc := range prop.toolCalls {
-				l.emitToolCall(prop.agentID, tc)
-				result, toolErr := l.executeWriteTool(ctx, prop.agentID, tc)
-				isErr := toolErr != nil
-				resultContent := result
-				if toolErr != nil {
-					resultContent = toolErr.Error()
-				}
-				if isErr {
-					propSuccess = false
-				}
-				l.emitToolResult(prop.agentID, tc.ID, resultContent, isErr)
-				l.messages = append(l.messages, Message{
-					Role:    RoleSystem,
-					AgentID: prop.agentID,
-					Content: fmt.Sprintf("[Consensus Approved] Agent %s executed %s — Result: %s", prop.agentID, tc.Name, truncate(resultContent, 500)),
-				})
-			}
-			if propSuccess {
-				l.writeExecuted = true
-			}
-		} else {
+		tool, ok := l.registry.Get(tc.Name)
+		if !ok {
 			l.messages = append(l.messages, Message{
-				Role:    RoleSystem,
-				Content: fmt.Sprintf("[Consensus Rejected] Proposal by Agent %s was rejected. Agents should revise their approach.", prop.agentID),
+				Role:       RoleTool,
+				ToolCallID: tc.ID,
+				Content:    fmt.Sprintf("unknown tool: %s", tc.Name),
 			})
+			l.emit(Event{Type: EventToolResult, Data: ToolResultData{
+				ID: tc.ID, Content: fmt.Sprintf("unknown tool: %s", tc.Name), IsError: true,
+			}})
+			continue
+		}
+
+		l.emit(Event{Type: EventToolCall, Data: ToolCallData{
+			ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments,
+		}})
+
+		executed, denied := l.executeWithReview(ctx, tool, tc)
+		if denied {
+			continue
+		}
+		if executed {
+			allDenied = false
 		}
 	}
 
-	if l.writeExecuted {
+	// If all tool calls were denied, tell the agent and keep going.
+	if allDenied && len(resp.ToolCalls) > 0 {
 		l.messages = append(l.messages, Message{
 			Role:    RoleSystem,
-			Content: "A write action has been executed. If you have all the information needed to answer the user, produce a final_response now. Only call more tools if further verification is genuinely needed.",
-		})
-	}
-
-	if finalResp != nil {
-		approved := l.runConsensus(ctx, finalResp)
-		if approved {
-			if l.emitAgentResponse(finalResp.response) {
-				l.responseEmitted = true
-			}
-			l.emitDone("complete")
-			return true
-		}
-		l.messages = append(l.messages, Message{
-			Role:    RoleSystem,
-			Content: fmt.Sprintf("[Consensus Rejected] Final response by Agent %s was rejected. Agents should revise their response.", finalResp.agentID),
+			Content: "All of your tool calls were denied for safety reasons. Please try a different approach or explain to the user what you need.",
 		})
 	}
 
 	return false
 }
 
-func (l *Loop) runConsensus(ctx context.Context, prop *proposal) bool {
-	pd := ProposalData{
-		ID:       prop.id,
-		AgentID:  prop.agentID,
-		Type:     prop.propType,
-		Response: prop.response,
+// executeWithReview runs a single tool call through the review/permission pipeline.
+// Returns (executed, denied). denied=true means the tool call was blocked by review or user.
+func (l *Loop) executeWithReview(ctx context.Context, tool *tools.Tool, tc AgentToolCall) (executed, denied bool) {
+	// 1. AlwaysRequirePermission: skip review, ask user directly.
+	if tool.AlwaysRequirePermission {
+		approved := l.requestUserPermission(ctx, tc.ID, tc.Name, tool.Description)
+		if !approved {
+			l.messages = append(l.messages, Message{
+				Role:       RoleTool,
+				ToolCallID: tc.ID,
+				Content:    "user denied permission",
+			})
+			l.emit(Event{Type: EventToolResult, Data: ToolResultData{
+				ID: tc.ID, Content: "Permission denied by user.", IsError: true,
+			}})
+			return false, true
+		}
+		return l.executeTool(ctx, tc, tool)
 	}
-	for _, tc := range prop.toolCalls {
-		pd.ToolCalls = append(pd.ToolCalls, ToolCallData{
-			ID:        tc.ID,
-			Name:      tc.Name,
-			Arguments: tc.Arguments,
-			AgentID:   prop.agentID,
-		})
-	}
-	l.emit(Event{Type: EventProposal, Data: pd})
 
-	if len(l.agents) <= 1 {
-		l.emit(Event{Type: EventConsensus, Data: ConsensusData{
-			ProposalID: prop.id,
-			Result:     "approved",
-			Votes:      nil,
+	// 2. Read tool with data-dir check: if path touches a data dir, ask user.
+	if tc.Name == "read" && tool.PathExtractor != nil {
+		path := tool.PathExtractor(tc.Arguments)
+		if path != "" && l.isDataDir(path) {
+			reason := fmt.Sprintf(
+				"The agent wants to read %s, which is in a protected data directory. This may contain private information like passwords or configuration secrets.",
+				path,
+			)
+			approved := l.requestUserPermissionWithReason(ctx, tc.ID, tc.Name, reason)
+			if !approved {
+				l.messages = append(l.messages, Message{
+					Role:       RoleTool,
+					ToolCallID: tc.ID,
+					Content:    "user denied permission to read from data directory",
+				})
+				l.emit(Event{Type: EventToolResult, Data: ToolResultData{
+					ID: tc.ID, Content: "Permission denied by user.", IsError: true,
+				}})
+				return false, true
+			}
+			return l.executeTool(ctx, tc, tool)
+		}
+		// Safe path: auto-execute.
+		return l.executeTool(ctx, tc, tool)
+	}
+
+	// 3. AlwaysReview or no special flags: pass through review model.
+	if tool.AlwaysReview {
+		contextSummary := l.buildContextSummary()
+		result, err := l.reviewModel.Review(ctx, l.userRequest, tc.Name, tc.Arguments, contextSummary)
+		if err != nil {
+			// Review model failed — default to "review" (ask user) for safety.
+			approved := l.requestUserPermission(ctx, tc.ID, tc.Name, tool.Description)
+			if !approved {
+				return false, true
+			}
+			return l.executeTool(ctx, tc, tool)
+		}
+
+		l.emit(Event{Type: EventToolReview, Data: ToolReviewData{
+			ToolCallID: tc.ID,
+			ToolName:   tc.Name,
+			Verdict:    string(result.Verdict),
+			Reason:     result.Reason,
 		}})
+
+		switch result.Verdict {
+		case ReviewDeny:
+			l.messages = append(l.messages, Message{
+				Role:       RoleTool,
+				ToolCallID: tc.ID,
+				Content:    fmt.Sprintf("blocked by safety review: %s", result.Reason),
+			})
+			l.emit(Event{Type: EventToolResult, Data: ToolResultData{
+				ID: tc.ID, Content: fmt.Sprintf("Blocked: %s", result.Reason), IsError: true,
+			}})
+			return false, true
+
+		case ReviewReview:
+			approved := l.requestUserPermissionWithReason(ctx, tc.ID, tc.Name, result.Reason)
+			if !approved {
+				return false, true
+			}
+			return l.executeTool(ctx, tc, tool)
+
+		case ReviewAllow:
+			return l.executeTool(ctx, tc, tool)
+		}
+	}
+
+	// 4. Auto-approve: execute immediately (shouldn't reach here with current tools).
+	return l.executeTool(ctx, tc, tool)
+}
+
+// executeTool runs the tool and records the result.
+func (l *Loop) executeTool(ctx context.Context, tc AgentToolCall, tool *tools.Tool) (executed, denied bool) {
+	result, err := tool.Execute(ctx, tc.Arguments)
+
+	isErr := err != nil
+	content := result
+	if err != nil {
+		content = err.Error()
+	}
+
+	l.messages = append(l.messages, Message{
+		Role:       RoleTool,
+		ToolCallID: tc.ID,
+		Content:    content,
+	})
+	l.emit(Event{Type: EventToolResult, Data: ToolResultData{
+		ID: tc.ID, Content: content, IsError: isErr,
+	}})
+
+	return true, false
+}
+
+// requestUserPermission asks the user for permission and waits for a response.
+func (l *Loop) requestUserPermission(ctx context.Context, id, toolName, reason string) bool {
+	return l.requestUserPermissionWithReason(ctx, id, toolName, reason)
+}
+
+// requestUserPermissionWithReason asks for user permission with a specific reason.
+func (l *Loop) requestUserPermissionWithReason(ctx context.Context, id, toolName, reason string) bool {
+	if l.config.PermissionMode == "auto" {
 		return true
 	}
 
-	var votes []VoteData
-	for _, agent := range l.agents {
-		if agent.ID == prop.agentID {
-			continue
-		}
+	permCh := make(chan bool, 1)
+	l.pendingPermMu.Lock()
+	l.pendingPerm[id] = permCh
+	l.pendingPermMu.Unlock()
+	defer func() {
+		l.pendingPermMu.Lock()
+		delete(l.pendingPerm, id)
+		l.pendingPermMu.Unlock()
+	}()
 
-		vote := l.getVote(ctx, agent, prop)
-		votes = append(votes, vote)
-		l.emit(Event{Type: EventVote, Data: vote})
-	}
-
-	allApproved := true
-	for _, v := range votes {
-		if v.Decision == "reject" {
-			allApproved = false
-			l.messages = append(l.messages, Message{
-				Role:    RoleSystem,
-				Content: fmt.Sprintf("Agent %s rejected: %s", v.AgentID, v.Reason),
-			})
-			break
-		}
-	}
-
-	result := "approved"
-	if !allApproved {
-		result = "rejected"
-	}
-	l.emit(Event{Type: EventConsensus, Data: ConsensusData{
-		ProposalID: prop.id,
-		Result:     result,
-		Votes:      votes,
+	l.emit(Event{Type: EventPermissionRequest, Data: PermissionRequestData{
+		ID:       id,
+		ToolName: toolName,
+		Reason:   reason,
 	}})
 
-	return allApproved
+	select {
+	case approved := <-permCh:
+		return approved
+	case <-l.stopCh:
+		return false
+	case <-ctx.Done():
+		return false
+	case <-time.After(l.config.TurnTimeout):
+		return false
+	}
 }
 
-func (l *Loop) getVote(ctx context.Context, agent *Agent, prop *proposal) VoteData {
-	var proposalDesc string
-	if prop.propType == "write" {
-		var parts []string
-		for _, tc := range prop.toolCalls {
-			parts = append(parts, fmt.Sprintf("%s(%s)", tc.Name, string(tc.Arguments)))
+// buildMessages prepares the message list for the agent call, applying context limits.
+func (l *Loop) buildMessages() []Message {
+	if l.config.MaxContextMessages > 0 && len(l.messages) > l.config.MaxContextMessages {
+		// Summarize old messages to stay within context window.
+		summarized, err := l.summarizeOldMessages(context.Background(), l.messages)
+		if err == nil && len(summarized) > 0 {
+			return summarized
 		}
-		proposalDesc = fmt.Sprintf("Agent %s proposes to execute: %s", prop.agentID, strings.Join(parts, ", "))
-	} else {
-		proposalDesc = fmt.Sprintf("Agent %s proposes this response to the user:\n\n%s", prop.agentID, prop.response)
+	}
+	msgs := make([]Message, len(l.messages))
+	copy(msgs, l.messages)
+	return msgs
+}
+
+// buildContextSummary creates a brief summary of the conversation for the review model.
+func (l *Loop) buildContextSummary() string {
+	const maxEntries = 10
+	start := len(l.messages) - maxEntries
+	if start < 0 {
+		start = 0
 	}
 
-	// Provide recent conversation context so the voter can make an informed decision.
-	// Include the last ~10 messages (or all if fewer), focusing on user messages,
-	// tool results, and agent messages.
-	const maxContextEntries = 10
-	contextStart := len(l.messages) - maxContextEntries
-	if contextStart < 0 {
-		contextStart = 0
-	}
-	var contextParts []string
-	for _, m := range l.messages[contextStart:] {
+	var parts []string
+	for _, m := range l.messages[start:] {
 		switch m.Role {
 		case RoleUser:
-			contextParts = append(contextParts, fmt.Sprintf("User: %s", m.Content))
+			parts = append(parts, fmt.Sprintf("User: %s", truncate(m.Content, 300)))
 		case RoleAssistant:
 			if m.Content != "" {
-				contextParts = append(contextParts, fmt.Sprintf("Agent %s: %s", m.AgentID, m.Content))
+				parts = append(parts, fmt.Sprintf("Agent: %s", truncate(m.Content, 300)))
+			}
+			for _, tc := range m.ToolCalls {
+				parts = append(parts, fmt.Sprintf("Agent called tool: %s", tc.Name))
 			}
 		case RoleTool:
-			snippet := m.Content
-			if len(snippet) > 300 {
-				snippet = snippet[:300] + "..."
-			}
-			contextParts = append(contextParts, fmt.Sprintf("Tool result for %s: %s", m.ToolCallID, snippet))
-		case RoleSystem:
-			if m.AgentID != "" {
-				contextParts = append(contextParts, fmt.Sprintf("[Agent %s] %s", m.AgentID, m.Content))
-			}
+			parts = append(parts, fmt.Sprintf("Tool result (%s): %s", m.ToolCallID, truncate(m.Content, 200)))
 		}
 	}
 
-	contextSummary := "No prior context available."
-	if len(contextParts) > 0 {
-		contextSummary = strings.Join(contextParts, "\n")
+	if len(parts) == 0 {
+		return "No prior conversation."
 	}
+	return strings.Join(parts, "\n")
+}
 
-	voteDefs := []map[string]interface{}{
-		{
-			"type": "function",
-			"function": map[string]interface{}{
-				"name":        "cast_vote",
-				"description": "Cast your vote on this proposal. You must call this function.",
-				"parameters": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"decision": map[string]interface{}{
-							"type":        "string",
-							"enum":        []string{"approve", "reject"},
-							"description": "Your vote: approve if the proposal is safe and appropriate, reject if there are concerns",
-						},
-						"reason": map[string]interface{}{
-							"type":        "string",
-							"description": "Brief explanation of your vote",
-						},
-					},
-					"required": []string{"decision", "reason"},
-				},
-			},
-		},
-	}
-
-	voteMsgs := []Message{
-		{Role: RoleSystem, Content: l.buildVotingPrompt()},
-		{Role: RoleUser, Content: fmt.Sprintf("Conversation context:\n%s\n\nCurrent proposal:\n%s", contextSummary, proposalDesc)},
-	}
-
-	callCtx, cancel := context.WithTimeout(ctx, l.config.TurnTimeout)
-	defer cancel()
-
-	resp, usage, err := agent.Call(callCtx, voteMsgs, voteDefs)
-
-	if usage != nil {
-		l.totalCost += usage.CostUSD
-		_ = l.deductCredits(callCtx, agent.Model, usage)
-		l.emitUsageUpdate(agent.ID, usage)
-	}
-
-	decision := "reject"
-	reason := ""
-	if err != nil {
-		decision = "reject"
-		reason = "voting call failed, defaulting to reject for safety"
-	} else if len(resp.ToolCalls) > 0 {
-		for _, tc := range resp.ToolCalls {
-			if tc.Name != "cast_vote" {
-				continue
-			}
-			var v struct {
-				Decision string `json:"decision"`
-				Reason   string `json:"reason"`
-			}
-			if err := json.Unmarshal(tc.Arguments, &v); err == nil {
-				decision = v.Decision
-				reason = v.Reason
-			}
+// isDataDir checks if a path falls within any configured data directory.
+func (l *Loop) isDataDir(path string) bool {
+	for _, dd := range l.config.DataDirs {
+		dd = strings.TrimRight(dd, "/")
+		if strings.HasPrefix(path, dd+"/") || path == dd {
+			return true
 		}
 	}
-
-	return VoteData{
-		ProposalID:  prop.id,
-		AgentID:     agent.ID,
-		AvatarShape: agent.AvatarShape,
-		AvatarColor: agent.AvatarColor,
-		Decision:    decision,
-		Reason:      reason,
-	}
+	return false
 }
 
-func (l *Loop) buildVotingPrompt() string {
-	return `You are an agent in a multi-agent support team managing a home server. Another agent has proposed an action. Your job is to review the proposal and decide whether it is safe and appropriate.
-
-Guidelines:
-- Read-only operations (listing containers, reading logs, checking health) should generally be approved.
-- Write operations (restarting containers, writing files) are acceptable if they seem reasonable for the user's request and a snapshot was created before the change.
-- Destructive operations (deleting data, removing containers without backup) should be rejected unless clearly justified.
-- Final responses should be approved if they are accurate, helpful, and written in plain language without technical jargon.
-- If you have concerns about the approach, reject and explain what should be done differently.
-
-You MUST call cast_vote with your decision.`
-}
-
-func (l *Loop) executeTool(ctx context.Context, agentID string, tc AgentToolCall) (string, error) {
-	tool, ok := l.registry.Get(tc.Name)
-	if !ok {
-		return "", fmt.Errorf("unknown tool: %s", tc.Name)
-	}
-
-	if tool.RequiresPermission || l.config.PermissionMode == "approve_every_call" {
-		grantType := "tool_call"
-		resource := tc.Name
-		if tool.RequiresPermission {
-			grantType = "sensitive_access"
-		}
-		permCh := make(chan bool, 1)
-		l.pendingPermMu.Lock()
-		l.pendingPerm[tc.ID] = permCh
-		l.pendingPermMu.Unlock()
-		defer func() {
-			l.pendingPermMu.Lock()
-			delete(l.pendingPerm, tc.ID)
-			l.pendingPermMu.Unlock()
-		}()
-
-		l.emit(Event{Type: EventPermissionRequest, Data: PermissionRequestData{
-			ID:        tc.ID,
-			ToolName:  tc.Name,
-			Reason:    tool.Description,
-			Resource:  resource,
-			GrantType: grantType,
-			AgentID:   agentID,
-		}})
-		select {
-		case approved := <-permCh:
-			if !approved {
-				return "", fmt.Errorf("user denied permission for %s", tc.Name)
-			}
-		case <-l.stopCh:
-			return "", fmt.Errorf("stopped while waiting for permission")
-		case <-ctx.Done():
-			return "", fmt.Errorf("context cancelled while waiting for permission")
-		case <-time.After(l.config.TurnTimeout):
-			return "", fmt.Errorf("timed out waiting for permission after %v", l.config.TurnTimeout)
-		}
-	}
-
-	return tool.Execute(ctx, tc.Arguments)
-}
-
-func (l *Loop) executeWriteTool(ctx context.Context, agentID string, tc AgentToolCall) (string, error) {
-	if l.config.SnapshotBeforeWrites {
-		l.emit(Event{Type: EventSnapshotCreated, Data: SnapshotCreatedData{
-			ToolCallID: tc.ID,
-		}})
-	}
-
-	return l.executeTool(ctx, agentID, tc)
-}
-
-func (l *Loop) HandlePermissionResponse(id string, approved bool) {
-	l.pendingPermMu.Lock()
-	ch, ok := l.pendingPerm[id]
-	l.pendingPermMu.Unlock()
-	if ok {
-		select {
-		case ch <- approved:
-		default:
-		}
-	}
-}
-
+// summarizeOldMessages compresses old messages when the context window is exceeded.
 func (l *Loop) summarizeOldMessages(ctx context.Context, msgs []Message) ([]Message, error) {
-	if len(l.agents) == 0 {
-		return msgs, nil
-	}
-	var provider *Provider
-	var model string
-	for _, a := range l.agents {
-		if a.provider != nil {
-			provider = a.provider
-			model = a.Model
-			break
-		}
-	}
-	if provider == nil {
+	if l.agent.provider == nil {
 		return msgs, nil
 	}
 
@@ -785,28 +539,18 @@ func (l *Loop) summarizeOldMessages(ctx context.Context, msgs []Message) ([]Mess
 			oldParts = append(oldParts, fmt.Sprintf("User: %s", m.Content))
 		case RoleAssistant:
 			if m.Content != "" {
-				oldParts = append(oldParts, fmt.Sprintf("Assistant: %s", m.Content))
+				oldParts = append(oldParts, fmt.Sprintf("Agent: %s", m.Content))
 			}
 			for _, tc := range m.ToolCalls {
-				oldParts = append(oldParts, fmt.Sprintf("Assistant called %s", tc.Name))
+				oldParts = append(oldParts, fmt.Sprintf("Agent called %s", tc.Name))
 			}
 		case RoleTool:
-			content := m.Content
-			if len(content) > 200 {
-				content = content[:200] + "..."
-			}
-			oldParts = append(oldParts, fmt.Sprintf("Tool result: %s", content))
-		case RoleSystem:
-			if m.AgentID != "" {
-				oldParts = append(oldParts, fmt.Sprintf("[Agent %s] %s", m.AgentID, m.Content))
-			} else {
-				oldParts = append(oldParts, m.Content)
-			}
+			oldParts = append(oldParts, fmt.Sprintf("Tool result: %s", truncate(m.Content, 200)))
 		}
 	}
 
 	summarizePrompt := fmt.Sprintf(
-		"Summarize the following conversation history concisely. Preserve key facts, decisions, and any unresolved issues. Do not include trivial details.\n\n%s",
+		"Summarize the following conversation history concisely. Preserve key facts, decisions, and any unresolved issues.\n\n%s",
 		strings.Join(oldParts, "\n"),
 	)
 
@@ -815,14 +559,14 @@ func (l *Loop) summarizeOldMessages(ctx context.Context, msgs []Message) ([]Mess
 		{Role: RoleUser, Content: summarizePrompt},
 	}
 
-	resp, summaryUsage, err := provider.Chat(ctx, model, sumMsgs, nil)
+	resp, summaryUsage, err := l.agent.provider.Chat(ctx, l.agent.Model, sumMsgs, nil)
 	if err != nil {
 		return msgs, err
 	}
 
 	if summaryUsage != nil {
 		l.totalCost += summaryUsage.CostUSD
-		_ = l.deductCredits(ctx, model, summaryUsage)
+		_ = l.deductCredits(ctx, l.agent.Model, summaryUsage)
 	}
 
 	summaryMsg := Message{
@@ -835,6 +579,8 @@ func (l *Loop) summarizeOldMessages(ctx context.Context, msgs []Message) ([]Mess
 	result = append(result, recentMsgs...)
 	return result, nil
 }
+
+// --- Credit / Usage ---
 
 func (l *Loop) deductCredits(ctx context.Context, model string, usage *UsageInfo) error {
 	if l.credits == nil || l.plan == nil || l.plan.CreditCapUSD <= 0 || usage == nil {
@@ -862,49 +608,7 @@ func (l *Loop) pricingForModel(model string) config.ModelPricing {
 	return config.ModelPricing{}
 }
 
-func (l *Loop) agentModel(agentID string) string {
-	for _, a := range l.agents {
-		if a.ID == agentID {
-			return a.Model
-		}
-	}
-	return ""
-}
-
-func (l *Loop) emitToolCall(agentID string, tc AgentToolCall) {
-	l.emit(Event{Type: EventToolCall, Data: ToolCallData{
-		ID:        tc.ID,
-		Name:      tc.Name,
-		Arguments: tc.Arguments,
-		AgentID:   agentID,
-	}})
-}
-
-func (l *Loop) emitToolResult(agentID, id, content string, isError bool) {
-	l.emit(Event{Type: EventToolResult, Data: ToolResultData{
-		ID:      id,
-		Content: content,
-		IsError: isError,
-		AgentID: agentID,
-	}})
-}
-
-func (l *Loop) emitUsageUpdate(agentID string, usage *UsageInfo) {
-	if l.credits == nil || l.plan == nil || usage == nil {
-		return
-	}
-	usageSummary, _ := l.credits.Usage(context.Background(), l.userID, l.plan)
-	if usageSummary != nil {
-		l.emit(Event{Type: EventUsageUpdate, Data: UsageUpdateData{
-			TurnCostUSD:  usage.CostUSD,
-			TotalCostUSD: l.totalCost,
-			InputTokens:  usage.InputTokens,
-			OutputTokens: usage.OutputTokens,
-			CacheTokens:  usage.CacheTokens,
-			RemainingUSD: usageSummary.RemainingUSD,
-		}})
-	}
-}
+// --- Event Helpers ---
 
 func (l *Loop) emit(e Event) {
 	select {
@@ -929,15 +633,6 @@ func (l *Loop) emitAgentResponse(content string) bool {
 }
 
 func (l *Loop) emitDone(reason string) {
-	if !l.responseEmitted {
-		msg := "The agents reached the turn limit, but the task may not be complete. Please check your apps or try again with a more specific request."
-		if l.writeExecuted {
-			msg = "The requested action has been completed."
-		}
-		if l.emitAgentResponse(msg) {
-			l.responseEmitted = true
-		}
-	}
 	done := Event{Type: EventDone, Data: DoneData{Reason: reason}}
 	select {
 	case l.events <- done:
@@ -955,8 +650,21 @@ func (l *Loop) emitDone(reason string) {
 	}
 }
 
-func generateProposalID() string {
-	return fmt.Sprintf("prop-%d", time.Now().UnixNano())
+func (l *Loop) emitUsageUpdate(usage *UsageInfo) {
+	if l.credits == nil || l.plan == nil || usage == nil {
+		return
+	}
+	usageSummary, _ := l.credits.Usage(context.Background(), l.userID, l.plan)
+	if usageSummary != nil {
+		l.emit(Event{Type: EventUsageUpdate, Data: UsageUpdateData{
+			TurnCostUSD:  usage.CostUSD,
+			TotalCostUSD: l.totalCost,
+			InputTokens:  usage.InputTokens,
+			OutputTokens: usage.OutputTokens,
+			CacheTokens:  usage.CacheTokens,
+			RemainingUSD: usageSummary.RemainingUSD,
+		}})
+	}
 }
 
 func truncate(s string, maxLen int) string {

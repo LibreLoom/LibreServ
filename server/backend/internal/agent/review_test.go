@@ -1,103 +1,72 @@
 package agent
 
 import (
-	"encoding/json"
 	"testing"
 )
 
-func TestDeliberationEventTypes(t *testing.T) {
-	if EventAgentThinking != "agent_thinking" {
-		t.Errorf("EventAgentThinking = %q, want %q", EventAgentThinking, "agent_thinking")
+func TestStripMarkdownFences(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"```json\n{\"verdict\":\"allow\"}\n```", "{\"verdict\":\"allow\"}"},
+		{"```\n{\"verdict\":\"deny\"}\n```", "{\"verdict\":\"deny\"}"},
+		{"{\"verdict\":\"review\"}", "{\"verdict\":\"review\"}"},
+		{"  {\"verdict\":\"allow\",\"reason\":\"safe\"}  ", "{\"verdict\":\"allow\",\"reason\":\"safe\"}"},
 	}
-	if EventAgentMessage != "agent_message" {
-		t.Errorf("EventAgentMessage = %q, want %q", EventAgentMessage, "agent_message")
-	}
-	if EventProposal != "proposal" {
-		t.Errorf("EventProposal = %q, want %q", EventProposal, "proposal")
-	}
-	if EventVote != "vote" {
-		t.Errorf("EventVote = %q, want %q", EventVote, "vote")
-	}
-	if EventConsensus != "consensus" {
-		t.Errorf("EventConsensus = %q, want %q", EventConsensus, "consensus")
+
+	for _, tt := range tests {
+		result := stripMarkdownFences(tt.input)
+		if result != tt.expected {
+			t.Errorf("stripMarkdownFences(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
 	}
 }
 
-func TestAgentThinkingData(t *testing.T) {
-	data := AgentThinkingData{
-		AgentID:     "agent-1",
-		AvatarShape: "diamond",
-		AvatarColor: "#FF6B35",
-		Model:       "route/mimo-v2.5-pro",
+func TestReviewVerdictConstants(t *testing.T) {
+	if ReviewDeny != "deny" {
+		t.Errorf("ReviewDeny = %q, want %q", ReviewDeny, "deny")
 	}
-	b, err := json.Marshal(data)
+	if ReviewAllow != "allow" {
+		t.Errorf("ReviewAllow = %q, want %q", ReviewAllow, "allow")
+	}
+	if ReviewReview != "review" {
+		t.Errorf("ReviewReview = %q, want %q", ReviewReview, "review")
+	}
+}
+
+func TestReviewModelNilSafety(t *testing.T) {
+	// A nil review model should default to "review" verdict for safety.
+	var rm *ReviewModel
+	result, err := rm.Review(nil, "test request", "bash", nil, "no context")
 	if err != nil {
-		t.Fatalf("marshal AgentThinkingData: %v", err)
+		t.Fatalf("nil review model should not error: %v", err)
 	}
-	var parsed AgentThinkingData
-	if err := json.Unmarshal(b, &parsed); err != nil {
-		t.Fatalf("unmarshal AgentThinkingData: %v", err)
+	if result.Verdict != ReviewReview {
+		t.Errorf("nil review model verdict = %q, want %q", result.Verdict, ReviewReview)
 	}
-	if parsed.AgentID != "agent-1" {
-		t.Errorf("AgentID = %q, want %q", parsed.AgentID, "agent-1")
-	}
-	if parsed.AvatarShape != "diamond" {
-		t.Errorf("AvatarShape = %q, want %q", parsed.AvatarShape, "diamond")
+	if result.Reason == "" {
+		t.Error("nil review model should provide a reason")
 	}
 }
 
-func TestAgentMessageData(t *testing.T) {
-	data := AgentMessageData{
-		AgentID:     "agent-2",
-		AvatarShape: "circle",
-		AvatarColor: "#4ECDC4",
-		Content:     "I checked the logs and found an error",
-	}
-	b, err := json.Marshal(data)
+func TestReviewModelNilProvider(t *testing.T) {
+	rm := NewReviewModel(nil, "test-model")
+	result, err := rm.Review(nil, "test request", "bash", nil, "no context")
 	if err != nil {
-		t.Fatalf("marshal AgentMessageData: %v", err)
+		t.Fatalf("nil provider review model should not error: %v", err)
 	}
-	var parsed AgentMessageData
-	if err := json.Unmarshal(b, &parsed); err != nil {
-		t.Fatalf("unmarshal AgentMessageData: %v", err)
-	}
-	if parsed.Content != "I checked the logs and found an error" {
-		t.Errorf("Content = %q, want original", parsed.Content)
+	if result.Verdict != ReviewReview {
+		t.Errorf("nil provider verdict = %q, want %q", result.Verdict, ReviewReview)
 	}
 }
 
-func TestToolCallDataWithAgentID(t *testing.T) {
-	data := ToolCallData{
-		ID:        "call_1",
-		Name:      "podman_restart",
-		Arguments: json.RawMessage(`{"container":"nginx"}`),
-		AgentID:   "agent-1",
+func TestNewReviewModel(t *testing.T) {
+	rm := NewReviewModel(nil, "test-model")
+	if rm == nil {
+		t.Fatal("NewReviewModel returned nil")
 	}
-	b, err := json.Marshal(data)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	var parsed ToolCallData
-	if err := json.Unmarshal(b, &parsed); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if parsed.AgentID != "agent-1" {
-		t.Errorf("AgentID = %q, want %q", parsed.AgentID, "agent-1")
-	}
-}
-
-func TestConsensusDataRejected(t *testing.T) {
-	data := ConsensusData{
-		ProposalID: "prop-1",
-		Result:     "rejected",
-		Votes: []VoteData{
-			{AgentID: "agent-2", Decision: "reject", Reason: "too risky"},
-		},
-	}
-	if data.Result != "rejected" {
-		t.Errorf("Result = %q, want %q", data.Result, "rejected")
-	}
-	if len(data.Votes) != 1 {
-		t.Errorf("len(Votes) = %d, want 1", len(data.Votes))
+	if rm.model != "test-model" {
+		t.Errorf("model = %q, want %q", rm.model, "test-model")
 	}
 }

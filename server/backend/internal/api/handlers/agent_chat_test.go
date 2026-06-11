@@ -39,7 +39,7 @@ func setupAgentChatTest(t *testing.T) (*AgentChatHandler, *database.DB, func()) 
 	}
 	config.SetTestConfig(cfg)
 
-	h := NewAgentChatHandler(db, nil, nil, nil)
+	h := NewAgentChatHandler(db, nil)
 	cleanup := func() {
 		config.SetTestConfig(nil)
 		_ = db.Close()
@@ -140,7 +140,8 @@ func TestAgentChatHandler_SendMessage_ConflictOnDuplicate(t *testing.T) {
 	}
 
 	h.mu.Lock()
-	fakeLoop := agent.NewLoop(nil, nil, nil, nil, agent.LoopConfig{MaxTurns: 1}, "token", "user-b", "conv-dup")
+	fakeAgent := agent.NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
+	fakeLoop := agent.NewLoop(fakeAgent, nil, nil, nil, nil, agent.LoopConfig{MaxTurns: 1}, "token", "user-b", "conv-dup")
 	h.activeLoops["conv-dup"] = &agentLoopEntry{loop: fakeLoop, cancel: func() {}}
 	h.mu.Unlock()
 
@@ -195,7 +196,8 @@ func TestAgentChatHandler_StopConversation(t *testing.T) {
 	}
 
 	h.mu.Lock()
-	fakeLoop := agent.NewLoop(nil, nil, nil, nil, agent.LoopConfig{MaxTurns: 1}, "token", "user-d", "conv-stop")
+	fakeAgent2 := agent.NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
+	fakeLoop := agent.NewLoop(fakeAgent2, nil, nil, nil, nil, agent.LoopConfig{MaxTurns: 1}, "token", "user-d", "conv-stop")
 	h.activeLoops["conv-stop"] = &agentLoopEntry{loop: fakeLoop, cancel: func() {}}
 	h.mu.Unlock()
 
@@ -211,28 +213,34 @@ func TestAgentChatHandler_StopConversation(t *testing.T) {
 	}
 }
 
-func TestFindPendingProposal_TracksProposals(t *testing.T) {
+func TestActiveLoopTracking(t *testing.T) {
 	h, _, cleanup := setupAgentChatTest(t)
 	defer cleanup()
 
+	cancel := func() {}
 	h.mu.Lock()
 	h.activeLoops["conv-1"] = &agentLoopEntry{
-		loop:      nil,
-		cancel:    func() {},
-		proposals: map[string]*agent.ProposalData{"prop-1": {ID: "prop-1", AgentID: "a1"}},
+		loop:   nil,
+		cancel: cancel,
 	}
 	h.mu.Unlock()
 
-	pd := h.findPendingProposal("conv-1", "prop-1")
-	if pd == nil {
-		t.Fatal("expected proposal, got nil")
+	h.mu.Lock()
+	entry, exists := h.activeLoops["conv-1"]
+	h.mu.Unlock()
+
+	if !exists {
+		t.Fatal("expected active loop entry")
 	}
-	if pd.ID != "prop-1" {
-		t.Fatalf("expected prop-1, got %s", pd.ID)
+	if entry.cancel == nil {
+		t.Fatal("expected cancel function")
 	}
 
-	missing := h.findPendingProposal("conv-1", "prop-missing")
-	if missing != nil {
-		t.Fatal("expected nil for missing proposal")
+	// Verify nonexistent conversation returns false.
+	h.mu.Lock()
+	_, exists = h.activeLoops["conv-nonexistent"]
+	h.mu.Unlock()
+	if exists {
+		t.Fatal("expected no entry for nonexistent conversation")
 	}
 }

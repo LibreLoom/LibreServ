@@ -1,212 +1,114 @@
 package config
 
 import (
-	"strings"
 	"testing"
+	"time"
 )
 
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
-}
-
-func TestDefaultAgents(t *testing.T) {
-	agents := DefaultAgents()
-	if len(agents) != 3 {
-		t.Fatalf("DefaultAgents returned %d, want 3", len(agents))
+func TestAgentConfigDefaults(t *testing.T) {
+	cfg := &AgentConfig{}
+	if cfg.MaxTurns != 0 {
+		t.Error("zero-value MaxTurns should be 0")
 	}
-
-	ids := map[string]bool{}
-	for _, a := range agents {
-		ids[a.ID] = true
-	}
-	if !ids["agent-1"] {
-		t.Error("missing 'agent-1' agent")
-	}
-	if !ids["agent-2"] {
-		t.Error("missing 'agent-2' agent")
-	}
-	if !ids["self-healing"] {
-		t.Error("missing 'self-healing' agent")
+	if cfg.ReviewEnabled {
+		t.Error("zero-value ReviewEnabled should be false")
 	}
 }
 
-func TestDefaultAgent1(t *testing.T) {
-	agents := DefaultAgents()
-	var a1 *AgentDefinition
-	for i := range agents {
-		if agents[i].ID == "agent-1" {
-			a1 = &agents[i]
-			break
-		}
+func TestAgentConfigFields(t *testing.T) {
+	cfg := AgentConfig{
+		MainModel:     "route/kimi-k2.6",
+		ReviewModel:   "route/mimo-v2.5-pro",
+		ReviewEnabled: true,
+		SystemPrompt:  "Be helpful.",
+		MaxTurns:      10,
+		TurnTimeout:   5 * time.Minute,
+		DataDirs:      []string{"/var/lib/libreserv", "/etc/libreserv"},
+		SystemPlanID:  "basic",
 	}
-	if a1 == nil {
-		t.Fatal("agent-1 not found")
+
+	if cfg.MainModel != "route/kimi-k2.6" {
+		t.Errorf("MainModel = %q", cfg.MainModel)
 	}
-	if a1.Trigger != "chat" {
-		t.Errorf("agent-1.Trigger = %q, want %q", a1.Trigger, "chat")
+	if cfg.ReviewModel != "route/mimo-v2.5-pro" {
+		t.Errorf("ReviewModel = %q", cfg.ReviewModel)
 	}
-	if a1.Model != "" {
-		t.Errorf("agent-1.Model = %q, want empty (resolves to default_model at runtime)", a1.Model)
+	if !cfg.ReviewEnabled {
+		t.Error("ReviewEnabled should be true")
 	}
-	if a1.AvatarShape != "diamond" {
-		t.Errorf("agent-1.AvatarShape = %q, want %q", a1.AvatarShape, "diamond")
+	if cfg.SystemPrompt != "Be helpful." {
+		t.Errorf("SystemPrompt = %q", cfg.SystemPrompt)
 	}
-	if a1.AvatarColor != "#FF6B35" {
-		t.Errorf("agent-1.AvatarColor = %q, want %q", a1.AvatarColor, "#FF6B35")
+	if cfg.MaxTurns != 10 {
+		t.Errorf("MaxTurns = %d, want 10", cfg.MaxTurns)
 	}
-	if a1.SystemPrompt == "" {
-		t.Error("agent-1.SystemPrompt should not be empty — agents need distinct roles")
-	}
-	if !contains(a1.SystemPrompt, "Research") {
-		t.Error("agent-1.SystemPrompt should identify as Research Agent")
+	if len(cfg.DataDirs) != 2 {
+		t.Errorf("DataDirs len = %d, want 2", len(cfg.DataDirs))
 	}
 }
 
-func TestDefaultAgent2(t *testing.T) {
-	agents := DefaultAgents()
-	var a2 *AgentDefinition
-	for i := range agents {
-		if agents[i].ID == "agent-2" {
-			a2 = &agents[i]
-			break
-		}
+func TestAgentConfigEmptyReviewModel(t *testing.T) {
+	// When ReviewModel is empty, it should default to MainModel at runtime.
+	// Config doesn't enforce this — it's the handler's job.
+	cfg := AgentConfig{
+		MainModel:     "route/kimi-k2.6",
+		ReviewModel:   "",
+		ReviewEnabled: true,
 	}
-	if a2 == nil {
-		t.Fatal("agent-2 not found")
-	}
-	if a2.Model != "" {
-		t.Errorf("agent-2.Model = %q, want empty (resolves to default_model at runtime)", a2.Model)
-	}
-	if a2.AvatarShape != "circle" {
-		t.Errorf("agent-2.AvatarShape = %q, want %q", a2.AvatarShape, "circle")
-	}
-	if a2.SystemPrompt == "" {
-		t.Error("agent-2.SystemPrompt should not be empty — agents need distinct roles")
-	}
-	if !contains(a2.SystemPrompt, "Review") {
-		t.Error("agent-2.SystemPrompt should identify as Review & Safety Agent")
+	if cfg.ReviewModel != "" {
+		t.Error("zero-value ReviewModel should be empty string")
 	}
 }
 
-func TestDefaultSelfHealingAgent(t *testing.T) {
-	agents := DefaultAgents()
-	var sh *AgentDefinition
-	for i := range agents {
-		if agents[i].ID == "self-healing" {
-			sh = &agents[i]
-			break
-		}
+func TestAgentConfigReviewDisabled(t *testing.T) {
+	cfg := AgentConfig{
+		MainModel:     "route/kimi-k2.6",
+		ReviewModel:   "route/mimo-v2.5-pro",
+		ReviewEnabled: false,
 	}
-	if sh == nil {
-		t.Fatal("self-healing agent not found")
+	if cfg.ReviewEnabled {
+		t.Error("ReviewEnabled should be false")
 	}
-	if sh.Trigger != "container_unhealthy" {
-		t.Errorf("self-healing.Trigger = %q, want %q", sh.Trigger, "container_unhealthy")
-	}
-	if sh.MaxTurns != 5 {
-		t.Errorf("self-healing.MaxTurns = %d, want 5", sh.MaxTurns)
-	}
-	if sh.PermissionMode != "auto" {
-		t.Errorf("self-healing.PermissionMode = %q, want %q", sh.PermissionMode, "auto")
+	// ReviewModel can still be set even if disabled — it's just not used.
+	if cfg.ReviewModel != "route/mimo-v2.5-pro" {
+		t.Errorf("ReviewModel = %q", cfg.ReviewModel)
 	}
 }
 
-func TestAgentByID(t *testing.T) {
-	orig := globalConfig
-	globalConfig = &Config{Support: SupportConfig{}}
-	defer func() { globalConfig = orig }()
-
-	agent := AgentByID("agent-1")
-	if agent == nil {
-		t.Fatal("AgentByID('agent-1') should find default agent")
+func TestModelPricing(t *testing.T) {
+	p := ModelPricing{
+		InputPer1M:  0.45,
+		OutputPer1M: 1.00,
+		CachePer1M:  0.10,
 	}
-	if agent.ID != "agent-1" {
-		t.Errorf("AgentByID('agent-1').ID = %q, want %q", agent.ID, "agent-1")
+	if p.InputPer1M != 0.45 {
+		t.Errorf("InputPer1M = %f", p.InputPer1M)
 	}
-}
-
-func TestAgentByIDNonexistent(t *testing.T) {
-	orig := globalConfig
-	globalConfig = &Config{Support: SupportConfig{}}
-	defer func() { globalConfig = orig }()
-
-	agent := AgentByID("nonexistent")
-	if agent != nil {
-		t.Error("AgentByID should return nil for nonexistent ID")
+	if p.OutputPer1M != 1.00 {
+		t.Errorf("OutputPer1M = %f", p.OutputPer1M)
 	}
 }
 
-func TestAgentsByTrigger(t *testing.T) {
-	orig := globalConfig
-	globalConfig = &Config{Support: SupportConfig{}}
-	defer func() { globalConfig = orig }()
-
-	agents := AgentsByTrigger("chat")
-	if len(agents) != 2 {
-		t.Fatalf("AgentsByTrigger('chat') = %d, want 2", len(agents))
-	}
-}
-
-func TestAgentsByTriggerNoMatch(t *testing.T) {
-	orig := globalConfig
-	globalConfig = &Config{Support: SupportConfig{}}
-	defer func() { globalConfig = orig }()
-
-	agents := AgentsByTrigger("nonexistent")
-	if len(agents) != 0 {
-		t.Errorf("AgentsByTrigger('nonexistent') = %d, want 0", len(agents))
-	}
-}
-
-func TestAgentDefinitionCustomConfig(t *testing.T) {
-	orig := globalConfig
-	globalConfig = &Config{
-		Support: SupportConfig{
-			Agents: []AgentDefinition{
-				{ID: "custom", Trigger: "webhook", Model: "route/deepseek-v4-pro", ToolNames: []string{"docker"}, MaxTurns: 3},
-			},
+func TestSupportConfigHasAgent(t *testing.T) {
+	cfg := SupportConfig{
+		Agent: AgentConfig{
+			MainModel: "test-model",
+			MaxTurns:  10,
 		},
 	}
-	defer func() { globalConfig = orig }()
-
-	agent := AgentByID("custom")
-	if agent == nil {
-		t.Fatal("AgentByID('custom') should find custom agent")
+	if cfg.Agent.MainModel != "test-model" {
+		t.Error("Agent.MainModel not set")
 	}
-	if agent.Model != "route/deepseek-v4-pro" {
-		t.Errorf("custom.Model = %q, want %q", agent.Model, "route/deepseek-v4-pro")
+	if cfg.Agent.MaxTurns != 10 {
+		t.Error("Agent.MaxTurns not set")
 	}
 }
 
-func TestDefaultAgentsHaveDistinctRoles(t *testing.T) {
-	agents := DefaultAgents()
-	var a1, a2 *AgentDefinition
-	for i := range agents {
-		switch agents[i].ID {
-		case "agent-1":
-			a1 = &agents[i]
-		case "agent-2":
-			a2 = &agents[i]
-		}
-	}
-	if a1 == nil || a2 == nil {
-		t.Fatal("missing agent-1 or agent-2")
-	}
-	if a1.SystemPrompt == a2.SystemPrompt {
-		t.Error("agent-1 and agent-2 must have distinct SystemPrompts — identical prompts create an echo chamber that wastes tokens")
-	}
-}
-
-func TestAgentDefinitionAvatarFields(t *testing.T) {
-	a := AgentDefinition{
-		ID:          "test",
-		AvatarShape: "hexagon",
-		AvatarColor: "#45B7D1",
-	}
-	if a.AvatarShape != "hexagon" {
-		t.Errorf("AvatarShape = %q, want %q", a.AvatarShape, "hexagon")
-	}
-	if a.AvatarColor != "#45B7D1" {
-		t.Errorf("AvatarColor = %q, want %q", a.AvatarColor, "#45B7D1")
+func TestSupportConfigHasNoAgentsSlice(t *testing.T) {
+	cfg := SupportConfig{}
+	// The Agents slice field no longer exists — verify the struct compiles without it.
+	// Just test that a SupportConfig can be created without error.
+	if cfg.Agent.MainModel != "" {
+		t.Error("zero-value MainModel should be empty")
 	}
 }
