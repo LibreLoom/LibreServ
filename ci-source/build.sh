@@ -32,10 +32,6 @@ GOOS=windows GOARCH=amd64 go build -o bin/ci-windows-amd64.exe ./cmd/ci
 echo "  Windows arm64..."
 GOOS=windows GOARCH=arm64 go build -o bin/ci-windows-arm64.exe ./cmd/ci
 
-# Build Windows launcher
-echo "Building Windows launcher..."
-GOOS=windows GOARCH=amd64 go build -o ../ci.exe ./cmd/ci-launcher
-
 echo ""
 echo "Done! Binaries in ci-source/bin/"
 ls -la bin/

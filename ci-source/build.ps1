@@ -46,11 +46,6 @@ try {
     # Reset environment
     $env:GOOS = ""; $env:GOARCH = ""
 
-    # Build Windows launcher
-    Write-Host "Building Windows launcher..."
-    Set-Location ..
-    go build -o ci.exe ./ci-source/cmd/ci-launcher
-
     Write-Host ""
     Write-Host "Done! Binaries in ci-source/bin/"
     Get-ChildItem ci-source/bin

@@ -1,64 +1,38 @@
 #!/bin/sh
-# LibreServ CI Launcher - Works on all Unix systems
-# This script detects your platform and runs the appropriate binary
+# LibreServ CI Launcher — detects platform and delegates to the right binary
+set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BIN_DIR="$SCRIPT_DIR/ci-source/bin"
+SELF="$(cd "$(dirname "$0")" && pwd)"
+BIN_DIR="$SELF/ci-source/bin"
+SOURCE_DIR="$SELF/ci-source"
 
-# Detect OS
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 
-# Normalize architecture
-case "$ARCH" in
-    x86_64|amd64)
-        ARCH="amd64"
-        ;;
-    aarch64|arm64)
-        ARCH="arm64"
-        ;;
-    armv7l|armhf)
-        ARCH="arm"
-        ;;
-    i386|i686)
-        ARCH="386"
-        ;;
-esac
-
-# Map OS names
 case "$OS" in
-    darwin)
-        OS="darwin"
-        ;;
-    linux)
-        OS="linux"
-        ;;
-    freebsd)
-        OS="freebsd"
-        ;;
-    openbsd)
-        OS="openbsd"
-        ;;
-    netbsd)
-        OS="netbsd"
-        ;;
-    *)
-        echo "Unsupported OS: $OS"
-        exit 1
-        ;;
+  linux)  PLATFORM="linux-$ARCH" ;;
+  darwin) PLATFORM="darwin-$ARCH" ;;
+  freebsd) PLATFORM="freebsd-$ARCH" ;;
+  *)
+    echo "Unsupported OS: $OS" >&2
+    exit 1
+    ;;
 esac
 
-BINARY="$BIN_DIR/ci-$OS-$ARCH"
+# Normalize arch
+case "$ARCH" in
+  x86_64|amd64) PLATFORM="${PLATFORM%%-*}-amd64" ;;
+  aarch64|arm64) PLATFORM="${PLATFORM%%-*}-arm64" ;;
+esac
 
-# Check if binary exists
-if [ ! -f "$BINARY" ]; then
-    echo "CI binary not found: $BINARY"
-    echo ""
-    echo "Building for $OS/$ARCH..."
-    cd "$SCRIPT_DIR/ci-source" || exit 1
-    go build -o "bin/ci-$OS-$ARCH" ./cmd/ci || exit 1
-    echo "Build complete!"
-    cd "$SCRIPT_DIR"
+CI_BIN="$BIN_DIR/ci-$PLATFORM"
+
+if [ ! -f "$CI_BIN" ]; then
+  echo "CI binary not found, building for $PLATFORM..." >&2
+  mkdir -p "$BIN_DIR"
+  (cd "$SOURCE_DIR" && GOOS="${PLATFORM%%-*}" GOARCH="${PLATFORM##*-}" go build -o "bin/ci-$PLATFORM" ./cmd/ci)
+  echo "Build complete!" >&2
+  echo "" >&2
 fi
 
-exec "$BINARY" "$@"
+exec "$CI_BIN" "$@"
