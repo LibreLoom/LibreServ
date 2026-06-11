@@ -155,7 +155,7 @@ func addGoTests() {
 		Description: "Check that Connect Go files are properly formatted",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.26-alpine",
-		Command:     "gofmt -l $(find . -name '*.go' | grep -v vendor)",
+		Command:     "UNFMT=$(gofmt -l $(find . -name '*.go' | grep -v vendor)); test -z \"$UNFMT\" || (echo 'Files need formatting:' && echo \"$UNFMT\" && exit 1)",
 		WorkDir:     "/repo/connect",
 		Timeout:     1 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
@@ -203,9 +203,9 @@ func addGoTests() {
 		Description: "Verify the Linux companion binary compiles",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.26-alpine",
-		Command:     "go build -o /tmp/libreserv-ble-companion .",
+		Command:     "apk add --no-cache pkgconf gtk4.0-dev libadwaita-dev gcc musl-dev && go build -o /tmp/libreserv-ble-companion .",
 		WorkDir:     "/repo/companion/linux",
-		Timeout:     3 * time.Minute,
+		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
 
@@ -215,9 +215,9 @@ func addGoTests() {
 		Description: "Run Go tests for the Linux BLE companion app",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.26-alpine",
-		Command:     "go test -v ./...",
+		Command:     "apk add --no-cache pkgconf gtk4.0-dev libadwaita-dev gcc musl-dev && go test -v ./...",
 		WorkDir:     "/repo/companion/linux",
-		Timeout:     3 * time.Minute,
+		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
 }
@@ -500,6 +500,54 @@ func addSecurityTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck -checks all,-ST1,-ST1000 ./internal/... ./cmd/...",
 		WorkDir:     "/repo/server/backend",
+		Timeout:     5 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-gosec",
+		Name:        "Connect Security Scanner",
+		Description: "Scan Connect code for security problems",
+		Type:        TestTypeSecurity,
+		Container:   "golang:1.26-alpine",
+		Command:     "CGO_ENABLED=0 go install github.com/securego/gosec/v2/cmd/gosec@latest && $(go env GOPATH)/bin/gosec -severity high -confidence high ./internal/... ./cmd/...",
+		WorkDir:     "/repo/connect",
+		Timeout:     5 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "connect-staticcheck",
+		Name:        "Connect Static Analysis",
+		Description: "Run staticcheck on Connect code",
+		Type:        TestTypeSecurity,
+		Container:   "golang:1.26-alpine",
+		Command:     "CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck -checks all,-ST1,-ST1000 ./internal/... ./cmd/...",
+		WorkDir:     "/repo/connect",
+		Timeout:     5 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "companion-linux-gosec",
+		Name:        "Linux Companion Security Scanner",
+		Description: "Scan Linux companion code for security problems",
+		Type:        TestTypeSecurity,
+		Container:   "golang:1.26-alpine",
+		Command:     "apk add --no-cache pkgconf gtk4.0-dev libadwaita-dev gcc musl-dev && CGO_ENABLED=0 go install github.com/securego/gosec/v2/cmd/gosec@latest && $(go env GOPATH)/bin/gosec -severity high -confidence high ./...",
+		WorkDir:     "/repo/companion/linux",
+		Timeout:     5 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "companion-linux-staticcheck",
+		Name:        "Linux Companion Static Analysis",
+		Description: "Run staticcheck on Linux companion code",
+		Type:        TestTypeSecurity,
+		Container:   "golang:1.26-alpine",
+		Command:     "apk add --no-cache pkgconf gtk4.0-dev libadwaita-dev gcc musl-dev && CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck ./...",
+		WorkDir:     "/repo/companion/linux",
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})

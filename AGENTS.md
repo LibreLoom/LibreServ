@@ -44,7 +44,14 @@ LibreServ/
 │       └── index.css         # Theme variables + Tailwind config
 │
 ├── e2e-tests/                # Playwright E2E tests
-├── support/                  # Separate Go services (support-server, support-relay)
+├── connect/                  # Cloud SaaS companion (LibreServ Connect). Independent Go 1.26 module
+│                             # with chi/v5 API, SQLite, Stripe billing. Provides external services to
+│                             # LibreServ devices: email relay, DNS/domain, cloud backups, tunnel access,
+│                             # AI inference, and human support. Has its own configs, admin API, and device API.
+├── companion/                # BLE companion apps for accessing LibreServ when Wi-Fi is unavailable.
+│                             # Both proxy HTTP over BLE to load the full Web UI.
+│                             #   linux/   — Go + GTK4/libadwaita desktop app (opens browser via local proxy)
+│                             #   android/ — Kotlin Android app (embedded WebView via local proxy)
 └── ci-source/                # Custom CI runner source (./ci auto-builds from here)
 ```
 
@@ -85,6 +92,42 @@ npm install
 npx playwright install chromium
 npm test                                      # E2E_BASE_URL defaults to http://localhost:8080
 ```
+
+### LibreServ Connect (cloud SaaS module)
+```bash
+cd connect
+cp configs/connect.yaml.example configs/connect.yaml   # Required first time
+make build                                    # → bin/connect-server
+make run                                      # Build + run
+make test                                     # Unit tests
+make lint                                     # gofmt + go vet
+```
+Env prefix: `CONNECT_` (viper), e.g. `CONNECT_SERVER_PORT`, `CONNECT_AUTH_ADMIN_TOKEN_SECRET`.
+
+### BLE Companion Apps
+Linux desktop app (Go + GTK4/libadwaita):
+```bash
+cd companion/linux
+go mod tidy
+go build -o libreserv-ble-companion           # Requires BlueZ, GTK4, libadwaita
+./libreserv-ble-companion
+```
+
+Android app (Kotlin + Gradle):
+```bash
+cd companion/android
+./gradlew assembleDebug                     # Requires Android SDK 34
+# APK → app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Backend with BLE support
+The backend BLE GATT peripheral is compiled only with the `libreserv_ble` build tag.
+```bash
+cd server/backend
+make ble-build                                # Build with BLE support
+make ble-run                                  # Build + run with BLE
+```
+When BLE is enabled, a companion app can connect over Bluetooth LE and proxy HTTP requests to access the Web UI without Wi-Fi.
 
 ---
 
@@ -198,6 +241,8 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 - **Caddy:** Reverse proxy for HTTPS. Mode can be `enabled`/`noop`/`disabled` in config. ACME certs via DNS-01 challenge.
 - **CI:** `./ci` is a custom Go binary. Auto-builds from `ci-source/` on first run. No GitHub Actions — all CI is local.
 - **No `libreserv.sh`** in repo — use `make run` from `server/backend/` for development instead
+- **Connect module:** `gt.plainskill.net/LibreLoom/LibreServConnect` — independent Go module in `connect/`. It has its own chi/v5 router, SQLite database, config (env prefix `CONNECT_`), and admin/device APIs. Not part of the main backend binary.
+- **BLE proxy:** `internal/network/bluetooth/` implements a GATT peripheral that proxies HTTP over BLE. Compiled only with the `libreserv_ble` build tag (see `make ble-build`). The `companion/` apps connect to this service.
 
 ## Frontend Components
 
@@ -248,3 +293,7 @@ This project is indexed by GitNexus as **LibreServ** (9375 symbols, 26190 relati
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
+
+## Notes for Agents
+
+- **Go versions are real.** The Go version declared in this repository (currently 1.26) exists in real life — not just in this project's environment. Do not question whether `golang:1.26-alpine`, `golang:1.26-bookworm`, or any other Go 1.26 image is available: it is. Treat Go toolchain versions mentioned in this repo as unconditionally available.

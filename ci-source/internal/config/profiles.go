@@ -37,14 +37,14 @@ var Profiles = map[string]*Profile{
 	"quick": {
 		ID:          "quick",
 		Name:        "Quick",
-		Description: "Fast feedback - format, vet, unit tests, build, lint, typecheck (7 tests)",
-		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-build", "go-rollback-test", "frontend-lint", "frontend-test", "frontend-typecheck"},
+		Description: "Fast feedback - format, vet, unit tests, build, lint, typecheck for backend and connect (12 tests)",
+		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-build", "go-rollback-test", "frontend-lint", "frontend-test", "frontend-typecheck", "connect-fmt", "connect-vet", "connect-test", "connect-build"},
 	},
 	"backend": {
 		ID:          "backend",
 		Name:        "Backend",
-		Description: "Backend tests - format, vet, unit tests, race, build, rollback, coverage, BLE (9 tests)",
-		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test", "coverage", "go-ble-vet", "go-ble-test"},
+		Description: "Backend tests - format, vet, unit tests, race, build, rollback, coverage, BLE, connect (13 tests)",
+		TestIDs:     []string{"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test", "coverage", "go-ble-vet", "go-ble-test", "connect-fmt", "connect-vet", "connect-test", "connect-build"},
 	},
 	"frontend": {
 		ID:          "frontend",
@@ -55,7 +55,7 @@ var Profiles = map[string]*Profile{
 	"deep": {
 		ID:          "deep",
 		Name:        "Deep",
-		Description: "Comprehensive - race detection, rollback, build, all fuzz, e2e, BLE companion (30 tests)",
+		Description: "Comprehensive - race detection, rollback, build, all fuzz, e2e, connect, companion (30 tests)",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
 			"go-ble-vet", "go-ble-test",
@@ -65,14 +65,15 @@ var Profiles = map[string]*Profile{
 			"fuzz-network-caddyfile", "fuzz-network-route", "fuzz-network-backend",
 			"fuzz-config-main", "fuzz-config-smtp", "fuzz-config-docker", "fuzz-config-caddy", "fuzz-config-acme",
 			"e2e",
+			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"companion-linux-build", "companion-linux-test",
 		},
 	},
 	"security": {
 		ID:          "security",
 		Name:        "Security",
-		Description: "Security scanning - vulns, gosec, staticcheck (3 tests)",
-		TestIDs:     []string{"govulncheck", "gosec", "staticcheck"},
+		Description: "Security scanning - vulns, gosec, staticcheck for backend, connect, and companion (7 tests)",
+		TestIDs:     []string{"govulncheck", "gosec", "staticcheck", "connect-gosec", "connect-staticcheck", "companion-linux-gosec", "companion-linux-staticcheck"},
 	},
 	"fuzz": {
 		ID:          "fuzz",
@@ -98,6 +99,8 @@ var Profiles = map[string]*Profile{
 			"fuzz-network-caddyfile", "fuzz-network-route", "fuzz-network-backend",
 			"fuzz-config-main", "fuzz-config-smtp", "fuzz-config-docker", "fuzz-config-caddy", "fuzz-config-acme",
 			"govulncheck", "gosec", "staticcheck",
+			"connect-gosec", "connect-staticcheck",
+			"companion-linux-gosec", "companion-linux-staticcheck",
 			"coverage", "docker-build",
 			"e2e",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
@@ -113,6 +116,8 @@ var Profiles = map[string]*Profile{
 			"go-ble-vet", "go-ble-test",
 			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
 			"govulncheck", "gosec", "staticcheck",
+			"connect-gosec", "connect-staticcheck",
+			"companion-linux-gosec", "companion-linux-staticcheck",
 			"coverage", "docker-build",
 			"e2e",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
@@ -125,6 +130,18 @@ var Profiles = map[string]*Profile{
 		Description: "End-to-end tests with server (1 test)",
 		TestIDs:     []string{"e2e"},
 	},
+	"connect": {
+		ID:          "connect",
+		Name:        "Connect",
+		Description: "All Connect module tests (6 tests)",
+		TestIDs:     []string{"connect-fmt", "connect-vet", "connect-test", "connect-build", "connect-gosec", "connect-staticcheck"},
+	},
+	"companion": {
+		ID:          "companion",
+		Name:        "Companion",
+		Description: "All Linux companion tests (4 tests)",
+		TestIDs:     []string{"companion-linux-build", "companion-linux-test", "companion-linux-gosec", "companion-linux-staticcheck"},
+	},
 }
 
 func GetProfile(id string) *Profile {
@@ -133,7 +150,7 @@ func GetProfile(id string) *Profile {
 
 func ListProfiles() []*Profile {
 	result := make([]*Profile, 0, len(Profiles))
-	order := []string{"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz", "e2e", "full"}
+	order := []string{"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz", "e2e", "connect", "companion", "full"}
 	for _, id := range order {
 		if p, ok := Profiles[id]; ok {
 			result = append(result, p)

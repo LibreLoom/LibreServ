@@ -830,14 +830,17 @@ func findRepoRoot() (string, error) {
 	dir := cwd
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "server")); err == nil {
-			if _, err := os.Stat(filepath.Join(dir, "support")); err == nil {
+			if _, err := os.Stat(filepath.Join(dir, "connect")); err == nil {
+				return dir, nil
+			}
+			if _, err := os.Stat(filepath.Join(dir, "companion")); err == nil {
 				return dir, nil
 			}
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("could not find repo root (looked for server/ and support/ dirs)")
+			return "", fmt.Errorf("could not find repo root (looked for server/ and connect/ or companion/ dirs)")
 		}
 		dir = parent
 	}

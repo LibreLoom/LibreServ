@@ -1,5 +1,6 @@
 # Build output
 libreserv-ble-companion
+linux
 *.exe
 
 # Go build artifacts
