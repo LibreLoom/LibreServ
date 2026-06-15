@@ -32,14 +32,17 @@ func setupAgentChatTest(t *testing.T) (*AgentChatHandler, *database.DB, func()) 
 	cfg := &config.Config{
 		Auth: config.AuthConfig{JWTSecret: "test-secret", CSRFSecret: "test-csrf"},
 		Support: config.SupportConfig{
-			DefaultModel: "test-model",
-			BYOKEnabled:  true,
-			UserAPIKey:   "test-key",
+			BYOKEnabled: true,
+			UserAPIKey:  "test-key",
+			UserBaseURL: "http://localhost:1234/v1",
+			Agent: config.AgentConfig{
+				MainModel: "test-model",
+			},
 		},
 	}
 	config.SetTestConfig(cfg)
 
-	h := NewAgentChatHandler(db, nil)
+	h := NewAgentChatHandler(db, nil, nil, nil)
 	cleanup := func() {
 		config.SetTestConfig(nil)
 		_ = db.Close()

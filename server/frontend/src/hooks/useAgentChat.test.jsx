@@ -7,18 +7,11 @@ import { useAgentChat } from "./useAgentChat.jsx";
 function mockRequest(url, opts = {}) {
   const routes = {
     "/support/agent/conversations": {
-      GET: { conversations: [{ id: "c1", status: "active" }] },
+      GET: { conversations: [{ id: "c1", status: "active", title: "Test conversation" }] },
       POST: { id: "c_new", status: "active" },
     },
     "/support/agent/conversations/c1": {
       GET: { conversation: { id: "c1", status: "active" }, messages: [{ role: "assistant", content: "hi" }] },
-    },
-    "/support/agent/subscription": {
-      GET: { plan_id: "free", credit_cap: 0 },
-      PUT: { plan_id: "basic", credit_cap: 10 },
-    },
-    "/support/agent/models": {
-      GET: { models: ["mimo-v2.5-pro", "kimi-k2.6"] },
     },
     "/support/agent/conversations/c1/messages": {
       POST: { ok: true },
@@ -94,27 +87,6 @@ describe("useAgentChat", () => {
     });
   });
 
-  it("loads subscription", async () => {
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useAgentChat(), { wrapper });
-
-    await act(() => result.current.loadSubscription());
-    await waitFor(() => {
-      expect(result.current.subscription).toBeTruthy();
-      expect(result.current.subscription.plan_id).toBe("free");
-    });
-  });
-
-  it("loads models", async () => {
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useAgentChat(), { wrapper });
-
-    await act(() => result.current.loadModels());
-    await waitFor(() => {
-      expect(result.current.models).toEqual(["mimo-v2.5-pro", "kimi-k2.6"]);
-    });
-  });
-
   it("starts a new conversation", async () => {
     const { wrapper } = createWrapper();
     const { result } = renderHook(() => useAgentChat(), { wrapper });
@@ -141,16 +113,6 @@ describe("useAgentChat", () => {
       expect(result.current.status).toBe("streaming");
       expect(result.current.messages).toHaveLength(1);
       expect(result.current.messages[0].content).toBe("hello");
-    });
-  });
-
-  it("selects a plan", async () => {
-    const { wrapper } = createWrapper();
-    const { result } = renderHook(() => useAgentChat(), { wrapper });
-
-    await act(() => result.current.selectPlan("basic"));
-    await waitFor(() => {
-      expect(result.current.subscription.plan_id).toBe("basic");
     });
   });
 

@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 )
 
 // instanceIDPattern validates that instance IDs contain only safe characters
@@ -23,13 +23,13 @@ var instanceIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 type ScriptExecutor struct {
 	logger       *slog.Logger
-	runtimeClient *docker.Client
+	runtimeClient *podman.Client
 	basePath     string
 	catalogPath  string
 	serverCtx    ServerContext
 }
 
-func NewScriptExecutor(logger *slog.Logger, runtimeClient *docker.Client, basePath string) *ScriptExecutor {
+func NewScriptExecutor(logger *slog.Logger, runtimeClient *podman.Client, basePath string) *ScriptExecutor {
 	return &ScriptExecutor{
 		logger:       logger,
 		runtimeClient: runtimeClient,
@@ -38,7 +38,7 @@ func NewScriptExecutor(logger *slog.Logger, runtimeClient *docker.Client, basePa
 	}
 }
 
-func NewScriptExecutorWithCatalog(logger *slog.Logger, runtimeClient *docker.Client, basePath, catalogPath string) *ScriptExecutor {
+func NewScriptExecutorWithCatalog(logger *slog.Logger, runtimeClient *podman.Client, basePath, catalogPath string) *ScriptExecutor {
 	return &ScriptExecutor{
 		logger:       logger,
 		runtimeClient: runtimeClient,

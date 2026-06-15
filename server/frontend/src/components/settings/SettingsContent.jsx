@@ -63,6 +63,7 @@ export default function SettingsContent({
   onOpenPlanPage,
   connectLoading,
   connectRepos = [],
+  csrfToken = "",
 }) {
   const CategoryComponent = CATEGORY_COMPONENTS[category] || GeneralCategory;
   const title = CATEGORY_TITLES[category] || "Settings";
@@ -117,6 +118,8 @@ export default function SettingsContent({
           onOpenPlanPage,
           loading: connectLoading,
           repos: connectRepos,
+          settings,
+          csrfToken,
         };
       case "about":
         return { settings };

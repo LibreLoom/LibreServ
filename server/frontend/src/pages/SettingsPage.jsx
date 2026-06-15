@@ -291,6 +291,7 @@ export default function SettingsPage() {
             onDeactivateConnect={handleDeactivateConnect}
             onOpenPlanPage={handleOpenPlanPage}
             connectLoading={connectLoading}
+            csrfToken={csrfToken}
           />
         </div>
       </div>
@@ -348,6 +349,7 @@ export default function SettingsPage() {
               onDeactivateConnect={handleDeactivateConnect}
               onOpenPlanPage={handleOpenPlanPage}
               connectLoading={connectLoading}
+              csrfToken={csrfToken}
             />
           </div>
         )}

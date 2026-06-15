@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"log/slog"
 )
@@ -34,7 +34,7 @@ func TestInstallerValidateConfig(t *testing.T) {
 		},
 	}}
 
-	inst := NewInstaller(catalog, docker.NewRuntimeAdapter(&docker.Client{}), db, dir, monitoring.NewMonitor(db, nil, ""), NewAppMetricsCache(monitoring.NewMonitor(db, nil, ""), slog.Default()), nil)
+	inst := NewInstaller(catalog, podman.NewRuntimeAdapter(&podman.Client{}), db, dir, monitoring.NewMonitor(db, nil, ""), NewAppMetricsCache(monitoring.NewMonitor(db, nil, ""), slog.Default()), nil)
 
 	err = inst.ValidateConfig("app1", map[string]interface{}{"required_field": "ok"})
 	if err != nil {

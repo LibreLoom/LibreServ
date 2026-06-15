@@ -5,7 +5,6 @@ import Card from "../components/cards/Card.jsx";
 import Button from "../components/ui/Button.jsx";
 import EmptyState from "../components/common/EmptyState.jsx";
 import HelpChatLayout from "../components/help/HelpChatLayout.jsx";
-import AgentConfigModal from "../components/help/AgentConfigModal.jsx";
 import { useAgentChat } from "../hooks/useAgentChat.jsx";
 import { useAuth } from "../hooks/useAuth.jsx";
 import { useToast } from "../context/ToastContext";
@@ -15,16 +14,11 @@ export default function HelpPage() {
   useAuth();
   const { addToast } = useToast();
   const [aiConfigured, setAiConfigured] = useState(null);
-  const [showConfigModal, setShowConfigModal] = useState(false);
-  const [permissionMode, setPermissionMode] = useState("standard");
-  const [model, setModel] = useState("");
   const [dismissedPerms, setDismissedPerms] = useState(new Set());
 
   useEffect(() => {
     if (aiConfigured === true) {
       chat.loadConversations();
-      chat.loadSubscription();
-      chat.loadModels();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiConfigured]);
@@ -36,9 +30,9 @@ export default function HelpPage() {
       .then((data) => {
         if (cancelled) return;
         const ai = data?.ai_support || {};
-        const hasAgents = Array.isArray(ai.agents) && ai.agents.length > 0;
         const hasBYOK = ai.byok_enabled === true && ai.user_key_configured === true;
-        setAiConfigured(hasAgents || hasBYOK);
+        const hasModel = !!ai.main_model;
+        setAiConfigured(hasBYOK || hasModel);
       })
       .catch(() => {
         if (!cancelled) setAiConfigured(false);
@@ -53,10 +47,6 @@ export default function HelpPage() {
     if (!chat.error) return;
     addToast({ type: "error", message: chat.error });
   }, [chat.error, addToast]);
-
-  const creditUsed = chat.subscription?.usage?.used_usd || 0;
-  const creditCap = chat.subscription?.plan?.credit_cap_usd || 0;
-  const planName = chat.subscription?.plan?.name || "";
 
   const isStreaming =
     chat.status === "streaming" || chat.status === "sending";
@@ -81,22 +71,13 @@ export default function HelpPage() {
     () =>
       chat.conversations.slice(0, 10).map((conv) => ({
         id: conv.id,
-        title: conv.title || (conv.trigger_type === "manual" ? "Manual" : conv.trigger_app_id || "Conversation"),
+        title: conv.title || "Conversation",
         date: conv.created_at
           ? new Date(conv.created_at).toLocaleDateString()
           : "",
         status: conv.status,
       })),
     [chat.conversations]
-  );
-
-  const modelOptions = useMemo(
-    () =>
-      chat.models.map((m) => ({
-        value: m.id,
-        label: m.name || m.id,
-      })),
-    [chat.models]
   );
 
   const handleSend = useCallback(
@@ -109,10 +90,7 @@ export default function HelpPage() {
         if (chat.activeConv?.status && chat.activeConv.status !== "active") {
           chat.resetChat();
         }
-        const conv = await chat.startConversation({
-          permissionMode,
-          models: model ? [model] : [],
-        });
+        const conv = await chat.startConversation();
         if (!conv) {
           addToast({
             type: "error",
@@ -128,7 +106,7 @@ export default function HelpPage() {
       const sent = await chat.sendMessage(chat.activeConv.id, content);
       if (sent) chat.streamEvents(chat.activeConv.id);
     },
-    [chat, permissionMode, model, addToast, isStreaming]
+    [chat, isStreaming, addToast]
   );
 
   const handleAllowPermission = useCallback(
@@ -177,7 +155,7 @@ export default function HelpPage() {
         title="Help"
         leftContent={null}
         rightContent={null}
-      ></HeaderCard>
+      />
 
       {aiConfigured === null && (
         <div className="mt-6 flex justify-center">
@@ -225,7 +203,7 @@ export default function HelpPage() {
                     variant="ghost"
                     size="sm"
                     className="w-full"
-                    onClick={() => setShowConfigModal(true)}
+                    onClick={() => { window.location.href = "/settings#external_services"; }}
                   >
                     <Key size={14} />
                     Bring your own AI key
@@ -238,19 +216,10 @@ export default function HelpPage() {
       )}
 
       {aiConfigured === true && (
-        <>
         <HelpChatLayout
           messages={chat.messages}
           events={chat.events}
           isStreaming={isStreaming}
-          permissionMode={permissionMode}
-          onPermissionModeChange={setPermissionMode}
-          model={model}
-          onModelChange={setModel}
-          modelOptions={modelOptions}
-          creditUsed={creditUsed}
-          creditCap={creditCap}
-          planName={planName}
           conversations={conversationsForSidebar}
           activeConvId={chat.activeConv?.id}
           onSelectConversation={handleSelectConversation}
@@ -260,27 +229,11 @@ export default function HelpPage() {
           onAllowPermission={handleAllowPermission}
           onDenyPermission={handleDenyPermission}
           pendingPermissions={pendingPermissions}
-          onOpenSettings={() => setShowConfigModal(true)}
+          onOpenSettings={() => { window.location.href = "/settings#external_services"; }}
           error={chat.error}
         />
-        </>
       )}
-      <AgentConfigModal
-        open={showConfigModal}
-        onClose={() => setShowConfigModal(false)}
-        onSaved={() => {
-          // Re-check configuration after saving
-          fetch("/api/v1/settings/ai-support", { credentials: "include" })
-            .then((res) => (res.ok ? res.json() : Promise.reject()))
-            .then((data) => {
-              const ai = data?.ai_support || {};
-              const hasAgents = Array.isArray(ai.agents) && ai.agents.length > 0;
-              const hasBYOK = ai.byok_enabled === true && ai.user_key_configured === true;
-              setAiConfigured(hasAgents || hasBYOK);
-            })
-            .catch(() => setAiConfigured(false));
-        }}
-      />
+
     </main>
   );
 }

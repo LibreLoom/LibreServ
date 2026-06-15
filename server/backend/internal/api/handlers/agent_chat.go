@@ -18,6 +18,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
 )
@@ -26,11 +27,12 @@ import (
 type AgentChatHandler struct {
 	db                *database.DB
 	authService       *auth.Service
-	conversationStore *conversation.Store
-	toolCallStore     *conversation.ToolCallStore
 	creditService     *subscription.CreditService
 	checker           *subscription.Checker
-	modelRegistry     *agent.ModelRegistry
+	conversationStore *conversation.Store
+	toolCallStore     *conversation.ToolCallStore
+	connectClient     connect.Client
+	connectChecker    *connect.EntitlementChecker
 
 	activeLoops map[string]*agentLoopEntry
 	mu          sync.Mutex
@@ -42,11 +44,13 @@ type agentLoopEntry struct {
 }
 
 // NewAgentChatHandler creates a new handler with all required dependencies.
-func NewAgentChatHandler(db *database.DB, authService *auth.Service) *AgentChatHandler {
+func NewAgentChatHandler(db *database.DB, authService *auth.Service, connectClient connect.Client, connectChecker *connect.EntitlementChecker) *AgentChatHandler {
 	h := &AgentChatHandler{
-		db:          db,
-		authService: authService,
-		activeLoops: make(map[string]*agentLoopEntry),
+		db:             db,
+		authService:    authService,
+		connectClient:  connectClient,
+		connectChecker: connectChecker,
+		activeLoops:    make(map[string]*agentLoopEntry),
 	}
 	if db != nil {
 		h.conversationStore = conversation.NewStore(db)
@@ -54,16 +58,16 @@ func NewAgentChatHandler(db *database.DB, authService *auth.Service) *AgentChatH
 		h.creditService = subscription.NewCreditService(db)
 		h.checker = subscription.NewChecker(db)
 	}
-	provider := agent.NewProviderFromConfig()
-	if provider != nil {
-		h.modelRegistry = agent.NewModelRegistry(provider)
-	}
 	return h
 }
 
-// ModelRegistry returns the model registry for use by settings handler.
-func (h *AgentChatHandler) ModelRegistry() *agent.ModelRegistry {
-	return h.modelRegistry
+// ModelsSource returns a function that can list available AI models from the
+// currently configured source. It is wired into the settings handler so the
+// AI support UI can refresh the dropdown without starting a conversation.
+func (h *AgentChatHandler) ModelsSource() func(ctx context.Context) ([]agent.ModelInfo, error) {
+	return func(ctx context.Context) ([]agent.ModelInfo, error) {
+		return agent.ListAIModels(ctx, h.connectClient, h.connectChecker)
+	}
 }
 
 // ListConversations returns the user's recent conversations.
@@ -149,7 +153,7 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 		return
 	}
 	cfg := config.Get()
-	if cfg == nil || !hasInferenceKey(cfg) {
+	if cfg == nil || !agent.AIConfigured(h.connectClient, h.connectChecker) {
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
@@ -170,10 +174,7 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 		model = cfg.Support.Agent.MainModel
 	}
 	if model == "" {
-		model = cfg.Support.DefaultModel
-	}
-	if model == "" {
-		response.JSONError(w, http.StatusServiceUnavailable, "No AI model is configured. Please go to Settings → AI Support and select a default model.")
+		response.JSONError(w, http.StatusServiceUnavailable, "No AI model is configured. Please go to Settings → AI Support and select an agent model.")
 		return
 	}
 
@@ -218,7 +219,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := config.Get()
-	if cfg == nil || !hasInferenceKey(cfg) {
+	if cfg == nil || !agent.AIConfigured(h.connectClient, h.connectChecker) {
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
@@ -265,7 +266,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := agent.NewProviderFromConfig()
+	provider := agent.NewAIProvider(r.Context(), h.connectClient, h.connectChecker)
 	if provider == nil {
 		h.mu.Lock()
 		delete(h.activeLoops, convID)
@@ -278,9 +279,6 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	agentModel := conv.Model
 	if agentModel == "" {
 		agentModel = cfg.Support.Agent.MainModel
-	}
-	if agentModel == "" {
-		agentModel = cfg.Support.DefaultModel
 	}
 
 	// Build system prompt.
@@ -416,7 +414,7 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 		}
 	}
 	cfg := config.Get()
-	if cfg == nil || !hasInferenceKey(cfg) {
+	if cfg == nil || !agent.AIConfigured(h.connectClient, h.connectChecker) {
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
@@ -707,15 +705,11 @@ func (h *AgentChatHandler) StopConversation(w http.ResponseWriter, r *http.Reque
 // GetModels returns available AI models from the configured provider.
 func (h *AgentChatHandler) GetModels(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
-	if cfg == nil || !hasInferenceKey(cfg) {
+	if cfg == nil || !agent.AIConfigured(h.connectClient, h.connectChecker) {
 		response.JSONError(w, http.StatusServiceUnavailable, "AI support is not configured. Please go to Settings → AI Support to set up your AI provider.")
 		return
 	}
-	if h.modelRegistry == nil {
-		response.JSONError(w, http.StatusInternalServerError, "Model registry not available.")
-		return
-	}
-	models, err := h.modelRegistry.List(r.Context())
+	models, err := agent.ListAIModels(r.Context(), h.connectClient, h.connectChecker)
 	if err != nil {
 		slog.Error("failed to list models", "error", err)
 		response.JSONError(w, http.StatusInternalServerError, "Could not load available AI models. Please try again later.")
@@ -791,13 +785,6 @@ func (h *AgentChatHandler) UpdateSubscription(w http.ResponseWriter, r *http.Req
 func getUserID(r *http.Request) (string, bool) {
 	id, ok := middleware.GetUserID(r.Context())
 	return id, ok
-}
-
-func hasInferenceKey(cfg *config.Config) bool {
-	if cfg.Support.DeviceToken != "" && cfg.Support.ServerURL != "" {
-		return true
-	}
-	return cfg.Support.BYOKEnabled && cfg.Support.UserAPIKey != ""
 }
 
 func (h *AgentChatHandler) validateSSEToken(token string) (*auth.Claims, error) {

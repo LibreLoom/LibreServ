@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 )
 
 type Provider struct {
@@ -40,40 +41,95 @@ func NewProvider(baseURL, apiKey string) *Provider {
 	}
 }
 
-func NewProviderFromConfig() *Provider {
+func newBYOKProvider(cfg *config.Config) *Provider {
+	if cfg.Support.UserAPIKey == "" {
+		return nil
+	}
+	baseURL := cfg.Support.UserBaseURL
+	if baseURL == "" {
+		baseURL = cfg.Support.InferenceBaseURL
+	}
+	p := NewProvider(baseURL, cfg.Support.UserAPIKey)
+	if cfg.Support.UserAPIFormat != "" {
+		p.APIFormat = cfg.Support.UserAPIFormat
+	}
+	return p
+}
+
+// AIConfigured reports whether an AI provider can be built (without actually
+// provisioning credentials from Connect).
+func AIConfigured(client connect.Client, checker *connect.EntitlementChecker) bool {
+	cfg := config.Get()
+	if cfg == nil {
+		return false
+	}
+	if cfg.Support.BYOKEnabled && cfg.Support.UserAPIKey != "" {
+		return true
+	}
+	status, ok := latestConnectStatus(client, checker)
+	if !ok {
+		return false
+	}
+	svc, found := status.Services[connect.ServiceAI]
+	return found && svc.State == connect.ServiceConnected
+}
+
+// NewAIProvider returns a provider for the active AI source:
+//  1. BYOK if enabled and an API key is configured.
+//  2. LibreServ Connect's provisioned AI credentials if the AI service is connected.
+//  3. nil otherwise.
+func NewAIProvider(ctx context.Context, client connect.Client, checker *connect.EntitlementChecker) *Provider {
 	cfg := config.Get()
 	if cfg == nil {
 		return nil
 	}
 	if cfg.Support.BYOKEnabled && cfg.Support.UserAPIKey != "" {
-		baseURL := cfg.Support.UserBaseURL
-		if baseURL == "" {
-			baseURL = cfg.Support.InferenceBaseURL
-		}
-		p := NewProvider(baseURL, cfg.Support.UserAPIKey)
-		if cfg.Support.UserAPIFormat != "" {
-			p.APIFormat = cfg.Support.UserAPIFormat
-		}
-		return p
+		return newBYOKProvider(cfg)
 	}
-	return NewSharedProviderFromConfig()
+
+	status, ok := latestConnectStatus(client, checker)
+	if !ok {
+		return nil
+	}
+	svc, found := status.Services[connect.ServiceAI]
+	if !found || svc.State != connect.ServiceConnected {
+		return nil
+	}
+	creds, err := client.Provision(ctx, connect.ServiceAI)
+	if err != nil || creds == nil || creds.AI == nil {
+		return nil
+	}
+	p := NewProvider(creds.AI.BaseURL, creds.AI.APIKey)
+	p.APIFormat = "openai"
+	return p
 }
 
-func NewSharedProviderFromConfig() *Provider {
-	cfg := config.Get()
-	if cfg == nil {
-		return nil
+// ListAIModels returns available models from the configured AI source.
+func ListAIModels(ctx context.Context, client connect.Client, checker *connect.EntitlementChecker) ([]ModelInfo, error) {
+	provider := NewAIProvider(ctx, client, checker)
+	if provider == nil {
+		return []ModelInfo{}, nil
 	}
-	if cfg.Support.ServerURL == "" {
-		return nil
+	models, err := provider.Models(ctx)
+	if err != nil {
+		return nil, err
 	}
-	deviceToken := cfg.Support.DeviceToken
-	if deviceToken == "" {
-		return nil
+	if models == nil {
+		return []ModelInfo{}, nil
 	}
-	p := NewProvider(cfg.Support.ServerURL, deviceToken)
-	p.DeviceID = cfg.Support.DeviceID
-	return p
+	return models, nil
+}
+
+func latestConnectStatus(client connect.Client, checker *connect.EntitlementChecker) (*connect.ConnectStatus, bool) {
+	if checker != nil {
+		status := checker.Status()
+		return status, status != nil && status.Connected
+	}
+	if client == nil {
+		return nil, false
+	}
+	status, err := client.Status(context.Background())
+	return status, err == nil && status != nil && status.Connected
 }
 
 func calculateCost(model string, inputTokens, outputTokens, cacheTokens int) float64 {

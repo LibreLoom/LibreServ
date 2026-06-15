@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -121,51 +122,60 @@ func (r *Repository) SeedFromConfig() error {
 	}
 
 	settings := map[string]string{
-		"logging.level":                        cfg.Logging.Level,
-		"logging.path":                         cfg.Logging.Path,
-		"smtp.host":                            cfg.SMTP.Host,
-		"smtp.port":                            strconv.Itoa(cfg.SMTP.Port),
-		"smtp.username":                        cfg.SMTP.Username,
-		"smtp.password":                        cfg.SMTP.Password,
-		"smtp.from":                            cfg.SMTP.From,
-		"smtp.use_tls":                         strconv.FormatBool(cfg.SMTP.UseTLS),
-		"smtp.skip_verify":                     strconv.FormatBool(cfg.SMTP.SkipVerify),
-		"notify.enabled":                       strconv.FormatBool(cfg.Notify.Enabled),
-		"notify.welcome_subject":               cfg.Notify.WelcomeSubject,
-		"notify.welcome_body":                  cfg.Notify.WelcomeBody,
-		"notify.support_subject":               cfg.Notify.SupportSubject,
-		"notify.support_body":                  cfg.Notify.SupportBody,
-		"server.mode":                          cfg.Server.Mode,
-		"cors.allowed_origins":                 stringSliceToCSV(cfg.CORS.AllowedOrigins),
-		"network.caddy.mode":                   cfg.Network.Caddy.Mode,
-		"network.caddy.default_domain":         cfg.Network.Caddy.DefaultDomain,
-		"network.caddy.email":                  cfg.Network.Caddy.Email,
-		"network.caddy.auto_https":             strconv.FormatBool(cfg.Network.Caddy.AutoHTTPS),
-		"updates.base_url":                     cfg.Updates.BaseURL,
-		"updates.owner":                        cfg.Updates.Owner,
-		"updates.repo":                         cfg.Updates.Repo,
-		"support.inference_base_url":           cfg.Support.InferenceBaseURL,
-		"support.device_token":                 cfg.Support.DeviceToken,
-		"support.device_id":                    cfg.Support.DeviceID,
-		"support.default_model":                cfg.Support.DefaultModel,
-		"support.byok_enabled":                 strconv.FormatBool(cfg.Support.BYOKEnabled),
-		"support.user_base_url":                cfg.Support.UserBaseURL,
-		"support.user_api_key":                 cfg.Support.UserAPIKey,
-		"support.user_api_format":              cfg.Support.UserAPIFormat,
-		"support.agent.max_turns":              strconv.Itoa(cfg.Support.Agent.MaxTurns),
-		"support.agent.turn_timeout":           cfg.Support.Agent.TurnTimeout.String(),
-		"support.agent.review_enabled":         strconv.FormatBool(cfg.Support.Agent.ReviewEnabled),
-		"support.agent.main_model":             cfg.Support.Agent.MainModel,
-		"support.agent.review_model":           cfg.Support.Agent.ReviewModel,
-		"support.agent.system_prompt":          cfg.Support.Agent.SystemPrompt,
-		"support.self_healing":                 strconv.FormatBool(cfg.Support.SelfHealing),
-		"support.billing_mode":                 cfg.Support.BillingMode,
+		"logging.level":                cfg.Logging.Level,
+		"logging.path":                 cfg.Logging.Path,
+		"smtp.host":                    cfg.SMTP.Host,
+		"smtp.port":                    strconv.Itoa(cfg.SMTP.Port),
+		"smtp.username":                cfg.SMTP.Username,
+		"smtp.password":                cfg.SMTP.Password,
+		"smtp.from":                    cfg.SMTP.From,
+		"smtp.use_tls":                 strconv.FormatBool(cfg.SMTP.UseTLS),
+		"smtp.skip_verify":             strconv.FormatBool(cfg.SMTP.SkipVerify),
+		"notify.enabled":               strconv.FormatBool(cfg.Notify.Enabled),
+		"notify.welcome_subject":       cfg.Notify.WelcomeSubject,
+		"notify.welcome_body":          cfg.Notify.WelcomeBody,
+		"notify.support_subject":       cfg.Notify.SupportSubject,
+		"notify.support_body":          cfg.Notify.SupportBody,
+		"server.mode":                  cfg.Server.Mode,
+		"cors.allowed_origins":         stringSliceToCSV(cfg.CORS.AllowedOrigins),
+		"network.caddy.mode":           cfg.Network.Caddy.Mode,
+		"network.caddy.default_domain": cfg.Network.Caddy.DefaultDomain,
+		"network.caddy.email":          cfg.Network.Caddy.Email,
+		"network.caddy.auto_https":     strconv.FormatBool(cfg.Network.Caddy.AutoHTTPS),
+		"updates.base_url":             cfg.Updates.BaseURL,
+		"updates.owner":                cfg.Updates.Owner,
+		"updates.repo":                 cfg.Updates.Repo,
+		"support.inference_base_url":   cfg.Support.InferenceBaseURL,
+		"support.device_token":         cfg.Support.DeviceToken,
+		"support.device_id":            cfg.Support.DeviceID,
+		"support.byok_enabled":         strconv.FormatBool(cfg.Support.BYOKEnabled),
+		"support.user_base_url":        cfg.Support.UserBaseURL,
+		"support.user_api_key":         cfg.Support.UserAPIKey,
+		"support.user_api_format":      cfg.Support.UserAPIFormat,
+		"support.agent.max_turns":      strconv.Itoa(cfg.Support.Agent.MaxTurns),
+		"support.agent.turn_timeout":   cfg.Support.Agent.TurnTimeout.String(),
+		"support.agent.review_enabled": strconv.FormatBool(cfg.Support.Agent.ReviewEnabled),
+		"support.agent.main_model":     cfg.Support.Agent.MainModel,
+		"support.agent.review_model":   cfg.Support.Agent.ReviewModel,
+		"support.agent.system_prompt":  cfg.Support.Agent.SystemPrompt,
+		"support.self_healing":         strconv.FormatBool(cfg.Support.SelfHealing),
+		"support.billing_mode":         cfg.Support.BillingMode,
 	}
 
 	for key, value := range settings {
 		existing, _ := r.Get(key)
 		if existing == "" && value != "" {
 			if err := r.Set(key, value, typeFor(key)); err != nil {
+				return err
+			}
+		}
+	}
+
+	for svcID, state := range cfg.Connect.ServiceStates {
+		key := "connect.services." + svcID + ".state"
+		existing, _ := r.Get(key)
+		if existing == "" && state != "" {
+			if err := r.Set(key, state, "string"); err != nil {
 				return err
 			}
 		}
@@ -299,9 +309,6 @@ func (r *Repository) LoadIntoConfig() error {
 	if v, ok := changes["support.device_id"]; ok {
 		cfg.Support.DeviceID = v
 	}
-	if v, ok := changes["support.default_model"]; ok {
-		cfg.Support.DefaultModel = v
-	}
 	if v, ok := changes["support.byok_enabled"]; ok {
 		cfg.Support.BYOKEnabled, _ = strconv.ParseBool(v)
 	}
@@ -324,12 +331,39 @@ func (r *Repository) LoadIntoConfig() error {
 			cfg.Support.Agent.TurnTimeout = d
 		}
 	}
+	if v, ok := changes["support.agent.main_model"]; ok {
+		cfg.Support.Agent.MainModel = v
+	}
+	if v, ok := changes["support.agent.review_model"]; ok {
+		cfg.Support.Agent.ReviewModel = v
+	}
+	if v, ok := changes["support.agent.review_enabled"]; ok {
+		cfg.Support.Agent.ReviewEnabled, _ = strconv.ParseBool(v)
+	}
+	if v, ok := changes["support.agent.system_prompt"]; ok {
+		cfg.Support.Agent.SystemPrompt = v
+	}
 	if v, ok := changes["support.self_healing"]; ok {
 		cfg.Support.SelfHealing, _ = strconv.ParseBool(v)
 	}
 	if v, ok := changes["support.billing_mode"]; ok {
 		if v == "token" || v == "request" {
 			cfg.Support.BillingMode = v
+		}
+	}
+
+	// Load any locally-stored Connect service states (e.g. BYOK overrides).
+	if cfg.Connect.ServiceStates == nil {
+		cfg.Connect.ServiceStates = make(map[string]string)
+	}
+	for key, value := range changes {
+		if !strings.HasPrefix(key, "connect.services.") || !strings.HasSuffix(key, ".state") {
+			continue
+		}
+		svcID := strings.TrimPrefix(key, "connect.services.")
+		svcID = strings.TrimSuffix(svcID, ".state")
+		if svcID != "" && value != "" {
+			cfg.Connect.ServiceStates[svcID] = value
 		}
 	}
 
@@ -433,18 +467,18 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]interface{}, erro
 	}
 
 	settings["ai_support"] = map[string]interface{}{
-		"inference_base_url":     cfg.Support.InferenceBaseURL,
-		"byok_enabled":           cfg.Support.BYOKEnabled,
-		"user_key_configured":    cfg.Support.UserAPIKey != "",
-		"user_base_url":          cfg.Support.UserBaseURL,
-		"user_api_format":        cfg.Support.UserAPIFormat,
-		"agent_max_turns":        cfg.Support.Agent.MaxTurns,
-		"agent_turn_timeout":     cfg.Support.Agent.TurnTimeout.String(),
-		"review_enabled":          cfg.Support.Agent.ReviewEnabled,
-		"main_model":              cfg.Support.Agent.MainModel,
-		"review_model":            cfg.Support.Agent.ReviewModel,
-		"system_prompt":           cfg.Support.Agent.SystemPrompt,
-		"self_healing":            cfg.Support.SelfHealing,
+		"inference_base_url":  cfg.Support.InferenceBaseURL,
+		"byok_enabled":        cfg.Support.BYOKEnabled,
+		"user_key_configured": cfg.Support.UserAPIKey != "",
+		"user_base_url":       cfg.Support.UserBaseURL,
+		"user_api_format":     cfg.Support.UserAPIFormat,
+		"agent_max_turns":     cfg.Support.Agent.MaxTurns,
+		"agent_turn_timeout":  cfg.Support.Agent.TurnTimeout.String(),
+		"review_enabled":      cfg.Support.Agent.ReviewEnabled,
+		"main_model":          cfg.Support.Agent.MainModel,
+		"review_model":        cfg.Support.Agent.ReviewModel,
+		"system_prompt":       cfg.Support.Agent.SystemPrompt,
+		"self_healing":        cfg.Support.SelfHealing,
 	}
 
 	return settings, nil
@@ -686,12 +720,6 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_id", deviceID, "string") },
 			)
 		}
-		if model, ok := ai["default_model"].(string); ok {
-			addMutation("support.default_model",
-				func() { cfg.Support.DefaultModel = model },
-				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.default_model", model, "string") },
-			)
-		}
 		if byokEnabled, ok := toBool(ai["byok_enabled"]); ok {
 			addMutation("support.byok_enabled",
 				func() { cfg.Support.BYOKEnabled = byokEnabled },
@@ -742,6 +770,32 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				},
 			)
 		}
+		if mainModel, ok := ai["main_model"].(string); ok {
+			addMutation("support.agent.main_model",
+				func() { cfg.Support.Agent.MainModel = mainModel },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.agent.main_model", mainModel, "string") },
+			)
+		}
+		if reviewModel, ok := ai["review_model"].(string); ok {
+			addMutation("support.agent.review_model",
+				func() { cfg.Support.Agent.ReviewModel = reviewModel },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.agent.review_model", reviewModel, "string") },
+			)
+		}
+		if reviewEnabled, ok := toBool(ai["review_enabled"]); ok {
+			addMutation("support.agent.review_enabled",
+				func() { cfg.Support.Agent.ReviewEnabled = reviewEnabled },
+				func(tx *sql.Tx) error {
+					return s.repo.SetTx(tx, "support.agent.review_enabled", strconv.FormatBool(reviewEnabled), "bool")
+				},
+			)
+		}
+		if systemPrompt, ok := ai["system_prompt"].(string); ok {
+			addMutation("support.agent.system_prompt",
+				func() { cfg.Support.Agent.SystemPrompt = systemPrompt },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.agent.system_prompt", systemPrompt, "string") },
+			)
+		}
 		if billingMode, ok := ai["billing_mode"].(string); ok {
 			if billingMode == "token" || billingMode == "request" {
 				addMutation("support.billing_mode",
@@ -749,6 +803,27 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 					func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.billing_mode", billingMode, "string") },
 				)
 			}
+		}
+	}
+
+	if connectServicesRaw, ok := updates["connect_services"]; ok {
+		connectServices, _ := connectServicesRaw.(map[string]interface{})
+		if connectServices == nil {
+			return fmt.Errorf("invalid connect_services format")
+		}
+		for svcID, stateRaw := range connectServices {
+			state, _ := stateRaw.(string)
+			if state == "" {
+				continue
+			}
+			if state != "connected" && state != "byo" && state != "disabled" {
+				return fmt.Errorf("invalid connect service state for %s: %s", svcID, state)
+			}
+			key := "connect.services." + svcID + ".state"
+			addMutation(key,
+				func() { cfg.Connect.ServiceStates[svcID] = state },
+				func(tx *sql.Tx) error { return s.repo.SetTx(tx, key, state, "string") },
+			)
 		}
 	}
 

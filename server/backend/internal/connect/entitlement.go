@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 )
 
 type EntitlementChecker struct {
@@ -100,9 +102,31 @@ func (e *EntitlementChecker) Token() string {
 func (e *EntitlementChecker) Status() *ConnectStatus {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+
+	var status *ConnectStatus
 	if e.status == nil {
-		return &ConnectStatus{Connected: false, Services: defaultServiceStates()}
+		status = &ConnectStatus{Connected: false, Services: defaultServiceStates()}
+	} else {
+		cp := *e.status
+		status = &cp
 	}
-	cp := *e.status
-	return &cp
+
+	cfg := config.Get()
+	if cfg != nil {
+		for id, raw := range cfg.Connect.ServiceStates {
+			svcID := ServiceID(id)
+			state := ServiceState(raw)
+			if _, ok := status.Services[svcID]; !ok {
+				continue
+			}
+			switch state {
+			case ServiceConnected:
+				// Leave the server-provided state untouched.
+			case ServiceBYO, ServiceDisabled:
+				status.Services[svcID] = ServiceStatus{State: state, Label: status.Services[svcID].Label}
+			}
+		}
+	}
+
+	return status
 }

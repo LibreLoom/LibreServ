@@ -19,7 +19,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
 )
@@ -324,7 +324,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		if latest := manifest.LatestApproved(); latest != nil {
 			imageDigest = latest.Digest
 			if latest.Digest != "" && appDef.Deployment.Image != "" {
-				if err := docker.ComposePinImageDigest(composePath, appDef.Deployment.Image, latest.Digest); err != nil {
+				if err := podman.ComposePinImageDigest(composePath, appDef.Deployment.Image, latest.Digest); err != nil {
 					i.logger.Warn("Failed to pin image digest during install", "error", err)
 				}
 			}
@@ -563,7 +563,7 @@ func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string,
 		if _, err := os.Stat(composePath); err == nil {
 			_ = i.runtime.ComposeDown(ctx, composePath)
 
-			if err := docker.ChownBindMounts(ctx, composePath, os.Getuid(), os.Getgid()); err != nil {
+			if err := podman.ChownBindMounts(ctx, composePath, os.Getuid(), os.Getgid()); err != nil {
 				i.logger.Warn("Failed to chown bind mount directories during install failure cleanup", "error", err)
 			}
 		}
@@ -818,7 +818,7 @@ func (i *Installer) Uninstall(ctx context.Context, instanceID string) error {
 			i.logger.Warn("Failed to stop containers", "error", err)
 		}
 
-		if err := docker.ChownBindMounts(ctx, composePath, os.Getuid(), os.Getgid()); err != nil {
+		if err := podman.ChownBindMounts(ctx, composePath, os.Getuid(), os.Getgid()); err != nil {
 			i.logger.Warn("Failed to chown bind mount directories", "error", err)
 		}
 	} else {

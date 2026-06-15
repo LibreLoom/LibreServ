@@ -9,7 +9,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
@@ -115,13 +115,13 @@ func (s *Server) setupRoutes() {
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
 
 	// Initialize Connect handler
-	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker)
+	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker, s.settingsService)
 
 	// Initialize AI agent chat handler
-	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.authService)
+	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.authService, s.connectClient, s.connectChecker)
 
-	// Wire the model registry into settings so the AI support category can list models dynamically
-	settingsHandler.SetModelRegistry(agentChatHandler.ModelRegistry())
+	// Wire the AI model source into settings so the AI support category can list models dynamically
+	settingsHandler.SetModelSource(agentChatHandler.ModelsSource())
 
 	// Configure authentication middleware with CSRF protection
 	authConfig := &middleware.AuthConfig{
@@ -234,7 +234,7 @@ func (s *Server) setupRoutes() {
 			})
 
 			scriptsHandler := handlers.NewScriptsHandler(s.appManager)
-			logsHandler := handlers.NewLogsHandler(docker.NewRuntimeAdapter(s.runtimeClient))
+			logsHandler := handlers.NewLogsHandler(podman.NewRuntimeAdapter(s.runtimeClient))
 
 			// Apps management - installed apps
 			r.Route("/apps", func(r chi.Router) {

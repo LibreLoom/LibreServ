@@ -19,6 +19,7 @@ export default function ConnectStatusCard({
   onDeactivate,
   onOpenPlanPage,
   loading = false,
+  noPopIn = false,
 }) {
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [token, setToken] = useState("");
@@ -33,7 +34,7 @@ export default function ConnectStatusCard({
   if (!connected) {
     return (
       <>
-        <Card icon={Plug} title="LibreServ Connect" noHeightAnim>
+        <Card icon={Plug} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn}>
           <div className="p-5 space-y-4">
             <p className="text-sm text-accent">
               LibreServ Connect handles the external services your server needs —
@@ -96,7 +97,7 @@ export default function ConnectStatusCard({
   }
 
   return (
-    <Card icon={PlugZap} title="LibreServ Connect" noHeightAnim>
+    <Card icon={PlugZap} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn}>
       <div className="p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">

@@ -12,38 +12,10 @@ import Dropdown from "../components/common/Dropdown.jsx";
 import ChatMessage from "../components/help/ChatMessage.jsx";
 import ChatPermissionPrompt from "../components/help/ChatPermissionPrompt.jsx";
 import ChatStreamingIndicator from "../components/help/ChatStreamingIndicator.jsx";
-import ChatCreditBar from "../components/help/ChatCreditBar.jsx";
 import ChatEmpty from "../components/help/ChatEmpty.jsx";
 import ChatInputBar from "../components/help/ChatInputBar.jsx";
-import ChatHeader from "../components/help/ChatHeader.jsx";
 import ConversationItem from "../components/help/ConversationItem.jsx";
 import ConversationSidebar from "../components/help/ConversationSidebar.jsx";
-import AgentTrace from "../components/agent/AgentTrace.jsx";
-
-const MOCK_TRACE_EVENTS = [
-  { type: "turn_start", turn: 1 },
-  { type: "agent_thinking", agent_id: "researcher", avatar_shape: "diamond", avatar_color: "#FF6B35", model: "route/mimo-v2.5-pro", turn: 1 },
-  { type: "agent_thinking", agent_id: "reviewer", avatar_shape: "circle", avatar_color: "#4ECDC4", model: "route/kimi-k2.6", turn: 1 },
-  { type: "agent_message", agent_id: "researcher", avatar_shape: "diamond", avatar_color: "#FF6B35", content: "Checking container status and disk usage...", turn: 1 },
-  { type: "tool_call", id: "tc-1", name: "podman_inspect", agent_id: "researcher", arguments: "{\"container\":\"nextcloud\"}", turn: 1 },
-  { type: "tool_result", id: "tc-1", content: "Container nextcloud: status=unhealthy, disk=98%", is_error: false, turn: 1 },
-  { type: "tool_call", id: "tc-2", name: "podman_restart", agent_id: "researcher", arguments: "{\"container\":\"nextcloud\"}", turn: 1 },
-  { type: "usage_update", turn_cost_usd: 0.0234, total_cost_usd: 0.0234, input_tokens: 1520, output_tokens: 340, cache_tokens: 800, remaining_usd: 9.98, turn: 1 },
-  { type: "proposal", id: "prop-1", agent_id: "researcher", proposal_type: "write", tool_calls: [{ id: "tc-2", name: "podman_restart", arguments: "{\"container\":\"nextcloud\"}", agent_id: "researcher" }], turn: 1 },
-  { type: "vote", proposal_id: "prop-1", agent_id: "reviewer", avatar_shape: "circle", avatar_color: "#4ECDC4", decision: "approve", reason: "Safe to restart — container is unhealthy.", turn: 1 },
-  { type: "consensus", proposal_id: "prop-1", result: "approved", votes: [{ agent_id: "reviewer", decision: "approve", reason: "Safe to restart." }], turn: 1 },
-  { type: "snapshot_created", snapshot_id: "snap-1", tool_call_id: "tc-2", turn: 1 },
-  { type: "tool_result", id: "tc-2", content: "Container nextcloud restarted successfully. Status: healthy.", is_error: false, turn: 1 },
-  { type: "turn_start", turn: 2 },
-  { type: "agent_thinking", agent_id: "researcher", avatar_shape: "diamond", avatar_color: "#FF6B35", model: "route/mimo-v2.5-pro", turn: 2 },
-  { type: "agent_thinking", agent_id: "reviewer", avatar_shape: "circle", avatar_color: "#4ECDC4", model: "route/kimi-k2.6", turn: 2 },
-  { type: "agent_message", agent_id: "researcher", avatar_shape: "diamond", avatar_color: "#FF6B35", content: "Nextcloud is back up and healthy. I'd recommend setting up automatic cleanup of old file versions.", turn: 2 },
-  { type: "usage_update", turn_cost_usd: 0.0156, total_cost_usd: 0.0390, input_tokens: 2100, output_tokens: 280, cache_tokens: 1200, remaining_usd: 9.96, turn: 2 },
-  { type: "proposal", id: "prop-2", agent_id: "researcher", proposal_type: "final_response", response: "Nextcloud has been restarted and is now healthy. I'd recommend setting up automatic cleanup of old file versions to prevent disk space issues in the future.", turn: 2 },
-  { type: "vote", proposal_id: "prop-2", agent_id: "reviewer", avatar_shape: "circle", avatar_color: "#4ECDC4", decision: "approve", reason: "Accurate and helpful response.", turn: 2 },
-  { type: "consensus", proposal_id: "prop-2", result: "approved", votes: [{ agent_id: "reviewer", decision: "approve", reason: "Accurate and helpful." }], turn: 2 },
-  { type: "done", reason: "complete" },
-];
 
 const MOCK_CONVERSATIONS = [
   { id: "1", title: "Nextcloud not responding", date: "May 25, 2026", status: "active" },
@@ -65,7 +37,6 @@ export default function HelpUIDemo() {
   const [model, setModel] = useState("route/mimo-v2.5-pro");
   const [permMode, setPermMode] = useState("standard");
   const [input, setInput] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   return (
     <main className="bg-primary text-secondary px-8 pt-5 pb-32 min-h-screen">
@@ -82,23 +53,6 @@ export default function HelpUIDemo() {
               action={
                 <Button variant="primary" size="md">Set up AI Support</Button>
               }
-            />
-          </Card>
-        </Section>
-
-        <Section title="ChatHeader">
-          <Card noHeightAnim noPopIn padding={false}>
-            <ChatHeader
-              model={model}
-              onModelChange={setModel}
-              permissionMode={permMode}
-              onPermissionModeChange={setPermMode}
-              creditUsed={2.5}
-              creditCap={10}
-              planName="Basic"
-              sidebarOpen={sidebarOpen}
-              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-              onOpenSettings={() => {}}
             />
           </Card>
         </Section>
@@ -131,23 +85,9 @@ export default function HelpUIDemo() {
           </div>
         </Section>
 
-        <Section title="ChatCreditBar">
-          <div className="space-y-3">
-            <div className="bg-secondary/50 rounded-large-element p-3">
-              <ChatCreditBar used={2.5} cap={10} planName="Basic" />
-            </div>
-            <div className="bg-secondary/50 rounded-large-element p-3">
-              <ChatCreditBar used={8.5} cap={10} planName="Basic" />
-            </div>
-            <div className="bg-secondary/50 rounded-large-element p-3">
-              <ChatCreditBar used={10} cap={10} planName="Basic" />
-            </div>
-          </div>
-        </Section>
-
         <Section title="ChatEmpty">
-          <Card noHeightAnim noPopIn>
-            <ChatEmpty onSuggestionClick={() => {}} />
+          <Card noHeightAnim noPopIn className="min-h-[300px]">
+            <ChatEmpty />
           </Card>
         </Section>
 
@@ -189,14 +129,9 @@ export default function HelpUIDemo() {
               activeId="1"
               onSelect={() => {}}
               onNewChat={() => {}}
+              onOpenSettings={() => {}}
             />
           </div>
-        </Section>
-
-        <Section title="AgentTrace">
-          <Card noHeightAnim noPopIn>
-            <AgentTrace events={MOCK_TRACE_EVENTS} />
-          </Card>
         </Section>
 
         <Section title="SegmentedControl (Permission Mode)">

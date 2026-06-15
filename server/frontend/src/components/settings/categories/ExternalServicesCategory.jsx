@@ -6,7 +6,7 @@ import {
   Waypoints,
   Sparkles,
 } from "lucide-react";
-import Card from "../../cards/Card.jsx";
+import SettingsCard from "../SettingsCard.jsx";
 import ConnectStatusCard from "../../connect/ConnectStatusCard.jsx";
 import EmailServiceModal from "../../connect/EmailServiceModal.jsx";
 import DomainServiceModal from "../../connect/DomainServiceModal.jsx";
@@ -45,7 +45,7 @@ const STATE_BADGES = {
 
 export default function ExternalServicesCategory({
   connectStatus,
-  services,
+  settings,
   repos,
   onActivateConnect,
   onDeactivateConnect,
@@ -63,6 +63,9 @@ export default function ExternalServicesCategory({
     }
   };
 
+  const services = connectStatus?.services || {};
+  const aiSettings = settings?.ai_support || {};
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-accent px-1">
@@ -71,19 +74,22 @@ export default function ExternalServicesCategory({
         external services your server depends on, in one place.
       </p>
 
-      <ConnectStatusCard
-        connected={connectStatus?.connected}
-        plan={connectStatus?.plan}
-        tokenHint={connectStatus?.token_hint}
-        services={services}
-        onActivate={handleActivate}
-        onDeactivate={onDeactivateConnect}
-        onOpenPlanPage={onOpenPlanPage}
-        loading={loading}
-      />
+      <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <ConnectStatusCard
+          connected={connectStatus?.connected}
+          plan={connectStatus?.plan}
+          tokenHint={connectStatus?.token_hint}
+          services={services}
+          onActivate={handleActivate}
+          onDeactivate={onDeactivateConnect}
+          onOpenPlanPage={onOpenPlanPage}
+          loading={loading}
+          noPopIn
+        />
+      </div>
 
-      {SERVICE_META.map(({ id, Icon, title, desc }) => {
-        const svc = services?.[id];
+      {SERVICE_META.map(({ id, Icon, title, desc }, i) => {
+        const svc = services[id];
         const badge = svc ? STATE_BADGES[svc.state] : STATE_BADGES.disabled;
 
         return (
@@ -95,7 +101,7 @@ export default function ExternalServicesCategory({
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenModal(id); } }}
             className="cursor-pointer focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded-large-element"
           >
-            <Card icon={Icon} title={title} noHeightAnim padding={false}>
+            <SettingsCard index={i} icon={Icon} title={title} padding={false}>
               <div className="px-5 py-4">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0 pr-4">
@@ -120,7 +126,7 @@ export default function ExternalServicesCategory({
                   </div>
                 </div>
               </div>
-            </Card>
+            </SettingsCard>
           </div>
         );
       })}
@@ -159,6 +165,7 @@ export default function ExternalServicesCategory({
         onClose={closeModal}
         service={services?.ai}
         connectStatus={connectStatus}
+        aiSettings={aiSettings}
         csrfToken={csrfToken}
       />
 

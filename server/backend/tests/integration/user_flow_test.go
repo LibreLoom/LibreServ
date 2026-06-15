@@ -15,7 +15,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 )
@@ -64,7 +64,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	notifier := security.NewEmailNotifier()
 	secSvc := security.NewService(db, logger, notifier)
 
-	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*docker.Client)(nil), nil, nil, nil, nil, nil)
+	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil, nil)
 	authH := handlers.NewAuthHandler(authSvc, secSvc, db)
 	usersH := handlers.NewUsersHandler(authSvc)
 

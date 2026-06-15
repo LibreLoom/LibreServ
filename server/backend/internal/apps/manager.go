@@ -14,7 +14,7 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/runtime"
@@ -851,7 +851,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 	}
 
 	if targetVersion != nil && targetVersion.Digest != "" {
-		if err := docker.ComposePinImageDigest(composePath, catalogApp.Deployment.Image, targetVersion.Digest); err != nil {
+		if err := podman.ComposePinImageDigest(composePath, catalogApp.Deployment.Image, targetVersion.Digest); err != nil {
 			m.logger.Warn("Failed to pin image digest in compose file", "error", err)
 		}
 	}

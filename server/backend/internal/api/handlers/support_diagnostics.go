@@ -7,18 +7,18 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
 )
 
 // SupportDiagnosticsHandler exposes lightweight diagnostics for support purposes.
 type SupportDiagnosticsHandler struct {
 	auth   *auth.Service
-	runtime *docker.Client
+	runtime *podman.Client
 }
 
 // NewSupportDiagnosticsHandler creates a handler for diagnostics checks.
-func NewSupportDiagnosticsHandler(authService *auth.Service, runtimeClient *docker.Client) *SupportDiagnosticsHandler {
+func NewSupportDiagnosticsHandler(authService *auth.Service, runtimeClient *podman.Client) *SupportDiagnosticsHandler {
 	return &SupportDiagnosticsHandler{
 		auth:   authService,
 		runtime: runtimeClient,

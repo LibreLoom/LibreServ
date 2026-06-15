@@ -1,3 +1,4 @@
+import { useRef, useLayoutEffect } from "react";
 import { Send, StopCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import Button from "../ui/Button.jsx";
@@ -10,6 +11,15 @@ function ChatInputBar({
   isStreaming = false,
   disabled = false,
 }) {
+  const textareaRef = useRef(null);
+
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [value]);
+
   function handleKeyDown(e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -18,21 +28,28 @@ function ChatInputBar({
   }
 
   return (
-    <div className="border-t border-primary/10 p-3">
-      <div className="flex gap-2 items-end">
+    <div className="border-t border-primary/10 p-4">
+      <div className="flex gap-3 items-end">
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(e) => onChange?.(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Describe what you need help with..."
+          placeholder="Describe your issue..."
           disabled={disabled || isStreaming}
           rows={1}
-          className="flex-1 bg-primary text-secondary rounded-large-element px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40"
-          aria-label="Type your message"
+          className="flex-1 bg-primary text-secondary rounded-large-element px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-accent placeholder:text-secondary/40 min-h-[44px] max-h-[200px]"
+          aria-label="Describe your issue"
         />
         {isStreaming ? (
-          <Button variant="danger" size="md" onClick={onStop} aria-label="Stop the assistant">
-            <StopCircle size={16} />
+          <Button
+            variant="danger"
+            size="md"
+            onClick={onStop}
+            aria-label="Stop the assistant"
+            className="shrink-0"
+          >
+            <StopCircle size={18} />
           </Button>
         ) : (
           <Button
@@ -41,8 +58,9 @@ function ChatInputBar({
             onClick={onSend}
             disabled={disabled || !value?.trim()}
             aria-label="Send message"
+            className="shrink-0"
           >
-            <Send size={16} />
+            <Send size={18} />
           </Button>
         )}
       </div>

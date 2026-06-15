@@ -18,8 +18,8 @@ func main() {
 	}
 
 	if err := config.Load(cfgPath); err != nil {
-		if !os.IsNotExist(err) {
-			slog.Warn("config file not found, using env defaults", "path", cfgPath)
+		if os.IsNotExist(err) {
+			slog.Info("config file not found, using env defaults", "path", cfgPath)
 		} else {
 			slog.Error("failed to load config", "error", err)
 			os.Exit(1)

@@ -94,7 +94,6 @@ type SupportConfig struct {
 	DeviceToken      string                  `mapstructure:"device_token" yaml:"device_token"`
 	DeviceID         string                  `mapstructure:"device_id" yaml:"device_id"`
 	InferenceBaseURL string                  `mapstructure:"inference_base_url" yaml:"inference_base_url"`
-	DefaultModel     string                  `mapstructure:"default_model" yaml:"default_model"`
 	BillingMode      string                  `mapstructure:"billing_mode" yaml:"billing_mode"`
 	Plans            []SupportPlan           `mapstructure:"plans" yaml:"plans"`
 	Agent            AgentConfig             `mapstructure:"agent" yaml:"agent"`
@@ -107,8 +106,9 @@ type SupportConfig struct {
 }
 
 type ConnectConfig struct {
-	Enabled bool   `mapstructure:"enabled" yaml:"enabled"`
-	Token   string `mapstructure:"token" yaml:"token"`
+	Enabled       bool              `mapstructure:"enabled" yaml:"enabled"`
+	Token         string            `mapstructure:"token" yaml:"token"`
+	ServiceStates map[string]string `mapstructure:"service_states" yaml:"service_states"`
 }
 
 type ModelPricing struct {
@@ -253,14 +253,14 @@ type ExternalACMEConfig struct {
 	Enabled        bool              `mapstructure:"enabled" yaml:"enabled"`
 	UsePodman      bool              `mapstructure:"use_podman" yaml:"use_podman"`
 	ContainerImage string            `mapstructure:"container_image" yaml:"container_image"`
-	DataPath    string            `mapstructure:"data_path" yaml:"data_path"`
-	DNSProvider string            `mapstructure:"dns_provider" yaml:"dns_provider"`
-	DNSEnv      map[string]string `mapstructure:"dns_env" yaml:"dns_env"`
-	Email       string            `mapstructure:"email" yaml:"email"`
-	Staging     bool              `mapstructure:"staging" yaml:"staging"`
-	CADirURL    string            `mapstructure:"ca_dir_url" yaml:"ca_dir_url"`
-	KeyType     string            `mapstructure:"key_type" yaml:"key_type"`
-	CertsPath   string            `mapstructure:"certs_path" yaml:"certs_path"`
+	DataPath       string            `mapstructure:"data_path" yaml:"data_path"`
+	DNSProvider    string            `mapstructure:"dns_provider" yaml:"dns_provider"`
+	DNSEnv         map[string]string `mapstructure:"dns_env" yaml:"dns_env"`
+	Email          string            `mapstructure:"email" yaml:"email"`
+	Staging        bool              `mapstructure:"staging" yaml:"staging"`
+	CADirURL       string            `mapstructure:"ca_dir_url" yaml:"ca_dir_url"`
+	KeyType        string            `mapstructure:"key_type" yaml:"key_type"`
+	CertsPath      string            `mapstructure:"certs_path" yaml:"certs_path"`
 }
 
 type CaddyConfig struct {
@@ -334,7 +334,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("support.device_token", "")
 	v.SetDefault("support.device_id", "")
 	v.SetDefault("support.inference_base_url", "https://api.routing.run/v1")
-	v.SetDefault("support.default_model", "")
+
 	v.SetDefault("support.billing_mode", "token")
 	v.SetDefault("support.agent.max_turns", 10)
 	v.SetDefault("support.agent.turn_timeout", "5m")

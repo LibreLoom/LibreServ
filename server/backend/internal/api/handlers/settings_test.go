@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 )
@@ -264,6 +267,115 @@ func TestSettingsUpdateProxy(t *testing.T) {
 
 	if proxy["auto_https"] != true {
 		t.Errorf("expected auto_https true, got %v", proxy["auto_https"])
+	}
+}
+
+func TestSettingsAISupportRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		t.Fatalf("failed to enable foreign keys: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS app_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		type TEXT NOT NULL DEFAULT 'string',
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		t.Fatalf("failed to create app_settings table: %v", err)
+	}
+
+	cfg := &config.Config{
+		Auth: config.AuthConfig{JWTSecret: "test-secret", CSRFSecret: "test-csrf"},
+		Support: config.SupportConfig{
+			InferenceBaseURL: "https://api.routing.run/v1",
+			BYOKEnabled:      false,
+		},
+	}
+	config.SetTestConfig(cfg)
+	defer config.SetTestConfig(nil)
+
+	svc := settings.NewService(db)
+	handler := NewSettingsHandler(svc, nil, nil)
+
+	adminUser := &middleware.User{ID: "admin-user", Username: "admin", Role: "admin"}
+	adminCtx := func(r *http.Request) *http.Request {
+		ctx := context.WithValue(r.Context(), middleware.UserContextKey, adminUser)
+		ctx = context.WithValue(ctx, middleware.UserIDContextKey, adminUser.ID)
+		return r.WithContext(ctx)
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"byok_enabled":    true,
+		"main_model":      "deepseek/deepseek-v4-pro",
+		"review_model":    "deepseek/deepseek-v4-flash",
+		"user_api_key":    "sk-test-key",
+		"user_base_url":   "https://api.openai.com/v1",
+		"user_api_format": "openai",
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/ai-support", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = adminCtx(req)
+	rec := httptest.NewRecorder()
+	handler.UpdateAISupport(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings/ai-support", nil)
+	getReq = adminCtx(getReq)
+	getRec := httptest.NewRecorder()
+	handler.GetAISupport(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on get, got %d: %s", getRec.Code, getRec.Body.String())
+	}
+	var getResp map[string]interface{}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("failed to parse get response: %v", err)
+	}
+	ai, ok := getResp["ai_support"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ai_support missing from response: %+v", getResp)
+	}
+	if ai["byok_enabled"] != true {
+		t.Errorf("expected byok_enabled true, got %v", ai["byok_enabled"])
+	}
+	if ai["main_model"] != "deepseek/deepseek-v4-pro" {
+		t.Errorf("expected main_model saved, got %v", ai["main_model"])
+	}
+	if ai["user_base_url"] != "https://api.openai.com/v1" {
+		t.Errorf("expected user_base_url saved, got %v", ai["user_base_url"])
+	}
+	if ai["user_key_configured"] != true {
+		t.Errorf("expected user_key_configured true, got %v", ai["user_key_configured"])
+	}
+
+	settingsReq := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
+	settingsReq = adminCtx(settingsReq)
+	settingsRec := httptest.NewRecorder()
+	handler.Get(settingsRec, settingsReq)
+
+	if settingsRec.Code != http.StatusOK {
+		t.Fatalf("expected status 200 on settings get, got %d: %s", settingsRec.Code, settingsRec.Body.String())
+	}
+	var settingsResp map[string]interface{}
+	if err := json.Unmarshal(settingsRec.Body.Bytes(), &settingsResp); err != nil {
+		t.Fatalf("failed to parse settings response: %v", err)
+	}
+	ai2, ok := settingsResp["ai_support"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ai_support missing from /settings response")
+	}
+	if ai2["main_model"] != "deepseek/deepseek-v4-pro" {
+		t.Errorf("expected main_model in /settings, got %v", ai2["main_model"])
 	}
 }
 

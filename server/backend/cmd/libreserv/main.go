@@ -20,7 +20,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobs"
@@ -118,13 +118,13 @@ func main() {
 		slog.Warn("license load failed", "error", err)
 	}
 
-	runtimeClient, err := docker.NewClient(cfg.Runtime)
+	runtimeClient, err := podman.NewClient(cfg.Runtime)
 	if err != nil {
 		slog.Error("failed to initialize container runtime", "error", err)
 		os.Exit(1)
 	}
 
-	runtimeAdapter := docker.NewRuntimeAdapter(runtimeClient)
+	runtimeAdapter := podman.NewRuntimeAdapter(runtimeClient)
 	monitor := monitoring.NewMonitor(db, runtimeAdapter, cfg.Apps.DataPath)
 	monitor.Start()
 	defer monitor.Stop()

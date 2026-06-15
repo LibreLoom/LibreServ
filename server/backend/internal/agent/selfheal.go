@@ -8,8 +8,9 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/conversation"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/tools"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
 )
 
@@ -17,7 +18,7 @@ import (
 // an agent to diagnose and fix them automatically.
 type SelfHealingMonitor struct {
 	db            *database.DB
-	runtimeClient *docker.Client
+	runtimeClient *podman.Client
 	provider      *Provider
 	convStore     *conversation.Store
 	creditSvc     *subscription.CreditService
@@ -27,7 +28,7 @@ type SelfHealingMonitor struct {
 }
 
 // NewSelfHealingMonitor creates a new monitor.
-func NewSelfHealingMonitor(runtimeClient *docker.Client, db *database.DB) *SelfHealingMonitor {
+func NewSelfHealingMonitor(runtimeClient *podman.Client, db *database.DB, connectClient connect.Client) *SelfHealingMonitor {
 	m := &SelfHealingMonitor{
 		db:            db,
 		runtimeClient: runtimeClient,
@@ -39,7 +40,7 @@ func NewSelfHealingMonitor(runtimeClient *docker.Client, db *database.DB) *SelfH
 		m.checker = subscription.NewChecker(db)
 		m.convStore = conversation.NewStore(db)
 	}
-	m.provider = NewSharedProviderFromConfig()
+	m.provider = NewAIProvider(context.Background(), connectClient, nil)
 	return m
 }
 
@@ -127,9 +128,6 @@ func (m *SelfHealingMonitor) checkAndHeal() {
 
 func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID string, cfg *config.Config) {
 	model := cfg.Support.Agent.MainModel
-	if model == "" {
-		model = cfg.Support.DefaultModel
-	}
 	if model == "" {
 		slog.Error("self-healing: no model configured")
 		return

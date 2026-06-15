@@ -20,7 +20,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
@@ -152,14 +152,14 @@ func (hcc *HealthCheckCache) Set(result *ComprehensiveHealthResponse) {
 type MonitoringHandlers struct {
 	monitor      *monitoring.Monitor
 	db           *database.DB
-	runtime       *docker.Client
+	runtime       *podman.Client
 	mailer       func() (*email.Sender, error)
 	metricsCache *apps.AppMetricsCache
 	healthCache  *HealthCheckCache
 }
 
 // NewMonitoringHandlers creates new monitoring handlers
-func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, runtimeClient *docker.Client, metricsCache *apps.AppMetricsCache) *MonitoringHandlers {
+func NewMonitoringHandlers(monitor *monitoring.Monitor, db *database.DB, runtimeClient *podman.Client, metricsCache *apps.AppMetricsCache) *MonitoringHandlers {
 	h := &MonitoringHandlers{
 		monitor:      monitor,
 		db:           db,

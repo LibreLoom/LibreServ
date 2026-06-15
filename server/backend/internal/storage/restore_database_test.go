@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 )
 
 func TestRestoreDatabase_RestoresSnapshot(t *testing.T) {
@@ -27,7 +27,7 @@ func TestRestoreDatabase_RestoresSnapshot(t *testing.T) {
 		t.Fatalf("insert u1: %v", err)
 	}
 
-	backupSvc := NewBackupService(db, &docker.Client{}, dir, filepath.Join(dir, "apps"))
+	backupSvc := NewBackupService(db, &podman.Client{}, dir, filepath.Join(dir, "apps"))
 	b, err := backupSvc.BackupDatabase(context.Background())
 	if err != nil {
 		t.Fatalf("backup database: %v", err)
@@ -74,7 +74,7 @@ func TestRestoreDatabase_RequiresChecksumWhenEnabled(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	backupSvc := NewBackupService(db, &docker.Client{}, dir, filepath.Join(dir, "apps"))
+	backupSvc := NewBackupService(db, &podman.Client{}, dir, filepath.Join(dir, "apps"))
 	b, err := backupSvc.BackupDatabase(context.Background())
 	if err != nil {
 		t.Fatalf("backup database: %v", err)

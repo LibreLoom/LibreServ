@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 )
 
 // ProvisionHandler handles service provisioning and plan info.
@@ -114,10 +115,15 @@ func (h *ProvisionHandler) generateCredentials(deviceID, service string) map[str
 			},
 		}
 	case "ai":
+		baseURL := config.C.Inference.BaseURL
+		if baseURL == "" {
+			baseURL = "https://inference.neuralwatt.dev/v1"
+		}
 		return map[string]any{
 			"ai": map[string]any{
-				"base_url": "https://inference.neuralwatt.dev/v1",
+				"base_url": baseURL,
 				"api_key":  fmt.Sprintf("nw-sk-%s-%s", sub, randomPassword(24)),
+				"format":   "openai",
 			},
 		}
 	default:

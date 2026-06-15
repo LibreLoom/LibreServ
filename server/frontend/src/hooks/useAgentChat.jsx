@@ -11,8 +11,6 @@ export function useAgentChat() {
   const [events, setEvents] = useState([]);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
-  const [subscription, setSubscription] = useState(null);
-  const [models, setModels] = useState([]);
   const eventSourceRef = useRef(null);
   const statusRef = useRef(status);
   statusRef.current = status;
@@ -59,29 +57,6 @@ export function useAgentChat() {
     }
   }, [request]);
 
-  const loadSubscription = useCallback(async () => {
-    try {
-      const res = await request("/support/agent/subscription");
-      if (!res.ok) return;
-      const result = await res.json();
-      setSubscription(result.data || result);
-    } catch {
-      // Silently ignore — non-critical background load
-    }
-  }, [request]);
-
-  const loadModels = useCallback(async () => {
-    try {
-      const res = await request("/support/agent/models");
-      if (!res.ok) return;
-      const result = await res.json();
-      const data = result.data || result;
-      setModels(data.models || []);
-    } catch {
-      // Silently ignore — non-critical background load
-    }
-  }, [request]);
-
   const startConversation = useCallback(async (opts = {}) => {
     try {
       setError(null);
@@ -91,8 +66,8 @@ export function useAgentChat() {
         body: JSON.stringify({
           trigger_type: opts.triggerType || "manual",
           ...(opts.triggerAppId ? { trigger_app_id: opts.triggerAppId } : {}),
-          permission_mode: opts.permissionMode || "standard",
-          models: opts.models || [],
+          ...(opts.permissionMode ? { permission_mode: opts.permissionMode } : {}),
+          ...(opts.model ? { model: opts.model } : {}),
         }),
       });
       if (!res.ok) {
@@ -164,7 +139,6 @@ export function useAgentChat() {
       try {
         const rawEvt = JSON.parse(event.data);
         const data = { ...(rawEvt.data || {}) };
-        // Rename ProposalData.Type to proposal_type to avoid collision with top-level type
         if (rawEvt.type === "proposal" && data.type !== undefined) {
           data.proposal_type = data.type;
           delete data.type;
@@ -175,12 +149,6 @@ export function useAgentChat() {
         if (flatEvt.type === "agent_response") {
           const resp = flatEvt;
           setMessages((prev) => [...prev, { role: "assistant", content: resp.content, created_at: new Date().toISOString() }]);
-        }
-        if (flatEvt.type === "permission_request") {
-          // permission cards are rendered from events, no message added
-        }
-        if (flatEvt.type === "snapshot_created") {
-          // snapshot pills rendered from events
         }
         if (flatEvt.type === "done") {
           doneReceived = true;
@@ -197,7 +165,7 @@ export function useAgentChat() {
         if (flatEvt.type === "error") {
           doneReceived = true;
           const err = flatEvt;
-          setError(err.message || "Something went wrong while the agent was working.");
+          setError(err.message || "Something went wrong while the assistant was working.");
           setStatus("error");
           es.close();
           eventSourceRef.current = null;
@@ -212,8 +180,6 @@ export function useAgentChat() {
       es.close();
       eventSourceRef.current = null;
 
-      // If the connection never opened, the agent loop may not have started yet.
-      // Retry once after a short delay.
       if (!opened && attempt < 2) {
         setTimeout(() => streamEvents(convId, attempt + 1), 1500);
         return;
@@ -256,21 +222,6 @@ export function useAgentChat() {
     }
   }, [request, addToast]);
 
-  const selectPlan = useCallback(async (planId) => {
-    try {
-      const res = await request("/support/agent/subscription", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_id: planId }),
-      });
-      if (!res.ok) throw new Error("failed to select plan");
-      const data = await res.json();
-      setSubscription(data);
-    } catch {
-      addToast({ type: "error", message: "Could not update your plan. Please try again." });
-    }
-  }, [request, addToast]);
-
   useEffect(() => {
     return () => {
       if (eventSourceRef.current) {
@@ -299,18 +250,13 @@ export function useAgentChat() {
     events,
     status,
     error,
-    subscription,
-    models,
     loadConversations,
     loadConversation,
-    loadSubscription,
-    loadModels,
     startConversation,
     sendMessage,
     streamEvents,
     respondPermission,
     stopConversation,
-    selectPlan,
     setError,
     resetChat,
   };

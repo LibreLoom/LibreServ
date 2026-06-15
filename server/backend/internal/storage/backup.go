@@ -23,13 +23,13 @@ import (
 
 	"github.com/google/uuid"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
 )
 
 type BackupService struct {
 	db            *database.DB
-	runtime       *docker.Client
+	runtime       *podman.Client
 	basePath      string
 	appDataPath   string
 	resticEngine  *restic.Engine
@@ -38,7 +38,7 @@ type BackupService struct {
 	encryptionKey string
 }
 
-func NewBackupService(db *database.DB, runtime *docker.Client, basePath, appDataPath string) *BackupService {
+func NewBackupService(db *database.DB, runtime *podman.Client, basePath, appDataPath string) *BackupService {
 	svc := &BackupService{
 		db:          db,
 		runtime:     runtime,

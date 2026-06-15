@@ -24,7 +24,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
@@ -51,7 +51,7 @@ type Server struct {
 	staticFS        fs.FS
 	assetsHandler   http.Handler
 	staticSource    string
-	runtimeClient    *docker.Client
+	runtimeClient   *podman.Client
 	caddyManager    *network.CaddyManager
 	setupService    *setup.Service
 	supportService  *support.Service
@@ -81,7 +81,7 @@ type ServerConfig struct {
 	AuthService     *auth.Service
 	Monitor         *monitoring.Monitor
 	BackupService   *storage.BackupService
-	RuntimeClient    *docker.Client
+	RuntimeClient   *podman.Client
 	CaddyManager    *network.CaddyManager
 	SetupService    *setup.Service
 	SupportService  *support.Service
@@ -158,7 +158,7 @@ func NewServer(cfg ServerConfig) *Server {
 		backupService:   cfg.BackupService,
 		devMode:         cfg.DevMode,
 		logger:          logger,
-		runtimeClient:    cfg.RuntimeClient,
+		runtimeClient:   cfg.RuntimeClient,
 		caddyManager:    cfg.CaddyManager,
 		setupService:    cfg.SetupService,
 		supportService:  cfg.SupportService,
@@ -210,7 +210,7 @@ func NewServer(cfg ServerConfig) *Server {
 	server.tunnelService = network.NewTunnelService(tunnelCfg, filepath.Join(config.Get().Apps.DataPath, "bin"))
 
 	// Initialize self-healing monitor
-	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.RuntimeClient, cfg.DB)
+	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.RuntimeClient, cfg.DB, server.connectClient)
 
 	// Setup routes
 	server.setupRoutes()

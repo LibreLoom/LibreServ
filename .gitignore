@@ -64,6 +64,8 @@ server/backend/configs/libreserv.yaml
 .cursor/
 .fleet/
 .vscode-server/
+.gitnexus/
+.soulforge
 
 # Temp
 tmp/

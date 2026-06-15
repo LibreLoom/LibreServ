@@ -1,7 +1,6 @@
 import PropTypes from "prop-types";
-import { Plus, MessageSquare } from "lucide-react";
+import { Plus, MessageSquare, Settings } from "lucide-react";
 import Card from "../cards/Card.jsx";
-import Button from "../ui/Button.jsx";
 import ConversationItem from "./ConversationItem.jsx";
 
 function ConversationSidebar({
@@ -9,13 +8,14 @@ function ConversationSidebar({
   activeId,
   onSelect,
   onNewChat,
+  onOpenSettings,
 }) {
   return (
     <Card
       noHeightAnim
       noPopIn
       icon={MessageSquare}
-      title="Conversations"
+      title="Previous Sessions"
       headerActions={
         <button
           type="button"
@@ -26,10 +26,11 @@ function ConversationSidebar({
           <Plus size={14} />
         </button>
       }
+      className="h-full flex flex-col"
     >
-      <div className="space-y-1 pt-2">
+      <div className="flex-1 space-y-1 pt-2 min-h-0 overflow-y-auto">
         {conversations.length === 0 ? (
-          <p className="text-sm text-primary/50 py-2">No conversations yet</p>
+          <p className="text-sm text-primary/50 py-2">No sessions yet</p>
         ) : (
           conversations.map((conv) => (
             <ConversationItem
@@ -43,6 +44,18 @@ function ConversationSidebar({
           ))
         )}
       </div>
+      {onOpenSettings && (
+        <div className="mt-3 pt-3 border-t border-primary/10">
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-large-element text-sm font-mono text-primary/70 hover:bg-primary/5 hover:text-primary motion-safe:transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <Settings size={14} />
+            Settings
+          </button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -59,6 +72,7 @@ ConversationSidebar.propTypes = {
   activeId: PropTypes.string,
   onSelect: PropTypes.func,
   onNewChat: PropTypes.func,
+  onOpenSettings: PropTypes.func,
 };
 
 export default ConversationSidebar;

@@ -44,6 +44,17 @@ var AllServices = []ServiceID{
 	ServiceSupport,
 }
 
+func DefaultServiceStates() map[ServiceID]ServiceStatus {
+	return map[ServiceID]ServiceStatus{
+		ServiceSMTP:    {State: ServiceDisabled, Label: "Email / SMTP"},
+		ServiceDomain:  {State: ServiceDisabled, Label: "Domain & DNS"},
+		ServiceBackup:  {State: ServiceDisabled, Label: "Cloud Backup Storage"},
+		ServiceTunnel:  {State: ServiceDisabled, Label: "Tunnel"},
+		ServiceAI:      {State: ServiceDisabled, Label: "AI Assistant"},
+		ServiceSupport: {State: ServiceDisabled, Label: "Human Support"},
+	}
+}
+
 type ServiceStatus struct {
 	State   ServiceState      `json:"state"`
 	Label   string            `json:"label"`
@@ -74,11 +85,18 @@ type ActivationRequest struct {
 	Token string `json:"token"`
 }
 
+type AICredentials struct {
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Format  string `json:"format,omitempty"`
+}
+
 type ProvisionedCredentials struct {
 	SMTP   *SMTPCredentials   `json:"smtp,omitempty"`
 	Domain *DomainCredentials `json:"domain,omitempty"`
 	Backup *BackupCredentials `json:"backup,omitempty"`
 	Tunnel *TunnelCredentials `json:"tunnel,omitempty"`
+	AI     *AICredentials     `json:"ai,omitempty"`
 }
 
 type SMTPCredentials struct {

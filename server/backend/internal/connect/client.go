@@ -212,14 +212,7 @@ func NewFakeClient() *FakeClient {
 }
 
 func defaultServiceStates() map[ServiceID]ServiceStatus {
-	return map[ServiceID]ServiceStatus{
-		ServiceSMTP:    {State: ServiceDisabled, Label: "Email / SMTP"},
-		ServiceDomain:  {State: ServiceDisabled, Label: "Domain & DNS"},
-		ServiceBackup:  {State: ServiceDisabled, Label: "Cloud Backup Storage"},
-		ServiceTunnel:  {State: ServiceDisabled, Label: "Tunnel"},
-		ServiceAI:      {State: ServiceDisabled, Label: "AI Assistant"},
-		ServiceSupport: {State: ServiceDisabled, Label: "Human Support"},
-	}
+	return DefaultServiceStates()
 }
 
 func (f *FakeClient) Token() string {
@@ -310,6 +303,16 @@ func (f *FakeClient) Provision(ctx context.Context, service ServiceID) (*Provisi
 		creds.Tunnel = &TunnelCredentials{
 			Provider: "connect",
 			Token:    "tunnel-token-" + f.token[:8],
+		}
+	case ServiceAI:
+		sub := ""
+		if len(f.token) >= 8 {
+			sub = f.token[:8]
+		}
+		creds.AI = &AICredentials{
+			BaseURL: "https://inference.neuralwatt.dev/v1",
+			APIKey:  "nw-sk-" + sub + "-fake",
+			Format:  "openai",
 		}
 	}
 

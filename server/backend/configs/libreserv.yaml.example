@@ -118,41 +118,22 @@ support:
     # inference_base_url: only used for BYOK (Bring Your Own Key) mode.
     # When using the shared support service, this is ignored.
     inference_base_url: "https://api.routing.run/v1"
-    # default_model: the AI model used when no specific model is selected.
-    # Available models are fetched live from the support service.
-    default_model: ""
     # billing_mode: how credit costs are calculated.
     #   "token"  — cost based on token usage (for token-billed providers)
     #   "request" — flat cost per request (for request-billed providers like routing.run)
     billing_mode: "token"
     agent:
+        # main_model: the AI model used for agent conversations.
+        # When using LibreServ Connect, available models are fetched live.
+        # When using BYOK, enter the model ID your provider offers.
+        main_model: ""
+        # review_model: the AI model that reviews tool calls for safety.
+        # If empty, the main_model is used for review as well.
+        review_model: ""
+        review_enabled: true
         max_turns: 10
         turn_timeout: 5m
-        snapshot_before_writes: true
         system_plan_id: "basic"
-    # agents: define AI agent personas. Model can be left empty to use default_model.
-    # Tools are grouped by name: "podman", "files", "diagnostics", "snapshots".
-    agents:
-        - id: agent-1
-          trigger: chat
-          model: ""
-          avatar_shape: diamond
-          avatar_color: "#FF6B35"
-          tools: ["podman", "files", "diagnostics", "snapshots"]
-          max_turns: 50
-        - id: agent-2
-          trigger: chat
-          model: ""
-          avatar_shape: circle
-          avatar_color: "#4ECDC4"
-          tools: ["podman", "files", "diagnostics", "snapshots"]
-          max_turns: 50
-        - id: self-healing
-          trigger: container_unhealthy
-          model: ""
-          tools: ["podman", "diagnostics", "files"]
-          max_turns: 5
-          permission_mode: auto
     # pricing: per-1M-token costs for models. Only models with entries here will
     # have accurate cost tracking. Models without pricing entries are tracked at $0 cost.
     # Add entries for any model your provider offers if you want cost visibility.

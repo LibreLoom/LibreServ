@@ -1,4 +1,4 @@
-package docker
+package podman
 
 import (
 	"context"
@@ -11,12 +11,12 @@ import (
 // Ensure RuntimeAdapter implements runtime.ContainerRuntime
 var _ runtime.ContainerRuntime = (*RuntimeAdapter)(nil)
 
-// RuntimeAdapter adapts Docker client calls to the runtime interface.
+// RuntimeAdapter adapts Podman client calls to the runtime interface.
 type RuntimeAdapter struct {
 	client *Client
 }
 
-// NewRuntimeAdapter wraps a Docker client to satisfy the runtime interface.
+// NewRuntimeAdapter wraps a Podman client to satisfy the runtime interface.
 func NewRuntimeAdapter(client *Client) *RuntimeAdapter {
 	return &RuntimeAdapter{client: client}
 }
@@ -114,12 +114,12 @@ func matchesInstance(ci runtime.ContainerInfo, instanceID string) bool {
 	return false
 }
 
-// HealthCheck checks Docker connectivity.
+// HealthCheck checks Podman connectivity.
 func (r *RuntimeAdapter) HealthCheck() error {
 	return r.client.HealthCheck()
 }
 
-// Close releases the adapter's Docker client.
+// Close releases the adapter's Podman client.
 func (r *RuntimeAdapter) Close() error {
 	return r.client.Close()
 }

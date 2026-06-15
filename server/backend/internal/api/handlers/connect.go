@@ -6,18 +6,22 @@ import (
 	"net/http"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 )
 
 type ConnectHandler struct {
-	client  connect.Client
-	checker *connect.EntitlementChecker
+	client          connect.Client
+	checker         *connect.EntitlementChecker
+	settingsService *settings.Service
 }
 
-func NewConnectHandler(client connect.Client, checker *connect.EntitlementChecker) *ConnectHandler {
+func NewConnectHandler(client connect.Client, checker *connect.EntitlementChecker, settingsService *settings.Service) *ConnectHandler {
 	return &ConnectHandler{
-		client:  client,
-		checker: checker,
+		client:          client,
+		checker:         checker,
+		settingsService: settingsService,
 	}
 }
 
@@ -95,19 +99,23 @@ func (h *ConnectHandler) UpdateServices(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	status, err := h.client.Status(r.Context())
-	if err != nil || status == nil {
-		response.JSONError(w, http.StatusBadGateway, "Could not reach LibreServ Connect. Please try again.")
-		return
-	}
-
-	_, exists := status.Services[svcID]
+	_, exists := connect.DefaultServiceStates()[svcID]
 	if !exists {
 		response.JSONError(w, http.StatusBadRequest, "Unknown service.")
 		return
 	}
 
 	if svcState == connect.ServiceConnected {
+		// Enabling through Connect requires a live Connect session and successful provisioning.
+		status, err := h.client.Status(r.Context())
+		if err != nil || status == nil {
+			response.JSONError(w, http.StatusBadGateway, "Could not reach LibreServ Connect. Please make sure you are connected and try again.")
+			return
+		}
+		if _, ok := status.Services[svcID]; !ok {
+			response.JSONError(w, http.StatusBadRequest, "Unknown service.")
+			return
+		}
 		creds, provErr := h.client.Provision(r.Context(), svcID)
 		if provErr != nil {
 			slog.Error("connect service provisioning failed", "service", svcID, "error", provErr)
@@ -117,9 +125,23 @@ func (h *ConnectHandler) UpdateServices(w http.ResponseWriter, r *http.Request) 
 		_ = creds
 	}
 
-	status.Services[svcID] = connect.ServiceStatus{
-		State: svcState,
-		Label: status.Services[svcID].Label,
+	// Persist the desired state so BYOK/disabled choices survive a restart.
+	if h.settingsService != nil {
+		if err := h.settingsService.UpdateSettings(r.Context(), map[string]interface{}{
+			"connect_services": map[string]interface{}{string(svcID): string(svcState)},
+		}); err != nil {
+			slog.Error("failed to persist connect service state", "service", svcID, "state", svcState, "error", err)
+			response.JSONError(w, http.StatusInternalServerError, "Could not save the service state. Please try again.")
+			return
+		}
+	} else {
+		cfg := config.Get()
+		if cfg != nil {
+			if cfg.Connect.ServiceStates == nil {
+				cfg.Connect.ServiceStates = make(map[string]string)
+			}
+			cfg.Connect.ServiceStates[string(svcID)] = string(svcState)
+		}
 	}
 
 	if h.checker != nil {
@@ -152,14 +174,7 @@ func (h *ConnectHandler) Info(w http.ResponseWriter, r *http.Request) {
 }
 
 func defaultServiceStatuses() map[connect.ServiceID]connect.ServiceStatus {
-	return map[connect.ServiceID]connect.ServiceStatus{
-		connect.ServiceSMTP:    {State: connect.ServiceDisabled, Label: "Email / SMTP"},
-		connect.ServiceDomain:  {State: connect.ServiceDisabled, Label: "Domain & DNS"},
-		connect.ServiceBackup:  {State: connect.ServiceDisabled, Label: "Cloud Backup Storage"},
-		connect.ServiceTunnel:  {State: connect.ServiceDisabled, Label: "Tunnel"},
-		connect.ServiceAI:      {State: connect.ServiceDisabled, Label: "AI Assistant"},
-		connect.ServiceSupport: {State: connect.ServiceDisabled, Label: "Human Support"},
-	}
+	return connect.DefaultServiceStates()
 }
 
 func serviceToggleMessage(svc connect.ServiceID, state connect.ServiceState) string {

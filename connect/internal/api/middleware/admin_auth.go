@@ -2,14 +2,15 @@ package middleware
 
 import (
 	"net/http"
-	"os"
 	"strings"
+
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 )
 
 func AdminAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := extractBearer(r)
-		expected := os.Getenv("CONNECT_ADMIN_TOKEN")
+		expected := config.C.Auth.AdminTokenSecret
 		if expected == "" {
 			http.Error(w, `{"error":"admin auth not configured"}`, http.StatusServiceUnavailable)
 			return

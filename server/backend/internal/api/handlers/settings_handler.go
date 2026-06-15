@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -22,7 +23,7 @@ type SettingsHandler struct {
 	settingsService *settings.Service
 	securityService *security.Service
 	caddyManager    *network.CaddyManager
-	modelRegistry   *agent.ModelRegistry
+	listModels      func(ctx context.Context) ([]agent.ModelInfo, error)
 
 	testNotificationMu        sync.Mutex
 	testNotificationLastTime  map[string]time.Time
@@ -485,8 +486,8 @@ func validateEmail(email string) error {
 	return nil
 }
 
-func (h *SettingsHandler) SetModelRegistry(registry *agent.ModelRegistry) {
-	h.modelRegistry = registry
+func (h *SettingsHandler) SetModelSource(fn func(ctx context.Context) ([]agent.ModelInfo, error)) {
+	h.listModels = fn
 }
 
 func (h *SettingsHandler) GetAISupport(w http.ResponseWriter, r *http.Request) {
@@ -505,8 +506,8 @@ func (h *SettingsHandler) GetAISupport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var availableModels []agent.ModelInfo
-	if h.modelRegistry != nil {
-		if models, err := h.modelRegistry.List(r.Context()); err == nil && models != nil {
+	if h.listModels != nil {
+		if models, err := h.listModels(r.Context()); err == nil && models != nil {
 			availableModels = models
 		}
 	}

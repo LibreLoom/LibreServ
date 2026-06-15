@@ -34,6 +34,7 @@ export default function ModalCard({
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const previousFocusRef = useRef(null);
+  const hasFocusedRef = useRef(false);
   const { outerRef, innerRef } = useAnimatedHeight();
 
   const setRefs = useCallback((node) => {
@@ -52,6 +53,9 @@ export default function ModalCard({
   const content = typeof children === "function" ? children({ close: handleClose }) : children;
 
   useEffect(() => {
+    if (hasFocusedRef.current) return;
+    hasFocusedRef.current = true;
+
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
     if (initialFocusRef?.current) {

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/docker"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
 )
 
@@ -31,7 +31,7 @@ func setupTestService(t *testing.T) (*BackupService, string) {
 	if err := db.Migrate(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	backupSvc := NewBackupService(db, &docker.Client{}, dir, filepath.Join(dir, "apps"))
+	backupSvc := NewBackupService(db, &podman.Client{}, dir, filepath.Join(dir, "apps"))
 	backupSvc.SetServerSecret("test-secret-key-for-testing")
 	backupSvc.SetEncryptionKey("test-encryption-key-for-testing")
 	return backupSvc, dir
@@ -42,7 +42,7 @@ func TestBackupOptionsDefaults(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	db, _ := database.Open(dbPath)
 	_ = db.Migrate()
-	backupSvc := NewBackupService(db, &docker.Client{}, dir, filepath.Join(dir, "apps"))
+	backupSvc := NewBackupService(db, &podman.Client{}, dir, filepath.Join(dir, "apps"))
 	backupSvc.SetServerSecret("test-secret")
 	backupSvc.SetEncryptionKey("test-encryption-key")
 
@@ -318,7 +318,7 @@ func TestCleanupOldBackups(t *testing.T) {
 	dbPath := filepath.Join(dir, "test.db")
 	db, _ := database.Open(dbPath)
 	_ = db.Migrate()
-	backupSvc := NewBackupService(db, &docker.Client{}, dir, filepath.Join(dir, "apps"))
+	backupSvc := NewBackupService(db, &podman.Client{}, dir, filepath.Join(dir, "apps"))
 	backupSvc.SetServerSecret("test-secret")
 	backupSvc.SetEncryptionKey("test-encryption-key")
 	db.Exec(`INSERT INTO backups (id, type, path, size, created_at) VALUES (?, ?, ?, ?, ?)`, "b1", "system", "/tmp/b1", 0, time.Now())
