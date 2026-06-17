@@ -10,7 +10,7 @@ set -euo pipefail
 #   --help         Show this help message
 
 GITHUB_REPO="LibreLoom/LibreServ"
-GITEA_URL="https://gt.plainskill.net"
+FORGEJO_URL="https://gt.plainskill.net"
 INSTALL_DIR="/opt/libreserv"
 BIN_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/libreserv"
@@ -293,8 +293,8 @@ prompt_version() {
 get_latest_release() {
     log_info "Fetching latest release information..."
     local response
-    response=$(curl -sf "${GITEA_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=1&sort=created&direction=desc") || {
-        log_error "Failed to fetch releases from Gitea API"
+    response=$(curl -sf "${FORGEJO_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=1&sort=created&direction=desc") || {
+        log_error "Failed to fetch releases from Forgejo API"
         exit 1
     }
 
@@ -321,8 +321,8 @@ get_latest_release() {
 # Download and install binary
 download_binary() {
     BINARY_NAME="libreserv-${OS}-${ARCH}"
-    DOWNLOAD_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
-    CHECKSUM_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
+    DOWNLOAD_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/${BINARY_NAME}"
+    CHECKSUM_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/SHA256SUMS.txt"
 
     if [ "$NO_SYSTEMD" = false ] && systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
         log_info "Stopping existing service..."
@@ -391,7 +391,7 @@ download_restic() {
 
 # Download and extract the app catalog
 download_catalog() {
-    CATALOG_URL="${GITEA_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/catalog.tar.gz"
+    CATALOG_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/catalog.tar.gz"
     CATALOG_DIR="${INSTALL_DIR}/catalog"
 
     mkdir -p "${CATALOG_DIR}"

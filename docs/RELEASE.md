@@ -7,7 +7,7 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 ## Prerequisites
 
 - Git repository on `main` branch with no uncommitted changes
-- Gitea account with write access to `LibreLoom/LibreServ`
+- Forgejo account with write access to `LibreLoom/LibreServ`
 - Go 1.25+ installed locally
 - Node.js 20+ installed locally (for frontend build)
 - Docker installed (for CI tests)
@@ -18,7 +18,7 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 
 ```bash
 ./release.sh              # Full release process
-./release.sh --dry-run    # Build binaries only, skip Gitea API calls (keeps build dir)
+./release.sh --dry-run    # Build binaries only, skip Forgejo API calls (keeps build dir)
 ./release.sh --keep-build # Keep release-build/ directory after completion
 ./release.sh --force      # Auto-delete existing release with same tag (no prompt)
 ./release.sh --pre-release # Mark release as pre-release/unstable (beta, rc, alpha)
@@ -38,13 +38,13 @@ If a release with the same tag already exists, the script will:
 
 The script will guide you through:
 
-1. **Gitea Token** - Enter your API token (requires `write:repository` and `write:release` scopes)
+1. **Forgejo Token** - Enter your API token (requires `write:repository` and `write:release` scopes)
 2. **Version Tag** - Enter semantic version (e.g., `v1.0.0`, `v1.0.0-beta.1`)
 3. **Git Validation** - Automatically checks for uncommitted changes
 4. **CI Suite** - Runs full test profile (takes 5-15 minutes)
 5. **Build Binaries** - Compiles Linux AMD64 and ARM64 binaries
 6. **Release Notes** - Opens your editor to write changelog
-7. **Create Draft** - Creates draft release on Gitea
+7. **Create Draft** - Creates draft release on Forgejo
 8. **Upload Assets** - Uploads binaries and checksums
 9. **Publish** - Option to publish immediately or keep as draft
 
@@ -57,7 +57,7 @@ After creation, verify:
 
 ## Manual Token Creation
 
-To create a Gitea API token:
+To create a Forgejo API token:
 
 1. Go to `https://gt.plainskill.net/user/settings/applications`
 2. Click "Generate New Token"
@@ -118,7 +118,7 @@ Releases are created as **drafts** first. This allows you to:
 - Test the install process with the draft release
 
 To publish a draft:
-1. Go to the release page on Gitea
+1. Go to the release page on Forgejo
 2. Click "Edit"
 3. Uncheck "Draft"
 4. Click "Publish Release"
@@ -127,7 +127,7 @@ To publish a draft:
 
 If a release has issues:
 
-1. **Delete the release** from Gitea (or mark as draft)
+1. **Delete the release** from Forgejo (or mark as draft)
 2. **Delete the tag**: `git tag -d v1.0.0 && git push origin :refs/tags/v1.0.0`
 3. **Fix the issues** in main branch
 4. **Create new release** with incremented patch version
@@ -163,7 +163,7 @@ Pre-release versions: `v1.0.0-beta.1`, `v1.0.0-rc.1`
 | `server/backend/OS/dist/` | Script (frontend) | **Never** - valid build output |
 | `server/backend/bin/` | Not created by script | **Never** - user's local builds |
 | Temp files (release notes) | Script (editor) | Immediately after use |
-| Draft release on Gitea | Script (API) | **Never** - manual delete if needed |
+| Draft release on Forgejo | Script (API) | **Never** - manual delete if needed |
 
 ## Troubleshooting
 
@@ -174,8 +174,8 @@ Fix the failing tests before proceeding. The script will not allow creating a re
 ### Token Validation Fails
 
 - Ensure token has correct scopes
-- Check Gitea instance URL is correct
-- Verify network connectivity to Gitea
+- Check Forgejo instance URL is correct
+- Verify network connectivity to Forgejo
 
 ### Build Fails
 
@@ -187,8 +187,8 @@ Common causes:
 ### Asset Upload Fails
 
 - Check token hasn't expired
-- Verify Gitea instance is accessible
-- Ensure file sizes are within Gitea limits (default 50MB)
+- Verify Forgejo instance is accessible
+- Ensure file sizes are within Forgejo limits (default 50MB)
 
 ## Post-Release Tasks
 
@@ -209,9 +209,9 @@ After publishing:
 
 Currently manual by design. Future automation may include:
 - Automated changelog generation
-- GitHub Actions / Gitea Actions workflow
+- GitHub Actions / Forgejo Actions workflow
 - Automatic ISO building for appliance releases
 
 ---
 
-**Questions?** Open an issue on Gitea or contact the maintainers.
+**Questions?** Open an issue on Forgejo or contact the maintainers.

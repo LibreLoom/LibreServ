@@ -14,9 +14,9 @@ Both are valid. Use whichever fits your style.
 | What | How |
 |------|-----|
 | See available tasks | [ROADMAP.md](ROADMAP.md) |
-| Claim a task | Comment on Gitea issue |
-| Submit work | Open a Pull Request on Gitea |
-| Get help | Gitea Issues |
+| Claim a task | Comment on Forgejo issue |
+| Submit work | Open a Pull Request on Forgejo |
+| Get help | Forgejo Issues |
 
 ---
 
@@ -31,13 +31,13 @@ The simplest approach:
    - Improve documentation
 
 2. **Do the work**
-   - Fork the repo on Gitea
+   - Fork the repo on Forgejo
    - Make your changes
    - Test locally
 
 3. **Submit a PR**
    - Push to your fork
-   - Open a Pull Request on Gitea
+   - Open a Pull Request on Forgejo
    - Describe what you changed and why
 
 That's it. No formal process required.
@@ -56,7 +56,7 @@ Look for tasks with **no dependencies** or dependencies that are ✅ complete.
 
 ### Step 2: Claim the Task
 
-**Via Gitea Issue:**
+**Via Forgejo Issue:**
 1. Find or create an issue for the task (e.g., "T1.1.1: Setup Wizard Page")
 2. Comment: "I'm working on this"
 3. A maintainer will assign you and update ROADMAP.md status to 🟡
@@ -92,7 +92,7 @@ Look for tasks with **no dependencies** or dependencies that are ✅ complete.
    git push origin task/T1.1.1-setup-wizard
    ```
 
-2. **Open a Pull Request** on Gitea with:
+2. **Open a Pull Request** on Forgejo with:
    - Title: `[T1.1.1] Create Setup Wizard Page`
    - Description:
      ```markdown
@@ -251,7 +251,7 @@ go test -v -tags=integration ./tests/integration/...
 
 ## Need Help?
 
-- **Gitea Issues** - For bug reports, feature requests, and questions
+- **Forgejo Issues** - For bug reports, feature requests, and questions
 - **docs/DEVELOPER_GUIDE.md** - For development setup and testing details
 
 ---
@@ -271,8 +271,8 @@ go test -v -tags=integration ./tests/integration/...
 
 1. Read [ROADMAP.md](ROADMAP.md)
 2. Find a task marked 🔴 with no dependencies
-3. Claim it via Gitea issue
+3. Claim it via Forgejo issue
 4. Fork, branch, implement, test
-5. Submit PR on Gitea
+5. Submit PR on Forgejo
 
 Welcome aboard!

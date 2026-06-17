@@ -770,5 +770,5 @@ curl -X POST http://localhost:8080/api/v1/network/probe
 
 ### Getting Help
 
-- **Gitea Issues**: https://gt.plainskill.net/LibreLoom/LibreServ/issues
+- **Forgejo Issues**: https://gt.plainskill.net/LibreLoom/LibreServ/issues
 - **Documentation**: See `docs/` directory in the repository

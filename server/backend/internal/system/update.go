@@ -88,7 +88,7 @@ type UpdateChecker struct {
 
 const defaultCacheDuration = 1 * time.Hour
 
-// NewUpdateChecker creates a new update checker for Gitea
+// NewUpdateChecker creates a new update checker for Forgejo
 func NewUpdateChecker(cfg config.UpdatesConfig) *UpdateChecker {
 	return &UpdateChecker{
 		cfg:           cfg,
@@ -129,7 +129,7 @@ func (c *UpdateChecker) ClearCache() {
 	c.cacheTimestamp = make(map[string]time.Time)
 }
 
-// CheckForUpdates checks the Gitea API for the latest release
+// CheckForUpdates checks the Forgejo API for the latest release
 func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...bool) (*UpdateInfo, error) {
 	shouldForce := len(forceRefresh) > 0 && forceRefresh[0]
 	cacheKey := currentVersion
@@ -148,17 +148,17 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 
 	resp, err := c.client.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check Gitea API: %w", err)
+		return nil, fmt.Errorf("failed to check Forgejo API: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("gitea API returned status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("forgejo API returned status: %d", resp.StatusCode)
 	}
 
-	var releases []giteaRelease
+	var releases []forgejoRelease
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return nil, fmt.Errorf("failed to decode Gitea response: %w", err)
+		return nil, fmt.Errorf("failed to decode Forgejo response: %w", err)
 	}
 
 	if len(releases) == 0 {
@@ -286,7 +286,7 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download update: Gitea returned %d", resp.StatusCode)
+		return fmt.Errorf("failed to download update: Forgejo returned %d", resp.StatusCode)
 	}
 
 	// Download with checksum verification
@@ -370,7 +370,7 @@ func (c *UpdateChecker) ApplyUpdate(ctx context.Context, currentVersion string) 
 	return nil
 }
 
-type giteaRelease struct {
+type forgejoRelease struct {
 	TagName     string    `json:"tag_name"`
 	Target      string    `json:"target"`
 	Name        string    `json:"name"`

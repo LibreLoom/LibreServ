@@ -2,10 +2,10 @@
 set -e
 
 # LibreServ Release Script
-# Interactive script to create Gitea releases with binaries
+# Interactive script to create Forgejo releases with binaries
 # Usage: ./release.sh [--dry-run]
 
-GITEA_INSTANCE="${GITEA_INSTANCE:-https://gt.plainskill.net}"
+FORGEJO_INSTANCE="${FORGEJO_INSTANCE:-https://gt.plainskill.net}"
 REPO_OWNER="LibreLoom"
 REPO_NAME="LibreServ"
 DRY_RUN=false
@@ -37,7 +37,7 @@ for arg in "$@"; do
             echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force] [--pre-release]"
             echo ""
             echo "Options:"
-            echo "  --dry-run      Build binaries and release notes, but skip Gitea API calls"
+            echo "  --dry-run      Build binaries and release notes, but skip Forgejo API calls"
             echo "  --keep-build   Keep release-build/ directory after completion"
             echo "  --force        Delete existing release with same tag and recreate"
             echo "  --pre-release  Mark release as pre-release/unstable (beta, rc, etc.)"
@@ -65,13 +65,13 @@ print_banner() {
     echo ""
 }
 
-# Prompt for Gitea token
+# Prompt for Forgejo token
 prompt_token() {
     echo ""
-    log_step "Gitea API Token Required"
+    log_step "Forgejo API Token Required"
     echo ""
     echo "Create a new API token:"
-    echo "  1. Go to ${GITEA_INSTANCE}/user/settings/applications"
+    echo "  1. Go to ${FORGEJO_INSTANCE}/user/settings/applications"
     echo "  2. Click 'Generate New Token'"
     echo "  3. Name: anything you want (e.g., release-script)"
     echo "  4. Select scopes:"
@@ -81,9 +81,9 @@ prompt_token() {
     echo ""
     
     while true; do
-        read -sp "Paste your Gitea token: " GITEA_TOKEN
+        read -sp "Paste your Forgejo token: " FORGEJO_TOKEN
         echo ""
-        if [ -z "$GITEA_TOKEN" ]; then
+        if [ -z "$FORGEJO_TOKEN" ]; then
             log_error "Token cannot be empty"
             continue
         fi
@@ -92,7 +92,7 @@ prompt_token() {
     
     # Validate token by making a test API call
     log_info "Validating token..."
-    VALIDATE_RESPONSE=$(curl -s -H "Authorization: token $GITEA_TOKEN" "$GITEA_INSTANCE/api/v1/user")
+    VALIDATE_RESPONSE=$(curl -s -H "Authorization: token $FORGEJO_TOKEN" "$FORGEJO_INSTANCE/api/v1/user")
     if ! echo "$VALIDATE_RESPONSE" | grep -q '"id"'; then
         log_error "Token validation failed"
         log_error "Response: $VALIDATE_RESPONSE"
@@ -370,14 +370,14 @@ TEMPLATE
     fi
 }
 
-# Create draft release on Gitea (empty notes — validates tag + API before user writes notes)
+# Create draft release on Forgejo (empty notes — validates tag + API before user writes notes)
 create_draft_release() {
-    log_step "Creating Draft Release on Gitea"
+    log_step "Creating Draft Release on Forgejo"
     echo ""
     
     # Check if release already exists and handle it
-    EXISTING=$(curl -s -H "Authorization: token $GITEA_TOKEN" \
-        "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG")
+    EXISTING=$(curl -s -H "Authorization: token $FORGEJO_TOKEN" \
+        "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/tags/$VERSION_TAG")
     
     if command -v jq &> /dev/null; then
         EXISTING_ID=$(echo "$EXISTING" | jq -r '.id // empty')
@@ -388,8 +388,8 @@ create_draft_release() {
     if [ -n "$EXISTING_ID" ]; then
         if [ "$FORCE" = true ]; then
             log_info "Deleting existing release (--force)..."
-            curl -s -X DELETE -H "Authorization: token $GITEA_TOKEN" \
-                "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$EXISTING_ID" > /dev/null
+            curl -s -X DELETE -H "Authorization: token $FORGEJO_TOKEN" \
+                "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$EXISTING_ID" > /dev/null
             log_info "Deleted existing release"
         else
             log_error "Release $VERSION_TAG already exists"
@@ -403,7 +403,7 @@ create_draft_release() {
     
     log_info "Creating draft release (validating API)..." 
     HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-        -H "Authorization: token $GITEA_TOKEN" \
+        -H "Authorization: token $FORGEJO_TOKEN" \
         -H "Content-Type: application/json" \
         -d "{
             \"tag_name\": \"$VERSION_TAG\",
@@ -412,7 +412,7 @@ create_draft_release() {
             \"draft\": true,
             \"prerelease\": $PRERELEASE_FLAG
         }" \
-        "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases")
+        "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases")
     
     HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
     RESPONSE_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
@@ -451,10 +451,10 @@ update_release_with_notes() {
     ESCAPED_NOTES=$(echo "$RELEASE_NOTES" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
     
     HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
-        -H "Authorization: token $GITEA_TOKEN" \
+        -H "Authorization: token $FORGEJO_TOKEN" \
         -H "Content-Type: application/json" \
         -d "{\"body\": \"$ESCAPED_NOTES\"}" \
-        "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
+        "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
     
     HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
     
@@ -462,7 +462,7 @@ update_release_with_notes() {
         log_error "Failed to update release notes (HTTP $HTTP_CODE)"
         echo "Response: $(echo "$HTTP_RESPONSE" | sed '$d')"
         log_warn "Release notes saved locally — paste them manually at:"
-        echo "  ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/edit/$RELEASE_ID"
+        echo "  ${FORGEJO_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/edit/$RELEASE_ID"
         echo ""
         echo "Notes content:"
         echo "$RELEASE_NOTES"
@@ -471,7 +471,7 @@ update_release_with_notes() {
     fi
 }
 
-# Upload assets to Gitea
+# Upload assets to Forgejo
 upload_assets() {
     log_step "Uploading Assets"
     echo ""
@@ -501,10 +501,10 @@ upload_assets() {
             --connect-timeout 30 \
             --max-time 300 \
             -X POST \
-            -H "Authorization: token $GITEA_TOKEN" \
+            -H "Authorization: token $FORGEJO_TOKEN" \
             -H "Content-Type: application/octet-stream" \
             --data-binary @"$BUILD_DIR/$file" \
-            "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file" 2>&1)
+            "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file" 2>&1)
         
         CURL_EXIT=$?
         
@@ -534,17 +534,17 @@ publish_release() {
     
     log_info "Release is currently a draft"
     echo ""
-    echo "Release URL: ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
+    echo "Release URL: ${FORGEJO_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
     echo ""
     read -p "Publish now? (y/N): " confirm
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         log_info "Publishing release..."
         
         PUBLISH_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
-            -H "Authorization: token $GITEA_TOKEN" \
+            -H "Authorization: token $FORGEJO_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{"draft": false}' \
-            "$GITEA_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
+            "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
         
         PUBLISH_CODE=$(echo "$PUBLISH_RESPONSE" | tail -n1)
         PUBLISH_BODY=$(echo "$PUBLISH_RESPONSE" | sed '$d')
@@ -557,10 +557,10 @@ publish_release() {
         
         log_info "Release published!"
         echo ""
-        echo "View release: ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
+        echo "View release: ${FORGEJO_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
     else
         log_info "Release remains as draft"
-        echo "You can publish it later from the Gitea web interface"
+        echo "You can publish it later from the Forgejo web interface"
     fi
 }
 
@@ -600,7 +600,7 @@ create_and_push_tag() {
     
     git tag -a "$VERSION_TAG" -m "Release $VERSION_TAG"
     
-    log_info "Pushing tag to Gitea..."
+    log_info "Pushing tag to Forgejo..."
     if ! git push origin "$VERSION_TAG"; then
         log_error "Failed to push tag to remote"
         echo "Cleaning up local tag..."
@@ -653,11 +653,11 @@ main() {
     
     if [ "$DRY_RUN" = true ]; then
         echo ""
-        log_warn "Dry run mode - skipping Gitea API calls"
+        log_warn "Dry run mode - skipping Forgejo API calls"
         log_info "Release assets ready in: $(pwd)/release-build/"
         echo ""
         echo "To create the release manually:"
-        echo "  1. Go to ${GITEA_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/new"
+        echo "  1. Go to ${FORGEJO_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/new"
         echo "  2. Create tag: $VERSION_TAG"
         echo "  3. Upload files from: $(pwd)/release-build/"
         echo ""

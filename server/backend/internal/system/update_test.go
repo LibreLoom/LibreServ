@@ -44,7 +44,7 @@ func TestCheckForUpdates_NoReleases(t *testing.T) {
 }
 
 func TestCheckForUpdates_UpdateAvailable(t *testing.T) {
-	release := giteaRelease{
+	release := forgejoRelease{
 		TagName:     "v2.0.0",
 		Name:        "Release 2.0.0",
 		Body:        "Major release",
@@ -54,7 +54,7 @@ func TestCheckForUpdates_UpdateAvailable(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]giteaRelease{release})
+		json.NewEncoder(w).Encode([]forgejoRelease{release})
 	}))
 	defer server.Close()
 
@@ -82,11 +82,11 @@ func TestCheckForUpdates_UpdateAvailable(t *testing.T) {
 }
 
 func TestCheckForUpdates_NoUpdateSameVersion(t *testing.T) {
-	release := giteaRelease{TagName: "v1.0.0"}
+	release := forgejoRelease{TagName: "v1.0.0"}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]giteaRelease{release})
+		json.NewEncoder(w).Encode([]forgejoRelease{release})
 	}))
 	defer server.Close()
 
@@ -102,11 +102,11 @@ func TestCheckForUpdates_NoUpdateSameVersion(t *testing.T) {
 }
 
 func TestCheckForUpdates_DevVersionAlwaysShowsUpdate(t *testing.T) {
-	release := giteaRelease{TagName: "v1.0.0"}
+	release := forgejoRelease{TagName: "v1.0.0"}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]giteaRelease{release})
+		json.NewEncoder(w).Encode([]forgejoRelease{release})
 	}))
 	defer server.Close()
 
@@ -122,11 +122,11 @@ func TestCheckForUpdates_DevVersionAlwaysShowsUpdate(t *testing.T) {
 }
 
 func TestCheckForUpdates_StripsVPrefix(t *testing.T) {
-	release := giteaRelease{TagName: "v1.5.0"}
+	release := forgejoRelease{TagName: "v1.5.0"}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]giteaRelease{release})
+		json.NewEncoder(w).Encode([]forgejoRelease{release})
 	}))
 	defer server.Close()
 
@@ -184,14 +184,14 @@ func TestCheckForUpdates_InvalidJSON(t *testing.T) {
 
 func TestCheckForUpdates_Caching(t *testing.T) {
 	releaseCallCount := 0
-	release := giteaRelease{TagName: "v2.0.0"}
+	release := forgejoRelease{TagName: "v2.0.0"}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/releases") && r.URL.Query().Get("limit") != "" {
 			releaseCallCount++
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]giteaRelease{release})
+		json.NewEncoder(w).Encode([]forgejoRelease{release})
 	}))
 	defer server.Close()
 
@@ -229,14 +229,14 @@ func TestCheckForUpdates_Caching(t *testing.T) {
 
 func TestCheckForUpdates_CacheExpiration(t *testing.T) {
 	releaseCallCount := 0
-	release := giteaRelease{TagName: "v2.0.0"}
+	release := forgejoRelease{TagName: "v2.0.0"}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/releases") && r.URL.Query().Get("limit") != "" {
 			releaseCallCount++
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]giteaRelease{release})
+		json.NewEncoder(w).Encode([]forgejoRelease{release})
 	}))
 	defer server.Close()
 
@@ -269,10 +269,10 @@ func TestSetCacheDuration(t *testing.T) {
 }
 
 func TestClearCache(t *testing.T) {
-	release := giteaRelease{TagName: "v1.0.0"}
+	release := forgejoRelease{TagName: "v1.0.0"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]giteaRelease{release})
+		json.NewEncoder(w).Encode([]forgejoRelease{release})
 	}))
 	defer server.Close()
 
@@ -298,10 +298,10 @@ func TestClearCache(t *testing.T) {
 }
 
 func TestApplyUpdate_NoUpdateAvailable(t *testing.T) {
-	release := giteaRelease{TagName: "v1.0.0"}
+	release := forgejoRelease{TagName: "v1.0.0"}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]giteaRelease{release})
+		json.NewEncoder(w).Encode([]forgejoRelease{release})
 	}))
 	defer server.Close()
 
