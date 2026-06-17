@@ -178,7 +178,7 @@ This applies to frontend UI, API error messages shown to users, and any document
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
 ### Git
-- Hosting: Gitea at https://gt.plainskill.net (not GitHub)
+- Hosting: Forgejo at https://gt.plainskill.net (not GitHub; migrated from Gitea, same host)
 - Conventional commits: `feat(scope): description`, `fix(scope): description`
 - Branch naming: `task/T{id}-{desc}`, `fix/{desc}`, `feat/{desc}`
 
