@@ -52,7 +52,7 @@ LibreServ/
 │                             # Both proxy HTTP over BLE to load the full Web UI.
 │                             #   linux/   — Go + GTK4/libadwaita desktop app (opens browser via local proxy)
 │                             #   android/ — Kotlin Android app (embedded WebView via local proxy)
-└── ci-source/                # Custom CI runner source (./ci auto-builds from here)
+├── ci-source/                # Custom CI runner source. After edits run ci-source/build.sh + commit binaries (see Key Notes)
 ```
 
 ---
@@ -239,7 +239,7 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 - **Frontend build output:** `server/backend/OS/dist/` (gitignored). Production binaries with embedded frontend: `BUILD_TAGS=embedfront make build`
 - **Restic:** Backup system requires restic binary. `make restic-fetch` downloads it; `embedrestic` build tag bundles it in the binary.
 - **Caddy:** Reverse proxy for HTTPS. Mode can be `enabled`/`noop`/`disabled` in config. ACME certs via DNS-01 challenge.
-- **CI:** `./ci` is a custom Go binary. Auto-builds from `ci-source/` on first run. No GitHub Actions — all CI is local.
+- **CI:** `./ci` is a custom Go binary. The `./ci` launcher only builds `ci-source/bin/ci-<os>-<arch>` if it is **missing** — it does NOT detect staleness. These binaries are **committed artifacts** (tracked in git). After editing any Go under `ci-source/`, you MUST run `ci-source/build.sh` (rebuilds all 8 platform binaries) and commit the changed binaries, or `./ci` silently runs stale test definitions. This once broke CI for weeks: a Docker→Podman source fix was committed without rebuilding binaries, so `./ci` kept pointing fuzz tests at the deleted `internal/docker` package. No GitHub Actions — all CI is local.
 - **No `libreserv.sh`** in repo — use `make run` from `server/backend/` for development instead
 - **Connect module:** `gt.plainskill.net/LibreLoom/LibreServConnect` — independent Go module in `connect/`. It has its own chi/v5 router, SQLite database, config (env prefix `CONNECT_`), and admin/device APIs. Not part of the main backend binary.
 - **BLE proxy:** `internal/network/bluetooth/` implements a GATT peripheral that proxies HTTP over BLE. Compiled only with the `libreserv_ble` build tag (see `make ble-build`). The `companion/` apps connect to this service.
