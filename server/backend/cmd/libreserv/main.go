@@ -20,7 +20,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobs"
@@ -30,6 +29,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network/bluetooth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
@@ -316,7 +316,7 @@ func main() {
 		AuthService:     authService,
 		Monitor:         monitor,
 		BackupService:   backupService,
-		RuntimeClient:    runtimeClient,
+		RuntimeClient:   runtimeClient,
 		CaddyManager:    caddyManager,
 		SetupService:    setupService,
 		SupportService:  supportService,

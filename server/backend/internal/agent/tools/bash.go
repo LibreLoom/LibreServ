@@ -79,8 +79,8 @@ func executeBash(ctx context.Context, args json.RawMessage) (string, error) {
 	err := cmd.Run()
 
 	result := map[string]interface{}{
-		"stdout":   strings.TrimSpace(stdout.String()),
-		"stderr":   strings.TrimSpace(stderr.String()),
+		"stdout":    strings.TrimSpace(stdout.String()),
+		"stderr":    strings.TrimSpace(stderr.String()),
 		"exit_code": 0,
 	}
 	if err != nil {

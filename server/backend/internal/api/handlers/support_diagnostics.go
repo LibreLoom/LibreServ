@@ -13,14 +13,14 @@ import (
 
 // SupportDiagnosticsHandler exposes lightweight diagnostics for support purposes.
 type SupportDiagnosticsHandler struct {
-	auth   *auth.Service
+	auth    *auth.Service
 	runtime *podman.Client
 }
 
 // NewSupportDiagnosticsHandler creates a handler for diagnostics checks.
 func NewSupportDiagnosticsHandler(authService *auth.Service, runtimeClient *podman.Client) *SupportDiagnosticsHandler {
 	return &SupportDiagnosticsHandler{
-		auth:   authService,
+		auth:    authService,
 		runtime: runtimeClient,
 	}
 }

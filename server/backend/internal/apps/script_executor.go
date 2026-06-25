@@ -22,28 +22,28 @@ import (
 var instanceIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 type ScriptExecutor struct {
-	logger       *slog.Logger
+	logger        *slog.Logger
 	runtimeClient *podman.Client
-	basePath     string
-	catalogPath  string
-	serverCtx    ServerContext
+	basePath      string
+	catalogPath   string
+	serverCtx     ServerContext
 }
 
 func NewScriptExecutor(logger *slog.Logger, runtimeClient *podman.Client, basePath string) *ScriptExecutor {
 	return &ScriptExecutor{
-		logger:       logger,
+		logger:        logger,
 		runtimeClient: runtimeClient,
-		basePath:     basePath,
-		catalogPath:  "",
+		basePath:      basePath,
+		catalogPath:   "",
 	}
 }
 
 func NewScriptExecutorWithCatalog(logger *slog.Logger, runtimeClient *podman.Client, basePath, catalogPath string) *ScriptExecutor {
 	return &ScriptExecutor{
-		logger:       logger,
+		logger:        logger,
 		runtimeClient: runtimeClient,
-		basePath:     basePath,
-		catalogPath:  catalogPath,
+		basePath:      basePath,
+		catalogPath:   catalogPath,
 	}
 }
 

@@ -26,10 +26,10 @@ type podmanContainer struct {
 
 // podmanInspectResult matches the JSON output of `podman inspect`.
 type podmanInspectResult struct {
-	Id     string          `json:"Id"`
-	Name   string          `json:"Name"`
-	Config podmanConfig    `json:"Config"`
-	State  podmanState      `json:"State"`
+	Id     string       `json:"Id"`
+	Name   string       `json:"Name"`
+	Config podmanConfig `json:"Config"`
+	State  podmanState  `json:"State"`
 }
 
 // podmanConfig matches a subset of `podman inspect` Config.
@@ -39,27 +39,27 @@ type podmanConfig struct {
 
 // podmanState matches a subset of `podman inspect` State.
 type podmanState struct {
-	Status      string `json:"Status"`
-	Running     bool   `json:"Running"`
-	Paused      bool   `json:"Paused"`
-	Restarting  bool   `json:"Restarting"`
-	OOMKilled   bool   `json:"OOMKilled"`
-	Dead        bool   `json:"Dead"`
-	Pid         int    `json:"Pid"`
-	ExitCode    int    `json:"ExitCode"`
-	Error       string `json:"Error"`
-	StartedAt   string `json:"StartedAt"`
-	FinishedAt  string `json:"FinishedAt"`
+	Status     string `json:"Status"`
+	Running    bool   `json:"Running"`
+	Paused     bool   `json:"Paused"`
+	Restarting bool   `json:"Restarting"`
+	OOMKilled  bool   `json:"OOMKilled"`
+	Dead       bool   `json:"Dead"`
+	Pid        int    `json:"Pid"`
+	ExitCode   int    `json:"ExitCode"`
+	Error      string `json:"Error"`
+	StartedAt  string `json:"StartedAt"`
+	FinishedAt string `json:"FinishedAt"`
 }
 
 // podmanStatsResult matches the JSON output of `podman stats --no-stream --format json`.
 type podmanStatsResult struct {
-	Id          string `json:"id"`
-	Name        string `json:"name"`
-	CPUPercent  string `json:"cpu_percent"`
-	MemUsage    string `json:"mem_usage"`
-	BlockIO     string `json:"block_io"`
-	NetIO       string `json:"net_io"`
+	Id         string `json:"id"`
+	Name       string `json:"name"`
+	CPUPercent string `json:"cpu_percent"`
+	MemUsage   string `json:"mem_usage"`
+	BlockIO    string `json:"block_io"`
+	NetIO      string `json:"net_io"`
 }
 
 // runtimeBinary returns the configured runtime binary (podman by default).

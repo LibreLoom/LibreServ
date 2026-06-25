@@ -27,13 +27,13 @@ func NewSupportHandler(svc *support.Service, lic middleware.LicenseChecker) *Sup
 }
 
 var allowedScopes = map[string]bool{
-	"diagnostics":     true,
-	"files-ro":        true,
+	"diagnostics":      true,
+	"files-ro":         true,
 	"files-ro+runtime": true,
-	"files-rw":        true,
+	"files-rw":         true,
 	"files-rw+runtime": true,
-	"shell-lite":      true,
-	"shell-full":      true,
+	"shell-lite":       true,
+	"shell-full":       true,
 }
 
 type createSessionRequest struct {

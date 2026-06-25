@@ -46,30 +46,25 @@ func (r *RuntimeAdapter) ListContainersByLabel(ctx context.Context, label string
 	return r.client.ListContainersByLabel(ctx, label)
 }
 
-
 // ListContainersAll returns all containers (running and stopped).
 func (r *RuntimeAdapter) ListContainersAll(ctx context.Context) ([]runtime.ContainerInfo, error) {
 	return r.client.ListContainersAll(ctx)
 }
-
 
 // GetContainerStats retrieves resource usage stats for a container.
 func (r *RuntimeAdapter) GetContainerStats(ctx context.Context, containerID string) (*runtime.ContainerStats, error) {
 	return r.client.GetContainerStats(ctx, containerID)
 }
 
-
 // InspectContainer returns detailed information about a container.
 func (r *RuntimeAdapter) InspectContainer(ctx context.Context, containerID string) (*runtime.ContainerInspectResult, error) {
 	return r.client.InspectContainer(ctx, containerID)
 }
 
-
 // ContainerLogs retrieves logs from a container.
 func (r *RuntimeAdapter) ContainerLogs(ctx context.Context, containerID string, options runtime.LogOptions) (io.ReadCloser, error) {
 	return r.client.ContainerLogs(ctx, containerID, options)
 }
-
 
 // FindContainersByInstanceID finds all containers matching an instance ID via multiple label strategies.
 // Tries: libreserv.app label, com.docker.compose.project label, com.docker.compose.project=libreserv-{id} label, name prefix.
@@ -88,7 +83,6 @@ func (r *RuntimeAdapter) FindContainersByInstanceID(ctx context.Context, instanc
 
 	return result, nil
 }
-
 
 // matchesInstance returns true if the container matches the given instance ID.
 func matchesInstance(ci runtime.ContainerInfo, instanceID string) bool {

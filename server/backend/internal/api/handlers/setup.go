@@ -21,9 +21,9 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/util"
@@ -42,7 +42,7 @@ type SetupHandler struct {
 	mu              sync.Mutex
 	authService     *auth.Service
 	setupService    *setup.Service
-	runtime          *podman.Client
+	runtime         *podman.Client
 	mailer          func() (*email.Sender, error)
 	license         middleware.LicenseChecker
 	dnsProviderMgr  *network.DNSProviderManager
@@ -65,7 +65,7 @@ func NewSetupHandler(
 	return &SetupHandler{
 		authService:     authService,
 		setupService:    setupService,
-		runtime:          runtimeClient,
+		runtime:         runtimeClient,
 		mailer:          email.NewSender,
 		license:         license,
 		dnsProviderMgr:  dnsProviderMgr,

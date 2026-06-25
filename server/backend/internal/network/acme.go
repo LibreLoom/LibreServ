@@ -65,14 +65,14 @@ type ExternalACMEConfig struct {
 	Enabled        bool              `json:"enabled"`
 	UsePodman      bool              `json:"use_podman"`
 	ContainerImage string            `json:"container_image"`
-	DataPath    string            `json:"data_path"`
-	DNSProvider string            `json:"dns_provider"`
-	DNSEnv      map[string]string `json:"dns_env"`
-	Email       string            `json:"email"`
-	Staging     bool              `json:"staging"`
-	CADirURL    string            `json:"ca_dir_url"`
-	KeyType     string            `json:"key_type"`
-	CertsPath   string            `json:"certs_path"`
+	DataPath       string            `json:"data_path"`
+	DNSProvider    string            `json:"dns_provider"`
+	DNSEnv         map[string]string `json:"dns_env"`
+	Email          string            `json:"email"`
+	Staging        bool              `json:"staging"`
+	CADirURL       string            `json:"ca_dir_url"`
+	KeyType        string            `json:"key_type"`
+	CertsPath      string            `json:"certs_path"`
 }
 
 // WithAuto toggles automatic issuance after route creation.
@@ -412,14 +412,14 @@ func (a *ACMEManager) RequestWildcardCert(ctx context.Context, domain, email str
 		Enabled:        true,
 		UsePodman:      usePodman,
 		ContainerImage: a.external.ContainerImage,
-		DataPath:    a.external.DataPath,
-		DNSProvider: legoProvider,
-		DNSEnv:      legoEnv,
-		Email:       email,
-		Staging:     a.external.Staging,
-		CADirURL:    a.external.CADirURL,
-		KeyType:     a.external.KeyType,
-		CertsPath:   a.external.CertsPath,
+		DataPath:       a.external.DataPath,
+		DNSProvider:    legoProvider,
+		DNSEnv:         legoEnv,
+		Email:          email,
+		Staging:        a.external.Staging,
+		CADirURL:       a.external.CADirURL,
+		KeyType:        a.external.KeyType,
+		CertsPath:      a.external.CertsPath,
 	}
 	if cfg.KeyType == "" {
 		cfg.KeyType = "rsa2048"

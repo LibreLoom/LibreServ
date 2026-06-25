@@ -50,19 +50,19 @@ type LoopConfig struct {
 
 // Loop runs a single agent with tool execution and review pipeline.
 type Loop struct {
-	agent        *Agent
-	registry     *tools.Registry
-	reviewModel  *ReviewModel
-	credits      *subscription.CreditService
-	plan         *subscription.Plan
-	config       LoopConfig
-	billingMode  string
-	messages     []Message
-	turnCount    int
-	totalCost    float64
-	userID       string
-	convID       string
-	userRequest  string // original user message, used in review context
+	agent       *Agent
+	registry    *tools.Registry
+	reviewModel *ReviewModel
+	credits     *subscription.CreditService
+	plan        *subscription.Plan
+	config      LoopConfig
+	billingMode string
+	messages    []Message
+	turnCount   int
+	totalCost   float64
+	userID      string
+	convID      string
+	userRequest string // original user message, used in review context
 
 	events   chan Event
 	stopCh   chan struct{}
