@@ -1,6 +1,6 @@
 # App Template System
 
-This document explains how LibreServ's app template system works internally — how app definitions are loaded, how Docker Compose templates are processed, and how the installation lifecycle is orchestrated.
+This document explains how LibreServ's app template system works internally — how app definitions are loaded, how Podman Compose templates are processed, and how the installation lifecycle is orchestrated.
 
 For the file format specification of custom app packages, see [APP_PACKAGE_FORMAT.md](APP_PACKAGE_FORMAT.md).
 
@@ -24,7 +24,7 @@ For the file format specification of custom app packages, see [APP_PACKAGE_FORMA
 
 ## Overview
 
-LibreServ uses a **filesystem-based catalog** to define app templates. Each template is an `AppDefinition` loaded from a YAML manifest (`app.yaml`) bundled with a Docker Compose file, optional scripts, and an icon. Templates are never stored in the database — only installed app instances are.
+LibreServ uses a **filesystem-based catalog** to define app templates. Each template is an `AppDefinition` loaded from a YAML manifest (`app.yaml`) bundled with a Compose file (`docker-compose.yml`, run via `podman compose`), optional scripts, and an icon. Templates are never stored in the database — only installed app instances are.
 
 There are two sources of templates:
 
@@ -145,8 +145,8 @@ Installer.Install()
     ├─ 11. saveInstalledApp() — INSERT INTO apps
     │
     └─ 12. (async) completeInstall()
-           ├─ docker compose pull
-           ├─ docker compose up -d
+           ├─ podman compose pull
+           ├─ podman compose up -d
            ├─ Wait for containers running
            ├─ Register health checks
            ├─ Run system-setup script (if present)
@@ -269,7 +269,7 @@ Manager.UpdateApp(instanceID)
     ├─ Get latest version from catalog definition
     ├─ If backup_before_update: run system-backup script
     ├─ Run system-update script (if present)
-    ├─ docker compose pull && docker compose up -d
+    ├─ podman compose pull && podman compose up -d
     ├─ Wait for health check to pass
     └─ If unhealthy after update: rollback from backup
 ```

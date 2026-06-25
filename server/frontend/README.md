@@ -32,7 +32,7 @@ Use only with a clear reason; CI treats missing reasons as errors.
 - `// color-scan: ignore-file <reason>`
 
 ## Prereqs
-- Node.js 18+ and npm
+- Node.js 20+ and npm
 
 ## Notes
 - Keep `dist` out of git; the backend README documents the deployment flow.

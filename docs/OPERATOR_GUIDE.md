@@ -49,15 +49,15 @@ Before installing LibreServ, ensure your system meets the following requirements
 | CPU | 1 core | 2+ cores |
 | RAM | 1 GB | 2+ GB |
 | Disk | 10 GB | 50+ GB |
-| Docker | Latest | Latest |
-| Docker Compose | v2 plugin | v2 plugin |
+| Podman | Latest | Latest |
+| podman-compose | Latest | Latest |
 | Caddy | Latest (optional) | Latest |
 | Operating System | Ubuntu 20.04+ / Debian 11+ / Fedora 35+ / macOS 12+ | Ubuntu 22.04 LTS |
 
 **Required Software:**
 
-- **Docker Engine**: Required for running application containers. Install from [Docker Official Documentation](https://docs.docker.com/engine/install/).
-- **Docker Compose v2**: The `docker compose` command (not `docker-compose`). Install via Docker or your package manager.
+- **Podman**: Required for running application containers. Install from the [Podman documentation](https://podman.io/docs/installation).
+- **podman-compose**: Provides the `podman compose` command. Install via your package manager or `pip`.
 - **Caddy** (optional): Required for automatic HTTPS and domain-based routing. Install from [Caddy Official Website](https://caddyserver.com/docs/install).
 
 **Port Requirements:**
@@ -133,10 +133,11 @@ auth:
 apps:
   data_path: "/var/lib/libreserv/apps"
   catalog_path: "/opt/libreserv/catalog"
-docker:
+runtime:
   method: auto
   socket_path: ""
   timeout: 30s
+  binary: podman
 network:
   caddy:
     mode: enabled
@@ -162,8 +163,8 @@ sudo chown -R libreserv:libreserv /opt/libreserv /var/lib/libreserv
 sudo tee /etc/systemd/system/libreserv.service << 'EOF'
 [Unit]
 Description=LibreServ Application Platform
-After=docker.service
-Requires=docker.service
+After=podman.service
+Requires=podman.service
 
 [Service]
 Type=simple
@@ -198,8 +199,8 @@ curl http://localhost:8080/api/v1/system/version
 # Check health
 curl http://localhost:8080/health
 
-# Check Docker is accessible
-docker ps
+# Check Podman is accessible
+podman ps
 
 # Verify Caddy is running (if installed)
 curl http://localhost:2019/config/ | head -c 200
@@ -238,20 +239,21 @@ logging:
   level: "info"                # debug, info, warn, error
   path: ""                     # Optional: log file path (empty for stdout)
 
-# Docker Configuration
-docker:
+# Podman Configuration
+runtime:
   method: "auto"               # auto, socket, tcp, ssh
-  socket_path: "/var/run/docker.sock"  # Docker daemon socket
+  socket_path: ""              # Podman/LibreService socket (empty for default)
   tcp:
-    host: ""                   # TCP Docker host
-    port: 2376                 # TCP Docker port
+    host: ""                   # TCP Podman host
+    port: 0                    # TCP Podman port
     use_tls: false
     cert_path: ""
   ssh:
-    host: ""                   # SSH Docker host
+    host: ""                   # SSH Podman host
     user: ""
     key_path: ""
-  timeout: "30s"               # Docker operation timeout
+  timeout: "30s"               # Podman operation timeout
+  binary: "podman"             # Container runtime binary
 
 # Caddy Reverse Proxy
 network:
@@ -280,8 +282,8 @@ network:
   acme:
     external:
       enabled: false           # Use external ACME issuer
-      use_docker: false        # Run external ACME in Docker
-      docker_image: ""         # Docker image for external ACME
+      use_podman: false        # Run external ACME in Podman
+      container_image: ""      # Container image for external ACME
       data_path: ""            # External ACME data directory
       dns_provider: ""         # DNS provider for external ACME
       dns_env: {}              # Environment variables for DNS provider
@@ -346,8 +348,8 @@ Override configuration using environment variables with the `LIBRESERV_` prefix 
 | `LIBRESERV_LOGGING_LEVEL` | Log verbosity | `info` |
 | `LIBRESERV_AUTH_JWT_SECRET` | JWT signing secret | (generated) |
 | `LIBRESERV_AUTH_CSRF_SECRET` | CSRF protection secret | (generated) |
-| `LIBRESERV_DOCKER_METHOD` | Docker connection method | `auto` |
-| `LIBRESERV_DOCKER_SOCKET_PATH` | Docker socket path | `/var/run/docker.sock` |
+| `LIBRESERV_RUNTIME_METHOD` | Podman connection method | `auto` |
+| `LIBRESERV_RUNTIME_SOCKET_PATH` | Podman socket path | (default) |
 | `LIBRESERV_NETWORK_CADDY_MODE` | Caddy mode | `disabled` |
 | `LIBRESERV_NETWORK_CADDY_ADMIN_API` | Caddy Admin API URL | `localhost:2019` |
 | `LIBRESERV_INSECURE_DEV` | Bypass production checks (dev only) | unset |
@@ -358,11 +360,11 @@ Any config key can be overridden via environment — replace `.` with `_` and pr
 
 **Default Network Setup:**
 
-LibreServ creates a custom Docker bridge network (`libreserv`) for application isolation. Apps receive IP addresses from the `172.18.0.0/16` subnet by default.
+LibreServ creates a custom Podman bridge network (`libreserv`) for application isolation. Apps receive IP addresses from the `172.18.0.0/16` subnet by default.
 
 **Custom Network Configuration:**
 
-Docker network configuration is managed by Docker's own settings. LibreServ delegates all Docker networking to the Docker daemon.
+Podman network configuration is managed by Podman's own settings. LibreServ delegates all Podman networking to the Podman runtime.
 
 **Port Allocation:**
 
@@ -740,7 +742,7 @@ In the event of a complete system failure:
 - Check logs: `sudo journalctl -u caddy -n 50`
 
 **App installation fails:**
-- Verify Docker is running: `docker ps`
+- Verify Podman is running: `podman ps`
 - Check app logs: ensure ports are available
 - View detailed error in web UI or API response
 
@@ -758,8 +760,8 @@ curl http://localhost:8080/api/v1/system/health
 # Verify service is running
 sudo systemctl status libreserv
 
-# Check Docker status
-docker info
+# Check Podman status
+podman info
 
 # View recent logs
 sudo journalctl -u libreserv -n 200

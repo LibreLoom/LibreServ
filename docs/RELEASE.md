@@ -8,9 +8,9 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 
 - Git repository on `main` branch with no uncommitted changes
 - Forgejo account with write access to `LibreLoom/LibreServ`
-- Go 1.25+ installed locally
+- Go 1.26+ installed locally
 - Node.js 20+ installed locally (for frontend build)
-- Docker installed (for CI tests)
+- Podman installed (for CI tests)
 
 ## Creating a Release
 
@@ -182,7 +182,7 @@ Fix the failing tests before proceeding. The script will not allow creating a re
 Common causes:
 - Missing Go dependencies: `cd server/backend && go mod download`
 - Missing Node dependencies: `cd server/frontend && npm install`
-- Docker not running (required for some tests)
+- Podman not running (required for some tests)
 
 ### Asset Upload Fails
 
@@ -197,7 +197,7 @@ After publishing:
 1. **Update documentation** - Changelog, README if needed
 2. **Announce release** - Community channels, social media
 3. **Monitor issues** - Watch for bug reports in first 24-48 hours
-4. **Update roadmap** - Mark completed tasks in ROADMAP.md
+4. **Update goals** - Check off completed items in [GOALS.md](../GOALS.md)
 
 ## Security Considerations
 

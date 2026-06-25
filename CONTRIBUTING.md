@@ -1,278 +1,109 @@
 # Contributing to LibreServ
 
-Thanks for your interest in contributing! This guide outlines two ways to contribute:
+Two ways to get code in, depending on your access:
 
-1. **Freeform** - Work on anything, submit when ready
-2. **Task-Claim** - Claim a ROADMAP task, get it assigned, submit PR
+- **You have push access** (approved contributors / maintainers) → push to `main`.
+  Use a branch for anything non-trivial, but no PR required.
+- **You don't** (everyone else) → fork, branch, open a Pull Request.
 
-Both are valid. Use whichever fits your style.
-
----
-
-## Quick Reference
-
-| What | How |
-|------|-----|
-| See available tasks | [ROADMAP.md](ROADMAP.md) |
-| Claim a task | Comment on Forgejo issue |
-| Submit work | Open a Pull Request on Forgejo |
-| Get help | Forgejo Issues |
+That's the whole flow. The rest is conventions to keep things consistent.
 
 ---
 
-## Option 1: Freeform Contribution
+## Before you push / open a PR
 
-The simplest approach:
+Run the checks locally so CI doesn't catch what you could've caught:
 
-1. **Find something to work on**
-   - Browse [ROADMAP.md](ROADMAP.md) for ideas
-   - Check existing [issues](https://gt.plainskill.net/LibreLoom/LibreServ/issues)
-   - Fix a bug you encountered
-   - Improve documentation
+```bash
+# Backend (Go)
+cd server/backend
+make lint          # gofmt + go vet
+make test          # unit tests
 
-2. **Do the work**
-   - Fork the repo on Forgejo
-   - Make your changes
-   - Test locally
+# Frontend (React/Vite)
+cd server/frontend
+npm run lint
+npm run typecheck
+npm test
 
-3. **Submit a PR**
-   - Push to your fork
-   - Open a Pull Request on Forgejo
-   - Describe what you changed and why
+# Everything (custom CI runner)
+./ci
+```
 
-That's it. No formal process required.
-
----
-
-## Option 2: Task-Claim Process
-
-For structured contributions, especially for ROADMAP tasks:
-
-### Step 1: Find a Task
-
-Browse [ROADMAP.md](ROADMAP.md) and find a task marked 🔴 (not started).
-
-Look for tasks with **no dependencies** or dependencies that are ✅ complete.
-
-### Step 2: Claim the Task
-
-**Via Forgejo Issue:**
-1. Find or create an issue for the task (e.g., "T1.1.1: Setup Wizard Page")
-2. Comment: "I'm working on this"
-3. A maintainer will assign you and update ROADMAP.md status to 🟡
-
-### Step 3: Do the Work
-
-1. **Create a branch** named after the task:
-   ```bash
-   git checkout -b task/T1.1.1-setup-wizard
-   ```
-
-2. **Implement** following the acceptance criteria in ROADMAP.md
-
-3. **Test** your changes:
-   ```bash
-   # Full Suite
-   ./ci run -profile full
-   # Interactive Mode
-   ./ci
-   ```
-
-4. **Update status** in ROADMAP.md:
-   ```markdown
-   #### T1.1.1. Create Setup Wizard Page
-   **Status:** 🟡 In Progress
-   **Completed By:** @yourusername
-   ```
-
-### Step 4: Submit PR
-
-1. **Push your branch:**
-   ```bash
-   git push origin task/T1.1.1-setup-wizard
-   ```
-
-2. **Open a Pull Request** on Forgejo with:
-   - Title: `[T1.1.1] Create Setup Wizard Page`
-   - Description:
-     ```markdown
-     ## Task
-     Implements T1.1.1 from ROADMAP.md
-     
-     ## Changes
-     - Created SetupWizardPage.jsx
-     - Added route in App.jsx
-     - Added preflight checks component
-     
-     ## Acceptance Criteria
-     - [x] Page checks /api/v1/setup/status on load
-     - [x] If setup complete, redirects to login
-     - [x] Shows preflight check results with icons
-     - [x] Form validates password strength
-     - [x] Shows plain-language errors
-     - [x] Success redirects to dashboard
-     - [x] Works on mobile/tablet
-     
-     ## Testing
-     - Manual testing with fresh database
-     - Tested on mobile viewport
-     ```
-
-3. **Link the PR** to any related issues
-
-### Step 5: Review & Merge
-
-1. Maintainer reviews your PR
-2. Address any feedback
-3. Once approved, maintainer merges
-4. ROADMAP.md is updated to ✅
+See [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md) for full dev setup and testing details.
 
 ---
 
-## Branch Naming Convention
+## Push-to-main (contributors with write access)
+
+1. Make sure `main` is green and you're up to date.
+2. Do the work. Branch if it's more than a trivial change (`feat/…`, `fix/…`, `docs/…` — see naming below), then merge or fast-forward to `main`.
+3. Run the checks above.
+4. Push to `main`.
+5. Commit message follows conventional commits (below).
+
+Use good judgement: for large or risky changes, a PR for review is still a good idea
+even if you can push directly. Pushing to `main` is a convenience, not a licence to skip
+review when review would help.
+
+## Pull requests (everyone else)
+
+1. Fork the repo on [Forgejo](https://gt.plainskill.net/LibreLoom/LibreServ).
+2. Branch from `main` (see naming below).
+3. Do the work, run the checks above.
+4. Push to your fork and open a PR against `main`.
+5. Describe **what** changed and **why**. Link any related issue.
+6. Address review feedback; a maintainer merges once approved.
+
+---
+
+## Conventions
+
+### Branch naming (recommended, not enforced)
 
 | Type | Pattern | Example |
 |------|---------|---------|
-| Task | `task/T{id}-{short-desc}` | `task/T1.1.1-setup-wizard` |
-| Bug fix | `fix/{short-desc}` | `fix/login-redirect` |
 | Feature | `feat/{short-desc}` | `feat/dark-mode` |
+| Bug fix | `fix/{short-desc}` | `fix/login-redirect` |
 | Docs | `docs/{short-desc}` | `docs/api-reference` |
+| Chore | `chore/{short-desc}` | `chore/deps` |
 
----
-
-## Commit Message Format
-
-Use conventional commits:
+### Commit messages (conventional commits)
 
 ```
 <type>(<scope>): <description>
-
-[optional body]
-
-[optional footer]
 ```
 
-**Types:**
-- `feat`: New feature
-- `fix`: Bug fix
-- `docs`: Documentation
-- `style`: Formatting
-- `refactor`: Code restructuring
-- `test`: Adding tests
-- `chore`: Maintenance
+Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `ci`.
 
-**Examples:**
+Example:
 ```
-feat(setup): add Setup Wizard page
-
-- Create SetupWizardPage.jsx
-- Add preflight checks component
-- Integrate with /api/v1/setup endpoints
-
-Closes #123
+feat(setup): add domain step to setup wizard
 ```
 
-```
-fix(auth): redirect after login
+Keep the subject line short; put the *why* in the body.
 
-Login was redirecting to / instead of /dashboard
-when user had a saved redirect path.
+### Code style
 
-Fixes #456
-```
+**Go:** `go fmt` before commit, `go vet ./...` clean. Module path
+`gt.plainskill.net/LibreLoom/LibreServ`, router is `chi/v5`.
+
+**React/Vite:** `.jsx` files (not `.tsx`), `npm run lint` + `npm run typecheck` clean,
+follow existing patterns. Use the project `Dropdown` component over a raw `<select>`.
+
+### The plain-language rule
+
+LibreServ's users are not technical. User-facing strings — API error messages, UI
+labels, help text — must be written for someone who doesn't know the acronyms. Explain
+what to **do**, not just what broke. See [`AGENTS.md`](AGENTS.md) for the full rule; it
+applies to API errors shown to users, not just the frontend.
 
 ---
 
-## Code Style
+## Where things live
 
-### Go
-- Run `go fmt` before committing
-- Run `go vet ./...` - no warnings
-- Follow [Effective Go](https://golang.org/doc/effective_go)
-
-### JavaScript/React
-- Run `npm run lint` - no errors
-- Use functional components with hooks
-- Follow existing patterns in codebase
-
----
-
-## Testing
-
-### Backend Tests
-
-```bash
-cd server/backend
-
-# Run all tests
-go test ./...
-
-# Run with verbose output
-go test -v ./...
-
-# Run specific package
-go test -v ./internal/apps
-
-# Run specific test
-go test -v -run TestAppLifecycle ./internal/apps
-
-# Run with coverage
-go test -cover ./...
-
-# Generate coverage report
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
-```
-
-### Frontend Tests
-
-```bash
-cd server/frontend
-
-# Run tests
-npm test
-
-# Run with coverage
-npm test -- --coverage
-
-# Run in watch mode
-npm test -- --watch
-```
-
-### Integration Tests
-
-```bash
-# These require Podman running
-cd server/backend
-go test -v -tags=integration ./tests/integration/...
-```
-
----
-
-## Need Help?
-
-- **Forgejo Issues** - For bug reports, feature requests, and questions
-- **docs/DEVELOPER_GUIDE.md** - For development setup and testing details
-
----
-
-## Task Status Legend
-
-| Status | Meaning |
-|--------|---------|
-| Not started | Available to claim |
-| In Progress | Someone is working on it |
-| Done | Complete — Merged to main |
-| Blocked | Waiting on dependency |
-
----
-
-## Quick Start for First-Time Contributors
-
-1. Read [ROADMAP.md](ROADMAP.md)
-2. Find a task marked 🔴 with no dependencies
-3. Claim it via Forgejo issue
-4. Fork, branch, implement, test
-5. Submit PR on Forgejo
-
-Welcome aboard!
+- [GOALS.md](GOALS.md) — what we're building and what's left (the checklist).
+- [AGENTS.md](AGENTS.md) — codebase guide, conventions, architecture.
+- [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) — dev setup and testing.
+- [SECURITY.md](SECURITY.md) — reporting vulnerabilities, security model.
+- [Issues](https://gt.plainskill.net/LibreLoom/LibreServ/issues) on Forgejo — bugs, feature requests, questions.

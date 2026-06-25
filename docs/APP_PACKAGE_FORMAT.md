@@ -69,7 +69,7 @@ The `app.yaml` file is the mandatory manifest that describes your application. I
 
 ### docker-compose.yml
 
-Located at `app-compose/docker-compose.yml`, this file defines the Docker services that run your application. LibreServ uses Docker Compose to orchestrate container lifecycle, networking, and volume management.
+Located at `app-compose/docker-compose.yml`, this file defines the container services that run your application. LibreServ uses Podman Compose (`podman compose`) to orchestrate container lifecycle, networking, and volume management.
 
 The Compose file supports template variables that are substituted during deployment:
 

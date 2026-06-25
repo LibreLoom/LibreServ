@@ -18,47 +18,19 @@ The primary method of delivery for LibreServ will likely be via hardware with th
 
 ## MVP Definition
 
-LibreServ has achieved MVP when ALL of the following are true:
-
-### First-Run Experience
-- [ ] A user can setup the hardware shipped with LibreServ with no technical help
-- [x] Setup wizard guides user through creating admin account
-- [x] Preflight checks verify container runtime, disk space, database before first use
-
-### App Management
-- [x] A user can install any app from the catalog without difficulty
-- [x] User sees plain-language warnings about app features (shared account, external auth)
-- [x] User can start, stop, and restart installed apps
-- [x] User can uninstall apps with confirmation
-
-### Backups (Needs revamp in current state, technically functioning, not scalable)
-- [x] User can create backups of any app installed
-- [x] User can restore from an existing backup
-- [x] User can configure automatic cloud backups (Backblaze B2 or S3)
-
-### Remote Access (Untested, agent claims functional)
-- [ ] User can configure a domain for remote access
-- [ ] HTTPS is automatically configured and renewed
-- [ ] User can add custom domain routes to apps
-
-### System (Item 1 partially complete, number 3 complete, untested)
-- [ ] User can check system health and resource usage
-- [x] User can add and manage multiple users
-- [x] User can update LibreServ from the web UI
+LibreServ has achieved MVP when a non-technical user can walk the whole critical path without a terminal — set up, install an app, back it up, and restore it. The live checklist lives in [GOALS.md](GOALS.md); keep it as the single source of truth rather than duplicating status here.
 
 ---
 
 ## What's here
 - **Backend** (`server/backend`): API server, app installer/manager, monitoring, backups, support session tooling.
 - **Frontend** (`server/frontend`): Vite/React source (not built by default). Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
-- **Built-in apps**: Nextcloud AIO, SearXNG, Ollama, ConvertX, MotionEye, HomeAssistant, LibreChat compose templates live under `server/backend/apps/builtin/`.
+- **Built-in apps**: App templates live under `server/backend/apps/builtin/` and are loaded from disk. Only `apprun-test` ships in this repo today; the curated catalog (nextcloud, searxng, ollama, convertx, motioneye, homeassistant, librechat) is planned for the official app repo — see [GOALS.md](GOALS.md).
 - **CI**: `./ci` runs backend vet/tests and frontend lint/build.
 
 ## Contributing
 
-**Developers:** See [ROADMAP.md](ROADMAP.md) for the task list organized by user journey.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution workflow.
+See [GOALS.md](GOALS.md) for what we're building and what's left, and [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. Contributors with push access can push to `main`; everyone else opens a PR.
 
 ## Quick start
 

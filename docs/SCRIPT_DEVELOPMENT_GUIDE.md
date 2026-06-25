@@ -28,7 +28,7 @@ This guide provides comprehensive documentation for creating scripts that extend
 
 ## Script System Overview
 
-LibreServ's script system provides a powerful mechanism for extending application functionality beyond the standard Docker Compose deployment model. Scripts are executable programs (typically shell scripts) that run at specific points in an application's lifecycle or are exposed as user-facing actions.
+LibreServ's script system provides a powerful mechanism for extending application functionality beyond the standard Podman Compose deployment model. Scripts are executable programs (typically shell scripts) that run at specific points in an application's lifecycle or are exposed as user-facing actions.
 
 ### Script Types
 
@@ -567,8 +567,8 @@ All scripts receive a JSON configuration file as the first argument. This file c
 | `app_data_path` | string | App data directory |
 | `config_path` | string | Path to the config.json file |
 | `config_dir` | string | Path to the config directory |
-| `runtime.compose_file` | string | Docker Compose file path |
-| `runtime.project_name` | string | Docker Compose project name |
+| `runtime.compose_file` | string | Compose file path (`docker-compose.yml`) |
+| `runtime.project_name` | string | Compose project name |
 | `options` | object | User-configured options |
 
 **Parsing Configuration:**

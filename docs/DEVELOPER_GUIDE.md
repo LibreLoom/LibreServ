@@ -14,7 +14,7 @@ This guide covers building, testing, debugging, and extending the LibreServ back
 - [Architecture Overview](#architecture-overview)
 - [API Development](#api-development)
 - [Frontend Development](#frontend-development)
-- [Docker Development](#docker-development)
+- [Podman Development](#podman-development)
 - [Code Style and Conventions](#code-style-and-conventions)
 - [Contributing Guidelines](#contributing-guidelines)
 
@@ -26,7 +26,7 @@ LibreServ is a self-hosted application platform that enables users to install, m
 
 - **Backend**: Go-based HTTP API handling app lifecycle, configuration, and system operations
 - **Frontend**: React-based web UI for administration and management
-- **Runtime**: Docker Compose-based application orchestration with automatic reverse proxy (Caddy)
+- **Runtime**: Podman Compose-based application orchestration with automatic reverse proxy (Caddy)
 
 The platform provides:
 - Application catalog and installation
@@ -81,7 +81,7 @@ LibreServ/
 │   │   │   │   ├── db.go          # Database connection and setup
 │   │   │   │   ├── migrations/    # Database schema migrations
 │   │   │   │   └── migrations.go  # Migration runner
-│   │   │   ├── docker/            # Docker client abstraction
+│   │   │   ├── podman/            # Podman client abstraction
 │   │   │   ├── email/             # Email sending (templates, markdown)
 │   │   │   ├── errors/            # Error types
 │   │   │   ├── jobqueue/          # Persistent job queue with retry logic
@@ -150,9 +150,9 @@ Ensure the following tools are installed on your development system:
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Go | 1.26+ | Backend development and building |
-| Node.js | 18+ | Frontend development |
-| Docker | Latest | Container runtime for testing |
-| Docker Compose | v2 plugin | Compose command (`docker compose`) |
+| Node.js | 20+ | Frontend development |
+| Podman | Latest | Container runtime for testing |
+| podman-compose | Latest | Compose command (`podman compose`) |
 | Git | Latest | Version control |
 | Make | Latest | Build automation |
 
@@ -165,12 +165,12 @@ go version
 # Check Node.js version
 node --version
 
-# Check Docker availability
-docker --version
-docker compose version
+# Check Podman availability
+podman --version
+podman compose version
 
-# Verify Docker is running
-docker info
+# Verify Podman is running
+podman info
 ```
 
 ### Initial Checkout and Dependencies
@@ -260,8 +260,8 @@ cd server/backend
 # Build with embedded frontend (requires frontend build output)
 BUILD_TAGS=embedfront make build
 
-# Or build the Docker image directly
-docker build -t libreserv:dev .
+# Or build the container image directly
+podman build -t libreserv:dev .
 ```
 
 ### Build Flags and Variables
@@ -503,20 +503,20 @@ Create `.vscode/launch.json`:
 }
 ```
 
-### Docker Debugging
+### Podman Debugging
 
 ```bash
 # View container logs
-docker compose -f docker-compose.dev.yml logs
+podman compose -f docker-compose.dev.yml logs
 
 # Follow logs in real-time
-docker logs -f libreserv-backend
+podman logs -f libreserv-backend
 
 # Execute shell in container
-docker exec -it libreserv-backend /bin/sh
+podman exec -it libreserv-backend /bin/sh
 
 # Inspect container state
-docker inspect libreserv-backend
+podman inspect libreserv-backend
 ```
 
 ---
@@ -529,7 +529,7 @@ docker inspect libreserv-backend
 Browser ──HTTP──> Caddy (reverse proxy) ──> LibreServ API (port 8080)
                                               │
                                               ├── SQLite database
-                                              ├── Docker daemon (app containers)
+                                              ├── Podman (app containers)
                                               ├── Caddy Admin API (port 2019)
                                               └── External services (DNS, ACME)
 ```
@@ -559,7 +559,7 @@ Browser ──HTTP──> Caddy (reverse proxy) ──> LibreServ API (port 8080
 ### Key Components
 
 - **Catalog**: File-system based registry of app definitions loaded at startup
-- **Installer**: Converts app template + user config → Docker Compose deployment
+- **Installer**: Converts app template + user config → Podman Compose deployment
 - **Manager**: Handles lifecycle of installed app instances
 - **Network Manager**: Caddy config generation, DNS provider abstraction, ACME certificates
 - **Job Queue**: Persistent background job system with retry and cancellation
@@ -621,23 +621,23 @@ npm run scan:colors      # Detect hardcoded colors
 
 ---
 
-## Docker Development
+## Podman Development
 
 ### Development Mode
 
 When running in development mode, set `LIBRESERV_INSECURE_DEV=true` to bypass production security checks.
 
-### Docker Compose Tips
+### Podman Compose Tips
 
 ```bash
 # View running containers
-docker ps
+podman ps
 
 # View container logs
-docker logs -f <container-name>
+podman logs -f <container-name>
 
 # Rebuild and restart an app after config changes
-docker compose -p libreserv-<instance_id> up -d
+podman compose -p libreserv-<instance_id> up -d
 ```
 
 ---

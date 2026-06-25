@@ -25,13 +25,13 @@ LibreServ/
 │   │   ├── apps/             # App lifecycle + catalog
 │   │   ├── auth/             # JWT authentication
 │   │   ├── database/         # SQLite + migrations (internal/database/migrations/)
-│   │   ├── docker/           # Container runtime (Podman) integration
+│   │   ├── podman/           # Container runtime (Podman) integration
 │   │   ├── network/          # Caddy, ACME, DNS providers, DDNS
 │   │   ├── storage/          # Backup service (restic + tar fallback)
 │   │   ├── jobqueue/         # Background jobs
 │   │   └── jobs/             # Simple time-based scheduler
 │   ├── configs/              # YAML config (must copy .example → .yaml before run)
-│   ├── apps/builtin/         # App templates (7 apps: nextcloud, searxng, ollama, convertx, motioneye, homeassistant, librechat)
+│   ├── apps/builtin/         # App templates loaded from disk (currently only apprun-test; full catalog is a goal, see GOALS.md)
 │   ├── OS/dist/              # Frontend build output (gitignored)
 │   └── Makefile
 │
