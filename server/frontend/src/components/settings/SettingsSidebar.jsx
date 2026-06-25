@@ -1,5 +1,6 @@
 import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup, Globe, Bell, Plug } from "lucide-react";
 import SettingsUserCard from "./SettingsUserCard";
+import CardButton from "../cards/CardButton";
 
 const CATEGORIES = [
 	{ id: "external_services", label: "External Services", icon: Plug },
@@ -39,26 +40,26 @@ export default function SettingsSidebar({
             animationDelay: `${index * 50}ms`,
           }}
         >
-          <button
-            onClick={() => onCategoryChange(id)}
+          <CardButton
             id={id}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-pill transition-all duration-200 ease-out text-left ${
-                    isActive
-                      ? "bg-secondary text-primary"
-                      : "text-secondary hover:bg-secondary/10 hover:text-secondary"
-                  }`}
-                  aria-current={isActive ? "page" : undefined}
-                >
-                  <Icon size={18} />
-                  <span className="flex-1">{label}</span>
-                  <ChevronRight
-                    size={16}
-                    className={`transition-transform duration-200 ${
-                      isActive ? "translate-x-1" : ""
-                    }`}
-                  />
-                </button>
-              </li>
+            onClick={() => onCategoryChange(id)}
+            actionLabel={label}
+            icon={Icon}
+            variant="nav"
+            active={isActive}
+            align="between"
+            ariaCurrent={isActive ? "page" : undefined}
+            className="gap-3 px-3 py-2.5"
+            trailing={
+              <ChevronRight
+                size={16}
+                className={`shrink-0 transition-transform duration-200 ${
+                  isActive ? "translate-x-1" : ""
+                }`}
+              />
+            }
+          />
+        </li>
             );
           })}
         </ul>

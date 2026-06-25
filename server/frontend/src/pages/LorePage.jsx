@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import Card from "../components/cards/Card";
+import ClickableCard from "../components/cards/ClickableCard";
 import HeaderCard from "../components/cards/HeaderCard";
 import TypewriterLoader from "../components/ui/TypewriterLoader";
 
@@ -126,14 +126,14 @@ export default function LorePage() {
                     // flies you off to the pigeon.
                     if (String(children ?? "").includes("THE END")) {
                       return (
-                        <Link
-                          to="/pigeon"
-                          aria-label="A mysterious clipboard. Click to follow it."
+                        <ClickableCard
+                          action="/pigeon"
+                          ariaLabel="A mysterious clipboard. Click to follow it."
                           title="What's on the clipboard?"
-                          className="block rounded cursor-pointer transition-opacity hover:opacity-80 focus-visible:ring-2 focus:ring-accent"
+                          className="bg-transparent p-0"
                         >
                           {blockCode}
-                        </Link>
+                        </ClickableCard>
                       );
                     }
 

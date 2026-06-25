@@ -279,13 +279,13 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
           <div className="flex gap-2">
             <button
               onClick={() => setConfirmClose(false)}
-              className="flex-1 px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-colors"
+              className="flex-1 px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-colors cursor-pointer"
             >
               Continue Saving
             </button>
             <button
               onClick={handleForceClose}
-              className="flex-1 px-3 py-1.5 rounded-pill bg-warning/20 text-warning text-xs font-mono hover:bg-warning/30 transition-colors"
+              className="flex-1 px-3 py-1.5 rounded-pill bg-warning/20 text-warning text-xs font-mono hover:bg-warning/30 transition-colors cursor-pointer"
             >
               Cancel &amp; Close
             </button>
@@ -305,7 +305,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
           <button
             type="button"
             onClick={handleClose}
-            className="w-full px-4 py-2 rounded-pill border-2 border-primary/20 text-primary hover:bg-primary/10 transition-all font-mono text-sm"
+            className="w-full px-4 py-2 rounded-pill border-2 border-primary/20 text-primary hover:bg-primary/10 transition-all font-mono text-sm cursor-pointer"
           >
             Close
           </button>
@@ -428,7 +428,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                       type="button"
                       onClick={() => doTestBackend(selectedBackend.url)}
                       disabled={testingBackend || loading}
-                      className="px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
+                      className="px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
                     >
                       {testingBackend ? (
                         <>
@@ -488,14 +488,14 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
               type="button"
               onClick={handleClose}
               disabled={loading}
-              className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/20 bg-secondary text-primary hover:bg-primary/10 transition-all font-mono text-sm disabled:opacity-50"
+              className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/20 bg-secondary text-primary hover:bg-primary/10 transition-all font-mono text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-accent transition-all font-mono text-sm disabled:opacity-50"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-accent transition-all font-mono text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
               {loading ? "Saving..." : submitLabel}

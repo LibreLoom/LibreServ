@@ -124,7 +124,7 @@ function createValidatedPresets() {
     { label: "Ocean", colors: { primary: "#cce7f5", secondary: "#0c4a6e", accent: "#1888b8" } },
     { label: "Forest", colors: { primary: "#dcfce7", secondary: "#14532d", accent: "#15803d" } },
     { label: "Sunset", colors: { primary: "#ffedd5", secondary: "#5c1d0a", accent: "#c45635" } },
-    { label: "Lavender", colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#9b4dca" } },
+    { label: "Lavender", colors: { primary: "#e9d5fa", secondary: "#4a148c", accent: "#c061cb" } },
     { label: "Midnight", colors: { primary: "#e2e8f0", secondary: "#0f172a", accent: "#0ea5e9" } },
     { label: "Muted", colors: { primary: "#f5f5f5", secondary: "#1a1a1a", accent: "#686868" } },
     { label: "Soft Dark", colors: { primary: "#dddddd", secondary: "#000000", accent: "#686868" } },
