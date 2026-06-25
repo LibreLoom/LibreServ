@@ -25,6 +25,12 @@ services:
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
+	// This smoke test shells out to a real container runtime binary (podman/docker).
+	// Skip in environments where none is installed (e.g. bare CI containers without
+	// a runtime) — it is exercised by hosts/CI steps that have a runtime available.
+	if err := c.HealthCheck(); err != nil {
+		t.Skipf("container runtime not available: %v", err)
+	}
 	ctx := context.Background()
 	if err := c.ComposeUp(ctx, composePath); err != nil {
 		t.Fatalf("ComposeUp failed: %v", err)
