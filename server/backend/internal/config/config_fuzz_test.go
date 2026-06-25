@@ -142,8 +142,8 @@ password: ""
 	})
 }
 
-// FuzzDockerConfigUnmarshal fuzz tests Docker configuration parsing
-func FuzzDockerConfigUnmarshal(f *testing.F) {
+// FuzzRuntimeConfigUnmarshal fuzz tests Runtime configuration parsing
+func FuzzRuntimeConfigUnmarshal(f *testing.F) {
 	f.Add([]byte(`
 method: socket
 socket_path: /var/run/docker.sock

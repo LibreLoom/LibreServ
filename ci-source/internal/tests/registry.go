@@ -286,8 +286,8 @@ func addFuzzTests() {
 		pkg    string
 		fuzzFn string
 	}{
-		{"fuzz-docker-unmarshal", "Fuzz: Docker Compose Unmarshal", "internal/docker", "FuzzComposeUnmarshal"},
-		{"fuzz-docker-marshal", "Fuzz: Docker Compose Marshal", "internal/docker", "FuzzComposeMarshal"},
+		{"fuzz-compose-unmarshal", "Fuzz: Compose Unmarshal", "internal/podman", "FuzzComposeUnmarshal"},
+		{"fuzz-compose-marshal", "Fuzz: Compose Marshal", "internal/podman", "FuzzComposeMarshal"},
 		{"fuzz-apps-definition", "Fuzz: App Definition Parsing", "internal/apps", "FuzzAppDefinitionUnmarshal"},
 		{"fuzz-apps-script", "Fuzz: Script Action Parsing", "internal/apps", "FuzzScriptActionUnmarshal"},
 		{"fuzz-network-caddyfile", "Fuzz: Caddyfile Template", "internal/network", "FuzzCaddyfileTemplate"},
@@ -295,7 +295,7 @@ func addFuzzTests() {
 		{"fuzz-network-backend", "Fuzz: Backend URL Parsing", "internal/network", "FuzzBackendURL"},
 		{"fuzz-config-main", "Fuzz: Config Unmarshal", "internal/config", "FuzzConfigUnmarshal"},
 		{"fuzz-config-smtp", "Fuzz: SMTP Config Parsing", "internal/config", "FuzzSMTPConfigUnmarshal"},
-		{"fuzz-config-docker", "Fuzz: Docker Config Parsing", "internal/config", "FuzzDockerConfigUnmarshal"},
+		{"fuzz-config-runtime", "Fuzz: Runtime Config Parsing", "internal/config", "FuzzRuntimeConfigUnmarshal"},
 		{"fuzz-config-caddy", "Fuzz: Caddy Config Parsing", "internal/config", "FuzzCaddyConfigUnmarshal"},
 		{"fuzz-config-acme", "Fuzz: ACME Config Parsing", "internal/config", "FuzzExternalACMEConfigUnmarshal"},
 	}
@@ -381,8 +381,8 @@ func addE2ETests() {
 				--network libreserv-e2e-net \
 				-v /var/run/docker.sock:/var/run/docker.sock:ro \
 				-v /tmp/libreserv-e2e-data:/app/data \
-				-e LIBRESERV_DOCKER_METHOD=socket \
-				-e LIBRESERV_DOCKER_SOCKET_PATH=/var/run/docker.sock \
+				-e LIBRESERV_RUNTIME_METHOD=socket \
+				-e LIBRESERV_RUNTIME_SOCKET_PATH=/var/run/docker.sock \
 				-e LIBRESERV_NETWORK_CADDY_MODE=disabled \
 				-e LIBRESERV_INSECURE_DEV=true \
 				libreserv:e2e-test
