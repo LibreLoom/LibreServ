@@ -10,7 +10,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           vendor: ["react", "react-dom", "react-router-dom"],
-          ui: ["lucide-react", "react-icons"],
+          ui: ["lucide-react"],
           query: ["@tanstack/react-query"],
         },
       },

@@ -20,6 +20,7 @@ const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const LorePage = lazy(() => import("./pages/LorePage"));
+const PigeonPage = lazy(() => import("./pages/PigeonPage"));
 
 
 function RequireAuth({ children }) {
@@ -113,6 +114,7 @@ export default function App() {
 />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/lore" element={<LorePage />} />
+            <Route path="/pigeon" element={<PigeonPage />} />
           </Route>
           {/* Public routes outside auth requirement */}
           <Route path="/setup" element={<SetupPage />} />

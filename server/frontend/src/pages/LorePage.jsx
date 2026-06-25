@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import Card from "../components/cards/Card";
@@ -101,18 +102,42 @@ export default function LorePage() {
                   ),
                   li: (props) => <li className="mb-1" {...props} />,
                   code: (props) => {
-                    const { inline } = /** @type {{ inline?: boolean }} */ (props);
-                    return inline ? (
-                      <code
-                        className="bg-secondary px-1 py-0.5 rounded text-sm"
-                        {...props}
-                      />
-                    ) : (
+                    const { inline, children } =
+                      /** @type {{ inline?: boolean, children?: import('react').ReactNode }} */ (
+                        props
+                      );
+                    if (inline) {
+                      return (
+                        <code
+                          className="bg-secondary px-1 py-0.5 rounded text-sm"
+                          {...props}
+                        />
+                      );
+                    }
+
+                    const blockCode = (
                       <code
                         className="block bg-accent text-secondary p-4 rounded mb-4 overflow-x-auto"
                         {...props}
                       />
                     );
+
+                    // The closing clipboard art is an easter egg: clicking it
+                    // flies you off to the pigeon.
+                    if (String(children ?? "").includes("THE END")) {
+                      return (
+                        <Link
+                          to="/pigeon"
+                          aria-label="A mysterious clipboard. Click to follow it."
+                          title="What's on the clipboard?"
+                          className="block rounded cursor-pointer transition-opacity hover:opacity-80 focus-visible:ring-2 focus:ring-accent"
+                        >
+                          {blockCode}
+                        </Link>
+                      );
+                    }
+
+                    return blockCode;
                   },
                   hr: (props) => (
                     <hr className="my-6 border-accent" {...props} />
