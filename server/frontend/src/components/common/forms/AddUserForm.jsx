@@ -1,13 +1,14 @@
 import { useState, useCallback, useMemo } from "react";
 import { useAuth } from "../../../hooks/useAuth";
-import { Shield, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import PropTypes from "prop-types";
 import FormInput from "./FormInput";
 import Dropdown from "../Dropdown";
+import Button from "../../ui/Button";
 
 function PasswordStrengthIndicator({ password }) {
   const strength = useMemo(() => {
-    if (!password) return { score: 0, label: "", color: "" };
+    if (!password) return { score: 0, label: "" };
 
     let score = 0;
     if (password.length >= 12) score += 1;
@@ -16,10 +17,10 @@ function PasswordStrengthIndicator({ password }) {
     if (/[0-9]/.test(password)) score += 1;
     if (/[^a-zA-Z0-9]/.test(password)) score += 1;
 
-    if (score <= 2) return { score, label: "Weak", color: "bg-error" };
-    if (score <= 3) return { score, label: "Fair", color: "bg-warning" };
-    if (score <= 4) return { score, label: "Good", color: "bg-success" };
-    return { score, label: "Strong", color: "bg-success" };
+    if (score <= 2) return { score, label: "Weak" };
+    if (score <= 3) return { score, label: "Fair" };
+    if (score <= 4) return { score, label: "Good" };
+    return { score, label: "Strong" };
   }, [password]);
 
   if (!password) return null;
@@ -31,12 +32,12 @@ function PasswordStrengthIndicator({ password }) {
           <div
             key={i}
             className={`h-1 flex-1 rounded-full transition-colors ${
-              i <= strength.score ? strength.color : "bg-primary/20"
+              i <= strength.score ? "bg-accent" : "bg-primary/20"
             }`}
           />
         ))}
       </div>
-      <p className="text-xs text-primary/60">{strength.label}</p>
+      <p className="text-xs text-accent">{strength.label}</p>
     </div>
   );
 }
@@ -166,7 +167,7 @@ export default function AddUserForm({ onSuccess }) {
       <div className="mb-4 flex items-center gap-3 px-5 py-2 bg-primary/10 rounded-pill">
         <label
           htmlFor="role"
-          className="text-secondary/80 font-sans text-sm motion-safe:transition-all shrink-0"
+          className="text-primary/80 font-sans text-sm motion-safe:transition-all shrink-0"
         >
           Role:
         </label>
@@ -182,18 +183,12 @@ export default function AddUserForm({ onSuccess }) {
       </div>
 
       {errors.form && (
-        <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-secondary/80 text-sm text-center">
+        <div className="bg-error/10 border border-error/30 rounded-pill px-4 py-2 text-error text-sm text-center">
           {errors.form}
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={loading}
-        className={`w-full bg-accent hover:bg-primary text-primary hover:text-accent rounded-pill py-3 font-medium motion-safe:transition-all hover:ring-2 hover:ring-accent flex items-center justify-center gap-2 ${
-          loading ? "opacity-50 cursor-not-allowed" : ""
-        }`}
-      >
+      <Button type="submit" variant="accent" loading={loading} className="w-full py-3">
         {loading ? (
           "Creating..."
         ) : (
@@ -202,7 +197,7 @@ export default function AddUserForm({ onSuccess }) {
             <ArrowRight size={18} aria-hidden="true" />
           </>
         )}
-      </button>
+      </Button>
     </form>
   );
 }
