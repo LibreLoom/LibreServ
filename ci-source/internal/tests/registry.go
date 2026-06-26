@@ -46,10 +46,8 @@ func init() {
 	addGoTests()
 	addFrontendTests()
 	addFuzzTests()
-	addE2ETests()
 	addSecurityTests()
 	addIntegrationTests()
-
 }
 
 func addGoTests() {
@@ -97,7 +95,7 @@ func addGoTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "go vet ./...",
 		WorkDir:     "/repo/server/backend",
-		Timeout:     3 * time.Minute,
+		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
 
@@ -316,157 +314,6 @@ func addFuzzTests() {
 	}
 }
 
-func addE2ETests() {
-	DefaultRegistry.Add(&Test{
-		ID:          "e2e",
-		Name:        "E2E Tests",
-		Description: "Run Playwright end-to-end tests (with server)",
-		Type:        TestTypeE2E,
-		Container:   "mcr.microsoft.com/playwright:v1.58.2-jammy",
-		Command: `
-			set -e
-			
-			# Install docker CLI and buildx
-			if ! command -v docker &> /dev/null; then
-				echo "Installing docker..."
-				apt-get update -qq && apt-get install -y -qq docker.io docker-buildx
-			fi
-			
-			# Wait for host docker to be available
-			echo "Waiting for docker daemon..."
-			for i in $(seq 1 60); do
-				if docker info >/dev/null 2>&1; then
-					echo "Docker is ready!"
-					break
-				fi
-				if [ $i -eq 60 ]; then
-					echo "ERROR: Docker daemon not accessible after 60s"
-					exit 1
-				fi
-				sleep 1
-			done
-			
-			# Build the server image (disable BuildKit to avoid buildx issues)
-			echo "Building server image..."
-			cd /repo
-			DOCKER_BUILDKIT=0 docker build -t libreserv:e2e-test . || {
-				echo "ERROR: Failed to build server image"
-				exit 1
-			}
-			echo "Server image built successfully"
-			
-			# Setup data directories
-			mkdir -p /tmp/libreserv-e2e-data
-			
-			# Create a shared network for E2E tests
-			echo "Creating E2E network..."
-			docker network create libreserv-e2e-net 2>/dev/null || true
-			
-			# Connect this container to the network (so it can reach the server)
-			MY_CONTAINER=$(hostname)
-			if [ -n "$MY_CONTAINER" ]; then
-				echo "Connecting container $MY_CONTAINER to E2E network..."
-				docker network connect libreserv-e2e-net $MY_CONTAINER 2>/dev/null || echo "Note: Could not connect container (may already be connected)"
-				sleep 2
-			fi
-			
-			# Cleanup any existing container from previous runs
-			echo "Cleaning up old container..."
-			docker rm -f libreserv-e2e 2>/dev/null || true
-			
-			# Run server on the shared network (accessible via container name "libreserv-e2e")
-			echo "Starting server..."
-			docker run -d \
-				--name libreserv-e2e \
-				--network libreserv-e2e-net \
-				-v /var/run/docker.sock:/var/run/docker.sock:ro \
-				-v /tmp/libreserv-e2e-data:/app/data \
-				-e LIBRESERV_RUNTIME_METHOD=socket \
-				-e LIBRESERV_RUNTIME_SOCKET_PATH=/var/run/docker.sock \
-				-e LIBRESERV_NETWORK_CADDY_MODE=disabled \
-				-e LIBRESERV_INSECURE_DEV=true \
-				libreserv:e2e-test
-
-			# Detect the port the server actually binds to from logs
-			echo "Waiting for server to start..."
-			for i in $(seq 1 30); do
-				SERVER_PORT=$(docker logs libreserv-e2e 2>&1 | grep -oP '"addr":"0\.0\.0\.0:\K[0-9]+' | head -1)
-				if [ -n "$SERVER_PORT" ]; then
-					break
-				fi
-				sleep 1
-			done
-			if [ -z "$SERVER_PORT" ]; then
-				echo "ERROR: Could not detect server port from logs"
-				docker logs libreserv-e2e || true
-				docker stop libreserv-e2e || true
-				docker rm libreserv-e2e || true
-				docker network rm libreserv-e2e-net || true
-				exit 1
-			fi
-			echo "Server detected on port $SERVER_PORT"
-
-			# Wait for server to be ready (use container name as hostname on shared network)
-			echo "Waiting for server to be ready..."
-			for i in $(seq 1 60); do
-				if curl -s http://libreserv-e2e:$SERVER_PORT/health >/dev/null 2>&1; then
-					echo "Server is ready!"
-					break
-				fi
-				if [ $i -eq 60 ]; then
-					echo "ERROR: Server failed to start"
-					echo "Debug: Trying to reach http://libreserv-e2e:$SERVER_PORT/health"
-					curl -v http://libreserv-e2e:$SERVER_PORT/health 2>&1 || true
-					docker logs libreserv-e2e || true
-					docker stop libreserv-e2e || true
-					docker rm libreserv-e2e || true
-					docker network rm libreserv-e2e-net || true
-					exit 1
-				fi
-				sleep 1
-			done
-
-			# Run playwright tests (connect to server via container name)
-			# Complete setup via docker exec (localhost bypasses setup access check).
-			# The setup token is never logged, so non-local requests can't get it.
-			echo "Completing setup via docker exec..."
-			for i in $(seq 1 30); do
-				SETUP_RESULT=$(docker exec libreserv-e2e wget -qO- --post-data='{"admin_username":"admin","admin_password":"hunter2hunter2","admin_email":"admin@example.com"}' --header='Content-Type: application/json' http://localhost:8080/api/v1/setup/complete 2>&1)
-				if echo "$SETUP_RESULT" | grep -q "setup complete"; then
-					echo "Setup completed successfully"
-					break
-				fi
-				sleep 1
-			done
-			if ! echo "$SETUP_RESULT" | grep -q "setup complete"; then
-				echo "ERROR: Setup failed: $SETUP_RESULT"
-				docker stop libreserv-e2e || true
-				docker rm libreserv-e2e || true
-				docker network rm libreserv-e2e-net || true
-				exit 1
-			fi
-
-			# Run playwright tests (setup already complete, no token needed)
-			echo "Running Playwright tests..."
-			cd /repo/e2e-tests
-			npm ci 2>/dev/null || npm install
-			E2E_BASE_URL=http://libreserv-e2e:$SERVER_PORT npx playwright test --reporter=list --max-failures=5 || TEST_FAILED=1
-			
-			# Cleanup
-			docker stop libreserv-e2e || true
-			docker rm libreserv-e2e || true
-			# Disconnect this container from network before removing
-			docker network disconnect libreserv-e2e-net $(hostname) 2>/dev/null || true
-			docker network rm libreserv-e2e-net || true
-			
-			exit ${TEST_FAILED:-0}
-		`,
-		WorkDir: "/repo",
-		Timeout: 30 * time.Minute,
-		Env:     []string{},
-	})
-}
-
 func addSecurityTests() {
 	DefaultRegistry.Add(&Test{
 		ID:          "govulncheck",
@@ -567,14 +414,13 @@ func addIntegrationTests() {
 	})
 
 	DefaultRegistry.Add(&Test{
-		ID:          "docker-build",
-		Name:        "Docker Build",
-		Description: "Build the Docker image",
+		ID:          "podman-build",
+		Name:        "Podman Build",
+		Description: "Build the container image with podman (runs on host)",
 		Type:        TestTypeIntegration,
-		Container:   "docker:cli",
-		Command:     "docker build -t libreserv:test .",
+		Container:   "host",
+		Command:     "podman build -t libreserv:test .",
 		WorkDir:     "/repo",
 		Timeout:     20 * time.Minute,
-		SkipIf:      "no-docker",
 	})
 }

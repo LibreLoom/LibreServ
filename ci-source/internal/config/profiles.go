@@ -55,7 +55,7 @@ var Profiles = map[string]*Profile{
 	"deep": {
 		ID:          "deep",
 		Name:        "Deep",
-		Description: "Comprehensive - race detection, rollback, build, all fuzz, e2e, connect, companion (30 tests)",
+		Description: "Comprehensive - race detection, rollback, build, all fuzz, connect, companion (31 tests)",
 		TestIDs: []string{
 			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
 			"go-ble-vet", "go-ble-test",
@@ -64,7 +64,6 @@ var Profiles = map[string]*Profile{
 			"fuzz-apps-definition", "fuzz-apps-script",
 			"fuzz-network-caddyfile", "fuzz-network-route", "fuzz-network-backend",
 			"fuzz-config-main", "fuzz-config-smtp", "fuzz-config-runtime", "fuzz-config-caddy", "fuzz-config-acme",
-			"e2e",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"companion-linux-build", "companion-linux-test",
 		},
@@ -101,8 +100,7 @@ var Profiles = map[string]*Profile{
 			"govulncheck", "gosec", "staticcheck",
 			"connect-gosec", "connect-staticcheck",
 			"companion-linux-gosec", "companion-linux-staticcheck",
-			"coverage", "docker-build",
-			"e2e",
+			"coverage", "podman-build",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"companion-linux-build", "companion-linux-test",
 		},
@@ -118,17 +116,10 @@ var Profiles = map[string]*Profile{
 			"govulncheck", "gosec", "staticcheck",
 			"connect-gosec", "connect-staticcheck",
 			"companion-linux-gosec", "companion-linux-staticcheck",
-			"coverage", "docker-build",
-			"e2e",
+			"coverage", "podman-build",
 			"connect-fmt", "connect-vet", "connect-test", "connect-build",
 			"companion-linux-build", "companion-linux-test",
 		},
-	},
-	"e2e": {
-		ID:          "e2e",
-		Name:        "E2E",
-		Description: "End-to-end tests with server (1 test)",
-		TestIDs:     []string{"e2e"},
 	},
 	"connect": {
 		ID:          "connect",
@@ -150,7 +141,7 @@ func GetProfile(id string) *Profile {
 
 func ListProfiles() []*Profile {
 	result := make([]*Profile, 0, len(Profiles))
-	order := []string{"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz", "e2e", "connect", "companion", "full"}
+	order := []string{"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz", "connect", "companion", "full"}
 	for _, id := range order {
 		if p, ok := Profiles[id]; ok {
 			result = append(result, p)

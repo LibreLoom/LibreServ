@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/ci/internal/config"
@@ -23,6 +23,7 @@ type Runner struct {
 	cli               *client.Client
 	cfg               *config.Config
 	repoPath          string
+	socketPath        string
 	outputChan        chan OutputLine
 	resultChan        chan *tests.TestResult
 	workers           int
@@ -64,9 +65,14 @@ type RunOptions struct {
 }
 
 func NewRunner(cfg *config.Config) (*Runner, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	hostURI, socketPath, err := findRuntimeSocket()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create Docker client: %w", err)
+		return nil, fmt.Errorf("failed to find container runtime socket: %w", err)
+	}
+
+	cli, err := client.NewClientWithOpts(client.WithHost(hostURI), client.WithAPIVersionNegotiation())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create runtime client (%s): %w", hostURI, err)
 	}
 
 	repoPath, err := findRepoRoot()
@@ -78,6 +84,7 @@ func NewRunner(cfg *config.Config) (*Runner, error) {
 		cli:               cli,
 		cfg:               cfg,
 		repoPath:          repoPath,
+		socketPath:        socketPath,
 		outputChan:        make(chan OutputLine, 1000),
 		resultChan:        make(chan *tests.TestResult, 100),
 		workers:           cfg.Parallelism,
@@ -230,6 +237,56 @@ func (r *Runner) worker(
 	}
 }
 
+// runHostTest executes a test command directly on the host (no container),
+// for tests whose Container is the sentinel "host". Used by podman-build,
+// which needs the host podman binary and can't reach a mounted socket under
+// SELinux. Output is captured (not streamed live) and replayed on completion.
+func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResult {
+	result := &tests.TestResult{
+		TestID:    t.ID,
+		Name:      t.Name,
+		Status:    tests.StatusRunning,
+		StartTime: time.Now(),
+	}
+	r.resultChan <- result
+	r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStatus, Line: "running on host..."}
+
+	testCtx := ctx
+	if t.Timeout > 0 {
+		var cancel context.CancelFunc
+		testCtx, cancel = context.WithTimeout(ctx, t.Timeout)
+		defer cancel()
+	}
+
+	cmd := exec.CommandContext(testCtx, "sh", "-c", t.Command)
+	cmd.Dir = r.repoPath
+	cmd.Env = append(os.Environ(), t.Env...)
+
+	out, err := cmd.CombinedOutput()
+	output := string(out)
+	for _, line := range strings.Split(strings.TrimRight(output, "\n"), "\n") {
+		if line != "" {
+			r.streamManager.AddLine(t.ID, line)
+			r.outputChan <- OutputLine{TestID: t.ID, Type: OutputStdout, Line: line}
+		}
+	}
+
+	result.Output = output
+	result.EndTime = time.Now()
+	result.Duration = result.EndTime.Sub(result.StartTime)
+	if err == nil {
+		result.Status = tests.StatusPassed
+	} else if exitErr, ok := err.(*exec.ExitError); ok {
+		result.ExitCode = exitErr.ExitCode()
+		result.Status = tests.StatusFailed
+	} else {
+		result.ExitCode = 1
+		result.Status = tests.StatusFailed
+		result.Error = err.Error()
+	}
+	return result
+}
+
 func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.Duration, skipTestChan <-chan string) *tests.TestResult {
 	result := &tests.TestResult{
 		TestID:    t.ID,
@@ -244,6 +301,13 @@ func (r *Runner) runTest(ctx context.Context, t *tests.Test, fuzzDuration time.D
 		TestID: t.ID,
 		Type:   OutputStatus,
 		Line:   "starting...",
+	}
+
+	// "host" container = run the command directly on the host (no container).
+	// Used for tests like podman-build that need host-level tools (podman) and
+	// can't usefully run inside a container (e.g. SELinux blocks socket mounts).
+	if t.Container == "host" {
+		return r.runHostTest(ctx, t)
 	}
 
 	if err := r.pullImageIfNeeded(ctx, t.Container); err != nil {
@@ -497,48 +561,23 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	testCacheDir := filepath.Join(cacheDir, "test-"+t.ID)
 	os.MkdirAll(testCacheDir, 0755)
 
-	mounts := []mount.Mount{
-		{
-			Type:   mount.TypeBind,
-			Source: r.repoPath,
-			Target: "/repo",
-		},
-		{
-			Type:   mount.TypeBind,
-			Source: cacheDir,
-			Target: "/cache",
-		},
+	// Bind mounts use the :z SELinux relabel option so containers can read the
+	// repo under SELinux-enforcing hosts (required by Podman rootless; harmless
+	// for Docker). The shared :z (not private :Z) is used because several test
+	// containers mount the same repo in parallel. The structured mount.Mount API
+	// can't express :z, so we use HostConfig.Binds ("src:dst[:opts]").
+	binds := []string{
+		r.repoPath + ":/repo:z",
+		cacheDir + ":/cache:z",
 	}
 
-	if t.ID == "frontend-lint" || t.ID == "frontend-build" || t.ID == "frontend-colors" {
+	if strings.HasPrefix(t.ID, "frontend-") {
 		nodeModulesCache := filepath.Join(testCacheDir, "node_modules")
 		os.MkdirAll(nodeModulesCache, 0755)
-		mounts = append(mounts, mount.Mount{
-			Type:   mount.TypeBind,
-			Source: nodeModulesCache,
-			Target: "/repo/server/frontend/node_modules",
-		})
+		binds = append(binds, nodeModulesCache+":/repo/server/frontend/node_modules:z")
 		npmCache := filepath.Join(testCacheDir, "npm")
 		os.MkdirAll(npmCache, 0755)
 		env = append(env, "NPM_CONFIG_CACHE="+npmCache)
-	}
-
-	if t.Type == tests.TestTypeIntegration && t.ID == "docker-build" {
-		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
-			Source:   "/var/run/docker.sock",
-			Target:   "/var/run/docker.sock",
-			ReadOnly: true,
-		})
-	}
-
-	if t.Type == tests.TestTypeE2E {
-		mounts = append(mounts, mount.Mount{
-			Type:     mount.TypeBind,
-			Source:   "/var/run/docker.sock",
-			Target:   "/var/run/docker.sock",
-			ReadOnly: true,
-		})
 	}
 
 	config := &container.Config{
@@ -551,11 +590,7 @@ func (r *Runner) createContainer(ctx context.Context, t *tests.Test, fuzzDuratio
 	}
 
 	hostConfig := &container.HostConfig{
-		Mounts: mounts,
-	}
-
-	if t.Type == tests.TestTypeE2E {
-		hostConfig.ExtraHosts = []string{"host.docker.internal:host-gateway"}
+		Binds: binds,
 	}
 
 	// Apply resource limits if configured
@@ -819,6 +854,61 @@ func (a *atomicBool) Set(v bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.value = v
+}
+
+// findRuntimeSocket discovers the container runtime socket, preferring
+// Podman's Docker-compatible API (rootless, then rootful) and falling back to
+// the Docker daemon. It returns a DOCKER_HOST-style URI and the raw socket
+// path (the latter is bind-mounted into containers that need a runtime, e.g.
+// the docker-build test). It will try to start the rootless Podman socket via
+// systemd if it isn't already listening.
+func findRuntimeSocket() (hostURI, socketPath string, err error) {
+	if h := os.Getenv("DOCKER_HOST"); h != "" {
+		return h, socketPathFromHost(h), nil
+	}
+
+	// Podman rootless socket (preferred).
+	if run := os.Getenv("XDG_RUNTIME_DIR"); run != "" {
+		sp := filepath.Join(run, "podman", "podman.sock")
+		if ensurePodmanSocket(sp) {
+			return "unix://" + sp, sp, nil
+		}
+	}
+
+	// Podman rootful socket.
+	if _, statErr := os.Stat("/run/podman/podman.sock"); statErr == nil {
+		return "unix:///run/podman/podman.sock", "/run/podman/podman.sock", nil
+	}
+
+	// Docker daemon fallback.
+	if _, statErr := os.Stat("/var/run/docker.sock"); statErr == nil {
+		return "unix:///var/run/docker.sock", "/var/run/docker.sock", nil
+	}
+
+	return "", "", fmt.Errorf("no container runtime socket found (tried podman rootless/rootful and docker); start one with `systemctl --user start podman.socket`")
+}
+
+// ensurePodmanSocket returns true if sp exists (and is listening). If the
+// socket is absent it tries to start the rootless Podman API service via
+// systemd (best-effort).
+func ensurePodmanSocket(sp string) bool {
+	if _, err := os.Stat(sp); err == nil {
+		return true
+	}
+	_ = exec.Command("systemctl", "--user", "start", "podman.socket").Run()
+	_, err := os.Stat(sp)
+	return err == nil
+}
+
+// socketPathFromHost extracts the filesystem path from a DOCKER_HOST URI
+// like "unix:///run/podman/podman.sock".
+func socketPathFromHost(host string) string {
+	for _, prefix := range []string{"unix://", "npipe://"} {
+		if strings.HasPrefix(host, prefix) {
+			return strings.TrimPrefix(host, prefix)
+		}
+	}
+	return host
 }
 
 func findRepoRoot() (string, error) {

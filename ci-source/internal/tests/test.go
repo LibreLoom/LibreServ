@@ -7,7 +7,6 @@ type TestType string
 const (
 	TestTypeUnit        TestType = "unit"
 	TestTypeFuzz        TestType = "fuzz"
-	TestTypeE2E         TestType = "e2e"
 	TestTypeSecurity    TestType = "security"
 	TestTypeIntegration TestType = "integration"
 )
