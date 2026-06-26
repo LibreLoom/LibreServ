@@ -41,7 +41,7 @@ vi.mock("../../../../components/cards/Card", () => ({
 }));
 
 let RoutesCardProps = null;
-vi.mock("../../../../components/backups/RoutesCard", () => ({
+vi.mock("../../../../components/network/RoutesCard", () => ({
   default: (props) => {
     RoutesCardProps = props;
     return <div data-testid="routes-card" />;
@@ -49,7 +49,7 @@ vi.mock("../../../../components/backups/RoutesCard", () => ({
 }));
 
 let DebugCardProps = null;
-vi.mock("../../../../components/backups/DebugCard", () => ({
+vi.mock("../../../../components/network/DebugCard", () => ({
   default: (props) => {
     DebugCardProps = props;
     return <div data-testid="debug-card" />;

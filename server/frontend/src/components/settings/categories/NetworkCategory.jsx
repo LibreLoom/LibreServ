@@ -4,8 +4,8 @@ import PropTypes from "prop-types";
 import ConfirmModal from "../../common/ConfirmModal";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow.jsx";
-import RoutesCard from "../../backups/RoutesCard";
-import DebugCard from "../../backups/DebugCard";
+import RoutesCard from "../../network/RoutesCard";
+import DebugCard from "../../network/DebugCard";
 import RouteModal from "../RouteModal";
 
 
