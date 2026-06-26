@@ -179,37 +179,50 @@ func main() {
 		}
 	}
 
-	// Initialize ACME manager
+	// Initialize ACME manager — single shared instance, also passed to the API
+	// server (ServerConfig.ACMEManager) so background jobs and HTTP handlers use
+	// the same config and never drift on Auto/External settings.
 	acmeManager := network.NewACMEManager(cfg.Network.Caddy.AdminAPI, cfg.Network.Caddy.ConfigPath).
 		WithAuto(cfg.Network.Caddy.AutoHTTPS)
-	if cfg.Network.ACME.External.Enabled {
-		// Validate external ACME configuration
-		if cfg.Network.ACME.External.Email == "" && cfg.Network.Caddy.Email == "" {
-			slog.Warn("external ACME enabled but no email configured - using Caddy email if available")
+
+	ext := cfg.Network.ACME.External
+	extCfg := network.ExternalACMEConfig{
+		Enabled:        ext.Enabled,
+		UsePodman:      ext.UsePodman,
+		ContainerImage: ext.ContainerImage,
+		DataPath:       ext.DataPath,
+		DNSProvider:    ext.DNSProvider,
+		DNSEnv:         ext.DNSEnv,
+		Email:          ext.Email,
+		Staging:        ext.Staging,
+		CADirURL:       ext.CADirURL,
+		KeyType:        ext.KeyType,
+		CertsPath:      ext.CertsPath,
+	}
+	// Default cert destination to Caddy's configured cert dir if unset.
+	if extCfg.CertsPath == "" && caddyManager != nil {
+		extCfg.CertsPath = caddyManager.Config().CertsPath
+	}
+	// Default email to Caddy email if unset.
+	if extCfg.Email == "" && caddyManager != nil {
+		extCfg.Email = caddyManager.Config().Email
+	}
+	acmeManager = acmeManager.WithExternal(extCfg)
+
+	if extCfg.Enabled {
+		// Validate external ACME configuration (after Caddy defaults applied).
+		if extCfg.Email == "" {
+			slog.Warn("external ACME enabled but no email configured")
 		}
-		if cfg.Network.ACME.External.DataPath == "" {
+		if extCfg.DataPath == "" {
 			slog.Warn("external ACME enabled but no data_path configured - using default")
 		}
-		if cfg.Network.ACME.External.CertsPath == "" {
+		if extCfg.CertsPath == "" {
 			slog.Warn("external ACME enabled but no certs_path configured")
 		}
-		if cfg.Network.ACME.External.DNSProvider == "" {
+		if extCfg.DNSProvider == "" {
 			slog.Warn("external ACME enabled but no DNS provider configured")
 		}
-
-		acmeManager = acmeManager.WithExternal(network.ExternalACMEConfig{
-			Enabled:        cfg.Network.ACME.External.Enabled,
-			UsePodman:      cfg.Network.ACME.External.UsePodman,
-			ContainerImage: cfg.Network.ACME.External.ContainerImage,
-			DataPath:       cfg.Network.ACME.External.DataPath,
-			DNSProvider:    cfg.Network.ACME.External.DNSProvider,
-			DNSEnv:         cfg.Network.ACME.External.DNSEnv,
-			Email:          cfg.Network.ACME.External.Email,
-			Staging:        cfg.Network.ACME.External.Staging,
-			CADirURL:       cfg.Network.ACME.External.CADirURL,
-			KeyType:        cfg.Network.ACME.External.KeyType,
-			CertsPath:      cfg.Network.ACME.External.CertsPath,
-		})
 	}
 
 	// Initialize and start job queue
@@ -221,7 +234,7 @@ func main() {
 	issuanceHandler := network.NewIssuanceHandler(acmeManager, caddyManager)
 	renewalHandler := network.NewRenewalHandler(acmeManager, caddyManager)
 	validationHandler := network.NewValidationHandler()
-	revocationHandler := network.NewRevocationHandler(acmeManager)
+	revocationHandler := network.NewRevocationHandler(acmeManager, caddyManager)
 
 	if err := jobQueue.RegisterHandler(issuanceHandler, jobqueue.HandlerConfig{WorkerCount: 3, QueueSize: 200}); err != nil {
 		slog.Error("failed to register issuance handler", "error", err)
@@ -318,6 +331,7 @@ func main() {
 		BackupService:   backupService,
 		RuntimeClient:   runtimeClient,
 		CaddyManager:    caddyManager,
+		ACMEManager:     acmeManager,
 		SetupService:    setupService,
 		SupportService:  supportService,
 		LicenseService:  lic,

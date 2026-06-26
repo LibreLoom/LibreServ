@@ -83,6 +83,7 @@ type ServerConfig struct {
 	BackupService   *storage.BackupService
 	RuntimeClient   *podman.Client
 	CaddyManager    *network.CaddyManager
+	ACMEManager     *network.ACMEManager
 	SetupService    *setup.Service
 	SupportService  *support.Service
 	LicenseService  middleware.LicenseChecker
@@ -160,6 +161,7 @@ func NewServer(cfg ServerConfig) *Server {
 		logger:          logger,
 		runtimeClient:   cfg.RuntimeClient,
 		caddyManager:    cfg.CaddyManager,
+		acmeManager:     cfg.ACMEManager,
 		setupService:    cfg.SetupService,
 		supportService:  cfg.SupportService,
 		licenseService:  cfg.LicenseService,

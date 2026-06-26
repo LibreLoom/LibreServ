@@ -35,40 +35,9 @@ func (s *Server) setupRoutes() {
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
 	networkProbeHandler := handlers.NewNetworkProbeHandler()
 
-	// Get Caddy admin API endpoint and config path if available
-	adminAPI := ""
-	configPath := ""
-	if s.caddyManager != nil {
-		adminAPI = s.caddyManager.AdminEndpoint()
-		configPath = s.caddyManager.ConfigPath()
-	}
-
-	// Configure external ACME settings for certificate management
-	ext := config.Get().Network.ACME.External
-	extCfg := network.ExternalACMEConfig{
-		Enabled:        ext.Enabled,
-		UsePodman:      ext.UsePodman,
-		ContainerImage: ext.ContainerImage,
-		DataPath:       ext.DataPath,
-		DNSProvider:    ext.DNSProvider,
-		DNSEnv:         ext.DNSEnv,
-		Email:          ext.Email,
-		Staging:        ext.Staging,
-		CADirURL:       ext.CADirURL,
-		KeyType:        ext.KeyType,
-		CertsPath:      ext.CertsPath,
-	}
-	// Default cert destination to Caddy's configured cert dir if unset.
-	if extCfg.CertsPath == "" && s.caddyManager != nil {
-		extCfg.CertsPath = s.caddyManager.Config().CertsPath
-	}
-	// Default email to Caddy email if unset.
-	if extCfg.Email == "" && s.caddyManager != nil {
-		extCfg.Email = s.caddyManager.Config().Email
-	}
-
-	// Initialize ACME manager for automated certificate management
-	s.acmeManager = network.NewACMEManager(adminAPI, configPath).WithAuto(true).WithExternal(extCfg)
+	// ACME manager is supplied by the application bootstrap (cmd/libreserv/main.go)
+	// as a single shared instance so background jobs and HTTP handlers never drift
+	// on Auto/External settings. Only metrics wiring happens here.
 
 	// Initialize Caddy metrics collector
 	caddyMetrics := monitoring.NewCaddyMetrics()
@@ -77,7 +46,9 @@ func (s *Server) setupRoutes() {
 	if s.caddyManager != nil {
 		s.caddyManager.WithMetrics(caddyMetrics)
 	}
-	s.acmeManager.WithMetrics(caddyMetrics)
+	if s.acmeManager != nil {
+		s.acmeManager.WithMetrics(caddyMetrics)
+	}
 
 	acmeHandler := handlers.NewACMEHandler(s.db, s.acmeManager, s.caddyManager, s.appManager)
 	// Wire in job queue if available
