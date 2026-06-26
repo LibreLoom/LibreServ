@@ -35,7 +35,7 @@ Every goal below exists to keep this path smooth and safe for a non-technical us
 - [x] Setup wizard guides the user through creating the admin account
 - [x] Preflight checks verify container runtime, disk space, and database before first use
 - [ ] A user can set up shipped hardware end-to-end with no technical help
-- [ ] Domain + HTTPS offered as part of first-run (see Remote access)
+- [x] Domain + HTTPS offered as part of first-run (see Remote access)
 
 ## App management
 *The core promise: install and run apps without difficulty.*
@@ -57,9 +57,9 @@ Every goal below exists to keep this path smooth and safe for a non-technical us
 ## Remote access
 *A domain of your own, with HTTPS that just works.*
 
-- [ ] User can configure a domain for remote access
-- [ ] HTTPS is automatically configured and renewed
-- [ ] User can add custom domain routes to apps
+- [x] User can configure a domain for remote access
+- [x] HTTPS is automatically configured and renewed
+- [x] User can add custom domain routes to apps
 - [x] DNS provider integration (Cloudflare)
 
 ## System health & users
