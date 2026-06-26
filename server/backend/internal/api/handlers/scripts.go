@@ -27,20 +27,20 @@ type ListActionsResponse struct {
 func (h *ScriptsHandler) ListActions(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
 		return
 	}
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
 		return
 	}
 
 	catalog := h.manager.GetCatalog()
 	appDef, err := catalog.GetApp(app.AppID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app definition not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app's definition. It may have been removed from the catalog.")
 		return
 	}
 
@@ -58,24 +58,24 @@ func (h *ScriptsHandler) GetAction(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	actionName := chi.URLParam(r, "actionName")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
 		return
 	}
 	if actionName == "" {
-		JSONError(w, http.StatusBadRequest, "action name is required")
+		JSONError(w, http.StatusBadRequest, "Please choose which action to run.")
 		return
 	}
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
 		return
 	}
 
 	catalog := h.manager.GetCatalog()
 	appDef, err := catalog.GetApp(app.AppID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app definition not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app's definition. It may have been removed from the catalog.")
 		return
 	}
 
@@ -86,7 +86,7 @@ func (h *ScriptsHandler) GetAction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	JSONError(w, http.StatusNotFound, "action not found")
+	JSONError(w, http.StatusNotFound, "We couldn't find that action for this app.")
 }
 
 type ExecuteActionRequest struct {
@@ -104,7 +104,7 @@ type ExecuteActionResponse struct {
 func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
 		return
 	}
 
@@ -115,20 +115,20 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Action == "" {
-		JSONError(w, http.StatusBadRequest, "action is required")
+		JSONError(w, http.StatusBadRequest, "Please choose which action to run.")
 		return
 	}
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
 		return
 	}
 
 	catalog := h.manager.GetCatalog()
 	appDef, err := catalog.GetApp(app.AppID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app definition not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app's definition. It may have been removed from the catalog.")
 		return
 	}
 
@@ -141,7 +141,7 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if scriptPath == "" {
-		JSONError(w, http.StatusNotFound, "action not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that action for this app.")
 		return
 	}
 
@@ -149,13 +149,13 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 
 	executor := h.manager.GetScriptExecutor()
 	if executor == nil {
-		JSONError(w, http.StatusInternalServerError, "script executor not available")
+		JSONError(w, http.StatusInternalServerError, "We couldn't run scripts right now. Please try again later.")
 		return
 	}
 
 	result, err := executor.Execute(r.Context(), instanceID, fullScriptPath, req.Options)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "script execution failed")
+		JSONError(w, http.StatusInternalServerError, "We couldn't run that script. Please try again.")
 		return
 	}
 
@@ -190,24 +190,24 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	actionName := chi.URLParam(r, "actionName")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
 		return
 	}
 	if actionName == "" {
-		JSONError(w, http.StatusBadRequest, "action name is required")
+		JSONError(w, http.StatusBadRequest, "Please choose which action to run.")
 		return
 	}
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
 		return
 	}
 
 	catalog := h.manager.GetCatalog()
 	appDef, err := catalog.GetApp(app.AppID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app definition not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app's definition. It may have been removed from the catalog.")
 		return
 	}
 
@@ -220,7 +220,7 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if scriptPath == "" {
-		JSONError(w, http.StatusNotFound, "action not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that action for this app.")
 		return
 	}
 
@@ -228,7 +228,7 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 
 	executor := h.manager.GetScriptExecutor()
 	if executor == nil {
-		JSONError(w, http.StatusInternalServerError, "script executor not available")
+		JSONError(w, http.StatusInternalServerError, "We couldn't run scripts right now. Please try again later.")
 		return
 	}
 
@@ -250,7 +250,7 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 
 	stream, err := executor.StreamExecute(r.Context(), instanceID, fullScriptPath, options)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "script execution failed")
+		JSONError(w, http.StatusInternalServerError, "We couldn't run that script. Please try again.")
 		return
 	}
 
@@ -268,13 +268,13 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 func (h *ScriptsHandler) StreamInstall(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
 		return
 	}
 
 	outputCh := h.manager.GetInstaller().GetInstallOutputChannel(instanceID)
 	if outputCh == nil {
-		JSONError(w, http.StatusNotFound, "no active install stream for this app")
+		JSONError(w, http.StatusNotFound, "There's no active install for this app to attach to.")
 		return
 	}
 
