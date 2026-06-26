@@ -66,7 +66,7 @@ function ResourceBar({ label, value, max = 100 }) {
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
         <span className="text-primary">{label}</span>
-        <span className="font-mono text-secondary">{Math.round(value)}%</span>
+        <span className="font-mono text-primary">{Math.round(value)}%</span>
       </div>
       <div className="h-2 bg-secondary/10 rounded-full overflow-hidden">
         <div

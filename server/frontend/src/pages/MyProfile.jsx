@@ -53,6 +53,7 @@ export default function MyProfile() {
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
+    /** @type {Record<string, string>} */
     const errs = {};
     if (!pw.old) errs.old = "Current password is required";
     if (pw.new.length < 12) errs.new = "Password must be at least 12 characters";

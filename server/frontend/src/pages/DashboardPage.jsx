@@ -212,7 +212,7 @@ export default function Dashboard() {
     </button>
   );
   const refreshControl = (
-    <div className="flex items-center gap-2 text-xs md:text-sm text-secondary/70">
+    <div className="flex items-center gap-2 text-xs md:text-sm text-primary/70">
       <RefreshCw size={14} className="text-accent" aria-hidden="true" />
       <RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} />
     </div>

@@ -34,7 +34,7 @@ export default function LorePage() {
       {/* Header */}
       <header className="px-8 mb-10">
         <HeaderCard title="Lore">
-          <p className="text-lg text-secondary/80 font-semibold">
+          <p className="text-lg text-primary font-semibold">
             You found the lore page!
           </p>
         </HeaderCard>
@@ -44,7 +44,7 @@ export default function LorePage() {
       <section className="px-8" aria-label="Lore content">
         <Card>
           {loading && <TypewriterLoader message="Loading lore..." size="sm" />}
-          {error && <p className="text-secondary/80">Error: {error}</p>}
+          {error && <p className="text-primary">Error: {error}</p>}
           {!loading && !error && (
             <div className="markdown-content">
               {/* Map markdown elements to app typography + spacing. */}
