@@ -6,76 +6,11 @@ import { notfound as quips } from "../assets/greetings";
 
 import Card from "../components/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
-
-/* ======================================================================
-   Helpers
-   ====================================================================== */
-
-function hashString(value) {
-  // djb2-ish hash: small, fast, deterministic.
-  let hash = 5381;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 33) ^ value.charCodeAt(index);
-  }
-  return hash >>> 0;
-}
-
-function normalizePathname(pathname) {
-  // Collapse empty and trailing slash variations to a consistent form.
-  const value = String(pathname ?? "").trim();
-  if (!value) return "/";
-  const withoutTrailingSlashes = value.replace(/\/+$/, "");
-  return withoutTrailingSlashes || "/";
-}
-
-function getPrimarySegment(pathname) {
-  const parts = String(pathname ?? "")
-    .split("/")
-    .filter(Boolean);
-  return parts[0] ?? "";
-}
-
-function levenshteinDistance(firstInput, secondInput) {
-  const first = String(firstInput);
-  const second = String(secondInput);
-
-  if (first === second) return 0;
-  if (!first) return second.length;
-  if (!second) return first.length;
-
-  // Use the shorter string for columns to minimize memory.
-  let a = first;
-  let b = second;
-  if (a.length > b.length) {
-    [a, b] = [b, a];
-  }
-
-  const aLength = a.length;
-  const bLength = b.length;
-
-  let previous = new Array(aLength + 1);
-  let current = new Array(aLength + 1);
-
-  for (let i = 0; i <= aLength; i += 1) {
-    previous[i] = i;
-  }
-
-  for (let j = 1; j <= bLength; j += 1) {
-    current[0] = j;
-    const bCode = b.charCodeAt(j - 1);
-    for (let i = 1; i <= aLength; i += 1) {
-      const cost = a.charCodeAt(i - 1) === bCode ? 0 : 1;
-      current[i] = Math.min(
-        current[i - 1] + 1,
-        previous[i] + 1,
-        previous[i - 1] + cost,
-      );
-    }
-    [previous, current] = [current, previous];
-  }
-
-  return previous[aLength];
-}
+import {
+  normalizePathname,
+  pickStableQuip,
+  scoreKnownPages,
+} from "../utils/notFoundHelpers";
 
 /* ======================================================================
    Known pages + safe quips
@@ -117,87 +52,16 @@ export default function NotFoundPage({ includeMain = true }) {
   const hash = String(location.hash ?? "");
   const attemptedPath = `${pathname}${search}${hash}`;
 
-  const pathnameForMatch = pathname.toLowerCase();
-  const primarySegment = getPrimarySegment(pathnameForMatch);
+  const quip = useMemo(
+    () => pickStableQuip(attemptedPath, SAFE_QUIPS),
+    [attemptedPath],
+  );
 
-  const quip = useMemo(() => {
-    // Stable quip for a given attempted URL.
-    const index = hashString(attemptedPath) % SAFE_QUIPS.length;
-    return SAFE_QUIPS[index];
-  }, [attemptedPath]);
-
-  const matches = useMemo(() => {
-    // Score known routes for "close enough" suggestions.
-    const minCharsForGuess = 2;
-    const typedIsShort = primarySegment.length < minCharsForGuess;
-
-    const scored = knownPages.map((page) => {
-      const candidatePath = page.to.toLowerCase();
-      const candidateSegment = getPrimarySegment(candidatePath);
-
-      const isPathPrefix =
-        pathnameForMatch === candidatePath ||
-        pathnameForMatch.startsWith(`${candidatePath}/`);
-
-      const isTypedPrefixOfCandidate =
-        !typedIsShort && candidateSegment.startsWith(primarySegment);
-
-      const isCandidatePrefixOfTyped =
-        primarySegment.startsWith(candidateSegment) &&
-        candidateSegment.length >= minCharsForGuess;
-
-      const lettersOff = typedIsShort
-        ? Number.POSITIVE_INFINITY
-        : levenshteinDistance(primarySegment, candidateSegment);
-
-      const score =
-        isPathPrefix || isTypedPrefixOfCandidate || isCandidatePrefixOfTyped
-          ? 0
-          : lettersOff;
-
-      const maxLen = Math.max(primarySegment.length, candidateSegment.length);
-      const maxTypos = maxLen <= 4 ? 2 : maxLen <= 8 ? 3 : 4;
-
-      const isClose =
-        isPathPrefix ||
-        isTypedPrefixOfCandidate ||
-        isCandidatePrefixOfTyped ||
-        (!typedIsShort &&
-          primarySegment.length >= 3 &&
-          Number.isFinite(lettersOff) &&
-          lettersOff <= maxTypos &&
-          lettersOff / Math.max(1, maxLen) <= 0.5);
-
-      return {
-        ...page,
-        candidatePath,
-        candidateSegment,
-        isPathPrefix,
-        isTypedPrefixOfCandidate,
-        isCandidatePrefixOfTyped,
-        lettersOff,
-        score,
-        isClose,
-      };
-    });
-
-    // Deterministic order avoids “random” suggestions for tied scores.
-    scored.sort((a, b) => {
-      if (a.score !== b.score) return a.score - b.score;
-
-      const aLetters = Number.isFinite(a.lettersOff) ? a.lettersOff : Infinity;
-      const bLetters = Number.isFinite(b.lettersOff) ? b.lettersOff : Infinity;
-      if (aLetters !== bLetters) return aLetters - bLetters;
-
-      if (a.candidatePath.length !== b.candidatePath.length) {
-        return a.candidatePath.length - b.candidatePath.length;
-      }
-
-      return a.label.localeCompare(b.label);
-    });
-
-    return scored;
-  }, [pathnameForMatch, primarySegment]);
+  // Score known routes for "close enough" suggestions (best match first).
+  const matches = useMemo(
+    () => scoreKnownPages(pathname, knownPages),
+    [pathname],
+  );
 
   const suggestedPages = useMemo(() => {
     // Keep suggestions short to avoid overwhelming the user.
