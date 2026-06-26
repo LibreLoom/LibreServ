@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Sparkles, Download, Shield, BookOpen, X, CircleCheck } from "lucide-react";
+import { Sparkles, Download, Shield, X, CircleCheck } from "lucide-react";
 import Card from "../cards/Card";
 
 const STORAGE_KEY = "libreserv_welcome_dismissed";
@@ -19,13 +19,6 @@ const quickActions = [
     description: "Set up HTTPS, domains, and system preferences",
     to: "/settings",
     color: "text-success",
-  },
-  {
-    icon: BookOpen,
-    title: "Read the Docs",
-    description: "Learn how to get the most from your LibreServ",
-    to: "/help",
-    color: "text-info",
   },
 ];
 

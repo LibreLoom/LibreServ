@@ -60,6 +60,36 @@ describe("api", () => {
     );
   });
 
+  it("extracts message from a flat { error: string } body", async () => {
+    const body = { error: "username already exists" };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(/** @type {any} */ ({
+      ok: false,
+      status: 409,
+      clone: () => ({ json: () => Promise.resolve(body) }),
+    }));
+
+    await expect(api("/users", { method: "POST" })).rejects.toThrow(
+      "username already exists",
+    );
+  });
+
+  it("extracts message from a structured { error: { message } } body", async () => {
+    const body = {
+      success: false,
+      error: { code: "FORBIDDEN", message: "You don't have permission to do that" },
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(/** @type {any} */ ({
+      ok: false,
+      status: 403,
+      clone: () => ({ json: () => Promise.resolve(body) }),
+    }));
+
+    // Must not surface "[object Object]".
+    await expect(api("/users")).rejects.toThrow(
+      "You don't have permission to do that",
+    );
+  });
+
   it("returns response on success", async () => {
     const mockRes = /** @type {any} */ ({ ok: true, status: 200, json: () => Promise.resolve({}) });
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(mockRes);

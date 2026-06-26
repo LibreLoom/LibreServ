@@ -355,6 +355,17 @@ CREATE TABLE IF NOT EXISTS credit_usage (
     FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id)
 );
 
+-- conversation_events stores the agent event stream for each conversation
+-- so the UI can replay the deliberation trace after a page reload.
+CREATE TABLE IF NOT EXISTS conversation_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    event_data TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations(id) ON DELETE CASCADE
+);
+
 -- User subscriptions
 CREATE TABLE IF NOT EXISTS user_subscriptions (
     user_id TEXT PRIMARY KEY,
@@ -406,7 +417,11 @@ CREATE TABLE IF NOT EXISTS email_templates (
 -- =====================
 
 -- Users indexes
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email);
+-- Email is optional, so uniqueness is only enforced for real addresses;
+-- multiple users may have a blank/NULL email.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
+    ON users(email)
+    WHERE email IS NOT NULL AND email != '';
 
 -- Apps indexes
 CREATE INDEX IF NOT EXISTS idx_apps_type ON apps(type);
@@ -476,6 +491,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_support_sessions_code_unique ON support_se
 -- Agent conversation indexes
 CREATE INDEX IF NOT EXISTS idx_agent_conv_user ON agent_conversations(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_agent_conv_status ON agent_conversations(status);
+CREATE INDEX IF NOT EXISTS idx_conversation_events_conv ON conversation_events(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_conv_messages_conv ON conversation_messages(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_conv_messages_vis ON conversation_messages(conversation_id, visibility);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_conv ON tool_calls(conversation_id, created_at);

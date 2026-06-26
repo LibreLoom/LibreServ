@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { User, Shield, Trash2, Settings, Plus, Clock } from "lucide-react";
+import { User, Shield, Trash2, Settings, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import Card from "../components/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
@@ -8,6 +8,8 @@ import Table from "../components/common/Table";
 import Pill from "../components/common/Pill";
 import api from "../lib/api";
 import { useTimeFormat } from "../hooks/useTimeFormat";
+import { useAuth } from "../hooks/useAuth";
+import MyProfile from "./MyProfile";
 
 /**
  * @param {any} dateString
@@ -35,6 +37,8 @@ function formatLastLogin(dateString, _unused) {
 
 export default function UsersPage() {
   const { use12HourTime } = useTimeFormat();
+  const { me } = useAuth();
+  const isAdmin = me?.role === "admin";
   // Track server results + UI state for loading and destructive actions.
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,8 +47,12 @@ export default function UsersPage() {
   const [showVerification, setShowVerification] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
 
-  // Fetch users from API
+  // Fetch users from API (admin only — regular users get their own profile view)
   useEffect(() => {
+    if (!isAdmin) {
+      setLoading(false);
+      return;
+    }
     let delayTimer;
     const fetchUsers = async () => {
       try {
@@ -64,7 +72,7 @@ export default function UsersPage() {
     };
     fetchUsers();
     return () => clearTimeout(delayTimer);
-  }, []);
+  }, [isAdmin]);
 
   const handleDeleteClick = (userId, username) => {
     // Store selection so the confirmation modal can be explicit.
@@ -98,6 +106,11 @@ export default function UsersPage() {
       }
     }
   };
+
+  // Regular users can't manage other accounts — show their own profile instead.
+  if (!isAdmin) {
+    return <MyProfile />;
+  }
 
   return (
     <>
@@ -149,61 +162,8 @@ export default function UsersPage() {
 
         {!loading && !error && users.length > 0 && (
           <section className="mt-5" aria-label="User list">
-            {/* Mobile: Card list */}
-            <div className="flex flex-col gap-3 lg:hidden">
-              {users.map((user) => (
-                <Card key={user.id} className="p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <Link
-                      to={`/users/${user.id}`}
-                      className="flex items-center gap-3 flex-1 min-w-0"
-                    >
-                      <div className="h-10 w-10 shrink-0 rounded-full bg-primary text-secondary flex items-center justify-center">
-                        <User size={18} aria-hidden="true" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-semibold truncate">
-                          {user.username}
-                        </div>
-                        <div
-                          className={`text-sm ${user.role === "admin" ? "text-secondary/80" : "text-primary/60"}`}
-                        >
-                          {user.role.charAt(0).toUpperCase() +
-                            user.role.slice(1)}
-                        </div>
-                        <div className="text-xs text-primary/40 flex items-center gap-1">
-                          <Clock size={10} aria-hidden="true" />
-                          {formatLastLogin(user.last_login, use12HourTime)}
-                        </div>
-                      </div>
-                    </Link>
-                    <div className="flex items-center gap-1 shrink-0">
-                       <Link
-                         to={`/users/${user.id}`}
-                         className="p-2 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:ring-2 focus:ring-primary focus:ring-offset-2"
-                         aria-label={`Manage ${user.username}`}
-                       >
-                        <Settings size={18} />
-                      </Link>
-                       <button
-                         type="button"
-                         onClick={() =>
-                           handleDeleteClick(user.id, user.username)
-                         }
-                         className="p-2 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
-                         aria-label={`Delete ${user.username}`}
-                       >
-                        <Trash2 size={18} />
-                      </button>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-
-{/* Desktop: Table */}
-            <Card className="overflow-hidden p-0 hidden lg:block">
-              <div className="p-4">
+            <Card className="overflow-hidden p-0">
+              <div className="p-4 overflow-x-auto">
                 <Table
                   columns={[
                     {

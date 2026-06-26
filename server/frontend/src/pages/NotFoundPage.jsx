@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useId, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, ChevronDown, Ghost, Home, LifeBuoy } from "lucide-react";
+import { ArrowLeft, ChevronDown, Ghost, Home } from "lucide-react";
 
 import { notfound as quips } from "../assets/greetings";
 
@@ -85,7 +85,6 @@ const knownPages = [
   { to: "/apps", label: "Apps" },
   { to: "/users", label: "Users" },
   { to: "/settings", label: "Settings" },
-  { to: "/help", label: "Help" },
   { to: "/lore", label: "Lore" },
 ];
 
@@ -258,11 +257,6 @@ export default function NotFoundPage({ includeMain = true }) {
     "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary " +
     "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2";
 
-  const ghostPill =
-    "inline-flex items-center gap-2 rounded-pill bg-transparent text-primary px-4 py-2 text-sm font-medium ring-2 ring-accent " +
-    "motion-safe:transition-all hover:bg-primary hover:text-secondary " +
-    "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2";
-
   return (
     <Wrapper
       className="bg-primary text-secondary px-8 pt-10 pb-32"
@@ -350,11 +344,6 @@ export default function NotFoundPage({ includeMain = true }) {
               <Link to="/" className={solidPill}>
                 <Home size={18} aria-hidden="true" />
                 Home
-              </Link>
-
-              <Link to="/help" className={ghostPill}>
-                <LifeBuoy size={18} aria-hidden="true" />
-                Help
               </Link>
             </div>
 

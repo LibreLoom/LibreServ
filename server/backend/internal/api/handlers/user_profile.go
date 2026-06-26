@@ -9,12 +9,19 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
 )
 
 // ChangePasswordRequest represents a password change request
 type ChangePasswordRequest struct {
 	OldPassword string `json:"old_password"`
 	NewPassword string `json:"new_password"`
+}
+
+// UpdateProfileRequest represents a self-service profile update. Only fields a
+// user is allowed to change for themselves are present (notably not role).
+type UpdateProfileRequest struct {
+	Email string `json:"email"`
 }
 
 // ChangePassword handles POST /api/v1/auth/change-password
@@ -103,6 +110,57 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		JSONError(w, http.StatusNotFound, "user not found")
 		return
+	}
+
+	JSON(w, http.StatusOK, user.Sanitize())
+}
+
+// UpdateProfile handles PUT /api/v1/auth/profile
+// Lets the authenticated user update their own profile (currently the email
+// address). Role and username are intentionally not changeable here so a user
+// cannot escalate their own privileges.
+func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Email is optional (may be cleared); validate only when provided.
+	req.Email = validation.TrimAndSanitize(req.Email)
+	if req.Email != "" {
+		v := validation.New().ValidateEmail(req.Email)
+		if v.HasErrors() {
+			JSONError(w, http.StatusBadRequest, v.FirstError().Message)
+			return
+		}
+	}
+
+	user, err := h.authService.GetUserByID(r.Context(), userID)
+	if err != nil {
+		JSONError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	if req.Email != user.Email {
+		// Ensure the email isn't already used by a different account.
+		if req.Email != "" {
+			if existing, lookupErr := h.authService.GetUserByEmail(r.Context(), req.Email); lookupErr == nil && existing.ID != userID {
+				JSONError(w, http.StatusConflict, "email already exists")
+				return
+			}
+		}
+		user.Email = req.Email
+		if err := h.authService.UpdateUser(r.Context(), user); err != nil {
+			JSONError(w, http.StatusInternalServerError, "failed to update profile")
+			return
+		}
 	}
 
 	JSON(w, http.StatusOK, user.Sanitize())

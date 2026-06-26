@@ -4,6 +4,7 @@ import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/common/ErrorDisplay";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
+import { visibleCategories } from "../components/settings/settingsCategories";
 import { getSettings, updateSettings } from "../lib/settings-api.js";
 import {
   getSecuritySettings,
@@ -26,6 +27,8 @@ const DEBOUNCE_MS = 500;
 
 export default function SettingsPage() {
   const { me: user, csrfToken } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const allowedCategoryIds = visibleCategories(isAdmin).map((c) => c.id);
   const {
     theme,
     setTheme,
@@ -49,8 +52,9 @@ export default function SettingsPage() {
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState(() => {
     const hash = window.location.hash.slice(1);
-    const validCategories = ["external_services", "general", "appearance", "backups", "security", "network", "notifications", "about"];
-    return validCategories.includes(hash) ? hash : "general";
+    if (allowedCategoryIds.includes(hash)) return hash;
+    // Admins default to General; users (who can't see it) default to Appearance.
+    return isAdmin ? "general" : "appearance";
   });
   const [showMobileContent, setShowMobileContent] = useState(false);
   const [saveStatus, setSaveStatus] = useState("idle");
@@ -61,6 +65,10 @@ export default function SettingsPage() {
 
 
   const loadData = useCallback(async () => {
+    // The settings/security/notifications endpoints are admin-only; a regular
+    // user only uses the client-side Appearance and read-only About sections,
+    // so skip these calls instead of triggering permission errors.
+    if (!isAdmin) return;
     try {
       setError(null);
       const [settingsData, securityData, notificationsData, connectData] = await Promise.all([
@@ -82,7 +90,7 @@ export default function SettingsPage() {
       setError(errorMessage);
       console.error("Error loading settings:", err);
     }
-  }, [setUse12HourTime]);
+  }, [setUse12HourTime, isAdmin]);
 
   useEffect(() => {
     loadData();

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useId } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Home, LifeBuoy, SearchX } from "lucide-react";
+import { ArrowLeft, Home, SearchX } from "lucide-react";
 
 import { objectnotfound as quips } from "../assets/greetings";
 
@@ -179,11 +179,6 @@ export default function ObjectNotFound({
               <Link to="/" className={ghostPill}>
                 <Home size={18} aria-hidden="true" />
                 Home
-              </Link>
-
-              <Link to="/help" className={ghostPill}>
-                <LifeBuoy size={18} aria-hidden="true" />
-                Help
               </Link>
             </div>
 

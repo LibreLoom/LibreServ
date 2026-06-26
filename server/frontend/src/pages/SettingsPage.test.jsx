@@ -75,7 +75,9 @@ describe("SettingsPage", () => {
     /** @type {any} */ (getSettings).mockResolvedValue({ logging: { level: "info" } });
     /** @type {any} */ (getSecuritySettings).mockResolvedValue({});
 
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, {
+      authOverrides: { me: { role: "admin" }, csrfToken: "t" },
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId("settings-content")).toBeInTheDocument();
@@ -86,7 +88,9 @@ describe("SettingsPage", () => {
     /** @type {any} */ (getSettings).mockRejectedValue(new Error("Network error"));
     /** @type {any} */ (getSecuritySettings).mockResolvedValue({});
 
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, {
+      authOverrides: { me: { role: "admin" }, csrfToken: "t" },
+    });
 
     await waitFor(() => {
       expect(screen.getByText("Network error")).toBeInTheDocument();
@@ -97,7 +101,9 @@ describe("SettingsPage", () => {
     /** @type {any} */ (getSettings).mockResolvedValue({});
     /** @type {any} */ (getSecuritySettings).mockResolvedValue({});
 
-    renderWithProviders(<SettingsPage />);
+    renderWithProviders(<SettingsPage />, {
+      authOverrides: { me: { role: "admin" }, csrfToken: "t" },
+    });
 
     await waitFor(() => {
       expect(screen.getByText("Settings")).toBeInTheDocument();

@@ -1,17 +1,7 @@
-import { Settings, Palette, Shield, Info, ChevronRight, DatabaseBackup, Globe, Bell, Plug } from "lucide-react";
+import { ChevronRight, Lock } from "lucide-react";
 import SettingsUserCard from "./SettingsUserCard";
 import CardButton from "../cards/CardButton";
-
-const CATEGORIES = [
-	{ id: "external_services", label: "External Services", icon: Plug },
-	{ id: "general", label: "General", icon: Settings },
-	{ id: "appearance", label: "Appearance", icon: Palette },
-	{ id: "backups", label: "Backups", icon: DatabaseBackup },
-	{ id: "security", label: "Security", icon: Shield },
-	{ id: "network", label: "Network", icon: Globe },
-	{ id: "notifications", label: "Notifications", icon: Bell },
-	{ id: "about", label: "About", icon: Info },
-];
+import { visibleCategories } from "./settingsCategories";
 
 export default function SettingsSidebar({
   user,
@@ -19,6 +9,8 @@ export default function SettingsSidebar({
   onCategoryChange,
   className = "",
 }) {
+  const isAdmin = user?.role === "admin";
+  const categories = visibleCategories(isAdmin);
   return (
     <nav
       className={`flex flex-col gap-2 ${className}`}
@@ -31,7 +23,7 @@ export default function SettingsSidebar({
           Settings
         </div>
         <ul className="space-y-1 font-bold">
-          {CATEGORIES.map(({ id, label, icon: Icon }, index) => {
+          {categories.map(({ id, label, icon: Icon }, index) => {
             const isActive = activeCategory === id;
             return (
 <li
@@ -63,6 +55,13 @@ export default function SettingsSidebar({
             );
           })}
         </ul>
+
+        {!isAdmin && (
+          <p className="px-3 mt-3 flex items-center gap-1.5 text-xs text-secondary/60">
+            <Lock size={12} aria-hidden="true" className="shrink-0" />
+            Some settings require an administrator.
+          </p>
+        )}
       </div>
     </nav>
   );

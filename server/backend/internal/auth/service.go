@@ -17,8 +17,10 @@ import (
 var (
 	// ErrUserNotFound indicates a user lookup failed.
 	ErrUserNotFound = errors.New("user not found")
-	// ErrUserExists indicates a user already exists.
+	// ErrUserExists indicates the username is already taken.
 	ErrUserExists = errors.New("user already exists")
+	// ErrEmailExists indicates the email address is already in use.
+	ErrEmailExists = errors.New("email already exists")
 	// ErrInvalidCredentials indicates a username/password mismatch.
 	ErrInvalidCredentials = errors.New("invalid username or password")
 	// ErrLastAdmin indicates attempting to delete the last admin user.
@@ -284,10 +286,15 @@ func (s *Service) Register(ctx context.Context, req *RegisterRequest) (*models.U
 		return nil, ErrUserExists
 	}
 
-	// Check if email already exists
-	_, err = s.GetUserByEmail(ctx, req.Email)
-	if err == nil {
-		return nil, ErrUserExists
+	// Check if email already exists. Skip this for blank emails: email is
+	// optional, and many users may share an empty email, so a blank value must
+	// not be treated as a duplicate (otherwise every user created without an
+	// email would falsely conflict with the first such user).
+	if req.Email != "" {
+		_, err = s.GetUserByEmail(ctx, req.Email)
+		if err == nil {
+			return nil, ErrEmailExists
+		}
 	}
 
 	// Hash password

@@ -49,6 +49,10 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusConflict, "username already exists")
 			return
 		}
+		if err == auth.ErrEmailExists {
+			JSONError(w, http.StatusConflict, "email already exists")
+			return
+		}
 		JSONError(w, http.StatusInternalServerError, "registration failed")
 		return
 	}

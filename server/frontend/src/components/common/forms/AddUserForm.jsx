@@ -104,8 +104,19 @@ export default function AddUserForm({ onSuccess }) {
         onSuccess?.(result);
       } catch (err) {
         const status = err.cause?.status;
-        if (status === 409) {
-          setErrors({ username: "Username already exists" });
+        if (err.name === "AuthError") {
+          // Session expired / refresh failed: tell the user to log in again
+          // instead of blaming the form data.
+          setErrors({ form: err.message });
+        } else if (status === 409) {
+          // The backend uses 409 for both username and email conflicts; point
+          // the error at the field that actually clashed.
+          const message = (err.message || "").toLowerCase();
+          if (message.includes("email")) {
+            setErrors({ email: "Email is already in use" });
+          } else {
+            setErrors({ username: "Username already exists" });
+          }
         } else if (status === 400) {
           const message = err.message || "Invalid input";
           if (message.includes("password")) {
@@ -144,6 +155,7 @@ export default function AddUserForm({ onSuccess }) {
         value={formData.email}
         onChange={handleChange("email")}
         placeholder="e.g. john@example.com"
+        error={errors.email}
         icon="email"
         disabled={loading}
       />

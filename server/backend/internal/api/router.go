@@ -212,6 +212,7 @@ func (s *Server) setupRoutes() {
 			// Auth - authenticated user endpoints
 			r.Post("/auth/logout", authHandler.Logout)
 			r.Get("/auth/me", authHandler.Me)
+			r.Put("/auth/profile", authHandler.UpdateProfile)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
 			r.Get("/auth/csrf", csrfHandler.GetToken)
 

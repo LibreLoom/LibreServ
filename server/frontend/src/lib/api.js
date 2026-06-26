@@ -68,8 +68,14 @@ export default async function api(path, options = {}, retried = false) {
     let message = `Request failed with status: ${res.status}`;
     try {
       const body = await res.clone().json();
-      if (body.error || body.message) {
-        message = body.error || body.message;
+      // The backend returns errors in two shapes: a flat { error: "..." } and a
+      // structured { error: { code, message } }. Extract a string either way so
+      // we never surface "[object Object]" to the user.
+      const rawError = body.error ?? body.message;
+      if (typeof rawError === "string") {
+        message = rawError;
+      } else if (rawError && typeof rawError === "object" && typeof rawError.message === "string") {
+        message = rawError.message;
       }
     } catch {
       // Response body wasn't JSON; fall back to status-only message

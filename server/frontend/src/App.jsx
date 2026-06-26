@@ -12,7 +12,6 @@ const UserDetailPage = lazy(() => import("./pages/UserDetailPage"));
 const AddUserPage = lazy(() => import("./pages/AddUserPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
-const HelpPage = lazy(() => import("./pages/HelpPage"));
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
 const AppInstallPage = lazy(() => import("./pages/AppInstallPage"));
 const Login = lazy(() => import("./pages/Login"));
@@ -112,7 +111,6 @@ export default function App() {
 				</DataPage>
 			}
 />
-            <Route path="/help" element={<HelpPage />} />
             <Route path="/lore" element={<LorePage />} />
             <Route path="/pigeon" element={<PigeonPage />} />
           </Route>

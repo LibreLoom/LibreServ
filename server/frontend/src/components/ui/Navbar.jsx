@@ -3,7 +3,6 @@ import {
 	Home,
 	Settings,
 	Users,
-	LifeBuoy,
 	Menu,
 	X,
 	User,
@@ -45,7 +44,6 @@ const navButtons = [
 	{ to: "/apps", icon: Grid2X2, label: "Apps" },
 	{ to: "/users", icon: Users, label: "Users" },
 	{ to: "/settings", icon: Settings, label: "Settings" },
-	{ to: "/help", icon: LifeBuoy, label: "Help" },
 ];
 
 const FAB_SIZE = 60;
