@@ -87,14 +87,14 @@ func (h *CatalogHandler) ListApps(w http.ResponseWriter, r *http.Request) {
 func (h *CatalogHandler) GetApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appId")
 	if appID == "" {
-		JSONError(w, http.StatusBadRequest, "app ID is required")
+		JSONError(w, http.StatusBadRequest, "Please choose an app.")
 		return
 	}
 
 	catalog := h.manager.GetCatalog()
 	app, err := catalog.GetApp(appID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app in the catalog.")
 		return
 	}
 
@@ -112,7 +112,7 @@ func (h *CatalogHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
 
 func (h *CatalogHandler) RefreshCatalog(w http.ResponseWriter, r *http.Request) {
 	if err := h.manager.RefreshCatalog(); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to refresh catalog")
+		JSONError(w, http.StatusInternalServerError, "We couldn't refresh the app catalog. Please try again.")
 		return
 	}
 
@@ -126,14 +126,14 @@ func (h *CatalogHandler) RefreshCatalog(w http.ResponseWriter, r *http.Request) 
 func (h *CatalogHandler) GetAppFeatures(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appId")
 	if appID == "" {
-		JSONError(w, http.StatusBadRequest, "app ID is required")
+		JSONError(w, http.StatusBadRequest, "Please choose an app.")
 		return
 	}
 
 	catalog := h.manager.GetCatalog()
 	app, err := catalog.GetApp(appID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "app not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app in the catalog.")
 		return
 	}
 
@@ -148,7 +148,7 @@ func (h *CatalogHandler) GetAppFeatures(w http.ResponseWriter, r *http.Request) 
 func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appId")
 	if appID == "" {
-		http.Error(w, "app ID is required", http.StatusBadRequest)
+		http.Error(w, "Please choose an app.", http.StatusBadRequest)
 		return
 	}
 

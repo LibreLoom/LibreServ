@@ -30,7 +30,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	// Get user from context (set by auth middleware)
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "authentication required")
+		JSONError(w, http.StatusUnauthorized, "You must be logged in to perform this action.")
 		return
 	}
 
@@ -39,16 +39,16 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	var req ChangePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.OldPassword == "" || req.NewPassword == "" {
-		JSONError(w, http.StatusBadRequest, "old_password and new_password are required")
+		JSONError(w, http.StatusBadRequest, "Please enter both your current password and a new password.")
 		return
 	}
 	if err := h.authService.ValidatePassword(req.NewPassword); err != nil {
-		JSONError(w, http.StatusBadRequest, "password does not meet requirements")
+		JSONError(w, http.StatusBadRequest, "Your new password doesn't meet the requirements.")
 		return
 	}
 
@@ -69,10 +69,10 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 				}
 				h.securityService.RecordEvent(r.Context(), &event)
 			}
-			JSONError(w, http.StatusUnauthorized, "current password is incorrect")
+			JSONError(w, http.StatusUnauthorized, "Your current password is incorrect.")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to change password")
+		JSONError(w, http.StatusInternalServerError, "We couldn't change your password. Please try again.")
 		return
 	}
 
@@ -102,13 +102,13 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	// Get user ID from context (set by auth middleware)
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "authentication required")
+		JSONError(w, http.StatusUnauthorized, "You must be logged in to perform this action.")
 		return
 	}
 
 	user, err := h.authService.GetUserByID(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "user not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find your account.")
 		return
 	}
 
@@ -122,13 +122,13 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "authentication required")
+		JSONError(w, http.StatusUnauthorized, "You must be logged in to perform this action.")
 		return
 	}
 
 	var req UpdateProfileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.authService.GetUserByID(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "user not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find your account.")
 		return
 	}
 
@@ -152,13 +152,13 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		// Ensure the email isn't already used by a different account.
 		if req.Email != "" {
 			if existing, lookupErr := h.authService.GetUserByEmail(r.Context(), req.Email); lookupErr == nil && existing.ID != userID {
-				JSONError(w, http.StatusConflict, "email already exists")
+				JSONError(w, http.StatusConflict, "That email is already in use.")
 				return
 			}
 		}
 		user.Email = req.Email
 		if err := h.authService.UpdateUser(r.Context(), user); err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to update profile")
+			JSONError(w, http.StatusInternalServerError, "We couldn't update your profile. Please try again.")
 			return
 		}
 	}

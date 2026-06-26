@@ -49,7 +49,7 @@ func (h *AppsHandler) ListInstalledApps(w http.ResponseWriter, r *http.Request) 
 	appList, err := h.manager.ListInstalledApps(r.Context())
 	if err != nil {
 		slog.Error("Failed to list installed apps", "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to retrieve apps")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your apps. Please try again.")
 		return
 	}
 
@@ -64,14 +64,14 @@ func (h *AppsHandler) ListInstalledApps(w http.ResponseWriter, r *http.Request) 
 func (h *AppsHandler) GetInstalledApp(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
 		slog.Warn("Installed app not found", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusNotFound, "App not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
 		return
 	}
 
@@ -83,19 +83,19 @@ func (h *AppsHandler) GetInstalledApp(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	var req InstallRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.AppID == "" {
-		JSONError(w, http.StatusBadRequest, "app_id is required")
+		JSONError(w, http.StatusBadRequest, "Please choose which app to install.")
 		return
 	}
 
 	// Validate config against app definition
 	installer := h.manager.GetInstaller()
 	if err := installer.ValidateConfig(req.AppID, req.Config); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid configuration")
+		JSONError(w, http.StatusBadRequest, "The app's configuration isn't valid. Please check your settings and try again.")
 		return
 	}
 
@@ -114,13 +114,13 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		slog.Error("App install failed", "app_id", req.AppID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Installation failed")
+		JSONError(w, http.StatusInternalServerError, "We couldn't install this app. Please try again.")
 		return
 	}
 
 	if !result.Success {
 		slog.Error("App install unsuccessful", "app_id", req.AppID, "error", result.Error)
-		JSONError(w, http.StatusInternalServerError, "Installation failed")
+		JSONError(w, http.StatusInternalServerError, "We couldn't install this app. Please try again.")
 		return
 	}
 
@@ -132,13 +132,13 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) StartApp(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "App not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
 		return
 	}
 
@@ -152,8 +152,8 @@ func (h *AppsHandler) StartApp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.manager.StartApp(r.Context(), instanceID); err != nil {
-		slog.Error("Failed to start app", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to start app")
+		slog.Error("We couldn't start this app. Please try again.", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't start this app. Please try again.")
 		return
 	}
 
@@ -168,13 +168,13 @@ func (h *AppsHandler) StartApp(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) StopApp(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	if err := h.manager.StopApp(r.Context(), instanceID); err != nil {
-		slog.Error("Failed to stop app", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to stop app")
+		slog.Error("We couldn't stop this app. Please try again.", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't stop this app. Please try again.")
 		return
 	}
 
@@ -189,13 +189,13 @@ func (h *AppsHandler) StopApp(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) AcknowledgeRevocation(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	if err := h.manager.AcknowledgeRevocation(r.Context(), instanceID); err != nil {
-		slog.Error("Failed to acknowledge revocation", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to acknowledge revocation")
+		slog.Error("We couldn't acknowledge the revocation. Please try again.", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't acknowledge the revocation. Please try again.")
 		return
 	}
 
@@ -210,13 +210,13 @@ func (h *AppsHandler) AcknowledgeRevocation(w http.ResponseWriter, r *http.Reque
 func (h *AppsHandler) RestartApp(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	if err := h.manager.RestartApp(r.Context(), instanceID); err != nil {
-		slog.Error("Failed to restart app", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to restart app")
+		slog.Error("We couldn't restart this app. Please try again.", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't restart this app. Please try again.")
 		return
 	}
 
@@ -232,14 +232,14 @@ func (h *AppsHandler) RestartApp(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	overridePin := r.URL.Query().Get("override_pin") == "true"
 
 	if err := h.manager.UpdateApp(r.Context(), instanceID, overridePin); err != nil {
-		slog.Error("Failed to update app", "instance_id", instanceID, "error", err)
+		slog.Error("We couldn't update this app. Please try again.", "instance_id", instanceID, "error", err)
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "app.update", instanceID, "", "failure", err.Error(), nil)
 		}
@@ -254,7 +254,7 @@ func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		JSONError(w, http.StatusInternalServerError, "Failed to update app")
+		JSONError(w, http.StatusInternalServerError, "We couldn't update this app. Please try again.")
 		return
 	}
 
@@ -273,13 +273,13 @@ func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) UninstallApp(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	if err := h.manager.UninstallApp(r.Context(), instanceID); err != nil {
-		slog.Error("Failed to uninstall app", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to uninstall app")
+		slog.Error("We couldn't uninstall this app. Please try again.", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't uninstall this app. Please try again.")
 		return
 	}
 
@@ -294,14 +294,14 @@ func (h *AppsHandler) UninstallApp(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) GetAppStatus(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	status, err := h.manager.GetAppStatus(r.Context(), instanceID)
 	if err != nil {
 		slog.Warn("App status not found", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusNotFound, "App not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
 		return
 	}
 
@@ -314,7 +314,7 @@ func (h *AppsHandler) GetUpdateHistory(w http.ResponseWriter, r *http.Request) {
 	history, err := h.manager.ListUpdateHistory(r.Context(), "")
 	if err != nil {
 		slog.Error("Failed to get update history", "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to retrieve update history")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the update history. Please try again.")
 		return
 	}
 
@@ -326,14 +326,14 @@ func (h *AppsHandler) GetUpdateHistory(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) GetAppUpdateHistory(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	history, err := h.manager.ListUpdateHistory(r.Context(), instanceID)
 	if err != nil {
 		slog.Error("Failed to get app update history", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to retrieve update history")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the update history. Please try again.")
 		return
 	}
 
@@ -345,8 +345,8 @@ func (h *AppsHandler) GetAppUpdateHistory(w http.ResponseWriter, r *http.Request
 func (h *AppsHandler) GetAvailableUpdates(w http.ResponseWriter, r *http.Request) {
 	updates, err := h.manager.GetAvailableUpdates(r.Context())
 	if err != nil {
-		slog.Error("Failed to check for updates", "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to check for updates")
+		slog.Error("We couldn't check for updates. Please try again.", "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't check for updates. Please try again.")
 		return
 	}
 
@@ -358,7 +358,7 @@ func (h *AppsHandler) GetAvailableUpdates(w http.ResponseWriter, r *http.Request
 func (h *AppsHandler) PinAppVersion(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
@@ -366,18 +366,18 @@ func (h *AppsHandler) PinAppVersion(w http.ResponseWriter, r *http.Request) {
 		Version string `json:"version"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.Version == "" {
-		JSONError(w, http.StatusBadRequest, "version is required")
+		JSONError(w, http.StatusBadRequest, "Please choose a version to pin.")
 		return
 	}
 
 	if err := h.manager.PinAppVersion(r.Context(), instanceID, req.Version); err != nil {
-		slog.Error("Failed to pin app version", "instance_id", instanceID, "version", req.Version, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to pin app version")
+		slog.Error("We couldn't pin the app version. Please try again.", "instance_id", instanceID, "version", req.Version, "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't pin the app version. Please try again.")
 		return
 	}
 
@@ -393,13 +393,13 @@ func (h *AppsHandler) PinAppVersion(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) UnpinAppVersion(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	if err := h.manager.UnpinAppVersion(r.Context(), instanceID); err != nil {
-		slog.Error("Failed to unpin app version", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to unpin app version")
+		slog.Error("We couldn't unpin the app version. Please try again.", "instance_id", instanceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't unpin the app version. Please try again.")
 		return
 	}
 
@@ -414,26 +414,26 @@ func (h *AppsHandler) UnpinAppVersion(w http.ResponseWriter, r *http.Request) {
 func (h *AppsHandler) GetExposedInfoField(w http.ResponseWriter, r *http.Request) {
 	instanceID := chi.URLParam(r, "instanceId")
 	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "instance ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
 		return
 	}
 
 	fieldName := chi.URLParam(r, "fieldName")
 	if fieldName == "" {
-		JSONError(w, http.StatusBadRequest, "field name is required")
+		JSONError(w, http.StatusBadRequest, "Please specify which field to read.")
 		return
 	}
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
 		slog.Warn("Exposed info: app not found", "instance_id", instanceID, "error", err)
-		JSONError(w, http.StatusNotFound, "App not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
 		return
 	}
 
 	value, ok := app.ExposedInfo[fieldName]
 	if !ok {
-		JSONError(w, http.StatusNotFound, "Exposed info field not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that field for the app.")
 		return
 	}
 

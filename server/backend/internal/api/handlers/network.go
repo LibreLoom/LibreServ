@@ -43,7 +43,7 @@ func (h *NetworkHandlers) WithACME(acme *ACMEHandler) *NetworkHandlers {
 func (h *NetworkHandlers) GetCaddyStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := h.caddyManager.GetStatus(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get caddy status")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the network status. Please try again.")
 		return
 	}
 
@@ -76,13 +76,13 @@ func detectExternalIP() string {
 func (h *NetworkHandlers) GetRoute(w http.ResponseWriter, r *http.Request) {
 	routeID := chi.URLParam(r, "routeID")
 	if routeID == "" {
-		JSONError(w, http.StatusBadRequest, "route ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a route.")
 		return
 	}
 
 	route, err := h.caddyManager.GetRoute(routeID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "route not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that route.")
 		return
 	}
 
@@ -94,16 +94,16 @@ func (h *NetworkHandlers) GetRoute(w http.ResponseWriter, r *http.Request) {
 func (h *NetworkHandlers) CheckRouteAvailability(w http.ResponseWriter, r *http.Request) {
 	if !h.checkLimiter.Allow() {
 		w.Header().Set("Retry-After", "1")
-		JSONError(w, http.StatusTooManyRequests, "slow down")
+		JSONError(w, http.StatusTooManyRequests, "You're doing that too quickly. Please wait a moment and try again.")
 		return
 	}
 	var req CheckRouteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	if req.Subdomain == "" {
-		JSONError(w, http.StatusBadRequest, "subdomain is required")
+		JSONError(w, http.StatusBadRequest, "Please enter a subdomain.")
 		return
 	}
 	available := h.caddyManager.IsDomainAvailable(req.Subdomain, req.Domain)
@@ -139,12 +139,12 @@ type CheckRouteRequest struct {
 func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	var req CreateRouteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.Subdomain == "" {
-		JSONError(w, http.StatusBadRequest, "subdomain is required")
+		JSONError(w, http.StatusBadRequest, "Please enter a subdomain.")
 		return
 	}
 
@@ -153,7 +153,7 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		if req.Domain != "" {
 			full = full + "." + req.Domain
 		}
-		JSONError(w, http.StatusConflict, "route already exists for "+full)
+		JSONError(w, http.StatusConflict, "A route for "+full+" already exists.")
 		return
 	}
 
@@ -171,13 +171,13 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if backend == "" {
-		JSONError(w, http.StatusBadRequest, "backend is required (provide backend or app_id with a resolvable backend)")
+		JSONError(w, http.StatusBadRequest, "Please choose an app or enter a destination address for this route.")
 		return
 	}
 
 	route, err := h.caddyManager.AddRoute(r.Context(), req.Subdomain, req.Domain, backend, req.AppID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to create route")
+		JSONError(w, http.StatusInternalServerError, "We couldn't create the route. Please try again.")
 		return
 	}
 
@@ -214,19 +214,19 @@ type UpdateRouteRequest struct {
 func (h *NetworkHandlers) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	routeID := chi.URLParam(r, "routeID")
 	if routeID == "" {
-		JSONError(w, http.StatusBadRequest, "route ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a route.")
 		return
 	}
 
 	var req UpdateRouteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	route, err := h.caddyManager.UpdateRoute(r.Context(), routeID, req.Backend, req.Enabled)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to update route")
+		JSONError(w, http.StatusInternalServerError, "We couldn't update the route. Please try again.")
 		return
 	}
 
@@ -238,12 +238,12 @@ func (h *NetworkHandlers) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 func (h *NetworkHandlers) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	routeID := chi.URLParam(r, "routeID")
 	if routeID == "" {
-		JSONError(w, http.StatusBadRequest, "route ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a route.")
 		return
 	}
 
 	if err := h.caddyManager.RemoveRoute(r.Context(), routeID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to delete route")
+		JSONError(w, http.StatusInternalServerError, "We couldn't delete the route. Please try again.")
 		return
 	}
 
@@ -258,7 +258,7 @@ func (h *NetworkHandlers) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 func (h *NetworkHandlers) GetCaddyfile(w http.ResponseWriter, r *http.Request) {
 	content, err := h.caddyManager.GetCaddyfileContent()
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get caddyfile")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the routing configuration. Please try again.")
 		return
 	}
 
@@ -277,12 +277,12 @@ type TestBackendRequest struct {
 func (h *NetworkHandlers) TestBackend(w http.ResponseWriter, r *http.Request) {
 	var req TestBackendRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.Backend == "" {
-		JSONError(w, http.StatusBadRequest, "backend URL is required")
+		JSONError(w, http.StatusBadRequest, "Please enter a destination address for the route.")
 		return
 	}
 
@@ -306,13 +306,13 @@ func (h *NetworkHandlers) TestBackend(w http.ResponseWriter, r *http.Request) {
 func (h *NetworkHandlers) GetRouteByApp(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		JSONError(w, http.StatusBadRequest, "app ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose an app.")
 		return
 	}
 
 	route, err := h.caddyManager.GetRouteByApp(appID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "route not found for app")
+		JSONError(w, http.StatusNotFound, "We couldn't find a route for that app.")
 		return
 	}
 
@@ -331,13 +331,13 @@ type ConfigureDomainRequest struct {
 func (h *NetworkHandlers) ConfigureDomain(w http.ResponseWriter, r *http.Request) {
 	var req ConfigureDomainRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	// Update Caddy manager with new defaults
 	if err := h.caddyManager.UpdateDefaults(req.DefaultDomain, req.SSLEmail, req.AutoHTTPS); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to update domain configuration")
+		JSONError(w, http.StatusInternalServerError, "We couldn't update the domain configuration. Please try again.")
 		return
 	}
 
@@ -428,7 +428,7 @@ func (h *NetworkHandlers) GetUPnPStatus(w http.ResponseWriter, r *http.Request) 
 // POST /api/v1/network/domain/disconnect
 func (h *NetworkHandlers) DisconnectDomain(w http.ResponseWriter, r *http.Request) {
 	if h.caddyManager == nil {
-		JSONError(w, http.StatusInternalServerError, "Caddy not configured")
+		JSONError(w, http.StatusInternalServerError, "Network routing isn't set up yet.")
 		return
 	}
 
@@ -443,7 +443,7 @@ func (h *NetworkHandlers) DisconnectDomain(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.caddyManager.UpdateDefaults("", cfg.Email, cfg.AutoHTTPS); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to disconnect domain")
+		JSONError(w, http.StatusInternalServerError, "We couldn't disconnect the domain. Please try again.")
 		return
 	}
 

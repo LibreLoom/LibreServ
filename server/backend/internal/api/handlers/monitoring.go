@@ -275,13 +275,13 @@ Please check your system as soon as possible.
 func (h *MonitoringHandlers) GetAppHealth(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		JSONError(w, http.StatusBadRequest, "app ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose an app.")
 		return
 	}
 
 	health, err := h.monitor.GetAppHealth(r.Context(), appID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to retrieve health status")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the health status. Please try again.")
 		return
 	}
 
@@ -293,7 +293,7 @@ func (h *MonitoringHandlers) GetAppHealth(w http.ResponseWriter, r *http.Request
 func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		JSONError(w, http.StatusBadRequest, "app ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose an app.")
 		return
 	}
 
@@ -317,14 +317,14 @@ func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Reques
 	metrics, err := h.monitor.GetAppMetrics(r.Context(), appID)
 	if err != nil {
 		if monitoring.IsRuntimeUnavailable(err) {
-			JSONError(w, http.StatusServiceUnavailable, "Container runtime is not available. Please check that Podman is installed and running.")
+			JSONError(w, http.StatusServiceUnavailable, "We can't check this app's status right now. Please try again, or ask an administrator to check the system.")
 			return
 		}
 		if monitoring.IsNoContainers(err) {
-			JSONError(w, http.StatusNotFound, "no containers found for app")
+			JSONError(w, http.StatusNotFound, "This app doesn't appear to be running.")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to retrieve metrics")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the metrics. Please try again.")
 		return
 	}
 
@@ -336,7 +336,7 @@ func (h *MonitoringHandlers) GetAppMetrics(w http.ResponseWriter, r *http.Reques
 func (h *MonitoringHandlers) GetMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		JSONError(w, http.StatusBadRequest, "app ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose an app.")
 		return
 	}
 
@@ -360,7 +360,7 @@ func (h *MonitoringHandlers) GetMetricsHistory(w http.ResponseWriter, r *http.Re
 
 	metrics, err := h.monitor.GetMetricsHistory(r.Context(), appID, since, limit)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to retrieve metrics history")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the metrics history. Please try again.")
 		return
 	}
 
@@ -389,13 +389,13 @@ type RegisterHealthCheckRequest struct {
 func (h *MonitoringHandlers) RegisterHealthCheck(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		JSONError(w, http.StatusBadRequest, "app ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose an app.")
 		return
 	}
 
 	var req RegisterHealthCheckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -411,10 +411,10 @@ func (h *MonitoringHandlers) RegisterHealthCheck(w http.ResponseWriter, r *http.
 
 	if err := h.monitor.RegisterApp(appID, config); err != nil {
 		if monitoring.IsRuntimeUnavailable(err) {
-			JSONError(w, http.StatusServiceUnavailable, "Container runtime is not available. Please check that Podman is installed and running.")
+			JSONError(w, http.StatusServiceUnavailable, "We can't check this app's status right now. Please try again, or ask an administrator to check the system.")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to register health checks")
+		JSONError(w, http.StatusInternalServerError, "We couldn't register the health checks. Please try again.")
 		return
 	}
 
@@ -430,7 +430,7 @@ func (h *MonitoringHandlers) RegisterHealthCheck(w http.ResponseWriter, r *http.
 func (h *MonitoringHandlers) UnregisterHealthCheck(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appID")
 	if appID == "" {
-		http.Error(w, "app ID required", http.StatusBadRequest)
+		http.Error(w, "Please choose an app.", http.StatusBadRequest)
 		return
 	}
 
@@ -814,7 +814,7 @@ func (h *MonitoringHandlers) CleanupMetrics(w http.ResponseWriter, r *http.Reque
 // POST /api/system/email/test { "to": "user@example.com" }
 func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Request) {
 	if h.mailer == nil {
-		JSONError(w, http.StatusInternalServerError, "mailer not configured")
+		JSONError(w, http.StatusInternalServerError, "Email isn't set up on this server yet.")
 		return
 	}
 	var body struct {
@@ -822,7 +822,7 @@ func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Reques
 		SMTP *config.SMTPConfig `json:"smtp,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.To == "" {
-		JSONError(w, http.StatusBadRequest, "to is required")
+		JSONError(w, http.StatusBadRequest, "Please provide a recipient email address.")
 		return
 	}
 	var mailer *email.Sender
@@ -833,11 +833,13 @@ func (h *MonitoringHandlers) SendTestEmail(w http.ResponseWriter, r *http.Reques
 		mailer, err = h.mailer()
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to set up SMTP: "+err.Error())
+		slog.Error("Failed to set up SMTP for test email", "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't send the test email. Please check your email settings and try again.")
 		return
 	}
 	if err := mailer.Send([]string{body.To}, "LibreServ SMTP Test", "This is a test email from LibreServ."); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to send email: "+err.Error())
+		slog.Error("Failed to send test email", "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't send the test email. Please check your email settings and try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{

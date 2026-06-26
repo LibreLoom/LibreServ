@@ -32,7 +32,7 @@ func (h *BackupHandlers) ListBackups(w http.ResponseWriter, r *http.Request) {
 
 	backups, err := h.backupService.ListBackups(r.Context(), appID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list backups")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your backups. Please try again.")
 		return
 	}
 
@@ -45,13 +45,13 @@ func (h *BackupHandlers) ListBackups(w http.ResponseWriter, r *http.Request) {
 func (h *BackupHandlers) GetBackup(w http.ResponseWriter, r *http.Request) {
 	backupID := chi.URLParam(r, "backupID")
 	if backupID == "" {
-		JSONError(w, http.StatusBadRequest, "backup ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup.")
 		return
 	}
 
 	backup, err := h.backupService.GetBackup(r.Context(), backupID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "backup not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that backup.")
 		return
 	}
 
@@ -66,12 +66,12 @@ type CreateBackupRequest struct {
 func (h *BackupHandlers) CreateBackup(w http.ResponseWriter, r *http.Request) {
 	var req CreateBackupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.AppID == "" {
-		JSONError(w, http.StatusBadRequest, "app_id is required")
+		JSONError(w, http.StatusBadRequest, "Please choose an app to back up.")
 		return
 	}
 
@@ -81,7 +81,7 @@ func (h *BackupHandlers) CreateBackup(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.backupService.BackupApp(r.Context(), req.AppID, opts)
 	if err != nil {
-		errMsg := "backup failed"
+		errMsg := "We couldn't complete the backup. Please try again."
 		if result != nil && result.Error != nil {
 			log.Printf("CreateBackup: failed for app %s: %s", req.AppID, result.Error)
 		} else {
@@ -107,7 +107,7 @@ type RestoreBackupRequest struct {
 func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 	backupID := chi.URLParam(r, "backupID")
 	if backupID == "" {
-		JSONError(w, http.StatusBadRequest, "backup ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup.")
 		return
 	}
 
@@ -128,7 +128,7 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.backupService.RestoreApp(r.Context(), backupID, req.TargetAppID, opts)
 	if err != nil {
-		errMsg := "restore failed"
+		errMsg := "We couldn't complete the restore. Please try again."
 		if result != nil && result.Error != nil {
 			log.Printf("RestoreBackup: failed for backup %s: %s", backupID, result.Error)
 		} else {
@@ -148,12 +148,12 @@ func (h *BackupHandlers) RestoreBackup(w http.ResponseWriter, r *http.Request) {
 func (h *BackupHandlers) DeleteBackup(w http.ResponseWriter, r *http.Request) {
 	backupID := chi.URLParam(r, "backupID")
 	if backupID == "" {
-		JSONError(w, http.StatusBadRequest, "backup ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup.")
 		return
 	}
 
 	if err := h.backupService.DeleteBackup(r.Context(), backupID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to delete backup")
+		JSONError(w, http.StatusInternalServerError, "We couldn't delete that backup. Please try again.")
 		return
 	}
 
@@ -166,21 +166,21 @@ func (h *BackupHandlers) DeleteBackup(w http.ResponseWriter, r *http.Request) {
 func (h *BackupHandlers) DownloadBackup(w http.ResponseWriter, r *http.Request) {
 	backupID := chi.URLParam(r, "backupID")
 	if backupID == "" {
-		JSONError(w, http.StatusBadRequest, "backup ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup.")
 		return
 	}
 
 	archivePath, cleanup, err := h.backupService.CreateDownloadArchive(r.Context(), backupID)
 	if err != nil {
 		log.Printf("DownloadBackup: %v", err)
-		JSONError(w, http.StatusInternalServerError, "failed to prepare backup for download")
+		JSONError(w, http.StatusInternalServerError, "We couldn't prepare the backup for download. Please try again.")
 		return
 	}
 	defer cleanup()
 
 	info, err := os.Stat(archivePath)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "backup archive not found")
+		JSONError(w, http.StatusInternalServerError, "We couldn't find the backup file.")
 		return
 	}
 
@@ -204,12 +204,12 @@ func (h *BackupHandlers) DownloadBackup(w http.ResponseWriter, r *http.Request) 
 func (h *BackupHandlers) CreateDatabaseBackup(w http.ResponseWriter, r *http.Request) {
 	backup, err := h.backupService.BackupDatabase(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to create database backup")
+		JSONError(w, http.StatusInternalServerError, "We couldn't create the database backup. Please try again.")
 		return
 	}
 
 	if _, err := os.Stat(backup.Path); os.IsNotExist(err) {
-		JSONError(w, http.StatusNotFound, "backup file not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that backup file.")
 		return
 	}
 
@@ -226,7 +226,7 @@ func (h *BackupHandlers) CreateDatabaseBackup(w http.ResponseWriter, r *http.Req
 func (h *BackupHandlers) ListDatabaseBackups(w http.ResponseWriter, r *http.Request) {
 	backups, err := h.backupService.ListDatabaseBackups(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list database backups")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the database backups. Please try again.")
 		return
 	}
 
@@ -243,20 +243,20 @@ type RestoreDatabaseBackupRequest struct {
 func (h *BackupHandlers) RestoreDatabaseBackup(w http.ResponseWriter, r *http.Request) {
 	backupID := chi.URLParam(r, "backupID")
 	if backupID == "" {
-		JSONError(w, http.StatusBadRequest, "backup ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup.")
 		return
 	}
 
 	req := RestoreDatabaseBackupRequest{VerifyChecksum: true}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	opts := storage.DatabaseRestoreOptions{VerifyChecksum: req.VerifyChecksum}
 
 	if err := h.backupService.RestoreDatabase(r.Context(), backupID, opts); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to restore database backup")
+		JSONError(w, http.StatusInternalServerError, "We couldn't restore the database backup. Please try again.")
 		return
 	}
 
@@ -268,27 +268,27 @@ func (h *BackupHandlers) RestoreDatabaseBackup(w http.ResponseWriter, r *http.Re
 
 func (h *BackupHandlers) UploadDatabaseBackup(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
-		JSONError(w, http.StatusBadRequest, "failed to parse upload")
+		JSONError(w, http.StatusBadRequest, "We couldn't read the uploaded file. Please check the format and try again.")
 		return
 	}
 
 	file, header, err := r.FormFile("backup")
 	if err != nil {
-		JSONError(w, http.StatusBadRequest, "no backup file provided")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup file to upload.")
 		return
 	}
 	defer file.Close()
 
 	filename := filepath.Base(header.Filename)
 	if filepath.Ext(filename) != ".gz" && filepath.Ext(filename) != ".db" {
-		JSONError(w, http.StatusBadRequest, "invalid database backup file (must be .gz or .db)")
+		JSONError(w, http.StatusBadRequest, "That file type isn't supported. Please upload a .gz or .db backup file.")
 		return
 	}
 
 	backup, err := h.backupService.StoreUploadedDatabaseBackup(r.Context(), filename, file, header.Size)
 	if err != nil {
 		log.Printf("UploadDatabaseBackup: failed to store: %v", err)
-		JSONError(w, http.StatusInternalServerError, "failed to store database backup")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save the database backup. Please try again.")
 		return
 	}
 
@@ -296,7 +296,7 @@ func (h *BackupHandlers) UploadDatabaseBackup(w http.ResponseWriter, r *http.Req
 		VerifyChecksum: true,
 	}); err != nil {
 		log.Printf("UploadDatabaseBackup: failed to restore: %v", err)
-		JSONError(w, http.StatusInternalServerError, "failed to restore database backup")
+		JSONError(w, http.StatusInternalServerError, "We couldn't restore the database backup. Please try again.")
 		return
 	}
 
@@ -308,7 +308,7 @@ func (h *BackupHandlers) UploadDatabaseBackup(w http.ResponseWriter, r *http.Req
 func (h *BackupHandlers) ListSchedules(w http.ResponseWriter, r *http.Request) {
 	schedules, err := h.backupService.ListSchedules(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list schedules")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your backup schedules. Please try again.")
 		return
 	}
 
@@ -321,13 +321,13 @@ func (h *BackupHandlers) ListSchedules(w http.ResponseWriter, r *http.Request) {
 func (h *BackupHandlers) GetSchedule(w http.ResponseWriter, r *http.Request) {
 	scheduleID := chi.URLParam(r, "scheduleID")
 	if scheduleID == "" {
-		JSONError(w, http.StatusBadRequest, "schedule ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup schedule.")
 		return
 	}
 
 	schedule, err := h.backupService.GetSchedule(r.Context(), scheduleID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "schedule not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that backup schedule.")
 		return
 	}
 
@@ -346,12 +346,12 @@ type CreateScheduleRequest struct {
 func (h *BackupHandlers) CreateSchedule(w http.ResponseWriter, r *http.Request) {
 	var req CreateScheduleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.CronExpr == "" {
-		JSONError(w, http.StatusBadRequest, "cron_expr is required")
+		JSONError(w, http.StatusBadRequest, "Please provide a schedule pattern for the backup.")
 		return
 	}
 
@@ -377,7 +377,7 @@ func (h *BackupHandlers) CreateSchedule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.backupService.CreateSchedule(r.Context(), schedule); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to create schedule")
+		JSONError(w, http.StatusInternalServerError, "We couldn't create the backup schedule. Please try again.")
 		return
 	}
 
@@ -394,19 +394,19 @@ type UpdateScheduleRequest struct {
 func (h *BackupHandlers) UpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	scheduleID := chi.URLParam(r, "scheduleID")
 	if scheduleID == "" {
-		JSONError(w, http.StatusBadRequest, "schedule ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup schedule.")
 		return
 	}
 
 	var req UpdateScheduleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	schedule, err := h.backupService.GetSchedule(r.Context(), scheduleID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "schedule not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that backup schedule.")
 		return
 	}
 
@@ -424,7 +424,7 @@ func (h *BackupHandlers) UpdateSchedule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.backupService.UpdateSchedule(r.Context(), schedule); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to update schedule")
+		JSONError(w, http.StatusInternalServerError, "We couldn't update the backup schedule. Please try again.")
 		return
 	}
 
@@ -434,12 +434,12 @@ func (h *BackupHandlers) UpdateSchedule(w http.ResponseWriter, r *http.Request) 
 func (h *BackupHandlers) DeleteSchedule(w http.ResponseWriter, r *http.Request) {
 	scheduleID := chi.URLParam(r, "scheduleID")
 	if scheduleID == "" {
-		JSONError(w, http.StatusBadRequest, "schedule ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup schedule.")
 		return
 	}
 
 	if err := h.backupService.DeleteSchedule(r.Context(), scheduleID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to delete schedule")
+		JSONError(w, http.StatusInternalServerError, "We couldn't delete the backup schedule. Please try again.")
 		return
 	}
 
@@ -452,7 +452,7 @@ func (h *BackupHandlers) DeleteSchedule(w http.ResponseWriter, r *http.Request) 
 func (h *BackupHandlers) ListRepositories(w http.ResponseWriter, r *http.Request) {
 	repos, err := h.backupService.ListRepositories(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list repositories")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your backup locations. Please try again.")
 		return
 	}
 
@@ -495,21 +495,21 @@ type CreateRepositoryRequest struct {
 func (h *BackupHandlers) CreateRepository(w http.ResponseWriter, r *http.Request) {
 	var req CreateRepositoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.RepoType == "" {
-		JSONError(w, http.StatusBadRequest, "repo_type is required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup location type.")
 		return
 	}
 	if req.RepoPath == "" {
-		JSONError(w, http.StatusBadRequest, "repo_path is required")
+		JSONError(w, http.StatusBadRequest, "Please enter a path for the backup location.")
 		return
 	}
 
 	if !h.backupService.UseRestic() {
-		JSONError(w, http.StatusPreconditionFailed, "restic is not available on this system")
+		JSONError(w, http.StatusPreconditionFailed, "Backup storage isn't ready yet. Please set up a backup location first.")
 		return
 	}
 
@@ -517,7 +517,7 @@ func (h *BackupHandlers) CreateRepository(w http.ResponseWriter, r *http.Request
 	if len(req.Credentials) > 0 {
 		creds, err := json.Marshal(req.Credentials)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to encode credentials")
+			JSONError(w, http.StatusInternalServerError, "We couldn't save the backup location credentials. Please try again.")
 			return
 		}
 		credsJSON = string(creds)
@@ -537,7 +537,7 @@ func (h *BackupHandlers) CreateRepository(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.backupService.CreateRepository(r.Context(), repo); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to create repository")
+		JSONError(w, http.StatusInternalServerError, "We couldn't create the backup location. Please try again.")
 		return
 	}
 
@@ -551,12 +551,12 @@ func (h *BackupHandlers) CreateRepository(w http.ResponseWriter, r *http.Request
 func (h *BackupHandlers) DeleteRepository(w http.ResponseWriter, r *http.Request) {
 	repoID := chi.URLParam(r, "repoID")
 	if repoID == "" {
-		JSONError(w, http.StatusBadRequest, "repository ID required")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup location.")
 		return
 	}
 
 	if err := h.backupService.DeleteRepository(r.Context(), repoID); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to delete repository")
+		JSONError(w, http.StatusInternalServerError, "We couldn't delete that backup location. Please try again.")
 		return
 	}
 
@@ -573,12 +573,12 @@ type TestRepositoryRequest struct {
 func (h *BackupHandlers) TestRepository(w http.ResponseWriter, r *http.Request) {
 	var req TestRepositoryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if !h.backupService.UseRestic() {
-		JSONError(w, http.StatusPreconditionFailed, "restic is not available on this system")
+		JSONError(w, http.StatusPreconditionFailed, "Backup storage isn't ready yet. Please set up a backup location first.")
 		return
 	}
 
@@ -638,13 +638,14 @@ func (h *BackupHandlers) ProvisionBackupTool(w http.ResponseWriter, r *http.Requ
 func (h *BackupHandlers) GetRepoStats(w http.ResponseWriter, r *http.Request) {
 	repoID := chi.URLParam(r, "repoID")
 	if repoID == "" {
-		JSONError(w, http.StatusBadRequest, "missing repo ID")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup location.")
 		return
 	}
 
 	stats, err := h.backupService.GetRepoStats(r.Context(), repoID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to get repo stats: %v", err))
+		log.Printf("GetRepoStats: failed for repo %s: %v", repoID, err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't load backup storage details. Please try again.")
 		return
 	}
 
@@ -654,7 +655,7 @@ func (h *BackupHandlers) GetRepoStats(w http.ResponseWriter, r *http.Request) {
 func (h *BackupHandlers) GetRepositoryRecoveryKey(w http.ResponseWriter, r *http.Request) {
 	repoID := chi.URLParam(r, "repoID")
 	if repoID == "" {
-		JSONError(w, http.StatusBadRequest, "Repository ID required.")
+		JSONError(w, http.StatusBadRequest, "Please choose a backup location.")
 		return
 	}
 

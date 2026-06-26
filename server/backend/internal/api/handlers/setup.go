@@ -868,11 +868,13 @@ func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to set up SMTP: "+err.Error())
+		slog.Error("Failed to set up SMTP for test email", "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't send the test email. Please check your email settings and try again.")
 		return
 	}
 	if err := mailer.Send([]string{body.To}, "LibreServ SMTP Test", "This is a test email from LibreServ."); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to send email: "+err.Error())
+		slog.Error("Failed to send test email", "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't send the test email. Please check your email settings and try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{
