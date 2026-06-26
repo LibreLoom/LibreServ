@@ -13,12 +13,12 @@ test:
 	@go test -v ./...
 
 fmt:
-	@gofmt -w ./...
+	@gofmt -w .
 
 fmt-check:
-	@if [ -n "$$(gofmt -l ./...)" ]; then \
+	@if [ -n "$$(gofmt -l .)" ]; then \
 		echo "Files need formatting:"; \
-		gofmt -l ./...; \
+		gofmt -l .; \
 		exit 1; \
 	fi
 

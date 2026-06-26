@@ -85,14 +85,14 @@ Examples:
 }
 
 func listTests() {
-	fmt.Println("Available Tests:\n")
+	fmt.Print("Available Tests:\n\n")
 	for _, t := range tui.GetAllTests() {
 		fmt.Printf("  %-20s %s (%s)\n", t.ID, t.Name, t.Type)
 	}
 }
 
 func listProfiles() {
-	fmt.Println("Available Profiles:\n")
+	fmt.Print("Available Profiles:\n\n")
 	for _, p := range tui.GetProfiles() {
 		fmt.Printf("  %-12s %s\n", p.Name, p.Description)
 		fmt.Printf("              Tests: %v\n\n", p.TestIDs)
