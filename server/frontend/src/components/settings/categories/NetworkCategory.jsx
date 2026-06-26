@@ -11,6 +11,7 @@ import RouteModal from "../RouteModal";
 
 
 import ValueDisplay from "../../common/ValueDisplay";
+import Dropdown from "../../common/Dropdown";
 import Button from "../../ui/Button";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
@@ -99,8 +100,8 @@ function IPMonitorCard({ ddns, index }) {
     }
   }, [addToast]);
 
-  const handleSetInterval = useCallback(async (e) => {
-    const minutes = parseInt(e.target.value, 10);
+  const handleSetInterval = useCallback(async (value) => {
+    const minutes = parseInt(value, 10);
     if (isNaN(minutes) || minutes < 1 || minutes > 60) return;
     try {
       await ddnsSetInterval(minutes);
@@ -134,15 +135,21 @@ function IPMonitorCard({ ddns, index }) {
         </div>
 
         <div className="flex items-center gap-3 pt-1">
-          <select
-            value={ddns.interval_minutes || 5}
+          <Dropdown
+            value={String(ddns.interval_minutes || 5)}
             onChange={handleSetInterval}
-            className="px-3 py-1.5 rounded-pill bg-primary/10 border border-primary/20 text-sm font-mono text-secondary focus:outline-none focus:ring-2 focus:ring-accent"
-          >
-            {[1, 2, 5, 10, 15, 30, 60].map((m) => (
-              <option key={m} value={m}>{m} min</option>
-            ))}
-          </select>
+            options={[
+              { value: "1", label: "1 min" },
+              { value: "2", label: "2 min" },
+              { value: "5", label: "5 min" },
+              { value: "10", label: "10 min" },
+              { value: "15", label: "15 min" },
+              { value: "30", label: "30 min" },
+              { value: "60", label: "60 min" },
+            ]}
+            width={80}
+            bg="primary"
+          />
           <span className="text-xs text-primary/50">Check interval</span>
 
           <Button variant="accent" onClick={handleForceUpdate} disabled={updating} className="ml-auto">
