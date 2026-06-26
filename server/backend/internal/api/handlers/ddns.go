@@ -64,7 +64,7 @@ func (h *DDNSHandler) ForceUpdate(w http.ResponseWriter, r *http.Request) {
 func (h *DDNSHandler) SetInterval(w http.ResponseWriter, r *http.Request) {
 	var req SetIntervalRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 

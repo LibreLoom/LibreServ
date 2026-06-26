@@ -27,7 +27,7 @@ type validateReq struct {
 func (h *SupportSessionValidationHandler) Validate(w http.ResponseWriter, r *http.Request) {
 	var req validateReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	if req.Code == "" || req.Token == "" {

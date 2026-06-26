@@ -56,7 +56,7 @@ func (h *ACMEHandler) ProbeDNS(w http.ResponseWriter, r *http.Request) {
 		Host string `json:"host"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Host == "" {
-		JSONError(w, http.StatusBadRequest, "host required")
+		JSONError(w, http.StatusBadRequest, "Please provide the domain you want to look up.")
 		return
 	}
 	res, err := network.ResolveHostname(r.Context(), body.Host, 3*time.Second)
@@ -74,7 +74,7 @@ func (h *ACMEHandler) ProbePorts(w http.ResponseWriter, r *http.Request) {
 		Ports []int  `json:"ports"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Host == "" || len(body.Ports) == 0 {
-		JSONError(w, http.StatusBadRequest, "host and ports required")
+		JSONError(w, http.StatusBadRequest, "Please provide the domain and the ports to check.")
 		return
 	}
 	results := make([]*network.ProbeResult, 0, len(body.Ports))
@@ -92,11 +92,11 @@ func (h *ACMEHandler) ProbePorts(w http.ResponseWriter, r *http.Request) {
 func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 	var body network.ACMERequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Domain == "" {
-		JSONError(w, http.StatusBadRequest, "domain required")
+		JSONError(w, http.StatusBadRequest, "Please provide the domain for the certificate.")
 		return
 	}
 	if h.manager == nil {
-		JSONError(w, http.StatusInternalServerError, "acme manager not configured")
+		JSONError(w, http.StatusInternalServerError, "We couldn't set up the certificate service. Please try again later.")
 		return
 	}
 	// Allow email to be omitted for external issuance when a default is configured.
@@ -106,11 +106,11 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if body.Email == "" {
-		JSONError(w, http.StatusBadRequest, "email required")
+		JSONError(w, http.StatusBadRequest, "Please provide an email address for the certificate request.")
 		return
 	}
 	if h.db == nil {
-		JSONError(w, http.StatusInternalServerError, "database not configured")
+		JSONError(w, http.StatusInternalServerError, "We couldn't reach the database. Please try again later.")
 		return
 	}
 	backend := h.resolveBackend(body)
@@ -213,17 +213,17 @@ func (h *ACMEHandler) EnqueueIssue(ctx context.Context, domain, email string) (s
 // GetJob handles GET /api/v1/network/acme/jobs/{jobID}
 func (h *ACMEHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	if h.db == nil {
-		JSONError(w, http.StatusInternalServerError, "database not configured")
+		JSONError(w, http.StatusInternalServerError, "We couldn't reach the database. Please try again later.")
 		return
 	}
 	id := chi.URLParam(r, "jobID")
 	if id == "" {
-		JSONError(w, http.StatusBadRequest, "job id required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which job. Please check the link and try again.")
 		return
 	}
 	job, err := network.GetACMEJobByID(r.Context(), h.db, id)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "job not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that certificate job. It may not exist yet.")
 		return
 	}
 	JSON(w, http.StatusOK, job)
@@ -232,17 +232,17 @@ func (h *ACMEHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 // GetStatus handles GET /api/v1/network/acme/status?domain=example.com
 func (h *ACMEHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	if h.db == nil {
-		JSONError(w, http.StatusInternalServerError, "database not configured")
+		JSONError(w, http.StatusInternalServerError, "We couldn't reach the database. Please try again later.")
 		return
 	}
 	domain := r.URL.Query().Get("domain")
 	if domain == "" {
-		JSONError(w, http.StatusBadRequest, "domain required")
+		JSONError(w, http.StatusBadRequest, "Please provide the domain to check the certificate status for.")
 		return
 	}
 	job, err := network.LatestACMEJobForDomain(r.Context(), h.db, domain)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "no acme job found for domain")
+		JSONError(w, http.StatusNotFound, "We couldn't find a certificate job for that domain. It may not have been requested yet.")
 		return
 	}
 	JSON(w, http.StatusOK, job)

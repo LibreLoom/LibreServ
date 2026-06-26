@@ -147,18 +147,18 @@ func (h *SettingsHandler) GetProxy(w http.ResponseWriter, r *http.Request) {
 func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if h.settingsService == nil {
-		JSONError(w, http.StatusInternalServerError, "settings service not available")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your settings right now. Please try again later.")
 		return
 	}
 
 	if err := h.settingsService.UpdateSettings(r.Context(), updates); err != nil {
 		slog.Error("Failed to update settings", "error", err)
-		JSONError(w, http.StatusBadRequest, "invalid settings")
+		JSONError(w, http.StatusBadRequest, "Those settings aren't valid. Please check them and try again.")
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *SettingsHandler) GetSecurity(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "authentication required")
+		JSONError(w, http.StatusUnauthorized, "Please log in to view your security settings.")
 		return
 	}
 
@@ -187,19 +187,19 @@ func (h *SettingsHandler) GetSecurity(w http.ResponseWriter, r *http.Request) {
 func (h *SettingsHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "authentication required")
+		JSONError(w, http.StatusUnauthorized, "Please log in to update your security settings.")
 		return
 	}
 
 	var req securitySettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	validFrequencies := map[string]bool{"instant": true, "normal": true, "digest": true}
 	if !validFrequencies[req.NotificationFrequency] {
-		JSONError(w, http.StatusBadRequest, "notification_frequency must be one of: instant, normal, digest")
+		JSONError(w, http.StatusBadRequest, "Notification frequency must be instant, normal, or digest.")
 		return
 	}
 
@@ -256,7 +256,7 @@ func (h *SettingsHandler) GetNotifications(w http.ResponseWriter, r *http.Reques
 func (h *SettingsHandler) UpdateNotifications(w http.ResponseWriter, r *http.Request) {
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -268,13 +268,13 @@ func (h *SettingsHandler) UpdateNotifications(w http.ResponseWriter, r *http.Req
 		filtered["notify"] = v
 	}
 	if len(filtered) == 0 {
-		JSONError(w, http.StatusBadRequest, "no notification settings provided")
+		JSONError(w, http.StatusBadRequest, "Please provide the notification settings you want to update.")
 		return
 	}
 
 	if err := h.settingsService.UpdateSettings(r.Context(), filtered); err != nil {
 		slog.Error("Failed to update notification settings", "error", err)
-		JSONError(w, http.StatusBadRequest, "invalid notification settings")
+		JSONError(w, http.StatusBadRequest, "Those notification settings aren't valid. Please check them and try again.")
 		return
 	}
 
@@ -297,7 +297,7 @@ func (h *SettingsHandler) PreviewTemplate(w http.ResponseWriter, r *http.Request
 		Data     map[string]string `json:"data"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Template == "" {
-		JSONError(w, http.StatusBadRequest, "template required")
+		JSONError(w, http.StatusBadRequest, "Please provide an email template to preview.")
 		return
 	}
 	body, err := email.RenderTemplate(req.Template, req.Data)
@@ -311,7 +311,7 @@ func (h *SettingsHandler) PreviewTemplate(w http.ResponseWriter, r *http.Request
 func (h *SettingsHandler) TestNotification(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
-		JSONError(w, http.StatusUnauthorized, "authentication required")
+		JSONError(w, http.StatusUnauthorized, "Please log in to send a test notification.")
 		return
 	}
 
@@ -365,7 +365,7 @@ func (h *SettingsHandler) TestNotification(w http.ResponseWriter, r *http.Reques
 func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 	var updates map[string]interface{}
 	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -387,20 +387,20 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 	if mode, ok := updates["mode"].(string); ok && mode != "" {
 		validModes := map[string]bool{"enabled": true, "disabled": true, "noop": true}
 		if !validModes[mode] {
-			JSONError(w, http.StatusBadRequest, "invalid mode: must be enabled, disabled, or noop")
+			JSONError(w, http.StatusBadRequest, "Proxy mode must be enabled, disabled, or noop.")
 			return
 		}
 	}
 
 	if autoHTTPS, ok := updates["auto_https"]; ok {
 		if _, ok := autoHTTPS.(bool); !ok {
-			JSONError(w, http.StatusBadRequest, "auto_https must be a boolean")
+			JSONError(w, http.StatusBadRequest, "The automatic HTTPS setting must be true or false.")
 			return
 		}
 	}
 
 	if h.settingsService == nil {
-		JSONError(w, http.StatusInternalServerError, "settings service not available")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your settings right now. Please try again later.")
 		return
 	}
 
@@ -408,7 +408,7 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 	proxyUpdates := map[string]interface{}{"proxy": updates}
 	if err := h.settingsService.UpdateSettings(r.Context(), proxyUpdates); err != nil {
 		slog.Error("Failed to update proxy settings", "error", err)
-		JSONError(w, http.StatusBadRequest, "invalid proxy settings")
+		JSONError(w, http.StatusBadRequest, "Those proxy settings aren't valid. Please check them and try again.")
 		return
 	}
 
@@ -492,7 +492,7 @@ func (h *SettingsHandler) SetModelSource(fn func(ctx context.Context) ([]agent.M
 
 func (h *SettingsHandler) GetAISupport(w http.ResponseWriter, r *http.Request) {
 	if h.settingsService == nil {
-		JSONError(w, http.StatusInternalServerError, "Settings service not available")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your AI support settings right now. Please try again later.")
 		return
 	}
 	result, err := h.settingsService.GetSettings(r.Context())

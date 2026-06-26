@@ -22,7 +22,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	var req auth.RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -46,14 +46,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	user, err := h.authService.Register(r.Context(), &req)
 	if err != nil {
 		if err == auth.ErrUserExists {
-			JSONError(w, http.StatusConflict, "username already exists")
+			JSONError(w, http.StatusConflict, "That username is already taken. Please choose another.")
 			return
 		}
 		if err == auth.ErrEmailExists {
-			JSONError(w, http.StatusConflict, "email already exists")
+			JSONError(w, http.StatusConflict, "That email address is already in use.")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "registration failed")
+		JSONError(w, http.StatusInternalServerError, "We couldn't create your account. Please try again.")
 		return
 	}
 

@@ -39,7 +39,7 @@ const maxFileSize = 2 * 1024 * 1024 // 2MB cap for safety
 func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 	var req fileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	session, policy, err := h.validateSessionAndPolicy(req.Code, req.Token)
@@ -103,7 +103,7 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 	var req fileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	session, policy, err := h.validateSessionAndPolicy(req.Code, req.Token)

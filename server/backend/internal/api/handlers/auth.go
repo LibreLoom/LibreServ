@@ -74,7 +74,7 @@ func NewAuthHandlerOld(authService *auth.Service, securityService *security.Serv
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req auth.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -189,7 +189,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -207,12 +207,12 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == auth.ErrInvalidToken || err == auth.ErrExpiredToken {
 			clearAuthCookies(w, r)
-			JSONError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+			JSONError(w, http.StatusUnauthorized, "Your session has expired. Please log in again.")
 			return
 		}
 		if err == auth.ErrTokenRevoked {
 			clearAuthCookies(w, r)
-			JSONError(w, http.StatusUnauthorized, "token revoked - please log in again")
+			JSONError(w, http.StatusUnauthorized, "Your session was ended. Please log in again.")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't refresh your session. Please try again.")
@@ -249,12 +249,12 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 	var req auth.ResetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if req.Email == "" {
-		JSONError(w, http.StatusBadRequest, "email is required")
+		JSONError(w, http.StatusBadRequest, "Please enter your email address.")
 		return
 	}
 
@@ -273,7 +273,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Request) {
 	var req auth.ResetConfirm
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -285,7 +285,7 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 	user, err := h.passwordResetService.ValidateToken(r.Context(), req.Token)
 	if err != nil {
 		slog.Warn("Password reset token validation failed", "error", err)
-		JSONError(w, http.StatusBadRequest, "invalid or expired token")
+		JSONError(w, http.StatusBadRequest, "That reset link is invalid or has expired. Please request a new one.")
 		return
 	}
 
@@ -320,13 +320,13 @@ func (h *AuthHandler) ValidateResetToken(w http.ResponseWriter, r *http.Request)
 	}
 	if r.Method == http.MethodPost {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
-			JSONError(w, http.StatusBadRequest, "token is required")
+			JSONError(w, http.StatusBadRequest, "Please provide the reset token from your email link.")
 			return
 		}
 	} else {
 		req.Token = r.URL.Query().Get("token")
 		if req.Token == "" {
-			JSONError(w, http.StatusBadRequest, "token is required")
+			JSONError(w, http.StatusBadRequest, "Please provide the reset token from your email link.")
 			return
 		}
 	}

@@ -48,7 +48,7 @@ func (h *SupportHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	var req createSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	for _, scope := range req.Scopes {

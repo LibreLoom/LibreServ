@@ -52,7 +52,7 @@ type CreateUserRequest struct {
 func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -83,11 +83,11 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if err == auth.ErrUserExists {
-			JSONError(w, http.StatusConflict, "username already exists")
+			JSONError(w, http.StatusConflict, "That username is already taken. Please choose another.")
 			return
 		}
 		if err == auth.ErrEmailExists {
-			JSONError(w, http.StatusConflict, "email already exists")
+			JSONError(w, http.StatusConflict, "That email address is already in use.")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't create that user. Please try again.")
@@ -113,13 +113,13 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 func (h *UsersHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "userID")
 	if userID == "" {
-		JSONError(w, http.StatusBadRequest, "user ID required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which user. Please refresh and try again.")
 		return
 	}
 
 	user, err := h.authService.GetUserByID(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "user not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that user. They may have been deleted.")
 		return
 	}
 	JSON(w, http.StatusOK, user.Sanitize())
@@ -135,13 +135,13 @@ type UpdateUserRequest struct {
 func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "userID")
 	if userID == "" {
-		JSONError(w, http.StatusBadRequest, "user ID required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which user. Please refresh and try again.")
 		return
 	}
 
 	var req UpdateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.authService.GetUserByID(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "user not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that user. They may have been deleted.")
 		return
 	}
 
@@ -187,17 +187,17 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "userID")
 	if userID == "" {
-		JSONError(w, http.StatusBadRequest, "user ID required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which user. Please refresh and try again.")
 		return
 	}
 
 	if err := h.authService.DeleteUser(r.Context(), userID); err != nil {
 		if err == auth.ErrUserNotFound {
-			JSONError(w, http.StatusNotFound, "user not found")
+			JSONError(w, http.StatusNotFound, "We couldn't find that user. They may have been deleted.")
 			return
 		}
 		if err == auth.ErrLastAdmin {
-			JSONError(w, http.StatusBadRequest, "cannot delete the last admin user")
+			JSONError(w, http.StatusBadRequest, "You can't delete the last administrator account. Make another user an admin first.")
 			return
 		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't delete that user. Please try again.")
@@ -208,9 +208,4 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		"message": "user deleted",
 		"user_id": userID,
 	})
-}
-
-// InviteUser is a placeholder for future invites
-func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
-	JSONError(w, http.StatusNotImplemented, "invites not implemented")
 }
