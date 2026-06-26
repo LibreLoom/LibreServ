@@ -36,12 +36,12 @@ func (h *TunnelHandler) Enable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.Enable(network.TunnelProviderType(req.Provider), req.Token); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to enable tunnel: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "We couldn't enable the tunnel. Please try again, or check your tunnel settings.")
 		return
 	}
 
 	if err := h.service.Start(r.Context()); err != nil {
-		JSONError(w, http.StatusInternalServerError, "tunnel enabled but failed to start: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "We turned on the tunnel but couldn't start it. Please try again, or check your tunnel settings.")
 		return
 	}
 
@@ -50,7 +50,7 @@ func (h *TunnelHandler) Enable(w http.ResponseWriter, r *http.Request) {
 
 func (h *TunnelHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.Disable(); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to disable tunnel: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "We couldn't disable the tunnel. Please try again.")
 		return
 	}
 

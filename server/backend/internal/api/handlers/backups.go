@@ -620,7 +620,7 @@ func (h *BackupHandlers) GetBackupCapabilities(w http.ResponseWriter, r *http.Re
 func (h *BackupHandlers) ProvisionBackupTool(w http.ResponseWriter, r *http.Request) {
 	available, err := h.backupService.ProvisionRestic()
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Failed to install advanced backup tool. Please try again later.")
+		JSONError(w, http.StatusInternalServerError, "We couldn't set up the backup tool. Please try again.")
 		return
 	}
 

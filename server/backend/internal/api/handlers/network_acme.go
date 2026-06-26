@@ -61,7 +61,7 @@ func (h *ACMEHandler) ProbeDNS(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := network.ResolveHostname(r.Context(), body.Host, 3*time.Second)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to resolve hostname")
+		JSONError(w, http.StatusInternalServerError, "We couldn't look up the address for that domain.")
 		return
 	}
 	JSON(w, http.StatusOK, res)
@@ -119,13 +119,13 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 		// Ensure a route exists for this domain (idempotent).
 		route, err := h.caddyManager.AddDomainRoute(r.Context(), body.Domain, backend, "acme-auto")
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to add route for domain")
+			JSONError(w, http.StatusInternalServerError, "We couldn't add the route for that domain. Please try again.")
 			return
 		}
 		routeID = route.ID
 		// Ensure config applied after route addition
 		if err := h.caddyManager.ApplyConfig(); err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to apply caddy config")
+			JSONError(w, http.StatusInternalServerError, "We couldn't apply your network settings. Please try again.")
 			return
 		}
 	}
@@ -134,7 +134,7 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 	if h.jobQueue != nil {
 		job, err := h.jobQueue.Enqueue(jobqueue.JobTypeIssuance, body.Domain, body.Email, routeID, jobqueue.PriorityNormal)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to enqueue acme job")
+			JSONError(w, http.StatusInternalServerError, "We couldn't start the certificate request. Please try again.")
 			return
 		}
 
@@ -150,7 +150,7 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 		// Legacy fallback: Create job directly in database
 		job, err := network.CreateACMEJob(r.Context(), h.db, body.Domain, body.Email, routeID)
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to create acme job")
+			JSONError(w, http.StatusInternalServerError, "We couldn't start the certificate request. Please try again.")
 			return
 		}
 

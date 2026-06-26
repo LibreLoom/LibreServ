@@ -24,12 +24,12 @@ func (h *NetworkProbeHandler) DNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := network.ValidateHost(host); err != nil {
-		JSONError(w, http.StatusBadRequest, "Invalid hostname: "+err.Error())
+		JSONError(w, http.StatusBadRequest, "Please enter a valid hostname.")
 		return
 	}
 	res, err := network.ResolveHostname(r.Context(), host, 3*time.Second)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to resolve hostname")
+		JSONError(w, http.StatusInternalServerError, "We couldn't look up the address for that domain.")
 		return
 	}
 	for _, ipStr := range append(res.ARecords, res.AAAARecords...) {
@@ -51,7 +51,7 @@ func (h *NetworkProbeHandler) ProbeTCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := network.ValidateHost(host); err != nil {
-		JSONError(w, http.StatusBadRequest, "Invalid hostname: "+err.Error())
+		JSONError(w, http.StatusBadRequest, "Please enter a valid hostname.")
 		return
 	}
 	port, err := strconv.Atoi(portStr)

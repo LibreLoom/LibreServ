@@ -61,7 +61,7 @@ func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if h.settingsService != nil {
 		result, err := h.settingsService.GetSettings(r.Context())
 		if err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to get settings")
+			JSONError(w, http.StatusInternalServerError, "We couldn't load your settings. Please try again.")
 			return
 		}
 		if smtp, ok := result["smtp"].(map[string]interface{}); ok && smtp != nil {
@@ -73,7 +73,7 @@ func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	cfg := config.Get()
 	if cfg == nil {
-		JSONError(w, http.StatusInternalServerError, "configuration not loaded")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your settings. Please try again.")
 		return
 	}
 
@@ -125,7 +125,7 @@ func (h *SettingsHandler) GetProxy(w http.ResponseWriter, r *http.Request) {
 	// Fallback to config
 	cfg := config.Get()
 	if cfg == nil {
-		JSONError(w, http.StatusInternalServerError, "configuration not loaded")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your settings. Please try again.")
 		return
 	}
 
@@ -178,7 +178,7 @@ func (h *SettingsHandler) GetSecurity(w http.ResponseWriter, r *http.Request) {
 
 	s, err := h.securityService.GetUserSettings(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get settings")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your security settings. Please try again.")
 		return
 	}
 	JSON(w, http.StatusOK, s)
@@ -215,7 +215,7 @@ func (h *SettingsHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.securityService.UpdateUserSettings(r.Context(), s); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to update settings")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your settings. Please try again.")
 		return
 	}
 
@@ -235,7 +235,7 @@ type securitySettingsRequest struct {
 func (h *SettingsHandler) GetNotifications(w http.ResponseWriter, r *http.Request) {
 	result, err := h.settingsService.GetSettings(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get settings")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your notification settings. Please try again.")
 		return
 	}
 
@@ -302,7 +302,7 @@ func (h *SettingsHandler) PreviewTemplate(w http.ResponseWriter, r *http.Request
 	}
 	body, err := email.RenderTemplate(req.Template, req.Data)
 	if err != nil {
-		JSONError(w, http.StatusBadRequest, "failed to render template")
+		JSONError(w, http.StatusBadRequest, "We couldn't prepare that preview. Please check the template and try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]string{"body": body})
@@ -331,7 +331,7 @@ func (h *SettingsHandler) TestNotification(w http.ResponseWriter, r *http.Reques
 
 	s, err := h.securityService.GetUserSettings(r.Context(), userID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get settings")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your notification settings. Please try again.")
 		return
 	}
 
@@ -352,7 +352,7 @@ func (h *SettingsHandler) TestNotification(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.securityService.RecordEvent(r.Context(), &testEvent); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to record test event")
+		JSONError(w, http.StatusInternalServerError, "We couldn't send the test notification. Please try again.")
 		return
 	}
 
@@ -372,14 +372,14 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 	// Validate inputs
 	if defaultDomain, ok := updates["default_domain"].(string); ok && defaultDomain != "" {
 		if err := validateDomain(defaultDomain); err != nil {
-			JSONError(w, http.StatusBadRequest, "invalid default_domain: "+err.Error())
+			JSONError(w, http.StatusBadRequest, "Please enter a valid default domain.")
 			return
 		}
 	}
 
 	if sslEmail, ok := updates["ssl_email"].(string); ok && sslEmail != "" {
 		if err := validateEmail(sslEmail); err != nil {
-			JSONError(w, http.StatusBadRequest, "invalid ssl_email: "+err.Error())
+			JSONError(w, http.StatusBadRequest, "Please enter a valid email address.")
 			return
 		}
 	}

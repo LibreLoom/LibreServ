@@ -90,7 +90,7 @@ func (h *SecurityHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.securityService.ListEvents(r.Context(), filter)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to list security events")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the security events. Please try again.")
 		return
 	}
 
@@ -106,7 +106,7 @@ func (h *SecurityHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 
 	stats, err := h.securityService.GetStats(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to get security stats")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the security summary. Please try again.")
 		return
 	}
 

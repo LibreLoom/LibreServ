@@ -54,7 +54,7 @@ func (h *DDNSHandler) ForceUpdate(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := h.service.UpdateDNS(ctx); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to update: "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "We couldn't update your dynamic DNS. Please try again.")
 		return
 	}
 

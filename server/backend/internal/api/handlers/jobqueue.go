@@ -84,7 +84,7 @@ func (h *JobQueueHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// Log detailed error internally, return generic message
 			h.logger.Error("failed to get jobs by status", "status", status, "error", err)
-			JSONError(w, http.StatusInternalServerError, "failed to retrieve jobs")
+			JSONError(w, http.StatusInternalServerError, "We couldn't load the background jobs. Please try again.")
 			return
 		}
 	} else if domain != "" {
@@ -94,7 +94,7 @@ func (h *JobQueueHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// Log detailed error internally, return generic message
 			h.logger.Error("failed to get latest job", "domain", domain, "error", err)
-			JSONError(w, http.StatusInternalServerError, "failed to retrieve job")
+			JSONError(w, http.StatusInternalServerError, "We couldn't load that job. Please try again.")
 			return
 		}
 		if jobInfo != nil {
@@ -109,7 +109,7 @@ func (h *JobQueueHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			// Log detailed error internally, return generic message
 			h.logger.Error("failed to get pending jobs", "error", err)
-			JSONError(w, http.StatusInternalServerError, "failed to retrieve jobs")
+			JSONError(w, http.StatusInternalServerError, "We couldn't load the background jobs. Please try again.")
 			return
 		}
 	}
@@ -144,7 +144,7 @@ func (h *JobQueueHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	// Type assert to *Job for response conversion
 	job, ok := jobInfo.(*jobqueue.Job)
 	if !ok {
-		JSONError(w, http.StatusInternalServerError, "invalid job type")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load that job. Please try again.")
 		return
 	}
 
@@ -156,7 +156,7 @@ func (h *JobQueueHandler) GetJobStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := h.queue.GetQueueStats()
 	if err != nil {
 		h.logger.Error("failed to get queue stats", "error", err)
-		JSONError(w, http.StatusInternalServerError, "failed to retrieve statistics")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the job statistics. Please try again.")
 		return
 	}
 
@@ -183,7 +183,7 @@ func (h *JobQueueHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 		// Log detailed error internally
 		h.logger.Error("failed to cancel job", "job_id", jobID, "error", err)
 		// Return sanitized error message to user
-		JSONError(w, http.StatusBadRequest, "failed to cancel job")
+		JSONError(w, http.StatusBadRequest, "We couldn't cancel that job. It may already be running or finished.")
 		return
 	}
 
@@ -198,7 +198,7 @@ func (h *JobQueueHandler) GetRunningJobs(w http.ResponseWriter, r *http.Request)
 	jobs, err := h.queue.GetRunningJobs()
 	if err != nil {
 		h.logger.Error("failed to get running jobs", "error", err)
-		JSONError(w, http.StatusInternalServerError, "failed to retrieve running jobs")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the running jobs. Please try again.")
 		return
 	}
 

@@ -134,7 +134,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "Unable to complete the command")
+		JSONError(w, http.StatusInternalServerError, "We couldn't run that command. Please try again.")
 		return
 	}
 

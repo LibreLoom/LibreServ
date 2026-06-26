@@ -27,7 +27,7 @@ func NewReposHandler(manager *apps.Manager, cfg *config.Config) *ReposHandler {
 func (h *ReposHandler) PullRepos(w http.ResponseWriter, r *http.Request) {
 	if err := h.manager.ForcePullRepos(r.Context()); err != nil {
 		slog.Error("Failed to pull repos", "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to pull repositories")
+		JSONError(w, http.StatusInternalServerError, "We couldn't refresh the app catalog. Please try again.")
 		return
 	}
 
@@ -92,7 +92,7 @@ func (h *ReposHandler) AddRepo(w http.ResponseWriter, r *http.Request) {
 
 	if err := config.SaveConfig(""); err != nil {
 		slog.Error("Failed to save config after adding repo", "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to save repository configuration")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save the repository settings. Please try again.")
 		return
 	}
 
@@ -122,7 +122,7 @@ func (h *ReposHandler) RemoveRepo(w http.ResponseWriter, r *http.Request) {
 
 	if err := config.SaveConfig(""); err != nil {
 		slog.Error("Failed to save config after removing repo", "error", err)
-		JSONError(w, http.StatusInternalServerError, "Failed to save repository configuration")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save the repository settings. Please try again.")
 		return
 	}
 

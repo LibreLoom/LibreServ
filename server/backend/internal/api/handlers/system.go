@@ -30,7 +30,7 @@ func (h *SystemHandler) CheckUpdates(w http.ResponseWriter, r *http.Request) {
 	forceRefresh := r.URL.Query().Get("force") == "true"
 	info, err := h.checker.CheckForUpdates(Version, forceRefresh)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to check for updates")
+		JSONError(w, http.StatusInternalServerError, "We couldn't check for updates. Please try again.")
 		return
 	}
 
@@ -43,7 +43,7 @@ func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "system.update", "", "libreserv", "failure", err.Error(), nil)
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to apply update")
+		JSONError(w, http.StatusInternalServerError, "We couldn't apply the update. Please try again.")
 		return
 	}
 

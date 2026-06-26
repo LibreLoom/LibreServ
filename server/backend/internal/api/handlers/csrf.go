@@ -29,7 +29,7 @@ func (h *CSRFHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := middleware.GenerateCSRF(h.secret, user.ID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to generate csrf token")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the page securely. Please refresh and try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]string{

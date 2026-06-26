@@ -107,7 +107,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusTooManyRequests, "Your account is temporarily locked. Please try again later.")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to process login request")
+		JSONError(w, http.StatusInternalServerError, "We couldn't sign you in. Please try again.")
 		return
 	}
 
@@ -128,7 +128,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// Set access token as HTTP-only cookie
 	refreshExpiresAt, err := h.authService.TokenExpiry(response.Tokens.RefreshToken)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to set refresh token")
+		JSONError(w, http.StatusInternalServerError, "We couldn't set up your session. Please try again.")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -215,13 +215,13 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusUnauthorized, "token revoked - please log in again")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to refresh token")
+		JSONError(w, http.StatusInternalServerError, "We couldn't refresh your session. Please try again.")
 		return
 	}
 
 	refreshExpiresAt, err := h.authService.TokenExpiry(tokens.RefreshToken)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to set refresh token")
+		JSONError(w, http.StatusInternalServerError, "We couldn't set up your session. Please try again.")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -260,7 +260,7 @@ func (h *AuthHandler) RequestPasswordReset(w http.ResponseWriter, r *http.Reques
 
 	if err := h.passwordResetService.RequestReset(r.Context(), req.Email); err != nil {
 		slog.Error("Password reset request failed", "email", req.Email, "error", err)
-		JSONError(w, http.StatusInternalServerError, "internal error")
+		JSONError(w, http.StatusInternalServerError, "We couldn't send the password reset request. Please try again later.")
 		return
 	}
 
@@ -291,7 +291,7 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 
 	if err := h.passwordResetService.ResetPassword(r.Context(), req.Token, req.NewPassword); err != nil {
 		slog.Error("Password reset failed", "error", err)
-		JSONError(w, http.StatusBadRequest, "failed to reset password")
+		JSONError(w, http.StatusBadRequest, "We couldn't reset that password. Check that the link is correct and hasn't expired.")
 		return
 	}
 
