@@ -124,7 +124,7 @@ func (h *SetupHandler) enableCaddy(ctx context.Context, domain, email string) er
 func (h *SetupHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to check setup status")
+		JSONError(w, http.StatusInternalServerError, "We couldn't check your setup status. Please try again.")
 		return
 	}
 
@@ -157,17 +157,17 @@ func (h *SetupHandler) ValidateCode(w http.ResponseWriter, r *http.Request) {
 		Code string `json:"code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	if req.Code == "" {
-		JSONError(w, http.StatusBadRequest, "setup code is required")
+		JSONError(w, http.StatusBadRequest, "Please enter your setup code.")
 		return
 	}
 
 	expected, err := h.setupService.SetupToken(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to check setup code")
+		JSONError(w, http.StatusInternalServerError, "We couldn't check your setup code. Please try again.")
 		return
 	}
 
@@ -189,17 +189,17 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your setup progress. Please try again.")
 		return
 	}
 	if state.Status == setup.StatusComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
 	if state.Status == setup.StatusPending {
 		if _, err := h.setupService.MarkInProgress(r.Context()); err != nil {
-			JSONError(w, http.StatusInternalServerError, "failed to start setup")
+			JSONError(w, http.StatusInternalServerError, "We couldn't start setup. Please try again.")
 			return
 		}
 	}
@@ -207,19 +207,19 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 	// First check if setup is already complete
 	isComplete, err := h.authService.IsSetupComplete(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to check setup status")
+		JSONError(w, http.StatusInternalServerError, "We couldn't check your setup status. Please try again.")
 		return
 	}
 
 	if isComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
 	// Parse request
 	var req auth.SetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
@@ -233,7 +233,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.authService.ValidatePassword(req.AdminPassword); err != nil {
-		JSONError(w, http.StatusBadRequest, "password does not meet requirements")
+		JSONError(w, http.StatusBadRequest, "Your password doesn't meet the requirements.")
 		return
 	}
 
@@ -241,10 +241,10 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 	user, err := h.authService.CompleteSetup(r.Context(), &req)
 	if err != nil {
 		if err == auth.ErrSetupAlreadyComplete {
-			JSONError(w, http.StatusForbidden, "setup has already been completed")
+			JSONError(w, http.StatusForbidden, "Setup is already complete.")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to complete setup")
+		JSONError(w, http.StatusInternalServerError, "We couldn't complete setup. Please try again.")
 		return
 	}
 
@@ -329,11 +329,11 @@ func (h *SetupHandler) sendWelcome(to, username string) {
 func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your setup progress. Please try again.")
 		return
 	}
 	if state.Status == setup.StatusComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
@@ -342,7 +342,7 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 
 	cfg := config.Get()
 	if cfg == nil {
-		JSONError(w, http.StatusInternalServerError, "configuration not loaded")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load the server configuration. Please try again later.")
 		return
 	}
 
@@ -525,11 +525,11 @@ func (h *SetupHandler) reconcileSetupState(ctx context.Context, state *setup.Sta
 func (h *SetupHandler) TestDNS(w http.ResponseWriter, r *http.Request) {
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your setup progress. Please try again.")
 		return
 	}
 	if state.Status == setup.StatusComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
@@ -539,7 +539,7 @@ func (h *SetupHandler) TestDNS(w http.ResponseWriter, r *http.Request) {
 		APIToken string `json:"api_token"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	if req.Provider == "" || req.Domain == "" || req.APIToken == "" {
@@ -547,12 +547,13 @@ func (h *SetupHandler) TestDNS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Provider != "cloudflare" {
-		JSONError(w, http.StatusBadRequest, "unsupported provider: "+req.Provider)
+		JSONError(w, http.StatusBadRequest, "That provider isn't supported: "+req.Provider)
 		return
 	}
 
 	if err := network.ValidateDomain(req.Domain); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid domain: "+err.Error())
+		slog.Warn("invalid domain during setup", "domain", req.Domain, "error", err)
+		JSONError(w, http.StatusBadRequest, "That domain isn't valid. Please check it and try again.")
 		return
 	}
 
@@ -586,7 +587,7 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	if req.Provider == "" || req.Domain == "" || req.APIToken == "" || req.Email == "" {
@@ -596,7 +597,7 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 
 	publicIP, err := network.DetectPublicIP(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to detect public IP")
+		JSONError(w, http.StatusInternalServerError, "We couldn't determine your server's public address. Please try again.")
 		return
 	}
 
@@ -608,13 +609,13 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.dnsProviderMgr.SaveConfig(r.Context(), cfg); err != nil {
 		slog.Error("Failed to save DNS config", "error", err)
-		JSONError(w, http.StatusInternalServerError, "failed to save DNS config")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your DNS settings. Please try again.")
 		return
 	}
 
 	if err := h.dnsProviderMgr.SetupWildcardDNS(r.Context(), cfg, publicIP); err != nil {
 		slog.Error("Failed to set up DNS records", "error", err)
-		JSONError(w, http.StatusInternalServerError, "failed to set up DNS records")
+		JSONError(w, http.StatusInternalServerError, "We couldn't set up your DNS records. Please try again.")
 		return
 	}
 
@@ -659,7 +660,7 @@ func (h *SetupHandler) ApplyDNS(w http.ResponseWriter, r *http.Request) {
 func (h *SetupHandler) GetDNSStatus(w http.ResponseWriter, r *http.Request) {
 	cfg, err := h.dnsProviderMgr.GetConfig(r.Context())
 	if err != nil || cfg == nil {
-		JSONError(w, http.StatusNotFound, "no DNS config found")
+		JSONError(w, http.StatusNotFound, "We couldn't find any DNS settings.")
 		return
 	}
 
@@ -701,11 +702,11 @@ const maxStepDataSize = 4096
 func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your setup progress. Please try again.")
 		return
 	}
 	if state.Status == setup.StatusComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
@@ -715,16 +716,16 @@ func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
 		StepData       map[string]interface{} `json:"step_data"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request body")
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 
 	if !setup.IsValidMainStep(req.CurrentStep) {
-		JSONError(w, http.StatusBadRequest, "invalid current_step: "+req.CurrentStep)
+		JSONError(w, http.StatusBadRequest, "That step isn't valid: "+req.CurrentStep)
 		return
 	}
 	if req.CurrentSubStep != "" && !setup.IsValidSubStep(req.CurrentSubStep) {
-		JSONError(w, http.StatusBadRequest, "invalid current_sub_step: "+req.CurrentSubStep)
+		JSONError(w, http.StatusBadRequest, "That sub-step isn't valid: "+req.CurrentSubStep)
 		return
 	}
 
@@ -732,17 +733,17 @@ func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
 		req.StepData = map[string]interface{}{}
 	}
 	if !setup.ValidateStepData(req.StepData) {
-		JSONError(w, http.StatusBadRequest, "step_data contains disallowed keys")
+		JSONError(w, http.StatusBadRequest, "Your progress data contains fields that aren't allowed.")
 		return
 	}
 
 	encoded, err := json.Marshal(req.StepData)
 	if err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid step_data")
+		JSONError(w, http.StatusBadRequest, "Your progress data isn't valid.")
 		return
 	}
 	if len(encoded) > maxStepDataSize {
-		JSONError(w, http.StatusBadRequest, "step_data too large")
+		JSONError(w, http.StatusBadRequest, "Your progress data is too large.")
 		return
 	}
 
@@ -751,7 +752,7 @@ func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
 		case string, bool, float64, int, int64, nil:
 		default:
 			if !isSimpleSlice(v) {
-				JSONError(w, http.StatusBadRequest, "step_data values must be strings, numbers, or booleans")
+				JSONError(w, http.StatusBadRequest, "Progress values must be text, numbers, or true/false.")
 				return
 			}
 		}
@@ -761,10 +762,10 @@ func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(err.Error(), "stale timestamp") {
 			slog.Warn("setup progress save rejected due to stale timestamp",
 				"step", req.CurrentStep, "sub_step", req.CurrentSubStep)
-			JSONError(w, http.StatusConflict, "progress was modified by another request, please retry")
+			JSONError(w, http.StatusConflict, "Your progress was changed by another action. Please try again.")
 			return
 		}
-		JSONError(w, http.StatusInternalServerError, "failed to save progress")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your progress. Please try again.")
 		return
 	}
 
@@ -774,16 +775,16 @@ func (h *SetupHandler) SaveProgress(w http.ResponseWriter, r *http.Request) {
 func (h *SetupHandler) ResetProgress(w http.ResponseWriter, r *http.Request) {
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your setup progress. Please try again.")
 		return
 	}
 	if state.Status == setup.StatusComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
 	if err := h.setupService.ResetProgress(r.Context()); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to reset progress")
+		JSONError(w, http.StatusInternalServerError, "We couldn't reset your progress. Please try again.")
 		return
 	}
 
@@ -810,11 +811,11 @@ func isSimpleSlice(v interface{}) bool {
 func (h *SetupHandler) SaveSMTP(w http.ResponseWriter, r *http.Request) {
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your setup progress. Please try again.")
 		return
 	}
 	if state.Status == setup.StatusComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
@@ -822,13 +823,13 @@ func (h *SetupHandler) SaveSMTP(w http.ResponseWriter, r *http.Request) {
 		SMTP map[string]interface{} `json:"smtp"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.SMTP) == 0 {
-		JSONError(w, http.StatusBadRequest, "smtp configuration required")
+		JSONError(w, http.StatusBadRequest, "Please provide your email (SMTP) settings.")
 		return
 	}
 
 	if err := h.settingsService.UpdateSettings(r.Context(), map[string]interface{}{"smtp": body.SMTP}); err != nil {
 		slog.Error("Failed to save SMTP settings during setup", "error", err)
-		JSONError(w, http.StatusInternalServerError, "failed to save SMTP settings")
+		JSONError(w, http.StatusInternalServerError, "We couldn't save your email settings. Please try again.")
 		return
 	}
 
@@ -840,11 +841,11 @@ func (h *SetupHandler) SaveSMTP(w http.ResponseWriter, r *http.Request) {
 func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
 	state, stateErr := h.setupService.Ensure(r.Context())
 	if stateErr != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your setup progress. Please try again.")
 		return
 	}
 	if state.Status == setup.StatusComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
@@ -853,7 +854,7 @@ func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
 		SMTP *config.SMTPConfig `json:"smtp,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.To == "" {
-		JSONError(w, http.StatusBadRequest, "to is required")
+		JSONError(w, http.StatusBadRequest, "Please provide a recipient email address.")
 		return
 	}
 
@@ -864,7 +865,7 @@ func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
 	} else if h.mailer != nil {
 		mailer, err = h.mailer()
 	} else {
-		JSONError(w, http.StatusInternalServerError, "no smtp configuration provided")
+		JSONError(w, http.StatusInternalServerError, "Please provide your email (SMTP) settings first.")
 		return
 	}
 	if err != nil {
@@ -888,16 +889,16 @@ func (h *SetupHandler) TestSMTP(w http.ResponseWriter, r *http.Request) {
 func (h *SetupHandler) FinalizeSetup(w http.ResponseWriter, r *http.Request) {
 	state, err := h.setupService.Ensure(r.Context())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to load setup state")
+		JSONError(w, http.StatusInternalServerError, "We couldn't load your setup progress. Please try again.")
 		return
 	}
 	if state.Status == setup.StatusComplete {
-		JSONError(w, http.StatusForbidden, "setup has already been completed")
+		JSONError(w, http.StatusForbidden, "Setup is already complete.")
 		return
 	}
 
 	if _, err := h.setupService.MarkComplete(r.Context()); err != nil {
-		JSONError(w, http.StatusInternalServerError, "failed to finalize setup")
+		JSONError(w, http.StatusInternalServerError, "We couldn't finish setup. Please try again.")
 		return
 	}
 
