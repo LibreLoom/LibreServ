@@ -2,8 +2,12 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
@@ -215,14 +219,18 @@ func (h *ValidationHandler) Process(ctx context.Context, job *jobqueue.Job, db *
 	return nil
 }
 
-// RevocationHandler handles certificate revocation jobs
+// RevocationHandler handles certificate revocation jobs.
+// It performs only local cleanup: removing on-disk certificate files and
+// regenerating Caddy configuration. Real Let's Encrypt revocation is out of
+// scope and is intentionally not attempted.
 type RevocationHandler struct {
-	manager *ACMEManager
+	manager      *ACMEManager
+	caddyManager *CaddyManager
 }
 
-// NewRevocationHandler creates a new revocation handler
-func NewRevocationHandler(manager *ACMEManager) *RevocationHandler {
-	return &RevocationHandler{manager: manager}
+// NewRevocationHandler creates a new revocation handler.
+func NewRevocationHandler(manager *ACMEManager, caddyManager *CaddyManager) *RevocationHandler {
+	return &RevocationHandler{manager: manager, caddyManager: caddyManager}
 }
 
 // Type returns the job type
@@ -235,7 +243,10 @@ func (h *RevocationHandler) MaxRetries() int {
 	return jobqueue.DefaultMaxRetriesRevocation
 }
 
-// Process executes a certificate revocation job
+// Process executes local cleanup for a certificate revocation job.
+// It removes on-disk certificate files for the domain and reloads Caddy
+// configuration so the domain is no longer served. Real Let's Encrypt
+// certificate revocation is intentionally not attempted.
 func (h *RevocationHandler) Process(ctx context.Context, job *jobqueue.Job, db *database.DB) error {
 	logger := slog.Default().With(
 		"component", "revocation_handler",
@@ -244,11 +255,79 @@ func (h *RevocationHandler) Process(ctx context.Context, job *jobqueue.Job, db *
 	)
 
 	job.AddLog("INFO", "Starting certificate revocation")
-	job.AddLog("WARN", "Certificate revocation not yet implemented via job queue")
-	job.AddLog("INFO", "Use Caddy admin API or external tools for revocation")
+	job.AddLog("INFO", "Remote ACME revocation is not performed; cleaning up local state")
 
-	// TODO: Implement actual revocation when ACME manager supports it
-	logger.Warn("certificate revocation not implemented", "domain", job.Domain)
+	if job.Domain == "" {
+		job.AddLog("WARN", "No domain specified for revocation; nothing to clean up")
+		logger.Warn("revocation job has no domain", "job_id", job.ID)
+		return nil
+	}
 
-	return fmt.Errorf("certificate revocation not yet implemented")
+	if h.caddyManager != nil {
+		if err := h.deleteLocalCerts(job); err != nil {
+			job.AddLog("WARN", fmt.Sprintf("Failed to remove local certificate files: %v", err))
+			logger.Warn("failed to remove local certificate files", "domain", job.Domain, "error", err)
+		} else {
+			job.AddLog("INFO", "Local certificate files removed")
+		}
+
+		job.AddLog("INFO", "Regenerating Caddy configuration")
+		if err := h.caddyManager.ApplyConfig(); err != nil {
+			job.AddLog("WARN", fmt.Sprintf("Failed to reload Caddy configuration: %v", err))
+			logger.Warn("failed to reload Caddy configuration", "domain", job.Domain, "error", err)
+		} else {
+			job.AddLog("INFO", "Caddy configuration reloaded")
+		}
+	} else {
+		job.AddLog("WARN", "Caddy manager not configured; skipping local cleanup")
+	}
+
+	logger.Info("certificate revocation local cleanup completed", "domain", job.Domain)
+	return nil
+}
+
+// deleteLocalCerts removes certificate files for job.Domain from the configured
+// certificates directory. It best-effort also removes a matching wildcard cert.
+func (h *RevocationHandler) deleteLocalCerts(job *jobqueue.Job) error {
+	certsPath := strings.TrimSpace(h.caddyManager.config.CertsPath)
+	if certsPath == "" {
+		return nil
+	}
+
+	domains := []string{job.Domain}
+	if parts := strings.SplitN(job.Domain, ".", 2); len(parts) == 2 {
+		domains = append(domains, "*."+parts[1])
+	}
+
+	var errs []error
+	for _, d := range domains {
+		dir := filepath.Join(certsPath, safeDomainDir(d))
+		certFile := filepath.Join(dir, "fullchain.pem")
+		keyFile := filepath.Join(dir, "privkey.pem")
+
+		domainErrs := 0
+		for _, f := range []string{certFile, keyFile} {
+			if _, err := os.Stat(f); err != nil {
+				if !os.IsNotExist(err) {
+					errs = append(errs, fmt.Errorf("stat %s: %w", f, err))
+					domainErrs++
+				}
+				continue
+			}
+			if err := os.Remove(f); err != nil {
+				errs = append(errs, fmt.Errorf("remove %s: %w", f, err))
+				domainErrs++
+			}
+		}
+		// Remove empty directory only if all of this domain's files were
+		// successfully processed (either removed or not present).
+		if domainErrs == 0 {
+			_ = os.Remove(dir)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("local cert cleanup errors: %w", errors.Join(errs...))
+	}
+	return nil
 }
