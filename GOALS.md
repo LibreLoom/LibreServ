@@ -80,7 +80,7 @@ Every goal below exists to keep this path smooth and safe for a non-technical us
 
 - [ ] `./ci run -profile full` gives a fast, trustworthy green/red signal (currently slow/unreliable)
 - [x] `make lint` (gofmt + go vet) passes clean on `main`
-- [ ] Plain-language rule enforced across API error messages, not just the UI
+- [x] Plain-language rule enforced across API error messages, not just the UI
 - [ ] End-to-end happy-path E2E covers the critical path (setup → login → install → backup → restore → uninstall)
 
 ---
