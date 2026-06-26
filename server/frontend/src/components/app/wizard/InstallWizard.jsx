@@ -11,9 +11,9 @@ import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
 
 /**
- * @param {{ appId: any }} _
+ * @param {{ appId: any, initialInstanceId?: string }} _
  */
-function InstallWizard({ appId }) {
+function InstallWizard({ appId, initialInstanceId }) {
   const navigate = useNavigate();
   const { request } = useAuth();
   const invalidateApps = useInvalidateApps();
@@ -67,6 +67,28 @@ function InstallWizard({ appId }) {
         setApp(appData);
         setFeatures(featuresData);
 
+        // If an initial instance ID was provided (e.g., user returned mid-install),
+        // restore the installation state and jump to the appropriate step.
+        if (initialInstanceId) {
+          try {
+            const instanceRes = await request(`/apps/${initialInstanceId}`);
+            if (instanceRes.ok) {
+              const instanceData = await instanceRes.json();
+              setInstance(instanceData);
+              setLoading(false);
+              if (instanceData.status === "running") {
+                setStep(completeStep);
+              } else if (instanceData.status === "installing") {
+                setStep(progressStep);
+              }
+              return;
+            }
+          } catch (err) {
+            console.error("Failed to resume installation:", err);
+            // Fall through to normal wizard startup.
+          }
+        }
+
         const defaultConfig = {};
         if (appData.configuration) {
           appData.configuration.forEach((field) => {
@@ -107,7 +129,7 @@ function InstallWizard({ appId }) {
     if (appId) {
       fetchData();
     }
-  }, [appId, request]);
+  }, [appId, request, initialInstanceId]);
 
   const handleStepChange = useCallback((newStep) => {
     const direction = newStep > prevStepRef.current ? "right" : "left";

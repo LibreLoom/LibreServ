@@ -278,9 +278,9 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
 
     return (
       <div className="space-y-5 text-center">
-        <XCircle className="mx-auto text-secondary" size={48} />
+        <XCircle className="mx-auto text-error" size={48} />
         <div className="space-y-3">
-          <h2 className="font-mono text-2xl font-normal text-secondary">
+          <h2 className="font-mono text-2xl font-normal text-error">
             Installation Failed
           </h2>
           <p className="text-secondary/80">{errorSummary}</p>
@@ -294,7 +294,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
             variant="ghost"
             size="sm"
             onClick={() => setDetailsOpen((open) => !open)}
-            className="border border-secondary/15 bg-primary/20 font-mono text-secondary hover:bg-secondary/10 hover:text-secondary"
+            className="border border-error/25 bg-error/10 font-mono text-error hover:bg-error/20"
             aria-expanded={detailsOpen}
             aria-controls="install-error-details"
           >
@@ -308,7 +308,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
             variant="ghost"
             size="sm"
             onClick={handleCopyError}
-            className="border border-secondary/15 bg-primary/20 font-mono text-secondary hover:bg-secondary/10 hover:text-secondary"
+            className="border border-error/25 bg-error/10 font-mono text-error hover:bg-error/20"
           >
             {copied ? (
               <>
@@ -333,12 +333,12 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               : "max-h-0 opacity-0 -translate-y-2 pointer-events-none"
           }`}
         >
-          <div className="rounded-card border border-secondary/10 bg-primary/20 p-4 text-left motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out">
-            <div className="mb-3 flex items-center justify-between gap-3 border-b border-secondary/10 pb-3">
-              <p className="font-mono text-sm text-secondary">Technical details</p>
-              <p className="text-xs text-secondary/50">Useful for debugging or support</p>
+          <div className="rounded-card border border-error/20 bg-error/10 p-4 text-left motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out">
+            <div className="mb-3 flex items-center justify-between gap-3 border-b border-error/10 pb-3">
+              <p className="font-mono text-sm text-error">Technical details</p>
+              <p className="text-xs text-error/70">Useful for debugging or support</p>
             </div>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-secondary/70">
+            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-error/80">
               {error}
             </pre>
           </div>
@@ -346,7 +346,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
 
         <button
           onClick={() => window.location.reload()}
-          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
+          className="px-6 py-2 rounded-pill bg-error text-secondary hover:bg-error/90 motion-safe:transition-all font-mono"
         >
           Try Again
         </button>

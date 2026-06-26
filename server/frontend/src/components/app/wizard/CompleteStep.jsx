@@ -5,10 +5,12 @@ import { useState } from "react";
 function CompleteStep({ app, instance, onDone }) {
   const [copied, setCopied] = useState(false);
 
-  const appUrl = instance?.url || instance?.backends?.[0]?.url || "";
-  const generatedPassword = instance?.config?.admin_password || instance?.config?._generated_password;
   const subdomain = instance?.subdomain;
   const domain = instance?.domain;
+  const publicUrl =
+    subdomain && domain ? `http://${subdomain}.${domain}` : "";
+  const appUrl = publicUrl || instance?.url || instance?.backends?.[0]?.url || "";
+  const generatedPassword = instance?.config?.admin_password || instance?.config?._generated_password;
 
   const handleCopy = (text) => {
     navigator.clipboard.writeText(text);

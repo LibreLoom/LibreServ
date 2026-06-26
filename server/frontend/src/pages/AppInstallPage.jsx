@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
-import { useParams, Navigate } from "react-router-dom";
+import { useParams, Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import HeaderCard from "../components/cards/HeaderCard";
 import InstallWizard from "../components/app/wizard/InstallWizard";
 
 export default function AppInstallPage() {
   const { appId } = useParams();
+  const [searchParams] = useSearchParams();
   const { request } = useAuth();
   const [app, setApp] = useState(null);
+  const initialInstanceId = searchParams.get("instance") || undefined;
 
   useEffect(() => {
     if (!appId) return;
@@ -39,7 +41,7 @@ export default function AppInstallPage() {
         title={app ? `Install ${app.name}` : "Install App"}
       />
       <div className="mt-8">
-        <InstallWizard appId={appId} />
+        <InstallWizard appId={appId} initialInstanceId={initialInstanceId} />
       </div>
     </main>
   );

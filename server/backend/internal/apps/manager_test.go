@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
 
 func TestScanInstalledApp(t *testing.T) {
@@ -287,4 +288,56 @@ func TestManager_ForcePullRepos_NoRepoSet(t *testing.T) {
 func TestManager_TriggerRepoPull_NoRepoSet(t *testing.T) {
 	m := &Manager{}
 	m.TriggerRepoPull(context.Background())
+}
+
+func TestManager_maybeSetPublicURL(t *testing.T) {
+	dbDir := t.TempDir()
+	dbPath := filepath.Join(dbDir, "test.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	configPath := filepath.Join(t.TempDir(), "Caddyfile")
+	cfg := network.CaddyConfig{
+		Mode:          "noop",
+		AdminAPI:      "",
+		ConfigPath:    configPath,
+		DefaultDomain: "example.com",
+		AutoHTTPS:     true,
+	}
+	cm := network.NewCaddyManager(db, cfg)
+	if err := cm.Initialize(context.Background()); err != nil {
+		t.Fatalf("initialize caddy manager: %v", err)
+	}
+
+	ctx := context.Background()
+	if _, err := cm.AddRoute(ctx, "app", "example.com", "http://localhost:8888", "inst1"); err != nil {
+		t.Fatalf("add route: %v", err)
+	}
+
+	m := &Manager{db: db, caddyManager: cm}
+	app := &InstalledApp{ID: "inst1", URL: "http://localhost:8888"}
+	m.maybeSetPublicURL(app)
+	if app.URL != "https://app.example.com" {
+		t.Fatalf("expected public https URL, got %s", app.URL)
+	}
+
+	app2 := &InstalledApp{ID: "no-route", URL: "http://localhost:8888"}
+	m.maybeSetPublicURL(app2)
+	if app2.URL != "http://localhost:8888" {
+		t.Fatalf("expected original localhost URL when no route, got %s", app2.URL)
+	}
+
+	// Disabled proxy should leave URL untouched.
+	cmDisabled := network.NewCaddyManager(db, network.CaddyConfig{Mode: "disabled", ConfigPath: configPath})
+	m2 := &Manager{db: db, caddyManager: cmDisabled}
+	app3 := &InstalledApp{ID: "inst1", URL: "http://localhost:8888"}
+	m2.maybeSetPublicURL(app3)
+	if app3.URL != "http://localhost:8888" {
+		t.Fatalf("expected original URL when proxy disabled, got %s", app3.URL)
+	}
 }

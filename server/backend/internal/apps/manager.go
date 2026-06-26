@@ -627,6 +627,7 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 			continue
 		}
 		app.Backends = m.listBackendRefs(app.ID)
+		m.maybeSetPublicURL(app)
 
 		// Populate exposed_info from catalog definition
 		if catalogApp, err := m.GetCatalog().GetApp(app.AppID); err == nil {
@@ -663,6 +664,7 @@ func (m *Manager) GetInstalledApp(ctx context.Context, instanceID string) (*Inst
 	}
 
 	app.Backends = m.listBackendRefs(app.ID)
+	m.maybeSetPublicURL(app)
 
 	catalogApp, err := m.GetCatalog().GetApp(app.AppID)
 	if err == nil {
@@ -1455,6 +1457,32 @@ func (m *Manager) listBackendRefs(appID string) []BackendRef {
 		}
 	}
 	return refs
+}
+
+// maybeSetPublicURL replaces a localhost-only app URL with the public route
+// URL when a Caddy route exists for the app. This ensures "Open App" links
+// in the UI point at the real domain instead of an internal port.
+func (m *Manager) maybeSetPublicURL(app *InstalledApp) {
+	if app == nil || m.caddyManager == nil {
+		return
+	}
+
+	cfg := m.caddyManager.Config()
+	if cfg.Mode == "disabled" {
+		return
+	}
+
+	route, err := m.caddyManager.GetRouteByApp(app.ID)
+	if err != nil || route == nil {
+		return
+	}
+
+	scheme := "http"
+	if cfg.AutoHTTPS {
+		scheme = "https"
+	}
+
+	app.URL = fmt.Sprintf("%s://%s", scheme, route.FullDomain())
 }
 
 // inferBackends attempts to derive reachable backend URLs for an installed app.
