@@ -130,10 +130,33 @@ support:
         # review_model: the AI model that reviews tool calls for safety.
         # If empty, the main_model is used for review as well.
         review_model: ""
+        # summary_model: an optional model that summarizes the session so the
+        # review model can judge tool calls with real context (what the user
+        # wants, what the agent has done, any user data involved). If empty, the
+        # reviewer gets a truncated transcript instead.
+        summary_model: ""
         review_enabled: true
         max_turns: 10
         turn_timeout: 5m
         system_plan_id: "basic"
+        # sandbox: the OS-level boundary that runs the agent's shell commands.
+        # The agent's bash tool never runs commands directly on the host — it
+        # runs them inside this sandbox, which shows the command a read-only view
+        # of the system and only lets it change the directories listed below.
+        # This is the real security boundary; the review model is advisory.
+        #   mode:     "auto" (use bubblewrap when available), "bwrap"
+        #            (require bubblewrap, refuse commands if missing), or "off"
+        #            (no sandbox — development only).
+        #   workdirs: directories the agent may write to. Everything else under /
+        #            is read-only inside the sandbox.
+        #   network: allow the agent's commands to reach the network (needed for
+        #            the Podman socket and installing packages).
+        sandbox:
+            mode: "auto"
+            workdirs:
+                - /var/lib/libreserv
+                - /var/log/libreserv
+            network: true
     # pricing: per-1M-token costs for models. Only models with entries here will
     # have accurate cost tracking. Models without pricing entries are tracked at $0 cost.
     # Add entries for any model your provider offers if you want cost visibility.

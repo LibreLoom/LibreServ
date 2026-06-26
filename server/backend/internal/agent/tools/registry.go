@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/sandbox"
 )
 
 // Tool is a callable function exposed to the agent.
@@ -75,10 +77,12 @@ func (r *Registry) ToolDefinitions() []map[string]interface{} {
 	return defs
 }
 
-// StandardRegistry returns a Registry with the four pi-style tools.
-func StandardRegistry() *Registry {
+// StandardRegistry returns a Registry with the four pi-style tools. The bash
+// tool runs commands through the provided sandbox, which supplies the OS-level
+// execution boundary; pass sandbox.New(cfg) (or a backend of your choice).
+func StandardRegistry(sb sandbox.Sandbox) *Registry {
 	r := newRegistry()
-	r.Register(BashTool())
+	r.Register(BashTool(sb))
 	r.Register(ReadTool())
 	r.Register(WriteTool())
 	r.Register(EditTool())

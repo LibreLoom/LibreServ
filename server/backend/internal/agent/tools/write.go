@@ -29,7 +29,16 @@ func WriteTool() *Tool {
 			"required": ["path", "content"]
 		}`),
 		AlwaysReview: true,
-		Execute:      executeWrite,
+		PathExtractor: func(args json.RawMessage) string {
+			var p struct {
+				Path string `json:"path"`
+			}
+			if err := json.Unmarshal(args, &p); err != nil {
+				return ""
+			}
+			return p.Path
+		},
+		Execute: executeWrite,
 	}
 }
 

@@ -34,7 +34,16 @@ func EditTool() *Tool {
 			"required": ["path", "old_text", "new_text"]
 		}`),
 		AlwaysReview: true,
-		Execute:      executeEdit,
+		PathExtractor: func(args json.RawMessage) string {
+			var p struct {
+				Path string `json:"path"`
+			}
+			if err := json.Unmarshal(args, &p); err != nil {
+				return ""
+			}
+			return p.Path
+		},
+		Execute: executeEdit,
 	}
 }
 

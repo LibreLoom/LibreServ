@@ -2,10 +2,16 @@ package tools
 
 import (
 	"testing"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/sandbox"
 )
 
+func testRegistry() *Registry {
+	return StandardRegistry(sandbox.New(sandbox.Config{Mode: string(sandbox.ModeOff)}))
+}
+
 func TestStandardRegistry(t *testing.T) {
-	r := StandardRegistry()
+	r := testRegistry()
 	if r == nil {
 		t.Fatal("StandardRegistry returned nil")
 	}
@@ -30,7 +36,7 @@ func TestStandardRegistry(t *testing.T) {
 }
 
 func TestToolDefinitions(t *testing.T) {
-	r := StandardRegistry()
+	r := testRegistry()
 	defs := r.ToolDefinitions()
 	if len(defs) != 4 {
 		t.Fatalf("ToolDefinitions() = %d, want 4", len(defs))
@@ -57,7 +63,7 @@ func TestToolDefinitions(t *testing.T) {
 }
 
 func TestToolClassification(t *testing.T) {
-	r := StandardRegistry()
+	r := testRegistry()
 
 	// bash, write, edit should always be reviewed.
 	for _, name := range []string{"bash", "write", "edit"} {
@@ -73,6 +79,18 @@ func TestToolClassification(t *testing.T) {
 		}
 	}
 
+	// read, write, edit must expose a path extractor so the loop's data-directory
+	// protection applies to every path-bearing tool, not just read.
+	for _, name := range []string{"read", "write", "edit"} {
+		tool, ok := r.Get(name)
+		if !ok {
+			t.Fatal("tool not found:", name)
+		}
+		if tool.PathExtractor == nil {
+			t.Errorf("%s.PathExtractor is nil; user-data protection would not apply", name)
+		}
+	}
+
 	// read should not always be reviewed (has special path checking).
 	readTool, ok := r.Get("read")
 	if !ok {
@@ -81,13 +99,10 @@ func TestToolClassification(t *testing.T) {
 	if readTool.AlwaysReview {
 		t.Error("read.AlwaysReview = true, want false")
 	}
-	if readTool.PathExtractor == nil {
-		t.Error("read.PathExtractor should be set for data-dir checking")
-	}
 }
 
 func TestReadToolPathExtractor(t *testing.T) {
-	r := StandardRegistry()
+	r := testRegistry()
 	readTool, ok := r.Get("read")
 	if !ok {
 		t.Fatal("read tool not found")

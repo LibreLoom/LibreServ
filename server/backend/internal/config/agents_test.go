@@ -112,3 +112,36 @@ func TestSupportConfigHasNoAgentsSlice(t *testing.T) {
 		t.Error("zero-value MainModel should be empty")
 	}
 }
+
+func TestAgentSandboxConfig(t *testing.T) {
+	cfg := AgentConfig{
+		Sandbox: SandboxConfig{
+			Mode:     "bwrap",
+			Workdirs: []string{"/var/lib/libreserv"},
+			Network:  true,
+		},
+	}
+	if cfg.Sandbox.Mode != "bwrap" {
+		t.Errorf("Sandbox.Mode = %q, want bwrap", cfg.Sandbox.Mode)
+	}
+	if len(cfg.Sandbox.Workdirs) != 1 {
+		t.Errorf("Sandbox.Workdirs len = %d, want 1", len(cfg.Sandbox.Workdirs))
+	}
+	if !cfg.Sandbox.Network {
+		t.Error("Sandbox.Network should be true")
+	}
+}
+
+func TestAgentSandboxConfigDefaults(t *testing.T) {
+	// Zero-value SandboxConfig: Mode empty (resolves to "auto" at runtime),
+	// Network false. The runtime default of Network=true is applied by viper
+	// SetDefault, not by the struct, so code-built configs default to isolated
+	// networking — the safer direction.
+	cfg := AgentConfig{}
+	if cfg.Sandbox.Mode != "" {
+		t.Errorf("zero-value Sandbox.Mode = %q, want empty", cfg.Sandbox.Mode)
+	}
+	if cfg.Sandbox.Network {
+		t.Error("zero-value Sandbox.Network should be false")
+	}
+}

@@ -161,8 +161,10 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 		}
 	}
 
-	// Use the standard pi-style tool set.
-	registry := tools.StandardRegistry()
+	// Use the standard pi-style tool set. The bash tool runs through the
+	// configured OS sandbox like the user-facing agent.
+	sb := NewSandbox(cfg.Support.Agent.Sandbox)
+	registry := tools.StandardRegistry(sb)
 
 	// Build the review model — self-healing uses it but auto-approves "review" verdicts.
 	var reviewModel *ReviewModel
@@ -189,12 +191,17 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 	loopConfig := LoopConfig{
 		MaxTurns:           maxTurns,
 		TurnTimeout:        2 * time.Minute,
-		PermissionMode:     "auto", // auto-approve user permission requests
+		PermissionMode:     "auto", // autonomous: review model decides allow/deny (no human to confirm)
 		MaxContextMessages: 30,
 		DataDirs:           cfg.Support.Agent.DataDirs,
 	}
 
 	loop := NewLoop(agentInst, registry, reviewModel, m.creditSvc, plan, loopConfig, cfg.Support.BillingMode, "system", convID)
+
+	// Give the reviewer session context if a summary model is configured.
+	if summaryModelID := cfg.Support.Agent.SummaryModel; summaryModelID != "" {
+		loop.SetSessionSummarizer(NewSessionSummarizer(m.provider, summaryModelID))
+	}
 
 	go func() {
 		eventsCh := loop.Events()

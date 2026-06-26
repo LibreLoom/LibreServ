@@ -300,8 +300,10 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		reviewModel = agent.NewReviewModel(provider, reviewModelID)
 	}
 
-	// Build the tool registry.
-	registry := tools.StandardRegistry()
+	// Build the tool registry. The bash tool runs commands through the
+	// configured OS sandbox rather than directly on the host.
+	sb := agent.NewSandbox(cfg.Support.Agent.Sandbox)
+	registry := tools.StandardRegistry(sb)
 
 	// Get plan and build loop config.
 	plan := h.checker.PlanForUser(r.Context(), userID)
@@ -329,6 +331,12 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	loop := agent.NewLoop(ag, registry, reviewModel, h.creditService, plan, loopConfig, cfg.Support.BillingMode, userID, convID)
+
+	// Optional: a dedicated model that summarizes the session so the review
+	// model can judge tool calls with real context. Unset = transcript fallback.
+	if summaryModelID := cfg.Support.Agent.SummaryModel; summaryModelID != "" {
+		loop.SetSessionSummarizer(agent.NewSessionSummarizer(provider, summaryModelID))
+	}
 
 	// Load conversation history.
 	history, _ := h.conversationStore.Messages(r.Context(), convID, 100, 0)

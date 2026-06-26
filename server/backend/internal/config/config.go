@@ -129,15 +129,36 @@ type SupportPlan struct {
 }
 
 // AgentConfig defines agent loop parameters.
+//
+// The Sandbox field controls the OS-level execution boundary for the bash tool.
+// See internal/agent/sandbox for the backends. When Sandbox.Mode is empty or
+// "auto", bubblewrap is used when available and the tool otherwise falls back to
+// unsandboxed execution (with a warning). Set Mode to "bwrap" to fail closed
+// when bubblewrap is missing, or "off" to disable the sandbox entirely.
 type AgentConfig struct {
 	MainModel     string        `mapstructure:"main_model" yaml:"main_model"`
 	ReviewModel   string        `mapstructure:"review_model" yaml:"review_model"`
+	SummaryModel  string        `mapstructure:"summary_model" yaml:"summary_model"`
 	ReviewEnabled bool          `mapstructure:"review_enabled" yaml:"review_enabled"`
 	SystemPrompt  string        `mapstructure:"system_prompt" yaml:"system_prompt"`
 	MaxTurns      int           `mapstructure:"max_turns" yaml:"max_turns"`
 	TurnTimeout   time.Duration `mapstructure:"turn_timeout" yaml:"turn_timeout"`
 	DataDirs      []string      `mapstructure:"data_dirs" yaml:"data_dirs"`
 	SystemPlanID  string        `mapstructure:"system_plan_id" yaml:"system_plan_id"`
+	Sandbox       SandboxConfig `mapstructure:"sandbox" yaml:"sandbox"`
+}
+
+// SandboxConfig configures the OS boundary that runs agent shell commands.
+type SandboxConfig struct {
+	// Mode selects the backend: "auto" (default), "bwrap", or "off".
+	Mode string `mapstructure:"mode" yaml:"mode"`
+	// Workdirs are absolute host directories the agent may write to. Everything
+	// else under / is mounted read-only inside the sandbox.
+	Workdirs []string `mapstructure:"workdirs" yaml:"workdirs"`
+	// Network controls outbound network egress from sandboxed commands. Defaults
+	// to true because the agent needs it to reach the Podman socket and install
+	// packages; set false to fully isolate networking.
+	Network bool `mapstructure:"network" yaml:"network"`
 }
 
 // RuntimeConfig defines container runtime connection settings.
@@ -341,6 +362,15 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("support.agent.review_enabled", true)
 	v.SetDefault("support.agent.system_plan_id", "basic")
 	v.SetDefault("support.agent.data_dirs", []string{"/var/lib/libreserv", "/etc/libreserv"})
+	// summary_model: optional model that summarizes the session so the review
+	// model can judge tool calls with real context. Empty = use a truncated
+	// transcript fallback (no extra LLM call).
+	v.SetDefault("support.agent.summary_model", "")
+	// Sandbox: bubblewrap when available, a writable set covering LibreServ data
+	// and logs, and network enabled (needed for the Podman socket + packages).
+	v.SetDefault("support.agent.sandbox.mode", "auto")
+	v.SetDefault("support.agent.sandbox.workdirs", []string{"/var/lib/libreserv", "/var/log/libreserv"})
+	v.SetDefault("support.agent.sandbox.network", true)
 
 	v.SetDefault("support.pricing.route/mimo-v2.5-pro.input_per_1m", 0.45)
 	v.SetDefault("support.pricing.route/mimo-v2.5-pro.output_per_1m", 1.00)

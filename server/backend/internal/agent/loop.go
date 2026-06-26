@@ -53,6 +53,7 @@ type Loop struct {
 	agent       *Agent
 	registry    *tools.Registry
 	reviewModel *ReviewModel
+	summarizer  *SessionSummarizer
 	credits     *subscription.CreditService
 	plan        *subscription.Plan
 	config      LoopConfig
@@ -63,6 +64,11 @@ type Loop struct {
 	userID      string
 	convID      string
 	userRequest string // original user message, used in review context
+
+	// Per-turn cached session summary for the review model, so multiple tool
+	// calls in one turn share one summary call.
+	cachedSummary  string
+	summaryForTurn int
 
 	events   chan Event
 	stopCh   chan struct{}
@@ -98,6 +104,14 @@ func NewLoop(agent *Agent, registry *tools.Registry, reviewModel *ReviewModel, c
 		consumerReady: make(chan struct{}),
 		pendingPerm:   make(map[string]chan bool),
 	}
+}
+
+// SetSessionSummarizer attaches an optional session-summary model. When set,
+// the review model receives an LLM-generated summary of the session instead of
+// a raw truncated transcript, so it can judge tool calls with real context.
+// Unset (the default), the loop falls back to the transcript summary.
+func (l *Loop) SetSessionSummarizer(s *SessionSummarizer) {
+	l.summarizer = s
 }
 
 // Events returns the event stream channel.
@@ -304,60 +318,71 @@ func (l *Loop) processToolCalls(ctx context.Context, resp *AgentResponse) bool {
 	return false
 }
 
+// recordToolDenial appends a tool result that explains why a call was blocked
+// and emits the matching tool_result event. Every denial path uses this so the
+// agent always learns why its tool call did not run (and the tool-call protocol
+// stays balanced: every tool_call receives a tool result, which the provider
+// requires for the next turn).
+func (l *Loop) recordToolDenial(tc AgentToolCall, content string) {
+	l.messages = append(l.messages, Message{
+		Role:       RoleTool,
+		ToolCallID: tc.ID,
+		Content:    content,
+	})
+	l.emit(Event{Type: EventToolResult, Data: ToolResultData{
+		ID: tc.ID, Content: content, IsError: true,
+	}})
+}
+
 // executeWithReview runs a single tool call through the review/permission pipeline.
 // Returns (executed, denied). denied=true means the tool call was blocked by review or user.
 func (l *Loop) executeWithReview(ctx context.Context, tool *tools.Tool, tc AgentToolCall) (executed, denied bool) {
-	// 1. AlwaysRequirePermission: skip review, ask user directly.
+	autoMode := l.config.PermissionMode == "auto"
+
+	// 1. AlwaysRequirePermission: skip review, ask user directly. In autonomous
+	//    mode there is no user to ask, so these tools cannot run.
 	if tool.AlwaysRequirePermission {
 		approved := l.requestUserPermission(ctx, tc.ID, tc.Name, tool.Description)
 		if !approved {
-			l.messages = append(l.messages, Message{
-				Role:       RoleTool,
-				ToolCallID: tc.ID,
-				Content:    "user denied permission",
-			})
-			l.emit(Event{Type: EventToolResult, Data: ToolResultData{
-				ID: tc.ID, Content: "Permission denied by user.", IsError: true,
-			}})
+			l.recordToolDenial(tc, "Permission denied: this action requires user approval, which is not available right now.")
 			return false, true
 		}
 		return l.executeTool(ctx, tc, tool)
 	}
 
-	// 2. Read tool with data-dir check: if path touches a data dir, ask user.
-	if tc.Name == "read" && tool.PathExtractor != nil {
+	// 2. User-data protection: any path-bearing tool (read/write/edit) touching a
+	//    protected data directory always requires explicit user approval. This is
+	//    a hard rule — it never goes to the review model and is never auto-allowed
+	//    — because user data (app data, backups, databases, personal files) must
+	//    always be confirmed. In autonomous mode (no user available) this blocks
+	//    the call rather than running it.
+	if tool.PathExtractor != nil {
 		path := tool.PathExtractor(tc.Arguments)
 		if path != "" && l.isDataDir(path) {
 			reason := fmt.Sprintf(
-				"The agent wants to read %s, which is in a protected data directory. This may contain private information like passwords or configuration secrets.",
-				path,
+				"The agent wants to %s %s, which is in a protected data directory. This may contain private information like passwords, configuration secrets, or your personal files.",
+				tc.Name, path,
 			)
 			approved := l.requestUserPermissionWithReason(ctx, tc.ID, tc.Name, reason)
 			if !approved {
-				l.messages = append(l.messages, Message{
-					Role:       RoleTool,
-					ToolCallID: tc.ID,
-					Content:    "user denied permission to read from data directory",
-				})
-				l.emit(Event{Type: EventToolResult, Data: ToolResultData{
-					ID: tc.ID, Content: "Permission denied by user.", IsError: true,
-				}})
+				l.recordToolDenial(tc, "Permission denied: accessing a protected data directory requires your approval.")
 				return false, true
 			}
 			return l.executeTool(ctx, tc, tool)
 		}
-		// Safe path: auto-execute.
-		return l.executeTool(ctx, tc, tool)
+		// Non-data-dir paths fall through: read auto-executes (step 4),
+		// write/edit go through the review model (step 3).
 	}
 
 	// 3. AlwaysReview or no special flags: pass through review model.
 	if tool.AlwaysReview {
-		contextSummary := l.buildContextSummary()
-		result, err := l.reviewModel.Review(ctx, l.userRequest, tc.Name, tc.Arguments, contextSummary)
+		contextSummary := l.reviewContextFor(ctx)
+		result, err := l.reviewModel.Review(ctx, l.userRequest, tc.Name, tc.Arguments, contextSummary, autoMode)
 		if err != nil {
 			// Review model failed — default to "review" (ask user) for safety.
 			approved := l.requestUserPermission(ctx, tc.ID, tc.Name, tool.Description)
 			if !approved {
+				l.recordToolDenial(tc, "Permission denied: the safety review could not be completed, so the action was not run.")
 				return false, true
 			}
 			return l.executeTool(ctx, tc, tool)
@@ -372,19 +397,13 @@ func (l *Loop) executeWithReview(ctx context.Context, tool *tools.Tool, tc Agent
 
 		switch result.Verdict {
 		case ReviewDeny:
-			l.messages = append(l.messages, Message{
-				Role:       RoleTool,
-				ToolCallID: tc.ID,
-				Content:    fmt.Sprintf("blocked by safety review: %s", result.Reason),
-			})
-			l.emit(Event{Type: EventToolResult, Data: ToolResultData{
-				ID: tc.ID, Content: fmt.Sprintf("Blocked: %s", result.Reason), IsError: true,
-			}})
+			l.recordToolDenial(tc, fmt.Sprintf("Blocked by safety review: %s", result.Reason))
 			return false, true
 
 		case ReviewReview:
 			approved := l.requestUserPermissionWithReason(ctx, tc.ID, tc.Name, result.Reason)
 			if !approved {
+				l.recordToolDenial(tc, fmt.Sprintf("Permission denied by user. Safety review note: %s", result.Reason))
 				return false, true
 			}
 			return l.executeTool(ctx, tc, tool)
@@ -426,9 +445,14 @@ func (l *Loop) requestUserPermission(ctx context.Context, id, toolName, reason s
 }
 
 // requestUserPermissionWithReason asks for user permission with a specific reason.
+// In autonomous mode (auto) there is no human watching to confirm actions, so this
+// returns false immediately rather than blocking until timeout — the review
+// model is expected to have already decided allow/deny (auto mode removes the
+// "review" option), so reaching this path at all means an action could not be
+// confirmed and must not run.
 func (l *Loop) requestUserPermissionWithReason(ctx context.Context, id, toolName, reason string) bool {
 	if l.config.PermissionMode == "auto" {
-		return true
+		return false
 	}
 
 	permCh := make(chan bool, 1)
@@ -471,6 +495,28 @@ func (l *Loop) buildMessages() []Message {
 	msgs := make([]Message, len(l.messages))
 	copy(msgs, l.messages)
 	return msgs
+}
+
+// reviewContextFor returns the session context to hand the review model for
+// the current turn. When a session summarizer is configured it uses an
+// LLM-generated summary (computed once per turn and cached so multiple tool
+// calls in a turn share one summary call); otherwise it falls back to a
+// truncated transcript. A failed summary call also falls back to the transcript
+// rather than blocking the review.
+func (l *Loop) reviewContextFor(ctx context.Context) string {
+	if l.summarizer != nil && l.summarizer.Available() && l.summaryForTurn != l.turnCount {
+		summary, err := l.summarizer.Summarize(ctx, l.messages)
+		// Mark the turn as attempted either way so we don't retry on every tool
+		// call in the same turn if the model is failing.
+		l.summaryForTurn = l.turnCount
+		if err == nil && strings.TrimSpace(summary) != "" {
+			l.cachedSummary = summary
+		}
+	}
+	if l.cachedSummary != "" && l.summaryForTurn == l.turnCount {
+		return l.cachedSummary
+	}
+	return l.buildContextSummary()
 }
 
 // buildContextSummary creates a brief summary of the conversation for the review model.
