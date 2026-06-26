@@ -79,7 +79,7 @@ Every goal below exists to keep this path smooth and safe for a non-technical us
 *Must be true before we ask non-technical people to trust this with their data.*
 
 - [ ] `./ci run -profile full` gives a fast, trustworthy green/red signal (currently slow/unreliable)
-- [ ] `make lint` (gofmt + go vet) passes clean on `main`
+- [x] `make lint` (gofmt + go vet) passes clean on `main`
 - [ ] Plain-language rule enforced across API error messages, not just the UI
 - [ ] End-to-end happy-path E2E covers the critical path (setup → login → install → backup → restore → uninstall)
 
@@ -103,5 +103,3 @@ checkboxes.
 
 If a box here disagrees with the code, **the code wins** — fix the box. This file is
 maintained by hand and will drift; treat it as a map, not the territory.
-`AUDIT-FINDINGS.unverified.md` is a separate, unverified triage scratch file — don't
-confuse the two.
