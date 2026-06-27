@@ -34,11 +34,7 @@ type testEnv struct {
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	origCfg := config.Get()
-	config.SetTestConfig(&config.Config{
-		Auth: config.AuthConfig{
-			AllowRegistration: true,
-		},
-	})
+	config.SetTestConfig(&config.Config{Auth: config.AuthConfig{}})
 	t.Cleanup(func() {
 		config.SetTestConfig(origCfg)
 	})
@@ -240,25 +236,22 @@ func TestFullUserFlow(t *testing.T) {
 		}
 	})
 
-	// Step 7: Register a second user
+	// Step 7: Create a second user (public self-registration is gone; use the service)
 	t.Run("register_second_user", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		body := `{"username":"alice","password":"AnotherStrong123","email":"alice@example.com"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
-		env.authH.Register(rec, req.WithContext(env.ctx))
-		if rec.Code != http.StatusCreated {
-			t.Fatalf("register status %d, body: %s", rec.Code, rec.Body.String())
+		if _, err := env.authSvc.Register(env.ctx, &auth.RegisterRequest{
+			Username: "alice", Password: "AnotherStrong123", Email: "alice@example.com",
+		}); err != nil {
+			t.Fatalf("register alice: %v", err)
 		}
 	})
 
-	// Step 8: Cannot register duplicate user
+	// Step 8: Cannot create a duplicate user
 	t.Run("register_duplicate", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		body := `{"username":"alice","password":"AnotherStrong123","email":"alice2@example.com"}`
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
-		env.authH.Register(rec, req.WithContext(env.ctx))
-		if rec.Code != http.StatusConflict {
-			t.Fatalf("expected 409, got %d", rec.Code)
+		_, err := env.authSvc.Register(env.ctx, &auth.RegisterRequest{
+			Username: "alice", Password: "AnotherStrong123", Email: "alice2@example.com",
+		})
+		if err != auth.ErrUserExists {
+			t.Fatalf("expected ErrUserExists, got %v", err)
 		}
 	})
 
