@@ -20,7 +20,7 @@ func NewNetworkProbeHandler() *NetworkProbeHandler { return &NetworkProbeHandler
 func (h *NetworkProbeHandler) DNS(w http.ResponseWriter, r *http.Request) {
 	host := r.URL.Query().Get("host")
 	if host == "" {
-		JSONError(w, http.StatusBadRequest, "host required")
+		JSONError(w, http.StatusBadRequest, "Please provide the host to check.")
 		return
 	}
 	if err := network.ValidateHost(host); err != nil {
@@ -35,7 +35,7 @@ func (h *NetworkProbeHandler) DNS(w http.ResponseWriter, r *http.Request) {
 	for _, ipStr := range append(res.ARecords, res.AAAARecords...) {
 		if ip := net.ParseIP(ipStr); ip != nil && network.IsBlockedIP(ip) {
 			slog.Warn("Network probe target resolved to blocked IP", "host", host, "ip", ipStr)
-			JSONError(w, http.StatusBadRequest, "resolved IP is not allowed")
+			JSONError(w, http.StatusBadRequest, "That IP address isn't allowed.")
 			return
 		}
 	}
@@ -47,7 +47,7 @@ func (h *NetworkProbeHandler) ProbeTCP(w http.ResponseWriter, r *http.Request) {
 	host := r.URL.Query().Get("host")
 	portStr := r.URL.Query().Get("port")
 	if host == "" || portStr == "" {
-		JSONError(w, http.StatusBadRequest, "host and port required")
+		JSONError(w, http.StatusBadRequest, "Please provide the host and port to check.")
 		return
 	}
 	if err := network.ValidateHost(host); err != nil {
@@ -56,7 +56,7 @@ func (h *NetworkProbeHandler) ProbeTCP(w http.ResponseWriter, r *http.Request) {
 	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port <= 0 || port > 65535 {
-		JSONError(w, http.StatusBadRequest, "invalid port")
+		JSONError(w, http.StatusBadRequest, "Please provide a valid port number.")
 		return
 	}
 
@@ -65,7 +65,7 @@ func (h *NetworkProbeHandler) ProbeTCP(w http.ResponseWriter, r *http.Request) {
 		for _, ipAddr := range ips {
 			if network.IsBlockedIP(ipAddr.IP) {
 				slog.Warn("Network TCP probe target resolved to blocked IP", "host", host, "ip", ipAddr.IP.String())
-				JSONError(w, http.StatusBadRequest, "resolved IP is not allowed")
+				JSONError(w, http.StatusBadRequest, "That IP address isn't allowed.")
 				return
 			}
 		}

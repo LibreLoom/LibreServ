@@ -109,12 +109,12 @@ func (h *SupportHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 func (h *SupportHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "sessionID")
 	if id == "" {
-		JSONError(w, http.StatusBadRequest, "session id required")
+		JSONError(w, http.StatusBadRequest, "Please specify which support session.")
 		return
 	}
 	sess, err := h.svc.GetSession(r.Context(), id)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "session not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that support session. It may have ended.")
 		return
 	}
 	JSON(w, http.StatusOK, sess)
@@ -124,7 +124,7 @@ func (h *SupportHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 func (h *SupportHandler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "sessionID")
 	if id == "" {
-		JSONError(w, http.StatusBadRequest, "session id required")
+		JSONError(w, http.StatusBadRequest, "Please specify which support session.")
 		return
 	}
 	user := middleware.GetUser(r.Context())

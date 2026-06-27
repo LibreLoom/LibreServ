@@ -61,12 +61,12 @@ func (h *ReposHandler) AddRepo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.URL == "" {
-		JSONError(w, http.StatusBadRequest, "url is required")
+		JSONError(w, http.StatusBadRequest, "Please provide a repository URL.")
 		return
 	}
 	req.URL = strings.TrimSpace(req.URL)
 	if !strings.HasPrefix(req.URL, "https://") && !strings.HasPrefix(req.URL, "http://") {
-		JSONError(w, http.StatusBadRequest, "url must start with http:// or https://")
+		JSONError(w, http.StatusBadRequest, "The URL must start with http:// or https://.")
 		return
 	}
 	if req.Branch == "" {
@@ -76,7 +76,7 @@ func (h *ReposHandler) AddRepo(w http.ResponseWriter, r *http.Request) {
 	repos := h.config.Apps.Repos
 	for _, existing := range repos {
 		if existing.URL == req.URL {
-			JSONError(w, http.StatusConflict, "repository already exists")
+			JSONError(w, http.StatusConflict, "That repository has already been added.")
 			return
 		}
 	}
@@ -107,13 +107,13 @@ func (h *ReposHandler) RemoveRepo(w http.ResponseWriter, r *http.Request) {
 	indexStr := chi.URLParam(r, "index")
 	index, err := strconv.Atoi(indexStr)
 	if err != nil || index < 0 {
-		JSONError(w, http.StatusBadRequest, "invalid repository index")
+		JSONError(w, http.StatusBadRequest, "That repository index isn't valid.")
 		return
 	}
 
 	repos := h.config.Apps.Repos
 	if index >= len(repos) {
-		JSONError(w, http.StatusNotFound, "repository not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that repository.")
 		return
 	}
 

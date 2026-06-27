@@ -104,7 +104,7 @@ func (h *AgentChatHandler) ListConversations(w http.ResponseWriter, r *http.Requ
 func (h *AgentChatHandler) GetConversation(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
-		response.JSONError(w, http.StatusBadRequest, "Conversation ID is required.")
+		response.JSONError(w, http.StatusBadRequest, "Please specify which conversation to use.")
 		return
 	}
 	userID, ok := getUserID(r)
@@ -210,7 +210,7 @@ type sendMessageRequest struct {
 func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
-		response.JSONError(w, http.StatusBadRequest, "Conversation ID is required.")
+		response.JSONError(w, http.StatusBadRequest, "Please specify which conversation to use.")
 		return
 	}
 	userID, ok := getUserID(r)
@@ -410,7 +410,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
-		response.JSONError(w, http.StatusBadRequest, "Conversation ID is required.")
+		response.JSONError(w, http.StatusBadRequest, "Please specify which conversation to use.")
 		return
 	}
 	userID, ok := getUserID(r)
@@ -594,7 +594,7 @@ func (h *AgentChatHandler) StreamConversation(w http.ResponseWriter, r *http.Req
 func (h *AgentChatHandler) ListToolCalls(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
-		response.JSONError(w, http.StatusBadRequest, "Conversation ID is required.")
+		response.JSONError(w, http.StatusBadRequest, "Please specify which conversation to use.")
 		return
 	}
 	userID, ok := getUserID(r)
@@ -630,7 +630,7 @@ func (h *AgentChatHandler) ListToolCalls(w http.ResponseWriter, r *http.Request)
 func (h *AgentChatHandler) RespondPermission(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
-		response.JSONError(w, http.StatusBadRequest, "Conversation ID is required.")
+		response.JSONError(w, http.StatusBadRequest, "Please specify which conversation to use.")
 		return
 	}
 	userID, ok := getUserID(r)
@@ -644,11 +644,11 @@ func (h *AgentChatHandler) RespondPermission(w http.ResponseWriter, r *http.Requ
 		Approved   bool   `json:"approved"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.JSONError(w, http.StatusBadRequest, "Could not understand the request.")
+		response.JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	if req.ToolCallID == "" {
-		response.JSONError(w, http.StatusBadRequest, "Tool call ID is required.")
+		response.JSONError(w, http.StatusBadRequest, "Please specify which tool call.")
 		return
 	}
 
@@ -680,7 +680,7 @@ func (h *AgentChatHandler) RespondPermission(w http.ResponseWriter, r *http.Requ
 func (h *AgentChatHandler) StopConversation(w http.ResponseWriter, r *http.Request) {
 	convID := chi.URLParam(r, "conversationID")
 	if convID == "" {
-		response.JSONError(w, http.StatusBadRequest, "Conversation ID is required.")
+		response.JSONError(w, http.StatusBadRequest, "Please specify which conversation to use.")
 		return
 	}
 	userID, ok := getUserID(r)
@@ -762,7 +762,7 @@ func (h *AgentChatHandler) UpdateSubscription(w http.ResponseWriter, r *http.Req
 		PlanID string `json:"plan_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.JSONError(w, http.StatusBadRequest, "Could not understand the request.")
+		response.JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
 		return
 	}
 	if req.PlanID == "" {

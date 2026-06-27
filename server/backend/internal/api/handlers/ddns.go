@@ -69,7 +69,7 @@ func (h *DDNSHandler) SetInterval(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.IntervalMinutes < 1 || req.IntervalMinutes > 60 {
-		JSONError(w, http.StatusBadRequest, "interval must be between 1 and 60 minutes")
+		JSONError(w, http.StatusBadRequest, "Interval must be between 1 and 60 minutes.")
 		return
 	}
 

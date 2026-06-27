@@ -31,7 +31,7 @@ func (h *SupportSessionValidationHandler) Validate(w http.ResponseWriter, r *htt
 		return
 	}
 	if req.Code == "" || req.Token == "" {
-		JSONError(w, http.StatusBadRequest, "code and token required")
+		JSONError(w, http.StatusBadRequest, "Please provide the support session code and token.")
 		return
 	}
 
@@ -46,7 +46,7 @@ func (h *SupportSessionValidationHandler) Validate(w http.ResponseWriter, r *htt
 			Message:    err.Error(),
 			OccurredAt: time.Now(),
 		})
-		JSONError(w, http.StatusUnauthorized, "invalid session")
+		JSONError(w, http.StatusUnauthorized, "That support session is no longer valid. Please start a new one.")
 		return
 	}
 

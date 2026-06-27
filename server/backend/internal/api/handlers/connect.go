@@ -85,7 +85,7 @@ func (h *ConnectHandler) UpdateServices(w http.ResponseWriter, r *http.Request) 
 		State   string `json:"state"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.JSONError(w, http.StatusBadRequest, "Could not read the request.")
+		response.JSONError(w, http.StatusBadRequest, "We couldn't read that request. Please try again.")
 		return
 	}
 

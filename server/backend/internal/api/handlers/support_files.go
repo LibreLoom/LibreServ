@@ -44,17 +44,17 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 	}
 	session, policy, err := h.validateSessionAndPolicy(req.Code, req.Token)
 	if err != nil {
-		JSONError(w, http.StatusUnauthorized, "invalid session")
+		JSONError(w, http.StatusUnauthorized, "That support session is no longer valid. Please start a new one.")
 		return
 	}
 	if !hasScope(session.Scopes, "files-ro") && !hasScope(session.Scopes, "files-ro+runtime") {
-		JSONError(w, http.StatusForbidden, "scope files-ro required")
+		JSONError(w, http.StatusForbidden, "This action needs read-only file access. Please request it.")
 		return
 	}
 
 	cleanPath, err := validateAndResolvePath(req.Path, policy)
 	if err != nil {
-		JSONError(w, http.StatusForbidden, "path not allowed")
+		JSONError(w, http.StatusForbidden, "That file path isn't allowed.")
 		h.svc.LogAudit(r.Context(), &support.AuditEntry{
 			SessionID:  session.ID,
 			Actor:      "support-session",
@@ -83,7 +83,7 @@ func (h *SupportFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(data) > maxFileSize {
-		JSONError(w, http.StatusRequestEntityTooLarge, "file too large")
+		JSONError(w, http.StatusRequestEntityTooLarge, "That file is too large to share.")
 		return
 	}
 	h.svc.LogAudit(r.Context(), &support.AuditEntry{
@@ -108,17 +108,17 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 	}
 	session, policy, err := h.validateSessionAndPolicy(req.Code, req.Token)
 	if err != nil {
-		JSONError(w, http.StatusUnauthorized, "invalid session")
+		JSONError(w, http.StatusUnauthorized, "That support session is no longer valid. Please start a new one.")
 		return
 	}
 	if !hasScope(session.Scopes, "files-rw") && !hasScope(session.Scopes, "files-rw+runtime") {
-		JSONError(w, http.StatusForbidden, "scope files-rw required")
+		JSONError(w, http.StatusForbidden, "This action needs read-write file access. Please request it.")
 		return
 	}
 
 	cleanPath, err := validateAndResolvePath(req.Path, policy)
 	if err != nil {
-		JSONError(w, http.StatusForbidden, "path not allowed")
+		JSONError(w, http.StatusForbidden, "That file path isn't allowed.")
 		h.svc.LogAudit(r.Context(), &support.AuditEntry{
 			SessionID:  session.ID,
 			Actor:      "support-session",
@@ -136,7 +136,7 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 		req.Data = string(body)
 	}
 	if len(req.Data) > maxFileSize {
-		JSONError(w, http.StatusRequestEntityTooLarge, "payload too large")
+		JSONError(w, http.StatusRequestEntityTooLarge, "That request is too large.")
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 	configExts := map[string]bool{".yaml": true, ".yml": true, ".json": true, ".conf": true, ".toml": true, ".env": true}
 	if configExts[ext] {
 		if _, err := os.Stat(cleanPath); os.IsNotExist(err) {
-			JSONError(w, http.StatusForbidden, "cannot create new config files")
+			JSONError(w, http.StatusForbidden, "We can't create new configuration files there.")
 			return
 		}
 	}
@@ -176,7 +176,7 @@ func (h *SupportFileHandler) Write(w http.ResponseWriter, r *http.Request) {
 
 func (h *SupportFileHandler) validateSessionAndPolicy(code, token string) (*support.Session, *support.PathPolicy, error) {
 	if code == "" || token == "" {
-		return nil, nil, errors.New("code and token required")
+		return nil, nil, errors.New("Please provide the support session code and token.")
 	}
 	sess, err := h.svc.ValidateCode(context.Background(), code, token)
 	if err != nil {

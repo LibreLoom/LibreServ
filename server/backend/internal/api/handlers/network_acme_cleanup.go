@@ -20,12 +20,12 @@ func NewACMECleanupHandler(caddy *network.CaddyManager) *ACMECleanupHandler {
 // DeleteRoute removes an ACME auto-issued route by ID.
 func (h *ACMECleanupHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	if h.caddy == nil {
-		JSONError(w, http.StatusInternalServerError, "caddy manager not configured")
+		JSONError(w, http.StatusInternalServerError, "We couldn't reach the proxy service. Please try again later.")
 		return
 	}
 	id := chi.URLParam(r, "routeID")
 	if id == "" {
-		JSONError(w, http.StatusBadRequest, "route id required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which route. Please check and try again.")
 		return
 	}
 	if err := h.caddy.RemoveRoute(r.Context(), id); err != nil {

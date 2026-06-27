@@ -31,7 +31,7 @@ func (h *TunnelHandler) Enable(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Provider == "" || req.Token == "" {
-		JSONError(w, http.StatusBadRequest, "Provider and token are required")
+		JSONError(w, http.StatusBadRequest, "Please provide the tunnel provider and token.")
 		return
 	}
 

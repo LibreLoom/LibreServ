@@ -33,7 +33,7 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || !req.Confirm {
-		JSONError(w, http.StatusBadRequest, "confirmation required")
+		JSONError(w, http.StatusBadRequest, "Please confirm you want to reset the device.")
 		return
 	}
 
@@ -139,8 +139,8 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 	})
 
 	if err != nil {
-		slog.Error("factory reset failed", "error", err)
-		JSONError(w, http.StatusInternalServerError, "factory reset failed")
+		slog.Error("We couldn't complete the factory reset. Please try again.", "error", err)
+		JSONError(w, http.StatusInternalServerError, "We couldn't complete the factory reset. Please try again.")
 		return
 	}
 

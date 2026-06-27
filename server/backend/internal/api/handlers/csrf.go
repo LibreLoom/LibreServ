@@ -20,11 +20,11 @@ func NewCSRFHandler(secret string) *CSRFHandler {
 func (h *CSRFHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
 	if user == nil {
-		JSONError(w, http.StatusUnauthorized, "unauthorized")
+		JSONError(w, http.StatusUnauthorized, "Please log in to continue.")
 		return
 	}
 	if h.secret == "" {
-		JSONError(w, http.StatusInternalServerError, "csrf not configured")
+		JSONError(w, http.StatusInternalServerError, "We couldn't verify your session. Please refresh the page and try again.")
 		return
 	}
 	token, err := middleware.GenerateCSRF(h.secret, user.ID)

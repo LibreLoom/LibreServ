@@ -130,14 +130,14 @@ func (h *JobQueueHandler) ListJobs(w http.ResponseWriter, r *http.Request) {
 func (h *JobQueueHandler) GetJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 	if jobID == "" {
-		JSONError(w, http.StatusBadRequest, "job ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which job. Please check and try again.")
 		return
 	}
 
 	ctx := r.Context()
 	jobInfo, err := h.queue.GetJob(ctx, jobID)
 	if err != nil {
-		JSONError(w, http.StatusNotFound, "job not found")
+		JSONError(w, http.StatusNotFound, "We couldn't find that job. It may not exist.")
 		return
 	}
 
@@ -174,7 +174,7 @@ func (h *JobQueueHandler) GetJobStats(w http.ResponseWriter, r *http.Request) {
 func (h *JobQueueHandler) CancelJob(w http.ResponseWriter, r *http.Request) {
 	jobID := chi.URLParam(r, "id")
 	if jobID == "" {
-		JSONError(w, http.StatusBadRequest, "job ID is required")
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which job. Please check and try again.")
 		return
 	}
 

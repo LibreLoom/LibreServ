@@ -30,7 +30,7 @@ func (h *SecurityHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
 		l, err := strconv.Atoi(limitStr)
 		if err != nil || l < 1 || l > 1000 {
-			JSONError(w, http.StatusBadRequest, "invalid limit parameter: must be between 1 and 1000")
+			JSONError(w, http.StatusBadRequest, "The limit must be between 1 and 1000.")
 			return
 		}
 		filter.Limit = l
@@ -39,7 +39,7 @@ func (h *SecurityHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
 		o, err := strconv.Atoi(offsetStr)
 		if err != nil || o < 0 {
-			JSONError(w, http.StatusBadRequest, "invalid offset parameter: must be non-negative")
+			JSONError(w, http.StatusBadRequest, "The offset must be 0 or greater.")
 			return
 		}
 		filter.Offset = o
@@ -48,7 +48,7 @@ func (h *SecurityHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
 		since, err := time.Parse(time.RFC3339, sinceStr)
 		if err != nil {
-			JSONError(w, http.StatusBadRequest, "invalid since parameter: must be RFC3339 format")
+			JSONError(w, http.StatusBadRequest, "The 'since' timestamp must be in RFC3339 format, e.g. 2026-01-01T00:00:00Z.")
 			return
 		}
 		maxAge := time.Now().AddDate(0, 0, -90)
@@ -66,7 +66,7 @@ func (h *SecurityHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 			"settings_changed": true, "suspicious_activity": true,
 		}
 		if !validTypes[eventType] {
-			JSONError(w, http.StatusBadRequest, "invalid event type")
+			JSONError(w, http.StatusBadRequest, "That event type isn't valid.")
 			return
 		}
 		filter.EventType = security.EventType(eventType)
@@ -77,7 +77,7 @@ func (h *SecurityHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 			"info": true, "warning": true, "critical": true,
 		}
 		if !validSeverities[severity] {
-			JSONError(w, http.StatusBadRequest, "invalid severity: must be info, warning, or critical")
+			JSONError(w, http.StatusBadRequest, "Severity must be info, warning, or critical.")
 			return
 		}
 		filter.Severity = security.Severity(severity)
@@ -100,7 +100,7 @@ func (h *SecurityHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 func (h *SecurityHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r.Context())
 	if user == nil || user.Role != "admin" {
-		JSONError(w, http.StatusForbidden, "admin access required")
+		JSONError(w, http.StatusForbidden, "You need administrator access to do that.")
 		return
 	}
 

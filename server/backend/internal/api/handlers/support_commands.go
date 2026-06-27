@@ -62,12 +62,12 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Code == "" || req.Token == "" || req.Command == "" {
-		JSONError(w, http.StatusBadRequest, "Support session code, token, and command are all required")
+		JSONError(w, http.StatusBadRequest, "Please provide the support session code, token, and command.")
 		return
 	}
 	sess, _, err := h.validateSessionAndPolicy(req.Code, req.Token)
 	if err != nil {
-		JSONError(w, http.StatusUnauthorized, "invalid session")
+		JSONError(w, http.StatusUnauthorized, "That support session is no longer valid. Please start a new one.")
 		return
 	}
 	if !hasScope(sess.Scopes, "shell-lite") && !hasScope(sess.Scopes, "shell-full") {
@@ -83,7 +83,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 	// Validate arguments using command-specific validators
 	if validator, exists := commandArgValidators[req.Command]; exists {
 		if err := validator(req.Args); err != nil {
-			JSONError(w, http.StatusForbidden, "invalid command arguments")
+			JSONError(w, http.StatusForbidden, "Those command arguments aren't valid.")
 			return
 		}
 	}
@@ -98,7 +98,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 	policy.Deny = append(policy.Deny, "/var/lib/containers")
 	policy.Deny = append(policy.Deny, filepath.Join(os.Getenv("HOME"), ".local/share/containers"))
 	if err := validateCommandPaths(policy, req.Command, req.Args); err != nil {
-		JSONError(w, http.StatusForbidden, "path not allowed")
+		JSONError(w, http.StatusForbidden, "That file path isn't allowed.")
 		return
 	}
 
@@ -145,7 +145,7 @@ func (h *SupportCommandHandler) Run(w http.ResponseWriter, r *http.Request) {
 
 func (h *SupportCommandHandler) validateSessionAndPolicy(code, token string) (*support.Session, *support.PathPolicy, error) {
 	if code == "" || token == "" {
-		return nil, nil, errors.New("code and token required")
+		return nil, nil, errors.New("Please provide the support session code and token.")
 	}
 	sess, err := h.svc.ValidateCode(context.Background(), code, token)
 	if err != nil {
