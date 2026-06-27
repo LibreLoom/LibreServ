@@ -22,6 +22,9 @@ type Sender struct {
 }
 
 func (s *Sender) makeAuth() smtp.Auth {
+	if s.username == "" {
+		return nil // no credentials configured → no AUTH (local/no-auth SMTP relays)
+	}
 	return smtp.PlainAuth("", s.username, s.password, strings.Split(s.host, ":")[0])
 }
 
