@@ -131,6 +131,10 @@ export default function ApiTokensCard() {
                 {copied ? <Check size={16} /> : <Copy size={16} />}
               </Button>
             </div>
+            <p className="text-xs text-secondary/70">
+              Use it in your app or script by sending it as an{" "}
+              <span className="font-mono">Authorization: Bearer</span> header.
+            </p>
             <button
               type="button"
               onClick={() => setNewToken(null)}
