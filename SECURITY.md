@@ -13,6 +13,50 @@
 
 Email security reports to: `trafficcone@onetrue.name`, `max@plainskill.net`, and `w.n.lazypanda5050@gmail.com`
 
+## Threat Model: WAN-Accessible by Design
+
+**LibreServ is WAN-accessible by design.** Remote access — a custom domain
+with automatic HTTPS (Caddy + ACME) — is a core, first-class goal (see
+GOALS.md → Remote access). Once a user configures a domain, the web UI and
+its authentication endpoints (`/auth/login`, `/auth/register`,
+`/auth/password-reset/*`) are **publicly reachable from the internet**, not
+just the LAN. Custom domains are discoverable via DNS and certificate-
+transparency logs, so automated scanners *will* find these endpoints.
+
+This is the central fact for every security decision in this codebase:
+
+- Treat the auth endpoints as internet-exposed. Brute-force and
+  credential-stuffing scans are the baseline threat, not a hypothetical.
+- Primary defenses are **strong passwords, rate limiting, and 2FA/MFA** —
+  not captchas. Captcha is friction on every legitimate login (against the
+  non-technical-user ethos) and is a weak match for a botnet; it is **not**
+  a substitute for rate limiting or 2FA.
+- Public registration is itself an attack surface (account-creation spam);
+  prefer admin-invited users over open public registration.
+
+### Captcha — decision: do not ship for v1
+
+Considered [Cap](https://github.com/tiagozip/cap) (self-hosted PoW captcha)
+for `login` / `register` / `password-reset/request`. **Decided against.**
+
+1. Rate limiting already caps brute-force per IP (`/auth/login` 10/min,
+   `register` 3/hr, `password-reset` 5/min) — captcha's marginal
+   bot-stopping over rate limiting is small.
+2. PoW captcha stops naive scripts (curl) but a headless browser solves PoW
+   trivially, so it doesn't stop a determined/botnet attacker that per-IP
+   rate limiting also struggles with. The real answer there is 2FA.
+3. Captcha is friction on every legitimate login — directly against the
+   "non-technical user, minimal friction" product ethos.
+4. Self-hosted captcha is operational burden + a fail-closed lockout risk
+   on a device pitched as "no terminal recovery."
+
+**Invest instead:** 2FA/MFA (TOTP/passkeys — already "coming soon" below),
+keep strong rate limiting, IP-ban after repeated failures, and gate public
+registration (admin-invited users). Revisit captcha **only if**
+credential-stuffing against a WAN-exposed instance proves a real problem
+*after* 2FA + rate-limit hardening — and if so, prefer adaptive captcha
+(triggered after N failures) over always-on.
+
 ## Security Measures
 
 LibreServ implements the following security measures:
