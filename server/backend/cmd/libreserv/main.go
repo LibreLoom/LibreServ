@@ -17,6 +17,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth/webauthn"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
@@ -315,6 +316,30 @@ func main() {
 	var mfaEmail api.EmailSender
 	if emailSender != nil {
 		mfaEmail = mfaOTPSender{emailSender}
+	}
+
+	// WebAuthn (passkeys + security keys): construct the verifier from config;
+	// nil-safe — if RPID/Origins are unset or construction fails, skip wiring so
+	// webauthn methods return ErrMFAVerifierUnavailable (no crash). Non-https dev
+	// usually has no origins set, so this stays nil there.
+	if wc := cfg.Auth.MFA.WebAuthn; wc.RPID != "" && len(wc.Origins) > 0 {
+		timeout := 60 * time.Second
+		if d, err := time.ParseDuration(wc.Timeout); err == nil && d > 0 {
+			timeout = d
+		}
+		if v, err := webauthn.New(webauthn.Config{
+			RPID:          wc.RPID,
+			RPDisplayName: wc.RPDisplayName,
+			Origins:       wc.Origins,
+			Timeout:       timeout,
+		}); err != nil {
+			slog.Warn("webauthn verifier disabled", "error", err)
+		} else {
+			authService.SetWebAuthnVerifier(v)
+			slog.Info("webauthn mfa enabled", "rp_id", wc.RPID)
+		}
+	} else {
+		slog.Info("webauthn mfa not configured (auth.webauthn.rp_id/origins unset); passkeys/security keys unavailable")
 	}
 
 	sysChecker := system.NewUpdateChecker(cfg.Updates)

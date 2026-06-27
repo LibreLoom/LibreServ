@@ -211,6 +211,8 @@ func (s *Server) setupRoutes() {
 				r.Post("/recovery-codes", mfaHandler.GenerateRecoveryCodes)
 				r.Get("/recovery-codes", mfaHandler.RecoveryCodesRemaining)
 				r.Delete("/methods/{id}", mfaHandler.DeleteMethod)
+				r.Post("/webauthn/register/begin", mfaHandler.WebAuthnRegisterBegin)
+				r.Post("/webauthn/register/finish", mfaHandler.WebAuthnRegisterFinish)
 			})
 
 			// Catalog - browse available apps
