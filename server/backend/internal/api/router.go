@@ -30,6 +30,7 @@ func (s *Server) setupRoutes() {
 	monitoringHandler := handlers.NewMonitoringHandlers(s.monitor, s.db, s.runtimeClient, s.appManager.GetMetricsCache())
 	backupHandler := handlers.NewBackupHandlers(s.backupService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
+	apiTokensHandler := handlers.NewAPITokensHandler(s.authService)
 	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService, s.caddyManager)
 	csrfSecret := config.Get().Auth.CSRFSecret
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
@@ -186,6 +187,13 @@ func (s *Server) setupRoutes() {
 			r.Put("/auth/profile", authHandler.UpdateProfile)
 			r.Post("/auth/change-password", authHandler.ChangePassword)
 			r.Get("/auth/csrf", csrfHandler.GetToken)
+
+			// API tokens (programmatic access) — user-managed; session-authed + CSRF.
+			r.Route("/api-tokens", func(r chi.Router) {
+				r.Get("/", apiTokensHandler.List)
+				r.Post("/", apiTokensHandler.Create)
+				r.Delete("/{id}", apiTokensHandler.Revoke)
+			})
 
 			// Catalog - browse available apps
 			r.Route("/catalog", func(r chi.Router) {
