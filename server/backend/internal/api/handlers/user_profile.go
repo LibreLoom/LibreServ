@@ -8,6 +8,7 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
 )
@@ -111,8 +112,16 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusNotFound, "We couldn't find your account.")
 		return
 	}
+	hasMFA, _ := h.authService.HasMFA(r.Context(), userID)
+	JSON(w, http.StatusOK, meResponse{User: user.Sanitize(), MFAEnabled: hasMFA})
+}
 
-	JSON(w, http.StatusOK, user.Sanitize())
+// meResponse is the /auth/me body: the sanitized user plus mfa_enabled (true
+// when the user has ≥1 enabled MFA method), so the frontend can gate an
+// admin-MFA blocker (admin without MFA → blocked from UI usage, not sign-in).
+type meResponse struct {
+	*models.User
+	MFAEnabled bool `json:"mfa_enabled"`
 }
 
 // UpdateProfile handles PUT /api/v1/auth/profile
