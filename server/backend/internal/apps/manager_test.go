@@ -2,6 +2,8 @@ package apps
 
 import (
 	"context"
+	"database/sql"
+	"log/slog"
 	"path/filepath"
 	"testing"
 	"time"
@@ -377,4 +379,82 @@ func TestManager_EnsurePublicURL(t *testing.T) {
 
 	// Nil app must not panic (the install handler calls it unconditionally).
 	m.EnsurePublicURL(nil)
+}
+
+func TestManager_PinUnpinAppVersion(t *testing.T) {
+	dbDir := t.TempDir()
+	dbPath := filepath.Join(dbDir, "test.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}', '')`,
+		"inst-pin", "App", "builtin", "app1", "/path", "running", "healthy")
+	if err != nil {
+		t.Fatalf("insert app: %v", err)
+	}
+
+	m := &Manager{db: db, logger: slog.Default()}
+	ctx := context.Background()
+
+	if err := m.PinAppVersion(ctx, "inst-pin", "2.0.0"); err != nil {
+		t.Fatalf("PinAppVersion: %v", err)
+	}
+
+	var pinned sql.NullString
+	if err := db.QueryRow(`SELECT pinned_version FROM apps WHERE id = ?`, "inst-pin").Scan(&pinned); err != nil {
+		t.Fatalf("query pinned version: %v", err)
+	}
+	if pinned.String != "2.0.0" || !pinned.Valid {
+		t.Fatalf("expected pinned version 2.0.0, got %v", pinned)
+	}
+
+	if err := m.UnpinAppVersion(ctx, "inst-pin"); err != nil {
+		t.Fatalf("UnpinAppVersion: %v", err)
+	}
+	if err := db.QueryRow(`SELECT pinned_version FROM apps WHERE id = ?`, "inst-pin").Scan(&pinned); err != nil {
+		t.Fatalf("query pinned version after unpin: %v", err)
+	}
+	if pinned.Valid {
+		t.Fatalf("expected null pinned version after unpin, got %v", pinned)
+	}
+}
+
+func TestManager_AcknowledgeRevocation(t *testing.T) {
+	dbDir := t.TempDir()
+	dbPath := filepath.Join(dbDir, "test.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}', ?, ?, CURRENT_TIMESTAMP, NULL)`,
+		"inst-rev", "App", "builtin", "app1", "/path", "revoked", "unknown", "critical", "bad-version")
+	if err != nil {
+		t.Fatalf("insert app: %v", err)
+	}
+
+	m := &Manager{db: db, logger: slog.Default()}
+	ctx := context.Background()
+	if err := m.AcknowledgeRevocation(ctx, "inst-rev"); err != nil {
+		t.Fatalf("AcknowledgeRevocation: %v", err)
+	}
+
+	var ackedAt *time.Time
+	if err := db.QueryRow(`SELECT revocation_acknowledged_at FROM apps WHERE id = ?`, "inst-rev").Scan(&ackedAt); err != nil {
+		t.Fatalf("query acked_at: %v", err)
+	}
+	if ackedAt == nil || ackedAt.IsZero() {
+		t.Fatal("expected revocation_acknowledged_at to be set")
+	}
+
+	// Acknowledging again should fail because there is no unacknowledged revocation.
+	if err := m.AcknowledgeRevocation(ctx, "inst-rev"); err == nil {
+		t.Fatal("expected error on second acknowledgement")
+	}
 }
