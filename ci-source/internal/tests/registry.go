@@ -105,7 +105,7 @@ func addGoTests() {
 		Description: "Run all Go unit tests",
 		Type:        TestTypeUnit,
 		Container:   "golang:1.26-alpine",
-		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -v ./...",
+		Command:     "apk add --no-cache gcc musl-dev bash && CGO_ENABLED=1 go test -v ./...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     10 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},

@@ -176,6 +176,9 @@ func runCLI(profileName, testIDs string, parallel int, fuzzDuration string, fail
 			case tests.StatusFailed:
 				failed++
 				fmt.Printf("✗ %s (%v)\n", result.Name, duration)
+				if out := strings.TrimSpace(result.Output); out != "" {
+					fmt.Printf("%s\n", indentLines(out, "    "))
+				}
 			case tests.StatusSkipped:
 				skipped++
 				fmt.Printf("⊘ %s (skipped)\n", result.Name)
@@ -207,6 +210,14 @@ done:
 	if failed > 0 {
 		os.Exit(1)
 	}
+}
+
+func indentLines(text, prefix string) string {
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func writeResults(results map[string]*tests.TestResult, outputDir string, duration time.Duration) {
