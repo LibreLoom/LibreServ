@@ -65,7 +65,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
           <ul className="text-sm space-y-1 ml-4">
             <li className="flex items-center gap-2">
               <Folder size={14} className="text-primary/50" />
-              <span>Container volumes and data</span>
+              <span>The app's data and saved files</span>
             </li>
             <li className="flex items-center gap-2">
               <Server size={14} className="text-primary/50" />
@@ -73,7 +73,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
             </li>
             <li className="flex items-center gap-2">
               <Activity size={14} className="text-primary/50" />
-              <span>Container images</span>
+              <span>The app's program files</span>
             </li>
           </ul>
         </div>

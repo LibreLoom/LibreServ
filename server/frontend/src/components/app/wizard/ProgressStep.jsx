@@ -23,13 +23,13 @@ function getErrorHint(error) {
   if (!error) return "We couldn't finish bringing the app online.";
   const lower = error.toLowerCase();
   if (lower.includes("port") && lower.includes("already")) {
-    return "A required port is already in use on this system.";
+    return "Another app on this device is already using a network connection this app needs.";
   }
   if (lower.includes("compose") || lower.includes("container")) {
-    return "The app's containers could not be started successfully.";
+    return "We couldn't start the app's services.";
   }
   if (lower.includes("network")) {
-    return "Container networking could not be configured.";
+    return "We couldn't set up the app's network connection.";
   }
   return "We couldn't finish bringing the app online.";
 }
