@@ -6,6 +6,7 @@ import StatCard from "../components/cards/StatCard";
 import HeaderCard from "../components/cards/HeaderCard";
 import AppCards from "../components/cards/AppCards";
 import DropdownCard from "../components/cards/DropdownCard";
+import SystemHealthCard from "../components/cards/SystemHealthCard";
 import RefreshDropdown, { REFRESH_INTERVALS } from "../components/common/RefreshDropdown";
 import WelcomeCard from "../components/onboarding/WelcomeCard";
 import api from "../lib/api";
@@ -14,6 +15,7 @@ import { dashboard as greetingMessages } from "../assets/greetings";
 import { useUser } from "../hooks/useUser";
 import { useUptime } from "../hooks/useUptime";
 import { useMonitoring } from "../hooks/useMonitoring";
+import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck";
 import { useConnectivity, getRemoteAccessStatus } from "../hooks/useConnectivity";
 
 import {
@@ -83,6 +85,11 @@ export default function Dashboard() {
   const { data: uptimeSeconds } = useUptime();
   const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
   const { data: resources } = useMonitoring(refreshInterval);
+  const {
+    data: healthCheck,
+    isLoading: healthLoading,
+    error: healthError,
+  } = useSystemHealthCheck();
   const { data: connectivity } = useConnectivity(30000);
   const navigate = useNavigate();
 
@@ -270,6 +277,12 @@ export default function Dashboard() {
             value={resources ? Math.round(stressIndex * 100) + "%" : "Loading..."}
             breakdownItems={stressBreakdown}
             Icon={Server}
+          />
+          <SystemHealthCard
+            checks={healthCheck?.checks}
+            overallPass={healthCheck?.overall_pass}
+            loading={healthLoading}
+            error={healthError}
           />
         </div>
 
