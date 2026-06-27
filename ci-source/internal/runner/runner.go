@@ -146,6 +146,11 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) *RunSummary {
 	r.cpuQuota = opts.CPUQuota
 	r.memoryLimit = opts.MemoryLimit
 
+	// Pre-warm shared Go module cache for the selected Go tests. This turns
+	// the cold-cache, concurrent go-mod download storm that flakes the quick
+	// profile into one serial, cachable pass per module.
+	r.warmGoModuleCaches(ctx, testList)
+
 	summary := &RunSummary{
 		StartTime: time.Now(),
 		Results:   make(map[string]*tests.TestResult),
@@ -898,6 +903,124 @@ func ensurePodmanSocket(sp string) bool {
 	_ = exec.Command("systemctl", "--user", "start", "podman.socket").Run()
 	_, err := os.Stat(sp)
 	return err == nil
+}
+
+// warmGoModuleCaches runs one serial "go mod download" for each Go module
+// root needed by the selected tests. This pre-populates the shared
+// /cache/gomodcache before parallel test containers try to download the same
+// modules concurrently, which is the main cause of quick-profile flakiness.
+func (r *Runner) warmGoModuleCaches(ctx context.Context, testList []*tests.Test) {
+	moduleRoots := make(map[string]struct{})
+	for _, t := range testList {
+		if t.Container == "" || !strings.HasPrefix(t.Container, "golang:") {
+			continue
+		}
+		root := r.findGoModuleRoot(t.WorkDir)
+		if root == "" {
+			continue
+		}
+		moduleRoots[root] = struct{}{}
+	}
+
+	for root := range moduleRoots {
+		warmID := "_warm-" + strings.Trim(strings.ReplaceAll(root, "/", "-"), "-")
+		r.outputChan <- OutputLine{TestID: warmID, Type: OutputStatus, Line: "pre-warming Go module cache..."}
+
+		warmTest := &tests.Test{
+			ID:          warmID,
+			Name:        "Warm " + root,
+			Container:   "golang:1.26-alpine",
+			Command:     "go mod download",
+			WorkDir:     root,
+			Timeout:     5 * time.Minute,
+			Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+			Description: "Pre-fetch Go modules for " + root,
+		}
+
+		exitCode, err := r.runOneOffContainer(ctx, warmTest, warmID)
+		if err != nil || exitCode != 0 {
+			r.outputChan <- OutputLine{TestID: warmID, Type: OutputStderr, Line: fmt.Sprintf("pre-warm failed (exit %d): %v; tests will proceed with cold cache", exitCode, err)}
+		} else {
+			r.outputChan <- OutputLine{TestID: warmID, Type: OutputStatus, Line: "module cache warmed"}
+		}
+	}
+}
+
+// findGoModuleRoot maps an in-container work dir to the nearest go.mod
+// directory on the host side.
+func (r *Runner) findGoModuleRoot(inContainerWorkDir string) string {
+	if !strings.HasPrefix(inContainerWorkDir, "/repo") {
+		return ""
+	}
+	rel := strings.TrimPrefix(inContainerWorkDir, "/repo")
+	dir := filepath.Join(r.repoPath, rel)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			// Map back to container path
+			rel2, _ := filepath.Rel(r.repoPath, dir)
+			return filepath.Join("/repo", rel2)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir || parent == r.repoPath {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
+// runOneOffContainer creates, starts, waits for, and cleans up a single
+// container. It returns the exit code and any runner-level error. Logs are
+// streamed to the output channel under the given testID.
+func (r *Runner) runOneOffContainer(ctx context.Context, t *tests.Test, testID string) (int, error) {
+	if err := r.pullImageIfNeeded(ctx, t.Container); err != nil {
+		return -1, fmt.Errorf("pull image: %w", err)
+	}
+
+	containerID, err := r.createContainer(ctx, t, 0)
+	if err != nil {
+		return -1, fmt.Errorf("create container: %w", err)
+	}
+	defer r.cleanupContainer(ctx, containerID)
+
+	if err := r.cli.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		return -1, fmt.Errorf("start container: %w", err)
+	}
+
+	logDone := make(chan struct{})
+	go r.streamOutput(ctx, containerID, testID, logDone)
+
+	waitCh, errCh := r.cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	var timeout time.Duration
+	if t.Timeout > 0 {
+		timeout = t.Timeout
+	} else {
+		timeout = 5 * time.Minute
+	}
+
+	select {
+	case wait := <-waitCh:
+		<-logDone
+		exitCode := 0
+		if wait.StatusCode != 0 {
+			exitCode = int(wait.StatusCode)
+		}
+		if wait.Error != nil {
+			return exitCode, fmt.Errorf("container wait error: %s", wait.Error.Message)
+		}
+		return exitCode, nil
+	case err := <-errCh:
+		<-logDone
+		return -1, fmt.Errorf("container wait failed: %w", err)
+	case <-time.After(timeout):
+		r.cli.ContainerStop(ctx, containerID, container.StopOptions{Timeout: intPtr(1)})
+		<-logDone
+		return -1, fmt.Errorf("timed out after %s", timeout)
+	case <-ctx.Done():
+		r.cli.ContainerStop(ctx, containerID, container.StopOptions{Timeout: intPtr(1)})
+		<-logDone
+		return -1, ctx.Err()
+	}
 }
 
 // socketPathFromHost extracts the filesystem path from a DOCKER_HOST URI
