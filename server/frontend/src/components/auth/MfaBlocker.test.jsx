@@ -8,7 +8,7 @@ vi.mock("../profile/MfaCard", () => ({
   __esModule: true,
   default: (/** @type {{ onMethodEnabled: Function }} */ props) => {
     captured.onMethodEnabled = props.onMethodEnabled;
-    return <button data-testid="mock-mfacard" onClick={props.onMethodEnabled}>mock</button>;
+    return <button data-testid="mock-mfacard" onClick={() => props.onMethodEnabled?.()}>mock</button>;
   },
 }));
 
