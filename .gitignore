@@ -43,8 +43,10 @@ server/backend/.cache/
 .cache/gomodcache/
 .cache/gopath/
 server/backend/.gocache/
-# Go telemetry/config runtime data
-server/backend/.config/
+# Go telemetry/config runtime data (written by `go` in any module dir)
+**/.config/
+# leftover from a one-time polluted-cache clean-up
+.cache.polluted/
 server/backend/.env
 server/backend/.env.local
 
