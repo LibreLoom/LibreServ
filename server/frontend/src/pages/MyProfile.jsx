@@ -7,6 +7,7 @@ import Card from "../components/cards/Card";
 import FormInput from "../components/common/forms/FormInput";
 import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
+import ApiTokensCard from "../components/profile/ApiTokensCard";
 
 /**
  * Self-service account page for non-admin users. They can view their profile,
@@ -194,6 +195,7 @@ export default function MyProfile() {
             </Button>
           </form>
         </Card>
+        <ApiTokensCard />
       </div>
     </main>
   );
