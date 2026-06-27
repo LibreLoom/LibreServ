@@ -63,6 +63,12 @@ func NewService(db *database.DB, jwtSecret string, logger *slog.Logger) *Service
 		lockoutAfter:  constants.DefaultAccountLockoutAfter,
 		lockoutWindow: constants.DefaultLockoutWindow,
 		lockoutFor:    constants.DefaultLockoutDuration,
+
+		// MFA in-memory stores (must be initialized or the first enrollment / OTP
+		// issue panics on nil-map assignment).
+		emailOTPs:            make(map[string]emailOTPData),
+		pendingWebAuthnLabel: make(map[string]string),
+		pendingWebAuthnType:  make(map[string]string),
 	}
 	svc.loadLockoutsFromDB()
 	return svc
