@@ -57,11 +57,22 @@ export function AuthProvider({ children }) {
   }, [navigate]);
 
   const login = useCallback(async (username, password) => {
-    await api("/auth/login", {
+    const res = await api("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
+    const data = await res.json();
+    // MFA step: password valid but the account requires a second factor.
+    // Session is NOT established yet — surface the challenge to the caller.
+    if (data?.status === "mfa_required") {
+      return {
+        status: "mfa_required",
+        mfaToken: data.mfa_token,
+        methods: Array.isArray(data.methods) ? data.methods : [],
+      };
+    }
+    // Success — session cookie is set; hydrate session state.
     const [meResponse, csrfResponse] = await Promise.all([
       api("/auth/me"),
       api("/auth/csrf"),
@@ -70,6 +81,51 @@ export function AuthProvider({ children }) {
     const csrfJSON = await csrfResponse.json();
     setMe(meJSON);
     setCsrfToken(csrfJSON.csrf_token);
+    return { status: "ok" };
+  }, []);
+
+  // MFA challenge (e.g. trigger an email OTP, or get a WebAuthn challenge).
+  const mfaChallenge = useCallback(async (mfaToken, type) => {
+    const res = await api("/auth/mfa/challenge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfa_token: mfaToken, type }),
+      noRetry: true,
+    });
+    return res.json();
+  }, []);
+
+  // MFA verify — on success the session is established. (noRetry: a 401 here
+  // means a wrong code, not a stale session — don't trigger the token refresh.)
+  const mfaVerify = useCallback(async (mfaToken, type, payload) => {
+    await api("/auth/mfa/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfa_token: mfaToken, type, payload }),
+      noRetry: true,
+    });
+    const [meResponse, csrfResponse] = await Promise.all([
+      api("/auth/me"),
+      api("/auth/csrf"),
+    ]);
+    setMe(await meResponse.json());
+    setCsrfToken((await csrfResponse.json()).csrf_token);
+  }, []);
+
+  // MFA recovery code — fallback when a method's device is unavailable.
+  const mfaRecover = useCallback(async (mfaToken, recoveryCode) => {
+    await api("/auth/mfa/recover", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfa_token: mfaToken, recovery_code: recoveryCode }),
+      noRetry: true,
+    });
+    const [meResponse, csrfResponse] = await Promise.all([
+      api("/auth/me"),
+      api("/auth/csrf"),
+    ]);
+    setMe(await meResponse.json());
+    setCsrfToken((await csrfResponse.json()).csrf_token);
   }, []);
 
   const logout = useCallback(async () => {
@@ -102,8 +158,8 @@ export function AuthProvider({ children }) {
   );
 
   const value = useMemo(
-    () => ({ me, csrfToken, login, request, logout, initialized }),
-    [me, csrfToken, login, request, logout, initialized],
+    () => ({ me, csrfToken, login, mfaChallenge, mfaVerify, mfaRecover, request, logout, initialized }),
+    [me, csrfToken, login, mfaChallenge, mfaVerify, mfaRecover, request, logout, initialized],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

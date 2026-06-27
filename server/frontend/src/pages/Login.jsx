@@ -6,6 +6,7 @@ import api from "../lib/api";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Alert from "../components/common/Alert";
+import MfaChallenge from "../components/auth/MfaChallenge";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
 
 function getLoginQuip() {
@@ -93,6 +94,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(null);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [mfa, setMfa] = useState(null);
   const errorRef = useRef(null);
   const { login } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
@@ -178,8 +180,13 @@ export default function Login() {
     if (!username || !password || loading) return;
     setLoading(true);
     try {
-      await login(username, password);
-      window.location.reload();
+      const result = await login(username, password);
+      if (result.status === "mfa_required") {
+        setMfa({ mfaToken: result.mfaToken, methods: result.methods });
+        setLoading(false);
+      } else {
+        window.location.reload();
+      }
     } catch (err) {
       setErrorStatus(err.cause?.status || "NetworkError");
       setLoading(false);
@@ -197,6 +204,17 @@ export default function Login() {
           Hey there! Log in to continue.
         </span>
         <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
+        {mfa ? (
+          <MfaChallenge
+            mfaToken={mfa.mfaToken}
+            methods={mfa.methods}
+            onSuccess={() => window.location.reload()}
+            onBack={() => {
+              setMfa(null);
+              setPassword("");
+            }}
+          />
+        ) : (
         <form
           onSubmit={handleSubmit}
           aria-busy={loading}
@@ -264,6 +282,7 @@ export default function Login() {
             {errorStatus && calculateErrorHTML()}
           </div>
         </form>
+        )}
       </div>
       
       <ForgotPasswordModal isOpen={showResetModal} onClose={() => setShowResetModal(false)} />
