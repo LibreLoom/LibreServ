@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -59,6 +60,10 @@ func (h *APITokensHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	plaintext, rec, err := h.authService.CreateAPIToken(r.Context(), userID, strings.TrimSpace(req.Name))
 	if err != nil {
+		if err == auth.ErrAPITokenLimitReached {
+			JSONError(w, http.StatusBadRequest, fmt.Sprintf("You've reached the limit of %d API tokens. Revoke one you no longer use, then try again.", auth.MaxAPITokensPerUser))
+			return
+		}
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "api_token.create", "", strings.TrimSpace(req.Name), "failure", err.Error(), map[string]interface{}{"user_id": userID})
 		}

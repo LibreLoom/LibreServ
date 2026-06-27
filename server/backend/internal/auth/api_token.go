@@ -20,7 +20,15 @@ var (
 	ErrAPITokenNotFound = errors.New("api token not found")
 	// ErrAPITokenRevoked indicates the presented API token has been revoked.
 	ErrAPITokenRevoked = errors.New("api token has been revoked")
+	// ErrAPITokenLimitReached indicates the user already holds the maximum
+	// number of active API tokens.
+	ErrAPITokenLimitReached = errors.New("api token limit reached")
 )
+
+// MaxAPITokensPerUser caps the number of active (non-revoked) API tokens a
+// user may hold, to prevent unbounded growth (e.g. a compromised session
+// scripting token creation). It is a package var so tests can lower it.
+var MaxAPITokensPerUser = 50
 
 // apiTokenPrefix tags LibreServ API tokens so they are visually distinct from
 // JWTs and easy to grep for in logs. JWTs contain '.'; API tokens do not.
@@ -53,6 +61,14 @@ func IsAPIToken(token string) bool {
 // token (shown once — the caller must convey it to the user) plus the stored
 // record with the hash cleared.
 func (s *Service) CreateAPIToken(ctx context.Context, userID, name string) (string, *models.APIToken, error) {
+	// Enforce a per-user cap on active tokens to prevent unbounded growth.
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE user_id = ? AND revoked_at IS NULL`, userID).Scan(&count); err != nil {
+		return "", nil, fmt.Errorf("failed to count api tokens: %w", err)
+	}
+	if count >= MaxAPITokensPerUser {
+		return "", nil, ErrAPITokenLimitReached
+	}
 	plaintext, err := generateAPIToken()
 	if err != nil {
 		return "", nil, err

@@ -84,3 +84,43 @@ func TestAPITokenLifecycle(t *testing.T) {
 		t.Fatalf("double revoke should be ErrAPITokenNotFound, got %v", err)
 	}
 }
+
+// TestAPITokenLimit verifies the per-user active-token cap: creation beyond the
+// limit is rejected, and revoking a token frees a slot.
+func TestAPITokenLimit(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	svc := NewService(db, "testsecret", slog.Default())
+	user, err := svc.Register(ctx, &RegisterRequest{
+		Username: "carol", Password: "SuperSecret123", Email: "carol@example.com",
+	})
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	prev := MaxAPITokensPerUser
+	MaxAPITokensPerUser = 2
+	defer func() { MaxAPITokensPerUser = prev }()
+
+	if _, _, err := svc.CreateAPIToken(ctx, user.ID, "t1"); err != nil {
+		t.Fatalf("create t1: %v", err)
+	}
+	if _, _, err := svc.CreateAPIToken(ctx, user.ID, "t2"); err != nil {
+		t.Fatalf("create t2: %v", err)
+	}
+	if _, _, err := svc.CreateAPIToken(ctx, user.ID, "t3"); err != ErrAPITokenLimitReached {
+		t.Fatalf("create t3: expected ErrAPITokenLimitReached, got %v", err)
+	}
+
+	// Revoking one frees a slot.
+	toks, err := svc.ListAPITokens(ctx, user.ID)
+	if err != nil || len(toks) != 2 {
+		t.Fatalf("list: err=%v len=%d", err, len(toks))
+	}
+	if err := svc.RevokeAPIToken(ctx, user.ID, toks[0].ID); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if _, _, err := svc.CreateAPIToken(ctx, user.ID, "t3"); err != nil {
+		t.Fatalf("create after revoke: expected success, got %v", err)
+	}
+}
