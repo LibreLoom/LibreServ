@@ -461,7 +461,8 @@ func ensureSecrets(cfgPath string) error {
 	missingJWT := cfg.Auth.JWTSecret == ""
 	missingCSRF := cfg.Auth.CSRFSecret == ""
 	missingCloud := cfg.Auth.CloudEncryptionKey == ""
-	if !missingJWT && !missingCSRF && !missingCloud {
+	missingTOTPKey := cfg.Auth.MFA.TOTPEncryptionKey == ""
+	if !missingJWT && !missingCSRF && !missingCloud && !missingTOTPKey {
 		return nil
 	}
 
@@ -508,6 +509,16 @@ func ensureSecrets(cfgPath string) error {
 			return fmt.Errorf("generate cloud encryption key: %w", err)
 		}
 		cfg.Auth.CloudEncryptionKey = secret
+		updated = true
+	}
+	if missingTOTPKey {
+		// AES-GCM key for TOTP-secret-at-rest. Must be stable across restarts or
+		// enrolled TOTP methods can't be decrypted (softlock), so persist it.
+		secret, err := auth.GenerateSecureKey(32)
+		if err != nil {
+			return fmt.Errorf("generate totp encryption key: %w", err)
+		}
+		cfg.Auth.MFA.TOTPEncryptionKey = secret
 		updated = true
 	}
 

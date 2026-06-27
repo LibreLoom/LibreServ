@@ -9,8 +9,22 @@ auth:
     secret_file: ""
     csrf_secret: ""
     # allow_registration controls whether anyone can create an account.
-    # Keep this off for private or admin-managed servers.
+    # Keep this off for private or admin-managed servers. (Public self-signup is
+    # removed; admins invite users via POST /users/invites instead.)
     allow_registration: false
+    mfa:
+        # AES-GCM key wrapping TOTP secrets at rest. Empty -> auto-generated +
+        # persisted on first run (must stay stable or enrolled TOTP methods
+        # can't be decrypted). Set via LIBRESERV_AUTH_MFA_TOTP_ENCRYPTION_KEY
+        # for read-only configs.
+        totp_encryption_key: ""
+        # WebAuthn (passkeys + security keys). Leave rp_id/origins unset to
+        # disable (methods return "not configured"); requires https origins.
+        webauthn:
+            rp_id: ""
+            rp_display_name: ""
+            origins: []
+            timeout: 60s
 apps:
     data_path: ./dev/apps
     catalog_path: ./apps
