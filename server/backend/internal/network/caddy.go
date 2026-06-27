@@ -787,12 +787,22 @@ func (cm *CaddyManager) manualTLSPaths(domain string) (certPath, keyPath string,
 	return
 }
 
-func (cm *CaddyManager) certPathsForDomain(domain string) (certPath, keyPath string, ok bool) {
+// certDirForDomain returns the canonical per-domain certificates directory
+// under CertsPath, using the same safeDomainDir mapping as cert storage.
+// It returns "" when no CertsPath is configured.
+func (cm *CaddyManager) certDirForDomain(domain string) string {
 	base := strings.TrimSpace(cm.config.CertsPath)
 	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, safeDomainDir(domain))
+}
+
+func (cm *CaddyManager) certPathsForDomain(domain string) (certPath, keyPath string, ok bool) {
+	dir := cm.certDirForDomain(domain)
+	if dir == "" {
 		return "", "", false
 	}
-	dir := filepath.Join(base, safeDomainDir(domain))
 	cert := filepath.Join(dir, "fullchain.pem")
 	key := filepath.Join(dir, "privkey.pem")
 	if fileExists(cert) && fileExists(key) {

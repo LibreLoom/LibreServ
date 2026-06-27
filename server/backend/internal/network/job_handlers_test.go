@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
@@ -85,7 +86,9 @@ func TestRevocationHandler_Process_RemovesWildcardCert(t *testing.T) {
 	cm.config.CertsPath = filepath.Join(tmpDir, "certs")
 
 	domain := "app.example.com"
-	wildcardDir := filepath.Join(cm.config.CertsPath, safeDomainDir("*.example.com"))
+	// certDirForDomain encodes the same wildcard naming Caddy uses, so this
+	// test also verifies deleteLocalCerts matches the real cert storage path.
+	wildcardDir := cm.certDirForDomain("*." + strings.SplitN(domain, ".", 2)[1])
 	if err := os.MkdirAll(wildcardDir, 0o750); err != nil {
 		t.Fatalf("create wildcard cert dir: %v", err)
 	}

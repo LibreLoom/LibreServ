@@ -476,3 +476,37 @@ func TestCaddyManager_FindRouteByDomain(t *testing.T) {
 func contains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) && contains(s[1:], substr) || s[0:len(substr)] == substr)
 }
+
+func TestCaddyManager_certDirForDomain_Wildcard(t *testing.T) {
+	cm, tmpDir := setupTestCaddyManager(t, "noop")
+	cm.config.CertsPath = filepath.Join(tmpDir, "certs")
+
+	dir := cm.certDirForDomain("*.example.com")
+	if dir == "" {
+		t.Fatal("certDirForDomain returned empty for wildcard")
+	}
+	wantDir := filepath.Join(cm.config.CertsPath, "wildcard.example.com")
+	if dir != wantDir {
+		t.Fatalf("wildcard cert dir = %q, want %q", dir, wantDir)
+	}
+
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("create wildcard cert dir: %v", err)
+	}
+	certFile := filepath.Join(dir, "fullchain.pem")
+	keyFile := filepath.Join(dir, "privkey.pem")
+	if err := os.WriteFile(certFile, []byte("cert"), 0o644); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	if err := os.WriteFile(keyFile, []byte("key"), 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+
+	gotCert, gotKey, ok := cm.certPathsForDomain("*.example.com")
+	if !ok {
+		t.Fatal("certPathsForDomain did not find wildcard cert")
+	}
+	if gotCert != certFile || gotKey != keyFile {
+		t.Fatalf("certPathsForDomain returned %q %q, want %q %q", gotCert, gotKey, certFile, keyFile)
+	}
+}

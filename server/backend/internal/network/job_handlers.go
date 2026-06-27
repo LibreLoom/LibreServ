@@ -289,11 +289,6 @@ func (h *RevocationHandler) Process(ctx context.Context, job *jobqueue.Job, db *
 // deleteLocalCerts removes certificate files for job.Domain from the configured
 // certificates directory. It best-effort also removes a matching wildcard cert.
 func (h *RevocationHandler) deleteLocalCerts(job *jobqueue.Job) error {
-	certsPath := strings.TrimSpace(h.caddyManager.config.CertsPath)
-	if certsPath == "" {
-		return nil
-	}
-
 	domains := []string{job.Domain}
 	if parts := strings.SplitN(job.Domain, ".", 2); len(parts) == 2 {
 		domains = append(domains, "*."+parts[1])
@@ -301,7 +296,10 @@ func (h *RevocationHandler) deleteLocalCerts(job *jobqueue.Job) error {
 
 	var errs []error
 	for _, d := range domains {
-		dir := filepath.Join(certsPath, safeDomainDir(d))
+		dir := h.caddyManager.certDirForDomain(d)
+		if dir == "" {
+			continue
+		}
 		certFile := filepath.Join(dir, "fullchain.pem")
 		keyFile := filepath.Join(dir, "privkey.pem")
 
