@@ -39,6 +39,17 @@ type Service struct {
 	lockoutAfter  int
 	lockoutWindow time.Duration
 	lockoutFor    time.Duration
+
+	// MFA: optional WebAuthn verifier (nil = webauthn methods unavailable),
+	// TOTP at-rest encryption key, in-flight email OTPs, and pending
+	// webauthn registration labels (stashed between begin/finish).
+	webauthnVerifier     WebAuthnVerifier
+	mfaTOTPEncryptionKey string
+	emailOTPMu           sync.Mutex
+	emailOTPs            map[string]emailOTPData
+	pendingWebAuthnMu    sync.Mutex
+	pendingWebAuthnLabel map[string]string
+	pendingWebAuthnType  map[string]string
 }
 
 // NewService creates a new auth service
@@ -98,6 +109,22 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse,
 		return nil, ErrInvalidCredentials
 	}
 	s.clearFailures(req.Username)
+
+	// MFA: if the user has ≥1 enabled method, do NOT issue a session — issue a
+	// short-lived mfa_token scoped to /auth/mfa/* and require a verify/recover.
+	if has, err := s.HasMFA(ctx, user.ID); err != nil {
+		return nil, fmt.Errorf("failed to check mfa: %w", err)
+	} else if has {
+		mfaToken, err := s.issueMFAToken(user.ID, user.Username, user.Role)
+		if err != nil {
+			return nil, fmt.Errorf("failed to issue mfa token: %w", err)
+		}
+		methods, err := s.enabledMFAMethodTypes(ctx, user.ID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list mfa methods: %w", err)
+		}
+		return nil, &MFARequiredError{MFAToken: mfaToken, Methods: methods}
+	}
 
 	// Generate tokens
 	tokens, err := s.jwtManager.GenerateTokenPair(user.ID, user.Username, user.Role)

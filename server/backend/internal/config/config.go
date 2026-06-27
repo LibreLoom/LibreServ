@@ -44,11 +44,28 @@ type Config struct {
 
 // AuthConfig holds auth-related settings.
 type AuthConfig struct {
-	JWTSecret          string `mapstructure:"jwt_secret" yaml:"jwt_secret"`
-	SecretFile         string `mapstructure:"secret_file" yaml:"secret_file"`
-	CSRFSecret         string `mapstructure:"csrf_secret" yaml:"csrf_secret"`
-	CloudEncryptionKey string `mapstructure:"cloud_encryption_key" yaml:"cloud_encryption_key"`
-	AllowRegistration  bool   `mapstructure:"allow_registration" yaml:"allow_registration"`
+	JWTSecret          string        `mapstructure:"jwt_secret" yaml:"jwt_secret"`
+	SecretFile         string        `mapstructure:"secret_file" yaml:"secret_file"`
+	CSRFSecret         string        `mapstructure:"csrf_secret" yaml:"csrf_secret"`
+	CloudEncryptionKey string        `mapstructure:"cloud_encryption_key" yaml:"cloud_encryption_key"`
+	AllowRegistration  bool          `mapstructure:"allow_registration" yaml:"allow_registration"`
+	MFA                AuthMFAConfig `mapstructure:"mfa" yaml:"mfa"`
+}
+
+// AuthMFAConfig holds multi-factor-auth settings. TOTPEncryptionKey (AES-GCM)
+// wraps TOTP secrets at rest; if empty, TOTP enrollment fails closed.
+// WebAuthn is consumed by the internal/auth/webauthn package (wired in main.go).
+type AuthMFAConfig struct {
+	TOTPEncryptionKey string         `mapstructure:"totp_encryption_key" yaml:"totp_encryption_key"`
+	WebAuthn          WebAuthnConfig `mapstructure:"webauthn" yaml:"webauthn"`
+}
+
+// WebAuthnConfig holds Relying-Party settings for passkey/security-key ceremonies.
+type WebAuthnConfig struct {
+	RPID          string   `mapstructure:"rp_id" yaml:"rp_id"`
+	RPDisplayName string   `mapstructure:"rp_display_name" yaml:"rp_display_name"`
+	Origins       []string `mapstructure:"origins" yaml:"origins"`
+	Timeout       string   `mapstructure:"timeout" yaml:"timeout"`
 }
 
 // ServerConfig defines HTTP server settings.

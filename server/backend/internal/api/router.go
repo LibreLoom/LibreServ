@@ -32,6 +32,7 @@ func (s *Server) setupRoutes() {
 	usersHandler := handlers.NewUsersHandler(s.authService)
 	apiTokensHandler := handlers.NewAPITokensHandler(s.authService)
 	apiTokensHandler.SetAuditLogger(s)
+	mfaHandler := handlers.NewMFAHandler(s.authService, mfaEmailSender(s.emailSender))
 	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService, s.caddyManager)
 	csrfSecret := config.Get().Auth.CSRFSecret
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
@@ -170,6 +171,12 @@ func (s *Server) setupRoutes() {
 			// Token refresh (no access token required - uses refresh token cookie)
 			r.Post("/auth/refresh", authHandler.RefreshToken)
 
+			// MFA login flow — PUBLIC (auth'd by the short-lived mfa_token in the
+			// body, not a session). Continuation of /auth/login for MFA-enabled users.
+			r.Post("/auth/mfa/challenge", mfaHandler.Challenge)
+			r.Post("/auth/mfa/verify", mfaHandler.Verify)
+			r.Post("/auth/mfa/recover", mfaHandler.Recover)
+
 			// Public catalog icon endpoint (for app icons)
 			r.Get("/catalog/{appId}/icon", catalogHandler.GetAppIcon)
 
@@ -194,6 +201,19 @@ func (s *Server) setupRoutes() {
 				r.Get("/", apiTokensHandler.List)
 				r.Post("/", apiTokensHandler.Create)
 				r.Delete("/{id}", apiTokensHandler.Revoke)
+			})
+
+			// MFA enrollment — session-authed + CSRF. (Login-flow endpoints are
+			// public; see above.)
+			r.Route("/auth/mfa", func(r chi.Router) {
+				r.Get("/methods", mfaHandler.ListMethods)
+				r.Post("/totp/setup", mfaHandler.SetupTOTP)
+				r.Post("/totp/verify", mfaHandler.VerifyTOTP)
+				r.Post("/email/setup", mfaHandler.SetupEmail)
+				r.Post("/email/verify", mfaHandler.VerifyEmail)
+				r.Post("/recovery-codes", mfaHandler.GenerateRecoveryCodes)
+				r.Get("/recovery-codes", mfaHandler.RecoveryCodesRemaining)
+				r.Delete("/methods/{id}", mfaHandler.DeleteMethod)
 			})
 
 			// Catalog - browse available apps

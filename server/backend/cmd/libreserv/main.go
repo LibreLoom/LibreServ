@@ -308,6 +308,15 @@ func main() {
 	emailSender, _ := email.NewSender()
 	notifyService := notify.NewService(authService, emailSender)
 
+	// MFA: wire the TOTP at-rest encryption key (fail-closed if unset) + the
+	// email-OTP sender (adapted to the api.EmailSender interface). WebAuthn is
+	// wired separately once the verifier is constructed (nil-safe until then).
+	authService.SetMFATOTPEncryptionKey(cfg.Auth.MFA.TOTPEncryptionKey)
+	var mfaEmail api.EmailSender
+	if emailSender != nil {
+		mfaEmail = mfaOTPSender{emailSender}
+	}
+
 	sysChecker := system.NewUpdateChecker(cfg.Updates)
 	restartCh := make(chan system.RestartSignal, 1)
 	sysChecker.SetRestartChannel(restartCh)
@@ -340,6 +349,7 @@ func main() {
 		SettingsService: settingsService,
 		ConnectClient:   connectClient,
 		ConnectChecker:  connectChecker,
+		EmailSender:     mfaEmail,
 	}).WithJobQueue(jobQueue)
 
 	bluetooth.SetRouter(server.Router())

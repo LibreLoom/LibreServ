@@ -37,6 +37,23 @@ import (
 )
 
 // Server represents the HTTP API server
+// EmailSender sends a one-time code to an email address (used for email-OTP
+// MFA). nil-method receivers are safe to skip; a nil EmailSender disables email
+// MFA methods.
+type EmailSender interface {
+	SendOTP(email, code string) error
+}
+
+// mfaEmailSender adapts a server.EmailSender to the func(email, code) error
+// signature that handlers.NewMFAHandler expects. nil -> email MFA disabled.
+func mfaEmailSender(s EmailSender) func(email, code string) error {
+	if s == nil {
+		return nil
+	}
+	return func(email, code string) error { return s.SendOTP(email, code) }
+}
+
+// Server holds runtime state for the API server.
 type Server struct {
 	router          chi.Router
 	httpServer      *http.Server
@@ -69,6 +86,7 @@ type Server struct {
 	selfHealMonitor *agent.SelfHealingMonitor
 	connectClient   connect.Client
 	connectChecker  *connect.EntitlementChecker
+	emailSender     EmailSender // sends MFA email-OTP codes; nil disables email MFA
 }
 
 // ServerConfig holds configuration for creating a new Server
@@ -92,6 +110,7 @@ type ServerConfig struct {
 	SettingsService *settings.Service
 	ConnectClient   connect.Client
 	ConnectChecker  *connect.EntitlementChecker
+	EmailSender     EmailSender
 }
 
 // JobQueue interface for job queue operations
@@ -171,6 +190,7 @@ func NewServer(cfg ServerConfig) *Server {
 		settingsService: cfg.SettingsService,
 		connectClient:   cfg.ConnectClient,
 		connectChecker:  cfg.ConnectChecker,
+		emailSender:     cfg.EmailSender,
 	}
 
 	staticFS, staticSource, err := loadStaticFS()

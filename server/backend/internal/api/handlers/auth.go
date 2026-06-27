@@ -94,6 +94,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	clientIP := getClientIP(r)
 
 	response, err := h.authService.Login(r.Context(), &req)
+	var mfaReq *auth.MFARequiredError
+	if errors.As(err, &mfaReq) {
+		// Password was valid but the user has MFA — do NOT set a session.
+		// Return the short-lived mfa_token + the enabled-method picker list.
+		JSON(w, http.StatusOK, map[string]interface{}{
+			"status":    "mfa_required",
+			"mfa_token": mfaReq.MFAToken,
+			"methods":   mfaReq.Methods,
+		})
+		return
+	}
 	if err != nil {
 		if err == auth.ErrInvalidCredentials {
 			// Record failed login attempt
@@ -125,31 +136,33 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	h.securityService.RecordEvent(r.Context(), &event)
 	h.securityService.ClearFailedAttempts(clientIP, response.User.Username)
 
-	// Set access token as HTTP-only cookie
-	refreshExpiresAt, err := h.authService.TokenExpiry(response.Tokens.RefreshToken)
-	if err != nil {
+	// Set access + refresh tokens as HTTP-only cookies.
+	if err := setSessionCookies(w, h.authService, response.Tokens); err != nil {
 		JSONError(w, http.StatusInternalServerError, "We couldn't set up your session. Please try again.")
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     accessCookieName,
-		Value:    response.Tokens.AccessToken,
-		Path:     "/",
-		Expires:  time.Unix(response.Tokens.ExpiresAt, 0),
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
-	})
-	http.SetCookie(w, &http.Cookie{
-		Name:     refreshCookieName,
-		Value:    response.Tokens.RefreshToken,
-		Path:     "/",
-		Expires:  refreshExpiresAt,
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
-	})
 	JSON(w, http.StatusOK, response.User.Sanitize())
+}
+
+// setSessionCookies sets the access + refresh HTTP-only cookies for a token
+// pair. Shared by Login and the MFA verify/recover flows (which also complete a
+// session after a valid MFA challenge).
+func setSessionCookies(w http.ResponseWriter, authService *auth.Service, tokens *auth.TokenPair) error {
+	refreshExpiresAt, err := authService.TokenExpiry(tokens.RefreshToken)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: accessCookieName, Value: tokens.AccessToken, Path: "/",
+		Expires:  time.Unix(tokens.ExpiresAt, 0),
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: true,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name: refreshCookieName, Value: tokens.RefreshToken, Path: "/",
+		Expires:  refreshExpiresAt,
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: true,
+	})
+	return nil
 }
 
 // Logout handles POST /api/v1/auth/logout
