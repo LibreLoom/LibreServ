@@ -13,10 +13,16 @@ import (
 // APITokensHandler manages a user's long-lived API tokens (programmatic access).
 type APITokensHandler struct {
 	authService *auth.Service
+	auditLog    AuditLogger
 }
 
 func NewAPITokensHandler(authService *auth.Service) *APITokensHandler {
 	return &APITokensHandler{authService: authService}
+}
+
+// SetAuditLogger sets the audit logging callback.
+func (h *APITokensHandler) SetAuditLogger(logger AuditLogger) {
+	h.auditLog = logger
 }
 
 type createAPITokenRequest struct {
@@ -53,8 +59,14 @@ func (h *APITokensHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	plaintext, rec, err := h.authService.CreateAPIToken(r.Context(), userID, strings.TrimSpace(req.Name))
 	if err != nil {
+		if h.auditLog != nil {
+			h.auditLog.Log(r.Context(), "api_token.create", "", strings.TrimSpace(req.Name), "failure", err.Error(), map[string]interface{}{"user_id": userID})
+		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't create that API token. Please try again.")
 		return
+	}
+	if h.auditLog != nil {
+		h.auditLog.Log(r.Context(), "api_token.create", rec.ID, rec.Name, "success", "API token created", map[string]interface{}{"user_id": userID})
 	}
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"token":     plaintext,
@@ -80,8 +92,14 @@ func (h *APITokensHandler) Revoke(w http.ResponseWriter, r *http.Request) {
 			JSONError(w, http.StatusNotFound, "We couldn't find that API token. It may have already been revoked.")
 			return
 		}
+		if h.auditLog != nil {
+			h.auditLog.Log(r.Context(), "api_token.revoke", tokenID, "", "failure", err.Error(), map[string]interface{}{"user_id": userID})
+		}
 		JSONError(w, http.StatusInternalServerError, "We couldn't revoke that API token. Please try again.")
 		return
+	}
+	if h.auditLog != nil {
+		h.auditLog.Log(r.Context(), "api_token.revoke", tokenID, "", "success", "API token revoked", map[string]interface{}{"user_id": userID})
 	}
 	JSON(w, http.StatusOK, map[string]string{"message": "API token revoked"})
 }

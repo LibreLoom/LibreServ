@@ -31,6 +31,7 @@ func (s *Server) setupRoutes() {
 	backupHandler := handlers.NewBackupHandlers(s.backupService)
 	usersHandler := handlers.NewUsersHandler(s.authService)
 	apiTokensHandler := handlers.NewAPITokensHandler(s.authService)
+	apiTokensHandler.SetAuditLogger(s)
 	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService, s.caddyManager)
 	csrfSecret := config.Get().Auth.CSRFSecret
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
