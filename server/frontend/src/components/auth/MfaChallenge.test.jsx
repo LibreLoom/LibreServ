@@ -130,7 +130,7 @@ describe("MfaChallenge", () => {
   });
 
   it("drives a passkey via WebAuthn (challenge → navigator.credentials.get → verify)", async () => {
-    mockChallenge.mockResolvedValueOnce({ options: { challenge: "AAAAAAAAAAAAAAAA", allowCredentials: [] } });
+    mockChallenge.mockResolvedValueOnce({ options: { publicKey: { challenge: "AAAAAAAAAAAAAAAA", allowCredentials: [] } } });
     fakeCredentialsGet.mockResolvedValueOnce(fakeCredential());
     mockVerify.mockResolvedValueOnce(undefined);
     renderChallenge();

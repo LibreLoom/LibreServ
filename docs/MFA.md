@@ -68,3 +68,32 @@ Backend (8bcd78ea): can't DELETE last enabled method (409); admin can't disable 
 Backend (692b7a0a): WebAuthn register→verify round-trip (ceremony) against a virtual authenticator; passkey + security_key both enroll.
 Frontend (me): selection UI lists enabled methods; entry UI per type; "disable last" blocked in UI; recovery flow; admin-required enrollment gate.
 Integration (one of us): admin enrolls TOTP → logout → login → password → pick TOTP → code → in; AND enroll → attempt delete last → blocked.
+## Decisions (post-contract, user-directed)
+
+1. **WebAuthn options nesting (confirmed empirically by agent-c7ee3400):** both
+   `register/begin` and `mfa/challenge` (passkey/security_key) return
+   `{options: {publicKey: <PublicKeyCredential{Creation,Request}Options>}}`.
+   Frontend calls `prepareCreationOptions/prepareRequestOptions(response.options.publicKey)`
+   — NOT `response.options`. Buffer fields base64url no-pad end-to-end.
+
+2. **MFA always-required for admins; block UI usage (not sign-in):** an admin with
+   no enabled MFA method hits a fullscreen `MfaBlocker` (every app route replaced)
+   until they enroll. Gated in `App.jsx RequireAuth` on
+   `me.role === "admin" && me.mfa_enabled === false`. Backend exposes `mfa_enabled`
+   (bool) on `/auth/me`.
+
+3. **`/auth/register` is NUKED** (route + handler + `allow_registration` config).
+   No public self-signup. Account creation is admin-initiated only: manual-add
+   (`POST /users/`) OR invite-user.
+
+4. **Setup MFA step:** explicit step in the setup wizard immediately after account
+   creation (NOT transparent background email). Since SMTP isn't configured at that
+   point (SMTP step comes later), the step offers TOTP/passkey/security-key (not
+   email); email can be added from MyProfile after SMTP setup.
+
+5. **Invite-user (replaces register):** admin clicks "Add user" → choose manual-add
+   (existing) OR invite-by-email (if SMTP configured). Invite: admin picks role +
+   email → backend sends invite token → invitee follows link → onboards (username +
+   password + MFA; MFA required if role=admin). Backend endpoints: `POST /users/invites`,
+   `GET /auth/invite/{token}`, `POST /auth/invite/{token}/redeem`. The only public
+   account-creation path.

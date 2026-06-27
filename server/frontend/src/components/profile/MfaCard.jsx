@@ -31,7 +31,10 @@ const TYPE_META = {
 
 const ORDER = ["totp", "email", "passkey", "security_key"];
 
-export default function MfaCard() {
+/**
+ * @param {{ onMethodEnabled?: () => void } | undefined} [props]
+ */
+export default function MfaCard({ onMethodEnabled } = {}) {
   const { me, request } = useAuth();
   const { addToast } = useToast();
   const [methods, setMethods] = useState(/** @type {Array<object>} */ ([]));
@@ -137,6 +140,7 @@ export default function MfaCard() {
     setEnrolling(null);
     loadMethods();
     loadRecoveryRemaining();
+    onMethodEnabled?.();
   }
 
   return (
@@ -377,7 +381,7 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
     });
     const begin = await beginRes.json();
     if (!beginRes.ok) throw new Error(begin.error || "Couldn't start registration.");
-    const creationOptions = prepareCreationOptions(begin.options);
+    const creationOptions = prepareCreationOptions(begin.options?.publicKey ?? begin.options);
     const cred = await navigator.credentials.create({ publicKey: creationOptions });
     const assertion = /** @type {PublicKeyCredential} */ (cred);
     const response = /** @type {AuthenticatorAttestationResponse} */ (assertion?.response);
@@ -484,7 +488,9 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
   );
 }
 
-MfaCard.propTypes = {};
+MfaCard.propTypes = {
+  onMethodEnabled: PropTypes.func,
+};
 EnrollFlow.propTypes = {
   type: PropTypes.oneOf(["totp", "email", "passkey", "security_key"]).isRequired,
   onCancel: PropTypes.func.isRequired,

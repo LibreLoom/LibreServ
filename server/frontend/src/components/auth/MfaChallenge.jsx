@@ -55,7 +55,9 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
       const challengeRes = await mfaChallenge(mfaToken, type);
       const options = challengeRes?.options;
       if (!options) throw new Error("No challenge");
-      const cred = await navigator.credentials.get({ publicKey: prepareRequestOptions(options) });
+      const cred = await navigator.credentials.get({
+        publicKey: prepareRequestOptions(options?.publicKey ?? options),
+      });
       const assertion = /** @type {PublicKeyCredential} */ (cred);
       const response = /** @type {AuthenticatorAssertionResponse} */ (assertion?.response);
       const payload = {

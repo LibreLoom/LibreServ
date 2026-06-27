@@ -15,6 +15,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
 const AppInstallPage = lazy(() => import("./pages/AppInstallPage"));
 const Login = lazy(() => import("./pages/Login"));
+const MfaBlocker = lazy(() => import("./components/auth/MfaBlocker"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
@@ -25,7 +26,10 @@ const PigeonPage = lazy(() => import("./pages/PigeonPage"));
 function RequireAuth({ children }) {
   const { me, initialized } = useAuth();
   if (!initialized) return <LoadingFast label="Checking authentication..." />;
-  return me ? children : <Login />;
+  if (!me) return <Login />;
+  // Admins must have MFA enabled — block all UI usage (not sign-in) until they enroll.
+  if (me.role === "admin" && me.mfa_enabled === false) return <MfaBlocker />;
+  return children;
 }
 
 // Wrapper for data-heavy pages with error boundary
