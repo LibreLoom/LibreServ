@@ -15,6 +15,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
 const AppInstallPage = lazy(() => import("./pages/AppInstallPage"));
 const Login = lazy(() => import("./pages/Login"));
+const InviteeOnboardingPage = lazy(() => import("./pages/InviteeOnboardingPage"));
 const MfaBlocker = lazy(() => import("./components/auth/MfaBlocker"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const SetupPage = lazy(() => import("./pages/SetupPage"));
@@ -121,6 +122,8 @@ export default function App() {
           {/* Public routes outside auth requirement */}
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          {/* Invitation onboarding — public, reached via an invite link. */}
+          <Route path="/invite/:token" element={<InviteeOnboardingPage />} />
           {/* Fallback for unknown routes. */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
