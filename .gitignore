@@ -43,6 +43,8 @@ server/backend/.cache/
 .cache/gomodcache/
 .cache/gopath/
 server/backend/.gocache/
+# Go telemetry/config runtime data
+server/backend/.config/
 server/backend/.env
 server/backend/.env.local
 
