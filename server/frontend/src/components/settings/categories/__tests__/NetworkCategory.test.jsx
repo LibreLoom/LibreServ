@@ -221,8 +221,12 @@ describe("NetworkCategory", () => {
       expect(screen.getByTestId("debug-card")).toBeInTheDocument();
     });
 
-    expect(DebugCardProps).toMatchObject({
-      content: "# Caddyfile\n{\n\tauto_https off\n}",
+    // The caddyfile is fetched asynchronously; wait for it to land in
+    // DebugCard's props rather than asserting immediately after render (race fix).
+    await waitFor(() => {
+      expect(DebugCardProps).toMatchObject({
+        content: "# Caddyfile\n{\n\tauto_https off\n}",
+      });
     });
     expect(DebugCardProps.onReload).toBeDefined();
   });
