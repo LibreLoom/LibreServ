@@ -124,6 +124,10 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Populate the public URL (correct http/https scheme) so the UI's
+	// "Open App" link points at the real domain instead of a localhost URL.
+	h.manager.EnsurePublicURL(result.App)
+
 	JSON(w, http.StatusCreated, result)
 }
 

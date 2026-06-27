@@ -1485,6 +1485,15 @@ func (m *Manager) maybeSetPublicURL(app *InstalledApp) {
 	app.URL = fmt.Sprintf("%s://%s", scheme, route.FullDomain())
 }
 
+// EnsurePublicURL is the exported wrapper around maybeSetPublicURL so the
+// install handler can populate an installed app's public URL (with the
+// correct http/https scheme) before returning it to the UI. Without this the
+// install response carries a localhost URL and the UI's "Open App" link
+// points at the wrong place.
+func (m *Manager) EnsurePublicURL(app *InstalledApp) {
+	m.maybeSetPublicURL(app)
+}
+
 // inferBackends attempts to derive reachable backend URLs for an installed app.
 func (m *Manager) inferBackends(app *InstalledApp) []backendEntry {
 	if app == nil {

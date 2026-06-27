@@ -341,3 +341,40 @@ func TestManager_maybeSetPublicURL(t *testing.T) {
 		t.Fatalf("expected original URL when proxy disabled, got %s", app3.URL)
 	}
 }
+
+func TestManager_EnsurePublicURL(t *testing.T) {
+	// EnsurePublicURL is the exported wrapper the install handler calls so the
+	// install response carries the correct public URL (https when AutoHTTPS).
+	dbDir := t.TempDir()
+	dbPath := filepath.Join(dbDir, "test.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "Caddyfile")
+	cm := network.NewCaddyManager(db, network.CaddyConfig{
+		Mode:          "noop",
+		ConfigPath:    configPath,
+		DefaultDomain: "example.com",
+		AutoHTTPS:     true,
+	})
+	if err := cm.Initialize(context.Background()); err != nil {
+		t.Fatalf("initialize caddy manager: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := cm.AddRoute(ctx, "app", "example.com", "http://localhost:8888", "inst1"); err != nil {
+		t.Fatalf("add route: %v", err)
+	}
+	m := &Manager{db: db, caddyManager: cm}
+	app := &InstalledApp{ID: "inst1", URL: "http://localhost:8888"}
+	m.EnsurePublicURL(app)
+	if app.URL != "https://app.example.com" {
+		t.Fatalf("EnsurePublicURL: expected https public URL, got %s", app.URL)
+	}
+
+	// Nil app must not panic (the install handler calls it unconditionally).
+	m.EnsurePublicURL(nil)
+}

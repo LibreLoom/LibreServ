@@ -7,9 +7,10 @@ function CompleteStep({ app, instance, onDone }) {
 
   const subdomain = instance?.subdomain;
   const domain = instance?.domain;
-  const publicUrl =
-    subdomain && domain ? `http://${subdomain}.${domain}` : "";
-  const appUrl = publicUrl || instance?.url || instance?.backends?.[0]?.url || "";
+  // Prefer the backend-provided public URL (correct http/https scheme) over
+  // reconstructing it — the backend sets instance.url via EnsurePublicURL on
+  // the install path, so it already reflects https when AutoHTTPS is on.
+  const appUrl = instance?.url || instance?.backends?.[0]?.url || "";
   const generatedPassword = instance?.config?.admin_password || instance?.config?._generated_password;
 
   const handleCopy = (text) => {
