@@ -14,8 +14,9 @@ import (
 type ContextKey string
 
 const (
-	UserContextKey   ContextKey = "user"
-	UserIDContextKey ContextKey = "user_id"
+	UserContextKey       ContextKey = "user"
+	UserIDContextKey     ContextKey = "user_id"
+	AuthMethodContextKey ContextKey = "auth_method"
 )
 
 type User struct {
@@ -54,38 +55,48 @@ func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 				return
 			}
 			var user *User
+			authMethod := "session"
 
 			// Check if attempting to use dev token (compile-time excluded from production builds)
 			if token == "dev-token" {
-				// Always reject dev tokens - they should only be used in local development
-				// with code compiled without the production tag
 				slog.Warn("Dev token authentication attempt blocked",
 					"remote_addr", r.RemoteAddr,
 					"path", r.URL.Path,
 				)
 				response.Unauthorized(w, "Dev tokens are not allowed")
 				return
-			} else {
-				claims, err := cfg.AuthService.ValidateAccessToken(token)
-				if err != nil {
-					slog.Debug("Auth middleware: token validation failed", "path", r.URL.Path, "error", err.Error())
-					if err == auth.ErrExpiredToken {
-						response.Unauthorized(w, "Your session has expired. Please log in again.")
-						return
-					}
-					response.Unauthorized(w, "Invalid authentication token")
-					return
-				}
+			}
 
+			// Try the JWT session token first.
+			claims, err := cfg.AuthService.ValidateAccessToken(token)
+			if err == nil {
 				user = &User{
 					ID:       claims.UserID,
 					Username: claims.Username,
 					Role:     claims.Role,
 				}
+			} else if err == auth.ErrExpiredToken {
+				response.Unauthorized(w, "Your session has expired. Please log in again.")
+				return
+			} else if auth.IsAPIToken(token) {
+				// Not a valid JWT but looks like an API token — try programmatic auth.
+				u, apiErr := cfg.AuthService.ValidateAPIToken(r.Context(), token)
+				if apiErr != nil {
+					slog.Debug("Auth middleware: api token validation failed", "path", r.URL.Path, "error", apiErr.Error())
+					response.Unauthorized(w, "Invalid authentication token")
+					return
+				}
+				user = &User{ID: u.ID, Username: u.Username, Role: u.Role}
+				authMethod = "api_token"
+			} else {
+				slog.Debug("Auth middleware: token validation failed", "path", r.URL.Path, "error", err.Error())
+				response.Unauthorized(w, "Invalid authentication token")
+				return
 			}
 
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
 			ctx = context.WithValue(ctx, UserIDContextKey, user.ID)
+			ctx = context.WithValue(ctx, AuthMethodContextKey, authMethod)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -102,6 +113,14 @@ func GetUser(ctx context.Context) *User {
 func GetUserID(ctx context.Context) (string, bool) {
 	userID, ok := ctx.Value(UserIDContextKey).(string)
 	return userID, ok
+}
+
+// GetAuthMethod returns how the current request authenticated: "session"
+// (JWT/cookie) or "api_token" (long-lived bearer). The CSRF middleware uses
+// this to skip bearer-authed requests, which are immune to CSRF.
+func GetAuthMethod(ctx context.Context) string {
+	m, _ := ctx.Value(AuthMethodContextKey).(string)
+	return m
 }
 
 func RequireRole(role string) func(next http.Handler) http.Handler {

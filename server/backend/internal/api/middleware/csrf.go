@@ -35,6 +35,12 @@ func CSRF(secret string) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+			// Bearer-token (API token) requests are immune to CSRF and carry no
+			// session cookie, so skip enforcement for them.
+			if GetAuthMethod(r.Context()) == "api_token" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			user := GetUser(r.Context())
 			if user == nil {
 				response.Unauthorized(w, "")
