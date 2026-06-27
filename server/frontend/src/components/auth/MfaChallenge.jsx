@@ -14,6 +14,7 @@ import Button from "../ui/Button";
 import Alert from "../common/Alert";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
+import { bufToB64url, prepareRequestOptions } from "../../utils/webauthn";
 
 const METHOD_META = {
   totp: { icon: KeyRound, label: "Authenticator app" },
@@ -21,14 +22,6 @@ const METHOD_META = {
   passkey: { icon: Fingerprint, label: "Passkey" },
   security_key: { icon: Usb, label: "Security key" },
 };
-
-// Encode an ArrayBuffer/TypedArray to base64 for JSON transport (WebAuthn).
-function bufToB64(buf) {
-  const bytes = new Uint8Array(buf);
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s);
-}
 
 export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
   const { mfaChallenge, mfaVerify, mfaRecover } = useAuth();
@@ -62,17 +55,17 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
       const challengeRes = await mfaChallenge(mfaToken, type);
       const options = challengeRes?.options;
       if (!options) throw new Error("No challenge");
-      const cred = await navigator.credentials.get({ publicKey: options });
+      const cred = await navigator.credentials.get({ publicKey: prepareRequestOptions(options) });
       const assertion = /** @type {PublicKeyCredential} */ (cred);
       const response = /** @type {AuthenticatorAssertionResponse} */ (assertion?.response);
       const payload = {
         id: assertion?.id,
-        rawId: bufToB64(assertion?.rawId),
+        rawId: bufToB64url(assertion?.rawId),
         response: {
-          authenticatorData: bufToB64(response?.authenticatorData),
-          clientDataJSON: bufToB64(response?.clientDataJSON),
-          signature: bufToB64(response?.signature),
-          userHandle: response?.userHandle ? bufToB64(response?.userHandle) : undefined,
+          authenticatorData: bufToB64url(response?.authenticatorData),
+          clientDataJSON: bufToB64url(response?.clientDataJSON),
+          signature: bufToB64url(response?.signature),
+          userHandle: response?.userHandle ? bufToB64url(response?.userHandle) : undefined,
         },
         type: assertion?.type,
       };

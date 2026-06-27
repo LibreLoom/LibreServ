@@ -38,7 +38,7 @@ const METHODS = [
 ];
 
 function renderChallenge(methods = METHODS) {
-  return render(<MfaChallenge mfaToken={TOKEN} methods={methods} onSuccess={mockOnSuccess} />);
+  return render(<MfaChallenge mfaToken={TOKEN} methods={methods} onSuccess={mockOnSuccess} onBack={() => {}} />);
 }
 
 function fakeCredential() {
@@ -64,7 +64,7 @@ describe("MfaChallenge", () => {
     mockAddToast.mockReset();
     fakeCredentialsGet.mockReset();
     // jsdom has no navigator.credentials — install the WebAuthn entry point.
-    Object.defineProperty(global.navigator, "credentials", {
+    Object.defineProperty(globalThis.navigator, "credentials", {
       value: { get: fakeCredentialsGet },
       configurable: true,
       writable: true,
@@ -130,7 +130,7 @@ describe("MfaChallenge", () => {
   });
 
   it("drives a passkey via WebAuthn (challenge → navigator.credentials.get → verify)", async () => {
-    mockChallenge.mockResolvedValueOnce({ options: { challenge: "x", allowCredentials: [] } });
+    mockChallenge.mockResolvedValueOnce({ options: { challenge: "AAAAAAAAAAAAAAAA", allowCredentials: [] } });
     fakeCredentialsGet.mockResolvedValueOnce(fakeCredential());
     mockVerify.mockResolvedValueOnce(undefined);
     renderChallenge();
