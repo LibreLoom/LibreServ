@@ -266,6 +266,7 @@ export default function Dashboard() {
           />
           <DropdownCard
             title="Server Stress Index"
+            subtitle="How busy your device is"
             value={resources ? Math.round(stressIndex * 100) + "%" : "Loading..."}
             breakdownItems={stressBreakdown}
             Icon={Server}
