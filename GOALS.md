@@ -65,7 +65,7 @@ Every goal below exists to keep this path smooth and safe for a non-technical us
 ## System health & users
 *User confidence and multi-user households.*
 
-- [ ] User can check system health and resource usage
+- [x] User can check system health and resource usage
 - [x] User can add and manage multiple users
 - [x] User can update LibreServ from the web UI
 
