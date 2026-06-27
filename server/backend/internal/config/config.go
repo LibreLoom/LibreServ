@@ -48,7 +48,6 @@ type AuthConfig struct {
 	SecretFile         string        `mapstructure:"secret_file" yaml:"secret_file"`
 	CSRFSecret         string        `mapstructure:"csrf_secret" yaml:"csrf_secret"`
 	CloudEncryptionKey string        `mapstructure:"cloud_encryption_key" yaml:"cloud_encryption_key"`
-	AllowRegistration  bool          `mapstructure:"allow_registration" yaml:"allow_registration"`
 	MFA                AuthMFAConfig `mapstructure:"mfa" yaml:"mfa"`
 }
 
@@ -351,7 +350,6 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("runtime.binary", "podman")
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.path", "/var/log/libreserv/libreserv.log")
-	v.SetDefault("auth.allow_registration", false)
 	v.SetDefault("smtp.port", 587)
 	v.SetDefault("network.caddy.mode", "disabled")
 	v.SetDefault("network.caddy.admin_api", "localhost:2019")

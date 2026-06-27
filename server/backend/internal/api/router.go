@@ -156,9 +156,6 @@ func (s *Server) setupRoutes() {
 			r.With(middleware.RateLimit([]middleware.RateRule{
 				{Prefix: "/api/v1/auth/login", Limit: 10, Window: time.Minute},
 			})).Post("/auth/login", authHandler.Login)
-			r.With(middleware.RateLimit([]middleware.RateRule{
-				{Prefix: "/api/v1/auth/register", Limit: 3, Window: time.Hour},
-			})).Post("/auth/register", authHandler.Register)
 
 			// Password reset endpoints (no auth required - token-based authentication)
 			r.With(middleware.RateLimit([]middleware.RateRule{

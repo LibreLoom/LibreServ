@@ -21,14 +21,8 @@ import (
 func newTestAuthHandler(t *testing.T) (*AuthHandler, context.Context) {
 	t.Helper()
 	origCfg := config.Get()
-	config.SetTestConfig(&config.Config{
-		Auth: config.AuthConfig{
-			AllowRegistration: true,
-		},
-	})
-	t.Cleanup(func() {
-		config.SetTestConfig(origCfg)
-	})
+	config.SetTestConfig(&config.Config{Auth: config.AuthConfig{}})
+	t.Cleanup(func() { config.SetTestConfig(origCfg) })
 
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
@@ -49,21 +43,27 @@ func newTestAuthHandler(t *testing.T) (*AuthHandler, context.Context) {
 	return NewAuthHandler(svc, secSvc, db), context.Background()
 }
 
+// mustRegisterUser creates a user via the auth service. The public register
+// handler is gone (admin-add/invite-redeem replace it); in-package access to
+// handler.authService lets tests set up users without the HTTP path.
+func mustRegisterUser(t *testing.T, handler *AuthHandler, ctx context.Context, username, password, email string) {
+	t.Helper()
+	if _, err := handler.authService.Register(ctx, &auth.RegisterRequest{
+		Username: username, Password: password, Email: email,
+	}); err != nil {
+		t.Fatalf("register %s: %v", username, err)
+	}
+}
+
 func TestAuthRegisterLogin(t *testing.T) {
 	handler, ctx := newTestAuthHandler(t)
 
-	// register
-	rec := httptest.NewRecorder()
-	body := `{"username":"bob","password":"Superstrongpass123","email":"bob@example.com"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
-	handler.Register(rec, req.WithContext(ctx))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("register status %d", rec.Code)
-	}
+	// create a user (public register is gone; admin-add/invite-redeem replace it)
+	mustRegisterUser(t, handler, ctx, "bob", "Superstrongpass123", "bob@example.com")
 
 	// login
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"bob","password":"Superstrongpass123"}`))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"username":"bob","password":"Superstrongpass123"}`))
 	handler.Login(rec, req.WithContext(ctx))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login status %d", rec.Code)
@@ -92,14 +92,8 @@ func TestAuthRegisterLogin(t *testing.T) {
 func TestMe(t *testing.T) {
 	handler, ctx := newTestAuthHandler(t)
 
-	// register a user first
-	rec := httptest.NewRecorder()
-	body := `{"username":"alice","password":"Superstrongpass123","email":"alice@example.com"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
-	handler.Register(rec, req.WithContext(ctx))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("register status %d", rec.Code)
-	}
+	// create a user first (public register is gone)
+	mustRegisterUser(t, handler, ctx, "alice", "Superstrongpass123", "alice@example.com")
 
 	// look up the real user ID from the service
 	registeredUser, err := handler.authService.GetUserByUsername(ctx, "alice")
@@ -134,14 +128,8 @@ func TestMeUnauthenticated(t *testing.T) {
 func TestLogout(t *testing.T) {
 	handler, ctx := newTestAuthHandler(t)
 
-	// register and login to get a user with tokens
-	rec := httptest.NewRecorder()
-	body := `{"username":"charlie","password":"Superstrongpass123","email":"charlie@example.com"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewBufferString(body))
-	handler.Register(rec, req.WithContext(ctx))
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("register status %d", rec.Code)
-	}
+	// create a user (public register is gone)
+	mustRegisterUser(t, handler, ctx, "charlie", "Superstrongpass123", "charlie@example.com")
 
 	// inject user context as middleware would
 	user := &middleware.User{ID: "charlie", Username: "charlie", Role: "user"}
