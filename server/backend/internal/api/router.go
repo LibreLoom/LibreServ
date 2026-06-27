@@ -33,6 +33,12 @@ func (s *Server) setupRoutes() {
 	apiTokensHandler := handlers.NewAPITokensHandler(s.authService)
 	apiTokensHandler.SetAuditLogger(s)
 	mfaHandler := handlers.NewMFAHandler(s.authService, mfaEmailSender(s.emailSender))
+	// Invite link base URL: https://<domain>/invite/<token> (dev falls back to localhost).
+	inviteBase := "http://localhost:8080"
+	if d := config.Get().Network.Caddy.DefaultDomain; d != "" {
+		inviteBase = "https://" + d
+	}
+	inviteHandler := handlers.NewInviteHandler(s.authService, inviteSender(s.emailSender, inviteBase))
 	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService, s.caddyManager)
 	csrfSecret := config.Get().Auth.CSRFSecret
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
@@ -167,6 +173,11 @@ func (s *Server) setupRoutes() {
 
 			// Token refresh (no access token required - uses refresh token cookie)
 			r.Post("/auth/refresh", authHandler.RefreshToken)
+
+			// Invite redemption — PUBLIC (the bearer token in the path authenticates
+			// the invite; no session needed). Replaces public self-registration.
+			r.Get("/auth/invite/{token}", inviteHandler.GetInvite)
+			r.Post("/auth/invite/{token}/redeem", inviteHandler.RedeemInvite)
 
 			// MFA login flow — PUBLIC (auth'd by the short-lived mfa_token in the
 			// body, not a session). Continuation of /auth/login for MFA-enabled users.
@@ -386,6 +397,7 @@ func (s *Server) setupRoutes() {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", usersHandler.ListUsers)
 				r.Post("/", usersHandler.CreateUser)
+				r.Post("/invites", inviteHandler.CreateInvite)
 				r.Get("/{userID}", usersHandler.GetUser)
 				r.Put("/{userID}", usersHandler.UpdateUser)
 				r.Delete("/{userID}", usersHandler.DeleteUser)

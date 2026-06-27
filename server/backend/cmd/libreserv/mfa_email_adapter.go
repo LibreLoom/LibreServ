@@ -12,3 +12,8 @@ func (m mfaOTPSender) SendOTP(to, code string) error {
 	return m.s.Send([]string{to}, "Your LibreServ sign-in code",
 		"Your sign-in code is "+code+". It expires in 10 minutes.")
 }
+
+func (m mfaOTPSender) SendInvite(to, inviteURL string) error {
+	return m.s.Send([]string{to}, "You're invited to LibreServ",
+		"Set up your account: "+inviteURL)
+}

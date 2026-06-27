@@ -37,11 +37,11 @@ import (
 )
 
 // Server represents the HTTP API server
-// EmailSender sends a one-time code to an email address (used for email-OTP
-// MFA). nil-method receivers are safe to skip; a nil EmailSender disables email
-// MFA methods.
+// EmailSender sends MFA one-time codes + invite links to an email address. nil
+// receivers are safe to skip; a nil EmailSender disables email MFA + invites.
 type EmailSender interface {
 	SendOTP(email, code string) error
+	SendInvite(email, inviteURL string) error
 }
 
 // mfaEmailSender adapts a server.EmailSender to the func(email, code) error
@@ -51,6 +51,18 @@ func mfaEmailSender(s EmailSender) func(email, code string) error {
 		return nil
 	}
 	return func(email, code string) error { return s.SendOTP(email, code) }
+}
+
+// inviteSender adapts a server.EmailSender to the func(email, token) error
+// signature that handlers.NewInviteHandler expects, building the invite URL
+// from baseURL. nil sender -> nil func (invites disabled).
+func inviteSender(s EmailSender, baseURL string) func(email, token string) error {
+	if s == nil {
+		return nil
+	}
+	return func(email, token string) error {
+		return s.SendInvite(email, baseURL+"/invite/"+token)
+	}
 }
 
 // Server holds runtime state for the API server.
