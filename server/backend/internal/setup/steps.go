@@ -7,6 +7,7 @@ var validMainSteps = map[string]bool{
 	StepRemoteAccess: true,
 	StepSMTP:         true,
 	StepAccount:      true,
+	StepMfa:          true,
 	StepComplete:     true,
 }
 
@@ -43,6 +44,7 @@ var allowedStepDataKeys = map[string]bool{
 	"smtp_completed":          true,
 	"smtp_skipped":            true,
 	"smtp_provider":           true,
+	"mfa_completed":           true,
 }
 
 const (
@@ -52,6 +54,7 @@ const (
 	StepRemoteAccess = "remote_access"
 	StepSMTP         = "smtp"
 	StepAccount      = "account"
+	StepMfa          = "mfa"
 	StepComplete     = "complete"
 )
 
