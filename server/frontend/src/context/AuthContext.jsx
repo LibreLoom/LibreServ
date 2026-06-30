@@ -95,6 +95,24 @@ export function AuthProvider({ children }) {
     return res.json();
   }, []);
 
+  // Re-hydrate the session after it is established mid-flow (e.g. once the setup
+  // wizard creates the admin account and sets auth cookies). Fetches me/csrf
+  // independently so a missing /auth/me never blocks the CSRF token.
+  const refreshAuth = useCallback(async () => {
+    try {
+      const meResponse = await api("/auth/me");
+      setMe(meResponse.ok ? await meResponse.json() : null);
+    } catch {
+      setMe(null);
+    }
+    try {
+      const csrfResponse = await api("/auth/csrf");
+      setCsrfToken((await csrfResponse.json()).csrf_token);
+    } catch {
+      setCsrfToken(null);
+    }
+  }, []);
+
   // MFA verify — on success the session is established. (noRetry: a 401 here
   // means a wrong code, not a stale session — don't trigger the token refresh.)
   const mfaVerify = useCallback(async (mfaToken, type, payload) => {
@@ -104,15 +122,21 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ mfa_token: mfaToken, type, payload }),
       noRetry: true,
     });
-    const [meResponse, csrfResponse] = await Promise.all([
+    const [meResponse, csrfResponse] = await Promise.allSettled([
       api("/auth/me"),
       api("/auth/csrf"),
     ]);
-    setMe(await meResponse.json());
-    setCsrfToken((await csrfResponse.json()).csrf_token);
-  }, []);
+    if (meResponse.status === "fulfilled") {
+      try { setMe(await meResponse.value.json()); } catch { /* ignore JSON errors; still have refreshAuth fallback */ }
+    }
+    if (csrfResponse.status === "fulfilled") {
+      try { setCsrfToken((await csrfResponse.value.json()).csrf_token); } catch { /* ignore JSON errors; still have refreshAuth fallback */ }
+    }
+    if (meResponse.status === "rejected" || csrfResponse.status === "rejected") {
+      refreshAuth().catch(() => {});
+    }
+  }, [refreshAuth]);
 
-  // MFA recovery code — fallback when a method's device is unavailable.
   const mfaRecover = useCallback(async (mfaToken, recoveryCode) => {
     await api("/auth/mfa/recover", {
       method: "POST",
@@ -120,13 +144,20 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ mfa_token: mfaToken, recovery_code: recoveryCode }),
       noRetry: true,
     });
-    const [meResponse, csrfResponse] = await Promise.all([
+    const [meResponse, csrfResponse] = await Promise.allSettled([
       api("/auth/me"),
       api("/auth/csrf"),
     ]);
-    setMe(await meResponse.json());
-    setCsrfToken((await csrfResponse.json()).csrf_token);
-  }, []);
+    if (meResponse.status === "fulfilled") {
+      try { setMe(await meResponse.value.json()); } catch { /* ignore JSON errors; still have refreshAuth fallback */ }
+    }
+    if (csrfResponse.status === "fulfilled") {
+      try { setCsrfToken((await csrfResponse.value.json()).csrf_token); } catch { /* ignore JSON errors; still have refreshAuth fallback */ }
+    }
+    if (meResponse.status === "rejected" || csrfResponse.status === "rejected") {
+      refreshAuth().catch(() => {});
+    }
+  }, [refreshAuth]);
 
   const logout = useCallback(async () => {
     try {
@@ -158,8 +189,8 @@ export function AuthProvider({ children }) {
   );
 
   const value = useMemo(
-    () => ({ me, csrfToken, login, mfaChallenge, mfaVerify, mfaRecover, request, logout, initialized }),
-    [me, csrfToken, login, mfaChallenge, mfaVerify, mfaRecover, request, logout, initialized],
+    () => ({ me, csrfToken, login, mfaChallenge, mfaVerify, mfaRecover, request, logout, initialized, refreshAuth }),
+    [me, csrfToken, login, mfaChallenge, mfaVerify, mfaRecover, request, logout, initialized, refreshAuth],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

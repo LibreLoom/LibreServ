@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
 import {
   KeyRound,
   Mail,
@@ -6,10 +6,10 @@ import {
   Usb,
   ShieldCheck,
   Trash2,
-  Plus,
   Loader2,
   LifeBuoy,
   Copy,
+  ArrowRight,
 } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../hooks/useAuth";
@@ -23,18 +23,28 @@ import {
 } from "../../utils/webauthn";
 
 const TYPE_META = {
-  totp: { icon: KeyRound, label: "Authenticator app" },
-  email: { icon: Mail, label: "Email code" },
-  passkey: { icon: Fingerprint, label: "Passkey" },
-  security_key: { icon: Usb, label: "Security key" },
+  totp: { icon: KeyRound, label: "Authenticator app", desc: "An app like Authy, 1Password, or Google Authenticator" },
+  email: { icon: Mail, label: "Email code", desc: "A one-time code sent to your email" },
+  passkey: { icon: Fingerprint, label: "Passkey", desc: "Unlock with your device (Face ID, Touch ID, or Windows Hello)" },
+  security_key: { icon: Usb, label: "Security key", desc: "A physical key you plug in or tap, like a YubiKey" },
 };
 
 const ORDER = ["totp", "email", "passkey", "security_key"];
 
+// Shared styles for inputs/buttons inside the inverted (bg-secondary) Card.
+const inputClass =
+  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
+
+const primaryButtonClass =
+  "group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-3 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none";
+
+const secondaryButtonClass =
+  "w-full rounded-pill border border-primary/20 bg-transparent text-primary px-6 py-3 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8";
+
 /**
- * @param {{ onMethodEnabled?: () => void } | undefined} [props]
+ * @param {{ onMethodEnabled?: () => void, onComplete?: () => void } | undefined} [props]
  */
-export default function MfaCard({ onMethodEnabled } = {}) {
+export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
   const { me, request } = useAuth();
   const { addToast } = useToast();
   const [methods, setMethods] = useState(/** @type {Array<object>} */ ([]));
@@ -180,11 +190,14 @@ export default function MfaCard({ onMethodEnabled } = {}) {
                     <span className="flex items-center gap-3 text-sm">
                       <Icon size={16} className="text-accent shrink-0" />
                       {meta.label}
-                      {m.last_used_at && (
-                        <span className="text-xs text-secondary/50">
-                          · used {new Date(m.last_used_at).toLocaleDateString()}
-                        </span>
-                      )}
+                      {(() => {
+                        const lastUsed = m.last_used_at ? new Date(m.last_used_at) : null;
+                        return lastUsed && !isNaN(lastUsed.getTime()) ? (
+                          <span className="text-xs text-secondary/50">
+                            · used {lastUsed.toLocaleDateString()}
+                          </span>
+                        ) : null;
+                      })()}
                     </span>
                     <button
                       type="button"
@@ -221,23 +234,23 @@ export default function MfaCard({ onMethodEnabled } = {}) {
             onEnrolled={onEnrolled}
           />
         ) : (
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {ORDER.map((type) => {
               const meta = TYPE_META[type];
               const Icon = meta.icon;
-              const hasType = enabled.some((m) => m.type === type);
               return (
                 <button
                   key={type}
                   type="button"
                   onClick={() => setEnrolling(type)}
-                  disabled={hasType}
-                  className="flex items-center gap-2 px-3 py-2 rounded-pill border-2 border-accent/40 hover:border-accent hover:ring-2 hover:ring-accent text-sm text-secondary motion-safe:transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                  title={hasType ? `${meta.label} already enabled` : `Add ${meta.label}`}
+                  className="w-full flex items-center gap-4 p-4 rounded-large-element border border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 motion-safe:transition-all motion-safe:duration-200"
+                  title={`Add ${meta.label}`}
                 >
-                  <Plus size={14} />
-                  <Icon size={14} />
-                  {meta.label}
+                  <Icon size={22} className="text-accent flex-shrink-0" />
+                  <div className="flex-1 text-left">
+                    <div className="font-mono text-sm text-primary">{meta.label}</div>
+                    <div className="text-xs text-primary/40">{meta.desc}</div>
+                  </div>
                 </button>
               );
             })}
@@ -251,7 +264,7 @@ export default function MfaCard({ onMethodEnabled } = {}) {
               <LifeBuoy size={14} className="text-accent" />
               Recovery codes
               {typeof remainingRecovery === "number" && (
-                <span className="text-xs text-secondary/50">
+                <span className="text-xs text-primary/50">
                   · {remainingRecovery} left
                 </span>
               )}
@@ -266,7 +279,7 @@ export default function MfaCard({ onMethodEnabled } = {}) {
               {remainingRecovery ? "Regenerate" : "Generate"}
             </Button>
           </div>
-          <p className="text-xs text-secondary/60 mt-1">
+          <p className="text-xs text-primary/60 mt-1">
             Use a recovery code to sign in if you lose access to your phone or key.
             Store them somewhere safe — they're shown only once.
           </p>
@@ -277,19 +290,33 @@ export default function MfaCard({ onMethodEnabled } = {}) {
                 <button
                   type="button"
                   onClick={copyCodes}
-                  className="text-xs text-accent hover:text-primary flex items-center gap-1"
+                  className="text-xs text-accent hover:text-secondary flex items-center gap-1"
                 >
                   <Copy size={12} /> Copy all
                 </button>
               </div>
               <ol className="grid grid-cols-2 gap-1 text-sm font-mono">
-                {showRecoveryCodes.map((c) => (
-                  <li key={c} className="truncate">{c}</li>
+                {showRecoveryCodes.map((c, i) => (
+                  <li key={i} className="truncate">{c}</li>
                 ))}
               </ol>
             </div>
           )}
         </div>
+
+        {onComplete && (
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={onComplete}
+              disabled={!hasAny}
+              className={primaryButtonClass}
+            >
+              {hasAny ? "Continue" : "Enable a method to continue"}
+              <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+            </button>
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -304,12 +331,14 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
   const [error, setError] = useState(null);
   const [code, setCode] = useState("");
   const [totp, setTotp] = useState(/** @type {{secret?:string, otpauth_uri?:string, qr_image?:string}|null} */ (null));
+  const [webauthnName, setWebauthnName] = useState("");
+  const codeInputId = useId();
 
-  // Begin setup (TOTP returns QR/secret; email sends an OTP; webauthn runs the
-  // browser ceremony end-to-end and finishes without a code-entry step).
+  // Start TOTP/email enrollment automatically. WebAuthn waits for the name form.
   useEffect(() => {
     let cancelled = false;
     async function begin() {
+      if (type === "passkey" || type === "security_key") return;
       setBusy(true);
       setError(null);
       try {
@@ -329,9 +358,6 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
           if (cancelled) return;
           addToast({ type: "success", message: "Code sent to your email." });
           setStep("verify");
-        } else {
-          // passkey / security_key — full WebAuthn ceremony inline.
-          await runWebAuthn();
         }
       } catch (err) {
         if (!cancelled) setError(err.message || "Setup failed. Try again.");
@@ -343,8 +369,7 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- begin once per type
-  }, [type]);
+  }, [type, request, addToast]);
 
   async function verifyCode() {
     if (!code) return;
@@ -370,10 +395,7 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
     }
   }
 
-  async function runWebAuthn() {
-    const label =
-      window.prompt(`Give this ${TYPE_META[type].label.toLowerCase()} a name (e.g. "My phone"):`) ||
-      TYPE_META[type].label;
+  async function runWebAuthn(label) {
     const beginRes = await request("/auth/mfa/webauthn/register/begin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -395,7 +417,7 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
           typeof response?.getTransports === "function" ? response.getTransports() : undefined,
       },
       type: assertion?.type,
-      authenticatorAttachment: type === "passkey" ? "platform" : "cross-platform",
+      authenticatorAttachment: assertion?.authenticatorAttachment || (type === "passkey" ? "platform" : "cross-platform"),
     };
     const finishRes = await request("/auth/mfa/webauthn/register/finish", {
       method: "POST",
@@ -410,11 +432,26 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
     onEnrolled();
   }
 
+  async function startWebAuthn() {
+    setBusy(true);
+    setError(null);
+    try {
+      const label = webauthnName.trim() || TYPE_META[type].label;
+      await runWebAuthn(label);
+    } catch (err) {
+      setError(err.message || "Setup failed. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const isWebAuthn = type === "passkey" || type === "security_key";
+  const label = TYPE_META[type].label;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2 text-sm text-secondary">
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      {/* Status line */}
+      <div className="flex items-center gap-2 text-sm text-primary/80">
         {busy ? (
           <Loader2 size={14} className="animate-spin text-accent" />
         ) : (
@@ -422,17 +459,66 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
         )}
         <span>
           {isWebAuthn
-            ? `Setting up your ${TYPE_META[type].label.toLowerCase()} — follow your browser's prompt.`
+            ? `Give this ${label.toLowerCase()} a name, then follow your browser's prompt.`
             : step === "verify"
-              ? `Enter the code to finish adding ${TYPE_META[type].label.toLowerCase()}.`
-              : `Setting up ${TYPE_META[type].label.toLowerCase()}…`}
+              ? `Enter the code to finish adding ${label.toLowerCase()}.`
+              : `Setting up ${label.toLowerCase()}…`}
         </span>
       </div>
 
-      {/* TOTP: show the QR (prefer server PNG) + manual secret, then a code field. */}
+      {/* WebAuthn name form */}
+      {isWebAuthn && (
+        <>
+          {busy ? (
+            <div className="flex items-center gap-2 text-sm text-primary/80">
+              <Loader2 size={14} className="animate-spin text-accent" /> Follow your browser's prompt…
+            </div>
+          ) : (
+            <>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  startWebAuthn();
+                }}
+                className="space-y-3"
+              >
+                <div>
+                  <label
+                    htmlFor="mfa_webauthn_name"
+                    className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+                  >
+                    Name
+                  </label>
+                  <input
+                    id="mfa_webauthn_name"
+                    type="text"
+                    value={webauthnName}
+                    onChange={(e) => setWebauthnName(e.target.value)}
+                    placeholder={label}
+                    className={inputClass}
+                    autoFocus
+                  />
+                  <p className="text-xs text-primary/60 mt-1 px-5">
+                    For example "My phone" or "Office key".
+                  </p>
+                </div>
+                <button type="submit" className={primaryButtonClass}>
+                  Register {label}
+                  <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+                </button>
+              </form>
+              <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+                Cancel
+              </button>
+            </>
+          )}
+        </>
+      )}
+
+      {/* TOTP QR + code entry */}
       {type === "totp" && step === "verify" && totp && (
-        <div className="space-y-3">
-          <p className="text-xs text-secondary/70">
+        <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75">
+          <p className="text-xs text-primary/70">
             Scan this with your authenticator app (e.g. Authy, Google Authenticator, 1Password).
           </p>
           {/* color-scan: ignore-next-line QR codes require a white/light background to be scannable by phone cameras */}
@@ -447,9 +533,9 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
             )}
           </div>
           {totp.secret && (
-            <details className="text-xs text-secondary/70">
-              <summary className="cursor-pointer">Can't scan? Show the manual key</summary>
-              <code className="block mt-1 p-2 bg-primary rounded-pill break-all text-secondary">{totp.secret}</code>
+            <details className="text-xs text-primary/70">
+              <summary className="cursor-pointer hover:text-primary">Can't scan? Show the manual key</summary>
+              <code className="block mt-2 p-2 bg-primary rounded-pill break-all text-secondary">{totp.secret}</code>
             </details>
           )}
         </div>
@@ -462,34 +548,49 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
             e.preventDefault();
             verifyCode();
           }}
-          className="space-y-2"
+          className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75"
         >
+          <label htmlFor={codeInputId} className="sr-only">
+            {type === "email" ? "Code from your email" : "6-digit code from your app"}
+          </label>
           <input
+            id={codeInputId}
             type="text"
             inputMode="numeric"
             autoComplete="one-time-code"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder={type === "email" ? "Code from your email" : "6-digit code from your app"}
-            className="w-full px-4 py-2 border-2 border-accent/40 rounded-pill bg-primary text-secondary focus:ring-2 focus:ring-accent focus:ring-offset-2"
+            className={inputClass}
             autoFocus
           />
-          <Button type="submit" disabled={busy || !code} loading={busy} fullWidth>
-            Verify &amp; enable
-          </Button>
+          <button type="submit" disabled={busy || !code} className={primaryButtonClass}>
+            {busy ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Verifying&hellip;
+              </>
+            ) : (
+              <>
+                Verify &amp; enable
+                <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+              </>
+            )}
+          </button>
+          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+            Cancel
+          </button>
         </form>
       )}
 
       {error && <Alert variant="error" message={error} />}
-      <Button type="button" variant="accent" size="sm" onClick={onCancel}>
-        Cancel
-      </Button>
     </div>
   );
 }
 
 MfaCard.propTypes = {
   onMethodEnabled: PropTypes.func,
+  onComplete: PropTypes.func,
 };
 EnrollFlow.propTypes = {
   type: PropTypes.oneOf(["totp", "email", "passkey", "security_key"]).isRequired,

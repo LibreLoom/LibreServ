@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle, Mail, Wifi, WifiOff, Shield, ArrowDown, KeyRound, Fingerprint, Usb } from "lucide-react";
+import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle, Mail, Wifi, WifiOff, Shield, ArrowDown } from "lucide-react";
 import PropTypes from "prop-types";
 import api from "../lib/api";
 import { getConnectivityStatus } from "../lib/network-api";
@@ -10,7 +10,8 @@ import ConfirmModal from "../components/common/ConfirmModal";
 import PreflightRemediation from "../components/setup/PreflightRemediation";
 import { summarizeError } from "../lib/preflight-errors";
 import useSetupProgress from "../hooks/useSetupProgress";
-import { prepareCreationOptions, bufToB64url } from "../utils/webauthn";
+import { useAuth } from "../hooks/useAuth";
+import MfaCard from "../components/profile/MfaCard";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
@@ -27,6 +28,11 @@ const STEP = {
 };
 
 const SETUP_TOKEN_KEY = "libreserv_setup_token";
+
+// Shared input style for the inverted (bg-secondary) setup card: a transparent
+// field with a primary-toned border; text is primary (inverted to match the card).
+const WIZARD_INPUT_CLASS =
+  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
 function SetupShell({ children }) {
@@ -55,7 +61,7 @@ SetupCard.propTypes = {
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
-const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.MFA, STEP.REMOTE_ACCESS, STEP.SMTP, STEP.COMPLETE];
+const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.REMOTE_ACCESS, STEP.SMTP, STEP.MFA, STEP.COMPLETE];
 
 function StepDots({ current }) {
   const idx = VISIBLE_STEPS.indexOf(current);
@@ -220,9 +226,6 @@ function SetupCodeStep({ onCodeVerified }) {
     if (e.key === "Enter" && !loading) handleSubmit();
   }, [handleSubmit, loading]);
 
-  const inputClass =
-    "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
-
   return (
     <SetupShell>
       <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -240,7 +243,7 @@ function SetupCodeStep({ onCodeVerified }) {
 
         <div className="w-full mb-6">
           <input
-            className={inputClass + " text-center text-2xl tracking-[0.3em]"}
+            className={`${WIZARD_INPUT_CLASS} text-center text-2xl tracking-[0.3em]`}
             placeholder="______"
             value={code}
             onChange={(e) => {
@@ -703,10 +706,6 @@ function AccountStep({ onSuccess, onError }) {
     }
   };
 
-  // Input on bg-secondary: border uses primary tones, text is primary
-  const inputClass =
-    "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
-
   return (
     <SetupShell>
       <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -736,7 +735,7 @@ function AccountStep({ onSuccess, onError }) {
                 onChange={handleChange}
                 disabled={submitting}
                 required
-                className={inputClass}
+                className={WIZARD_INPUT_CLASS}
               />
             </FormField>
           </div>
@@ -754,7 +753,7 @@ function AccountStep({ onSuccess, onError }) {
                 onChange={handleChange}
                 disabled={submitting}
                 required
-                className={inputClass}
+                className={WIZARD_INPUT_CLASS}
               />
             </FormField>
           </div>
@@ -773,7 +772,7 @@ function AccountStep({ onSuccess, onError }) {
                   onChange={handleChange}
                   disabled={submitting}
                   required
-                  className={`${inputClass} pr-12`}
+                  className={`${WIZARD_INPUT_CLASS} pr-12`}
                 />
                 <button
                   type="button"
@@ -1261,262 +1260,6 @@ ErrorStep.propTypes = { message: PropTypes.string };
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
 const UNSAFE_SUB_STEPS = new Set(["connecting", "smtp_testing"]);
 
-// ─── STEP: MFA setup (immediately after account creation) ────────────────────
-// Admins must enable at least one two-factor method before proceeding. Email
-// isn't offered here because SMTP isn't configured yet (it's a later step) — it
-// can be added from My Account after email setup. The fullscreen MfaBlocker is
-// the safety net if an admin ever reaches the app without MFA.
-function SetupMfaStep({ onSuccess }) {
-  const [csrfToken, setCsrfToken] = useState(null);
-  const [enrolled, setEnrolled] = useState(/** @type {Array<{type:string,label:string}>} */ ([]));
-  const [selected, setSelected] = useState(/** @type {string|null} */ (null));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-  const [code, setCode] = useState("");
-  const [totp, setTotp] = useState(/** @type {{secret?:string, otpauth_uri?:string, qr_image?:string}|null} */ (null));
-
-  const META = {
-    totp: { icon: KeyRound, label: "Authenticator app" },
-    passkey: { icon: Fingerprint, label: "Passkey" },
-    security_key: { icon: Usb, label: "Security key" },
-  };
-  const TYPES = ["totp", "passkey", "security_key"];
-
-  // Bootstrap CSRF — session cookies are set after CompleteSetup, but the setup
-  // route runs outside AuthProvider's session init, so fetch the token directly.
-  useEffect(() => {
-    let cancelled = false;
-    api("/auth/csrf")
-      .then((r) => r.json())
-      .then((d) => { if (!cancelled) setCsrfToken(d.csrf_token); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  async function mfaRequest(path, opts = {}) {
-    const method = opts.method?.toUpperCase() ?? "GET";
-    const isWrite = ["POST", "PUT", "DELETE", "PATCH"].includes(method);
-    const headers = {
-      ...opts.headers,
-      ...(isWrite && csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-    };
-    return api(path, { ...opts, method, headers });
-  }
-
-  // Begin enrollment when a type is selected (CSRF must be loaded first).
-  useEffect(() => {
-    if (!selected || !csrfToken) return;
-    let cancelled = false;
-    async function begin() {
-      setBusy(true); setError(null); setCode(""); setTotp(null);
-      try {
-        if (selected === "totp") {
-          const res = await mfaRequest("/auth/mfa/totp/setup", { method: "POST" });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || "Couldn't start setup.");
-          if (cancelled) return;
-          setTotp(data);
-        } else {
-          await runWebAuthn(selected);
-        }
-      } catch (err) {
-        if (!cancelled) setError(err.message || "Setup failed.");
-      } finally {
-        if (!cancelled) setBusy(false);
-      }
-    }
-    begin();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- begin once per selection
-  }, [selected, csrfToken]);
-
-  async function verifyTotp() {
-    if (!code) return;
-    setBusy(true); setError(null);
-    try {
-      const res = await mfaRequest("/auth/mfa/totp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error || "That code didn't match.");
-      }
-      setEnrolled((e) => [...e, { type: "totp", label: "Authenticator app" }]);
-      setSelected(null); setTotp(null); setCode("");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function runWebAuthn(type) {
-    const label =
-      window.prompt(`Name this ${META[type].label.toLowerCase()} (e.g. "My phone"):`) ||
-      META[type].label;
-    const beginRes = await mfaRequest("/auth/mfa/webauthn/register/begin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label, type }),
-    });
-    const begin = await beginRes.json();
-    if (!beginRes.ok) throw new Error(begin.error || "Couldn't start registration.");
-    const creationOptions = prepareCreationOptions(begin.options?.publicKey ?? begin.options);
-    const cred = await navigator.credentials.create({ publicKey: creationOptions });
-    const assertion = /** @type {PublicKeyCredential} */ (cred);
-    const response = /** @type {AuthenticatorAttestationResponse} */ (assertion?.response);
-    const credential = {
-      id: assertion?.id,
-      rawId: bufToB64url(assertion?.rawId),
-      response: {
-        attestationObject: bufToB64url(response?.attestationObject),
-        clientDataJSON: bufToB64url(response?.clientDataJSON),
-        transports: typeof response?.getTransports === "function" ? response.getTransports() : undefined,
-      },
-      type: assertion?.type,
-      authenticatorAttachment: type === "passkey" ? "platform" : "cross-platform",
-    };
-    const finishRes = await mfaRequest("/auth/mfa/webauthn/register/finish", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ credential, label, type }),
-    });
-    if (!finishRes.ok) {
-      const d = await finishRes.json().catch(() => ({}));
-      throw new Error(d.error || "Couldn't finish registration.");
-    }
-    setEnrolled((e) => [...e, { type, label: META[type].label }]);
-    setSelected(null);
-  }
-
-  return (
-    <SetupShell>
-      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <StepDots current={STEP.MFA} />
-
-        <div className="mb-8">
-          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-            Protect your account
-          </h2>
-          <p className="text-primary/50 text-sm mt-2">
-            Two-factor authentication keeps your admin account safe. Pick a method
-            to set up now — you can add more (including email) later in My Account.
-          </p>
-        </div>
-
-        {enrolled.length > 0 && (
-          <div className="space-y-2 mb-4">
-            {enrolled.map((m, i) => (
-              <div key={i} className="flex items-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary text-sm">
-                <Check size={14} className="text-accent" /> {m.label} enabled
-              </div>
-            ))}
-          </div>
-        )}
-
-        {selected === "totp" && totp && (
-          <div className="space-y-3 mb-4">
-            <p className="text-xs text-primary/60">
-              Scan with your authenticator app (Authy, Google Authenticator, 1Password).
-            </p>
-            {/* color-scan: ignore-next-line QR codes require a white/light background to be scannable by phone cameras */}
-            <div className="flex justify-center bg-white p-3 rounded-large-element w-fit mx-auto">
-              {totp.qr_image ? (
-                <img src={totp.qr_image} alt="QR code for your authenticator app" className="w-44 h-44" />
-              ) : (
-                <>
-                  {/* color-scan: ignore-next-line dark text on the white QR container for a legible fallback */}
-                  <span className="text-xs text-black/70">QR unavailable</span>
-                </>
-              )}
-            </div>
-            {totp.secret && (
-              <details className="text-xs text-primary/60">
-                <summary className="cursor-pointer">Can't scan? Show the key</summary>
-                <code className="block mt-1 p-2 bg-primary rounded-pill break-all text-secondary">{totp.secret}</code>
-              </details>
-            )}
-            <input
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="6-digit code from your app"
-              className="w-full px-5 py-3 rounded-pill border border-primary/20 bg-transparent text-primary font-mono text-sm focus:outline-none focus:border-primary/50"
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={verifyTotp}
-              disabled={busy || !code}
-              className="w-full px-5 py-3 rounded-pill bg-primary text-secondary font-medium disabled:opacity-50"
-            >
-              {busy ? "Verifying…" : "Confirm code"}
-            </button>
-          </div>
-        )}
-
-        {selected && selected !== "totp" && (
-          <p className="text-xs text-accent flex items-center gap-2 mb-4">
-            <Loader2 size={12} className="animate-spin" /> Follow your browser's prompt…
-          </p>
-        )}
-
-        {error && (
-          <div className="mb-4 text-sm text-error flex items-center gap-2">
-            <AlertCircle size={14} /> {error}
-          </div>
-        )}
-
-        {!selected && (
-          <div className="space-y-2">
-            {TYPES.map((t) => {
-              const Icon = META[t].icon;
-              const done = enrolled.some((m) => m.type === t);
-              return (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setSelected(t)}
-                  disabled={busy}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-pill border border-primary/20 hover:border-primary/50 text-primary text-sm motion-safe:transition-colors disabled:opacity-50"
-                >
-                  <Icon size={16} className="text-accent" /> {META[t].label}
-                  {done && <Check size={14} className="text-accent ml-auto" />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {selected && (
-          <button
-            type="button"
-            onClick={() => setSelected(null)}
-            className="text-xs text-primary/50 hover:text-primary mt-2"
-          >
-            Cancel
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={onSuccess}
-          disabled={enrolled.length === 0}
-          className="w-full mt-6 px-5 py-3 rounded-pill bg-primary text-secondary font-medium flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed motion-safe:transition-all hover:ring-2 hover:ring-accent"
-        >
-          {enrolled.length === 0 ? "Enable a method to continue" : "Continue"}
-          <ArrowRight size={16} />
-        </button>
-      </SetupCard>
-    </SetupShell>
-  );
-}
-SetupMfaStep.propTypes = { onSuccess: PropTypes.func.isRequired };
-
 export default function SetupPage() {
   const navigate        = useNavigate();
   const [step, setStep] = useState(null);
@@ -1530,6 +1273,7 @@ export default function SetupPage() {
   const [initialSubStep, setInitialSubStep] = useState(null);
   const [initialStepData, setInitialStepData] = useState({});
   const { saveProgress, flushProgress } = useSetupProgress();
+  const { refreshAuth } = useAuth();
   const progressRef = useRef(/** @type {{ step?: string, subStep?: string, stepData?: Record<string, any> }} */ ({}));
   const savingRef = useRef(false);
 
@@ -1597,25 +1341,13 @@ export default function SetupPage() {
 
           if (step === STEP.ACCOUNT) {
             if (savedData.account_completed) {
-              setStep(STEP.MFA);
-              saveProgress(STEP.MFA, "", { ...savedData });
+              setStep(STEP.REMOTE_ACCESS);
+              saveProgress(STEP.REMOTE_ACCESS, "", { ...savedData });
               return;
             }
             setStep(STEP.ACCOUNT);
             setInitialStepData(savedData);
             progressRef.current = { step: STEP.ACCOUNT, subStep: "", stepData: savedData };
-            return;
-          }
-
-          if (step === STEP.MFA) {
-            if (savedData.mfa_completed) {
-              setStep(STEP.REMOTE_ACCESS);
-              saveProgress(STEP.REMOTE_ACCESS, "", { ...savedData });
-              return;
-            }
-            setStep(STEP.MFA);
-            setInitialStepData(savedData);
-            progressRef.current = { step: STEP.MFA, subStep: "", stepData: savedData };
             return;
           }
 
@@ -1641,8 +1373,8 @@ export default function SetupPage() {
 
           if (step === STEP.SMTP) {
             if (savedData.smtp_completed || savedData.smtp_skipped) {
-              setStep(STEP.COMPLETE);
-              saveProgress(STEP.COMPLETE, "", { ...savedData });
+              setStep(STEP.MFA);
+              saveProgress(STEP.MFA, "", { ...savedData });
               return;
             }
             if (saved.current_sub_step) {
@@ -1660,6 +1392,18 @@ export default function SetupPage() {
             setStep(STEP.SMTP);
             setInitialStepData(savedData);
             progressRef.current = { step: STEP.SMTP, subStep: "", stepData: savedData };
+            return;
+          }
+
+          if (step === STEP.MFA) {
+            if (savedData.mfa_completed) {
+              setStep(STEP.COMPLETE);
+              saveProgress(STEP.COMPLETE, "", { ...savedData });
+              return;
+            }
+            setStep(STEP.MFA);
+            setInitialStepData(savedData);
+            progressRef.current = { step: STEP.MFA, subStep: "", stepData: savedData };
             return;
           }
 
@@ -1716,35 +1460,35 @@ export default function SetupPage() {
 
   const handleSmtpComplete = useCallback(async () => {
     const data = { ...(progressRef.current.stepData || {}), smtp_completed: true };
-    progressRef.current.stepData = data;
-    try {
-      await api("/setup/finalize", { method: "POST" });
-    } catch { /* best effort */ }
-    await flushProgress();
-    setStep(STEP.COMPLETE);
-    setTimeout(() => { window.location.href = "/"; }, 1800);
-  }, [flushProgress]);
+    await advanceStep(STEP.MFA, "", data);
+  }, [advanceStep]);
 
   const handleSmtpSkip = useCallback(async () => {
     const data = { ...(progressRef.current.stepData || {}), smtp_skipped: true };
+    await advanceStep(STEP.MFA, "", data);
+  }, [advanceStep]);
+
+  const handleAccountSuccess = useCallback(async (adminEmail) => {
+    const data = { ...(progressRef.current.stepData || {}), account_completed: true, admin_email: adminEmail };
     progressRef.current.stepData = data;
+    // The setup wizard just created the admin account and set auth cookies;
+    // hydrate the auth context so MfaCard (which uses useAuth) works at the
+    // MFA step later in the flow.
+    await refreshAuth();
+    advanceStep(STEP.REMOTE_ACCESS, "", data);
+  }, [advanceStep, refreshAuth]);
+
+  const handleMfaSuccess = useCallback(async () => {
+    const data = { ...(progressRef.current.stepData || {}), mfa_completed: true };
+    progressRef.current.stepData = data;
+    try { await saveProgress(STEP.MFA, "", data); } catch { /* best effort */ }
     try {
       await api("/setup/finalize", { method: "POST" });
     } catch { /* best effort */ }
     await flushProgress();
     setStep(STEP.COMPLETE);
     setTimeout(() => { window.location.href = "/"; }, 1800);
-  }, [flushProgress]);
-
-  const handleAccountSuccess = useCallback((adminEmail) => {
-    const data = { ...(progressRef.current.stepData || {}), account_completed: true, admin_email: adminEmail };
-    advanceStep(STEP.MFA, "", data);
-  }, [advanceStep]);
-
-  const handleMfaSuccess = useCallback(() => {
-    const data = { ...(progressRef.current.stepData || {}), mfa_completed: true };
-    advanceStep(STEP.REMOTE_ACCESS, "", data);
-  }, [advanceStep]);
+  }, [saveProgress, flushProgress]);
 
   const handleAccountError = useCallback((msg) => {
     setError(msg);
@@ -1834,7 +1578,14 @@ export default function SetupPage() {
 
   if (step === STEP.MFA) {
     return (
-      <SetupMfaStep onSuccess={handleMfaSuccess} />
+      <SetupShell>
+        <div className="w-full max-w-md">
+          <div className="mb-6">
+            <StepDots current={STEP.MFA} />
+          </div>
+          <MfaCard onComplete={handleMfaSuccess} />
+        </div>
+      </SetupShell>
     );
   }
 
