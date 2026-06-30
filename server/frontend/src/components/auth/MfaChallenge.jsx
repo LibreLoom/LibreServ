@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useId } from "react";
 import {
   KeyRound,
   Mail,
@@ -6,7 +6,6 @@ import {
   Usb,
   ShieldCheck,
   ArrowLeft,
-  Loader2,
   LifeBuoy,
 } from "lucide-react";
 import PropTypes from "prop-types";
@@ -39,8 +38,14 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
       await mfaVerify(mfaToken, type, { code });
       addToast({ type: "success", message: "Signed in." });
       onSuccess();
-    } catch {
-      setError("That code didn't work. Try again.");
+    } catch (err) {
+      if (err?.cause?.status === 401) {
+        setError("That code didn't work. Try again.");
+      } else if (!navigator.onLine) {
+        setError("You're offline. Check your connection and try again.");
+      } else {
+        setError("Something went wrong. Try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -74,8 +79,14 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
       await mfaVerify(mfaToken, type, { assertion: payload });
       addToast({ type: "success", message: "Signed in." });
       onSuccess();
-    } catch {
-      setError("We couldn't verify that device. Try another method.");
+    } catch (err) {
+      if (err?.name === "NotAllowedError" || err?.name === "AbortError") {
+        setError("That was cancelled or we couldn't find your device. Try again or choose another method.");
+      } else if (!navigator.onLine) {
+        setError("You're offline. Check your connection and try again.");
+      } else {
+        setError("We couldn't verify that device. Try another method.");
+      }
     } finally {
       setLoading(false);
     }
@@ -89,8 +100,14 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
       await mfaRecover(mfaToken, code.trim());
       addToast({ type: "success", message: "Signed in." });
       onSuccess();
-    } catch {
-      setError("That recovery code didn't work.");
+    } catch (err) {
+      if (err?.cause?.status === 401) {
+        setError("That recovery code didn't work.");
+      } else if (!navigator.onLine) {
+        setError("You're offline. Check your connection and try again.");
+      } else {
+        setError("Something went wrong. Try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -153,11 +170,6 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
           </button>
         )}
         {error && <Alert variant="error" message={error} />}
-        {loading && (
-          <p className="text-xs text-accent flex items-center gap-2">
-            <Loader2 size={12} className="animate-spin" /> Checking your device…
-          </p>
-        )}
       </div>
     );
   }
@@ -224,6 +236,7 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
 }
 
 function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, autoFocus }) {
+  const inputId = useId();
   return (
     <form
       onSubmit={(e) => {
@@ -239,8 +252,9 @@ function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, s
       >
         <ArrowLeft size={12} /> Choose another method
       </button>
-      <label className="text-sm block">{title}</label>
+      <label htmlFor={inputId} className="text-sm block">{title}</label>
       <input
+        id={inputId}
         type="text"
         inputMode="numeric"
         autoComplete="one-time-code"

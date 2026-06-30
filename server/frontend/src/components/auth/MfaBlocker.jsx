@@ -1,3 +1,4 @@
+import { useAuth } from "../../hooks/useAuth";
 import { ShieldCheck } from "lucide-react";
 import MfaCard from "../profile/MfaCard";
 
@@ -10,11 +11,12 @@ import MfaCard from "../profile/MfaCard";
  * least one method. It blocks UI usage, NOT sign-in — the admin is already
  * authenticated, they just can't use anything until two-factor is on.
  *
- * Gated in App.jsx RequireAuth on `me.role === "admin" && me.mfa_enabled === false`.
- * Reuses MfaCard for the actual enrollment; on success it reloads so /auth/me
- * is re-fetched and the blocker clears.
+ * Gated in App.jsx RequireAuth on `me.role === "admin" && !me.mfa_enabled`.
+ * Reuses MfaCard for the actual enrollment; on success it refreshes auth state
+ * so /auth/me is re-fetched and the blocker clears.
  */
 export default function MfaBlocker() {
+  const { refreshAuth } = useAuth();
   return (
     <main
       className="fixed inset-0 grid place-items-center bg-primary px-4 overflow-auto"
@@ -37,7 +39,7 @@ export default function MfaBlocker() {
           two-factor method before you can use LibreServ — you can change it
           later in My Account.
         </p>
-        <MfaCard onMethodEnabled={() => window.location.reload()} />
+        <MfaCard onMethodEnabled={refreshAuth} />
       </div>
     </main>
   );

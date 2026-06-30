@@ -11,6 +11,9 @@ vi.mock("../profile/MfaCard", () => ({
     return <button data-testid="mock-mfacard" onClick={() => props.onMethodEnabled?.()}>mock</button>;
   },
 }));
+vi.mock("../../hooks/useAuth", () => ({
+  useAuth: () => ({ refreshAuth: vi.fn() }),
+}));
 
 import MfaBlocker from "./MfaBlocker";
 
@@ -28,7 +31,7 @@ describe("MfaBlocker", () => {
   it("passes an onMethodEnabled handler to MfaCard (clears the blocker on enroll)", () => {
     render(<MfaBlocker />);
     expect(captured.onMethodEnabled).toBeInstanceOf(Function);
-    // jsdom's location.reload is a safe no-op — calling the handler must not throw.
+    // Calling the handler must not throw.
     expect(() => fireEvent.click(screen.getByTestId("mock-mfacard"))).not.toThrow();
   });
 });

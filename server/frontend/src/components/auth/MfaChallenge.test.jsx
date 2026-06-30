@@ -117,7 +117,8 @@ describe("MfaChallenge", () => {
   });
 
   it("shows an error on bad code without completing login (no softlock — user retries)", async () => {
-    mockVerify.mockRejectedValueOnce(new Error("bad code"));
+    const err = Object.assign(new Error("bad code"), { cause: { status: 401 } });
+    mockVerify.mockRejectedValueOnce(err);
     renderChallenge();
     fireEvent.click(screen.getByText("Authenticator app"));
     const input = await screen.findByPlaceholderText(/6-digit code/i);
