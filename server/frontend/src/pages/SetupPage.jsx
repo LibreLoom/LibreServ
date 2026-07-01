@@ -1287,7 +1287,7 @@ function ErrorStep({ message }) {
 ErrorStep.propTypes = { message: PropTypes.string };
 
 // ─── STEP: MFA ──────────────────────────────────────────────────────────────────
-function MfaStep({ onComplete }) {
+function MfaStep({ onComplete, smtpConfigured }) {
   return (
     <SetupShell>
       <SetupCard className="" header={<StepDots current={STEP.MFA} />}>
@@ -1306,12 +1306,12 @@ function MfaStep({ onComplete }) {
           </p>
         </div>
 
-        <MfaSetupWizard onComplete={onComplete} />
+        <MfaSetupWizard onComplete={onComplete} smtpConfigured={smtpConfigured} />
       </SetupCard>
     </SetupShell>
   );
 }
-MfaStep.propTypes = { onComplete: PropTypes.func.isRequired };
+MfaStep.propTypes = { onComplete: PropTypes.func.isRequired, smtpConfigured: PropTypes.bool.isRequired };
 
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
 const UNSAFE_SUB_STEPS = new Set(["connecting", "smtp_testing"]);
@@ -1657,7 +1657,12 @@ export default function SetupPage() {
       );
     }
   } else if (step === STEP.MFA) {
-    renderedStep = <MfaStep onComplete={handleMfaSuccess} />;
+    renderedStep = (
+      <MfaStep
+        onComplete={handleMfaSuccess}
+        smtpConfigured={progressRef.current.stepData?.smtp_completed === true}
+      />
+    );
   } else if (step === STEP.ACCOUNT || step === STEP.CREATING) {
     renderedStep = (
       <AccountStep

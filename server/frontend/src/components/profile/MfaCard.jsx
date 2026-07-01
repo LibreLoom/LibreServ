@@ -648,15 +648,36 @@ EnrollFlow.propTypes = {
 //   3. Setup — enroll + verify the chosen method; on success, onComplete fires
 //      (which finalizes setup and redirects to the dashboard).
 // MfaCard itself stays a single-screen component for My Account / MfaBlocker.
-export function MfaSetupWizard({ onComplete }) {
+export function MfaSetupWizard({ onComplete, smtpConfigured = true }) {
   const { request } = useAuth();
   const { addToast } = useToast();
-  const { availability, loading: loadingAvail } = useMfaAvailability();
-  // Methods the server can service now. While availability loads (null) show
-  // everything so the user isn't blocked; once resolved, hide unavailable.
-  const availableTypes = ORDER.filter((t) => availability == null || !!availability[t]);
+  const {
+    availability,
+    loading: loadingAvail,
+    error: availError,
+    refresh: refreshAvailability,
+  } = useMfaAvailability();
+  // Methods the server can actually service right now. Wait for the
+  // availability check to finish before showing the picker so the setup wizard
+  // doesn't offer methods that aren't configured (e.g. email when SMTP hasn't
+  // been set up). A failed check shows a retry button instead of defaulting to
+  // all methods, which would re-introduce the same problem.
+  //
+  // In the setup flow, email also requires the user to have completed the SMTP
+  // step; if they skipped it we keep email hidden even if the backend config
+  // already contains SMTP values, so we don't offer a delivery method the user
+  // hasn't actually set up.
+  const availableTypes = availability == null
+    ? []
+    : ORDER.filter((t) => {
+        if (t === "email") {
+          return smtpConfigured && !!availability.email;
+        }
+        return !!availability[t];
+      });
   const [phase, setPhase] = useState("choose"); // choose | backup | setup
   const [selectedType, setSelectedType] = useState(null);
+  const [backupAcknowledged, setBackupAcknowledged] = useState(false);
   const [codes, setCodes] = useState(/** @type {string[] | null} */ (null));
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState(null);
@@ -709,7 +730,10 @@ export function MfaSetupWizard({ onComplete }) {
 
   function chooseMethod(type) {
     setSelectedType(type);
-    setPhase("backup");
+    // Only show backup codes the first time the user picks a method. Once
+    // they've clicked "I've saved my codes" we keep our promise that the codes
+    // won't be shown again, even if they go back and pick a different method.
+    setPhase(backupAcknowledged ? "setup" : "backup");
   }
 
   // Phase 1 — Choose a method
@@ -721,37 +745,51 @@ export function MfaSetupWizard({ onComplete }) {
             Step 1 — Choose a method
           </p>
           {loadingAvail && (
-            <p className="text-xs text-accent flex items-center gap-2 mb-3">
-              <Loader2 size={12} className="animate-spin" /> Checking what's available on this device…
-            </p>
+            <div className="flex items-center gap-2 text-sm text-accent mb-3">
+              <Loader2 size={16} className="animate-spin" /> Checking what's available on this device…
+            </div>
           )}
-          {availableTypes.length === 0 && !loadingAvail && (
+          {!loadingAvail && availability == null && (
+            <div className="space-y-3">
+              <Alert
+                variant="error"
+                message={availError || "Couldn't check which sign-in methods are available."}
+                rounded="large-element"
+              />
+              <button type="button" onClick={refreshAvailability} className={secondaryButtonClass}>
+                Try again
+              </button>
+            </div>
+          )}
+          {!loadingAvail && availability != null && availableTypes.length === 0 && (
             <p className="text-sm text-primary/60">
               No two-factor methods are available on this device yet. Ask your administrator to enable one, then come back here.
             </p>
           )}
-          <div className="space-y-2">
-            {availableTypes.map((type) => {
-              const meta = TYPE_META[type];
-              const Icon = meta.icon;
-              return (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => chooseMethod(type)}
-                  className="w-full flex items-center gap-4 p-4 rounded-large-element border border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 motion-safe:transition-all motion-safe:duration-200"
-                  title={`Add ${meta.label}`}
-                >
-                  <Icon size={22} className="text-accent flex-shrink-0" />
-                  <div className="flex-1 text-left">
-                    <div className="font-mono text-sm text-primary">{meta.label}</div>
-                    <div className="text-xs text-primary/40">{meta.desc}</div>
-                  </div>
-                  <ArrowRight size={16} className="text-primary/40" />
-                </button>
-              );
-            })}
-          </div>
+          {availability != null && availableTypes.length > 0 && (
+            <div className="space-y-2">
+              {availableTypes.map((type) => {
+                const meta = TYPE_META[type];
+                const Icon = meta.icon;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => chooseMethod(type)}
+                    className="w-full flex items-center gap-4 p-4 rounded-large-element border border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 motion-safe:transition-all motion-safe:duration-200"
+                    title={`Add ${meta.label}`}
+                  >
+                    <Icon size={22} className="text-accent flex-shrink-0" />
+                    <div className="flex-1 text-left">
+                      <div className="font-mono text-sm text-primary">{meta.label}</div>
+                      <div className="text-xs text-primary/40">{meta.desc}</div>
+                    </div>
+                    <ArrowRight size={16} className="text-primary/40" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -801,7 +839,10 @@ export function MfaSetupWizard({ onComplete }) {
             </div>
             <button
               type="button"
-              onClick={() => setPhase("setup")}
+              onClick={() => {
+                setBackupAcknowledged(true);
+                setPhase("setup");
+              }}
               className={primaryButtonClass}
             >
               I've saved my codes
@@ -839,4 +880,5 @@ export function MfaSetupWizard({ onComplete }) {
 }
 MfaSetupWizard.propTypes = {
   onComplete: PropTypes.func.isRequired,
+  smtpConfigured: PropTypes.bool,
 };
