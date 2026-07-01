@@ -9,18 +9,20 @@ import (
 
 // availabilityResp is the shape returned by GET /auth/mfa/availability.
 type availabilityResp struct {
-	TOTP         bool `json:"totp"`
-	Email        bool `json:"email"`
-	Passkey      bool `json:"passkey"`
-	SecurityKey  bool `json:"security_key"`
+	TOTP        bool `json:"totp"`
+	Email       bool `json:"email"`
+	Passkey     bool `json:"passkey"`
+	SecurityKey bool `json:"security_key"`
 }
 
 // TestAvailability_ReportsPerMethodCapabilities guards the contract the
 // setup wizard's "choose a method" step relies on: it must hide methods the
 // server can't service. The handler derives each flag from a distinct input:
-//   totp        — the TOTP at-rest encryption key (SetMFATOTPEncryptionKey)
-//   email       — an email-OTP sender wired AND the user has an email address
-//   passkey/key — a WebAuthn verifier wired (WebAuthnAvailable)
+//
+//	totp        — the TOTP at-rest encryption key (SetMFATOTPEncryptionKey)
+//	email       — an email-OTP sender wired AND the user has an email address
+//	passkey/key — a WebAuthn verifier wired (WebAuthnAvailable)
+//
 // So a fresh handler with none of those reports all false; wiring each input
 // turns its flag on independently.
 func TestAvailability_ReportsPerMethodCapabilities(t *testing.T) {

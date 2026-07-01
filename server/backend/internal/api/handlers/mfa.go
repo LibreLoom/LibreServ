@@ -51,10 +51,12 @@ func (h *MFAHandler) ListMethods(w http.ResponseWriter, r *http.Request) {
 // Reports which enrollment methods the server can actually service right now,
 // so the UI can hide unavailable options instead of letting the user pick one
 // and fail partway through. Each flag:
-//   totp         — the at-rest TOTP encryption key is configured
-//   email        — an email-OTP sender is wired AND the caller has an email
-//                  address on their account (codes are delivered to it)
-//   passkey / security_key — a WebAuthn verifier is wired
+//
+//	totp         — the at-rest TOTP encryption key is configured
+//	email        — an email-OTP sender is wired AND the caller has an email
+//	               address on their account (codes are delivered to it)
+//	passkey / security_key — a WebAuthn verifier is wired
+//
 // Authenticated (session-authed); same group as the other enrollment reads.
 func (h *MFAHandler) Availability(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
@@ -67,10 +69,10 @@ func (h *MFAHandler) Availability(w http.ResponseWriter, r *http.Request) {
 		hasEmail = strings.TrimSpace(u.Email) != ""
 	}
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"totp":          h.authService.MFATOTPEncryptionKeySet(),
-		"email":         h.sendEmailOTP != nil && hasEmail,
-		"passkey":       h.authService.WebAuthnAvailable(),
-		"security_key":  h.authService.WebAuthnAvailable(),
+		"totp":         h.authService.MFATOTPEncryptionKeySet(),
+		"email":        h.sendEmailOTP != nil && hasEmail,
+		"passkey":      h.authService.WebAuthnAvailable(),
+		"security_key": h.authService.WebAuthnAvailable(),
 	})
 }
 
