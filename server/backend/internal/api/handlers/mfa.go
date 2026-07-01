@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -46,6 +47,33 @@ func (h *MFAHandler) ListMethods(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]interface{}{"methods": methods})
 }
 
+// Availability handles GET /api/v1/auth/mfa/availability
+// Reports which enrollment methods the server can actually service right now,
+// so the UI can hide unavailable options instead of letting the user pick one
+// and fail partway through. Each flag:
+//   totp         — the at-rest TOTP encryption key is configured
+//   email        — an email-OTP sender is wired AND the caller has an email
+//                  address on their account (codes are delivered to it)
+//   passkey / security_key — a WebAuthn verifier is wired
+// Authenticated (session-authed); same group as the other enrollment reads.
+func (h *MFAHandler) Availability(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		JSONError(w, http.StatusUnauthorized, "Please log in to view available sign-in methods.")
+		return
+	}
+	hasEmail := false
+	if u, err := h.authService.GetUserByID(r.Context(), userID); err == nil {
+		hasEmail = strings.TrimSpace(u.Email) != ""
+	}
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"totp":          h.authService.MFATOTPEncryptionKeySet(),
+		"email":         h.sendEmailOTP != nil && hasEmail,
+		"passkey":       h.authService.WebAuthnAvailable(),
+		"security_key":  h.authService.WebAuthnAvailable(),
+	})
+}
+
 // SetupTOTP handles POST /api/v1/auth/mfa/totp/setup {label?}
 // Returns {secret, otpauth_uri, qr_image} (qr_image is a base64 PNG data URI).
 func (h *MFAHandler) SetupTOTP(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +93,7 @@ func (h *MFAHandler) SetupTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 	secret, otpauthURI, qr, err := h.authService.SetupTOTP(r.Context(), userID, user.Username, req.Label)
 	if err != nil {
+		slog.Warn("SetupTOTP failed", "user_id", userID, "error", err)
 		JSONError(w, http.StatusInternalServerError, "We couldn't set up your authenticator app. Please try again.")
 		return
 	}

@@ -8,12 +8,13 @@ const VARIANTS = {
   info: { icon: Info, bg: "bg-info/10", border: "border-info/20", text: "text-info" },
 };
 
-export default function Alert({ variant = "info", message, className = "" }) {
+export default function Alert({ variant = "info", message, className = "", rounded = "pill" }) {
   const config = VARIANTS[variant] || VARIANTS.info;
   const Icon = config.icon;
+  const radius = rounded === "large-element" ? "rounded-large-element" : "rounded-pill";
 
   return (
-    <div className={`p-3 ${config.bg} ${config.border} border rounded-pill flex items-start gap-2 ${className}`}>
+    <div className={`p-3 ${config.bg} ${config.border} border ${radius} flex items-start gap-2 ${className}`}>
       <Icon size={16} className={`${config.text} mt-0.5 flex-shrink-0`} aria-hidden="true" />
       <div className={`text-sm ${config.text}`}>{message}</div>
     </div>
@@ -24,4 +25,5 @@ Alert.propTypes = {
   variant: PropTypes.oneOf(["error", "success", "warning", "info"]),
   message: PropTypes.string.isRequired,
   className: PropTypes.string,
+  rounded: PropTypes.oneOf(["pill", "large-element"]),
 };

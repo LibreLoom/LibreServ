@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/pquerna/otp/totp"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
@@ -28,6 +32,7 @@ type testEnv struct {
 	setupH   *handlers.SetupHandler
 	authH    *handlers.AuthHandler
 	usersH   *handlers.UsersHandler
+	mfaH     *handlers.MFAHandler
 	ctx      context.Context
 }
 
@@ -51,6 +56,7 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	jwtSecret := "integration-test-jwt-secret-key-1234567890abcdef"
 	authSvc := auth.NewService(db, jwtSecret, slog.Default())
+	authSvc.SetMFATOTPEncryptionKey("integration-totp-encryption-key-32bytes!")
 	setupSvc := setup.NewService(db)
 	if _, err := setupSvc.Ensure(context.Background()); err != nil {
 		t.Fatalf("ensure setup state: %v", err)
@@ -63,6 +69,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil, nil)
 	authH := handlers.NewAuthHandler(authSvc, secSvc, db)
 	usersH := handlers.NewUsersHandler(authSvc)
+	mfaH := handlers.NewMFAHandler(authSvc, nil)
 
 	return &testEnv{
 		db:       db,
@@ -72,6 +79,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		setupH:   setupH,
 		authH:    authH,
 		usersH:   usersH,
+		mfaH:     mfaH,
 		ctx:      context.Background(),
 	}
 }
@@ -118,6 +126,7 @@ func TestFullUserFlow(t *testing.T) {
 	_ = os.Getenv("HOME") // ensure env is loaded
 
 	var accessToken string
+	var totpSecret string // set in setup_status_complete; reused by login_as_admin
 
 	// Step 1: Check setup status (should be pending)
 	t.Run("setup_status_pending", func(t *testing.T) {
@@ -163,8 +172,29 @@ func TestFullUserFlow(t *testing.T) {
 		accessToken = resp.Tokens.AccessToken
 	})
 
-	// Step 3: Setup should now be complete (idempotent check)
+	// Step 3: Setup should now be complete — but only after the admin finishes
+	// MFA enrollment (the wizard's final step). Creating the admin alone is only
+	// the ACCOUNT step; without MFA, /setup/status must stay not-complete so a
+	// refresh resumes the wizard instead of stranding the user on the general
+	// MfaBlocker.
 	t.Run("setup_status_complete", func(t *testing.T) {
+		admin, err := env.authSvc.GetUserByUsername(env.ctx, "admin")
+		if err != nil {
+			t.Fatalf("get admin: %v", err)
+		}
+		secret, _, _, err := env.authSvc.SetupTOTP(env.ctx, admin.ID, admin.Username, "")
+		if err != nil {
+			t.Fatalf("SetupTOTP: %v", err)
+		}
+		totpSecret = secret
+		code, err := totp.GenerateCode(secret, time.Now())
+		if err != nil {
+			t.Fatalf("GenerateCode: %v", err)
+		}
+		if err := env.authSvc.VerifyTOTP(env.ctx, admin.ID, code); err != nil {
+			t.Fatalf("VerifyTOTP: %v", err)
+		}
+
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
 		env.setupH.GetStatus(rec, req.WithContext(env.ctx))
@@ -190,7 +220,8 @@ func TestFullUserFlow(t *testing.T) {
 		}
 	})
 
-	// Step 5: Login as admin
+	// Step 5: Login as admin (MFA-enabled — password alone returns mfa_required;
+	// complete the TOTP verify step to obtain a session).
 	t.Run("login_as_admin", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		body := `{"username":"admin","password":"Superstrongpass123"}`
@@ -200,9 +231,35 @@ func TestFullUserFlow(t *testing.T) {
 			t.Fatalf("login status %d, body: %s", rec.Code, rec.Body.String())
 		}
 
+		var loginResp map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &loginResp); err != nil {
+			t.Fatalf("decode login response: %v", err)
+		}
+		if loginResp["status"] != "mfa_required" {
+			t.Fatalf("login status = %v, want mfa_required (admin has MFA)", loginResp["status"])
+		}
+		mfaToken, _ := loginResp["mfa_token"].(string)
+		if mfaToken == "" {
+			t.Fatal("expected mfa_token in login response")
+		}
+
+		// Verify the TOTP code via the MFA verify endpoint — this sets the
+		// session cookies (login completes).
+		code, err := totp.GenerateCode(totpSecret, time.Now())
+		if err != nil {
+			t.Fatalf("GenerateCode: %v", err)
+		}
+		verifyBody := fmt.Sprintf(`{"mfa_token":%q,"type":"totp","payload":{"code":%q}}`, mfaToken, code)
+		vrec := httptest.NewRecorder()
+		vreq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/mfa/verify", bytes.NewBufferString(verifyBody))
+		env.mfaH.Verify(vrec, vreq.WithContext(env.ctx))
+		if vrec.Code != http.StatusOK {
+			t.Fatalf("mfa verify status %d, body: %s", vrec.Code, vrec.Body.String())
+		}
+
 		var resp loginResponse
-		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("decode response: %v", err)
+		if err := json.Unmarshal(vrec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode verify response: %v", err)
 		}
 		if resp.Username != "admin" {
 			t.Errorf("username = %q, want admin", resp.Username)
@@ -212,7 +269,7 @@ func TestFullUserFlow(t *testing.T) {
 		}
 
 		// Verify access cookie is set
-		cookies := rec.Result().Cookies()
+		cookies := vrec.Result().Cookies()
 		var hasAccessCookie bool
 		for _, c := range cookies {
 			if c.Name == "libreserv_access" && c.Value != "" {

@@ -157,6 +157,12 @@ func (s *Service) SetMFATOTPEncryptionKey(key string) { s.mfaTOTPEncryptionKey =
 // unavailable, no crash). Called from main.go after constructing the service.
 func (s *Service) SetWebAuthnVerifier(v WebAuthnVerifier) { s.webauthnVerifier = v }
 
+// WebAuthnAvailable reports whether WebAuthn (passkey / security key) enrollment
+// is possible on this server — i.e. a verifier was wired in main.go. The
+// setup wizard and My Account use this to hide WebAuthn methods when the
+// server can't service them, instead of letting the user pick one and fail.
+func (s *Service) WebAuthnAvailable() bool { return s.webauthnVerifier != nil }
+
 // GenerateTokenPairForUser loads the user + issues a fresh token pair. Used by
 // the recovery-code login flow (which completes a session without re-checking
 // the password).

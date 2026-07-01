@@ -10,6 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/pquerna/otp/totp"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
@@ -214,17 +217,34 @@ func TestPreflightResolvesRelativeDiskSpacePathFromConfigLocation(t *testing.T) 
 
 func TestGetStatusRepairsSoftLockedSetup(t *testing.T) {
 	deps := newTestSetupHandler(t)
+	deps.authSvc.SetMFATOTPEncryptionKey("test-totp-encryption-key-32bytes!!")
 
 	if _, err := deps.setupSvc.MarkInProgress(deps.ctx); err != nil {
 		t.Fatalf("mark in progress: %v", err)
 	}
 
-	if _, err := deps.authSvc.CompleteSetup(deps.ctx, &auth.SetupRequest{
+	admin, err := deps.authSvc.CompleteSetup(deps.ctx, &auth.SetupRequest{
 		AdminUsername: "admin",
 		AdminPassword: "Superstrongpass123",
 		AdminEmail:    "admin@example.com",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create admin user: %v", err)
+	}
+
+	// Finish the wizard's final step: enable MFA for the admin. Without this
+	// GetSetupStatus must report not-complete (the admin existing alone is only
+	// the ACCOUNT step), so reconcileSetupState must not mark complete.
+	secret, _, _, err := deps.authSvc.SetupTOTP(deps.ctx, admin.ID, admin.Username, "")
+	if err != nil {
+		t.Fatalf("SetupTOTP: %v", err)
+	}
+	code, err := totp.GenerateCode(secret, time.Now())
+	if err != nil {
+		t.Fatalf("GenerateCode: %v", err)
+	}
+	if err := deps.authSvc.VerifyTOTP(deps.ctx, admin.ID, code); err != nil {
+		t.Fatalf("VerifyTOTP: %v", err)
 	}
 
 	rec := httptest.NewRecorder()
@@ -254,6 +274,60 @@ func TestGetStatusRepairsSoftLockedSetup(t *testing.T) {
 	}
 	if stored.Status != setup.StatusComplete {
 		t.Fatalf("stored status = %s, want %s", stored.Status, setup.StatusComplete)
+	}
+}
+
+// TestGetStatusDoesNotRepairMidWizard guards the regression where
+// reconcileSetupState marked setup complete as soon as an admin existed
+// (UserCount>0), wiping wizard progress and stranding the user on the general
+// MfaBlocker. The admin account is created at the ACCOUNT step, but MFA
+// enrollment runs afterward; until MFA is done, /setup/status must report
+// not-complete so a refresh resumes the wizard instead of navigating to "/".
+func TestGetStatusDoesNotRepairMidWizard(t *testing.T) {
+	deps := newTestSetupHandler(t)
+
+	if _, err := deps.setupSvc.MarkInProgress(deps.ctx); err != nil {
+		t.Fatalf("mark in progress: %v", err)
+	}
+	// Wizard has reached the MFA step (post-account-creation).
+	if err := deps.setupSvc.SaveProgress(deps.ctx, setup.StepMfa, "", map[string]interface{}{
+		"account_completed": true,
+	}); err != nil {
+		t.Fatalf("save progress: %v", err)
+	}
+
+	if _, err := deps.authSvc.CompleteSetup(deps.ctx, &auth.SetupRequest{
+		AdminUsername: "admin",
+		AdminPassword: "Superstrongpass123",
+		AdminEmail:    "admin@example.com",
+	}); err != nil {
+		t.Fatalf("create admin user: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/status", nil)
+	deps.handler.GetStatus(rec, req.WithContext(deps.ctx))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status code %d", rec.Code)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	state, _ := payload["setup_state"].(map[string]interface{})
+	if state["status"] == setup.StatusComplete {
+		t.Fatalf("setup_state.status = complete, want not complete (admin has no MFA yet — mid-wizard)")
+	}
+	stored, err := deps.setupSvc.Get(deps.ctx)
+	if err != nil {
+		t.Fatalf("get setup state: %v", err)
+	}
+	if stored.Status == setup.StatusComplete {
+		t.Fatalf("stored status = complete, want not complete (progress must be preserved for the MFA step)")
+	}
+	if stored.CurrentStep != setup.StepMfa {
+		t.Fatalf("current_step = %q, want %q (progress must be preserved)", stored.CurrentStep, setup.StepMfa)
 	}
 }
 

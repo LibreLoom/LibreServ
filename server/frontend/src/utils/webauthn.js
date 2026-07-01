@@ -66,3 +66,35 @@ export function prepareRequestOptions(options) {
   }
   return prepped;
 }
+
+/**
+ * Translate a WebAuthn error (the DOMException thrown by
+ * navigator.credentials.create/get) into a plain-language message the user can
+ * act on. Raw DOMException messages like "The request is not allowed by the
+ * user agent or the platform in the current context, possibly because the
+ * user denied permission." are developer-facing and must never reach a user.
+ * `label` is the friendly method name ("Passkey" / "Security key") used in text.
+ */
+export function plainWebAuthnError(err, label = "this method") {
+  if (err && typeof err === "object" && typeof err.name === "string") {
+    switch (err.name) {
+      case "NotAllowedError":
+        return `You cancelled the ${label.toLowerCase()} prompt or your browser blocked it. Try again, or pick a different method.`;
+      case "AbortError":
+        return `That took too long or was cancelled. Try again.`;
+      case "SecurityError":
+        return `${label} needs a secure connection. Open this page over HTTPS (or on the device itself) and try again.`;
+      case "NotSupportedError":
+        return `This device can't use ${label.toLowerCase()} here. Try a different method, like an authenticator app.`;
+      case "InvalidStateError":
+        return `That ${label.toLowerCase()} is already set up. Try a different one.`;
+      default:
+        // Fall through to the generic message below for unknown names.
+        break;
+    }
+  }
+  if (!navigator.onLine) {
+    return `You're offline. Check your connection and try again.`;
+  }
+  return `We couldn't finish setting up ${label.toLowerCase()}. Try again, or pick a different method.`;
+}

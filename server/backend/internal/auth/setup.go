@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,22 +34,61 @@ type SetupStatus struct {
 }
 
 // GetSetupStatus checks if the initial setup has been completed
+// GetSetupStatus reports whether initial setup is finished. It's the
+// user-facing completion signal for /setup/status and reconcileSetupState.
+//
+// Setup is only complete once an admin exists AND that admin has an enabled
+// MFA method — NOT merely once a user exists. The admin account is created at
+// the ACCOUNT step, but REMOTE_ACCESS, SMTP, and the MFA enrollment step run
+// afterward; reporting complete earlier would make reconcileSetupState wipe
+// wizard progress and strand the user on the general MfaBlocker.
+//
+// Intentionally distinct from IsSetupComplete (UserCount>0), which gates the
+// RequireSetupComplete middleware protecting /auth/mfa/* enrollment. That one
+// must stay permissive so a no-MFA admin can still enroll mid-wizard; do not
+// unify the two.
 func (s *Service) GetSetupStatus(ctx context.Context) (*SetupStatus, error) {
 	count, err := s.UserCount(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check setup status: %w", err)
 	}
-
-	if count > 0 {
+	if count == 0 {
 		return &SetupStatus{
-			SetupComplete: true,
-			Message:       "LibreServ is configured and ready to use",
+			SetupComplete: false,
+			Message:       "Welcome to LibreServ! Please create your admin account to get started.",
+		}, nil
+	}
+
+	// A user exists. Setup is only "complete" if an admin has finished MFA
+	// enrollment (the wizard's final security step). Without this, the
+	// setup-complete repair in reconcileSetupState would fire mid-wizard.
+	var adminID string
+	err = s.db.QueryRowContext(ctx, `SELECT id FROM users WHERE role = 'admin' LIMIT 1`).Scan(&adminID)
+	if err != nil {
+		// No admin row (e.g. only non-admin users exist) → setup can't be
+		// finished; treat as not complete. A real DB error is surfaced as a 500.
+		if errors.Is(err, sql.ErrNoRows) {
+			return &SetupStatus{
+				SetupComplete: false,
+				Message:       "Welcome to LibreServ! Please create your admin account to get started.",
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to look up admin user: %w", err)
+	}
+	hasMFA, err := s.HasMFA(ctx, adminID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check admin MFA status: %w", err)
+	}
+	if !hasMFA {
+		return &SetupStatus{
+			SetupComplete: false,
+			Message:       "Finish setting up two-factor authentication to complete setup.",
 		}, nil
 	}
 
 	return &SetupStatus{
-		SetupComplete: false,
-		Message:       "Welcome to LibreServ! Please create your admin account to get started.",
+		SetupComplete: true,
+		Message:       "LibreServ is configured and ready to use",
 	}, nil
 }
 

@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle, Mail, Wifi, WifiOff, Shield, ArrowDown } from "lucide-react";
+import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle, Mail, Wifi, WifiOff, Shield, ArrowDown, ShieldCheck } from "lucide-react";
 import PropTypes from "prop-types";
 import api from "../lib/api";
 import { getConnectivityStatus } from "../lib/network-api";
@@ -11,7 +11,10 @@ import PreflightRemediation from "../components/setup/PreflightRemediation";
 import { summarizeError } from "../lib/preflight-errors";
 import useSetupProgress from "../hooks/useSetupProgress";
 import { useAuth } from "../hooks/useAuth";
-import MfaCard from "../components/profile/MfaCard";
+import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
+import { StepTransitionContext } from "../components/setup/StepTransitionContext";
+import { StepTransitionProvider } from "../components/setup/StepTransition";
+import { MfaSetupWizard } from "../components/profile/MfaCard";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
@@ -46,18 +49,43 @@ SetupShell.propTypes = { children: PropTypes.node.isRequired };
 
 // ─── Card surface (bg-secondary = inverted, high contrast) ───────────────────
 // All step content lives on this card. Text inside uses text-primary (inverted).
-function SetupCard({ children, className = "" }) {
+// Wraps content in an animated-height container so the card resizes smoothly
+// when a step's content height changes (phase transitions, appearing errors,
+// QR/codes, etc.) instead of snapping. Mirrors the Card component's approach.
+//
+// The card itself does NOT fly in on mount — it stays in place and smoothly
+// resizes (useAnimatedHeight). Step-to-step transitions slide the INNER content
+// in from the right (advancing) or left (going back), keyed so it remounts and
+// the slide replays within the card bounds (overflow-hidden clips the offset).
+// Direction/key come from StepTransitionContext, provided by SetupPage.
+// Callers pass only LAYOUT classes (e.g. flex centering) via className (applied
+// to the sliding content) and `header` for static chrome (e.g. StepDots) that must
+// NOT slide — it stays put while the step content below it flies in/out.
+function SetupCard({ children, className = "", header = null }) {
+  const { outerRef, innerRef } = useAnimatedHeight();
+  const { key: tKey, direction } = useContext(StepTransitionContext);
   return (
     <div
-      className={`w-full max-w-md bg-secondary rounded-large-element px-10 py-10 shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden ${className}`}
+      ref={outerRef}
+      className="w-full max-w-md bg-secondary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
-      {children}
+      <div ref={innerRef} className="px-10 py-10">
+        {header}
+        <div
+          key={tKey}
+          className={`${className} animate-in duration-300 ${direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"}`}
+        >
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
 SetupCard.propTypes = {
   children:  PropTypes.node.isRequired,
   className: PropTypes.string,
+  header:    PropTypes.node,
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
@@ -87,6 +115,15 @@ function StepDots({ current }) {
   );
 }
 StepDots.propTypes = { current: PropTypes.string.isRequired };
+
+// ─── Step transition (directional slide within the card) ───────────────────
+// SetupPage provides { key, direction } via StepTransitionContext (imported
+// from ../components/setup/StepTransition). SetupCard consumes it and slides
+// its INNER content in from the right (advancing) or left (going back), keyed
+// so React remounts the content subtree and the slide replays. The card shell
+// itself stays in place and smoothly resizes (useAnimatedHeight) — only the
+// content within it flies in/out. Mirrors the app install wizard's
+// slide-in-from-right-pop / -left-pop keyframes.
 
 // ─── Logo mark (inline SVG — currentColor, rendered on bg-secondary) ─────────
 // On bg-secondary the outer circle fills with primary (white in light, black in dark).
@@ -228,7 +265,7 @@ function SetupCodeStep({ onCodeVerified }) {
 
   return (
     <SetupShell>
-      <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <SetupCard className="flex flex-col items-center text-center">
         <div className="mb-10 flex h-36 w-36 items-center justify-center rounded-full border border-primary/12 bg-primary/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
           <LogoMark size={120} />
         </div>
@@ -294,7 +331,7 @@ SetupCodeStep.propTypes = {
 function WelcomeStep({ onBegin }) {
   return (
     <SetupShell>
-      <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <SetupCard className="flex flex-col items-center text-center">
         <div className="mb-10 flex h-36 w-36 items-center justify-center rounded-full border border-primary/12 bg-primary/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
           <LogoMark size={120} />
         </div>
@@ -358,7 +395,7 @@ const CATEGORY_LABELS = {
 
 const CATEGORY_ORDER = ["system", "storage", "network"];
 
-function PreflightRow({ name, check, index, done, rerunning }) {
+function PreflightRow({ name, check, delay, done, rerunning }) {
   const label  = CHECK_LABELS[name] ?? name.replace(/_/g, " ");
   const isOk   = check?.status === "ok";
   const isFail = check && check.status !== "ok";
@@ -373,8 +410,8 @@ function PreflightRow({ name, check, index, done, rerunning }) {
 
   return (
     <div
-      className={`flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 motion-safe:transition-opacity motion-safe:duration-300 ${rerunning ? "opacity-45" : "opacity-100"} animate-in fade-in slide-in-from-bottom-1 duration-300`}
-      style={{ animationDelay: `${index * 80}ms` }}
+      className={`flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 motion-safe:transition-opacity motion-safe:duration-300 ${rerunning ? "opacity-45" : "opacity-100"} animate-in fade-in slide-in-from-bottom-2 duration-400`}
+      style={{ animationDelay: `${delay}ms` }}
     >
       {/* Status icon */}
       <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-300 ${
@@ -486,9 +523,8 @@ function PreflightStep({ onPass }) {
 
   return (
     <SetupShell>
-      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <StepDots current={STEP.PREFLIGHT} />
-
+      <SetupCard className="" header={<StepDots current={STEP.PREFLIGHT} />}>
+        
         {/* Header */}
         <div className="mb-7">
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
@@ -533,7 +569,7 @@ function PreflightStep({ onPass }) {
                     key={name}
                     name={name}
                     check={check}
-                    index={i}
+                    delay={i * 80}
                     done={done || rerunning}
                     rerunning={rerunning}
                   />
@@ -708,9 +744,8 @@ function AccountStep({ onSuccess, onError }) {
 
   return (
     <SetupShell>
-      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <StepDots current={STEP.ACCOUNT} />
-
+      <SetupCard className="" header={<StepDots current={STEP.ACCOUNT} />}>
+        
         {/* Header */}
         <div className="mb-8">
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
@@ -846,9 +881,8 @@ AccountStep.propTypes = {
 function CompleteStep() {
   return (
     <SetupShell>
-      <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <StepDots current={STEP.COMPLETE} />
-
+      <SetupCard className="flex flex-col items-center text-center" header={<StepDots current={STEP.COMPLETE} />}>
+        
         {/* Check circle */}
         <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
           <Check className="w-7 h-7 text-primary" strokeWidth={1.5} />
@@ -875,9 +909,8 @@ function DomainIntroStep({ onStart, onSkip }) {
 
   return (
     <SetupShell>
-      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <StepDots current={STEP.REMOTE_ACCESS} />
-
+      <SetupCard className="" header={<StepDots current={STEP.REMOTE_ACCESS} />}>
+        
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
@@ -1034,9 +1067,8 @@ function NatDetectStep({ onContinue, onBack }) {
   if (detecting) {
     return (
       <SetupShell>
-        <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <StepDots current={STEP.REMOTE_ACCESS} />
-          <div className="flex flex-col items-center py-12">
+        <SetupCard className="" header={<StepDots current={STEP.REMOTE_ACCESS} />}>
+                    <div className="flex flex-col items-center py-12">
             <Loader2 className="w-8 h-8 animate-spin text-primary/40 mb-4" />
             <p className="font-mono text-sm text-primary/60">Detecting your network type…</p>
             <p className="text-xs text-primary/30 mt-2">This takes a few seconds</p>
@@ -1049,9 +1081,8 @@ function NatDetectStep({ onContinue, onBack }) {
   if (detectError) {
     return (
       <SetupShell>
-        <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <StepDots current={STEP.REMOTE_ACCESS} />
-          <div className="flex flex-col items-center py-8 text-center">
+        <SetupCard className="" header={<StepDots current={STEP.REMOTE_ACCESS} />}>
+                    <div className="flex flex-col items-center py-8 text-center">
             <AlertCircle className="w-8 h-8 text-primary/40 mb-4" />
             <p className="font-mono text-sm text-primary/60 mb-2">Could not detect network type</p>
             <p className="text-xs text-primary/35 mb-6">{detectError}</p>
@@ -1078,9 +1109,8 @@ function NatDetectStep({ onContinue, onBack }) {
 
   return (
     <SetupShell>
-      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <StepDots current={STEP.REMOTE_ACCESS} />
-
+      <SetupCard className="" header={<StepDots current={STEP.REMOTE_ACCESS} />}>
+        
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
@@ -1156,9 +1186,8 @@ function SmtpIntroStep({ onStart, onSkip }) {
 
   return (
     <SetupShell>
-      <SetupCard className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-        <StepDots current={STEP.SMTP} />
-
+      <SetupCard className="" header={<StepDots current={STEP.SMTP} />}>
+        
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
@@ -1232,7 +1261,7 @@ SmtpIntroStep.propTypes = {
 function ErrorStep({ message }) {
   return (
     <SetupShell>
-      <SetupCard className="flex flex-col items-center text-center animate-in fade-in slide-in-from-bottom-4 duration-300">
+      <SetupCard className="flex flex-col items-center text-center">
         <div className="mb-6 w-14 h-14 rounded-full border border-error/25 bg-error/12 flex items-center justify-center">
           <AlertCircle className="w-6 h-6 text-error" strokeWidth={1.5} />
         </div>
@@ -1257,12 +1286,55 @@ function ErrorStep({ message }) {
 }
 ErrorStep.propTypes = { message: PropTypes.string };
 
+// ─── STEP: MFA ──────────────────────────────────────────────────────────────────
+function MfaStep({ onComplete }) {
+  return (
+    <SetupShell>
+      <SetupCard className="" header={<StepDots current={STEP.MFA} />}>
+        
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5 text-primary/60" />
+            </div>
+            <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
+              Enable MFA
+            </h2>
+          </div>
+          <p className="text-primary/50 text-sm leading-relaxed">
+            Two-factor authentication asks for a second check at sign-in — not just your password. As an admin, your account is at higher risk, so you need at least one method before you can finish setup.
+          </p>
+        </div>
+
+        <MfaSetupWizard onComplete={onComplete} />
+      </SetupCard>
+    </SetupShell>
+  );
+}
+MfaStep.propTypes = { onComplete: PropTypes.func.isRequired };
+
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
 const UNSAFE_SUB_STEPS = new Set(["connecting", "smtp_testing"]);
+
+// Linear order of the wizard's main steps, used to derive the slide direction
+// (forward → slide from right, back → slide from left) on step change. Steps
+// not on the forward path (error/setup_code/creating) are treated as neutral.
+const STEP_ORDER = [
+  STEP.SETUP_CODE,
+  STEP.WELCOME,
+  STEP.PREFLIGHT,
+  STEP.ACCOUNT,
+  STEP.REMOTE_ACCESS,
+  STEP.SMTP,
+  STEP.MFA,
+  STEP.COMPLETE,
+];
 
 export default function SetupPage() {
   const navigate        = useNavigate();
   const [step, setStep] = useState(null);
+  const [animationDirection, setAnimationDirection] = useState("right");
+  const prevStepRef = useRef(null);
   const [error, setError] = useState(null);
   const [setupToken, setSetupToken] = useState(() =>
     (typeof window !== "undefined" ? localStorage.getItem(SETUP_TOKEN_KEY) : "") || ""
@@ -1315,6 +1387,24 @@ export default function SetupPage() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
+
+  // Derive the slide direction from the linear step order so the transition
+  // matches travel direction: advancing slides the new step in from the right,
+  // going back slides it in from the left. Neutral steps (error/setup_code)
+  // keep the previous direction so they don't flash. Initial mount has no slide.
+  useEffect(() => {
+    if (step == null || prevStepRef.current == null) {
+      prevStepRef.current = step;
+      return;
+    }
+    if (step === prevStepRef.current) return;
+    const prevIdx = STEP_ORDER.indexOf(prevStepRef.current);
+    const nextIdx = STEP_ORDER.indexOf(step);
+    if (prevIdx >= 0 && nextIdx >= 0) {
+      setAnimationDirection(nextIdx > prevIdx ? "right" : "left");
+    }
+    prevStepRef.current = step;
+  }, [step]);
 
   useEffect(() => {
     const check = async () => {
@@ -1508,31 +1598,23 @@ export default function SetupPage() {
     return <ErrorStep message={error ?? "An unexpected error occurred."} />;
   }
 
+  let renderedStep;
   if (step === STEP.SETUP_CODE) {
-    return <SetupCodeStep onCodeVerified={handleCodeVerified} />;
-  }
-
-  if (step === STEP.WELCOME) {
-    return (
-      <WelcomeStep onBegin={handleBegin} />
-    );
-  }
-
-  if (step === STEP.PREFLIGHT) {
-    return <PreflightStep onPass={handlePreflightPass} />;
-  }
-
-  if (step === STEP.REMOTE_ACCESS) {
+    renderedStep = <SetupCodeStep onCodeVerified={handleCodeVerified} />;
+  } else if (step === STEP.WELCOME) {
+    renderedStep = <WelcomeStep onBegin={handleBegin} />;
+  } else if (step === STEP.PREFLIGHT) {
+    renderedStep = <PreflightStep onPass={handlePreflightPass} />;
+  } else if (step === STEP.REMOTE_ACCESS) {
     if (showNatDetect) {
-      return (
+      renderedStep = (
         <NatDetectStep
           onContinue={handleNatDetectContinue}
           onBack={handleNatDetectBack}
         />
       );
-    }
-    if (showDomainWizard) {
-      return (
+    } else if (showDomainWizard) {
+      renderedStep = (
         <DomainWizard
           open={showDomainWizard}
           onComplete={handleDomainComplete}
@@ -1543,18 +1625,17 @@ export default function SetupPage() {
           saveProgress={saveProgress}
         />
       );
+    } else {
+      renderedStep = (
+        <DomainIntroStep
+          onStart={handleStartDomainWizard}
+          onSkip={handleDomainSkip}
+        />
+      );
     }
-    return (
-      <DomainIntroStep
-        onStart={handleStartDomainWizard}
-        onSkip={handleDomainSkip}
-      />
-    );
-  }
-
-  if (step === STEP.SMTP) {
+  } else if (step === STEP.SMTP) {
     if (showSmtpWizard) {
-      return (
+      renderedStep = (
         <SmtpWizard
           open={showSmtpWizard}
           onComplete={handleSmtpComplete}
@@ -1567,40 +1648,30 @@ export default function SetupPage() {
           saveProgress={(stepName, subStep, data) => saveProgress(stepName, subStep, { ...progressRef.current.stepData, ...data })}
         />
       );
+    } else {
+      renderedStep = (
+        <SmtpIntroStep
+          onStart={handleStartSmtpWizard}
+          onSkip={handleSmtpSkip}
+        />
+      );
     }
-    return (
-      <SmtpIntroStep
-        onStart={handleStartSmtpWizard}
-        onSkip={handleSmtpSkip}
-      />
-    );
-  }
-
-  if (step === STEP.MFA) {
-    return (
-      <SetupShell>
-        <div className="w-full max-w-md">
-          <div className="mb-6">
-            <StepDots current={STEP.MFA} />
-          </div>
-          <MfaCard onComplete={handleMfaSuccess} />
-        </div>
-      </SetupShell>
-    );
-  }
-
-  if (step === STEP.ACCOUNT || step === STEP.CREATING) {
-    return (
+  } else if (step === STEP.MFA) {
+    renderedStep = <MfaStep onComplete={handleMfaSuccess} />;
+  } else if (step === STEP.ACCOUNT || step === STEP.CREATING) {
+    renderedStep = (
       <AccountStep
         onSuccess={handleAccountSuccess}
         onError={handleAccountError}
       />
     );
+  } else if (step === STEP.COMPLETE) {
+    renderedStep = <CompleteStep />;
   }
 
-  if (step === STEP.COMPLETE) {
-    return <CompleteStep />;
-  }
-
-  return null;
+  return (
+    <StepTransitionProvider stepKey={step} direction={animationDirection}>
+      {renderedStep}
+    </StepTransitionProvider>
+  );
 }

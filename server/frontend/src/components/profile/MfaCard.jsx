@@ -1,9 +1,5 @@
 import { useState, useEffect, useCallback, useId } from "react";
 import {
-  KeyRound,
-  Mail,
-  Fingerprint,
-  Usb,
   ShieldCheck,
   Trash2,
   Loader2,
@@ -14,39 +10,31 @@ import {
 import PropTypes from "prop-types";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
+import useMfaAvailability from "../../hooks/useMfaAvailability";
 import Card from "../cards/Card";
 import Button from "../ui/Button";
 import Alert from "../common/Alert";
+import CollapsibleSection from "../common/CollapsibleSection";
 import {
   prepareCreationOptions,
   bufToB64url,
+  plainWebAuthnError,
 } from "../../utils/webauthn";
-
-const TYPE_META = {
-  totp: { icon: KeyRound, label: "Authenticator app", desc: "An app like Authy, 1Password, or Google Authenticator" },
-  email: { icon: Mail, label: "Email code", desc: "A one-time code sent to your email" },
-  passkey: { icon: Fingerprint, label: "Passkey", desc: "Unlock with your device (Face ID, Touch ID, or Windows Hello)" },
-  security_key: { icon: Usb, label: "Security key", desc: "A physical key you plug in or tap, like a YubiKey" },
-};
-
-const ORDER = ["totp", "email", "passkey", "security_key"];
-
-// Shared styles for inputs/buttons inside the inverted (bg-secondary) Card.
-const inputClass =
-  "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
-
-const primaryButtonClass =
-  "group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-3 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none";
-
-const secondaryButtonClass =
-  "w-full rounded-pill border border-primary/20 bg-transparent text-primary px-6 py-3 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8";
+import {
+  TYPE_META,
+  ORDER,
+  inputClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from "./mfa-shared";
 
 /**
- * @param {{ onMethodEnabled?: () => void, onComplete?: () => void } | undefined} [props]
+ * @param {{ onMethodEnabled?: () => void, onComplete?: () => void, embedded?: boolean } | undefined} [props]
  */
-export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
+export default function MfaCard({ onMethodEnabled, onComplete, embedded = false } = {}) {
   const { me, request } = useAuth();
   const { addToast } = useToast();
+  const { availability } = useMfaAvailability();
   const [methods, setMethods] = useState(/** @type {Array<object>} */ ([]));
   const [loadingMethods, setLoadingMethods] = useState(true);
   const [remainingRecovery, setRemainingRecovery] = useState(null);
@@ -56,6 +44,12 @@ export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
   const [removingId, setRemovingId] = useState(null);
   const [lastMethodError, setLastMethodError] = useState(null);
   const isAdmin = me?.role === "admin";
+
+  // Methods the server can actually service right now. While availability is
+  // loading (null) we show everything so the user isn't blocked; once it
+  // resolves, unavailable options (e.g. email with no SMTP sender / no account
+  // email, WebAuthn with no verifier, TOTP with no encryption key) are hidden.
+  const availableTypes = ORDER.filter((t) => availability == null || !!availability[t]);
 
   const loadMethods = useCallback(async () => {
     setLoadingMethods(true);
@@ -153,16 +147,20 @@ export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
     onMethodEnabled?.();
   }
 
-  return (
-    <Card title="Two-Factor Authentication">
-      <div className="space-y-4">
-        <p className="text-sm text-primary/80">
-          Two-factor authentication keeps your account safe by asking for a second
-          check at login — not just your password. You need at least one method
-          enabled{isAdmin ? " (required for admins)" : ""}.
-        </p>
+  // When embedded (setup wizard), the host step provides the card chrome,
+  // header, and explanatory copy — so we skip our own Card wrapper, title,
+  // intro paragraph, and the admin-needs-MFA alert to avoid duplication.
+  const body = (
+    <div className="space-y-4">
+        {!embedded && (
+          <p className="text-sm text-primary/80">
+            Two-factor authentication keeps your account safe by asking for a second
+            check at login — not just your password. You need at least one method
+            enabled{isAdmin ? " (required for admins)" : ""}.
+          </p>
+        )}
 
-        {adminNeedsMfa && (
+        {!embedded && adminNeedsMfa && (
           <Alert
             variant="error"
             message="As an admin, you must enable at least one two-factor method. Your account is at higher risk without it."
@@ -218,10 +216,12 @@ export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
               })}
           </ul>
         ) : (
-          <Alert
-            variant="warning"
-            message="No two-factor method enabled yet. Add one below to protect your account."
-          />
+          !embedded && (
+            <Alert
+              variant="warning"
+              message="No two-factor method enabled yet. Add one below to protect your account."
+            />
+          )
         )}
 
         {lastMethodError && <Alert variant="error" message={lastMethodError} />}
@@ -235,7 +235,7 @@ export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
           />
         ) : (
           <div className="space-y-2">
-            {ORDER.map((type) => {
+            {availableTypes.map((type) => {
               const meta = TYPE_META[type];
               const Icon = meta.icon;
               return (
@@ -257,7 +257,9 @@ export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
           </div>
         )}
 
-        {/* Recovery codes */}
+        {/* Recovery codes — hidden in embedded (setup) mode; a dedicated step
+            surfaces these for smoother UX. */}
+        {!embedded && (
         <div className="pt-4 border-t border-accent/30">
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-2 text-sm text-primary/80">
@@ -303,6 +305,7 @@ export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
             </div>
           )}
         </div>
+        )}
 
         {onComplete && (
           <div className="pt-2">
@@ -318,12 +321,14 @@ export default function MfaCard({ onMethodEnabled, onComplete } = {}) {
           </div>
         )}
       </div>
-    </Card>
-  );
+    );
+
+  if (embedded) return body;
+  return <Card title="Two-Factor Authentication">{body}</Card>;
 }
 
-// --- Enrollment flow per method type ---
-function EnrollFlow({ type, onCancel, onEnrolled }) {
+// --- Enrollment flow per method type (shared by MfaCard + setup wizard) ---
+export function EnrollFlow({ type, onCancel, onEnrolled }) {
   const { request } = useAuth();
   const { addToast } = useToast();
   const [step, setStep] = useState("setup"); // setup | verify | done
@@ -332,10 +337,19 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
   const [code, setCode] = useState("");
   const [totp, setTotp] = useState(/** @type {{secret?:string, otpauth_uri?:string, qr_image?:string}|null} */ (null));
   const [webauthnName, setWebauthnName] = useState("");
+  const [secretCopied, setSecretCopied] = useState(false);
   const codeInputId = useId();
 
   // Start TOTP/email enrollment automatically. WebAuthn waits for the name form.
+  //
+  // Aborts a stale in-flight setup request on re-invocation. React StrictMode
+  // (dev) runs effects twice on mount, and `request`/`addToast` can change
+  // identity between renders; without the AbortController both invocations
+  // fire POST /auth/mfa/totp/setup and race on the pending-TOTP row, producing a
+  // flaky 500 ("We couldn't set up your authenticator app"). Aborting the first
+  // request before the second starts keeps a single setup call in flight.
   useEffect(() => {
+    const controller = new AbortController();
     let cancelled = false;
     async function begin() {
       if (type === "passkey" || type === "security_key") return;
@@ -343,14 +357,14 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
       setError(null);
       try {
         if (type === "totp") {
-          const res = await request("/auth/mfa/totp/setup", { method: "POST" });
+          const res = await request("/auth/mfa/totp/setup", { method: "POST", signal: controller.signal });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Couldn't start setup.");
           if (cancelled) return;
           setTotp(data);
           setStep("verify");
         } else if (type === "email") {
-          const res = await request("/auth/mfa/email/setup", { method: "POST" });
+          const res = await request("/auth/mfa/email/setup", { method: "POST", signal: controller.signal });
           if (!res.ok) {
             const d = await res.json().catch(() => ({}));
             throw new Error(d.error || "Couldn't send the email code.");
@@ -360,6 +374,7 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
           setStep("verify");
         }
       } catch (err) {
+        if (controller.signal.aborted) return; // stale request, ignore
         if (!cancelled) setError(err.message || "Setup failed. Try again.");
       } finally {
         if (!cancelled) setBusy(false);
@@ -368,6 +383,7 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
     begin();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [type, request, addToast]);
 
@@ -439,9 +455,21 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
       const label = webauthnName.trim() || TYPE_META[type].label;
       await runWebAuthn(label);
     } catch (err) {
-      setError(err.message || "Setup failed. Try again.");
+      setError(plainWebAuthnError(err, label));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function copySecret() {
+    if (!totp?.secret) return;
+    try {
+      await navigator.clipboard.writeText(totp.secret);
+      setSecretCopied(true);
+      addToast({ type: "success", message: "Manual key copied." });
+      setTimeout(() => setSecretCopied(false), 2000);
+    } catch {
+      addToast({ type: "error", message: "Couldn't copy — copy it manually." });
     }
   }
 
@@ -507,9 +535,6 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
                   <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
                 </button>
               </form>
-              <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-                Cancel
-              </button>
             </>
           )}
         </>
@@ -533,10 +558,22 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
             )}
           </div>
           {totp.secret && (
-            <details className="text-xs text-primary/70">
-              <summary className="cursor-pointer hover:text-primary">Can't scan? Show the manual key</summary>
-              <code className="block mt-2 p-2 bg-primary rounded-pill break-all text-secondary">{totp.secret}</code>
-            </details>
+            <CollapsibleSection title="Can't scan? Show the manual key" size="xs" className="text-primary/70">
+              <div className="flex items-center gap-2">
+                {/* color-scan: ignore-next-line manual key needs a high-contrast surface for legibility + selection */}
+                <code className="flex-1 block p-2 bg-primary rounded-pill break-all text-secondary text-xs">
+                  {totp.secret}
+                </code>
+                <button
+                  type="button"
+                  onClick={copySecret}
+                  className="shrink-0 text-xs text-accent hover:text-secondary flex items-center gap-1"
+                  aria-label="Copy manual key"
+                >
+                  <Copy size={12} /> {secretCopied ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </CollapsibleSection>
           )}
         </div>
       )}
@@ -577,13 +614,17 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
               </>
             )}
           </button>
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
-            Cancel
-          </button>
         </form>
       )}
 
-      {error && <Alert variant="error" message={error} />}
+      {/* Persistent escape hatch: always available so the user can pick a
+          different method if this one isn't working (e.g. setup errored before
+          the verify form appeared, or the browser prompt was denied). */}
+      <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+        Back
+      </button>
+
+      {error && <Alert variant="error" message={error} rounded="large-element" />}
     </div>
   );
 }
@@ -591,9 +632,211 @@ function EnrollFlow({ type, onCancel, onEnrolled }) {
 MfaCard.propTypes = {
   onMethodEnabled: PropTypes.func,
   onComplete: PropTypes.func,
+  embedded: PropTypes.bool,
 };
 EnrollFlow.propTypes = {
   type: PropTypes.oneOf(["totp", "email", "passkey", "security_key"]).isRequired,
   onCancel: PropTypes.func.isRequired,
   onEnrolled: PropTypes.func.isRequired,
+};
+
+// ─── Setup-wizard-only 3-phase MFA flow: choose → backup codes → setup ───────
+// The setup wizard sequences MFA enrollment into distinct steps so the user
+// isn't confronted with the method picker and the enrollment form at once.
+//   1. Choose — pick a method (authenticator app / email / passkey / key)
+//   2. Backup codes — generate + show recovery codes (the fallback first)
+//   3. Setup — enroll + verify the chosen method; on success, onComplete fires
+//      (which finalizes setup and redirects to the dashboard).
+// MfaCard itself stays a single-screen component for My Account / MfaBlocker.
+export function MfaSetupWizard({ onComplete }) {
+  const { request } = useAuth();
+  const { addToast } = useToast();
+  const { availability, loading: loadingAvail } = useMfaAvailability();
+  // Methods the server can service now. While availability loads (null) show
+  // everything so the user isn't blocked; once resolved, hide unavailable.
+  const availableTypes = ORDER.filter((t) => availability == null || !!availability[t]);
+  const [phase, setPhase] = useState("choose"); // choose | backup | setup
+  const [selectedType, setSelectedType] = useState(null);
+  const [codes, setCodes] = useState(/** @type {string[] | null} */ (null));
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  // Generate backup codes when entering the backup phase. AbortController
+  // guards the same StrictMode double-fire race as EnrollFlow.
+  useEffect(() => {
+    if (phase !== "backup") return;
+    if (codes) return; // already generated this visit
+    const controller = new AbortController();
+    let cancelled = false;
+    async function gen() {
+      setGenerating(true);
+      setGenError(null);
+      try {
+        const res = await request("/auth/mfa/recovery-codes", {
+          method: "POST",
+          signal: controller.signal,
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Couldn't generate backup codes.");
+        if (cancelled) return;
+        setCodes(Array.isArray(data.codes) ? data.codes : []);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setGenError(err.message || "Couldn't generate backup codes. Try again.");
+      } finally {
+        if (!cancelled) setGenerating(false);
+      }
+    }
+    gen();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [phase, codes, request]);
+
+  async function copyCodes() {
+    if (!codes) return;
+    try {
+      await navigator.clipboard.writeText(codes.join("\n"));
+      setCopied(true);
+      addToast({ type: "success", message: "Backup codes copied." });
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      addToast({ type: "error", message: "Couldn't copy — copy them manually." });
+    }
+  }
+
+  function chooseMethod(type) {
+    setSelectedType(type);
+    setPhase("backup");
+  }
+
+  // Phase 1 — Choose a method
+  if (phase === "choose") {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.18em] text-primary/60 mb-3">
+            Step 1 — Choose a method
+          </p>
+          {loadingAvail && (
+            <p className="text-xs text-accent flex items-center gap-2 mb-3">
+              <Loader2 size={12} className="animate-spin" /> Checking what's available on this device…
+            </p>
+          )}
+          {availableTypes.length === 0 && !loadingAvail && (
+            <p className="text-sm text-primary/60">
+              No two-factor methods are available on this device yet. Ask your administrator to enable one, then come back here.
+            </p>
+          )}
+          <div className="space-y-2">
+            {availableTypes.map((type) => {
+              const meta = TYPE_META[type];
+              const Icon = meta.icon;
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => chooseMethod(type)}
+                  className="w-full flex items-center gap-4 p-4 rounded-large-element border border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 motion-safe:transition-all motion-safe:duration-200"
+                  title={`Add ${meta.label}`}
+                >
+                  <Icon size={22} className="text-accent flex-shrink-0" />
+                  <div className="flex-1 text-left">
+                    <div className="font-mono text-sm text-primary">{meta.label}</div>
+                    <div className="text-xs text-primary/40">{meta.desc}</div>
+                  </div>
+                  <ArrowRight size={16} className="text-primary/40" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Phase 2 — Backup codes
+  if (phase === "backup") {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.18em] text-primary/60 mb-3">
+            Step 2 — Save your backup codes
+          </p>
+          <p className="text-sm text-primary/70 mb-4">
+            These one-time codes let you sign in if you lose access to your phone or
+            key. Store them somewhere safe — they're shown only once.
+          </p>
+        </div>
+
+        {generating && (
+          <p className="text-xs text-accent flex items-center gap-2">
+            <Loader2 size={12} className="animate-spin" /> Generating your codes…
+          </p>
+        )}
+
+        {genError && <Alert variant="error" message={genError} rounded="large-element" />}
+
+        {codes && codes.length > 0 && (
+          <>
+            {/* color-scan: ignore-next-line recovery codes need a high-contrast surface for legibility */}
+            <div className="p-4 rounded-large-element bg-primary text-secondary border-2 border-accent/40">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium">Save these now — they won't be shown again</span>
+                <button
+                  type="button"
+                  onClick={copyCodes}
+                  className="text-xs text-accent hover:text-secondary flex items-center gap-1"
+                >
+                  <Copy size={12} /> {copied ? "Copied" : "Copy all"}
+                </button>
+              </div>
+              <ol className="grid grid-cols-2 gap-1 text-sm font-mono">
+                {codes.map((c, i) => (
+                  <li key={i} className="truncate">{c}</li>
+                ))}
+              </ol>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPhase("setup")}
+              className={primaryButtonClass}
+            >
+              I've saved my codes
+              <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+            </button>
+          </>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setPhase("choose")}
+          className={secondaryButtonClass}
+        >
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  // Phase 3 — Setup (enroll + verify the chosen method)
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="font-mono text-xs uppercase tracking-[0.18em] text-primary/60 mb-3">
+          Step 3 — Set up {selectedType ? TYPE_META[selectedType].label.toLowerCase() : "your method"}
+        </p>
+      </div>
+      <EnrollFlow
+        type={selectedType}
+        onCancel={() => setPhase("choose")}
+        onEnrolled={onComplete}
+      />
+    </div>
+  );
+}
+MfaSetupWizard.propTypes = {
+  onComplete: PropTypes.func.isRequired,
 };

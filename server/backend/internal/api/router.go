@@ -215,6 +215,7 @@ func (s *Server) setupRoutes() {
 			// public; see above.)
 			r.Route("/auth/mfa", func(r chi.Router) {
 				r.Get("/methods", mfaHandler.ListMethods)
+				r.Get("/availability", mfaHandler.Availability)
 				r.Post("/totp/setup", mfaHandler.SetupTOTP)
 				r.Post("/totp/verify", mfaHandler.VerifyTOTP)
 				r.Post("/email/setup", mfaHandler.SetupEmail)

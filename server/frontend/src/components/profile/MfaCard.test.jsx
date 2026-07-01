@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 
-const { mockRequest, mockAddToast, mockMe } = vi.hoisted(() => ({
+const { mockRequest, mockAddToast, mockMe, mockAvailability } = vi.hoisted(() => ({
   mockRequest: vi.fn(),
   mockAddToast: vi.fn(),
   mockMe: vi.fn(),
+  mockAvailability: { value: { totp: true, email: true, passkey: true, security_key: true } },
 }));
 
 vi.mock("../../hooks/useAuth", () => ({
@@ -12,6 +13,17 @@ vi.mock("../../hooks/useAuth", () => ({
 }));
 vi.mock("../../context/ToastContext", () => ({
   useToast: () => ({ addToast: mockAddToast }),
+}));
+vi.mock("../../hooks/useMfaAvailability", () => ({
+  __esModule: true,
+  default: () => ({
+    // Default: every method is available so existing tests see all options.
+    // Tests that need to assert hiding set mockAvailability.value per-test.
+    availability: mockAvailability.value,
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  }),
 }));
 
 import MfaCard from "./MfaCard";
@@ -31,6 +43,7 @@ describe("MfaCard", () => {
     mockRequest.mockReset();
     mockAddToast.mockReset();
     mockMe.mockReset();
+    mockAvailability.value = { totp: true, email: true, passkey: true, security_key: true };
   });
 
   it("lists enabled two-factor methods + recovery count", async () => {
@@ -95,5 +108,20 @@ describe("MfaCard", () => {
     fireEvent.click(gen);
     await waitFor(() => expect(screen.getByText("RC-1")).toBeInTheDocument());
     expect(screen.getByText("RC-3")).toBeInTheDocument();
+  });
+
+  it("hides add-method options the server can't service (e.g. email)", async () => {
+    primeMethods([], 0, "admin");
+    // Only TOTP is available — email/passkey/security_key are hidden.
+    mockAvailability.value = { totp: true, email: false, passkey: false, security_key: false };
+    render(<MfaCard />);
+    // The add-method tiles carry title="Add <label>". Wait for the one
+    // available method to render, then assert the others are absent.
+    await waitFor(() =>
+      expect(screen.getByTitle("Add Authenticator app")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTitle(/Add Email code/i)).toBeNull();
+    expect(screen.queryByTitle(/Add Passkey/i)).toBeNull();
+    expect(screen.queryByTitle(/Add Security key/i)).toBeNull();
   });
 });
