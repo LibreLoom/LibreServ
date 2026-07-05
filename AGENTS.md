@@ -167,7 +167,7 @@ This applies to frontend UI, API error messages shown to users, and any document
 - Run `npm run scan:colors` when modifying UI to detect hardcoded colors
 
 ### Design / Theme
-- **Read branding repo** before UI work: https://gt.plainskill.net/LibreLoom/libreloom-branding
+- **Read branding repo** before UI work: https://gt.plainskill.net/LibreLoom/design
 - Theme uses CSS custom properties that swap on `.dark` class:
   - `--primary` = page background (white/light, black/dark)
   - `--secondary` = text color (black/light, white/dark)
