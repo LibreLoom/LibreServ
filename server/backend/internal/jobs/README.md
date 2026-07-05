@@ -31,7 +31,7 @@ This directory contains two different background job systems with distinct purpo
 - Job progress needs tracking
 - Multiple concurrent workers needed
 - Job history/audit required
-- Examples: certificate requests, backup operations, app installs
+- Examples: ACME certificate issuance, renewal, revocation, validation
 
 **Features:**
 - SQLite persistence
@@ -41,11 +41,17 @@ This directory contains two different background job systems with distinct purpo
 - Cancellation support
 - Worker pool management
 
-## Future Work
+## Why these are separate (by design, not a deferral)
 
-**TODO:** Consider migrating `jobs.Scheduler` to use `jobqueue` for:
-- Better visibility into update check failures
-- Ability to manually trigger update checks
-- Consistent job tracking across the system
+`jobqueue` is the **ACME certificate** queue: its `JobType`s are
+`issuance`/`renewal`/`revocation`/`validation`, the `Job` schema carries
+`Domain`/`Email`/`RouteID`, and it persists to the `acme_jobs` table. It is not a
+general-purpose job queue.
 
-**Decision:** Keep separate for now due to simplicity of scheduler vs complexity of jobqueue integration overhead.
+`jobs.Scheduler` runs three fixed-interval periodic tasks (app/system update
+checks + backup schedules). That is a different problem — periodic ticking, not
+reliable queued work — so folding it in would mean generalizing an ACME-specific
+queue to host non-cert tasks.
+
+(`robfig/cron/v3` is used only to parse user-supplied cron expressions for
+backup schedules, not for the scheduler's own ticking.)
