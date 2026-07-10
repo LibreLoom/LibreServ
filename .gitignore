@@ -66,6 +66,7 @@ server/backend/configs/libreserv.yaml
 .claude/
 .codex/
 .cursor/
+.catalyst-code/
 .fleet/
 .vscode-server/
 .gitnexus/
