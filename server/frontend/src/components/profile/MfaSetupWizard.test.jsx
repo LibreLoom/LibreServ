@@ -7,6 +7,7 @@ const {
   mockAvailability,
   mockLoading,
   mockError,
+  mockAuthError,
   mockRefresh,
 } = vi.hoisted(() => ({
   mockRequest: vi.fn(),
@@ -14,6 +15,7 @@ const {
   mockAvailability: { value: null },
   mockLoading: { value: true },
   mockError: { value: null },
+  mockAuthError: { value: false },
   mockRefresh: vi.fn(),
 }));
 
@@ -29,6 +31,7 @@ vi.mock("../../hooks/useMfaAvailability", () => ({
     availability: mockAvailability.value,
     loading: mockLoading.value,
     error: mockError.value,
+    authError: mockAuthError.value,
     refresh: mockRefresh,
   }),
 }));
@@ -47,6 +50,7 @@ describe("MfaSetupWizard", () => {
     mockAvailability.value = null;
     mockLoading.value = true;
     mockError.value = null;
+    mockAuthError.value = false;
   });
 
   it("waits for availability before showing any method option", () => {
@@ -166,5 +170,24 @@ describe("MfaSetupWizard", () => {
     );
     expect(screen.queryByText(/Save your backup codes/i)).toBeNull();
     expect(screen.queryByText("RC-1")).toBeNull();
+  });
+
+  it("offers a login redirect when the session expired during setup MFA", async () => {
+    mockLoading.value = false;
+    mockAvailability.value = null;
+    mockError.value = "Session expired. Please log in again.";
+    mockAuthError.value = true;
+
+    const onSessionExpired = vi.fn();
+    render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured={false} onSessionExpired={onSessionExpired} />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Session expired/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button", { name: /Try again/i })).toBeNull();
+
+    const loginButton = screen.getByRole("button", { name: /Log in again/i });
+    fireEvent.click(loginButton);
+    expect(onSessionExpired).toHaveBeenCalled();
   });
 });

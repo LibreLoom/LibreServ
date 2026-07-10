@@ -12,8 +12,10 @@ import { useAuth } from "./useAuth";
  * wired; TOTP when the at-rest encryption key isn't configured) instead of
  * letting the user pick one and fail partway through.
  *
- * Returns { availability, loading, error, refresh } where `availability` is
- * null while loading. Treat a fetch failure permissively (show all methods)
+ * Returns { availability, loading, error, authError, refresh } where `availability`
+ * is null while loading. `authError` is true when the failure was caused by an
+ * expired session, so callers can offer "log in again" instead of a useless
+ * "Try again" button. Treat a fetch failure permissively (show all methods)
  * so the user can still attempt enrollment — the setup endpoint will surface
  * a clear error if a method truly isn't configured.
  */
@@ -22,10 +24,12 @@ export default function useMfaAvailability() {
   const [availability, setAvailability] = useState(/** @type {Record<string, boolean> | null} */ (null));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [authError, setAuthError] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setAuthError(false);
     try {
       const res = await request("/auth/mfa/availability");
       const data = await res.json();
@@ -37,6 +41,8 @@ export default function useMfaAvailability() {
         security_key: !!data.security_key,
       });
     } catch (err) {
+      const isAuth = err.name === "AuthError";
+      setAuthError(isAuth);
       setError(err.message || "Couldn't load available methods.");
       setAvailability(null); // null → caller falls back to showing all methods
     } finally {
@@ -61,8 +67,11 @@ export default function useMfaAvailability() {
           security_key: !!data.security_key,
         });
         setError(null);
+        setAuthError(false);
       } catch (err) {
         if (controller.signal.aborted || cancelled) return;
+        const isAuth = err.name === "AuthError";
+        setAuthError(isAuth);
         setError(err.message || "Couldn't load available methods.");
         setAvailability(null);
       } finally {
@@ -75,5 +84,5 @@ export default function useMfaAvailability() {
     };
   }, [request]);
 
-  return { availability, loading, error, refresh };
+  return { availability, loading, error, authError, refresh };
 }

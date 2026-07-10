@@ -328,7 +328,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
 }
 
 // --- Enrollment flow per method type (shared by MfaCard + setup wizard) ---
-export function EnrollFlow({ type, onCancel, onEnrolled }) {
+export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = undefined }) {
   const { request } = useAuth();
   const { addToast } = useToast();
   const [step, setStep] = useState("setup"); // setup | verify | done
@@ -375,6 +375,11 @@ export function EnrollFlow({ type, onCancel, onEnrolled }) {
         }
       } catch (err) {
         if (controller.signal.aborted) return; // stale request, ignore
+        if (err.name === "AuthError") {
+          onSessionExpired?.();
+          if (!cancelled) setError("Your session expired. Please log in again.");
+          return;
+        }
         if (!cancelled) setError(err.message || "Setup failed. Try again.");
       } finally {
         if (!cancelled) setBusy(false);
@@ -385,6 +390,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled }) {
       cancelled = true;
       controller.abort();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- onSessionExpired is a stable callback from the parent
   }, [type, request, addToast]);
 
   async function verifyCode() {
@@ -405,6 +411,11 @@ export function EnrollFlow({ type, onCancel, onEnrolled }) {
       addToast({ type: "success", message: `${TYPE_META[type].label} added.` });
       onEnrolled();
     } catch (err) {
+      if (err.name === "AuthError") {
+        onSessionExpired?.();
+        setError("Your session expired. Please log in again.");
+        return;
+      }
       setError(err.message || "Verification failed. Try again.");
     } finally {
       setBusy(false);
@@ -455,6 +466,11 @@ export function EnrollFlow({ type, onCancel, onEnrolled }) {
       const label = webauthnName.trim() || TYPE_META[type].label;
       await runWebAuthn(label);
     } catch (err) {
+      if (err.name === "AuthError") {
+        onSessionExpired?.();
+        setError("Your session expired. Please log in again.");
+        return;
+      }
       setError(plainWebAuthnError(err, label));
     } finally {
       setBusy(false);
@@ -638,6 +654,7 @@ EnrollFlow.propTypes = {
   type: PropTypes.oneOf(["totp", "email", "passkey", "security_key"]).isRequired,
   onCancel: PropTypes.func.isRequired,
   onEnrolled: PropTypes.func.isRequired,
+  onSessionExpired: PropTypes.func,
 };
 
 // ─── Setup-wizard-only 3-phase MFA flow: choose → backup codes → setup ───────
@@ -648,15 +665,17 @@ EnrollFlow.propTypes = {
 //   3. Setup — enroll + verify the chosen method; on success, onComplete fires
 //      (which finalizes setup and redirects to the dashboard).
 // MfaCard itself stays a single-screen component for My Account / MfaBlocker.
-export function MfaSetupWizard({ onComplete, smtpConfigured = true }) {
+export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExpired }) {
   const { request } = useAuth();
   const { addToast } = useToast();
   const {
     availability,
     loading: loadingAvail,
     error: availError,
+    authError: availAuthError,
     refresh: refreshAvailability,
   } = useMfaAvailability();
+  const [sessionExpired, setSessionExpired] = useState(false);
   // Methods the server can actually service right now. Wait for the
   // availability check to finish before showing the picker so the setup wizard
   // doesn't offer methods that aren't configured (e.g. email when SMTP hasn't
@@ -704,6 +723,10 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true }) {
         setCodes(Array.isArray(data.codes) ? data.codes : []);
       } catch (err) {
         if (controller.signal.aborted) return;
+        if (err.name === "AuthError") {
+          setSessionExpired(true);
+          return;
+        }
         setGenError(err.message || "Couldn't generate backup codes. Try again.");
       } finally {
         if (!cancelled) setGenerating(false);
@@ -734,6 +757,28 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true }) {
     // they've clicked "I've saved my codes" we keep our promise that the codes
     // won't be shown again, even if they go back and pick a different method.
     setPhase(backupAcknowledged ? "setup" : "backup");
+  }
+
+  // Session expired during setup MFA. A plain "Try again" would softlock the
+  // user because the underlying request needs a fresh login; ask the parent
+  // SetupPage to swap in the login gate by delegating to the callback prop.
+  if (sessionExpired || availAuthError) {
+    return (
+      <div className="space-y-4">
+        <Alert
+          variant="error"
+          message={availError || "Your session expired. Please log in again to continue setup."}
+          rounded="large-element"
+        />
+        <button
+          type="button"
+          onClick={() => onSessionExpired?.()}
+          className={primaryButtonClass}
+        >
+          Log in again
+        </button>
+      </div>
+    );
   }
 
   // Phase 1 — Choose a method
@@ -874,6 +919,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true }) {
         type={selectedType}
         onCancel={() => setPhase("choose")}
         onEnrolled={onComplete}
+        onSessionExpired={() => setSessionExpired(true)}
       />
     </div>
   );
@@ -881,4 +927,9 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true }) {
 MfaSetupWizard.propTypes = {
   onComplete: PropTypes.func.isRequired,
   smtpConfigured: PropTypes.bool,
+  onSessionExpired: PropTypes.func,
+};
+MfaSetupWizard.defaultProps = {
+  smtpConfigured: true,
+  onSessionExpired: undefined,
 };

@@ -18,10 +18,17 @@ export function AuthProvider({ children }) {
         const setupResponse = await api("/setup/status");
         const setupData = await setupResponse.json();
 
-        // If setup is not complete and we're not already on the setup page, redirect
+        // If setup is not complete, keep the user on the public pages that are
+        // allowed during setup. Redirect everything else to /setup so strangers
+        // can't browse the app before the wizard finishes.
+        const allowedDuringSetup =
+          location.pathname === "/setup" ||
+          location.pathname === "/login" ||
+          location.pathname === "/reset-password" ||
+          location.pathname.startsWith("/invite/");
         if (
           setupData.setup_state?.status !== "complete" &&
-          location.pathname !== "/setup"
+          !allowedDuringSetup
         ) {
           if (isMounted) {
             navigate("/setup");

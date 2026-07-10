@@ -1,4 +1,6 @@
 import { useRef, useEffect, useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import PropTypes from "prop-types";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
 import { login as loginQuips } from "../assets/greetings";
@@ -88,7 +90,8 @@ function ForgotPasswordModal({ isOpen, onClose }) {
   );
 }
 
-export default function Login() {
+export default function Login({ embedded = false, returnTo = "/", onLoginSuccess }) {
+  const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -185,7 +188,11 @@ export default function Login() {
         setMfa({ mfaToken: result.mfaToken, methods: result.methods });
         setLoading(false);
       } else {
-        window.location.reload();
+        if (onLoginSuccess) {
+          onLoginSuccess();
+        } else {
+          navigate(returnTo);
+        }
       }
     } catch (err) {
       setErrorStatus(err.cause?.status || "NetworkError");
@@ -194,8 +201,12 @@ export default function Login() {
   }
   
   return (
-    <main className="fixed inset-0 grid place-items-center bg-primary px-4" id="main-content" tabIndex={-1}>
-      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8">
+    <main
+        className={embedded ? "w-full" : "fixed inset-0 grid place-items-center bg-primary px-4"}
+        id="main-content"
+        tabIndex={-1}
+      >
+      <div className={embedded ? "w-full" : "relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8"}>
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
         </span>
@@ -208,7 +219,13 @@ export default function Login() {
           <MfaChallenge
             mfaToken={mfa.mfaToken}
             methods={mfa.methods}
-            onSuccess={() => window.location.reload()}
+            onSuccess={() => {
+              if (onLoginSuccess) {
+                onLoginSuccess();
+              } else {
+                navigate(returnTo);
+              }
+            }}
             onBack={() => {
               setMfa(null);
               setPassword("");
@@ -284,8 +301,19 @@ export default function Login() {
         </form>
         )}
       </div>
-      
-      <ForgotPasswordModal isOpen={showResetModal} onClose={() => setShowResetModal(false)} />
+      {!embedded && (
+        <ForgotPasswordModal isOpen={showResetModal} onClose={() => setShowResetModal(false)} />
+      )}
     </main>
   );
 }
+Login.propTypes = {
+  embedded: PropTypes.bool,
+  returnTo: PropTypes.string,
+  onLoginSuccess: PropTypes.func,
+};
+Login.defaultProps = {
+  embedded: false,
+  returnTo: "/",
+  onLoginSuccess: undefined,
+};

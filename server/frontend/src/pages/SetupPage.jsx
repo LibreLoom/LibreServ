@@ -15,6 +15,7 @@ import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
 import { StepTransitionContext } from "../components/setup/StepTransitionContext";
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import { MfaSetupWizard } from "../components/profile/MfaCard";
+import Login from "./Login";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
 const STEP = {
@@ -31,6 +32,7 @@ const STEP = {
 };
 
 const SETUP_TOKEN_KEY = "libreserv_setup_token";
+const LOGIN_GATE_STEPS = new Set([STEP.MFA]);
 
 // Shared input style for the inverted (bg-secondary) setup card: a transparent
 // field with a primary-toned border; text is primary (inverted to match the card).
@@ -1287,11 +1289,11 @@ function ErrorStep({ message }) {
 ErrorStep.propTypes = { message: PropTypes.string };
 
 // ─── STEP: MFA ──────────────────────────────────────────────────────────────────
-function MfaStep({ onComplete, smtpConfigured }) {
+function MfaStep({ onComplete, smtpConfigured, onSessionExpired }) {
   return (
     <SetupShell>
       <SetupCard className="" header={<StepDots current={STEP.MFA} />}>
-        
+
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
@@ -1306,12 +1308,20 @@ function MfaStep({ onComplete, smtpConfigured }) {
           </p>
         </div>
 
-        <MfaSetupWizard onComplete={onComplete} smtpConfigured={smtpConfigured} />
+        <MfaSetupWizard
+          onComplete={onComplete}
+          smtpConfigured={smtpConfigured}
+          onSessionExpired={onSessionExpired}
+        />
       </SetupCard>
     </SetupShell>
   );
 }
-MfaStep.propTypes = { onComplete: PropTypes.func.isRequired, smtpConfigured: PropTypes.bool.isRequired };
+MfaStep.propTypes = {
+  onComplete: PropTypes.func.isRequired,
+  smtpConfigured: PropTypes.bool.isRequired,
+  onSessionExpired: PropTypes.func,
+};
 
 // ─── Root: SetupPage ──────────────────────────────────────────────────────────
 const UNSAFE_SUB_STEPS = new Set(["connecting", "smtp_testing"]);
@@ -1336,6 +1346,7 @@ export default function SetupPage() {
   const [animationDirection, setAnimationDirection] = useState("right");
   const prevStepRef = useRef(null);
   const [error, setError] = useState(null);
+  const [showLoginGate, setShowLoginGate] = useState(false);
   const [setupToken, setSetupToken] = useState(() =>
     (typeof window !== "undefined" ? localStorage.getItem(SETUP_TOKEN_KEY) : "") || ""
   );
@@ -1594,6 +1605,23 @@ export default function SetupPage() {
     );
   }
 
+  if (showLoginGate) {
+    return (
+      <SetupShell>
+        <SetupCard className="">
+          <Login
+            embedded
+            returnTo="/setup"
+            onLoginSuccess={() => {
+              setShowLoginGate(false);
+              refreshAuth().catch(() => {});
+            }}
+          />
+        </SetupCard>
+      </SetupShell>
+    );
+  }
+
   if (step === STEP.ERROR) {
     return <ErrorStep message={error ?? "An unexpected error occurred."} />;
   }
@@ -1661,6 +1689,7 @@ export default function SetupPage() {
       <MfaStep
         onComplete={handleMfaSuccess}
         smtpConfigured={progressRef.current.stepData?.smtp_completed === true}
+        onSessionExpired={() => setShowLoginGate(true)}
       />
     );
   } else if (step === STEP.ACCOUNT || step === STEP.CREATING) {

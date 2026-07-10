@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "../test/test-utils";
 import Login from "./Login";
@@ -27,6 +27,9 @@ vi.mock("react-router-dom", async (importOriginal) => {
 });
 
 describe("Login", () => {
+  beforeEach(() => {
+    mockNavigate.mockReset();
+  });
 
   it("renders login form with username and password fields", () => {
     renderWithProviders(<Login />);
@@ -111,5 +114,50 @@ describe("Login", () => {
     expect(
       await screen.findByText(/check your device's connection/i),
     ).toBeInTheDocument();
+  });
+
+  it("navigates to returnTo after successful login", async () => {
+    const user = userEvent.setup();
+    const loginFn = /** @type {any} */ (vi.fn()).mockResolvedValue({ status: "ok" });
+    renderWithProviders(<Login returnTo="/setup" />, { authOverrides: { login: loginFn } });
+
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "hunter2");
+    await user.click(screen.getByRole("button", { name: /login/i }));
+
+    await waitFor(() => expect(loginFn).toHaveBeenCalledWith("admin", "hunter2"));
+    expect(mockNavigate).toHaveBeenCalledWith("/setup");
+  });
+
+  it("navigates to returnTo after MFA challenge success", async () => {
+    const mfaToken = "mfa-token";
+    const loginFn = /** @type {any} */ (vi.fn()).mockResolvedValue({
+      status: "mfa_required",
+      mfaToken,
+      methods: [{ type: "totp", label: "Authenticator app" }],
+    });
+    const mfaVerifyFn = /** @type {any} */ (vi.fn()).mockResolvedValue();
+    renderWithProviders(<Login returnTo="/setup" />, {
+      authOverrides: { login: loginFn, mfaVerify: mfaVerifyFn },
+    });
+
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "hunter2");
+    await user.click(screen.getByRole("button", { name: /login/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Authenticator app/i)).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByText(/Authenticator app/i));
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText(/6-digit code/i)).toBeInTheDocument(),
+    );
+
+    await user.type(screen.getByPlaceholderText(/6-digit code/i), "123456");
+    await user.click(screen.getByRole("button", { name: /Verify/i }));
+
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/setup"));
   });
 });
