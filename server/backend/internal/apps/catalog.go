@@ -100,6 +100,9 @@ func (c *Catalog) loadAppsFromDir(dirPath string, appType AppType) error {
 			app.ID = entry.Name()
 		}
 
+		if _, exists := c.apps[app.ID]; exists {
+			return fmt.Errorf("duplicate app ID %q in %s", app.ID, appPath)
+		}
 		c.apps[app.ID] = app
 	}
 
@@ -136,6 +139,51 @@ func (c *Catalog) validateAppDefinition(app *AppDefinition) error {
 	}
 	if app.Deployment.ComposeFile == "" && app.Deployment.Image == "" {
 		return fmt.Errorf("either compose_file or image must be specified")
+	}
+
+	// Validate health check configuration
+	if err := c.validateHealthCheck(app); err != nil {
+		return err
+	}
+
+	// Validate deployment port ranges
+	if err := c.validatePorts(app); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateHealthCheck checks that health check type and port are valid.
+func (c *Catalog) validateHealthCheck(app *AppDefinition) error {
+	if app.HealthCheck.Type == "" {
+		return nil
+	}
+	switch app.HealthCheck.Type {
+	case "http", "tcp", "container", "command":
+	default:
+		return fmt.Errorf("invalid health check type: %s", app.HealthCheck.Type)
+	}
+
+	// For http and tcp, port must be 0 (resolve at install) or 1-65535
+	if app.HealthCheck.Type == "http" || app.HealthCheck.Type == "tcp" {
+		p := app.HealthCheck.Port
+		if p != 0 && (p < 1 || p > 65535) {
+			return fmt.Errorf("health check port %d out of range (1-65535)", p)
+		}
+	}
+	return nil
+}
+
+// validatePorts checks that all deployment port mappings are in valid range.
+func (c *Catalog) validatePorts(app *AppDefinition) error {
+	for _, pm := range app.Deployment.Ports {
+		if pm.Host < 0 || pm.Host > 65535 {
+			return fmt.Errorf("deployment port %d out of range (0-65535)", pm.Host)
+		}
+		if pm.Container < 0 || pm.Container > 65535 {
+			return fmt.Errorf("deployment port %d out of range (0-65535)", pm.Container)
+		}
 	}
 	return nil
 }

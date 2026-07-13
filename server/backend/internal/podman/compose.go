@@ -239,14 +239,47 @@ func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath st
 		for _, svc := range services {
 			if s, ok := svc.(map[string]interface{}); ok {
 				// Drop all capabilities
+				// Drop all capabilities and clear any cap_add that might re-add them
 				s["cap_drop"] = []string{"ALL"}
+				s["cap_add"] = []string{}
 
 				// Read-only filesystem
 				s["read_only"] = true
 
-				// No new privileges
+				// Add tmpfs for standard writable paths when read_only is enabled
+				existingTmpfs, _ := s["tmpfs"].(map[string]interface{})
+				if existingTmpfs == nil {
+					existingTmpfs = make(map[string]interface{})
+				}
+				for _, p := range []string{"/tmp", "/run", "/var/run"} {
+					if _, exists := existingTmpfs[p]; !exists {
+						existingTmpfs[p] = ""
+					}
+				}
+				s["tmpfs"] = existingTmpfs
+
+				// No new privileges — avoid duplicating the option
+				hasNoNewPrivs := false
 				if secOpts, ok := s["security_opt"].([]interface{}); ok {
-					s["security_opt"] = append(secOpts, "no-new-privileges:true")
+					for _, opt := range secOpts {
+						if s, ok := opt.(string); ok && (s == "no-new-privileges:true" || s == "no-new-privileges: true") {
+							hasNoNewPrivs = true
+							break
+						}
+					}
+					if !hasNoNewPrivs {
+						s["security_opt"] = append(secOpts, "no-new-privileges:true")
+					}
+				} else if secOpts, ok := s["security_opt"].([]string); ok {
+					for _, opt := range secOpts {
+						if opt == "no-new-privileges:true" || opt == "no-new-privileges: true" {
+							hasNoNewPrivs = true
+							break
+						}
+					}
+					if !hasNoNewPrivs {
+						s["security_opt"] = append(secOpts, "no-new-privileges:true")
+					}
 				} else {
 					s["security_opt"] = []string{"no-new-privileges:true"}
 				}

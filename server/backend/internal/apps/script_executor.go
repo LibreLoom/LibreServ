@@ -20,6 +20,9 @@ import (
 
 // instanceIDPattern validates that instance IDs contain only safe characters
 var instanceIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+// defaultScriptTimeout is the fallback timeout for script execution when
+// the caller's context has no deadline and no explicit timeout is provided.
+const defaultScriptTimeout = 10 * time.Minute
 
 type ScriptExecutor struct {
 	logger        *slog.Logger
@@ -117,6 +120,13 @@ func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath str
 
 func (e *ScriptExecutor) ExecuteAt(ctx context.Context, instanceID, scriptPath, installPath string, options map[string]interface{}) (*ScriptResult, error) {
 	startTime := time.Now()
+	// Enforce a defensive default timeout if the caller's context has no deadline.
+	// This prevents runaway scripts from blocking indefinitely.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, defaultScriptTimeout)
+		defer cancel()
+	}
 
 	if err := e.validateInstanceID(instanceID); err != nil {
 		return &ScriptResult{
@@ -230,6 +240,17 @@ func (e *ScriptExecutor) ExecuteAt(ctx context.Context, instanceID, scriptPath, 
 	}
 
 	return result, nil
+}
+// ExecuteWithTimeout executes a script with a timeout derived from the script's
+// declared timeout, falling back to defaultScriptTimeout when unset.
+func (e *ScriptExecutor) ExecuteWithTimeout(ctx context.Context, instanceID, scriptPath, installPath string, options map[string]interface{}, timeoutSecs int) (*ScriptResult, error) {
+	timeout := defaultScriptTimeout
+	if timeoutSecs > 0 {
+		timeout = time.Duration(timeoutSecs) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return e.ExecuteAt(ctx, instanceID, scriptPath, installPath, options)
 }
 
 // validateExposedInfo ensures script output's exposed_info has valid structure:

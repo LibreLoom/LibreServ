@@ -296,6 +296,27 @@ type InstalledApp struct {
 	RevocationNotice   *RevocationNotice `json:"revocation_notice,omitempty"`
 }
 
+// RedactForAPI returns a shallow copy of the app with sensitive config keys
+// stripped from Config. The "server" key contains SMTP passwords, tunnel
+// tokens, and other server secrets; "_compose_template_sha" is internal state.
+// This should be called before serializing an InstalledApp for API responses.
+func (a *InstalledApp) RedactForAPI() *InstalledApp {
+	if a == nil {
+		return nil
+	}
+	redacted := *a
+	if a.Config != nil {
+		redacted.Config = make(map[string]interface{}, len(a.Config))
+		for k, v := range a.Config {
+			if k == "server" || k == "_compose_template_sha" {
+				continue
+			}
+			redacted.Config[k] = v
+		}
+	}
+	return &redacted
+}
+
 type RevocationNotice struct {
 	Severity       string     `json:"severity"`
 	Reason         string     `json:"reason"`

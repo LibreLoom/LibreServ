@@ -1,6 +1,6 @@
 package apps
-
 import (
+	"log/slog"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -44,6 +44,15 @@ func LoadManifest(appDir string) (*Manifest, error) {
 		return nil, fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
+	// Detect duplicate tags
+	seen := make(map[string]bool)
+	for _, v := range m.Versions {
+		if seen[v.Tag] {
+			return nil, fmt.Errorf("duplicate manifest version tag: %s", v.Tag)
+		}
+		seen[v.Tag] = true
+	}
+
 	return &m, nil
 }
 
@@ -56,6 +65,9 @@ func (m *Manifest) LatestApproved() *ManifestVersion {
 				latest = v
 			}
 		}
+	}
+	if latest == nil {
+		slog.Warn("manifest has no approved versions", "app_id", m.AppID, "version_count", len(m.Versions))
 	}
 	return latest
 }

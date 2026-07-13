@@ -54,7 +54,7 @@ func (h *AppsHandler) ListInstalledApps(w http.ResponseWriter, r *http.Request) 
 	}
 
 	JSON(w, http.StatusOK, AppsListResponse{
-		Apps:  appList,
+		Apps:  redactAppList(appList),
 		Total: len(appList),
 	})
 }
@@ -75,7 +75,7 @@ func (h *AppsHandler) GetInstalledApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	JSON(w, http.StatusOK, app)
+	JSON(w, http.StatusOK, app.RedactForAPI())
 }
 
 // InstallApp handles POST /api/apps
@@ -128,7 +128,19 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	// "Open App" link points at the real domain instead of a localhost URL.
 	h.manager.EnsurePublicURL(result.App)
 
+	if result.App != nil {
+		result.App = result.App.RedactForAPI()
+	}
 	JSON(w, http.StatusCreated, result)
+}
+
+// redactAppList returns a slice of apps with sensitive config stripped for API responses.
+func redactAppList(list []*apps.InstalledApp) []*apps.InstalledApp {
+	redacted := make([]*apps.InstalledApp, len(list))
+	for i, app := range list {
+		redacted[i] = app.RedactForAPI()
+	}
+	return redacted
 }
 
 // StartApp handles POST /api/apps/{instanceId}/start

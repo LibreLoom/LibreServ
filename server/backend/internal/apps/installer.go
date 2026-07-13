@@ -213,31 +213,36 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 					userSet = false
 				}
 			}
-			if userSet {
-				if current > 0 && !i.portManager.IsAvailable(current) {
-					_ = os.RemoveAll(installPath)
-					return &InstallResult{
-						Success: false,
-						Error:   fmt.Sprintf("port %d is already in use", current),
-					}, fmt.Errorf("port %d is already in use", current)
-				}
-			} else {
-				// User didn't set it — auto-allocate
-				preferred := current
-				if preferred == 0 {
-					preferred = toInt(field.Default)
-				}
-				if preferred == 0 {
-					preferred = WellKnownPortMax + 1 // fallback to 1024
-				}
-
-				allocated, err := i.portManager.Allocate(preferred)
-				if err != nil {
-					_ = os.RemoveAll(installPath)
-					return &InstallResult{Success: false, Error: "no available ports"}, err
-				}
-				config[field.Name] = allocated
+		if userSet {
+			if current > 0 && !i.portManager.IsAvailable(current) {
+				_ = os.RemoveAll(installPath)
+				return &InstallResult{
+					Success: false,
+					Error:   fmt.Sprintf("port %d is already in use", current),
+				}, fmt.Errorf("port %d is already in use", current)
 			}
+			// Reserve immediately to close the TOCTOU window between
+			// IsAvailable and the batch Reserve below.
+			if current > 0 {
+				i.portManager.Reserve(current, instanceID)
+			}
+		} else {
+			// User didn't set it — auto-allocate
+			preferred := current
+			if preferred == 0 {
+				preferred = toInt(field.Default)
+			}
+			if preferred == 0 {
+				preferred = WellKnownPortMax + 1 // fallback to 1024
+			}
+
+			allocated, err := i.portManager.Allocate(preferred)
+			if err != nil {
+				_ = os.RemoveAll(installPath)
+				return &InstallResult{Success: false, Error: "no available ports"}, err
+			}
+			config[field.Name] = allocated
+		}
 		}
 
 		// Reserve all allocated ports in the port manager
@@ -312,24 +317,30 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		return &InstallResult{Success: false, Error: "failed to process compose template"}, err
 	}
 
-	sha, err := ComposeTemplateSHA(composePath)
-	if err != nil {
-		_ = os.RemoveAll(installPath)
-		return &InstallResult{Success: false, Error: "failed to compute template SHA"}, err
-	}
-	config["_compose_template_sha"] = sha
-
 	var imageDigest string
 	if manifest != nil {
 		if latest := manifest.LatestApproved(); latest != nil {
 			imageDigest = latest.Digest
 			if latest.Digest != "" && appDef.Deployment.Image != "" {
 				if err := podman.ComposePinImageDigest(composePath, appDef.Deployment.Image, latest.Digest); err != nil {
-					i.logger.Warn("Failed to pin image digest during install", "error", err)
+					i.logger.Warn("Failed to pin image digest during install",
+						"error", err,
+						"instance_id", instanceID,
+						"image", appDef.Deployment.Image,
+						"digest", latest.Digest,
+						"compose_path", composePath)
 				}
 			}
 		}
 	}
+
+	// Compute SHA after all compose file mutations (render + digest pin) are complete.
+	sha, err := ComposeTemplateSHA(composePath)
+	if err != nil {
+		_ = os.RemoveAll(installPath)
+		return &InstallResult{Success: false, Error: "failed to compute template SHA"}, err
+	}
+	config["_compose_template_sha"] = sha
 
 	if err := i.createMetadataFile(installPath, appDef, config); err != nil {
 		_ = os.RemoveAll(installPath)
@@ -590,9 +601,17 @@ func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string,
 	i.logger.Info("Install failed", "instance_id", instanceID, "error", errMsg)
 }
 
-// mergeConfig merges default values from app definition with user-provided config
+// mergeConfig merges default values from app definition with user-provided config.
+// Only keys declared in appDef.Configuration are accepted from user input;
+// unknown keys are silently dropped to prevent injection of internal fields.
 func (i *Installer) mergeConfig(appDef *AppDefinition, userConfig map[string]interface{}) map[string]interface{} {
 	config := make(map[string]interface{})
+
+	// Build whitelist of allowed user-config keys
+	allowed := make(map[string]bool, len(appDef.Configuration))
+	for _, field := range appDef.Configuration {
+		allowed[field.Name] = true
+	}
 
 	// First, set defaults from app definition
 	for _, field := range appDef.Configuration {
@@ -606,8 +625,11 @@ func (i *Installer) mergeConfig(appDef *AppDefinition, userConfig map[string]int
 		config[key] = value
 	}
 
-	// Override with user config
+	// Override with user config — only whitelisted keys
 	for key, value := range userConfig {
+		if !allowed[key] {
+			continue
+		}
 		config[key] = value
 	}
 
@@ -713,14 +735,16 @@ func (i *Installer) processComposeTemplate(appDef *AppDefinition, installPath st
 	return destPath, nil
 }
 
-// createMetadataFile creates the .libreserv.yaml metadata file
+// createMetadataFile creates the .libreserv.yaml metadata file.
+// ServerContext secrets are stripped from the config before writing to disk.
 func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition, config map[string]interface{}) error {
+	safeConfig := stripServerContext(config)
 	metadata := map[string]interface{}{
 		"app_id":       appDef.ID,
 		"app_name":     appDef.Name,
 		"app_version":  appDef.Version,
 		"installed_at": time.Now().Format(time.RFC3339),
-		"config":       config,
+		"config":       safeConfig,
 		"type":         string(appDef.Type),
 	}
 
@@ -730,6 +754,23 @@ func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition
 	}
 
 	return os.WriteFile(filepath.Join(installPath, ".libreserv.yaml"), data, 0600)
+}
+
+// stripServerContext returns a shallow copy of config with the "server" key removed.
+// The server map contains SMTP passwords, tunnel tokens, and other server secrets
+// that must not be persisted to disk or returned via the API.
+func stripServerContext(config map[string]interface{}) map[string]interface{} {
+	if config == nil {
+		return nil
+	}
+	safe := make(map[string]interface{}, len(config))
+	for k, v := range config {
+		if k == "server" {
+			continue
+		}
+		safe[k] = v
+	}
+	return safe
 }
 
 // createDataDirectories creates required data directories for the app
@@ -865,10 +906,15 @@ func (i *Installer) ValidateConfig(appID string, config map[string]interface{}) 
 }
 
 func validateField(field ConfigField, value interface{}) error {
+	const maxFieldLength = 4096
 	switch field.Type {
 	case "string", "password":
-		if _, ok := value.(string); !ok {
+		str, ok := value.(string)
+		if !ok {
 			return fmt.Errorf("must be a string")
+		}
+		if len(str) > maxFieldLength {
+			return fmt.Errorf("value exceeds maximum length of %d characters", maxFieldLength)
 		}
 	case "number":
 		switch value.(type) {
@@ -940,9 +986,11 @@ func validateField(field ConfigField, value interface{}) error {
 
 // Helper functions
 
-// saveInstalledApp stores an installed app record in the database
+// saveInstalledApp stores an installed app record in the database.
+// ServerContext secrets are stripped from the config before serialization.
 func (i *Installer) saveInstalledApp(app *InstalledApp) error {
-	configJSON, err := json.Marshal(app.Config)
+	safeConfig := stripServerContext(app.Config)
+	configJSON, err := json.Marshal(safeConfig)
 	if err != nil {
 		return fmt.Errorf("failed to marshal app config: %w", err)
 	}
@@ -1096,16 +1144,29 @@ func (i *Installer) RunSystemSetup(ctx context.Context, appDef *AppDefinition, i
 
 	// Capture script output values into app config so exposed_info can surface them.
 	// Only persist keys declared in exposed_info to avoid polluting runtime config
-	// with arbitrary script output.
+	// with arbitrary script output. Password-type fields are protected from overwrite.
 	if result.Success && app != nil && result.ExposedInfo != nil {
 		allowedFields := make(map[string]struct{}, len(appDef.ExposedInfo))
 		for _, field := range appDef.ExposedInfo {
 			allowedFields[field.Name] = struct{}{}
 		}
 
+		// Build set of password-type field names to protect from script overwrites.
+		passwordFields := make(map[string]struct{})
+		for _, field := range appDef.Configuration {
+			if field.Type == "password" {
+				passwordFields[field.Name] = struct{}{}
+			}
+		}
+
 		changed := false
 		for key, val := range result.ExposedInfo {
 			if _, allowed := allowedFields[key]; !allowed {
+				continue
+			}
+			if _, protected := passwordFields[key]; protected {
+				i.logger.Warn("Script attempted to overwrite password field, skipping",
+					"instance_id", instanceID, "field", key)
 				continue
 			}
 

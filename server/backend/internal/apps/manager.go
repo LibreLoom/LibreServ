@@ -819,6 +819,12 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 				}
 			}
 		}
+		// Re-validate existing config values against the updated catalog schema.
+		if err := m.installer.ValidateConfig(catalogApp.ID, app.Config); err != nil {
+			m.recordUpdateFailure(updateID, fmt.Errorf("config validation failed: %w", err), false, backupID)
+			m.updateStatus(ctx, instanceID, prevStatus)
+			return fmt.Errorf("config validation failed: %w", err)
+		}
 		app.Config["server"] = map[string]interface{}{
 			"server_port":      m.installer.serverCtx.ServerPort,
 			"server_mode":      m.installer.serverCtx.ServerMode,
@@ -845,17 +851,24 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 			m.updateStatus(ctx, instanceID, prevStatus)
 			return fmt.Errorf("compose template render failed: %w", err)
 		}
-
-		newSHA, _ := ComposeTemplateSHA(composePath)
-		if newSHA != "" {
-			app.ComposeTemplateSHA = newSHA
-		}
 	}
 
 	if targetVersion != nil && targetVersion.Digest != "" {
 		if err := podman.ComposePinImageDigest(composePath, catalogApp.Deployment.Image, targetVersion.Digest); err != nil {
-			m.logger.Warn("Failed to pin image digest in compose file", "error", err)
+			m.logger.Warn("Failed to pin image digest in compose file",
+				"error", err,
+				"instance_id", instanceID,
+				"image", catalogApp.Deployment.Image,
+				"digest", targetVersion.Digest,
+				"compose_path", composePath)
 		}
+	}
+
+	// Compute SHA after all compose file mutations (render + digest pin) are complete.
+	// This ensures the stored SHA always matches the file on disk.
+	finalSHA, _ := ComposeTemplateSHA(composePath)
+	if finalSHA != "" {
+		app.ComposeTemplateSHA = finalSHA
 	}
 
 	updateScriptPath := m.scriptExecutor.GetSystemScriptPath(catalogApp.CatalogPath, "update")
@@ -887,6 +900,11 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 				m.logger.Error("Rollback failed", "error", rErr)
 			} else {
 				rolledBack = true
+				// Recompute SHA from the restored compose file to keep DB consistent.
+				if restoredSHA, err := ComposeTemplateSHA(composePath); err == nil && restoredSHA != "" {
+					app.ComposeTemplateSHA = restoredSHA
+					_, _ = m.db.Exec(`UPDATE apps SET compose_template_sha = ? WHERE id = ?`, restoredSHA, instanceID)
+				}
 			}
 		}
 		m.recordUpdateFailure(updateID, err, rolledBack, backupID)
@@ -908,6 +926,11 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 				m.logger.Error("Rollback failed after health check failure", "error", rErr)
 			} else {
 				rolledBack = true
+				// Recompute SHA from the restored compose file to keep DB consistent.
+				if restoredSHA, err := ComposeTemplateSHA(composePath); err == nil && restoredSHA != "" {
+					app.ComposeTemplateSHA = restoredSHA
+					_, _ = m.db.Exec(`UPDATE apps SET compose_template_sha = ? WHERE id = ?`, restoredSHA, instanceID)
+				}
 			}
 		}
 		m.recordUpdateFailure(updateID, fmt.Errorf("app unhealthy after update"), rolledBack, backupID)
@@ -923,18 +946,10 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 		`, updateID)
 	}
 
+	// Store the rendered-file SHA (not the manifest template SHA) and the target digest.
 	var newImageDigest string
-	var newComposeTemplateSHA string
 	if targetVersion != nil {
 		newImageDigest = targetVersion.Digest
-		newComposeTemplateSHA = targetVersion.ComposeTemplateSHA
-	} else {
-		newComposeTemplateSHA = app.ComposeTemplateSHA
-	}
-	if newComposeTemplateSHA == "" {
-		if sha, err := ComposeTemplateSHA(composePath); err == nil {
-			newComposeTemplateSHA = sha
-		}
 	}
 
 	_, _ = m.db.Exec(`
@@ -943,13 +958,14 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 			compose_template_sha = ?,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, newImageDigest, newComposeTemplateSHA, instanceID)
+	`, newImageDigest, app.ComposeTemplateSHA, instanceID)
 
 	if app.Config == nil {
 		app.Config = make(map[string]interface{})
 	}
 	app.Config["version"] = newVersion
-	configJSON, _ := json.Marshal(app.Config)
+	safeConfig := stripServerContext(app.Config)
+	configJSON, _ := json.Marshal(safeConfig)
 	_, _ = m.db.Exec(`UPDATE apps SET metadata = ? WHERE id = ?`, string(configJSON), instanceID)
 
 	return m.updateStatus(ctx, instanceID, StatusRunning)
@@ -1688,6 +1704,15 @@ func (m *Manager) PropagateServerContext(ctx context.Context, changedKeys []stri
 			continue
 		}
 
+		// Skip apps currently being updated to avoid a data race on the compose file.
+		m.updateMu.Lock()
+		if m.updating[app.ID] {
+			m.updateMu.Unlock()
+			m.logger.Info("Skipping server context propagation for app with in-flight update",
+				"instance_id", app.ID)
+			continue
+		}
+		m.updateMu.Unlock()
 		catalogApp, err := m.catalog.GetApp(app.AppID)
 		if err != nil {
 			m.logger.Warn("Failed to get catalog app for propagation", "app_id", app.AppID, "error", err)
