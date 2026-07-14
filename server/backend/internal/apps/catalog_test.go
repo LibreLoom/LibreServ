@@ -9,7 +9,7 @@ import (
 func TestCatalogLoadAndGet(t *testing.T) {
 	dir := t.TempDir()
 	// create a minimal app definition
-	appDir := filepath.Join(dir, "builtin", "demo")
+	appDir := filepath.Join(dir, "apps", "demo")
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

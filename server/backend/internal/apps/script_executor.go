@@ -98,7 +98,7 @@ func (e *ScriptExecutor) validateScriptPath(scriptPath string) (string, error) {
 		return absScriptPath, nil
 	}
 
-	// Check if path is within catalog directory (for builtin app scripts)
+	// Check if path is within catalog directory (for repo app scripts)
 	if e.catalogPath != "" {
 		absCatalogPath, err := filepath.Abs(e.catalogPath)
 		if err != nil {

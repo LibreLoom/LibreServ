@@ -16,23 +16,20 @@ import (
 
 const testAppID = "apprun-test"
 
-func setupBuiltinCatalog(t *testing.T) (*Catalog, string) {
+func setupTestCatalog(t *testing.T) (*Catalog, string) {
 	t.Helper()
-	candidate := filepath.Join("apps", "builtin")
+	candidate := filepath.Join("testdata")
 	if _, err := os.Stat(candidate); os.IsNotExist(err) {
-		candidate = filepath.Join("..", "apps", "builtin")
-	}
-	if _, err := os.Stat(candidate); os.IsNotExist(err) {
-		candidate = filepath.Join("..", "..", "apps", "builtin")
+		candidate = filepath.Join("internal", "apps", "testdata")
 	}
 	absPath, err := filepath.Abs(candidate)
 	if err != nil {
-		t.Fatalf("failed to resolve catalog path: %v", err)
+		t.Fatalf("failed to resolve testdata path: %v", err)
 	}
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
-		t.Skip("builtin apps directory not found — skipping AppRun test suite")
+		t.Skip("testdata directory not found — skipping AppRun test suite")
 	}
-	catalog, err := NewCatalog(filepath.Dir(absPath))
+	catalog, err := NewCatalog(absPath)
 	if err != nil {
 		t.Fatalf("failed to load catalog: %v", err)
 	}
@@ -49,21 +46,21 @@ func getAppDef(t *testing.T, catalog *Catalog) *AppDefinition {
 }
 
 func TestAppRunTest_AppExists(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	if catalog.Count() < 1 {
-		t.Fatalf("expected at least 1 builtin app, got %d", catalog.Count())
+		t.Fatalf("expected at least 1 app in test catalog, got %d", catalog.Count())
 	}
 	app := getAppDef(t, catalog)
 	if app.ID != testAppID {
 		t.Errorf("expected app ID %q, got %q", testAppID, app.ID)
 	}
-	if app.Type != AppTypeBuiltin {
-		t.Errorf("expected type builtin, got %s", app.Type)
+	if app.Type != AppTypeRepo {
+		t.Errorf("expected type repo, got %s", app.Type)
 	}
 }
 
 func TestAppRunTest_CoreMetadata(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	if app.Name == "" {
@@ -90,7 +87,7 @@ func TestAppRunTest_CoreMetadata(t *testing.T) {
 }
 
 func TestAppRunTest_DeploymentConfig(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	if app.Deployment.ComposeFile == "" {
@@ -180,7 +177,7 @@ func TestAppRunTest_DeploymentConfig(t *testing.T) {
 }
 
 func TestAppRunTest_ConfigurationFields(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	expectedTypes := map[string]string{
@@ -250,7 +247,7 @@ func TestAppRunTest_ConfigurationFields(t *testing.T) {
 }
 
 func TestAppRunTest_ExposedInfoFields(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	expectedFields := map[string]struct {
@@ -308,7 +305,7 @@ func TestAppRunTest_ExposedInfoFields(t *testing.T) {
 }
 
 func TestAppRunTest_HealthCheck(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	hc := app.HealthCheck
@@ -333,7 +330,7 @@ func TestAppRunTest_HealthCheck(t *testing.T) {
 }
 
 func TestAppRunTest_ResourceRequirements(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	req := app.Requirements
@@ -359,7 +356,7 @@ func TestAppRunTest_ResourceRequirements(t *testing.T) {
 }
 
 func TestAppRunTest_UpdateConfig(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	if app.Updates.Strategy == "" {
@@ -371,7 +368,7 @@ func TestAppRunTest_UpdateConfig(t *testing.T) {
 }
 
 func TestAppRunTest_Features(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	f := app.Features
@@ -417,7 +414,7 @@ func TestAppRunTest_Features(t *testing.T) {
 }
 
 func TestAppRunTest_Scripts(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	s := app.Scripts.System
@@ -449,7 +446,7 @@ func TestAppRunTest_Scripts(t *testing.T) {
 }
 
 func TestAppRunTest_CustomActions(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	if len(app.Scripts.Actions) < 3 {
@@ -563,7 +560,7 @@ func TestAppRunTest_CustomActions(t *testing.T) {
 }
 
 func TestAppRunTest_ComposeTemplate(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	composePath, err := catalog.GetComposeFilePath(app.ID)
@@ -652,7 +649,7 @@ func TestAppRunTest_ComposeTemplate(t *testing.T) {
 }
 
 func TestAppRunTest_ScriptConfigJSON(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	setupPath := filepath.Join(app.CatalogPath, app.Scripts.System.Setup)
@@ -798,7 +795,7 @@ func TestAppRunTest_ValidateExposedInfo(t *testing.T) {
 }
 
 func TestAppRunTest_ConfigValidation(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	tests := []struct {
@@ -903,7 +900,7 @@ func validateConfigFields(fields []ConfigField, config map[string]interface{}) e
 }
 
 func TestAppRunTest_MergeExposedInfo(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	installedApp := &InstalledApp{
@@ -988,7 +985,7 @@ func mergeExposedInfoForTest(catalogApp *AppDefinition, installedApp *InstalledA
 }
 
 func TestAppRunTest_TemplateRendering(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	composePath, err := catalog.GetComposeFilePath(app.ID)
@@ -1400,7 +1397,7 @@ func TestAppRunTest_DefaultFeatures(t *testing.T) {
 }
 
 func TestAppRunTest_CatalogCloning(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app1, err := catalog.GetApp(testAppID)
 	if err != nil {
 		t.Fatalf("failed to get app: %v", err)
@@ -1419,7 +1416,7 @@ func TestAppRunTest_CatalogCloning(t *testing.T) {
 }
 
 func TestAppRunTest_IconFile(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	iconPath := filepath.Join(app.CatalogPath, "icon.svg")
@@ -1429,7 +1426,7 @@ func TestAppRunTest_IconFile(t *testing.T) {
 }
 
 func TestAppRunTest_ScriptFilesExecutable(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	scriptsDir := filepath.Join(app.CatalogPath, "scripts")
@@ -1454,7 +1451,7 @@ func TestAppRunTest_ScriptFilesExecutable(t *testing.T) {
 }
 
 func TestAppRunTest_TemplateEnvDeployment(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	if ref, ok := app.Deployment.Environment["ENV_TEMPLATE_REF"]; ok {
@@ -1465,7 +1462,7 @@ func TestAppRunTest_TemplateEnvDeployment(t *testing.T) {
 }
 
 func TestAppRunTest_AllConfigEnvVars(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	for _, field := range app.Configuration {
@@ -1476,7 +1473,7 @@ func TestAppRunTest_AllConfigEnvVars(t *testing.T) {
 }
 
 func TestAppRunTest_ScriptExecutionTimeout(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	actionMap := map[string]ScriptAction{}
@@ -1504,7 +1501,7 @@ func TestAppRunTest_ScriptExecutionTimeout(t *testing.T) {
 }
 
 func TestAppRunTest_HealthCheckInterval(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	if app.HealthCheck.Interval > 0 && app.HealthCheck.Interval < 5*time.Second {
@@ -1516,7 +1513,7 @@ func TestAppRunTest_HealthCheckInterval(t *testing.T) {
 }
 
 func TestAppRunTest_PortProtocols(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	validProtocols := map[string]bool{"tcp": true, "udp": true, "both": true}
@@ -1528,7 +1525,7 @@ func TestAppRunTest_PortProtocols(t *testing.T) {
 }
 
 func TestAppRunTest_VolumeReadOnly(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	readOnlyCount := 0
@@ -1543,7 +1540,7 @@ func TestAppRunTest_VolumeReadOnly(t *testing.T) {
 }
 
 func TestAppRunTest_ActionConfirmTypes(t *testing.T) {
-	catalog, _ := setupBuiltinCatalog(t)
+	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
 	for _, action := range app.Scripts.Actions {

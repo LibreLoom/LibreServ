@@ -9,7 +9,6 @@ DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
 });
 
 const SVG_PURIFY_OPTS = {
-  RETURN_DOM: true,
   ADD_TAGS: ["svg"],
   FORBID_TAGS: ["script", "foreignObject", "animate", "set"],
   FORBID_ATTR: ["onload", "onerror", "onclick"],
@@ -20,10 +19,7 @@ function sanitizeSVG(svgText) {
     return "";
   }
   try {
-    const clean = String(DOMPurify.sanitize(svgText, SVG_PURIFY_OPTS));
-    const wrapper = document.createElement("div");
-    wrapper.innerHTML = clean;
-    return wrapper.innerHTML;
+    return DOMPurify.sanitize(svgText, SVG_PURIFY_OPTS);
   } catch {
     return "";
   }

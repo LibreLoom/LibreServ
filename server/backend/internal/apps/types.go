@@ -11,9 +11,6 @@ import (
 type AppType string
 
 const (
-	// AppTypeBuiltin represents apps from the official catalog
-	AppTypeBuiltin AppType = "builtin"
-	// AppTypeRepo represents apps from a git repository
 	AppTypeRepo AppType = "repo"
 	// AppTypeExternal represents externally managed apps registered for monitoring
 	AppTypeExternal AppType = "external"

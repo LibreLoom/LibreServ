@@ -27,7 +27,7 @@ func TestUpdateHistory(t *testing.T) {
 
 	// 0. Insert dummy app to satisfy foreign key
 	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path) VALUES (?, ?, ?, ?, ?)`,
-		"inst1", "Test App", "builtin", "app1", "/tmp")
+		"inst1", "Test App", "repo", "app1", "/tmp")
 	if err != nil {
 		t.Fatalf("insert app: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestGetAvailableUpdates(t *testing.T) {
 
 	// Insert app with older version in metadata
 	_, _ = db.Exec(`INSERT INTO apps (id, name, type, source, path, metadata) VALUES (?, ?, ?, ?, ?, ?)`,
-		"inst1", "App 1", "builtin", "app1", "/tmp", `{"version":"1.0.0"}`)
+		"inst1", "App 1", "repo", "app1", "/tmp", `{"version":"1.0.0"}`)
 
 	updates, err := m.GetAvailableUpdates(context.Background())
 	if err != nil {

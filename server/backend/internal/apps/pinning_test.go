@@ -27,7 +27,7 @@ func TestAppPinning(t *testing.T) {
 
 	// 1. Insert app
 	_, _ = db.Exec(`INSERT INTO apps (id, name, type, source, path, metadata) VALUES (?, ?, ?, ?, ?, ?)`,
-		"inst1", "App 1", "builtin", "app1", "/tmp", `{"version":"1.0.0"}`)
+		"inst1", "App 1", "repo", "app1", "/tmp", `{"version":"1.0.0"}`)
 
 	// 2. Check update available (should be true)
 	updates, _ := m.GetAvailableUpdates(context.Background())

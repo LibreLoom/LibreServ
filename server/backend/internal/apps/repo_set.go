@@ -195,7 +195,7 @@ func (rs *RepoSet) rebuildCatalog() {
 
 	if len(merged) == 0 {
 		rs.catalog = nil
-		rs.logger.Info("no repo apps loaded, keeping builtin fallback")
+		rs.logger.Info("no repo apps loaded, catalog is empty")
 		return
 	}
 

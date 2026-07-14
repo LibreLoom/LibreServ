@@ -30,7 +30,7 @@ There are two sources of templates:
 
 | Type | Source | Description |
 |------|--------|-------------|
-| **builtin** | `server/backend/apps/builtin/` | Shipped with LibreServ |
+| **repo** | `{catalog_path}/apps/` on disk | Pulled from a git repository |
 | **custom** | Uploaded `.tar.xz` archives | User-provided packages |
 
 ---
@@ -62,12 +62,12 @@ The `Catalog` struct (`internal/apps/catalog.go`) manages the in-memory registry
 
 ### Loading
 
-At startup, `Catalog.Load()` scans `{catalogPath}/builtin/` for subdirectories. Each subdirectory must contain an `app.yaml`. The file is unmarshaled into an `AppDefinition`, validated, and indexed by ID.
+At startup, `Catalog.Load()` scans `{catalogPath}/apps/` for subdirectories. Each subdirectory must contain an `app.yaml`. The file is unmarshaled into an `AppDefinition`, validated, and indexed by ID.
 
 ```go
 // Config: apps.catalog_path = "./apps"
 catalog := apps.NewCatalog("./apps")
-catalog.Load() // scans ./apps/builtin/*/
+catalog.Load() // scans ./apps/apps/*/
 ```
 
 ### API
@@ -112,7 +112,7 @@ type AppDefinition struct {
     Features      AppFeatures
 
     // Runtime (set by catalog loader, not from YAML)
-    Type        AppType   // "builtin", "custom", "external"
+    Type        AppType   // "repo", "external"
     CatalogPath string    // Absolute path to this app's directory
 }
 ```
@@ -361,6 +361,6 @@ Checks run at the configured `interval` (default 30s). After `retries` consecuti
 | `server/backend/internal/apps/script_executor.go` | Script execution |
 | `server/backend/internal/api/handlers/catalog.go` | Catalog REST endpoints |
 | `server/backend/internal/api/handlers/apps.go` | App management REST endpoints |
-| `server/backend/apps/builtin/` | Built-in app template directories |
+| `server/backend/apps/` | App catalog directory (repo apps loaded from disk) |
 | `server/frontend/src/hooks/useCatalog.js` | Frontend catalog data fetching |
 | `server/frontend/src/components/app/wizard/InstallWizard.jsx` | Installation wizard UI |

@@ -28,8 +28,8 @@ func newTestCatalogHandler(t *testing.T) *CatalogHandler {
 
 	dir := t.TempDir()
 
-	builtinDir := filepath.Join(dir, "builtin", "testapp")
-	if err := os.MkdirAll(builtinDir, 0o755); err != nil {
+	appDir := filepath.Join(dir, "apps", "testapp")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -45,12 +45,12 @@ features:
   requires_setup: false
   requires_domain: false
 `
-	if err := os.WriteFile(filepath.Join(builtinDir, "app.yaml"), []byte(appYAML), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir, "app.yaml"), []byte(appYAML), 0o644); err != nil {
 		t.Fatalf("write app.yaml: %v", err)
 	}
 
 	// Create a second app for category testing
-	app2Dir := filepath.Join(dir, "builtin", "anotherapp")
+	app2Dir := filepath.Join(dir, "apps", "anotherapp")
 	if err := os.MkdirAll(app2Dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

@@ -31,7 +31,7 @@ LibreServ/
 │   │   ├── jobqueue/         # Background jobs
 │   │   └── jobs/             # Simple time-based scheduler
 │   ├── configs/              # YAML config (must copy .example → .yaml before run)
-│   ├── apps/builtin/         # App templates loaded from disk (currently only apprun-test; full catalog is a goal, see GOALS.md)
+│   ├── apps/                # App catalog (repo apps loaded from disk; currently empty — curated catalog will be a separate repo)
 │   ├── OS/dist/              # Frontend build output (gitignored)
 │   └── Makefile
 │

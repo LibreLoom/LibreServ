@@ -44,21 +44,9 @@ func (c *Catalog) Load() error {
 	}
 
 	appsPath := filepath.Join(c.catalogPath, "apps")
-	loadedRepo := false
 	if err := c.loadAppsFromDir(appsPath, AppTypeRepo); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to load repo apps: %w", err)
-		}
-	} else if len(c.apps) > 0 {
-		loadedRepo = true
-	}
-
-	if !loadedRepo {
-		builtinPath := filepath.Join(c.catalogPath, "builtin")
-		if err := c.loadAppsFromDir(builtinPath, AppTypeBuiltin); err != nil {
-			if !os.IsNotExist(err) {
-				return fmt.Errorf("failed to load builtin apps: %w", err)
-			}
 		}
 	}
 

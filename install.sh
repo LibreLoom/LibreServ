@@ -389,29 +389,13 @@ download_restic() {
     log_info "restic ${RESTIC_VERSION} installed to ${restic_path}"
 }
 
-# Download and extract the app catalog
-download_catalog() {
-    CATALOG_URL="${FORGEJO_URL}/${GITHUB_REPO}/releases/download/${INSTALL_VERSION}/catalog.tar.gz"
+# Create catalog directory for repo-based apps
+create_catalog_dir() {
     CATALOG_DIR="${INSTALL_DIR}/catalog"
-
-    mkdir -p "${CATALOG_DIR}"
-
-    log_info "Downloading app catalog..."
-    if curl -fsSL "${CATALOG_URL}" -o "/tmp/catalog.tar.gz" 2>/dev/null; then
-        tar -xzf /tmp/catalog.tar.gz -C "${CATALOG_DIR}" --exclude='..'
-        rm -f /tmp/catalog.tar.gz
-        chown -R "${USER}:${USER}" "${CATALOG_DIR}"
-        chmod 755 "${CATALOG_DIR}"
-        log_info "App catalog installed"
-    else
-        rm -f /tmp/catalog.tar.gz
-        log_warn "App catalog not available for this release"
-        log_warn "The app catalog will be empty. You can install apps after updating to a release that includes the catalog."
-        # Create empty builtin dir so the app doesn't crash on startup
-        mkdir -p "${CATALOG_DIR}/builtin"
-        chown -R "${USER}:${USER}" "${CATALOG_DIR}"
-        chmod 755 "${CATALOG_DIR}"
-    fi
+    mkdir -p "${CATALOG_DIR}/apps"
+    chown -R "${USER}:${USER}" "${CATALOG_DIR}"
+    chmod 755 "${CATALOG_DIR}"
+    log_info "App catalog directory created"
 }
 
 # Generate a 6-character no-ambiguous setup code
@@ -707,7 +691,7 @@ do_upgrade() {
         exit 1
     fi
 
-    download_catalog
+    create_catalog_dir
     download_restic
 
     rm -f "${BACKUP_BINARY}"
@@ -763,7 +747,7 @@ do_install() {
 
     prompt_version
     download_binary
-    download_catalog
+    create_catalog_dir
     download_restic
     create_config
 

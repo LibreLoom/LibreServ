@@ -37,7 +37,7 @@ func TestExecuteActionReturnsScriptResult(t *testing.T) {
 
 	catalogRoot := filepath.Join(dir, "catalog")
 	appID := "testapp"
-	appCatalogDir := filepath.Join(catalogRoot, "builtin", appID)
+	appCatalogDir := filepath.Join(catalogRoot, "apps", appID)
 	if err := os.MkdirAll(appCatalogDir, 0o755); err != nil {
 		t.Fatalf("mkdir catalog dir: %v", err)
 	}
@@ -71,7 +71,7 @@ scripts:
 
 	now := time.Now()
 	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"instance-1", "Test App", "builtin", appID, installPath, "running", "healthy", now, now, `{}`)
+		"instance-1", "Test App", "repo", appID, installPath, "running", "healthy", now, now, `{}`)
 	if err != nil {
 		t.Fatalf("insert app: %v", err)
 	}

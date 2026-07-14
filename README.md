@@ -25,7 +25,7 @@ LibreServ has achieved MVP when a non-technical user can walk the whole critical
 ## What's here
 - **Backend** (`server/backend`): API server, app installer/manager, monitoring, backups, support session tooling.
 - **Frontend** (`server/frontend`): Vite/React source (not built by default). Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
-- **Built-in apps**: App templates live under `server/backend/apps/builtin/` and are loaded from disk. Only `apprun-test` ships in this repo today; the curated catalog (nextcloud, searxng, ollama, convertx, motioneye, homeassistant, librechat) is planned for the official app repo — see [GOALS.md](GOALS.md).
+- **App catalog**: App templates are loaded from disk via the catalog path (`apps/` directory). The curated catalog (nextcloud, searxng, ollama, convertx, motioneye, homeassistant, librechat) will be distributed as a separate repo — see [GOALS.md](GOALS.md).
 - **CI**: `./ci` runs backend vet/tests and frontend lint/build.
 
 ## Contributing

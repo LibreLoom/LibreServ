@@ -287,6 +287,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Wire repo-based app catalog: clone/pull configured git repos and
+	// merge their apps into the catalog. The RepoSet runs a background
+	// pull loop so the catalog stays current without restarts.
+	if len(cfg.Apps.Repos) > 0 {
+		interval := 6 * time.Hour
+		if d, err := time.ParseDuration(cfg.Apps.RepoPullInterval); err == nil && d > 0 {
+			interval = d
+		}
+		repoBasePath := filepath.Join(appsDataDir, "repos")
+		if err := os.MkdirAll(repoBasePath, 0750); err != nil {
+			slog.Warn("failed to create repos directory, continuing with local catalog only", "path", repoBasePath, "error", err)
+		} else {
+			repoSet, err := apps.NewRepoSet(slog.Default().With("component", "repo-set"), cfg.Apps.Repos, repoBasePath, interval)
+			if err != nil {
+				slog.Warn("failed to initialize repo set, continuing with local catalog only", "error", err)
+			} else {
+				appManager.SetRepoSet(repoSet)
+				if err := repoSet.Start(context.Background()); err != nil {
+					slog.Warn("failed to start repo set background pull", "error", err)
+				}
+				defer repoSet.Stop()
+			}
+		}
+	}
+
 	appManager.Start(context.Background())
 	defer appManager.Stop()
 

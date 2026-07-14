@@ -6,18 +6,18 @@ import (
 	"testing"
 )
 
-func setupTestCatalog(t *testing.T) (*Catalog, string) {
+func setupComprehensiveTestCatalog(t *testing.T) (*Catalog, string) {
 	t.Helper()
 	tmpDir := t.TempDir()
-	builtinDir := filepath.Join(tmpDir, "builtin")
+	appDir := filepath.Join(tmpDir, "apps")
 
-	// Create builtin directory
-	if err := os.MkdirAll(builtinDir, 0755); err != nil {
-		t.Fatalf("Failed to create builtin directory: %v", err)
+	// Create apps directory
+	if err := os.MkdirAll(appDir, 0755); err != nil {
+		t.Fatalf("Failed to create apps directory: %v", err)
 	}
 
 	// Create test app 1
-	app1Dir := filepath.Join(builtinDir, "testapp1")
+	app1Dir := filepath.Join(appDir, "testapp1")
 	if err := os.MkdirAll(app1Dir, 0755); err != nil {
 		t.Fatalf("Failed to create app1 directory: %v", err)
 	}
@@ -78,7 +78,7 @@ updates:
 	}
 
 	// Create test app 2
-	app2Dir := filepath.Join(builtinDir, "testapp2")
+	app2Dir := filepath.Join(appDir, "testapp2")
 	if err := os.MkdirAll(app2Dir, 0755); err != nil {
 		t.Fatalf("Failed to create app2 directory: %v", err)
 	}
@@ -142,7 +142,7 @@ updates:
 }
 
 func TestCatalog_Load(t *testing.T) {
-	catalog, _ := setupTestCatalog(t)
+	catalog, _ := setupComprehensiveTestCatalog(t)
 
 	if catalog.Count() != 2 {
 		t.Errorf("Expected 2 apps, got %d", catalog.Count())
@@ -150,7 +150,7 @@ func TestCatalog_Load(t *testing.T) {
 }
 
 func TestCatalog_GetApp(t *testing.T) {
-	catalog, _ := setupTestCatalog(t)
+	catalog, _ := setupComprehensiveTestCatalog(t)
 
 	tests := []struct {
 		name    string
@@ -185,7 +185,7 @@ func TestCatalog_GetApp(t *testing.T) {
 }
 
 func TestCatalog_ListApps(t *testing.T) {
-	catalog, _ := setupTestCatalog(t)
+	catalog, _ := setupComprehensiveTestCatalog(t)
 
 	tests := []struct {
 		name      string
@@ -213,7 +213,7 @@ func TestCatalog_ListApps(t *testing.T) {
 }
 
 func TestCatalog_GetCategories(t *testing.T) {
-	catalog, _ := setupTestCatalog(t)
+	catalog, _ := setupComprehensiveTestCatalog(t)
 
 	categories := catalog.GetCategories()
 	if len(categories) != 2 {
@@ -241,12 +241,12 @@ func TestCatalog_GetCategories(t *testing.T) {
 }
 
 func TestCatalog_Refresh(t *testing.T) {
-	catalog, tmpDir := setupTestCatalog(t)
+	catalog, tmpDir := setupComprehensiveTestCatalog(t)
 
 	initialCount := catalog.Count()
 
 	// Add a new app
-	app3Dir := filepath.Join(tmpDir, "builtin", "testapp3")
+	app3Dir := filepath.Join(tmpDir, "apps", "testapp3")
 	if err := os.MkdirAll(app3Dir, 0755); err != nil {
 		t.Fatalf("Failed to create app3 directory: %v", err)
 	}
@@ -310,7 +310,7 @@ updates:
 }
 
 func TestCatalog_GetComposeFilePath(t *testing.T) {
-	catalog, _ := setupTestCatalog(t)
+	catalog, _ := setupComprehensiveTestCatalog(t)
 
 	tests := []struct {
 		name    string
@@ -346,16 +346,16 @@ func TestCatalog_GetComposeFilePath(t *testing.T) {
 
 func TestCatalog_InvalidApp(t *testing.T) {
 	tmpDir := t.TempDir()
-	builtinDir := filepath.Join(tmpDir, "builtin")
+	appDir2 := filepath.Join(tmpDir, "apps")
 
-	// Create builtin directory
-	if err := os.MkdirAll(builtinDir, 0755); err != nil {
-		t.Fatalf("Failed to create builtin directory: %v", err)
+	// Create apps directory
+	if err := os.MkdirAll(appDir2, 0755); err != nil {
+		t.Fatalf("Failed to create apps directory: %v", err)
 	}
 
 	// Create invalid app (missing required fields)
-	appDir := filepath.Join(builtinDir, "invalidapp")
-	if err := os.MkdirAll(appDir, 0755); err != nil {
+	appDir3 := filepath.Join(appDir2, "invalidapp")
+	if err := os.MkdirAll(appDir3, 0755); err != nil {
 		t.Fatalf("Failed to create app directory: %v", err)
 	}
 
@@ -364,7 +364,7 @@ name: ""
 description: ""
 `
 
-	if err := os.WriteFile(filepath.Join(appDir, "app.yaml"), []byte(invalidYAML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir3, "app.yaml"), []byte(invalidYAML), 0644); err != nil {
 		t.Fatalf("Failed to write yaml: %v", err)
 	}
 
@@ -377,16 +377,16 @@ description: ""
 
 func TestCatalog_NoComposeNoImage(t *testing.T) {
 	tmpDir := t.TempDir()
-	builtinDir := filepath.Join(tmpDir, "builtin")
+	appDir4 := filepath.Join(tmpDir, "apps")
 
-	// Create builtin directory
-	if err := os.MkdirAll(builtinDir, 0755); err != nil {
-		t.Fatalf("Failed to create builtin directory: %v", err)
+	// Create apps directory
+	if err := os.MkdirAll(appDir4, 0755); err != nil {
+		t.Fatalf("Failed to create apps directory: %v", err)
 	}
 
 	// Create app with neither compose_file nor image
-	appDir := filepath.Join(builtinDir, "nocomposenoimage")
-	if err := os.MkdirAll(appDir, 0755); err != nil {
+	appDir5 := filepath.Join(appDir4, "nocomposenoimage")
+	if err := os.MkdirAll(appDir5, 0755); err != nil {
 		t.Fatalf("Failed to create app directory: %v", err)
 	}
 
@@ -428,7 +428,7 @@ updates:
   allow_downgrade: false
 `
 
-	if err := os.WriteFile(filepath.Join(appDir, "app.yaml"), []byte(invalidYAML), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(appDir5, "app.yaml"), []byte(invalidYAML), 0644); err != nil {
 		t.Fatalf("Failed to write yaml: %v", err)
 	}
 
@@ -442,7 +442,7 @@ updates:
 func TestCatalog_EmptyCatalog(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Don't create builtin directory - should handle gracefully or fail
+	// Don't create apps directory - should handle gracefully or fail
 	catalog, err := NewCatalog(tmpDir)
 	if err != nil {
 		// Expected: catalog creation fails when catalog path doesn't exist
@@ -458,20 +458,20 @@ func TestCatalog_EmptyCatalog(t *testing.T) {
 }
 
 func TestAppDefinition_Type(t *testing.T) {
-	catalog, _ := setupTestCatalog(t)
+	catalog, _ := setupComprehensiveTestCatalog(t)
 
 	app, err := catalog.GetApp("testapp1")
 	if err != nil {
 		t.Fatalf("GetApp() failed: %v", err)
 	}
 
-	if app.Type != AppTypeBuiltin {
-		t.Errorf("Expected app type %s, got %s", AppTypeBuiltin, app.Type)
+	if app.Type != AppTypeRepo {
+		t.Errorf("Expected app type %s, got %s", AppTypeRepo, app.Type)
 	}
 }
 
 func TestAppDefinition_Featured(t *testing.T) {
-	catalog, _ := setupTestCatalog(t)
+	catalog, _ := setupComprehensiveTestCatalog(t)
 
 	// Get featured app
 	app1, err := catalog.GetApp("testapp1")
@@ -493,7 +493,7 @@ func TestAppDefinition_Featured(t *testing.T) {
 }
 
 func TestCatalog_SortingFeaturedFirst(t *testing.T) {
-	catalog, _ := setupTestCatalog(t)
+	catalog, _ := setupComprehensiveTestCatalog(t)
 
 	apps := catalog.ListApps(CatalogFilters{})
 

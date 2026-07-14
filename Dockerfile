@@ -35,8 +35,6 @@ COPY --from=frontend-builder /app/backend/OS/dist /app/OS/dist
 COPY server/backend/configs /app/configs
 # Use example config as default (env vars override specific settings at runtime)
 RUN cp /app/configs/libreserv.yaml.example /app/configs/libreserv.yaml
-# Copy apps catalog
-COPY server/backend/apps /app/apps
 
 # Ensure data directories are writable by libreserv user
 RUN mkdir -p /app/data /app/configs && chown -R libreserv:libreserv /app

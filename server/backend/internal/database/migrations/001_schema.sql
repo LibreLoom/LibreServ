@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS apps (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('builtin', 'repo', 'external')),
+    type TEXT NOT NULL CHECK(type IN ('repo', 'external')),
     source TEXT,
     path TEXT NOT NULL,
     status TEXT DEFAULT 'stopped',

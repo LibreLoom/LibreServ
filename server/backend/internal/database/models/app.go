@@ -6,7 +6,7 @@ import "time"
 type App struct {
 	ID           string                 `json:"id"`
 	Name         string                 `json:"name"`
-	Type         string                 `json:"type"` // builtin, custom, external
+	Type         string                 `json:"type"` // repo, external
 	Source       string                 `json:"source"`
 	Path         string                 `json:"path"`
 	Status       string                 `json:"status"`

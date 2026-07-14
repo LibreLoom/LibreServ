@@ -106,8 +106,7 @@ LibreServ/
 │   │   │   ├── system/            # Platform self-update logic
 │   │   │   ├── util/              # Utility functions
 │   │   │   └── validation/        # Input validation
-│   │   ├── apps/                  # App template directories
-│   │   │   └── builtin/           # Built-in app definitions
+│   │   ├── apps/                  # App catalog directory (repo apps on disk)
 │   │   ├── configs/               # Configuration files
 │   │   └── go.mod                 # Go module definition
 │   └── frontend/                  # React frontend application

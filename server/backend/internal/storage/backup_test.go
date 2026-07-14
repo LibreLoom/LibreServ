@@ -67,7 +67,7 @@ func TestBackupRepositoryCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	svc.db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES (?, ?, ?, ?, ?)`,
-		"app-1", "TestApp", "builtin", "/tmp/app-1", "stopped")
+		"app-1", "TestApp", "repo", "/tmp/app-1", "stopped")
 
 	repo := &BackupRepository{
 		ID:        "test-repo-1",
@@ -143,7 +143,7 @@ func TestBackupFormatField(t *testing.T) {
 	now := time.Now()
 
 	db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES (?, ?, ?, ?, ?)`,
-		"app-fmt", "TestApp", "builtin", "/tmp/app-fmt", "stopped")
+		"app-fmt", "TestApp", "repo", "/tmp/app-fmt", "stopped")
 
 	db.Exec(`INSERT INTO backups (id, app_id, type, path, size, created_at, format, snapshot_id, repo_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -176,7 +176,7 @@ func TestGetBackupWithFormat(t *testing.T) {
 	now := time.Now()
 
 	db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES (?, ?, ?, ?, ?)`,
-		"app-get", "TestApp", "builtin", "/tmp/app-get", "stopped")
+		"app-get", "TestApp", "repo", "/tmp/app-get", "stopped")
 
 	db.Exec(`INSERT INTO backups (id, app_id, type, path, size, created_at, format, snapshot_id, repo_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -203,7 +203,7 @@ func TestBackupScheduleUpdateNextRun(t *testing.T) {
 	nextRun := now.Add(24 * time.Hour)
 
 	db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES (?, ?, ?, ?, ?)`,
-		"app-sch", "TestApp", "builtin", "/tmp/app-sch", "stopped")
+		"app-sch", "TestApp", "repo", "/tmp/app-sch", "stopped")
 
 	db.Exec(`INSERT INTO backup_schedules (id, app_id, type, cron_expr, enabled, retention, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -233,7 +233,7 @@ func TestDeleteResticBackup(t *testing.T) {
 	now := time.Now()
 
 	db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES (?, ?, ?, ?, ?)`,
-		"app-del", "TestApp", "builtin", "/tmp/app-del", "stopped")
+		"app-del", "TestApp", "repo", "/tmp/app-del", "stopped")
 
 	db.Exec(`INSERT INTO backups (id, app_id, type, path, size, created_at, format, snapshot_id, repo_id)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -266,7 +266,7 @@ func TestResticBackupAndRestore(t *testing.T) {
 	}
 
 	db.Exec(`INSERT INTO apps (id, name, type, path, status) VALUES (?, ?, ?, ?, ?)`,
-		"test-app", "TestApp", "builtin", appPath, "stopped")
+		"test-app", "TestApp", "repo", appPath, "stopped")
 
 	result, err := svc.BackupApp(ctx, "test-app", BackupOptions{})
 	if err != nil {

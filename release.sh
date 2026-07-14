@@ -312,14 +312,10 @@ build_binaries() {
     rm -f server/backend/OS/bin/restic
     cd ../..
     
-    # Package the app catalog
-    log_info "Packaging app catalog..."
-    tar -czf "$BUILD_DIR/catalog.tar.gz" -C server/backend/apps builtin
-    
     # Generate checksums
     log_info "Generating SHA256 checksums..."
     cd "$BUILD_DIR"
-    sha256sum libreserv-linux-amd64 libreserv-linux-arm64 catalog.tar.gz > SHA256SUMS.txt
+    sha256sum libreserv-linux-amd64 libreserv-linux-arm64 > SHA256SUMS.txt
     cd ..
     
     log_info "Binaries built successfully"

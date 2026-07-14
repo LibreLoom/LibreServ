@@ -60,7 +60,7 @@ func seedUser(t *testing.T, db *database.DB, id, username string) {
 
 func seedApp(t *testing.T, db *database.DB, id string) {
 	t.Helper()
-	_, err := db.Exec("INSERT INTO apps (id, name, type, path) VALUES (?, ?, 'builtin', '/tmp')", id, id)
+	_, err := db.Exec("INSERT INTO apps (id, name, type, path) VALUES (?, ?, 'repo', '/tmp')", id, id)
 	if err != nil {
 		t.Fatalf("seed app: %v", err)
 	}

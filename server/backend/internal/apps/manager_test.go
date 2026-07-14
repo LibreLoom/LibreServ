@@ -24,7 +24,7 @@ func TestScanInstalledApp(t *testing.T) {
 	}
 	now := time.Now()
 	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version, error, image_digest, compose_template_sha, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"inst1", "App One", "builtin", "app1", "/path", "running", "healthy", now, now, `{"k":"v"}`, "1.0.0", "", nil, nil, nil, nil, nil, nil)
+		"inst1", "App One", "repo", "app1", "/path", "running", "healthy", now, now, `{"k":"v"}`, "1.0.0", "", nil, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("insert app: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestManagerUpdateStatus(t *testing.T) {
 	db, _ := database.Open(dbPath)
 	_ = db.Migrate()
 	_, _ = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}')`,
-		"inst2", "App Two", "builtin", "app2", "/path", "stopped", "unknown")
+		"inst2", "App Two", "repo", "app2", "/path", "stopped", "unknown")
 
 	m := &Manager{db: db}
 	if err := m.updateStatus(context.Background(), "inst2", StatusRunning); err != nil {
@@ -392,7 +392,7 @@ func TestManager_PinUnpinAppVersion(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, pinned_version) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}', '')`,
-		"inst-pin", "App", "builtin", "app1", "/path", "running", "healthy")
+		"inst-pin", "App", "repo", "app1", "/path", "running", "healthy")
 	if err != nil {
 		t.Fatalf("insert app: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestManager_AcknowledgeRevocation(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata, revocation_severity, revocation_reason, revocation_revoked_at, revocation_acknowledged_at) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}', ?, ?, CURRENT_TIMESTAMP, NULL)`,
-		"inst-rev", "App", "builtin", "app1", "/path", "revoked", "unknown", "critical", "bad-version")
+		"inst-rev", "App", "repo", "app1", "/path", "revoked", "unknown", "critical", "bad-version")
 	if err != nil {
 		t.Fatalf("insert app: %v", err)
 	}
