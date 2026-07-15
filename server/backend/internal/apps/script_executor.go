@@ -337,13 +337,14 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 	go func() {
 		defer os.Remove(configFile)
 		defer close(outputCh)
-		defer cmd.Wait()
 
 		buf := make([]byte, 1024)
 		for {
 			select {
 			case <-ctx.Done():
-				// Context cancelled, exit goroutine
+				// Context cancelled — kill the process and reap it.
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
 				return
 			default:
 			}
@@ -356,6 +357,8 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 					Content: string(buf[:n]),
 				}:
 				case <-ctx.Done():
+					_ = cmd.Process.Kill()
+					_ = cmd.Wait()
 					return
 				}
 			}
@@ -367,6 +370,8 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 						Error: fmt.Sprintf("stdout read error: %v", err),
 					}:
 					case <-ctx.Done():
+						_ = cmd.Process.Kill()
+						_ = cmd.Wait()
 						return
 					}
 				}
@@ -382,14 +387,27 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 				Content: string(errBuf),
 			}:
 			case <-ctx.Done():
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
 				return
 			}
+		}
+
+		// Wait for the process to finish before accessing ProcessState.
+		waitErr := cmd.Wait()
+
+		exitCode := 0
+		if cmd.ProcessState != nil {
+			exitCode = cmd.ProcessState.ExitCode()
+		} else if waitErr != nil {
+			// Process didn't exit cleanly; report non-zero.
+			exitCode = 1
 		}
 
 		select {
 		case outputCh <- ScriptOutput{
 			Type:     "complete",
-			ExitCode: cmd.ProcessState.ExitCode(),
+			ExitCode: exitCode,
 		}:
 		case <-ctx.Done():
 		}
@@ -433,18 +451,56 @@ func (e *ScriptExecutor) parseScriptOutput(output string) map[string]interface{}
 }
 
 func (e *ScriptExecutor) extractJSON(output string) string {
-	lines := strings.Split(output, "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		candidate := strings.TrimSpace(lines[i])
-		if candidate == "" {
+	// Scan backwards for the last balanced JSON object in the output.
+	// This handles both single-line and multi-line (pretty-printed) JSON,
+	// and ignores braces inside string literals.
+	lastClose := strings.LastIndex(output, "}")
+	if lastClose == -1 {
+		return ""
+	}
+
+	// Walk backwards from the closing brace to find the matching opening brace,
+	// tracking depth and skipping over string literals.
+	depth := 0
+	inString := false
+	escaped := false
+	openIdx := -1
+
+	for i := lastClose; i >= 0; i-- {
+		ch := output[i]
+
+		if escaped {
+			escaped = false
 			continue
 		}
-		if strings.HasPrefix(candidate, "{") && strings.HasSuffix(candidate, "}") {
-			return candidate
+		if ch == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+
+		if ch == '}' {
+			depth++
+		} else if ch == '{' {
+			depth--
+			if depth == 0 {
+				openIdx = i
+				break
+			}
 		}
 	}
 
-	return ""
+	if openIdx == -1 {
+		return ""
+	}
+
+	return strings.TrimSpace(output[openIdx : lastClose+1])
 }
 
 type ScriptOutput struct {
@@ -481,7 +537,7 @@ func (e *ScriptExecutor) GetSystemScriptPath(appPath, scriptType string) string 
 		"setup":             "system-setup",
 		"update":            "system-update",
 		"repair":            "system-repair",
-		"destructiveRepair": "system-destroy-repair",
+		"destructiveRepair": "system-destructive-repair",
 		"backup":            "system-backup",
 		"restore":           "system-restore",
 	}
