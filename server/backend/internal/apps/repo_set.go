@@ -87,14 +87,13 @@ func (rs *RepoSet) Stop() {
 }
 
 func (rs *RepoSet) runPeriodicPull(ctx context.Context) {
-	select {
-	case <-time.After(1 * time.Minute):
-		if err := rs.PullAll(ctx); err != nil {
-			rs.logger.Warn("initial repo pull failed", "error", err)
-		}
-	case <-ctx.Done():
-		return
-	case <-rs.stopCh:
+	// Pull immediately on startup so the catalog is populated without delay.
+	if err := rs.PullAll(ctx); err != nil {
+		rs.logger.Warn("initial repo pull failed", "error", err)
+	}
+
+	// Skip the periodic loop if no interval is configured (e.g. in tests).
+	if rs.interval <= 0 {
 		return
 	}
 

@@ -342,6 +342,13 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("apps.data_path", "/var/lib/libreserv/apps")
 	v.SetDefault("apps.catalog_path", "/opt/libreserv/catalog")
 	v.SetDefault("apps.repo_pull_interval", "6h")
+	v.SetDefault("apps.repos", []map[string]interface{}{
+		{
+			"url":     "https://gt.plainskill.net/LibreLoom/ServApps.git",
+			"branch":  "main",
+			"enabled": true,
+		},
+	})
 	v.SetDefault("updates.base_url", "https://gt.plainskill.net/api/v1")
 	v.SetDefault("updates.owner", "libreloom")
 	v.SetDefault("updates.repo", "libreserv")

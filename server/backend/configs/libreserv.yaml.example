@@ -28,7 +28,6 @@ auth:
 apps:
     data_path: ./dev/apps
     catalog_path: ./apps
-    repos: []
     repo_pull_interval: 6h
 runtime:
     method: auto
