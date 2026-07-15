@@ -8,8 +8,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/base64"
+	"database/sql"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 
@@ -17,11 +18,10 @@ import (
 	"github.com/google/uuid"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"database/sql"
 )
 
 func isNotFound(err error) bool {
-	return err == nil || err == sql.ErrNoRows
+	return errors.Is(err, sql.ErrNoRows)
 }
 
 // EnsureSigningKey returns the current RSA signing key for OIDC token signing.
@@ -130,14 +130,11 @@ func GetAllSigningKeys(db *database.DB) ([]*publicKey, error) {
 }
 
 // RotateSigningKey creates a new RSA key and marks the current one as non-current.
+// The whole operation runs in a single transaction and the old key is only
+// demoted AFTER the new key is inserted, so there is never a window with zero
+// current keys (and the single-current unique index is never violated).
 func RotateSigningKey(db *database.DB, encryptionKey string) (*signingKey, error) {
 	sqlDB := db.SQL()
-
-	if _, err := sqlDB.ExecContext(context.Background(),
-		`UPDATE oidc_signing_keys SET is_current = 0 WHERE is_current = 1`,
-	); err != nil {
-		return nil, fmt.Errorf("update current keys: %w", err)
-	}
 
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -160,13 +157,31 @@ func RotateSigningKey(db *database.DB, encryptionKey string) (*signingKey, error
 		return nil, fmt.Errorf("encrypt private key: %w", err)
 	}
 
-	_, err = sqlDB.ExecContext(context.Background(),
+	tx, err := sqlDB.BeginTx(context.Background(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin rotation tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Demote the old current key, then insert the new one — both inside one
+	// transaction so concurrent readers (and the single-current unique index)
+	// never observe a zero-current or two-current window.
+	if _, err := tx.ExecContext(context.Background(),
+		`UPDATE oidc_signing_keys SET is_current = 0 WHERE is_current = 1`,
+	); err != nil {
+		return nil, fmt.Errorf("update current keys: %w", err)
+	}
+
+	if _, err := tx.ExecContext(context.Background(),
 		`INSERT INTO oidc_signing_keys (id, key_pem, public_pem, algorithm, is_current)
 		 VALUES (?, ?, ?, 'RS256', 1)`,
 		newKeyID, encryptedPEM, newPublicPEM,
-	)
-	if err != nil {
+	); err != nil {
 		return nil, fmt.Errorf("insert signing key: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit rotation tx: %w", err)
 	}
 
 	return &signingKey{
@@ -198,7 +213,7 @@ func encodePublicKey(key *rsa.PrivateKey) (string, error) {
 	if err := pem.Encode(&buf, block); err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+	return buf.String(), nil
 }
 
 func parsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
@@ -209,8 +224,8 @@ func parsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 	return x509.ParsePKCS1PrivateKey(block.Bytes)
 }
 
-func parseRSAPublicKey(derBytes []byte) (*rsa.PublicKey, error) {
-	block, _ := pem.Decode(derBytes)
+func parseRSAPublicKey(pemBytes []byte) (*rsa.PublicKey, error) {
+	block, _ := pem.Decode(pemBytes)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
 	}

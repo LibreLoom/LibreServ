@@ -62,13 +62,6 @@ func NewAuthHandler(authService *auth.Service, securityService *security.Service
 	return h
 }
 
-func NewAuthHandlerOld(authService *auth.Service, securityService *security.Service) *AuthHandler {
-	return &AuthHandler{
-		authService:     authService,
-		securityService: securityService,
-	}
-}
-
 // Login handles POST /api/v1/auth/login
 // Authenticates a user and returns tokens on success
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {

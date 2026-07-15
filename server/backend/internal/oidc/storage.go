@@ -15,10 +15,11 @@ import (
 	"github.com/zitadel/oidc/v3/pkg/oidc"
 	"github.com/zitadel/oidc/v3/pkg/op"
 
+	"golang.org/x/crypto/bcrypt"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"golang.org/x/crypto/bcrypt"
 )
+
 // UserGetter is the minimal interface for retrieving users.
 type UserGetter interface {
 	GetUserByID(ctx context.Context, id string) (*User, error)
@@ -53,7 +54,6 @@ type User struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
-
 
 // Storage implements op.Storage with in-memory ephemeral state and DB-backed persistent state.
 type Storage struct {
@@ -289,7 +289,6 @@ func (s *Storage) TokenRequestByRefreshToken(ctx context.Context, refreshToken s
 		amr:           rt.amr,
 		authTime:      rt.authTime,
 		scopes:        rt.scopes,
-		
 	}, nil
 }
 
@@ -356,21 +355,35 @@ func (s *Storage) SignatureAlgorithms(ctx context.Context) ([]jose.SignatureAlgo
 }
 
 func (s *Storage) KeySet(ctx context.Context) ([]op.Key, error) {
-	sk, err := s.SigningKey(ctx)
+	// Serve ALL stored public keys so that tokens signed by a since-rotated
+	// key remain verifiable until that key is removed. GetAllSigningKeys loads
+	// only public keys (private keys are never exposed via JWKS).
+	keys, err := GetAllSigningKeys(s.db)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load signing keys: %w", err)
 	}
-	privKey, ok := sk.Key().(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("signing key is not RSA")
-	}
-	return []op.Key{
-		&publicKey{
+	if len(keys) == 0 {
+		// No keys stored yet (fresh DB, before any token has been signed).
+		// Ensure the current signing key exists and serve its public key.
+		sk, err := s.SigningKey(ctx)
+		if err != nil {
+			return nil, err
+		}
+		privKey, ok := sk.Key().(*rsa.PrivateKey)
+		if !ok {
+			return nil, fmt.Errorf("signing key is not RSA")
+		}
+		keys = []*publicKey{{
 			id:        sk.ID(),
 			algorithm: sk.SignatureAlgorithm(),
 			pubKey:    &privKey.PublicKey,
-		},
-	}, nil
+		}}
+	}
+	out := make([]op.Key, len(keys))
+	for i, k := range keys {
+		out[i] = k
+	}
+	return out, nil
 }
 
 // ---------- Client Management ----------

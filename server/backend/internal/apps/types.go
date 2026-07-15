@@ -136,7 +136,7 @@ type AppFeatures struct {
 	MinRAM        int      `yaml:"min_ram,omitempty" json:"min_ram,omitempty"`
 	MinCPU        int      `yaml:"min_cpu,omitempty" json:"min_cpu,omitempty"`
 
-	AccessModel   AccessModel    `yaml:"access_model,omitempty" json:"access_model,omitempty"`
+	AccessModel    AccessModel    `yaml:"access_model,omitempty" json:"access_model,omitempty"`
 	Backup         FeatureSupport `yaml:"backup,omitempty" json:"backup,omitempty"`
 	UpdateBehavior UpdateBehavior `yaml:"update_behavior,omitempty" json:"update_behavior,omitempty"`
 	CustomDomains  bool           `yaml:"custom_domains,omitempty" json:"custom_domains,omitempty"`
@@ -295,6 +295,8 @@ type InstalledApp struct {
 // RedactForAPI returns a shallow copy of the app with sensitive config keys
 // stripped from Config. The "server" key contains SMTP passwords, tunnel
 // tokens, and other server secrets; "_compose_template_sha" is internal state.
+// Top-level secret keys (see secretConfigKeys, e.g. oidc_client_secret) are
+// also stripped. This must stay aligned with stripServerContext.
 // This should be called before serializing an InstalledApp for API responses.
 func (a *InstalledApp) RedactForAPI() *InstalledApp {
 	if a == nil {
@@ -305,6 +307,9 @@ func (a *InstalledApp) RedactForAPI() *InstalledApp {
 		redacted.Config = make(map[string]interface{}, len(a.Config))
 		for k, v := range a.Config {
 			if k == "server" || k == "_compose_template_sha" {
+				continue
+			}
+			if _, secret := secretConfigKeys[k]; secret {
 				continue
 			}
 			redacted.Config[k] = v
@@ -388,9 +393,9 @@ type ScriptConfig struct {
 }
 
 type SystemScripts struct {
-	Setup             string             `yaml:"setup,omitempty" json:"setup,omitempty"`
-	Update            string             `yaml:"update,omitempty" json:"update,omitempty"`
-	Repair            string             `yaml:"repair,omitempty" json:"repair,omitempty"`
+	Setup             string                  `yaml:"setup,omitempty" json:"setup,omitempty"`
+	Update            string                  `yaml:"update,omitempty" json:"update,omitempty"`
+	Repair            string                  `yaml:"repair,omitempty" json:"repair,omitempty"`
 	DestructiveRepair DestructiveRepairConfig `yaml:"destructive_repair,omitempty" json:"destructive_repair,omitempty"`
 }
 

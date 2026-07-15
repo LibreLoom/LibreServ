@@ -169,25 +169,27 @@ func (s *PasswordResetService) ValidateToken(ctx context.Context, token string) 
 
 // ResetPassword resets a user's password using a valid token
 func (s *PasswordResetService) ResetPassword(ctx context.Context, token, newPassword string) error {
-	user, err := s.ValidateToken(ctx, token)
+	// Atomically claim the token: only the request that flips used FALSE->TRUE
+	// proceeds. This closes the TOCTOU window where two concurrent requests
+	// with the same token both pass ValidateToken and both reset the password.
+	tokenHashBytes := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(tokenHashBytes[:])
+
+	var userID string
+	err := s.db.QueryRowContext(ctx, `
+		UPDATE password_reset_tokens
+		SET used = TRUE
+		WHERE token_hash = ? AND used = FALSE AND expires_at > ?
+		RETURNING user_id
+	`, tokenHash, time.Now()).Scan(&userID)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid or expired token")
 	}
 
-	err = s.authService.ResetPasswordWithToken(ctx, user.ID, newPassword)
-	if err != nil {
+	if err := s.authService.ResetPasswordWithToken(ctx, userID, newPassword); err != nil {
 		return fmt.Errorf("failed to reset password: %w", err)
 	}
 
-	hashToInvalidate := sha256.Sum256([]byte(token))
-	tokenHashToInvalidate := hex.EncodeToString(hashToInvalidate[:])
-	_, err = s.db.ExecContext(ctx, `
-		UPDATE password_reset_tokens SET used = TRUE WHERE token_hash = ?
-	`, tokenHashToInvalidate)
-	if err != nil {
-		slog.Warn("Failed to invalidate reset token", "error", err)
-	}
-
-	slog.Info("Password reset successful", "user_id", user.ID)
+	slog.Info("Password reset successful", "user_id", userID)
 	return nil
 }

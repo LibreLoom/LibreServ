@@ -89,6 +89,7 @@ func (i *Installer) ClearDomainConfig() {
 func (i *Installer) SetServerContext(ctx ServerContext) {
 	i.serverCtx = ctx
 }
+
 // SetOIDCProvisioner wires a callback to provision OIDC credentials during app install.
 func (i *Installer) SetOIDCProvisioner(fn func(instanceID, appName string) (clientID, clientSecret, issuerURL string, err error)) {
 	i.oidcProvisioner = fn
@@ -235,36 +236,36 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 					userSet = false
 				}
 			}
-		if userSet {
-			if current > 0 && !i.portManager.IsAvailable(current) {
-				_ = os.RemoveAll(installPath)
-				return &InstallResult{
-					Success: false,
-					Error:   fmt.Sprintf("port %d is already in use", current),
-				}, fmt.Errorf("port %d is already in use", current)
-			}
-			// Reserve immediately to close the TOCTOU window between
-			// IsAvailable and the batch Reserve below.
-			if current > 0 {
-				i.portManager.Reserve(current, instanceID)
-			}
-		} else {
-			// User didn't set it — auto-allocate
-			preferred := current
-			if preferred == 0 {
-				preferred = toInt(field.Default)
-			}
-			if preferred == 0 {
-				preferred = WellKnownPortMax + 1 // fallback to 1024
-			}
+			if userSet {
+				if current > 0 && !i.portManager.IsAvailable(current) {
+					_ = os.RemoveAll(installPath)
+					return &InstallResult{
+						Success: false,
+						Error:   fmt.Sprintf("port %d is already in use", current),
+					}, fmt.Errorf("port %d is already in use", current)
+				}
+				// Reserve immediately to close the TOCTOU window between
+				// IsAvailable and the batch Reserve below.
+				if current > 0 {
+					i.portManager.Reserve(current, instanceID)
+				}
+			} else {
+				// User didn't set it — auto-allocate
+				preferred := current
+				if preferred == 0 {
+					preferred = toInt(field.Default)
+				}
+				if preferred == 0 {
+					preferred = WellKnownPortMax + 1 // fallback to 1024
+				}
 
-			allocated, err := i.portManager.Allocate(preferred)
-			if err != nil {
-				_ = os.RemoveAll(installPath)
-				return &InstallResult{Success: false, Error: "no available ports"}, err
+				allocated, err := i.portManager.Allocate(preferred)
+				if err != nil {
+					_ = os.RemoveAll(installPath)
+					return &InstallResult{Success: false, Error: "no available ports"}, err
+				}
+				config[field.Name] = allocated
 			}
-			config[field.Name] = allocated
-		}
 		}
 
 		// Reserve all allocated ports in the port manager
@@ -778,9 +779,18 @@ func (i *Installer) createMetadataFile(installPath string, appDef *AppDefinition
 	return os.WriteFile(filepath.Join(installPath, ".libreserv.yaml"), data, 0600)
 }
 
-// stripServerContext returns a shallow copy of config with the "server" key removed.
-// The server map contains SMTP passwords, tunnel tokens, and other server secrets
+// secretConfigKeys are top-level config keys that hold server-side secrets.
+// They must never be persisted to disk (metadata file), stored in the DB
+// (apps.metadata JSON), or returned via the API. Secrets that live under the
+// "server" map are handled separately by stripping that whole map.
+var secretConfigKeys = map[string]struct{}{
+	"oidc_client_secret": {}, // auto-provisioned at install (installer.go)
+}
+
+// stripServerContext returns a shallow copy of config with the "server" key
+// removed. The server map contains SMTP passwords, tunnel tokens, and other server secrets
 // that must not be persisted to disk or returned via the API.
+// Top-level secret keys (e.g. oidc_client_secret) are also stripped.
 func stripServerContext(config map[string]interface{}) map[string]interface{} {
 	if config == nil {
 		return nil
@@ -788,6 +798,9 @@ func stripServerContext(config map[string]interface{}) map[string]interface{} {
 	safe := make(map[string]interface{}, len(config))
 	for k, v := range config {
 		if k == "server" {
+			continue
+		}
+		if _, secret := secretConfigKeys[k]; secret {
 			continue
 		}
 		safe[k] = v

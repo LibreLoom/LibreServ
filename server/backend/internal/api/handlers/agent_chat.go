@@ -169,6 +169,15 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 	if req.PermissionMode == "" {
 		req.PermissionMode = "standard"
 	}
+	// Validate permission mode — only known modes may drive the agent loop's
+	// auto-approval behavior. An arbitrary value would silently fall back to
+	// the standard path, but rejecting it keeps the contract explicit.
+	switch req.PermissionMode {
+	case "standard", "auto":
+	default:
+		response.JSONError(w, http.StatusBadRequest, "That permission mode isn't available. Please choose a supported option.")
+		return
+	}
 	model := req.Model
 	if model == "" {
 		model = cfg.Support.Agent.MainModel

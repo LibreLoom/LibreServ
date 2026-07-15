@@ -24,6 +24,22 @@ const (
 	BcryptCost = 12
 )
 
+// dummyPasswordHash is a real bcrypt hash (cost 12) of a random string.
+// It is compared against the supplied password on the user-not-found path so
+// that non-existent usernames take roughly the same time as a wrong password
+// for an existing user. A malformed hash would short-circuit bcrypt and
+// re-enable username enumeration via timing.
+var dummyPasswordHash = func() string {
+	h, err := bcrypt.GenerateFromPassword([]byte("dummy-timing-attenuation-value"), BcryptCost)
+	if err != nil {
+		// bcrypt.GenerateFromPassword only errors on invalid cost; BcryptCost is
+		// a valid constant, so this is unreachable. Fall back to a known-good
+		// hash rather than panicking.
+		return "$2a$12$0123456789012345678901uPxFQ3BqgQ7vR3qJr6p2Kq9Xu8qT2e"
+	}
+	return string(h)
+}()
+
 // HashPassword hashes a password using bcrypt
 func HashPassword(password string) (string, error) {
 	if err := validatePasswordStrength(password); err != nil {

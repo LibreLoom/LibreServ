@@ -103,8 +103,10 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse,
 	if err != nil {
 		s.logger.Warn("Login failed: user not found", "username", req.Username)
 		s.recordFailure(req.Username)
-		// Mitigate timing attacks by performing a dummy hash comparison
-		_ = VerifyPassword("$2a$10$dummy.hash.to.mitigate.timing.attacks.12345678901234567890", req.Password)
+		// Mitigate timing attacks by performing a real bcrypt comparison against
+		// a valid fixed hash. A malformed hash would short-circuit bcrypt and
+		// re-enable username enumeration via response timing.
+		_ = VerifyPassword(dummyPasswordHash, req.Password)
 		return nil, ErrInvalidCredentials
 	}
 
