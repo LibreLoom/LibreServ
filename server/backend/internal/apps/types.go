@@ -221,6 +221,7 @@ type ConfigField struct {
 	Options     []string    `yaml:"options,omitempty" json:"options,omitempty"`       // For select type
 	Validation  string      `yaml:"validation,omitempty" json:"validation,omitempty"` // Regex pattern
 	EnvVar      string      `yaml:"env_var,omitempty" json:"env_var,omitempty"`       // Maps to this env var
+	Advanced    bool        `yaml:"advanced,omitempty" json:"advanced,omitempty"`     // Hide behind advanced toggle
 }
 
 // HealthCheckConfig defines how to check app health
@@ -387,10 +388,17 @@ type ScriptConfig struct {
 }
 
 type SystemScripts struct {
-	Setup             string `yaml:"setup,omitempty" json:"setup,omitempty"`
-	Update            string `yaml:"update,omitempty" json:"update,omitempty"`
-	Repair            string `yaml:"repair,omitempty" json:"repair,omitempty"`
-	DestructiveRepair string `yaml:"destructive_repair,omitempty" json:"destructive_repair,omitempty"`
+	Setup             string             `yaml:"setup,omitempty" json:"setup,omitempty"`
+	Update            string             `yaml:"update,omitempty" json:"update,omitempty"`
+	Repair            string             `yaml:"repair,omitempty" json:"repair,omitempty"`
+	DestructiveRepair DestructiveRepairConfig `yaml:"destructive_repair,omitempty" json:"destructive_repair,omitempty"`
+}
+
+// DestructiveRepairConfig declares a destructive repair script and its
+// user-facing description so the UI can explain what will be destroyed.
+type DestructiveRepairConfig struct {
+	Script      string `yaml:"script" json:"script"`
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
 type ScriptAction struct {

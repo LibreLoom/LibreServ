@@ -48,18 +48,22 @@ func (h *ScriptsHandler) ListActions(w http.ResponseWriter, r *http.Request) {
 	actions := make([]apps.ScriptAction, len(appDef.Scripts.Actions))
 	copy(actions, appDef.Scripts.Actions)
 
-	if appDef.Scripts.System.DestructiveRepair != "" {
+	if appDef.Scripts.System.DestructiveRepair.Script != "" {
 		scriptPath := h.manager.GetScriptExecutor().GetSystemScriptPath(appDef.CatalogPath, "destructiveRepair")
 		if scriptPath != "" {
+			desc := appDef.Scripts.System.DestructiveRepair.Description
+			if desc == "" {
+				desc = "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair."
+			}
 			actions = append(actions, apps.ScriptAction{
 				Name:        "destructive-repair",
 				Label:       "Destructive Repair",
-				Description: "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair.",
-				Script:      appDef.Scripts.System.DestructiveRepair,
+				Description: desc,
+				Script:      appDef.Scripts.System.DestructiveRepair.Script,
 				Icon:        "alert-octagon",
 				Confirm: apps.ActionConfirm{
 					Enabled:  true,
-					Message:  "This will permanently delete all data for this app and attempt to set it up again from scratch. This cannot be undone. Are you sure?",
+					Message:  desc,
 					Typename: "destructive",
 				},
 				Execution: apps.ScriptExecution{
@@ -113,19 +117,23 @@ func (h *ScriptsHandler) GetAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// System action: destructive repair
-	if actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair != "" {
+	if actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair.Script != "" {
 		scriptPath := h.manager.GetScriptExecutor().GetSystemScriptPath(appDef.CatalogPath, "destructiveRepair")
 		if scriptPath != "" {
+			desc := appDef.Scripts.System.DestructiveRepair.Description
+			if desc == "" {
+				desc = "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair."
+			}
 			JSON(w, http.StatusOK, GetActionResponse{Action: apps.ScriptAction{
 				Name:        "destructive-repair",
 				Label:       "Destructive Repair",
-				Description: "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair.",
-				Script:      appDef.Scripts.System.DestructiveRepair,
+				Description: desc,
+				Script:      appDef.Scripts.System.DestructiveRepair.Script,
 				Icon:        "alert-octagon",
 				Confirm: apps.ActionConfirm{
-					Enabled: true,
-					Message: "This will permanently delete all data for this app and attempt to set it up again from scratch. This cannot be undone. Are you sure?",
-				Typename: "destructive",
+					Enabled:  true,
+					Message:  desc,
+					Typename: "destructive",
 				},
 				Execution: apps.ScriptExecution{
 					Timeout:      120,
@@ -191,8 +199,8 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// System action: destructive repair
-	if scriptPath == "" && req.Action == "destructive-repair" && appDef.Scripts.System.DestructiveRepair != "" {
-		scriptPath = appDef.Scripts.System.DestructiveRepair
+	if scriptPath == "" && req.Action == "destructive-repair" && appDef.Scripts.System.DestructiveRepair.Script != "" {
+		scriptPath = appDef.Scripts.System.DestructiveRepair.Script
 	}
 
 	if scriptPath == "" {
@@ -235,10 +243,10 @@ func (h *ScriptsHandler) getAction(appDef *apps.AppDefinition, actionName string
 	}
 	// System action: destructive repair (not stored in appDef.Scripts.Actions,
 	// so return a synthetic action for stream_output checks).
-	if actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair != "" {
+	if actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair.Script != "" {
 		return &apps.ScriptAction{
 			Name:   "destructive-repair",
-			Script: appDef.Scripts.System.DestructiveRepair,
+			Script: appDef.Scripts.System.DestructiveRepair.Script,
 			Execution: apps.ScriptExecution{
 				StreamOutput: true,
 			},
@@ -286,8 +294,8 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// System action: destructive repair
-	if scriptPath == "" && actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair != "" {
-		scriptPath = appDef.Scripts.System.DestructiveRepair
+	if scriptPath == "" && actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair.Script != "" {
+		scriptPath = appDef.Scripts.System.DestructiveRepair.Script
 	}
 
 	if scriptPath == "" {

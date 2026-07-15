@@ -218,7 +218,9 @@ scripts:
     setup: scripts/system-setup
     update: scripts/system-update
     repair: scripts/system-repair
-    destructive_repair: scripts/system-destructive-repair
+    destructive_repair:
+      script: scripts/system-destructive-repair
+      description: Deletes all app data, logs, and config files, then recreates them from scratch. The app will be set up again as if it were just installed.
   actions:
     - name: echo-config
       label: Show Configuration

@@ -1,8 +1,8 @@
 import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import ConfigFieldRenderer from "./ConfigFieldRenderer";
-import { AlertTriangle, Info, ChevronDown, ChevronUp } from "lucide-react";
+import { Info, ChevronDown, ChevronUp } from "lucide-react";
 
-function AdvancedContent({ show, portFields, config, handleFieldChange, errors }) {
+function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
   const contentRef = useRef(null);
   const [height, setHeight] = useState(0);
 
@@ -10,7 +10,7 @@ function AdvancedContent({ show, portFields, config, handleFieldChange, errors }
     if (contentRef.current) {
       setHeight(contentRef.current.scrollHeight);
     }
-  }, [show, portFields]);
+  }, [show, advancedFields]);
 
   return (
     <div
@@ -18,12 +18,9 @@ function AdvancedContent({ show, portFields, config, handleFieldChange, errors }
       style={{ maxHeight: show ? `${height}px` : "0px", opacity: show ? 1 : 0 }}
     >
       <div ref={contentRef}>
-        <p className="text-xs text-secondary/50 pb-3">
-          Network ports will be automatically assigned. Override only if you need a specific port.
-        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pl-6 border-l-2 border-secondary/10">
-          {portFields.map((field) => (
-            <div key={field.name}>
+          {advancedFields.map((field) => (
+            <div key={field.name} className={field.type === "boolean" ? "sm:col-span-2" : ""}>
               <ConfigFieldRenderer
                 field={field}
                 value={config[field.name]}
@@ -40,23 +37,23 @@ function AdvancedContent({ show, portFields, config, handleFieldChange, errors }
   );
 }
 
-function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBack }) {
+function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
   const [errors, setErrors] = useState({});
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const configuration = useMemo(() => app?.configuration || [], [app?.configuration]);
 
-  const { portFields, nonPortFields } = useMemo(() => {
-    const ports = [];
-    const nonPorts = [];
+  const { basicFields, advancedFields } = useMemo(() => {
+    const basic = [];
+    const advanced = [];
     configuration.forEach((field) => {
-      if (field.type === "port") {
-        ports.push(field);
+      if (field.advanced) {
+        advanced.push(field);
       } else {
-        nonPorts.push(field);
+        basic.push(field);
       }
     });
-    return { portFields: ports, nonPortFields: nonPorts };
+    return { basicFields: basic, advancedFields: advanced };
   }, [configuration]);
 
   const handleFieldChange = useCallback(
@@ -101,7 +98,6 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
     }
   };
 
-  const isSharedAccount = features?.access_model === "shared_account";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -114,60 +110,14 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
         </p>
       </div>
 
-      {isSharedAccount && (
-        <div className="p-4 rounded-large-element bg-secondary/10 border border-secondary/30">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="text-secondary mt-0.5" size={18} />
-            <div className="space-y-3 flex-1">
-              <p className="font-mono text-sm text-secondary">
-                Shared Credentials
-              </p>
-              <p className="text-xs text-secondary/70">
-                Everyone who uses this app will sign in with these same credentials. Choose something memorable or let us generate secure defaults.
-              </p>
-<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                   <label htmlFor="config-username" className="block font-mono text-sm text-secondary">
-                      Username
-                   </label>
-                   <input
-                      id="config-username"
-                      type="text"
-                      value={config._shared_username || "admin"}
-                      onChange={(e) => handleFieldChange("_shared_username", e.target.value)}
-                      placeholder="admin"
-                      className="w-full px-3 py-2 border-2 border-secondary/30 rounded-large-element bg-primary text-secondary focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
-                   />
-                </div>
-                <div className="space-y-1">
-                   <label htmlFor="config-password" className="block font-mono text-sm text-secondary">
-                      Password <span className="text-secondary">*</span>
-                   </label>
-                   <input
-                      id="config-password"
-                      type="password"
-                      value={config._shared_password || ""}
-                      onChange={(e) => handleFieldChange("_shared_password", e.target.value)}
-                      placeholder="Leave empty to auto-generate"
-                      className="w-full px-3 py-2 border-2 border-secondary/30 rounded-large-element bg-primary text-secondary focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
-                   />
-                  <p className="text-xs text-secondary/50">
-                    If empty, a secure password will be created for you
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {nonPortFields.length > 0 && (
+      {basicFields.length > 0 && (
         <div className="space-y-4">
           <p className="text-xs font-mono text-secondary/50 uppercase tracking-wide">
             Application Settings
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {nonPortFields.map((field) => (
+            {basicFields.map((field) => (
               <div
                 key={field.name}
                 className={field.type === "boolean" ? "sm:col-span-2" : ""}
@@ -186,7 +136,7 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
         </div>
       )}
 
-      {portFields.length > 0 && (
+      {advancedFields.length > 0 && (
         <div className="space-y-3">
           <button
             type="button"
@@ -199,7 +149,7 @@ function ConfigureStep({ app, features, config, onConfigChange, onContinue, onBa
             Advanced Settings
           </button>
 
-          <AdvancedContent show={showAdvanced} portFields={portFields} config={config} handleFieldChange={handleFieldChange} errors={errors} />
+          <AdvancedContent show={showAdvanced} advancedFields={advancedFields} config={config} handleFieldChange={handleFieldChange} errors={errors} />
         </div>
       )}
 

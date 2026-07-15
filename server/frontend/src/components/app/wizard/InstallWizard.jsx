@@ -277,7 +277,6 @@ function InstallWizard({ appId, initialInstanceId }) {
           >
             <ConfigureStep
               app={app}
-              features={features}
               config={config}
               onConfigChange={setConfig}
               onContinue={() => handleStepChange(3)}

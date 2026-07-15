@@ -419,7 +419,7 @@ func TestAppRunTest_Scripts(t *testing.T) {
 		"setup":              s.Setup,
 		"update":             s.Update,
 		"repair":             s.Repair,
-		"destructive_repair": s.DestructiveRepair,
+		"destructive_repair": s.DestructiveRepair.Script,
 	}
 
 	for name, path := range scripts {
