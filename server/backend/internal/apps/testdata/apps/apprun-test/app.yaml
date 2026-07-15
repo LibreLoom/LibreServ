@@ -219,8 +219,6 @@ scripts:
     update: scripts/system-update
     repair: scripts/system-repair
     destructive_repair: scripts/system-destructive-repair
-    backup: scripts/system-backup
-    restore: scripts/system-restore
   actions:
     - name: echo-config
       label: Show Configuration

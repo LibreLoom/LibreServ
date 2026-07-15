@@ -44,9 +44,35 @@ func (h *ScriptsHandler) ListActions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Build the actions list: custom actions + system destructive repair (if available).
+	actions := make([]apps.ScriptAction, len(appDef.Scripts.Actions))
+	copy(actions, appDef.Scripts.Actions)
+
+	if appDef.Scripts.System.DestructiveRepair != "" {
+		scriptPath := h.manager.GetScriptExecutor().GetSystemScriptPath(appDef.CatalogPath, "destructiveRepair")
+		if scriptPath != "" {
+			actions = append(actions, apps.ScriptAction{
+				Name:        "destructive-repair",
+				Label:       "Destructive Repair",
+				Description: "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair.",
+				Script:      appDef.Scripts.System.DestructiveRepair,
+				Icon:        "alert-octagon",
+				Confirm: apps.ActionConfirm{
+					Enabled:  true,
+					Message:  "This will permanently delete all data for this app and attempt to set it up again from scratch. This cannot be undone. Are you sure?",
+					Typename: "destructive",
+				},
+				Execution: apps.ScriptExecution{
+					Timeout:      120,
+					StreamOutput: true,
+				},
+			})
+		}
+	}
+
 	JSON(w, http.StatusOK, ListActionsResponse{
 		InstanceID: instanceID,
-		Actions:    appDef.Scripts.Actions,
+		Actions:    actions,
 	})
 }
 
@@ -82,6 +108,30 @@ func (h *ScriptsHandler) GetAction(w http.ResponseWriter, r *http.Request) {
 	for _, action := range appDef.Scripts.Actions {
 		if action.Name == actionName {
 			JSON(w, http.StatusOK, GetActionResponse{Action: action})
+			return
+		}
+	}
+
+	// System action: destructive repair
+	if actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair != "" {
+		scriptPath := h.manager.GetScriptExecutor().GetSystemScriptPath(appDef.CatalogPath, "destructiveRepair")
+		if scriptPath != "" {
+			JSON(w, http.StatusOK, GetActionResponse{Action: apps.ScriptAction{
+				Name:        "destructive-repair",
+				Label:       "Destructive Repair",
+				Description: "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair.",
+				Script:      appDef.Scripts.System.DestructiveRepair,
+				Icon:        "alert-octagon",
+				Confirm: apps.ActionConfirm{
+					Enabled: true,
+					Message: "This will permanently delete all data for this app and attempt to set it up again from scratch. This cannot be undone. Are you sure?",
+				Typename: "destructive",
+				},
+				Execution: apps.ScriptExecution{
+					Timeout:      120,
+					StreamOutput: true,
+				},
+			}})
 			return
 		}
 	}
@@ -140,6 +190,11 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// System action: destructive repair
+	if scriptPath == "" && req.Action == "destructive-repair" && appDef.Scripts.System.DestructiveRepair != "" {
+		scriptPath = appDef.Scripts.System.DestructiveRepair
+	}
+
 	if scriptPath == "" {
 		JSONError(w, http.StatusNotFound, "We couldn't find that action for this app.")
 		return
@@ -177,6 +232,17 @@ func (h *ScriptsHandler) getAction(appDef *apps.AppDefinition, actionName string
 		if action.Name == actionName {
 			return &appDef.Scripts.Actions[i], nil
 		}
+	}
+	// System action: destructive repair (not stored in appDef.Scripts.Actions,
+	// so return a synthetic action for stream_output checks).
+	if actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair != "" {
+		return &apps.ScriptAction{
+			Name:   "destructive-repair",
+			Script: appDef.Scripts.System.DestructiveRepair,
+			Execution: apps.ScriptExecution{
+				StreamOutput: true,
+			},
+		}, nil
 	}
 	return nil, nil
 }
@@ -217,6 +283,11 @@ func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
 			scriptPath = action.Script
 			break
 		}
+	}
+
+	// System action: destructive repair
+	if scriptPath == "" && actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair != "" {
+		scriptPath = appDef.Scripts.System.DestructiveRepair
 	}
 
 	if scriptPath == "" {

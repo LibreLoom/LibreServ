@@ -770,32 +770,16 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 	if catalogApp.Updates.BackupBeforeUpdate {
 		m.logger.Info("Creating backup before update", "instance_id", instanceID)
 
-		backupScriptPath := m.scriptExecutor.GetSystemScriptPath(catalogApp.CatalogPath, "backup")
-		if backupScriptPath != "" {
-			result, err := m.scriptExecutor.ExecuteAt(ctx, instanceID, backupScriptPath, app.Path, app.Config)
-			if err != nil || !result.Success {
-				m.recordUpdateFailure(updateID, fmt.Errorf("backup script failed: %v, %s", err, result.Error), false, "")
-				m.updateStatus(ctx, instanceID, prevStatus)
-				return fmt.Errorf("backup script failed: %w", err)
-			}
-			if result.Data != nil {
-				if id, ok := result.Data["backup_id"].(string); ok {
-					backupID = id
-				}
-			}
-			m.logger.Info("Backup created via script", "backup_id", backupID)
-		} else {
-			backupRes, err := m.backupService.BackupApp(ctx, instanceID, storage.BackupOptions{
-				StopBeforeBackup: true,
-			})
-			if err != nil {
-				m.recordUpdateFailure(updateID, fmt.Errorf("backup failed: %w", err), false, "")
-				m.updateStatus(ctx, instanceID, prevStatus)
-				return fmt.Errorf("backup failed: %w", err)
-			}
-			backupID = backupRes.Backup.ID
-			m.logger.Info("Backup created successfully", "backup_id", backupID)
+		backupRes, err := m.backupService.BackupApp(ctx, instanceID, storage.BackupOptions{
+			StopBeforeBackup: true,
+		})
+		if err != nil {
+			m.recordUpdateFailure(updateID, fmt.Errorf("backup failed: %w", err), false, "")
+			m.updateStatus(ctx, instanceID, prevStatus)
+			return fmt.Errorf("backup failed: %w", err)
 		}
+		backupID = backupRes.Backup.ID
+		m.logger.Info("Backup created successfully", "backup_id", backupID)
 
 		if updateID > 0 {
 			_, _ = m.db.Exec(`UPDATE updates SET backup_id = ? WHERE id = ?`, backupID, updateID)

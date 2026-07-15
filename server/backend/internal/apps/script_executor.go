@@ -538,8 +538,6 @@ func (e *ScriptExecutor) GetSystemScriptPath(appPath, scriptType string) string 
 		"update":            "system-update",
 		"repair":            "system-repair",
 		"destructiveRepair": "system-destructive-repair",
-		"backup":            "system-backup",
-		"restore":           "system-restore",
 	}
 
 	scriptName, ok := scriptMap[scriptType]

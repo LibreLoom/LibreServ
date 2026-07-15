@@ -391,8 +391,6 @@ type SystemScripts struct {
 	Update            string `yaml:"update,omitempty" json:"update,omitempty"`
 	Repair            string `yaml:"repair,omitempty" json:"repair,omitempty"`
 	DestructiveRepair string `yaml:"destructive_repair,omitempty" json:"destructive_repair,omitempty"`
-	Backup            string `yaml:"backup,omitempty" json:"backup,omitempty"`
-	Restore           string `yaml:"restore,omitempty" json:"restore,omitempty"`
 }
 
 type ScriptAction struct {

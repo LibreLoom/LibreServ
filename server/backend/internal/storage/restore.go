@@ -8,7 +8,6 @@ import (
 	"log"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -68,9 +67,6 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 		log.Printf("App %s stopped successfully", targetAppID)
 	}
 
-	if err := s.runPreRestoreHook(ctx, targetAppID, appPath); err != nil {
-		log.Printf("RestoreApp: pre-restore hook failed for %s: %v (continuing)", targetAppID, err)
-	}
 
 	return s.restoreWithRestic(ctx, backup, targetAppID, appPath, opts, result, startTime)
 }
@@ -420,26 +416,6 @@ func (s *BackupService) CleanupGhostDatabaseBackups(ctx context.Context) error {
 	return nil
 }
 
-func (s *BackupService) runPreRestoreHook(ctx context.Context, appID, appPath string) error {
-	hookPath := filepath.Join(appPath, "scripts", "system-restore")
-	if _, err := os.Stat(hookPath); err != nil {
-		return nil
-	}
-
-	log.Printf("Running pre-restore hook for app %s", appID)
-	cmd := exec.CommandContext(ctx, hookPath)
-	cmd.Dir = appPath
-	cmd.Env = append(os.Environ(),
-		"LIBRESERV_APP_ID="+appID,
-		"LIBRESERV_APP_PATH="+appPath,
-		"LIBRESERV_RESTORE_HOOK=true",
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("restore hook failed: %w\noutput: %s", err, string(output))
-	}
-	return nil
-}
 
 func rewriteInstanceID(appPath, oldInstanceID, newInstanceID string) error {
 	if oldInstanceID == "" || newInstanceID == "" || oldInstanceID == newInstanceID {

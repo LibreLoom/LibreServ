@@ -420,8 +420,6 @@ func TestAppRunTest_Scripts(t *testing.T) {
 		"update":             s.Update,
 		"repair":             s.Repair,
 		"destructive_repair": s.DestructiveRepair,
-		"backup":             s.Backup,
-		"restore":            s.Restore,
 	}
 
 	for name, path := range scripts {
