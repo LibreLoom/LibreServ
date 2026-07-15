@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import PropTypes from "prop-types";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
@@ -92,6 +92,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
 
 export default function Login({ embedded = false, returnTo = "/", onLoginSuccess }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -99,15 +100,48 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
   const [showResetModal, setShowResetModal] = useState(false);
   const [mfa, setMfa] = useState(null);
   const errorRef = useRef(null);
-  const { login } = useAuth();
+  const { login, me } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
   const { smtpConfigured } = useSettingsStatus();
-  
+
+  // OIDC login flow: when the OIDC provider redirects here with
+  // ?auth_request_id=<id>, we complete the flow after successful login by
+  // redirecting to /authorize/callback?id=<id> (handled by the OIDC
+  // provider on the backend, not the SPA).
+  const authRequestId = searchParams.get("auth_request_id");
+
+  /**
+   * After a successful login (or MFA), decide where to send the user.
+   * If this is an OIDC flow, redirect to the provider's callback.
+   * Otherwise, navigate to the returnTo path or call onLoginSuccess.
+   */
+  function completeLogin() {
+    if (authRequestId) {
+      // Full-page navigation — /authorize/callback is served by the OIDC
+      // provider, not the SPA router.
+      window.location.href = `/authorize/callback?id=${authRequestId}`;
+      return;
+    }
+    if (onLoginSuccess) {
+      onLoginSuccess();
+    } else {
+      navigate(returnTo);
+    }
+  }
+
   useEffect(() => {
     if (errorStatus && errorRef.current) {
       errorRef.current.focus();
     }
   }, [errorStatus]);
+
+  // If the user is already logged in and this is an OIDC flow, skip the
+  // login form and redirect straight to the OIDC callback.
+  useEffect(() => {
+    if (me && authRequestId) {
+      window.location.href = `/authorize/callback?id=${authRequestId}`;
+    }
+  }, [me, authRequestId]);
 
   function calculateErrorHTML() {
     if (errorStatus === 401) {
@@ -188,11 +222,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
         setMfa({ mfaToken: result.mfaToken, methods: result.methods });
         setLoading(false);
       } else {
-        if (onLoginSuccess) {
-          onLoginSuccess();
-        } else {
-          navigate(returnTo);
-        }
+        completeLogin();
       }
     } catch (err) {
       setErrorStatus(err.cause?.status || "NetworkError");
@@ -219,13 +249,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           <MfaChallenge
             mfaToken={mfa.mfaToken}
             methods={mfa.methods}
-            onSuccess={() => {
-              if (onLoginSuccess) {
-                onLoginSuccess();
-              } else {
-                navigate(returnTo);
-              }
-            }}
+            onSuccess={completeLogin}
             onBack={() => {
               setMfa(null);
               setPassword("");

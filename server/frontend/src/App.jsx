@@ -22,6 +22,7 @@ const SetupPage = lazy(() => import("./pages/SetupPage"));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const LorePage = lazy(() => import("./pages/LorePage"));
 const PigeonPage = lazy(() => import("./pages/PigeonPage"));
+const AccessControlDemo = lazy(() => import("./pages/AccessControlDemo"));
 
 
 function RequireAuth({ children }) {
@@ -119,11 +120,14 @@ export default function App() {
             <Route path="/lore" element={<LorePage />} />
             <Route path="/pigeon" element={<PigeonPage />} />
           </Route>
+          {/* Login — public, also used as the OIDC LoginURL target. */}
+          <Route path="/login" element={<Login />} />
           {/* Public routes outside auth requirement */}
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           {/* Invitation onboarding — public, reached via an invite link. */}
           <Route path="/invite/:token" element={<InviteeOnboardingPage />} />
+          <Route path="/access-control-demo" element={<AccessControlDemo />} />
           {/* Fallback for unknown routes. */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

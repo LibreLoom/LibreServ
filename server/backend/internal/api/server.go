@@ -19,6 +19,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
@@ -99,6 +100,8 @@ type Server struct {
 	connectClient   connect.Client
 	connectChecker  *connect.EntitlementChecker
 	emailSender     EmailSender // sends MFA email-OTP codes; nil disables email MFA
+	oidcHandler     http.Handler     // OIDC provider endpoints (discovery, authorize, token, userinfo)
+	oidcAdminHandler *handlers.OIDCHandler // admin API for managing OIDC clients per app
 }
 
 // ServerConfig holds configuration for creating a new Server
@@ -123,6 +126,8 @@ type ServerConfig struct {
 	ConnectClient   connect.Client
 	ConnectChecker  *connect.EntitlementChecker
 	EmailSender     EmailSender
+	OIDCHandler     http.Handler
+	OIDCAdminHandler *handlers.OIDCHandler
 }
 
 // JobQueue interface for job queue operations
@@ -203,6 +208,8 @@ func NewServer(cfg ServerConfig) *Server {
 		connectClient:   cfg.ConnectClient,
 		connectChecker:  cfg.ConnectChecker,
 		emailSender:     cfg.EmailSender,
+		oidcHandler:     cfg.OIDCHandler,
+		oidcAdminHandler: cfg.OIDCAdminHandler,
 	}
 
 	staticFS, staticSource, err := loadStaticFS()

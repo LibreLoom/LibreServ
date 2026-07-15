@@ -202,13 +202,12 @@ features:
     - windows
   min_ram: 64
   min_cpu: 1
-  access_model: integrated_users
+  access_model: internal
   backup: supported
   update_behavior:
     automatic: false
     requires_downtime: true
     supports_rollback: true
-  sso: true
   custom_domains: true
   resource_hints:
     single_instance: true

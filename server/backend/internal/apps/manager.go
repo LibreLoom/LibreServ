@@ -436,6 +436,10 @@ func (m *Manager) StartInstalledApps(ctx context.Context) {
 func (m *Manager) GetInstaller() *Installer {
 	return m.installer
 }
+// SetOIDCProvisioner wires a callback to provision OIDC credentials during app install.
+func (m *Manager) SetOIDCProvisioner(fn func(instanceID, appName string) (clientID, clientSecret, issuerURL string, err error)) {
+	m.installer.SetOIDCProvisioner(fn)
+}
 
 // GetScriptExecutor returns the script executor
 func (m *Manager) GetScriptExecutor() *ScriptExecutor {

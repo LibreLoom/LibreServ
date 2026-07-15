@@ -41,6 +41,7 @@ import FeatureMatrix from "../components/app/FeatureMatrix";
 import LogsViewer from "../components/app/LogsViewer";
 import RevocationBanner from "../components/app/RevocationBanner";
 import AcknowledgeRevocationModal from "../components/app/AcknowledgeRevocationModal";
+import AccessControlSection from "../components/app/AccessControlSection";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");
@@ -702,6 +703,14 @@ export default function AppDetailPage() {
               <FeatureMatrix features={catalogFeatures} compact onPrimary />
             </Card>
           </section>
+
+          {catalogFeatures && (
+            <AccessControlSection
+              instanceId={app.id}
+              accessModel={catalogFeatures.access_model || "internal"}
+              appName={app.name}
+            />
+          )}
 
           {app.exposed_info && Object.keys(app.exposed_info).length > 0 && (
             <ExposedInfoCard info={app.exposed_info} />

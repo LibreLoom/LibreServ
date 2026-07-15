@@ -39,16 +39,17 @@ func (e *CaddyError) Unwrap() error {
 
 // Route represents a reverse proxy route
 type Route struct {
-	ID        string    `json:"id"`
-	Subdomain string    `json:"subdomain"` // e.g., "nextcloud"
-	Domain    string    `json:"domain"`    // e.g., "example.com"
-	Backend   string    `json:"backend"`   // e.g., "http://localhost:8080"
-	AppID     string    `json:"app_id"`    // Reference to the app
-	SSL       bool      `json:"ssl"`       // Enable HTTPS
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Comment   string    `json:"comment,omitempty"`
+	ID                string    `json:"id"`
+	Subdomain         string    `json:"subdomain"`          // e.g., "nextcloud"
+	Domain            string    `json:"domain"`              // e.g., "example.com"
+	Backend           string    `json:"backend"`             // e.g., "http://localhost:8080"
+	AppID             string    `json:"app_id"`              // Reference to the app
+	SSL               bool      `json:"ssl"`                 // Enable HTTPS
+	Enabled           bool      `json:"enabled"`
+	RestrictedAccess  bool      `json:"restricted_access"`   // If true, Caddy forward_auth to LibreServ
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	Comment           string    `json:"comment,omitempty"`
 }
 
 // FullDomain returns the complete domain name
@@ -84,6 +85,8 @@ type CaddyConfig struct {
 	Reload CaddyReloadConfig `yaml:"reload" json:"reload"`
 	// Logging controls per-site access logging in the generated Caddyfile.
 	Logging CaddyLoggingConfig `yaml:"logging" json:"logging"`
+	// AuthPort is the LibreServ API port, used for forward_auth in Caddy.
+	AuthPort int `yaml:"auth_port" json:"auth_port"`
 }
 
 // CaddyReloadConfig controls reload retries/backoff.

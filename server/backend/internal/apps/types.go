@@ -136,11 +136,9 @@ type AppFeatures struct {
 	MinRAM        int      `yaml:"min_ram,omitempty" json:"min_ram,omitempty"`
 	MinCPU        int      `yaml:"min_cpu,omitempty" json:"min_cpu,omitempty"`
 
-	// Feature Matrix (v2 design)
-	AccessModel    AccessModel    `yaml:"access_model,omitempty" json:"access_model,omitempty"`
+	AccessModel   AccessModel    `yaml:"access_model,omitempty" json:"access_model,omitempty"`
 	Backup         FeatureSupport `yaml:"backup,omitempty" json:"backup,omitempty"`
 	UpdateBehavior UpdateBehavior `yaml:"update_behavior,omitempty" json:"update_behavior,omitempty"`
-	SSO            bool           `yaml:"sso,omitempty" json:"sso,omitempty"`
 	CustomDomains  bool           `yaml:"custom_domains,omitempty" json:"custom_domains,omitempty"`
 	ResourceHints  ResourceHints  `yaml:"resource_hints,omitempty" json:"resource_hints,omitempty"`
 }
@@ -560,14 +558,19 @@ type RuntimeInfo struct {
 	ProjectName string `json:"project_name"`
 }
 
-// AccessModel defines how users access this app
+// AccessModel defines how LibreServ handles authentication for an app.
+//
+// "internal" — LibreServ is the OIDC Identity Provider. The app authenticates
+// users via OIDC against LibreServ's user store. Access is controlled by
+// LibreServ user permissions. App must support OIDC (e.g. Nextcloud, ConvertX).
+//
+// "external" — LibreServ just reverse-proxies. The app manages its own auth
+// entirely. LibreServ does not gate access or propagate identity.
 type AccessModel string
 
 const (
-	AccessModelSharedAccount   AccessModel = "shared_account"
-	AccessModelIntegratedUsers AccessModel = "integrated_users"
-	AccessModelExternalAuth    AccessModel = "external_auth"
-	AccessModelPublic          AccessModel = "public"
+	AccessModelInternal AccessModel = "internal"
+	AccessModelExternal AccessModel = "external"
 )
 
 // FeatureSupport indicates whether a feature is supported
@@ -594,14 +597,13 @@ type ResourceHints struct {
 // GetDefaultFeatures returns the default feature set for apps that don't declare features
 func GetDefaultFeatures() AppFeatures {
 	return AppFeatures{
-		AccessModel: AccessModelIntegratedUsers,
+		AccessModel: AccessModelInternal,
 		Backup:      FeatureSupported,
 		UpdateBehavior: UpdateBehavior{
 			Automatic:        false,
 			RequiresDowntime: true,
 			SupportsRollback: false,
 		},
-		SSO:           true,
 		CustomDomains: true,
 		ResourceHints: ResourceHints{
 			SingleInstance:     false,

@@ -1,10 +1,6 @@
 import { memo } from "react";
 import {
-  Users,
-  UserCircle,
-  Globe,
   ExternalLink,
-  Lock,
   Database,
   LayoutTemplate,
   RefreshCw,
@@ -21,29 +17,17 @@ import {
 } from "lucide-react";
 
 const ACCESS_MODELS = {
-  shared_account: {
-    icon: Users,
-    label: "Shared Account",
-    desc: "All users share one login",
-    tone: "warning",
-  },
-  integrated_users: {
-    icon: UserCircle,
-    label: "LibreServ Accounts",
-    desc: "Uses LibreServ user management",
+  internal: {
+    icon: ShieldCheck,
+    label: "LibreServ SSO",
+    desc: "Users sign in with their LibreServ account",
     tone: "success",
   },
-  external_auth: {
+  external: {
     icon: ExternalLink,
-    label: "Separate Accounts",
-    desc: "Manages its own users internally",
+    label: "Separate Sign-in",
+    desc: "This app manages its own logins",
     tone: "neutral",
-  },
-  public: {
-    icon: Globe,
-    label: "Public Access",
-    desc: "No authentication required",
-    tone: "info",
   },
 };
 
@@ -63,7 +47,7 @@ function getToneStyles(onPrimary) {
 /** @param {{ model: any, compact?: boolean, onPrimary?: boolean }} _ */
 function AccessModel({ model, compact, onPrimary = false }) {
   const tone = getToneStyles(onPrimary);
-  const info = ACCESS_MODELS[model] || ACCESS_MODELS.integrated_users;
+  const info = ACCESS_MODELS[model] || ACCESS_MODELS.internal;
   const Icon = info.icon;
   const style = tone[info.tone];
   const labelDim = onPrimary ? "text-secondary/70" : "text-primary/50";
@@ -334,14 +318,7 @@ function FeatureMatrix({ features, compact = false, className = "", onPrimary = 
     return (
       <div className={className}>
         <div className="grid grid-cols-2 gap-y-3 gap-x-4">
-          <AccessModel model={features.access_model || "integrated_users"} compact onPrimary={onPrimary} />
-          <BooleanFeature
-            icon={Lock}
-            label="SSO"
-            value={features.sso}
-            compact
-            onPrimary={onPrimary}
-          />
+          <AccessModel model={features.access_model || "internal"} compact onPrimary={onPrimary} />
           <BooleanFeature
             icon={Database}
             label="Backup"
@@ -363,15 +340,9 @@ function FeatureMatrix({ features, compact = false, className = "", onPrimary = 
 
   return (
     <div className={`space-y-4 ${className}`}>
-      <AccessModel model={features.access_model || "integrated_users"} onPrimary={onPrimary} />
+      <AccessModel model={features.access_model || "internal"} onPrimary={onPrimary} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <BooleanFeature
-          icon={Lock}
-          label="Single Sign-On"
-          value={features.sso}
-          onPrimary={onPrimary}
-        />
         <BooleanFeature
           icon={Database}
           label="Backup Support"

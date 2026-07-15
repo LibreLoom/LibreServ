@@ -30,6 +30,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network/bluetooth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/oidc"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
@@ -173,6 +174,7 @@ func main() {
 			Format: cfg.Network.Caddy.Logging.Format,
 			Level:  cfg.Network.Caddy.Logging.Level,
 		},
+		AuthPort: cfg.Server.Port,
 	})
 	if caddyManager != nil {
 		if err := caddyManager.Initialize(context.Background()); err != nil {
@@ -379,6 +381,26 @@ func main() {
 	connectChecker := connect.NewEntitlementChecker(connectClient)
 	connectChecker.Refresh()
 
+	// OIDC Provider: LibreServ acts as an OIDC Identity Provider for apps
+	// with access_model = "internal". The issuer URL is derived from the
+	// Caddy default domain (or localhost in dev).
+	issuerURL := fmt.Sprintf("http://%s:%d", cfg.Server.Host, cfg.Server.Port)
+	if d := cfg.Network.Caddy.DefaultDomain; d != "" {
+		issuerURL = "https://" + d
+	}
+	oidcStorage := oidc.NewStorageWithAuthService(db, authService, cfg.Auth.CloudEncryptionKey, slog.Default())
+	oidcHandler, err := oidc.NewProvider(oidcStorage, issuerURL, slog.Default())
+	if err != nil {
+		slog.Warn("failed to initialize OIDC provider", "error", err)
+	}
+	oidcAdminHandler := handlers.NewOIDCHandler(db, appManager, authService, issuerURL, slog.Default())
+	// Wire OIDC auto-provisioning for internal-access apps during install.
+	appManager.SetOIDCProvisioner(func(instanceID, appName string) (string, string, string, error) {
+		redirectURIs := []string{fmt.Sprintf("https://%s/callback", appName)}
+		cid, secret, err := handlers.ProvisionOIDCClient(db, instanceID, appName, redirectURIs, issuerURL, slog.Default())
+		return cid, secret, issuerURL, err
+	})
+
 	server := api.NewServer(api.ServerConfig{
 		Host:            cfg.Server.Host,
 		Port:            cfg.Server.Port,
@@ -400,6 +422,8 @@ func main() {
 		ConnectClient:   connectClient,
 		ConnectChecker:  connectChecker,
 		EmailSender:     mfaEmail,
+		OIDCHandler:     oidcHandler,
+		OIDCAdminHandler: oidcAdminHandler,
 	}).WithJobQueue(jobQueue)
 
 	bluetooth.SetRouter(server.Router())

@@ -39,6 +39,7 @@ type Installer struct {
 	cleanupRoute    func(ctx context.Context, appID string) error
 	domainConfig    *DomainConfig // Temporary storage during install (used synchronously in Install())
 	serverCtx       ServerContext
+	oidcProvisioner func(instanceID, appName string) (clientID, clientSecret, issuerURL string, err error)
 
 	installOutputsMu sync.Mutex
 	installOutputs   map[string]chan ScriptOutput
@@ -87,6 +88,10 @@ func (i *Installer) ClearDomainConfig() {
 // SetServerContext sets the server-level configuration context for template and script injection.
 func (i *Installer) SetServerContext(ctx ServerContext) {
 	i.serverCtx = ctx
+}
+// SetOIDCProvisioner wires a callback to provision OIDC credentials during app install.
+func (i *Installer) SetOIDCProvisioner(fn func(instanceID, appName string) (clientID, clientSecret, issuerURL string, err error)) {
+	i.oidcProvisioner = fn
 }
 
 // GetInstallOutputChannel returns the output channel for an active install, or nil if none exists.
@@ -191,6 +196,23 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	}
 
 	config = i.generateAutoValues(appDef, config)
+	// Auto-provision OIDC credentials for internal-access apps
+	if appDef.Features.AccessModel == AccessModelInternal && i.oidcProvisioner != nil {
+		appName := opts.Name
+		if appName == "" {
+			appName = appDef.Name
+		}
+		redirectURIs := []string{fmt.Sprintf("https://%s/callback", appName)}
+		clientID, clientSecret, issuerURL, err := i.oidcProvisioner(instanceID, appName)
+		if err != nil {
+			i.logger.Warn("Failed to provision OIDC client", "error", err, "instance_id", instanceID)
+		} else {
+			config["oidc_client_id"] = clientID
+			config["oidc_client_secret"] = clientSecret
+			config["oidc_issuer"] = issuerURL
+			config["oidc_redirect_uris"] = strings.Join(redirectURIs, ",")
+		}
+	}
 
 	// Auto-allocate ports for port-type config fields
 	if i.portManager != nil {

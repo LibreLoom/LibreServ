@@ -133,6 +133,22 @@ func (s *Server) setupRoutes() {
 
 		// API version info endpoint
 		r.Get("/api/version", healthHandler.Version)
+
+		// OIDC Provider endpoints — served publicly. The provider handler
+		// routes internally based on the request path, so we mount it at
+		// every path the zitadel/oidc library registers (see op.CreateRouter).
+		// Paths must match the discovery document exactly.
+		if s.oidcHandler != nil {
+			r.Handle("/.well-known/openid-configuration", s.oidcHandler)
+			r.Handle("/authorize", s.oidcHandler)
+			r.Handle("/authorize/*", s.oidcHandler) // covers /authorize/callback
+			r.Handle("/oauth/token", s.oidcHandler)
+			r.Handle("/oauth/introspect", s.oidcHandler)
+			r.Handle("/userinfo", s.oidcHandler)
+			r.Handle("/revoke", s.oidcHandler)
+			r.Handle("/end_session", s.oidcHandler)
+			r.Handle("/keys", s.oidcHandler)
+		}
 	})
 
 	// API v1 routes
@@ -188,6 +204,12 @@ func (s *Server) setupRoutes() {
 			// Public catalog icon endpoint (for app icons)
 			r.Get("/catalog/{appId}/icon", catalogHandler.GetAppIcon)
 
+
+			// Forward-auth endpoint for Caddy — called before proxying to
+			// restricted-access apps. Validates session cookie, not JWT bearer.
+			if s.oidcAdminHandler != nil {
+				r.Get("/auth/forward-auth", s.oidcAdminHandler.ForwardAuth)
+			}
 		})
 
 		// CSRF-protected routes (authenticated users with CSRF tokens) - state-changing operations
@@ -273,6 +295,20 @@ func (s *Server) setupRoutes() {
 				r.Get("/{instanceId}/actions/{actionName}/stream", scriptsHandler.StreamAction)
 				r.Get("/{instanceId}/install/stream", scriptsHandler.StreamInstall)
 				r.Get("/{instanceId}/logs/stream", logsHandler.StreamLogs)
+
+				// OIDC client management (admin only)
+				if s.oidcAdminHandler != nil {
+					r.Route("/{instanceId}/oidc", func(r chi.Router) {
+						r.Get("/", s.oidcAdminHandler.GetOIDCClient)
+						r.Get("/access", s.oidcAdminHandler.ListAccess)
+						r.Post("/access", s.oidcAdminHandler.GrantAccess)
+						r.Delete("/access/{userId}", s.oidcAdminHandler.RevokeAccess)
+
+						// Restricted access toggle (for external apps)
+						r.Get("/restricted", s.oidcAdminHandler.GetRestrictedAccess)
+						r.Put("/restricted", s.oidcAdminHandler.ToggleRestrictedAccess)
+					})
+				}
 			})
 
 			// Monitoring - system health and metrics management

@@ -375,14 +375,11 @@ func TestAppRunTest_Features(t *testing.T) {
 	if f.Experimental != true {
 		t.Error("expected experimental = true")
 	}
-	if f.AccessModel != AccessModelIntegratedUsers {
-		t.Errorf("expected access_model = %q, got %q", AccessModelIntegratedUsers, f.AccessModel)
+	if f.AccessModel != AccessModelInternal {
+		t.Errorf("expected access_model = %q, got %q", AccessModelInternal, f.AccessModel)
 	}
 	if f.Backup != FeatureSupported {
 		t.Errorf("expected backup = %q, got %q", FeatureSupported, f.Backup)
-	}
-	if !f.SSO {
-		t.Error("expected sso = true")
 	}
 	if !f.CustomDomains {
 		t.Error("expected custom_domains = true")
@@ -1379,14 +1376,11 @@ func TestAppRunTest_ServerContextDefaults(t *testing.T) {
 
 func TestAppRunTest_DefaultFeatures(t *testing.T) {
 	defaults := GetDefaultFeatures()
-	if defaults.AccessModel != AccessModelIntegratedUsers {
-		t.Errorf("expected default access_model %q, got %q", AccessModelIntegratedUsers, defaults.AccessModel)
+	if defaults.AccessModel != AccessModelInternal {
+		t.Errorf("expected default access_model %q, got %q", AccessModelInternal, defaults.AccessModel)
 	}
 	if defaults.Backup != FeatureSupported {
 		t.Errorf("expected default backup %q, got %q", FeatureSupported, defaults.Backup)
-	}
-	if defaults.SSO != true {
-		t.Error("expected default SSO = true")
 	}
 	if defaults.CustomDomains != true {
 		t.Error("expected default custom_domains = true")

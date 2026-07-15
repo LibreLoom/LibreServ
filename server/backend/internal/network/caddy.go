@@ -38,13 +38,14 @@ type CaddyManager struct {
 }
 
 type routeView struct {
-	ID         string
-	FullDomain string
-	Backend    string
-	SSL        bool
-	Enabled    bool
-	TLSCert    string
-	TLSKey     string
+	ID                string
+	FullDomain        string
+	Backend           string
+	SSL               bool
+	Enabled           bool
+	RestrictedAccess  bool
+	TLSCert           string
+	TLSKey            string
 }
 
 type wildcardBlock struct {
@@ -643,6 +644,13 @@ http:// {
 {{range .Routes}}
 {{if .Enabled}}
 {{.FullDomain}} {
+	{{if .RestrictedAccess}}
+	# Access control — LibreServ checks the user's session before allowing access
+	forward_auth 127.0.0.1:{{$.AuthPort}} {
+		uri /api/v1/auth/forward-auth
+		copy_headers Remote-User Remote-Email Remote-Groups
+	}
+	{{end}}
 	reverse_proxy {{.Backend}}
 	{{if .SSL}}
 	{{if .TLSCert}}
@@ -697,11 +705,12 @@ http:// {
 	views := make([]routeView, 0, len(routes))
 	for _, r := range routes {
 		v := routeView{
-			ID:         r.ID,
-			FullDomain: r.FullDomain(),
-			Backend:    r.Backend,
-			SSL:        r.SSL,
-			Enabled:    r.Enabled,
+			ID:               r.ID,
+			FullDomain:       r.FullDomain(),
+			Backend:          r.Backend,
+			SSL:              r.SSL,
+			Enabled:          r.Enabled,
+			RestrictedAccess: r.RestrictedAccess,
 		}
 		if r.SSL {
 			if cert, key, ok := cm.manualTLSPaths(r.FullDomain()); ok {
@@ -721,6 +730,7 @@ http:// {
 		LogOutput      string
 		LogFormat      string
 		LogLevel       string
+		AuthPort       int
 	}{
 		Email:          cm.config.Email,
 		AutoHTTPS:      cm.config.AutoHTTPS,
@@ -730,6 +740,7 @@ http:// {
 		LogOutput:      cm.loggingOutput(),
 		LogFormat:      cm.loggingFormat(),
 		LogLevel:       strings.TrimSpace(cm.config.Logging.Level),
+		AuthPort:       cm.config.AuthPort,
 	}
 
 	var buf bytes.Buffer
@@ -1117,7 +1128,7 @@ func (cm *CaddyManager) restoreBackup() error {
 // loadRoutes loads routes from the database
 func (cm *CaddyManager) loadRoutes(ctx context.Context) error {
 	rows, err := cm.db.Query(`
-		SELECT id, subdomain, domain, backend, app_id, ssl, enabled, created_at, updated_at
+		SELECT id, subdomain, domain, backend, app_id, ssl, enabled, restricted_access, created_at, updated_at
 		FROM routes
 	`)
 	if err != nil {
@@ -1129,7 +1140,7 @@ func (cm *CaddyManager) loadRoutes(ctx context.Context) error {
 		var route Route
 		err := rows.Scan(
 			&route.ID, &route.Subdomain, &route.Domain, &route.Backend,
-			&route.AppID, &route.SSL, &route.Enabled, &route.CreatedAt, &route.UpdatedAt,
+			&route.AppID, &route.SSL, &route.Enabled, &route.RestrictedAccess, &route.CreatedAt, &route.UpdatedAt,
 		)
 		if err != nil {
 			continue
@@ -1157,18 +1168,18 @@ func (cm *CaddyManager) ApplyConfig() error {
 // saveRoute saves a route to the database
 func (cm *CaddyManager) saveRoute(ctx context.Context, route *Route) error {
 	_, err := cm.db.Exec(`
-		INSERT INTO routes (id, subdomain, domain, backend, app_id, ssl, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, route.ID, route.Subdomain, route.Domain, route.Backend, route.AppID, route.SSL, route.Enabled, route.CreatedAt, route.UpdatedAt)
+		INSERT INTO routes (id, subdomain, domain, backend, app_id, ssl, enabled, restricted_access, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, route.ID, route.Subdomain, route.Domain, route.Backend, route.AppID, route.SSL, route.Enabled, route.RestrictedAccess, route.CreatedAt, route.UpdatedAt)
 	return err
 }
 
 // updateRouteInDB updates a route in the database
 func (cm *CaddyManager) updateRouteInDB(ctx context.Context, route *Route) error {
 	_, err := cm.db.Exec(`
-		UPDATE routes SET backend = ?, enabled = ?, updated_at = ?
+		UPDATE routes SET backend = ?, enabled = ?, restricted_access = ?, updated_at = ?
 		WHERE id = ?
-	`, route.Backend, route.Enabled, route.UpdatedAt, route.ID)
+	`, route.Backend, route.Enabled, route.RestrictedAccess, route.UpdatedAt, route.ID)
 	return err
 }
 

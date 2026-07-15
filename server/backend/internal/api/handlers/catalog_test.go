@@ -41,7 +41,7 @@ category: productivity
 deployment:
   image: testapp:latest
 features:
-  access_model: self-hosted
+  access_model: internal
   requires_setup: false
   requires_domain: false
 `
@@ -63,7 +63,7 @@ category: development
 deployment:
   image: anotherapp:latest
 features:
-  access_model: self-hosted
+  access_model: external
   requires_setup: true
   requires_domain: true
 `
