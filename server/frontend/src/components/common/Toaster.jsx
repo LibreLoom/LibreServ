@@ -2,6 +2,7 @@ import { CheckCircle2, XCircle, Info, X, ChevronDown } from "lucide-react";
 import PropTypes from "prop-types";
 import { useState, useRef, useEffect } from "react";
 import { useToast } from "../../context/ToastContext";
+import { cn } from "@/lib/utils";
 
 const TYPE_CONFIG = {
   success: {
@@ -48,27 +49,29 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
   return (
     <div
       role="alert"
-      aria-live="polite"
-      className={`
-        flex items-start gap-3
-        min-w-[280px] ${expanded ? "max-w-[500px]" : "max-w-[380px]"}
-        bg-secondary text-primary
-        rounded-large-element
-        border border-primary/10
-        shadow-lg
-        p-3
-        ${toast.exiting ? "animate-toast-exit" : "animate-toast-enter"}
-        ${isTruncated ? "cursor-pointer hover:bg-primary/5" : ""}
-        transition-colors
-      `}
+      className={cn(
+        "flex items-start gap-3",
+        "min-w-[280px]",
+        expanded && "max-w-[500px]",
+        !expanded && "max-w-[380px]",
+        "bg-secondary text-primary",
+        "rounded-large-element",
+        "border border-primary/10",
+        "shadow-lg",
+        "p-3",
+        toast.exiting && "animate-toast-exit",
+        !toast.exiting && "animate-toast-enter",
+        isTruncated && "cursor-pointer hover:bg-primary/5",
+        "transition-colors",
+      )}
       onClick={handleToggle}
     >
       <div
-        className={`
-          flex-shrink-0 flex items-center justify-center
-          w-7 h-7 rounded-full
-          ${config.bgColorClass}
-        `}
+        className={cn(
+          "flex-shrink-0 flex items-center justify-center",
+          "w-7 h-7 rounded-full",
+          config.bgColorClass,
+        )}
       >
         <Icon size={16} className="text-primary" strokeWidth={2.5} />
       </div>
@@ -77,14 +80,14 @@ function Toast({ toast, onDismiss, onPause, onResume }) {
         <div className="flex items-center gap-1">
           <p
             ref={messageRef}
-            className={`font-mono text-sm font-medium text-primary ${expanded ? "" : "truncate"}`}
+            className={cn("font-mono text-sm font-medium text-primary", !expanded && "truncate")}
           >
             {toast.message}
           </p>
           {isTruncated && (
             <ChevronDown
               size={14}
-              className={`text-primary/30 transition-transform ${expanded ? "rotate-180" : ""}`}
+              className={cn("text-primary/30 transition-transform", expanded && "rotate-180")}
             />
           )}
         </div>
@@ -128,6 +131,7 @@ export default function Toaster() {
   return (
     <div
       className="fixed top-4 right-6 z-[9999] flex flex-col gap-2 pointer-events-auto"
+      data-slot="toaster"
       role="region"
       aria-label="Notifications"
     >

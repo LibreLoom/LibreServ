@@ -1,5 +1,6 @@
 import { memo, useState } from "react";
-import { Layers, ExternalLink } from "lucide-react";
+import { ExternalLink } from "lucide-react";
+import Button from "../ui/Button";
 import FeatureMatrixModal from "./FeatureMatrixModal";
 
 function FeatureMatrixPill({ appId, className = "" }) {
@@ -7,13 +8,16 @@ function FeatureMatrixPill({ appId, className = "" }) {
 
   return (
     <>
-      <button
+      <Button
+        variant="outline"
+        surface="secondary"
+        fullWidth
         onClick={() => setShowModal(true)}
-        className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill border-2 border-accent/30 text-accent hover:bg-accent/10 motion-safe:transition-all font-mono text-sm ${className}`}
+        className={className}
       >
         <ExternalLink size={14} />
         View Integration
-      </button>
+      </Button>
 
       {showModal && (
         <FeatureMatrixModal appId={appId} onClose={() => setShowModal(false)} />

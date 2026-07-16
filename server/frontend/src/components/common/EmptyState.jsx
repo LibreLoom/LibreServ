@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import PropTypes from "prop-types";
 
 export default function EmptyState({
@@ -9,7 +10,8 @@ export default function EmptyState({
 }) {
   return (
     <div
-      className={`flex flex-col items-center justify-center py-8 px-4 text-center ${className}`}
+      className={cn("flex flex-col items-center justify-center py-8 px-4 text-center", className)}
+      data-slot="empty-state"
     >
       {Icon && (
         <div className="mb-3">

@@ -9,6 +9,7 @@ import SubdomainStep from "./SubdomainStep";
 import NoDomainWarningStep from "./NoDomainWarningStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
+import { cn } from "@/lib/utils";
 
 /**
  * @param {{ appId: any, initialInstanceId?: string }} _
@@ -250,8 +251,8 @@ function InstallWizard({ appId, initialInstanceId }) {
   }
 
   return (
-    <div className="space-y-8">
-      <div className={`transition-all duration-300 delay-75 ${showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"}`}>
+    <div className="space-y-8" data-slot="install-wizard">
+      <div className={cn("transition-all duration-300 delay-75", showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2")}>
         <WizardStepper currentStep={step} hasSubdomainStep={hasSubdomainStep} />
       </div>
 
@@ -259,7 +260,7 @@ function InstallWizard({ appId, initialInstanceId }) {
         {step === 1 && (
           <div
             key={`step-1-${animationDirection}`}
-            className={`animate-in duration-300 ${animationDirection === "initial" ? "slide-in-from-bottom-4" : animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+            className={cn("animate-in duration-300", animationDirection === "initial" ? "slide-in-from-bottom-4" : animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop")}
           >
             <OverviewStep
               app={app}
@@ -273,7 +274,7 @@ function InstallWizard({ appId, initialInstanceId }) {
         {step === 2 && (
           <div
             key={`step-2-${animationDirection}`}
-            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+            className={cn("animate-in duration-300", animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop")}
           >
             <ConfigureStep
               app={app}
@@ -288,7 +289,7 @@ function InstallWizard({ appId, initialInstanceId }) {
         {step === 3 && !hasSubdomainStep && (
           <div
             key={`step-3-${animationDirection}`}
-            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+            className={cn("animate-in duration-300", animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop")}
           >
             <NoDomainWarningStep
               app={app}
@@ -301,7 +302,7 @@ function InstallWizard({ appId, initialInstanceId }) {
         {step === 3 && hasSubdomainStep && (
           <div
             key={`step-3-${animationDirection}`}
-            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+            className={cn("animate-in duration-300", animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop")}
           >
             <SubdomainStep
               app={app}
@@ -317,7 +318,7 @@ function InstallWizard({ appId, initialInstanceId }) {
         {step === progressStep && (
           <div
             key={`step-${progressStep}-${animationDirection}`}
-            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+            className={cn("animate-in duration-300", animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop")}
           >
             <ProgressStep
               instanceId={instance?.id}
@@ -330,7 +331,7 @@ function InstallWizard({ appId, initialInstanceId }) {
         {step === completeStep && (
           <div
             key={`step-${completeStep}-${animationDirection}`}
-            className={`animate-in duration-300 ${animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop"}`}
+            className={cn("animate-in duration-300", animationDirection === "right" ? "slide-in-from-right-pop" : "slide-in-from-left-pop")}
           >
             <CompleteStep app={app} instance={instance} onDone={handleDone} />
           </div>

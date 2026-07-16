@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useMemo, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, Globe, AlertTriangle, Mail, Wifi, WifiOff, Shield, ArrowDown, ShieldCheck } from "lucide-react";
@@ -42,7 +43,7 @@ const WIZARD_INPUT_CLASS =
 // ─── Full-screen shell (bg-primary = page background) ────────────────────────
 function SetupShell({ children }) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-primary px-4 py-12">
+    <div data-slot="setup-page" className="min-h-screen flex flex-col items-center justify-center bg-primary px-4 py-12">
       {children}
     </div>
   );
@@ -69,14 +70,14 @@ function SetupCard({ children, className = "", header = null }) {
   return (
     <div
       ref={outerRef}
-      className="w-full max-w-md bg-secondary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      className="w-full max-w-md bg-secondary text-primary rounded-large-element shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
       <div ref={innerRef} className="px-10 py-10">
         {header}
         <div
           key={tKey}
-          className={`${className} animate-in duration-300 ${direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop"}`}
+          className={cn(className, "animate-in duration-300", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
         >
           {children}
         </div>
@@ -100,14 +101,7 @@ function StepDots({ current }) {
     <div className="flex items-center gap-2 mb-8">
       {VISIBLE_STEPS.map((s, i) => (
         <div
-          key={s}
-          className={`rounded-full motion-safe:transition-all motion-safe:duration-300 ${
-            i === idx
-              ? "w-5 h-2 bg-primary"
-              : i < idx
-              ? "w-2 h-2 bg-primary/40"
-              : "w-2 h-2 bg-primary/15"
-          }`}
+          className={cn("rounded-full motion-safe:transition-all motion-safe:duration-300", i === idx ? "w-5 h-2 bg-primary" : i < idx ? "w-2 h-2 bg-primary/40" : "w-2 h-2 bg-primary/15")}
         />
       ))}
       <span className="ml-auto text-[11px] font-mono tracking-wider text-primary/30">
@@ -282,7 +276,7 @@ function SetupCodeStep({ onCodeVerified }) {
 
         <div className="w-full mb-6">
           <input
-            className={`${WIZARD_INPUT_CLASS} text-center text-2xl tracking-[0.3em]`}
+            className={cn(WIZARD_INPUT_CLASS, "text-center text-2xl tracking-[0.3em]")}
             placeholder="______"
             value={code}
             onChange={(e) => {
@@ -412,16 +406,10 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
 
   return (
     <div
-      className={`flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 motion-safe:transition-opacity motion-safe:duration-300 ${rerunning ? "opacity-45" : "opacity-100"} animate-in fade-in slide-in-from-bottom-2 duration-400`}
-      style={{ animationDelay: `${delay}ms` }}
-    >
+      className={cn("flex items-center gap-4 py-3.5 border-b border-primary/10 last:border-0 motion-safe:transition-opacity motion-safe:duration-300", rerunning ? "opacity-45" : "opacity-100", "animate-in fade-in slide-in-from-bottom-2 duration-400")}
+      style={{ animationDelay: `${delay}ms` }}>
       {/* Status icon */}
-      <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-300 ${
-        showEmpty             ? "bg-primary/10"
-        : (isOk && !showEmpty)  ? "bg-primary/15"
-        : (isFail && !showEmpty)? "bg-error/20"
-        :                         "bg-primary/10"
-      }`}>
+      <div className={cn("flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center motion-safe:transition-all motion-safe:duration-300", showEmpty ? "bg-primary/10" : (isOk && !showEmpty) ? "bg-primary/15" : (isFail && !showEmpty) ? "bg-error/20" : "bg-primary/10")}>
         {showEmpty ? (
           <Loader2 className="w-3.5 h-3.5 text-primary/60 animate-spin" />
         ) : isOk ? (
@@ -450,9 +438,7 @@ function PreflightRow({ name, check, delay, done, rerunning }) {
 
       {/* Pass/fail badge — keep visible while re-running so layout doesn't shift */}
       {(done || showPrev) && check && (
-        <span className={`flex-shrink-0 font-mono text-[10px] tracking-widest uppercase motion-safe:transition-opacity motion-safe:duration-300 ${
-          isOk ? "text-primary/30" : "text-error"
-        }`}>
+        <span className={cn("flex-shrink-0 font-mono text-[10px] tracking-widest uppercase motion-safe:transition-opacity motion-safe:duration-300", isOk ? "text-primary/30" : "text-error")}>
           {isOk ? "ok" : "fail"}
         </span>
       )}
@@ -633,7 +619,7 @@ function PreflightStep({ onPass }) {
               className="w-full inline-flex items-center justify-center rounded-pill border border-primary/20 bg-transparent text-primary py-3.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-50 animate-in fade-in slide-in-from-bottom-2 duration-300"
             >
               <span
-                className={`overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out ${running ? "w-5 mr-2" : "w-0 mr-0"}`}
+                className={cn("overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out", running ? "w-5 mr-2" : "w-0 mr-0")}
                 aria-hidden="true"
               >
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -671,9 +657,7 @@ function PasswordStrengthBar({ score }) {
       {[1, 2, 3, 4].map((lvl) => (
         <div
           key={lvl}
-          className={`h-1 flex-1 rounded-full motion-safe:transition-all motion-safe:duration-300 ${
-            lvl <= score ? STRENGTH_COLOR[score] : "bg-primary/15"
-          }`}
+          className={cn("h-1 flex-1 rounded-full motion-safe:transition-all motion-safe:duration-300", lvl <= score ? STRENGTH_COLOR[score] : "bg-primary/15")}
         />
       ))}
     </div>
@@ -809,7 +793,7 @@ function AccountStep({ onSuccess, onError }) {
                   onChange={handleChange}
                   disabled={submitting}
                   required
-                  className={`${WIZARD_INPUT_CLASS} pr-12`}
+                  className={cn(WIZARD_INPUT_CLASS, "pr-12")}
                 />
                 <button
                   type="button"
@@ -826,7 +810,7 @@ function AccountStep({ onSuccess, onError }) {
                 <div className="mt-1">
                   <PasswordStrengthBar score={strength.score} />
                   <div className="flex items-center justify-between mt-1.5">
-                    <p className={`text-xs font-mono ${STRENGTH_TEXT[strength.score]}`}>
+                    <p className={cn("text-xs font-mono", STRENGTH_TEXT[strength.score])}>
                       {STRENGTH_LABEL[strength.score]}
                     </p>
                     <div className="flex gap-3 text-xs text-primary/70">
@@ -985,10 +969,10 @@ DomainIntroStep.propTypes = {
 // ─── STEP: NAT Detection ──────────────────────────────────────────────────────
 function NatGroupBadge({ label, desc, icon: Icon, color }) {
   return (
-    <div className={`flex items-start gap-3 p-4 rounded-large-element border ${color}/20 bg-${color}/5`}>
-      <Icon className={`w-5 h-5 text-${color} mt-0.5 flex-shrink-0`} />
+    <div className={cn(`flex items-start gap-3 p-4 rounded-large-element border ${color}/20 bg-${color}/5`)}>
+      <Icon className={cn(`w-5 h-5 text-${color} mt-0.5 flex-shrink-0`)} />
       <div>
-        <p className={`font-mono text-sm text-${color}`}>{label}</p>
+        <p className={cn(`font-mono text-sm text-${color}`)}>{label}</p>
         <p className="text-xs text-primary/40 mt-1">{desc}</p>
       </div>
     </div>

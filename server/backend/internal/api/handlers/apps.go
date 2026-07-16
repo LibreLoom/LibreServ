@@ -92,9 +92,17 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate config against app definition
+	// Validate config against app definition using the manager's catalog
+	// (which includes repo-based apps), not the installer's local catalog.
+	catalog := h.manager.GetCatalog()
+	catalogApp, err := catalog.GetApp(req.AppID)
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, "We couldn't find that app in the catalog. It may have been removed.")
+		return
+	}
 	installer := h.manager.GetInstaller()
-	if err := installer.ValidateConfig(req.AppID, req.Config); err != nil {
+	if err := installer.ValidateConfigForApp(catalogApp, req.Config); err != nil {
+		slog.Error("Config validation failed", "app_id", req.AppID, "error", err)
 		JSONError(w, http.StatusBadRequest, "The app's configuration isn't valid. Please check your settings and try again.")
 		return
 	}
@@ -478,4 +486,56 @@ func (h *AppsHandler) ListAllocatedPorts(w http.ResponseWriter, r *http.Request)
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"ports": result,
 	})
+}
+
+// ReconfigureRequest is the request body for reconfiguring an installed app.
+// Only keys declared in the app's catalog Configuration schema are accepted;
+// unknown keys are silently dropped by the manager.
+type ReconfigureRequest struct {
+	Config map[string]interface{} `json:"config"`
+}
+
+// ReconfigureApp handles PUT /api/apps/{instanceId}/config
+// Updates an installed app's configuration and restarts it with the new settings.
+func (h *AppsHandler) ReconfigureApp(w http.ResponseWriter, r *http.Request) {
+	instanceID := chi.URLParam(r, "instanceId")
+	if instanceID == "" {
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which app to use. Please refresh and try again.")
+		return
+	}
+
+	var req ReconfigureRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
+		return
+	}
+
+	if req.Config == nil {
+		JSONError(w, http.StatusBadRequest, "Please provide the configuration settings to update.")
+		return
+	}
+
+	if err := h.manager.Reconfigure(r.Context(), instanceID, req.Config); err != nil {
+		slog.Error("App reconfigure failed", "instance_id", instanceID, "error", err)
+		if h.auditLog != nil {
+			h.auditLog.Log(r.Context(), "app.reconfigure", instanceID, "", "failure", err.Error(), nil)
+		}
+		JSONError(w, http.StatusInternalServerError, "We couldn't update this app's settings. "+err.Error())
+		return
+	}
+
+	if h.auditLog != nil {
+		h.auditLog.Log(r.Context(), "app.reconfigure", instanceID, "", "success", "App settings updated", nil)
+	}
+
+	// Return the updated app (redacted) so the frontend has fresh state.
+	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
+	if err != nil {
+		JSON(w, http.StatusOK, map[string]string{
+			"message":     "app reconfigured",
+			"instance_id": instanceID,
+		})
+		return
+	}
+	JSON(w, http.StatusOK, app.RedactForAPI())
 }

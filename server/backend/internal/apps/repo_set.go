@@ -33,7 +33,8 @@ type RepoSet struct {
 	stopCh       chan struct{}
 	stopOnce     sync.Once
 	started      bool
-	onRevocation func(ctx context.Context) error
+	onRevocation       func(ctx context.Context) error
+	onCatalogRefresh   func()
 }
 
 func NewRepoSet(logger *slog.Logger, configs []config.RepoConfig, basePath string, interval time.Duration) (*RepoSet, error) {
@@ -65,6 +66,10 @@ func NewRepoSet(logger *slog.Logger, configs []config.RepoConfig, basePath strin
 
 func (rs *RepoSet) SetRevocationCallback(fn func(ctx context.Context) error) {
 	rs.onRevocation = fn
+}
+
+func (rs *RepoSet) SetCatalogRefreshCallback(fn func()) {
+	rs.onCatalogRefresh = fn
 }
 
 func (rs *RepoSet) Start(ctx context.Context) error {
@@ -153,6 +158,10 @@ func (rs *RepoSet) PullAll(ctx context.Context) error {
 	rs.mu.Lock()
 	rs.rebuildCatalog()
 	rs.mu.Unlock()
+
+	if rs.onCatalogRefresh != nil {
+		rs.onCatalogRefresh()
+	}
 
 	if rs.onRevocation != nil {
 		if err := rs.onRevocation(ctx); err != nil {

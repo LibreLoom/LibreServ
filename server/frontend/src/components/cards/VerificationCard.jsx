@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import Card from "./Card";
@@ -88,7 +89,7 @@ export default function VerificationCard({
   }, [handleClose]);
 
   return (
-    <div className="fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-slot="verification-card">
       <div
         ref={dialogRef}
         role="alertdialog"
@@ -97,12 +98,12 @@ export default function VerificationCard({
         aria-describedby={messageId}
         className="max-w-md w-full"
       >
-        <Card className={`relative ${isClosing ? "pop-out" : ""}`}>
+        <Card className={cn("relative", isClosing && "pop-out")}>
           {/* Close button */}
              <button
                type="button"
                onClick={handleClose}
-               className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+              className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
                aria-label="Close"
                ref={closeButtonRef}
              >
@@ -137,18 +138,19 @@ export default function VerificationCard({
              <button
                type="button"
                onClick={handleClose}
-               className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+              className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
              >
               {cancelLabel}
             </button>
             <button
               type="button"
               onClick={handleConfirm}
-              className={`flex-1 px-4 py-2 rounded-pill font-medium text-sm motion-safe:transition-all hover:ring-2 focus-visible:ring-2 focus-visible:ring-offset-2 ${
-                variant === "danger"
-                  ? "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent focus-visible:ring-primary"
-                  : "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary focus-visible:ring-accent"
-              }`}
+            className={cn(
+              "flex-1 px-4 py-2 rounded-pill font-medium text-sm motion-safe:transition-all hover:ring-2 focus-visible:ring-2 focus-visible:ring-offset-2",
+              variant === "danger"
+                ? "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent focus-visible:ring-primary"
+                : "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary focus-visible:ring-accent",
+            )}
             >
               {confirmLabel}
             </button>

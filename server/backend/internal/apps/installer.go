@@ -39,7 +39,7 @@ type Installer struct {
 	cleanupRoute    func(ctx context.Context, appID string) error
 	domainConfig    *DomainConfig // Temporary storage during install (used synchronously in Install())
 	serverCtx       ServerContext
-	oidcProvisioner func(instanceID, appName string) (clientID, clientSecret, issuerURL string, err error)
+	oidcProvisioner func(instanceID, appName, redirectPath string) (clientID, clientSecret, issuerURL string, err error)
 
 	installOutputsMu sync.Mutex
 	installOutputs   map[string]chan ScriptOutput
@@ -63,6 +63,13 @@ func NewInstaller(catalog *Catalog, runtime runtime.ContainerRuntime, db *databa
 // SetCatalogPath sets the catalog path for the installer
 func (i *Installer) SetCatalogPath(catalogPath string) {
 	i.catalogPath = catalogPath
+}
+
+// SetCatalog updates the installer's catalog reference. This is called by
+// the Manager when repo-based apps are loaded, so the installer can find
+// apps that only exist in repo catalogs (not the local catalog).
+func (i *Installer) SetCatalog(catalog *Catalog) {
+	i.catalog = catalog
 }
 
 // SetBackendRegistrar wires a callback used to register the reachable backend for an app (for ACME).
@@ -91,7 +98,8 @@ func (i *Installer) SetServerContext(ctx ServerContext) {
 }
 
 // SetOIDCProvisioner wires a callback to provision OIDC credentials during app install.
-func (i *Installer) SetOIDCProvisioner(fn func(instanceID, appName string) (clientID, clientSecret, issuerURL string, err error)) {
+// The redirectPath comes from the app's oidc_redirect_path field (defaults to /callback).
+func (i *Installer) SetOIDCProvisioner(fn func(instanceID, appName, redirectPath string) (clientID, clientSecret, issuerURL string, err error)) {
 	i.oidcProvisioner = fn
 }
 
@@ -203,8 +211,12 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 		if appName == "" {
 			appName = appDef.Name
 		}
-		redirectURIs := []string{fmt.Sprintf("https://%s/callback", appName)}
-		clientID, clientSecret, issuerURL, err := i.oidcProvisioner(instanceID, appName)
+		redirectPath := appDef.OIDCRedirectPath
+		if redirectPath == "" {
+			redirectPath = "/callback"
+		}
+		redirectURIs := []string{fmt.Sprintf("https://%s%s", appName, redirectPath)}
+		clientID, clientSecret, issuerURL, err := i.oidcProvisioner(instanceID, appName, redirectPath)
 		if err != nil {
 			i.logger.Warn("Failed to provision OIDC client", "error", err, "instance_id", instanceID)
 		} else {
@@ -937,6 +949,25 @@ func (i *Installer) ValidateConfig(appID string, config map[string]interface{}) 
 		}
 	}
 
+	return nil
+}
+
+// ValidateConfigForApp validates user configuration against a specific app
+// definition. This is used when the caller has already resolved the app
+// definition from the correct catalog (e.g. the repo catalog), bypassing
+// the installer's local catalog which may be stale.
+func (i *Installer) ValidateConfigForApp(appDef *AppDefinition, config map[string]interface{}) error {
+	for _, field := range appDef.Configuration {
+		value, exists := config[field.Name]
+		if field.Required && (!exists || value == nil || value == "") {
+			return fmt.Errorf("required field '%s' is missing", field.Label)
+		}
+		if exists {
+			if err := validateField(field, value); err != nil {
+				return fmt.Errorf("field %s: %w", field.Name, err)
+			}
+		}
+	}
 	return nil
 }
 

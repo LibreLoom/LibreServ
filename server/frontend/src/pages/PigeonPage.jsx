@@ -1,27 +1,22 @@
 import { ArrowLeft } from "lucide-react";
 import Card from "../components/cards/Card";
 import CardButton from "../components/cards/CardButton";
-import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
 import pigeonImg from "../assets/pigeon.jpg";
 
 export default function PigeonPage() {
   return (
-    <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
-      id="main-content"
-      tabIndex={-1}
+    <Page
+      title="A Wild Pigeon Appears"
+      headerClassName="mb-10"
+      bottomContent={
+        <p className="text-lg text-primary font-semibold">
+          You followed the clipboard. The pigeon was waiting.
+        </p>
+      }
     >
-      {/* Header */}
-      <header className="mb-10">
-        <HeaderCard title="A Wild Pigeon Appears">
-          <p className="text-lg text-primary font-semibold">
-            You followed the clipboard. The pigeon was waiting.
-          </p>
-        </HeaderCard>
-      </header>
-
       {/* Content */}
-      <section aria-label="Pigeon">
+      <section aria-label="Pigeon" data-slot="pigeon">
         <Card>
           <img
             src={pigeonImg}
@@ -39,6 +34,6 @@ export default function PigeonPage() {
           </div>
         </Card>
       </section>
-    </main>
+    </Page>
   );
 }

@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { memo } from "react";
 import { AlertTriangle, Info, HardDrive, Cpu, MemoryStick } from "lucide-react";
 import AppIcon from "../../common/AppIcon";
@@ -38,10 +39,7 @@ const ACCESS_MODEL_INFO = {
 function RequirementBadge({ icon: Icon, label, value, warning }) {
   return (
     <div
-      className={`
-        flex items-center gap-2 px-3 py-2 rounded-large-element
-        ${warning ? "bg-secondary/20 text-secondary" : "bg-secondary/10 text-secondary"}
-      `}
+      className={cn("flex items-center gap-2 px-3 py-2 rounded-large-element", warning ? "bg-secondary/20 text-secondary" : "bg-secondary/10 text-secondary")}
     >
       <Icon size={16} aria-hidden="true" />
       <span className="text-xs font-mono">{label}:</span>
@@ -60,7 +58,7 @@ function FeatureWarning({ info }) {
 
   return (
     <div
-      className={`flex items-start gap-3 p-4 rounded-large-element border ${bgColor}`}
+      className={cn("flex items-start gap-3 p-4 rounded-large-element border", bgColor)}
       role="note"
     >
       <Icon
@@ -108,7 +106,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
       {features && (
         <div className="max-w-2xl mx-auto">
           <div className="border-t border-secondary/20 pt-6">
-            <div className="bg-secondary rounded-large-element p-5">
+            <div className="bg-secondary text-primary rounded-large-element p-5">
               <FeatureMatrix features={features} />
             </div>
           </div>

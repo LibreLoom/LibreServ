@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { ShieldAlert, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 import Card from "../cards/Card";
@@ -12,7 +13,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
       : "previously";
     return (
       <div className="mb-8">
-        <Card className={`border-2 ${isMalicious ? "border-error/50 bg-error/5" : "border-warning/50 bg-warning/5"}`}>
+        <Card className={cn("border-2", isMalicious ? "border-error/50 bg-error/5" : "border-warning/50 bg-warning/5")} data-slot="revocation-banner">
           <div className="flex items-center gap-3">
             <AlertTriangle size={18} className={isMalicious ? "text-error" : "text-warning"} />
             <p className="text-sm text-primary/70">
@@ -26,8 +27,8 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
 
   return (
     <div className="mb-8">
-      <Card className={`border-2 ${isMalicious ? "border-error/50" : "border-warning/50"}`}>
-        <div className={`p-4 rounded-large-element ${isMalicious ? "bg-error/10" : "bg-warning/10"}`}>
+      <Card className={cn("border-2", isMalicious ? "border-error/50" : "border-warning/50")}>
+        <div className={cn("p-4 rounded-large-element", isMalicious ? "bg-error/10" : "bg-warning/10")}>
           <div className="flex items-start gap-3">
             {isMalicious ? (
               <ShieldAlert size={24} className="text-error shrink-0 mt-0.5" />
@@ -35,7 +36,7 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
               <AlertTriangle size={24} className="text-warning shrink-0 mt-0.5" />
             )}
             <div className="flex-1">
-              <h2 className={`text-lg font-mono font-normal ${isMalicious ? "text-error" : "text-warning"}`}>
+              <h2 className={cn("text-lg font-mono font-normal", isMalicious ? "text-error" : "text-warning")}>
                 {isMalicious ? "Security Warning" : "Version Recalled"}
               </h2>
               <p className="text-sm text-primary/80 mt-1">

@@ -1,7 +1,8 @@
+import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { UserPlus, Mail } from "lucide-react";
-import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import AddUserForm from "../components/common/forms/AddUserForm";
 import InviteUserForm from "../components/common/forms/InviteUserForm";
@@ -13,24 +14,15 @@ export default function AddUserPage() {
   // "manual" = create the account here; "invite" = email an invitation link.
   const [mode, setMode] = useState("manual");
 
-  const tabClass = (active) =>
-    `flex items-center gap-2 px-4 py-2 rounded-pill text-sm motion-safe:transition-all ${
-      active
-        ? "bg-accent text-primary font-medium"
-        : "text-primary/60 hover:text-primary"
-    }`;
+  const tabClass = (active) => cn(
+    "flex items-center gap-2 px-4 py-2 rounded-pill text-sm motion-safe:transition-all",
+    active
+      ? "bg-accent text-primary font-medium"
+      : "text-secondary/80 hover:text-secondary",
+  );
 
   return (
-    <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
-      aria-labelledby="add-user-title"
-      id="main-content"
-      tabIndex={-1}
-    >
-      <header className="mb-6">
-        <HeaderCard id="add-user-title" title="Add User" />
-      </header>
-
+    <Page title="Add User" titleId="add-user-title" headerClassName="mb-6" data-slot="add-user">
       <Card className="max-w-lg mx-auto">
         {/* How to add this user: create manually, or (if email is set up) send an
             invitation so they set their own username + password. */}
@@ -46,7 +38,7 @@ export default function AddUserPage() {
             type="button"
             onClick={() => smtpConfigured && setMode("invite")}
             disabled={!smtpConfigured}
-            className={`${tabClass(mode === "invite")} disabled:opacity-40 disabled:cursor-not-allowed`}
+            className={cn(tabClass(mode === "invite"), "disabled:opacity-40 disabled:cursor-not-allowed")}
             title={smtpConfigured ? "Send an invitation by email" : "Set up email in Settings first"}
           >
             <Mail size={14} /> Send invitation
@@ -60,11 +52,11 @@ export default function AddUserPage() {
         )}
 
         {!smtpConfigured && (
-          <p className="text-xs text-primary/50 mt-6 text-center">
+          <p className="text-xs text-secondary/50 mt-6 text-center">
             Want to send an invitation instead? Set up email in Settings → Email first.
           </p>
         )}
       </Card>
-    </main>
+    </Page>
   );
 }

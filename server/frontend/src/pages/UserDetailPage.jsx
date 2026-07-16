@@ -1,13 +1,16 @@
+import { cn } from "@/lib/utils";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Card from "../components/cards/Card";
 import CardButton from "../components/cards/CardButton";
-import HeaderCard from "../components/cards/HeaderCard";
+import Button from "../components/ui/Button";
 import VerificationCard from "../components/cards/VerificationCard";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
+import StateOverlay from "../components/common/StateOverlay";
+import Page from "../components/ui/Page";
 import api from "../lib/api";
-import { User, Mail, Shield, Calendar, Edit2, Clock } from "lucide-react";
+import { User, Mail, Shield, Calendar, Clock } from "lucide-react";
 import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
 import RoleChangeForm from "../components/common/forms/RoleChangeForm";
 import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
@@ -106,9 +109,11 @@ export default function UserDetailPage() {
     <span className="inline-flex flex-wrap items-center justify-center gap-2">
       <span>User:</span>
       <span
-        className={`transition-all duration-300 ease-out ${
-          showName ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
-        } motion-reduce:transition-none`}
+        className={cn(
+          "transition-all duration-300 ease-out",
+          showName ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1",
+          "motion-reduce:transition-none",
+        )}
         aria-hidden={!showName}
       >
         {showName ? nameValue : ""}
@@ -130,43 +135,24 @@ export default function UserDetailPage() {
   }
 
   return (
-    <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
-      aria-labelledby="user-detail-title"
-      id="main-content"
-      tabIndex={-1}
+    <Page data-slot="user-detail"
+      title={userTitle}
+      titleId="user-detail-title"
+      leftContent={
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary text-secondary">
+          <User size={22} className="text-secondary" aria-hidden />
+        </span>
+      }
+      headerClassName="mb-10"
     >
-      {/* Header */}
-      <header className="mb-10">
-        <HeaderCard
-          id="user-detail-title"
-          title={userTitle}
-          leftContent={
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary">
-              <User size={22} className="text-secondary" aria-hidden />
-            </span>
-          }
-        />
-      </header>
-
       {loading && showLoading && (
-        <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
-          <Card className="w-[70vw] sm:w-[20vw]">
-            <div className="my-5 text-center" role="status" aria-live="polite">
-              <p>Loading user...</p>
-            </div>
-          </Card>
-        </div>
+        <StateOverlay message="Loading user..." />
       )}
 
       {error && (
-        <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
-          <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
-            <div className="my-5 text-center" role="status" aria-live="polite">
-              <p>Error: {error}</p>
-            </div>
-          </Card>
-        </div>
+        <StateOverlay kind="error">
+          <p>Error: {error}</p>
+        </StateOverlay>
       )}
 
       {/* User Details */}
@@ -231,38 +217,46 @@ export default function UserDetailPage() {
             {/* Ideas for more cards? */}
           </section>
           <section className="mt-6">
-            <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+            <Card surface="primary">
               <h2 className="text-2xl font-mono font-normal mb-6">
                 User Tools
               </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-                <button
+                <Button
+                  variant="secondary"
+                  fullWidth
                   onClick={() => setShowEditModal(true)}
-                  className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                  className="h-full"
                 >
                   <span className="text-sm font-medium">Change Email</span>
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  fullWidth
                   onClick={() => setShowRoleModal(true)}
-                  className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                  className="h-full"
                 >
                   <span className="text-sm font-medium">Change Role</span>
-                </button>
+                </Button>
                 {smtpConfigured && (
-                  <button
+                  <Button
+                    variant="secondary"
+                    fullWidth
                     onClick={() => setShowResetPasswordModal(true)}
-                    className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                    className="h-full"
                   >
                     <span className="text-sm font-medium">Reset Password</span>
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
+                  variant="accent"
+                  fullWidth
                   onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center justify-center gap-2 rounded-pill p-2 motion-safe:transition-all hover:ring-2 hover:ring-solid cursor-pointer bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 w-full h-full"
+                  className="h-full"
                 >
                   <span className="text-sm font-medium">Delete User</span>
-                </button>
+                </Button>
               </div>
             </Card>
           </section>
@@ -313,6 +307,6 @@ export default function UserDetailPage() {
           />
         </ModalCard>
       )}
-    </main>
+    </Page>
   );
 }

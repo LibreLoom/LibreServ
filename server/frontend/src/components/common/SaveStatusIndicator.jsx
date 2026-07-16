@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useEffect, useRef } from "react";
 import { Circle, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
@@ -69,12 +70,13 @@ export default function SaveStatusIndicator({
 
   return (
     <div
-      className={`
-        inline-flex items-center gap-1.5
-        font-mono text-xs
-        animate-in fade-in slide-in-from-top-1
-        duration-200
-      `}
+      className={cn(
+        "inline-flex items-center gap-1.5",
+        "font-mono text-xs",
+        "animate-in fade-in slide-in-from-top-1",
+        "duration-200",
+      )}
+      data-slot="save-status-indicator"
     >
       <Icon size={14} className={config.iconClass} />
       <span className={config.textClass}>{config.text}</span>

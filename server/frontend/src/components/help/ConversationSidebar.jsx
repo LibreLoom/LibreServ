@@ -12,6 +12,7 @@ function ConversationSidebar({
 }) {
   return (
     <Card
+      data-slot="help-conversation-sidebar"
       noHeightAnim
       noPopIn
       icon={MessageSquare}
@@ -20,7 +21,7 @@ function ConversationSidebar({
         <button
           type="button"
           onClick={onNewChat}
-          className="rounded-pill bg-primary text-secondary p-1.5 motion-safe:transition-all hover:ring-2 hover:ring-accent cursor-pointer focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-pill bg-primary text-secondary p-1.5 motion-safe:transition-all hover:ring-2 hover:ring-accent cursor-pointer focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
           aria-label="New conversation"
         >
           <Plus size={14} />
@@ -49,7 +50,7 @@ function ConversationSidebar({
           <button
             type="button"
             onClick={onOpenSettings}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-large-element text-sm font-mono text-primary/70 hover:bg-primary/5 hover:text-primary motion-safe:transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent"
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-large-element text-sm font-mono text-primary/70 hover:bg-primary/5 hover:text-primary motion-safe:transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
           >
             <Settings size={14} />
             Settings

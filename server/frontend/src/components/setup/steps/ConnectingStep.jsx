@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import StatusRow from "./StatusRow";
+import Callout from "../../common/Callout";
 
 export default function ConnectingStep({ domain, connectStatus, publicIP, applyError, onRetry, onSkip }) {
   const dnsDone        = connectStatus?.dns_records === "done";
@@ -45,11 +46,9 @@ export default function ConnectingStep({ domain, connectStatus, publicIP, applyE
       </div>
       {hasIssue && (
         <div className="mt-5 space-y-3">
-          <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10">
-            <p className="text-sm text-primary/80">
-              {applyError ?? "Certificate issuance is not available on this system. Please ensure either the certificate tool is installed or the container engine is running."}
-            </p>
-          </div>
+          <Callout tone="error">
+            {applyError ?? "Certificate issuance is not available on this system. Please ensure either the certificate tool is installed or the container engine is running."}
+          </Callout>
           <div className="flex gap-3">
             {!certUnavail && (
               <button

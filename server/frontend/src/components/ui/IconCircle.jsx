@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import PropTypes from "prop-types";
 
 const sizes = {
@@ -26,8 +27,9 @@ export default function IconCircle({
 
   return (
     <div
-      className={`rounded-pill flex items-center justify-center ${sizeConfig.container} ${variantClasses} ${className}`}
+      className={cn("rounded-pill flex items-center justify-center", sizeConfig.container, variantClasses, className)}
       {...props}
+      data-slot="icon-circle"
     >
       <IconComponent size={sizeConfig.icon} aria-hidden="true" />
     </div>

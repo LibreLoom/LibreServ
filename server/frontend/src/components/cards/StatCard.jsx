@@ -1,10 +1,12 @@
+import { cn } from "@/lib/utils";
 import { ArrowUpRight, Minus, ArrowDownRight } from "lucide-react";
 import IconCircle from "../ui/IconCircle";
+import Card from "./Card";
 import PropTypes from "prop-types";
 
 export default function StatCard({ icon: Icon, label, value, delta }) {
   return (
-    <div className="pop-in bg-secondary text-primary rounded-large-element p-6 flex items-center gap-5 motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] w-full h-fit">
+    <Card className={cn("flex items-center gap-5")} data-slot="stat-card">
       <IconCircle icon={Icon} size="lg" />
       <div>
         <div className="text-sm font-bold text-accent text-left">{label}</div>
@@ -24,7 +26,7 @@ export default function StatCard({ icon: Icon, label, value, delta }) {
           </div>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 

@@ -3,7 +3,7 @@ import SettingsCard from "../SettingsCard";
 
 export default function AboutCategory() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-slot="about-category">
       <SettingsCard icon={Heart} title="LibreServ" padding={false} index={0}>
         <div className="px-5 py-4">
           <p className="text-sm text-accent leading-relaxed">

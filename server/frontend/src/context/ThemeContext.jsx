@@ -10,6 +10,7 @@ function getSystemTheme() {
   return "light";
 }
 
+/* color-scan: ignore-file theme color default definitions */
 const DEFAULT_LIGHT_COLORS = {
   primary: "#ffffff",
   secondary: "#000000",
@@ -107,14 +108,24 @@ export function ThemeProvider({ children }) {
     if (!initializedRef.current) {
       initializedRef.current = true;
       root.dataset.noThemeTransition = "";
-      root.classList.toggle("dark", isDark);
     }
+
+    // Toggle .dark class for shadcn semantic tokens (instant, non-animated)
+    root.classList.toggle("dark", isDark);
 
     root.dataset.themeTransitioning = "";
     root.style.colorScheme = isDark ? "dark" : "light";
     root.style.setProperty("--primary", target.primary);
     root.style.setProperty("--secondary", target.secondary);
     root.style.setProperty("--accent", target.accent);
+
+    // Set shadcn semantic tokens inline (instant swap, not animated by @property)
+    root.style.setProperty("--background", target.primary);
+    root.style.setProperty("--foreground", target.secondary);
+    root.style.setProperty("--card", target.secondary);
+    root.style.setProperty("--card-foreground", target.primary);
+    root.style.setProperty("--popover", target.secondary);
+    root.style.setProperty("--popover-foreground", target.primary);
 
     let rafId;
     if ("noThemeTransition" in root.dataset) {

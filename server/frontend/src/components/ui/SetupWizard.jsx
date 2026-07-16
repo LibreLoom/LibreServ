@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -74,20 +75,18 @@ export default function SetupWizard({
 
   return createPortal(
     <div
-      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4 animate-in fade-in duration-200 ${
-        isClosing ? "animate-out fade-out duration-150" : ""
-      }`}
+      className={cn("fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-0 sm:p-4 animate-in fade-in duration-200", isClosing && "animate-out fade-out duration-150")}
       onClick={handleClose}
+      data-slot="setup-wizard"
     >
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`w-full max-w-[80dvw] h-[85dvh] sm:max-h-[calc(95vh-4rem)] flex flex-col ${
-          isClosing ? "animate-out fade-out scale-[0.97] duration-150" : "animate-in fade-in slide-in-from-bottom-4 duration-300"
-        }`}
+        className={cn("w-full max-w-[80dvw] h-[85dvh] sm:max-h-[calc(95vh-4rem)] flex flex-col", isClosing ? "animate-out fade-out scale-[0.97] duration-150" : "animate-in fade-in slide-in-from-bottom-4 duration-300")}
         onClick={(event) => event.stopPropagation()}
+        data-slot="setup-wizard-dialog"
       >
         <Card
           noHeightAnim
@@ -98,7 +97,7 @@ export default function SetupWizard({
             <button
               type="button"
               onClick={handleClose}
-              className="absolute top-3 right-3 sm:top-5 sm:right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 z-10"
+              className="absolute top-3 right-3 sm:top-5 sm:right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 z-10 no-focus-outline"
               aria-label="Close"
               ref={closeButtonRef}
             >
@@ -111,13 +110,14 @@ export default function SetupWizard({
               {steps.map((step, i) => (
                 <div
                   key={step.id}
-                  className={`rounded-full motion-safe:transition-all motion-safe:duration-300 ${
+                  className={cn(
+                    "rounded-full motion-safe:transition-all motion-safe:duration-300",
                     i === currentIdx
                       ? "w-5 h-2 bg-primary"
                       : i < currentIdx
-                      ? "w-2 h-2 bg-primary/40"
-                      : "w-2 h-2 bg-primary/15"
-                  }`}
+                        ? "w-2 h-2 bg-primary/40"
+                        : "w-2 h-2 bg-primary/15"
+                  )}
                   title={step.label}
                   aria-label={step.label}
                 />

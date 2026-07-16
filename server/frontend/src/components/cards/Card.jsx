@@ -1,5 +1,6 @@
 import { memo } from "react";
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 
 /**
@@ -12,6 +13,7 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
  * @property {string} [title]
  * @property {import('react').ReactNode} [headerActions]
  * @property {boolean} [padding]
+ * @property {"primary"|"secondary"} [surface] Surface this card establishes. "secondary" (default) is the normal card surface (bg-secondary text-primary); "primary" inverts it (bg-primary text-secondary) for panels that should blend with the page.
  * @property {(event: React.AnimationEvent) => void} [onAnimationEnd]
  */
 
@@ -25,24 +27,36 @@ function Card({
   title,
   headerActions,
   padding = true,
+  surface = "secondary",
   onAnimationEnd,
 }) {
   const { outerRef, innerRef } = useAnimatedHeight();
 
-  const animationClass = noPopIn
-    ? ""
-    : "pop-in";
+  const animationClass = noPopIn ? "" : "pop-in";
+
+  const surfaceClasses =
+    surface === "primary"
+      ? "bg-primary text-secondary border-2 border-secondary/30"
+      : "bg-secondary text-primary";
 
   const hasHeader = title || Icon;
 
   if (noHeightAnim) {
     return (
       <div
-        className={`bg-secondary text-primary rounded-large-element ${padding ? "p-5" : ""} ${animationClass} ${className}`}
+        data-slot="card"
+        data-surface={surface}
+        className={cn(
+          "rounded-large-element",
+          surfaceClasses,
+          padding && "p-5",
+          animationClass,
+          className
+        )}
         onAnimationEnd={onAnimationEnd}
       >
         {hasHeader && (
-          <div className={`flex items-center justify-between px-4 py-3 border-b border-primary/10 ${padding ? "-mx-5 -mt-5 mb-0" : ""}`}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
             <div className="flex items-center gap-2">
               {Icon && <Icon size={18} className="text-accent" />}
               {title && <h2 className="font-mono font-normal text-primary">{title}</h2>}
@@ -63,7 +77,14 @@ function Card({
     >
       <div
         ref={innerRef}
-        className={`bg-secondary text-primary rounded-large-element ${animationClass} ${className}`}
+        data-slot="card"
+        data-surface={surface}
+        className={cn(
+          "rounded-large-element",
+          surfaceClasses,
+          animationClass,
+          className
+        )}
         onAnimationEnd={onAnimationEnd}
       >
         {hasHeader && (
@@ -90,6 +111,7 @@ Card.propTypes = {
   title: PropTypes.string,
   headerActions: PropTypes.node,
   padding: PropTypes.bool,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
   onAnimationEnd: PropTypes.func,
 };
 

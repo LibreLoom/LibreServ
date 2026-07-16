@@ -6,7 +6,7 @@ import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
   // Skip linting build output to keep runs fast.
-  globalIgnores(["dist"]),
+  globalIgnores(["dist", "src/components/ui/shadcn"]),
   {
     files: ["**/*.{js,jsx}"],
     // Base + React rules for the app bundle.
@@ -54,6 +54,13 @@ export default defineConfig([
   {
     // Script utilities run in Node, not the browser.
     files: ["scripts/**/*.js"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  {
+    // Config files run in Node, not the browser.
+    files: ["*.config.js", "vite.config.js"],
     languageOptions: {
       globals: globals.node,
     },

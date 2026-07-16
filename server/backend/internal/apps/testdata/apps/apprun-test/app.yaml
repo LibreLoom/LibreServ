@@ -47,6 +47,7 @@ deployment:
   backends:
     - name: internal-api
       url: http://localhost:8881
+oidc_redirect_path: /oauth/callback
 
 configuration:
   - name: http_port

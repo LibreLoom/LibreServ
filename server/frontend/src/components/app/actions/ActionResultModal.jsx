@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Copy, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 import ModalCard from "../../cards/ModalCard";
 
 /** @param {{ result: any, onClose: any, action?: any }} _ */
@@ -69,17 +70,16 @@ export function ActionResultModal({ result, onClose }) {
   };
 
   return (
-    <ModalCard title={result.success ? "Action Completed" : "Action Failed"} onClose={onClose}>
+    <ModalCard data-slot="action-result-modal" title={result.success ? "Action Completed" : "Action Failed"} onClose={onClose}>
       {({ close }) => {
         const closeHandler = /** @type {Function} */ (close);
         return (
         <div className="space-y-4">
           <div
-            className={`flex items-center gap-3 p-3 rounded-large-element ${
-              result.success
-                ? "bg-success/10 border border-success/30"
-                : "bg-error/10 border border-error/30"
-            }`}
+            className={cn(
+              "flex items-center gap-3 p-3 rounded-large-element",
+              result.success ? "bg-success/10 border border-success/30" : "bg-error/10 border border-error/30"
+            )}
           >
             {result.success ? (
               <CheckCircle className="text-success shrink-0" size={24} />
@@ -125,9 +125,10 @@ export function ActionResultModal({ result, onClose }) {
 
               <div
                 id="action-output"
-                className={`overflow-hidden motion-safe:transition-all duration-500 ease-out ${
+                className={cn(
+                  "overflow-hidden motion-safe:transition-all duration-500 ease-out",
                   showVerbose ? "max-h-96" : "max-h-0"
-                }`}
+                )}
               >
                 <div className="bg-primary/50 border border-secondary/20 rounded-large-element p-3 mt-2">
                   <div className="max-h-80 overflow-x-auto overflow-y-auto pr-2 text-sm font-mono whitespace-pre-wrap break-all text-primary/80 select-text">

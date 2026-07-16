@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDownToLine,
@@ -201,14 +202,14 @@ export default function LogsViewer({
           <button
             type="button"
             onClick={handleToggleSearch}
-            className={`${ICON_BUTTON_CLASS} ${showSearch || filter ? "border-accent text-accent" : ""}`}
+            className={cn(ICON_BUTTON_CLASS, showSearch || filter ? "border-accent text-accent" : "")}
             aria-label="Toggle search"
           >
             <Search size={18} aria-hidden="true" />
           </button>
 
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary">
-            <ArrowDownToLine size={14} className={`shrink-0 transition-colors ${autoScroll ? "text-accent" : "text-primary/40"}`} aria-hidden="true" />
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary text-primary">
+            <ArrowDownToLine size={14} className={cn("shrink-0 transition-colors", autoScroll ? "text-accent" : "text-primary/40")} aria-hidden="true" />
             <Toggle
               checked={autoScroll}
               onChange={setAutoScroll}
@@ -230,7 +231,7 @@ export default function LogsViewer({
         {/* Mobile collapsible search */}
         {showSearch && (
           <div className="sm:hidden shrink-0 animate-fade-in-up">
-            <div className="relative bg-secondary rounded-pill border border-primary/20 focus-within:border-accent transition-colors">
+            <div className="relative bg-secondary text-primary rounded-pill border border-primary/20 focus-within:border-accent transition-colors">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-primary/50" />
               <input
                 ref={searchInputRef}
@@ -254,7 +255,7 @@ export default function LogsViewer({
 
         {/* Desktop toolbar */}
         <div className="hidden sm:flex items-center justify-between shrink-0 gap-3">
-          <div className="relative flex-1 min-w-0 w-full bg-secondary rounded-pill border-2 border-primary/20 focus-within:border-accent transition-colors">
+          <div className="relative flex-1 min-w-0 w-full bg-secondary text-primary rounded-pill border-2 border-primary/20 focus-within:border-accent transition-colors">
             <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/50" />
             <input
               type="text"
@@ -266,7 +267,7 @@ export default function LogsViewer({
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center gap-3 px-4 py-1.5 rounded-pill border-2 border-primary/20 bg-secondary transition-colors focus-within:border-accent">
+            <div className="flex items-center gap-3 px-4 py-1.5 rounded-pill border-2 border-primary/20 bg-secondary text-primary transition-colors focus-within:border-accent">
               <Toggle
                 label="Auto Scroll"
                 checked={autoScroll}
@@ -313,7 +314,7 @@ export default function LogsViewer({
             )}
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between shrink-0 border-t border-primary/15 bg-secondary/50 px-3 sm:px-4 py-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between shrink-0 border-t border-primary/15 bg-secondary/50 text-primary px-3 sm:px-4 py-2">
             <div className="flex items-center gap-2 text-xs font-sans text-primary/60">
               <Terminal size={14} />
               <span>Showing last {lines.length} lines</span>

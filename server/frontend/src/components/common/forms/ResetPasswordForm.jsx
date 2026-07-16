@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Lock } from "lucide-react";
@@ -89,7 +90,7 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" data-slot="reset-password-form">
       <div className="text-center mb-4">
         <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-primary text-secondary mb-3">
           <Lock size={24} aria-hidden="true" />
@@ -118,11 +119,11 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
               value={formData.oldPassword}
               onChange={handleChange("oldPassword")}
               placeholder="Enter current password"
-className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 ${
-                 errors.oldPassword
-                   ? "border-accent"
-                   : "border-primary/30 focus:border-accent"
-               }`}
+              className={cn(
+                "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
+                errors.oldPassword && "border-accent",
+                !errors.oldPassword && "border-primary/30 focus:border-accent",
+              )}
               disabled={loading}
               aria-invalid={Boolean(errors.oldPassword)}
               aria-describedby={
@@ -156,11 +157,11 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 fo
               value={formData.newPassword}
               onChange={handleChange("newPassword")}
               placeholder="Minimum 12 characters (letters and numbers)"
-               className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2 ${
-                errors.newPassword
-                  ? "border-accent"
-                  : "border-primary/30 focus:border-accent"
-              }`}
+              className={cn(
+                "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
+                errors.newPassword && "border-accent",
+                !errors.newPassword && "border-primary/30 focus:border-accent",
+              )}
               disabled={loading}
               aria-invalid={Boolean(errors.newPassword)}
               aria-describedby={
@@ -185,7 +186,7 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 fo
            <button
              type="button"
              onClick={onCancel}
-             className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary hover:ring-solid font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+            className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary hover:ring-solid font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
              disabled={loading}
            >
           Cancel
@@ -193,9 +194,10 @@ className={`w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 fo
         <button
           type="submit"
           disabled={loading}
-          className={`flex-1 px-4 py-2 bg-accent text-primary rounded-pill font-medium motion-safe:transition-all hover:ring-2 hover:ring-primary flex items-center justify-center gap-2 ${
-            loading ? "opacity-50 cursor-not-allowed" : ""
-          }`}
+          className={cn(
+            "flex-1 px-4 py-2 bg-accent text-primary rounded-pill font-medium motion-safe:transition-all hover:ring-2 hover:ring-primary flex items-center justify-center gap-2",
+            loading && "opacity-50 cursor-not-allowed",
+          )}
         >
           {loading ? "Resetting..." : "Reset Password"}
         </button>

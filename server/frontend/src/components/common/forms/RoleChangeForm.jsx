@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Shield } from "lucide-react";
 import Dropdown from "../Dropdown";
+import Button from "../../ui/Button";
 
 export default function RoleChangeForm({ user, onSuccess, onCancel }) {
   const { request } = useAuth();
@@ -79,23 +80,23 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
       )}
 
       <div className="flex gap-3">
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          surface="secondary"
           onClick={onCancel}
-           className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary hover:ring-solid font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
           disabled={loading}
+          className="flex-1"
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
-          disabled={loading}
-          className={`flex-1 px-4 py-2 bg-accent text-primary rounded-pill font-medium motion-safe:transition-all hover:ring-2 hover:ring-primary flex items-center justify-center gap-2 ${
-            loading ? "opacity-50 cursor-not-allowed" : ""
-          }`}
+          variant="accent"
+          loading={loading}
+          className="flex-1"
         >
-          {loading ? "Changing..." : "Change Role"}
-        </button>
+          Change Role
+        </Button>
       </div>
     </form>
   );

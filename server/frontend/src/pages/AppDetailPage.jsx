@@ -1,16 +1,24 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { cn } from "@/lib/utils";
 import { useAuth } from "../hooks/useAuth";
 import { useInvalidateApps } from "../hooks/useApps";
+import { useAppDetail } from "../hooks/useAppDetail";
+import { useAppMetrics } from "../hooks/useAppMetrics";
+import { useAppUpdates } from "../hooks/useAppUpdates";
+import { useAppActions } from "../hooks/useAppActions";
+import { useDelayedLoading } from "../hooks/useDelayedLoading";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 import { useCatalogFeatures } from "../hooks/useCatalogFeatures";
 import HeaderCard from "../components/cards/HeaderCard";
 import Card from "../components/cards/Card";
-import CardButton from "../components/cards/CardButton";
+import MetricCard from "../components/cards/MetricCard";
+import Page from "../components/ui/Page";
+import Button from "../components/ui/Button";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import AppIcon from "../components/common/AppIcon";
-import api from "../lib/api";
+import StateOverlay from "../components/common/StateOverlay";
 import { sanitizeURL } from "../lib/sanitize";
 import {
   Grid2X2,
@@ -42,6 +50,8 @@ import LogsViewer from "../components/app/LogsViewer";
 import RevocationBanner from "../components/app/RevocationBanner";
 import AcknowledgeRevocationModal from "../components/app/AcknowledgeRevocationModal";
 import AccessControlSection from "../components/app/AccessControlSection";
+import ReconfigureModal from "../components/app/ReconfigureModal";
+import { useQueryClient } from "@tanstack/react-query";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");
@@ -95,27 +105,24 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
         </div>
 
         <div className="flex gap-3 pt-2">
-          <button
+          <Button
+            variant="outline"
+            surface="secondary"
             onClick={onCancel}
             disabled={isUninstalling}
-            className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+            className="flex-1"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="accent"
             onClick={onConfirm}
             disabled={!matches || isUninstalling}
-            className="flex-1 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            loading={isUninstalling}
+            className="flex-1"
           >
-            {isUninstalling ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Uninstalling...
-              </>
-            ) : (
-              "Uninstall"
-            )}
-          </button>
+            {isUninstalling ? "Uninstalling..." : "Uninstall"}
+          </Button>
         </div>
       </div>
     </ModalCard>
@@ -127,121 +134,28 @@ export default function AppDetailPage() {
   const navigate = useNavigate();
   const { request } = useAuth();
   const invalidateApps = useInvalidateApps();
+  const queryClient = useQueryClient();
   const { formatDateTime } = useTimeFormat();
 
-  const [app, setApp] = useState(null);
+  const { data: app, isLoading, error } = useAppDetail(instanceId);
+  const notFound = /** @type {{ status?: number }} */ (/** @type {any} */ (error)?.cause)?.status === 404;
+  const showLoading = useDelayedLoading(isLoading);
+
   const { data: catalogFeatures } = useCatalogFeatures(app?.app_id);
-  const [loading, setLoading] = useState(true);
-  const [showLoading, setShowLoading] = useState(false);
-  const [notFound, setNotFound] = useState(false);
-  const [error, setError] = useState(null);
+  const { data: metrics } = useAppMetrics(app?.id);
+  const { data: availableUpdate } = useAppUpdates(app?.id);
+  const { data: actions = [], isLoading: actionsLoading } = useAppActions(app?.id);
+
   const [showUninstallModal, setShowUninstallModal] = useState(false);
   const [isUninstalling, setIsUninstalling] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
-  const [metrics, setMetrics] = useState(null);
-  const [_metricsLoading, setMetricsLoading] = useState(false);
-  const [availableUpdate, setAvailableUpdate] = useState(null);
-  const [actions, setActions] = useState([]);
-  const [actionsLoading, setActionsLoading] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
   const [showActionModal, setShowActionModal] = useState(false);
   const [showLogsViewer, setShowLogsViewer] = useState(false);
   const [showAckRevocationModal, setShowAckRevocationModal] = useState(false);
+  const [showReconfigureModal, setShowReconfigureModal] = useState(false);
   const rawUrl = app?.url || app?.backends?.[0]?.url || "";
   const appUrl = sanitizeURL(rawUrl);
-
-  useEffect(() => {
-    if (!instanceId) {
-      setNotFound(true);
-      return;
-    }
-
-    let delayTimer;
-    const fetchApp = async () => {
-      try {
-        delayTimer = setTimeout(() => {
-          setShowLoading(true);
-        }, 500);
-        setError(null);
-        setNotFound(false);
-        const response = await request(`/apps/${instanceId}`);
-        const data = await response.json();
-        setApp(data);
-      } catch (err) {
-        const status = err?.cause?.status;
-        if (status === 404) {
-          setNotFound(true);
-        } else {
-          setError(err.message || "Failed to load app details");
-        }
-      } finally {
-        clearTimeout(delayTimer);
-        setShowLoading(false);
-        setLoading(false);
-      }
-    };
-    fetchApp();
-    return () => clearTimeout(delayTimer);
-  }, [instanceId, request]);
-
-  useEffect(() => {
-    if (!app?.id) return;
-    const fetchMetrics = async () => {
-      setMetricsLoading(true);
-      try {
-        const response = await request(`/apps/${app.id}/metrics`);
-        if (response.ok) {
-          const data = await response.json();
-          setMetrics(data);
-        }
-      } catch {
-        // Metrics not available, silently ignore
-      } finally {
-        setMetricsLoading(false);
-      }
-    };
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 30000);
-    return () => clearInterval(interval);
-  }, [app?.id, request]);
-
-  useEffect(() => {
-    if (!app?.app_id) return;
-    const checkUpdates = async () => {
-      try {
-        const response = await request(`/apps/updates/available`);
-        if (response.ok) {
-          const updates = await response.json();
-          const update = updates?.updates?.find(
-            (u) => u.instance_id === app.id
-          );
-          setAvailableUpdate(update || null);
-        }
-      } catch {
-        // Silently ignore
-      }
-    };
-    checkUpdates();
-  }, [app?.id, app?.app_id, request]);
-
-  useEffect(() => {
-    if (!app?.id) return;
-    const fetchActions = async () => {
-      setActionsLoading(true);
-      try {
-        const response = await request(`/apps/${app.id}/actions`);
-        if (response.ok) {
-          const data = await response.json();
-          setActions(data.actions || []);
-        }
-      } catch {
-        // Silently ignore
-      } finally {
-        setActionsLoading(false);
-      }
-    };
-    fetchActions();
-  }, [app?.id, request]);
 
   const handleActionExecute = useCallback(
     async (actionName, options = {}) => {
@@ -276,36 +190,21 @@ export default function AppDetailPage() {
       setActionLoading(action);
       try {
         await request(`/apps/${app.id}/${action}`, { method: "POST" });
-        const response = await request(`/apps/${app.id}`);
-        const data = await response.json();
-        setApp(data);
-      } catch (err) {
-        setError(err.message || `Failed to ${action} app`);
+        await queryClient.invalidateQueries({ queryKey: ["apps", instanceId] });
       } finally {
         setActionLoading(null);
       }
     },
-    [app, actionLoading, request],
+    [app, actionLoading, request, instanceId, queryClient],
   );
 
   const handleUninstall = useCallback(async () => {
     if (!app || isUninstalling) return;
     setIsUninstalling(true);
     try {
-      const csrfResponse = await api("/auth/csrf");
-      const csrfData = await csrfResponse.json();
-
-      await request(`/apps/${app.id}`, {
-        method: "DELETE",
-        headers: {
-          "X-CSRF-Token": csrfData.csrf_token,
-        },
-      });
+      await request(`/apps/${app.id}`, { method: "DELETE" });
       invalidateApps();
       navigate("/apps");
-    } catch (err) {
-      setError(err.message || "Failed to uninstall app");
-      setShowUninstallModal(false);
     } finally {
       setIsUninstalling(false);
     }
@@ -366,7 +265,7 @@ export default function AppDetailPage() {
     }
   };
 
-  if (!loading && notFound) {
+  if (notFound) {
     return (
       <ObjectNotFound
         objectLabel="app"
@@ -379,48 +278,24 @@ export default function AppDetailPage() {
   }
 
   return (
-    <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
-      aria-labelledby="app-detail-title"
-      id="main-content"
-      tabIndex={-1}
+    <Page
+      data-slot="app-detail-page"
+      title={app?.name || "App Details"}
+      titleId="app-detail-title"
+      leftContent={app && <AppIcon appId={app.app_id} size={40} className="mr-3" />}
+      rightContent={app && <StatusPill status={app.status} />}
     >
-      <header className="mb-8">
-        <HeaderCard
-          id="app-detail-title"
-          title={app?.name || "App Details"}
-          leftContent={
-            app && <AppIcon appId={app.app_id} size={40} className="mr-3" />
-          }
-          rightContent={
-            app && (
-              <StatusPill status={app.status} />
-            )
-          }
-        />
-      </header>
-
-      {loading && showLoading && (
-        <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
-          <Card className="w-[70vw] sm:w-[20vw]">
-            <div className="my-5 text-center" role="status" aria-live="polite">
-              <p>Loading app...</p>
-            </div>
-          </Card>
-        </div>
+      {showLoading && (
+        <StateOverlay message="Loading app..." />
       )}
 
-      {error && (
-        <div className="fixed inset-0 flex items-center justify-center z-40 bg-primary/60 backdrop-blur-sm">
-          <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
-            <div className="my-5 text-center" role="status" aria-live="polite">
-              <p className="text-secondary/80">Error: {error}</p>
-            </div>
-          </Card>
-        </div>
+      {error && !notFound && (
+        <StateOverlay kind="error">
+          <p className="text-secondary/80">Error: {error.message}</p>
+        </StateOverlay>
       )}
 
-      {!loading && !error && app && (
+      {!isLoading && !error && app && (
         <>
           {app.revocation_notice && (
             <RevocationBanner
@@ -432,45 +307,31 @@ export default function AppDetailPage() {
           )}
 
           <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <Card className="flex flex-col items-center justify-center py-6 text-center">
-              <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
-                Status
-              </p>
-              <p
-                className={`text-2xl font-mono capitalize ${getStatusColor(app.status)}`}
-              >
-                {app.status}
-              </p>
-            </Card>
+            <MetricCard
+              label="Status"
+              value={app.status}
+              valueClassName={cn("capitalize", getStatusColor(app.status))}
+            />
 
-            <Card className="flex flex-col items-center justify-center py-6 text-center">
-              <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
-                Health
-              </p>
+            <MetricCard label="Health">
               <div className="flex items-center gap-2">
                 {getHealthIcon(app.health_status)}
                 <p
-                  className={`text-2xl font-mono capitalize ${getHealthColor(app.health_status)}`}
+                  className={cn("text-2xl font-mono capitalize", getHealthColor(app.health_status))}
                 >
                   {app.health_status || "Unknown"}
                 </p>
               </div>
-            </Card>
+            </MetricCard>
 
-            <Card className="flex flex-col items-center justify-center py-6 text-center">
-              <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
-                Installed
-              </p>
-              <p className="text-lg font-mono">
-                {formatDate(app.installed_at)}
-              </p>
-            </Card>
+            <MetricCard
+              label="Installed"
+              value={formatDate(app.installed_at)}
+              valueClassName="text-lg"
+            />
 
             {appUrl && (
-              <Card className="flex flex-col items-center justify-center py-6 text-center">
-                <p className="text-xs font-mono uppercase tracking-wider text-primary/50 mb-1">
-                  Link
-                </p>
+              <MetricCard label="Link">
                 <a
                   href={appUrl}
                   target="_blank"
@@ -481,13 +342,13 @@ export default function AppDetailPage() {
                   Open App
                   <ExternalLink size={14} aria-hidden="true" />
                 </a>
-              </Card>
+              </MetricCard>
             )}
           </section>
 
           {metrics && (
             <section className="mb-8">
-              <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+              <Card surface="primary">
                 <div className="flex items-center gap-2 mb-6">
                   <Server size={20} className="text-secondary/70" />
                   <h2 className="text-2xl font-mono font-normal">Resource Usage</h2>
@@ -539,7 +400,7 @@ export default function AppDetailPage() {
 
           {availableUpdate && (
             <section className="mb-8">
-              <Card className="bg-primary! text-secondary! border-2! border-accent!">
+              <Card surface="primary" className="border-accent">
                 <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <ArrowUpCircle size={32} className="text-secondary/70" />
@@ -565,103 +426,98 @@ export default function AppDetailPage() {
                     )}
                   </div>
                   </div>
-                  <button
+                  <Button
+                    variant="accent"
                     onClick={() => handleAppAction("update")}
                     disabled={actionLoading || availableUpdate.needs_config}
-                    className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                    loading={actionLoading === "update"}
                   >
-                    {actionLoading === "update" ? (
-                      <>
-                        <Loader2 size={18} className="animate-spin" />
-                        Updating...
-                      </>
-                    ) : (
-                      <>
-                        <ArrowUpCircle size={18} />
-                        {availableUpdate.needs_config ? "Setup Required" : "Update Now"}
-                      </>
-                    )}
-                  </button>
+                    {actionLoading === "update" ? <Loader2 size={18} className="animate-spin" /> : <ArrowUpCircle size={18} />}
+                    {availableUpdate.needs_config ? "Setup Required" : "Update Now"}
+                  </Button>
                 </div>
               </Card>
             </section>
           )}
 
           <section>
-            <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+            <Card surface="primary">
               <div className="flex items-center gap-2 mb-6">
                 <Settings size={20} className="text-secondary/70" />
                 <h2 className="text-2xl font-mono font-normal">Control</h2>
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() =>
                     app.status === "stopped" && handleAppAction("start")
                   }
                   disabled={app.status !== "stopped" || actionLoading}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                  loading={actionLoading === "start"}
                 >
-                  {actionLoading === "start" ? (
-                    <Loader2 size={18} className="animate-spin" />
-                  ) : (
-                    <Play size={18} />
-                  )}
+                  {actionLoading === "start" ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
                   {actionLoading === "start" ? "Starting..." : "Start"}
-                </button>
+                </Button>
 
-                <button
+                <Button
+                  variant="secondary"
                   onClick={() =>
                     app.status === "running" && handleAppAction("stop")
                   }
                   disabled={app.status !== "running" || actionLoading}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                  loading={actionLoading === "stop"}
                 >
-                  {actionLoading === "stop" ? (
-                    <Loader2 size={18} className="animate-spin" />
-                  ) : (
-                    <Square size={18} />
-                  )}
+                  {actionLoading === "stop" ? <Loader2 size={18} className="animate-spin" /> : <Square size={18} />}
                   {actionLoading === "stop" ? "Stopping..." : "Stop"}
-                </button>
+                </Button>
 
-                <button
+                <Button
+                  variant="outline"
+                  surface="primary"
                   onClick={() => handleAppAction("restart")}
                   disabled={actionLoading}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill border-2 border-accent text-secondary/70 hover:bg-accent/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                  loading={actionLoading === "restart"}
                 >
-                  {actionLoading === "restart" ? (
-                    <Loader2 size={18} className="animate-spin" />
-                  ) : (
-                    <RotateCw size={18} />
-                  )}
+                  {actionLoading === "restart" ? <Loader2 size={18} className="animate-spin" /> : <RotateCw size={18} />}
                   {actionLoading === "restart" ? "Restarting..." : "Restart"}
-                </button>
+                </Button>
 
-                <button
+                <Button
+                  variant="outline"
+                  surface="primary"
                   onClick={() => setShowLogsViewer(true)}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-accent/20 text-secondary border border-accent/50 hover:bg-accent/30 transition-colors font-mono"
                 >
                   <Terminal size={18} />
                   View Logs
-                </button>
+                </Button>
+                <Button
+                  variant="outline"
+                  surface="primary"
+                  onClick={() => setShowReconfigureModal(true)}
+                  disabled={actionLoading}
+                  loading={actionLoading}
+                >
+                  <Settings size={18} />
+                  Settings
+                </Button>
 
                 <div className="flex-1" />
 
-                <button
+                <Button
+                  variant="danger"
                   onClick={() => setShowUninstallModal(true)}
-                  className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-error text-secondary hover:opacity-80 transition-colors font-mono"
                 >
                   <Trash2 size={18} />
                   Uninstall
-                </button>
+                </Button>
               </div>
             </Card>
           </section>
 
           {actions.length > 0 && (
             <section className="mt-8">
-              <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+              <Card surface="primary">
                 <div className="flex items-center gap-2 mb-6">
                   <Wrench size={20} className="text-secondary/70" />
                   <h2 className="text-2xl font-mono font-normal">Actions</h2>
@@ -695,7 +551,7 @@ export default function AppDetailPage() {
           )}
 
           <section className="mt-8">
-            <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+            <Card surface="primary">
               <div className="flex items-center gap-2 mb-6">
                 <Settings size={20} className="text-secondary/70" />
                 <h2 className="text-2xl font-mono font-normal">Capabilities</h2>
@@ -751,12 +607,23 @@ export default function AppDetailPage() {
           app={app}
           onClose={() => setShowAckRevocationModal(false)}
           onAcknowledged={async () => {
-            const response = await request(`/apps/${app.id}`);
-            const data = await response.json();
-            setApp(data);
+            await queryClient.invalidateQueries({ queryKey: ["apps", instanceId] });
           }}
         />
       )}
-    </main>
+
+      {showReconfigureModal && app && (
+        <ReconfigureModal
+          app={app}
+          request={request}
+          onClose={() => setShowReconfigureModal(false)}
+          onSuccess={(updatedApp) => {
+            queryClient.setQueryData(["apps", instanceId], updatedApp);
+            setShowReconfigureModal(false);
+            invalidateApps();
+          }}
+        />
+      )}
+    </Page>
   );
 }

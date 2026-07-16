@@ -3,6 +3,7 @@ import { CheckCircle, XCircle, Copy, Check, ChevronDown } from "lucide-react";
 import TypewriterLoader from "../../../components/ui/TypewriterLoader";
 import Button from "../../../components/ui/Button";
 import { useAuth } from "../../../hooks/useAuth";
+import { cn } from "@/lib/utils";
 
 const ALL_INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },
@@ -291,24 +292,24 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
 
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={() => setDetailsOpen((open) => !open)}
-            className="border border-error/25 bg-error/10 font-mono text-error hover:bg-error/20"
+            className="border-error/25 text-error hover:bg-error/10"
             aria-expanded={detailsOpen}
             aria-controls="install-error-details"
           >
             <ChevronDown
               size={14}
-              className={`motion-safe:transition-transform ${detailsOpen ? "rotate-180" : "rotate-0"}`}
+              className={cn("motion-safe:transition-transform", detailsOpen && "rotate-180")}
             />
             {detailsOpen ? "Hide details" : "Show details"}
           </Button>
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             onClick={handleCopyError}
-            className="border border-error/25 bg-error/10 font-mono text-error hover:bg-error/20"
+            className="border-error/25 text-error hover:bg-error/10"
           >
             {copied ? (
               <>
@@ -327,11 +328,10 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
         <div
           id="install-error-details"
           aria-hidden={!detailsOpen}
-          className={`mx-auto w-full max-w-2xl overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out ${
-            detailsOpen
-              ? "mt-1 max-h-96 opacity-100 translate-y-0"
-              : "max-h-0 opacity-0 -translate-y-2 pointer-events-none"
-          }`}
+          className={cn(
+            "mx-auto w-full max-w-2xl overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out",
+            detailsOpen ? "mt-1 max-h-96 opacity-100 translate-y-0" : "max-h-0 opacity-0 -translate-y-2 pointer-events-none"
+          )}
         >
           <div className="rounded-card border border-error/20 bg-error/10 p-4 text-left motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out">
             <div className="mb-3 flex items-center justify-between gap-3 border-b border-error/10 pb-3">
@@ -357,7 +357,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
   const isComplete = status === "running";
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8" data-slot="progress-step">
       <div className="text-center space-y-4">
         {isComplete ? (
           <CheckCircle className="mx-auto text-accent" size={48} />
@@ -383,17 +383,16 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
           return (
             <div
               key={phase.id}
-              className={`
-                flex items-center gap-3 p-3 rounded-pill
-                motion-safe:transition-all
-                ${isDone ? "bg-secondary/20" : isCurrent ? "bg-secondary/10" : "bg-secondary/5"}
-              `}
+              className={cn(
+                "flex items-center gap-3 p-3 rounded-pill motion-safe:transition-all",
+                isDone ? "bg-secondary/20" : isCurrent ? "bg-secondary/10" : "bg-secondary/5"
+              )}
             >
               <div
-                className={`
-                  flex h-6 w-6 items-center justify-center rounded-full
-                  ${isDone ? "bg-accent text-primary" : isCurrent ? "border-2 border-secondary" : "border-2 border-secondary/30"}
-                `}
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-full",
+                  isDone ? "bg-accent text-primary" : isCurrent ? "border-2 border-secondary" : "border-2 border-secondary/30"
+                )}
               >
                 {isDone ? (
                   <CheckCircle size={14} />
@@ -404,10 +403,10 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                 )}
               </div>
               <span
-                className={`
-                  font-mono text-sm
-                  ${isDone ? "text-secondary" : isCurrent ? "text-secondary" : "text-secondary/50"}
-                `}
+                className={cn(
+                  "font-mono text-sm",
+                  isDone ? "text-secondary" : isCurrent ? "text-secondary" : "text-secondary/50"
+                )}
               >
                 {phase.label}
               </span>
@@ -421,32 +420,34 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
         <div className="mx-auto max-w-2xl">
           <button
             onClick={() => setDetailsOpen((open) => !open)}
-            className={`group relative w-full overflow-hidden rounded-pill border px-5 py-3 text-left font-mono motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out ${
+            className={cn(
+              "group relative w-full overflow-hidden rounded-pill border px-5 py-3 text-left font-mono motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out",
               detailsOpen
                 ? "border-secondary/20 bg-secondary text-primary shadow-[0_16px_50px_rgba(0,0,0,0.12)]"
                 : "border-secondary/15 bg-secondary/8 text-secondary hover:border-secondary/30 hover:bg-secondary/12 hover:shadow-[0_12px_34px_rgba(0,0,0,0.08)]"
-            }`}
+            )}
             aria-expanded={detailsOpen}
             aria-controls="install-live-output"
           >
             <span
-              className={`pointer-events-none absolute inset-y-0 right-0 w-28 rounded-pill bg-gradient-to-l motion-safe:transition-opacity motion-safe:duration-300 ${
+              className={cn(
+                "pointer-events-none absolute inset-y-0 right-0 w-28 rounded-pill bg-gradient-to-l motion-safe:transition-opacity motion-safe:duration-300",
                 detailsOpen ? "from-primary/20 to-transparent opacity-100" : "from-secondary/8 to-transparent opacity-0 group-hover:opacity-100"
-              }`}
+              )}
             />
             <span className="relative flex items-center justify-between gap-4">
               <span className="space-y-1">
-                <span className={`block text-sm motion-safe:transition-colors ${detailsOpen ? "text-primary" : "text-secondary"}`}>
+                <span className={cn("block text-sm motion-safe:transition-colors", detailsOpen ? "text-primary" : "text-secondary")}>
                   {detailsOpen ? "Installation output is open" : "View installation output"}
                 </span>
-                <span className={`block text-xs motion-safe:transition-colors ${detailsOpen ? "text-primary/70" : "text-secondary/60"}`}>
+                <span className={cn("block text-xs motion-safe:transition-colors", detailsOpen ? "text-primary/70" : "text-secondary/60")}>
                   Live logs from image pull, setup, and startup checks.
                 </span>
               </span>
-              <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border motion-safe:transition-all motion-safe:duration-300 ${detailsOpen ? "border-primary/25 bg-primary/10" : "border-secondary/15 bg-primary/80 group-hover:scale-105"}`}>
+              <span className={cn("inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border motion-safe:transition-all motion-safe:duration-300", detailsOpen ? "border-primary/25 bg-primary/10" : "border-secondary/15 bg-primary/80 group-hover:scale-105")}>
                 <ChevronDown
                   size={18}
-                  className={`motion-safe:transition-transform motion-safe:duration-300 ${detailsOpen ? "rotate-180" : "rotate-0"}`}
+                  className={cn("motion-safe:transition-transform motion-safe:duration-300", detailsOpen && "rotate-180")}
                 />
               </span>
             </span>
@@ -454,9 +455,10 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
 
           <div
             id="install-live-output"
-            className={`overflow-hidden motion-safe:transition-all motion-safe:duration-400 motion-safe:ease-out ${
+            className={cn(
+              "overflow-hidden motion-safe:transition-all motion-safe:duration-400 motion-safe:ease-out",
               detailsOpen ? "mt-3 max-h-72 translate-y-0 opacity-100" : "max-h-0 -translate-y-2 opacity-0 pointer-events-none"
-            }`}
+            )}
           >
             <div className="animate-dropdown-open rounded-[20px] border border-secondary/12 bg-primary/85 p-4 shadow-[0_22px_60px_rgba(0,0,0,0.12)] backdrop-blur-sm">
               <div className="mb-3 flex items-center justify-between gap-3 border-b border-secondary/10 pb-3">

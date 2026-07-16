@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import { Check } from "lucide-react";
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 
 function WizardStepper({ currentStep, hasSubdomainStep }) {
   const steps = useMemo(() => {
@@ -24,7 +25,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
   }, [hasSubdomainStep]);
 
   return (
-    <nav aria-label="Installation progress" className="w-full">
+    <nav aria-label="Installation progress" className="w-full" data-slot="wizard-stepper">
       <ol className="flex items-center justify-center gap-2 sm:gap-4">
         {steps.map((step, index) => {
           const isActive = step.id === currentStep;
@@ -35,17 +36,12 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
             <li key={step.id} className="flex items-center">
               <div className="flex items-center gap-2">
                 <div
-                  className={`
-                    flex h-8 w-8 items-center justify-center rounded-full font-mono text-sm
-                    motion-safe:transition-all
-                    ${
-                      isComplete
-                        ? "bg-secondary text-primary"
-                        : isActive
-                          ? "bg-secondary text-primary ring-2 ring-secondary ring-offset-2 ring-offset-primary"
-                          : "bg-secondary/50 text-secondary/50 border-2 border-secondary/30"
-                    }
-                  `}
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full font-mono text-sm motion-safe:transition-all",
+                    isComplete && "bg-secondary text-primary",
+                    !isComplete && isActive && "bg-secondary text-primary ring-2 ring-secondary ring-offset-2 ring-offset-primary",
+                    !isComplete && !isActive && "bg-secondary/50 text-secondary/50 border-2 border-secondary/30"
+                  )}
                   aria-current={isActive ? "step" : undefined}
                 >
                   {isComplete ? (
@@ -55,10 +51,10 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
                   )}
                 </div>
                 <span
-                  className={`
-                    hidden sm:block font-mono text-sm
-                    ${isActive ? "text-secondary" : "text-secondary/50"}
-                  `}
+                  className={cn(
+                    "hidden sm:block font-mono text-sm",
+                    isActive ? "text-secondary" : "text-secondary/50"
+                  )}
                 >
                   {step.label}
                 </span>
@@ -66,10 +62,10 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
 
               {!isLast && (
                 <div
-                  className={`
-                    mx-2 sm:mx-4 h-0.5 w-4 sm:w-8
-                    ${step.id < currentStep ? "bg-secondary" : "bg-secondary/30"}
-                  `}
+                  className={cn(
+                    "mx-2 sm:mx-4 h-0.5 w-4 sm:w-8",
+                    step.id < currentStep ? "bg-secondary" : "bg-secondary/30"
+                  )}
                   aria-hidden="true"
                 />
               )}

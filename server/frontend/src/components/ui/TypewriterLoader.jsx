@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useRef, useEffect } from "react";
 import PropTypes from "prop-types";
 
@@ -91,8 +92,9 @@ export default function TypewriterLoader({
 
   return (
     <div
-      className={`flex items-center justify-center font-mono ${SIZE_CLASSES[size] || SIZE_CLASSES.md} ${SIZE_MIN_HEIGHT[size] || SIZE_MIN_HEIGHT.md} my-3 ${className}`}
+      className={cn("flex items-center justify-center font-mono", SIZE_CLASSES[size] || SIZE_CLASSES.md, SIZE_MIN_HEIGHT[size] || SIZE_MIN_HEIGHT.md, "my-3", className)}
       role="status"
+      data-slot="typewriter-loader"
       aria-live="polite"
       aria-busy="true"
     >

@@ -11,7 +11,7 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-slot="no-domain-warning-step">
       <div className="text-center space-y-2">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-warning/20 mb-4">
           <AlertTriangle className="w-8 h-8 text-warning" />

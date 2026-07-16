@@ -1,4 +1,26 @@
 import PropTypes from "prop-types";
+import { cva } from "class-variance-authority";
+import { cn } from "@/lib/utils";
+
+const toggleTrackVariants = cva(
+  "relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all ease-[var(--motion-easing-emphasized)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 active:scale-95",
+  {
+    variants: {
+      checked: {
+        true: "bg-accent",
+        false: "bg-current/20",
+      },
+      disabled: {
+        true: "opacity-50 cursor-not-allowed",
+        false: "cursor-pointer",
+      },
+    },
+    defaultVariants: {
+      checked: false,
+      disabled: false,
+    },
+  }
+);
 
 /**
  * @typedef {object} ToggleProps
@@ -10,6 +32,7 @@ import PropTypes from "prop-types";
  * @property {import('react').ElementType} [iconOn]
  * @property {import('react').ElementType} [iconOff]
  * @property {import('react').ReactNode} [badge]
+ * @property {"primary"|"secondary"} [surface]
  * @property {string} [className]
  */
 
@@ -23,19 +46,21 @@ export default function Toggle({
   iconOn,
   iconOff,
   badge,
+  surface = "secondary",
   className = "",
 }) {
   const IconOn = iconOn;
   const IconOff = iconOff;
   const descriptionId = label ? `toggle-desc-${label.toLowerCase().replace(/\s+/g, "-")}` : undefined;
+  const labelText = surface === "primary" ? "text-secondary" : "text-primary";
 
   return (
-    <div className={`flex items-center justify-between ${className}`}>
+    <div className={cn("flex items-center justify-between", className)}>
       {(label || description) && (
         <div className="flex-1 min-w-0 pr-4">
           {label && (
             <div className="flex items-center gap-2">
-              <span className="font-medium text-sm" style={{ color: "inherit" }}>{label}</span>
+              <span className={cn("font-medium text-sm", labelText)}>{label}</span>
               {badge}
             </div>
           )}
@@ -48,11 +73,10 @@ export default function Toggle({
       )}
       <button
         type="button"
+        data-slot="switch"
         onClick={() => onChange(!checked)}
         disabled={disabled}
-        className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all ease-[var(--motion-easing-emphasized)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${
-          checked ? "bg-accent" : "bg-current/20"
-        } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+        className={cn(toggleTrackVariants({ checked, disabled }))}
         style={{ transitionDuration: "var(--motion-duration-short4)" }}
         role="switch"
         aria-checked={checked}
@@ -60,9 +84,13 @@ export default function Toggle({
         aria-describedby={description ? descriptionId : undefined}
       >
         <span
-          className={`inline-flex items-center justify-center h-5 w-5 transform rounded-full bg-current transition-all ease-[var(--motion-easing-emphasized)] ${
+          key={checked ? "on" : "off"}
+          data-slot="switch-thumb"
+          className={cn(
+            "inline-flex items-center justify-center h-5 w-5 transform rounded-full bg-current",
+            "transition-all ease-[var(--motion-easing-emphasized)] animate-toggle-settle",
             checked ? "translate-x-6" : "translate-x-1"
-          }`}
+          )}
           style={{ transitionDuration: "var(--motion-duration-short4)" }}
         >
           {IconOn && checked && <IconOn size={12} className="text-accent" />}
@@ -82,5 +110,6 @@ Toggle.propTypes = {
   iconOn: PropTypes.elementType,
   iconOff: PropTypes.elementType,
   badge: PropTypes.node,
+  surface: PropTypes.oneOf(["primary", "secondary"]),
   className: PropTypes.string,
 };

@@ -104,3 +104,6 @@ test-results/
 .opencode/
 opencode.jsonc
 .lcm/
+
+# Agent config
+.pi/

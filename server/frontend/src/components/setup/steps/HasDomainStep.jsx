@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 import { Globe, ShoppingCart } from "lucide-react";
 
 const OPTIONS = [
@@ -20,7 +21,7 @@ const OPTIONS = [
 
 export default function HasDomainStep({ onNext, onBuy }) {
   return (
-    <div className="flex flex-col items-center text-center py-4">
+    <div className="flex flex-col items-center text-center py-4" data-slot="has-domain">
       <div className="mb-8">
         <ShoppingCart size={48} className="text-primary/30 mx-auto mb-4" />
         <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
@@ -36,11 +37,12 @@ export default function HasDomainStep({ onNext, onBuy }) {
             key={id}
             type="button"
             onClick={id === "has" ? onNext : onBuy}
-            className={`w-full flex items-center gap-4 p-4 rounded-large-element border motion-safe:transition-all motion-safe:duration-200 ${
+            className={cn(
+              "w-full flex items-center gap-4 p-4 rounded-large-element border motion-safe:transition-all motion-safe:duration-200",
               primary
                 ? "border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25 text-primary"
-                : "border-primary/10 bg-primary/[0.03] hover:bg-primary/8 hover:border-primary/20 text-primary"
-            }`}
+                : "border-primary/10 bg-primary/[0.03] hover:bg-primary/8 hover:border-primary/20 text-primary",
+            )}
           >
             <div className="flex-shrink-0 w-9 h-9 rounded-full bg-primary/8 flex items-center justify-center">
               <Icon size={18} className="text-primary/50" />

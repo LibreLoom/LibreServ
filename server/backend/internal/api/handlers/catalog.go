@@ -28,6 +28,14 @@ var iconCache = struct {
 	entries: make(map[string]*iconCacheEntry),
 }
 
+// ClearIconCache invalidates all cached app icons so that updated icons
+// from a repo pull are served on the next request.
+func ClearIconCache() {
+	iconCache.Lock()
+	iconCache.entries = make(map[string]*iconCacheEntry)
+	iconCache.Unlock()
+}
+
 type CatalogHandler struct {
 	manager *apps.Manager
 }

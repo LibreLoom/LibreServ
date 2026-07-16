@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId } from "react";
+import { useState, useEffect, useCallback, useId, useRef } from "react";
 import {
   ShieldCheck,
   Trash2,
@@ -15,6 +15,7 @@ import Card from "../cards/Card";
 import Button from "../ui/Button";
 import Alert from "../common/Alert";
 import CollapsibleSection from "../common/CollapsibleSection";
+import { useSmoothResize } from "../../hooks/useSmoothResize";
 import {
   prepareCreationOptions,
   bufToB64url,
@@ -339,6 +340,8 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
   const [webauthnName, setWebauthnName] = useState("");
   const [secretCopied, setSecretCopied] = useState(false);
   const codeInputId = useId();
+  const copyLabelRef = useRef(null);
+  useSmoothResize(copyLabelRef);
 
   // Start TOTP/email enrollment automatically. WebAuthn waits for the name form.
   //
@@ -493,7 +496,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
   const label = TYPE_META[type].label;
 
   return (
-    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300" data-slot="mfa-card">
       {/* Status line */}
       <div className="flex items-center gap-2 text-sm text-primary/80">
         {busy ? (
@@ -583,10 +586,13 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                 <button
                   type="button"
                   onClick={copySecret}
-                  className="shrink-0 text-xs text-accent hover:text-secondary flex items-center gap-1"
+                  className="shrink-0 text-xs text-accent hover:text-primary flex items-center gap-1"
                   aria-label="Copy manual key"
                 >
-                  <Copy size={12} /> {secretCopied ? "Copied" : "Copy"}
+                  <Copy size={12} />{" "}
+                  <span ref={copyLabelRef} className="inline-block whitespace-nowrap">
+                    {secretCopied ? "Copied" : "Copy"}
+                  </span>
                 </button>
               </div>
             </CollapsibleSection>

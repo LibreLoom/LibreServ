@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useRef, useEffect } from "react";
 import Card from "../cards/Card";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
@@ -31,10 +32,7 @@ function AdvancedSection({ show, onToggle, advancedSortedGroups, advancedGrouped
       >
         <span className="uppercase tracking-wider text-xs">Advanced Information</span>
         <ChevronDown
-          size={16}
-          className={`shrink-0 text-secondary/40 motion-safe:transition-transform motion-safe:duration-300 ${
-            show ? "rotate-180" : ""
-          }`}
+          className={cn("shrink-0 text-secondary/40 motion-safe:transition-transform motion-safe:duration-300", show && "rotate-180")}
         />
       </button>
 
@@ -110,9 +108,7 @@ export function ExposedInfoCard({ info }) {
     if (field.mask_by_default) {
       return (
         <span
-          className={`relative grid md:inline-grid w-full md:w-auto min-w-0 align-middle ${
-            field.copyable ? "cursor-copy" : "cursor-pointer"
-          }`}
+          className={cn("relative grid md:inline-grid w-full md:w-auto min-w-0 align-middle", field.copyable ? "cursor-copy" : "cursor-pointer")}
           onClick={handleMaskedValueClick}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
@@ -135,36 +131,20 @@ export function ExposedInfoCard({ info }) {
           aria-label={isVisible ? `Hide ${field.label || "value"}` : `Reveal ${field.label || "value"}`}
         >
           <span
-            className={`
-              invisible col-start-1 row-start-1 px-4 py-2
-              font-mono text-sm whitespace-pre-wrap break-all
-            `}
+            className={cn("invisible col-start-1 row-start-1 px-4 py-2", "font-mono text-sm whitespace-pre-wrap break-all")}
           >
             {placeholderValue}
           </span>
           <span
-            className={`
-              col-start-1 row-start-1 flex items-center justify-center md:justify-start overflow-hidden rounded-full
-              border border-secondary/15 bg-secondary/5 px-4 py-2 w-full
-              transition-[opacity,transform,filter] duration-300 ease-out
-              ${isVisible ? "opacity-0 scale-95 blur-md" : "opacity-100 scale-100 blur-0"}
-            `}
+            className={cn("col-start-1 row-start-1 flex items-center justify-center md:justify-start overflow-hidden rounded-full", "border border-secondary/15 bg-secondary/5 px-4 py-2 w-full", "transition-[opacity,transform,filter] duration-300 ease-out", isVisible ? "opacity-0 scale-95 blur-md" : "opacity-100 scale-100 blur-0")}
           >
             <span
-              className={`
-                font-mono text-sm text-secondary/60 select-none whitespace-pre-wrap break-all
-                transition-[opacity,filter] duration-300 ease-out
-                ${isVisible ? "opacity-0 blur-md" : "opacity-100 blur-[8px]"}
-              `}
+              className={cn("font-mono text-sm text-secondary/60 select-none whitespace-pre-wrap break-all", "transition-[opacity,filter] duration-300 ease-out", isVisible ? "opacity-0 blur-md" : "opacity-100 blur-[8px]")}
             >
               {placeholderValue}
             </span>
             <span
-              className={`
-                pointer-events-none absolute inset-0 hidden md:flex items-center justify-center px-4
-                transition-[opacity,transform] duration-300 ease-out
-                ${isVisible ? "opacity-0 scale-95" : "opacity-100 scale-100"}
-              `}
+              className={cn("pointer-events-none absolute inset-0 hidden md:flex items-center justify-center px-4", "transition-[opacity,transform] duration-300 ease-out", isVisible ? "opacity-0 scale-95" : "opacity-100 scale-100")}
             >
               <span className="rounded-full bg-primary/65 px-2 py-0.5 font-mono text-[10px] tracking-wide text-secondary shadow-sm">
                 hover to reveal
@@ -172,12 +152,7 @@ export function ExposedInfoCard({ info }) {
             </span>
           </span>
           <span
-            className={`
-              col-start-1 row-start-1 flex items-center overflow-hidden rounded-full w-full
-              border border-secondary/15 bg-secondary/5 px-4 py-2
-              transition-[opacity,transform,filter] duration-300 ease-out
-              ${isVisible ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-[1.02] blur-sm"}
-            `}
+            className={cn("col-start-1 row-start-1 flex items-center overflow-hidden rounded-full w-full", "border border-secondary/15 bg-secondary/5 px-4 py-2", "transition-[opacity,transform,filter] duration-300 ease-out", isVisible ? "opacity-100 scale-100 blur-0" : "opacity-0 scale-[1.02] blur-sm")}
           >
             <span className="font-mono text-sm text-secondary whitespace-pre-wrap break-all">
               {value}
@@ -231,10 +206,7 @@ export function ExposedInfoCard({ info }) {
         <div className="flex items-center gap-2 mb-4">
           <GroupIcon size={16} className={isAdvanced ? "text-secondary/60" : "text-accent"} />
           <h3
-            className={`
-              text-sm font-mono uppercase tracking-wider
-              ${isAdvanced ? "text-secondary/60" : "text-accent"}
-            `}
+            className={cn("text-sm font-mono uppercase tracking-wider", isAdvanced ? "text-secondary/60" : "text-accent")}
           >
             {groupMeta.label}
           </h3>
@@ -243,18 +215,12 @@ export function ExposedInfoCard({ info }) {
           {fields.map(([key, field]) => (
             <div
               key={key}
-              className={`
-                flex flex-col gap-3 py-4 border-b last:border-b-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4
-                ${isAdvanced ? "border-secondary/5" : "border-secondary/10"}
-              `}
+              className={cn("flex flex-col gap-3 py-4 border-b last:border-b-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4", isAdvanced ? "border-secondary/5" : "border-secondary/10")}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p
-                    className={`
-                    text-sm font-medium
-                    ${isAdvanced ? "text-secondary/60" : "text-secondary"}
-                  `}
+                    className={cn("text-sm font-medium", isAdvanced ? "text-secondary/60" : "text-secondary")}
                   >
                     {field.label}
                   </p>
@@ -266,10 +232,7 @@ export function ExposedInfoCard({ info }) {
                 </div>
                 {field.description && (
                   <p
-                    className={`
-                    text-xs mt-1
-                    ${isAdvanced ? "text-secondary/30" : "text-secondary/50"}
-                  `}
+                    className={cn("text-xs mt-1", isAdvanced ? "text-secondary/30" : "text-secondary/50")}
                   >
                     {field.description}
                   </p>
@@ -314,8 +277,8 @@ export function ExposedInfoCard({ info }) {
   const advancedSortedGroups = sortGroups(advancedGrouped);
 
   return (
-    <section className="mt-8">
-      <Card className="bg-primary! text-secondary! border-2! border-secondary!">
+    <section className={cn("mt-8")} data-slot="exposed-info-card">
+      <Card surface="primary">
         <div className="flex items-center gap-2 mb-8">
           <Key size={20} className="text-accent" />
           <h2 className="text-2xl font-mono font-normal">Exposed Information</h2>

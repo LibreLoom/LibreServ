@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { memo } from "react";
 import {
   ExternalLink,
@@ -57,27 +58,27 @@ function AccessModel({ model, compact, onPrimary = false }) {
   if (compact) {
     return (
       <div className="flex items-center gap-2">
-        <div className={`p-1.5 rounded-full ${style.bg}`}>
+        <div className={cn("p-1.5 rounded-full", style.bg)}>
           <Icon size={12} className={style.text} />
         </div>
         <div>
-          <p className={`text-xs font-mono ${labelDim}`}>Access</p>
-          <p className={`text-sm font-medium ${style.text}`}>{info.label}</p>
+          <p className={cn("text-xs font-mono", labelDim)}>Access</p>
+          <p className={cn("text-sm font-medium", style.text)}>{info.label}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`p-4 rounded-large-element ${style.bg} border ${style.border}`}>
+    <div className={cn("p-4 rounded-large-element", style.bg, "border", style.border)}>
       <div className="flex items-start gap-3">
-        <div className={`p-2 rounded-full ${style.bg}`}>
+        <div className={cn("p-2 rounded-full", style.bg)}>
           <Icon size={18} className={style.text} />
         </div>
         <div className="flex-1">
-          <p className={`text-xs font-mono uppercase tracking-wide ${labelMuted} mb-1`}>Access Model</p>
-          <p className={`text-base font-medium ${style.text}`}>{info.label}</p>
-          <p className={`text-sm ${labelDesc} mt-1`}>{info.desc}</p>
+          <p className={cn("text-xs font-mono uppercase tracking-wide", labelMuted, "mb-1")}>Access Model</p>
+          <p className={cn("text-base font-medium", style.text)}>{info.label}</p>
+          <p className={cn("text-sm", labelDesc, "mt-1")}>{info.desc}</p>
         </div>
       </div>
     </div>
@@ -96,25 +97,25 @@ function BooleanFeature({ icon: Icon, label, value, compact, onPrimary = false }
   if (compact) {
     return (
       <div className="flex items-center gap-2">
-        <div className={`p-1.5 rounded-full ${style.bg}`}>
+        <div className={cn("p-1.5 rounded-full", style.bg)}>
           <DisplayIcon size={12} className={style.text} />
         </div>
         <div>
-          <p className={`text-xs font-mono ${labelMuted}`}>{label}</p>
-          <p className={`text-sm font-medium ${style.text}`}>{isActive ? "Yes" : "No"}</p>
+          <p className={cn("text-xs font-mono", labelMuted)}>{label}</p>
+          <p className={cn("text-sm font-medium", style.text)}>{isActive ? "Yes" : "No"}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-large-element ${style.bg}`}>
-      <div className={`p-2 rounded-full ${style.bg}`}>
+    <div className={cn("flex items-center gap-3 p-3 rounded-large-element", style.bg)}>
+      <div className={cn("p-2 rounded-full", style.bg)}>
         <Icon size={16} className={style.text} />
       </div>
       <div className="flex-1">
-        <p className={`text-xs font-mono ${labelDim}`}>{label}</p>
-        <p className={`text-sm font-medium ${style.text}`}>{isActive ? "Supported" : "Not supported"}</p>
+        <p className={cn("text-xs font-mono", labelDim)}>{label}</p>
+        <p className={cn("text-sm font-medium", style.text)}>{isActive ? "Supported" : "Not supported"}</p>
       </div>
     </div>
   );
@@ -131,14 +132,12 @@ function UpdateBehavior({ behavior, compact, onPrimary = false }) {
   if (compact) {
     return (
       <div className="flex items-center gap-2">
-        <div className={`p-1.5 rounded-full ${automatic ? tone.info.bg : tone.neutral.bg}`}>
+        <div className={cn("p-1.5 rounded-full", automatic ? tone.info.bg : tone.neutral.bg)}>
           <RefreshCw size={12} className={automatic ? tone.info.text : tone.neutral.text} />
         </div>
         <div>
-          <p className={`text-xs font-mono ${labelDim}`}>Updates</p>
-          <p className={`text-sm font-medium ${automatic ? tone.info.text : tone.neutral.text}`}>
-            {automatic ? "Automatic" : "Manual"}
-          </p>
+          <p className={cn("text-xs font-mono", labelDim)}>Updates</p>
+          <p className={cn("text-sm font-medium", automatic ? tone.info.text : tone.neutral.text)}>{automatic ? "Automatic" : "Manual"}</p>
         </div>
       </div>
     );
@@ -146,25 +145,19 @@ function UpdateBehavior({ behavior, compact, onPrimary = false }) {
 
   return (
     <div className="space-y-2">
-      <p className={`text-xs font-mono uppercase tracking-wide ${labelDim}`}>Updates</p>
+      <p className={cn("text-xs font-mono uppercase tracking-wide", labelDim)}>Updates</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <div className={`flex items-center gap-2 p-2 rounded-large-element ${automatic ? tone.info.bg : tone.neutral.bg}`}>
+        <div className={cn("flex items-center gap-2 p-2 rounded-large-element", automatic ? tone.info.bg : tone.neutral.bg)}>
           <RefreshCw size={14} className={automatic ? tone.info.text : tone.neutral.text} />
-          <span className={`text-sm ${automatic ? tone.info.text : tone.neutral.text}`}>
-            {automatic ? "Automatic" : "Manual"}
-          </span>
+          <span className={cn("text-sm", automatic ? tone.info.text : tone.neutral.text)}>{automatic ? "Automatic" : "Manual"}</span>
         </div>
-        <div className={`flex items-center gap-2 p-2 rounded-large-element ${requires_downtime ? tone.warning.bg : tone.success.bg}`}>
+        <div className={cn("flex items-center gap-2 p-2 rounded-large-element", requires_downtime ? tone.warning.bg : tone.success.bg)}>
           <Clock size={14} className={requires_downtime ? tone.warning.text : tone.success.text} />
-          <span className={`text-sm ${requires_downtime ? tone.warning.text : tone.success.text}`}>
-            {requires_downtime ? "Downtime required" : "Zero downtime"}
-          </span>
+          <span className={cn("text-sm", requires_downtime ? tone.warning.text : tone.success.text)}>{requires_downtime ? "Downtime required" : "Zero downtime"}</span>
         </div>
-        <div className={`flex items-center gap-2 p-2 rounded-large-element ${supports_rollback ? tone.success.bg : tone.neutral.bg}`}>
+        <div className={cn("flex items-center gap-2 p-2 rounded-large-element", supports_rollback ? tone.success.bg : tone.neutral.bg)}>
           <RotateCcw size={14} className={supports_rollback ? tone.success.text : tone.neutral.text} />
-          <span className={`text-sm ${supports_rollback ? tone.success.text : tone.neutral.text}`}>
-            {supports_rollback ? "Rollback supported" : "No rollback"}
-          </span>
+          <span className={cn("text-sm", supports_rollback ? tone.success.text : tone.neutral.text)}>{supports_rollback ? "Rollback supported" : "No rollback"}</span>
         </div>
       </div>
     </div>
@@ -185,7 +178,7 @@ function ResourceHints({ hints, compact, onPrimary = false }) {
     return (
       <div className="flex flex-wrap gap-2">
         {items.map((item, i) => (
-          <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${tone[item.tone].bg} ${tone[item.tone].text}`}>
+          <span key={i} className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono", tone[item.tone].bg, tone[item.tone].text)}>
             <item.icon size={10} />
             {item.label}
           </span>
@@ -196,18 +189,18 @@ function ResourceHints({ hints, compact, onPrimary = false }) {
 
   return (
     <div>
-      <p className={`text-xs font-mono uppercase tracking-wide ${labelDim} mb-2`}>Resources</p>
+      <p className={cn("text-xs font-mono uppercase tracking-wide", labelDim, "mb-2")}>Resources</p>
       <div className="flex flex-wrap gap-2">
         {hints.single_instance && (
-          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone.warning.bg}`}>
+          <span className={cn("inline-flex items-center gap-2 px-3 py-2 rounded-large-element", tone.warning.bg)}>
             <Server size={14} className={tone.warning.text} />
-            <span className={`text-sm ${tone.warning.text}`}>Single instance only</span>
+            <span className={cn("text-sm", tone.warning.text)}>Single instance only</span>
           </span>
         )}
         {hints.privileged_required && (
-          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone.warning.bg}`}>
+          <span className={cn("inline-flex items-center gap-2 px-3 py-2 rounded-large-element", tone.warning.bg)}>
             <Zap size={14} className={tone.warning.text} />
-            <span className={`text-sm ${tone.warning.text}`}>Privileged mode required</span>
+            <span className={cn("text-sm", tone.warning.text)}>Privileged mode required</span>
           </span>
         )}
       </div>
@@ -231,7 +224,7 @@ function Flags({ features, compact, onPrimary = false }) {
     return (
       <div className="flex flex-wrap gap-2">
         {activeFlags.map((flag, i) => (
-          <span key={i} className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${tone[flag.tone].bg} ${tone[flag.tone].text}`}>
+          <span key={i} className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono", tone[flag.tone].bg, tone[flag.tone].text)}>
             <flag.icon size={10} />
             {flag.label}
           </span>
@@ -242,12 +235,12 @@ function Flags({ features, compact, onPrimary = false }) {
 
   return (
     <div>
-      <p className={`text-xs font-mono uppercase tracking-wide ${labelDim} mb-2`}>Flags</p>
+      <p className={cn("text-xs font-mono uppercase tracking-wide", labelDim, "mb-2")}>Flags</p>
       <div className="flex flex-wrap gap-2">
         {activeFlags.map((flag, i) => (
-          <span key={i} className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone[flag.tone].bg}`}>
+          <span key={i} className={cn("inline-flex items-center gap-2 px-3 py-2 rounded-large-element", tone[flag.tone].bg)}>
             <flag.icon size={14} className={tone[flag.tone].text} />
-            <span className={`text-sm ${tone[flag.tone].text}`}>{flag.label}</span>
+            <span className={cn("text-sm", tone[flag.tone].text)}>{flag.label}</span>
           </span>
         ))}
       </div>
@@ -268,13 +261,13 @@ function Requirements({ features, compact, onPrimary = false }) {
     return (
       <div className="flex flex-wrap gap-2">
         {hasMinRam && (
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${tone.neutral.bg} ${tone.neutral.text}`}>
+          <span className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono", tone.neutral.bg, tone.neutral.text)}>
             <Database size={10} />
             {features.min_ram}
           </span>
         )}
         {hasMinCpu && (
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono ${tone.neutral.bg} ${tone.neutral.text}`}>
+          <span className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-pill text-xs font-mono", tone.neutral.bg, tone.neutral.text)}>
             <Cpu size={10} />
             {features.min_cpu} CPU
           </span>
@@ -285,18 +278,18 @@ function Requirements({ features, compact, onPrimary = false }) {
 
   return (
     <div>
-      <p className={`text-xs font-mono uppercase tracking-wide ${labelMuted} mb-2`}>Requirements</p>
+      <p className={cn("text-xs font-mono uppercase tracking-wide", labelMuted, "mb-2")}>Requirements</p>
       <div className="flex flex-wrap gap-2">
         {hasMinRam && (
-          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone.neutral.bg}`}>
+          <span className={cn("inline-flex items-center gap-2 px-3 py-2 rounded-large-element", tone.neutral.bg)}>
             <Database size={14} className={tone.neutral.text} />
-            <span className={`text-sm ${tone.neutral.text}`}>{features.min_ram} RAM</span>
+            <span className={cn("text-sm", tone.neutral.text)}>{features.min_ram} RAM</span>
           </span>
         )}
         {hasMinCpu && (
-          <span className={`inline-flex items-center gap-2 px-3 py-2 rounded-large-element ${tone.neutral.bg}`}>
+          <span className={cn("inline-flex items-center gap-2 px-3 py-2 rounded-large-element", tone.neutral.bg)}>
             <Cpu size={14} className={tone.neutral.text} />
-            <span className={`text-sm ${tone.neutral.text}`}>{features.min_cpu} CPU cores</span>
+            <span className={cn("text-sm", tone.neutral.text)}>{features.min_cpu} CPU cores</span>
           </span>
         )}
       </div>
@@ -308,7 +301,7 @@ function Requirements({ features, compact, onPrimary = false }) {
 function FeatureMatrix({ features, compact = false, className = "", onPrimary = false }) {
   if (!features) {
     return (
-      <div className={`text-sm italic ${className} ${onPrimary ? "text-secondary/50" : "text-primary/50"}`}>
+      <div className={cn("text-sm italic", className, onPrimary ? "text-secondary/50" : "text-primary/50")}>
         No capability information available for this app.
       </div>
     );
@@ -316,7 +309,7 @@ function FeatureMatrix({ features, compact = false, className = "", onPrimary = 
 
   if (compact) {
     return (
-      <div className={className}>
+      <div className={cn(className)}>
         <div className="grid grid-cols-2 gap-y-3 gap-x-4">
           <AccessModel model={features.access_model || "internal"} compact onPrimary={onPrimary} />
           <BooleanFeature
@@ -339,7 +332,7 @@ function FeatureMatrix({ features, compact = false, className = "", onPrimary = 
   }
 
   return (
-    <div className={`space-y-4 ${className}`}>
+    <div className={cn("space-y-4", className)} data-slot="feature-matrix">
       <AccessModel model={features.access_model || "internal"} onPrimary={onPrimary} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

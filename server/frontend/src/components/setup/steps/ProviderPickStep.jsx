@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 import { Lock } from "lucide-react";
 import { CloudflareIcon, PorkbunIcon, SpaceshipIcon } from "../icons";
 
@@ -22,15 +23,15 @@ function ProviderCard({ id, label, desc, Icon, ready, selected, onClick }) {
       type="button"
       onClick={() => ready && onClick(id)}
       disabled={!ready}
-      className={`w-full flex items-center gap-4 p-4 rounded-large-element border motion-safe:transition-all motion-safe:duration-200 ${
+      className={cn(
+        "w-full flex items-center gap-4 p-4 rounded-large-element border motion-safe:transition-all motion-safe:duration-200",
         selected === id
           ? "border-accent bg-accent/10"
           : ready
           ? "border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25"
-          : "border-primary/10 bg-primary/5 opacity-40 cursor-not-allowed"
-      }`}
-    >
-      <div className={`flex-shrink-0 ${ready ? "" : "opacity-50"}`}>
+          : "border-primary/10 bg-primary/5 opacity-40 cursor-not-allowed",
+      )}>
+      <div className={cn("flex-shrink-0", ready ? "" : "opacity-50")}>
         <Icon size={22} />
       </div>
       <div className="flex-1 text-left">
@@ -54,7 +55,7 @@ ProviderCard.propTypes = {
 
 export default function ProviderPickStep({ selected, onSelect }) {
   return (
-    <div>
+    <div data-slot="provider-pick">
       <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-2">
         Where did you get your domain?
       </h2>

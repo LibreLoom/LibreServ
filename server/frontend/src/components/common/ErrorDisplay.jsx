@@ -1,15 +1,20 @@
-import { X, AlertCircle, AlertTriangle, Info } from "lucide-react";
+import { AlertCircle, AlertTriangle, Info } from "lucide-react";
+import { cn } from "@/lib/utils";
 import PropTypes from "prop-types";
+import Callout from "./Callout";
+
+const TONE_MAP = { error: "error", warning: "warning", info: "info" };
+const ICON_MAP = { error: AlertCircle, warning: AlertTriangle, info: Info };
 
 const primaryBtn =
-"inline-flex items-center gap-2 rounded-pill bg-secondary text-primary px-4 py-2 text-sm font-medium " +
-   "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent " +
-   "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+  cn("inline-flex items-center gap-2 rounded-pill bg-secondary text-primary px-4 py-2 text-sm font-medium",
+    "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent",
+    "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2");
 
 const secondaryBtn =
-  "inline-flex items-center gap-2 rounded-pill bg-transparent text-secondary px-4 py-2 text-sm font-medium " +
-"motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0 " +
-   "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+  cn("inline-flex items-center gap-2 rounded-pill bg-transparent text-secondary px-4 py-2 text-sm font-medium",
+    "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0",
+    "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2");
 
 /**
  * @param {{ message: any, type?: string, onDismiss?: any, dismissible?: boolean, children?: any }} _
@@ -21,48 +26,16 @@ export function ErrorDisplay({
   dismissible = true,
   children,
 }) {
-  const styles = {
-    error: {
-      bg: "bg-error/10",
-      icon: AlertCircle,
-      iconColor: "text-error",
-      text: "text-error",
-    },
-    warning: {
-      bg: "bg-warning/10",
-      icon: AlertTriangle,
-      iconColor: "text-warning",
-      text: "text-warning",
-    },
-    info: {
-      bg: "bg-info/10",
-      icon: Info,
-      iconColor: "text-info",
-      text: "text-info",
-    },
-  };
-
-  const style = styles[type];
-  const Icon = style.icon;
-
   return (
-    <div className={`${style.bg} rounded-large-element p-4 mb-4`}>
-      <div className="flex items-start gap-3">
-        <Icon className={`w-5 h-5 ${style.iconColor} shrink-0 mt-0.5`} />
-        <div className="flex-1 min-w-0">
-          <p className={`${style.text} font-medium`}>{message}</p>
-          {children && <div className="mt-3">{children}</div>}
-        </div>
-        {dismissible && onDismiss && (
-          <button
-            onClick={onDismiss}
-            className={`${style.iconColor} hover:bg-primary/20 motion-safe:transition-all shrink-0 rounded-pill p-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2`}
-            aria-label="Dismiss error"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+    <div className={cn("mb-4")} data-slot="error-display">
+      <Callout
+        tone={TONE_MAP[type] || "error"}
+        icon={ICON_MAP[type] || ICON_MAP.error}
+        onDismiss={dismissible && onDismiss ? onDismiss : undefined}
+      >
+        <p className="font-medium">{message}</p>
+        {children && <div className="mt-3">{children}</div>}
+      </Callout>
     </div>
   );
 }
@@ -71,7 +44,7 @@ export function InlineError({ message, className = "" }) {
   if (!message) return null;
 
   return (
-    <span className={`text-error text-sm ${className}`} role="alert">
+    <span className={cn("text-error text-sm", className)} role="alert">
       {message}
     </span>
   );

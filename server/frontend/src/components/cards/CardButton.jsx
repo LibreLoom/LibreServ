@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 
 const variants = {
@@ -7,7 +8,6 @@ const variants = {
     "bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
   danger:
     "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
-  // Flat list/tab style (e.g. settings sidebar). No solid fill or hover ring.
   nav: "text-secondary hover:bg-secondary/10 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
 };
 
@@ -62,19 +62,16 @@ export default function CardButton({
   const variantClasses =
     (active && activeVariants[variant]) || variants[variant] || variants.default;
   const alignClass = alignments[align] || alignments.center;
-  // The hover ring suits the solid pill variants but not the flat nav variant.
   const ringClass = variant === "nav" ? "" : "hover:ring-2 hover:ring-solid";
 
-  const classes = `flex items-center gap-2 rounded-pill p-2 motion-safe:transition-all cursor-pointer ${ringClass} ${alignClass} ${variantClasses} ${className} h-full w-full`;
+  const classes = cn("flex items-center gap-2 rounded-pill p-2 motion-safe:transition-all cursor-pointer", ringClass, alignClass, variantClasses, className, "h-full w-full");
 
   const label = children ?? actionLabel;
   const content = (
     <>
       {Icon && <Icon size={16} className="shrink-0" />}
       <span
-        className={`text-sm font-medium ${
-          align === "center" ? "" : "flex-1 text-left"
-        }`}
+        className={cn("text-sm font-medium", align !== "center" && "flex-1 text-left")}
       >
         {label}
       </span>
@@ -85,6 +82,7 @@ export default function CardButton({
   if (external) {
     return (
       <a
+        data-slot="card-button"
         href={action}
         target="_blank"
         rel="noopener noreferrer"
@@ -100,6 +98,7 @@ export default function CardButton({
   if (action) {
     return (
       <Link
+        data-slot="card-button"
         to={action}
         aria-label={actionLabel}
         aria-current={ariaCurrent}
@@ -113,6 +112,7 @@ export default function CardButton({
 
   return (
     <button
+      data-slot="card-button"
       type={type}
       onClick={onClick}
       aria-label={actionLabel}

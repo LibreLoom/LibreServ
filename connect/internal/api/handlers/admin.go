@@ -8,15 +8,19 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
 // AdminHandler handles staff/admin operations.
 type AdminHandler struct {
-	db *sql.DB
+	db      *sql.DB
+	billing *billing.Service
 }
 
 func NewAdminHandler(db *sql.DB) *AdminHandler {
-	return &AdminHandler{db: db}
+	return &AdminHandler{db: db, billing: billing.NewService(db)}
 }
 
 // ListDevices returns all registered devices.
@@ -87,15 +91,12 @@ func (h *AdminHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
 // GetDeviceUsage returns usage summary for a device.
 func (h *AdminHandler) GetDeviceUsage(w http.ResponseWriter, r *http.Request) {
 	deviceID := chi.URLParam(r, "deviceID")
-	var totalCost float64
-	_ = h.db.QueryRowContext(r.Context(),
-		"SELECT COALESCE(SUM(cost_usd), 0) FROM usage_events WHERE device_id = ? AND timestamp >= date('now', 'start of month')",
-		deviceID).Scan(&totalCost)
-
-	JSON(w, http.StatusOK, map[string]any{
-		"device_id":      deviceID,
-		"total_cost_usd": totalCost,
-	})
+	summary, err := h.billing.GetDeviceUsageForAdmin(deviceID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not retrieve usage")
+		return
+	}
+	JSON(w, http.StatusOK, summary)
 }
 
 // RotateCredentials forces re-provisioning of credentials for a specific service on a device.
@@ -116,6 +117,8 @@ func (h *AdminHandler) RotateCredentials(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusInternalServerError, "could not revoke credentials")
 		return
 	}
+
+	h.auditLog(r, "rotate_credentials", "device", deviceID, map[string]any{"service": req.Service})
 
 	JSON(w, http.StatusOK, map[string]string{
 		"message": fmt.Sprintf("Credentials for %s revoked. Device must re-provision.", req.Service),
@@ -238,6 +241,8 @@ func (h *AdminHandler) AddCaseMessage(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.db.ExecContext(r.Context(),
 		"UPDATE support_cases SET updated_at = ? WHERE id = ?", time.Now(), caseID)
 
+	h.auditLog(r, "add_case_message", "case", caseID, map[string]any{"text_length": len(req.Text)})
+
 	JSON(w, http.StatusOK, map[string]string{"message": "message added"})
 }
 
@@ -267,7 +272,7 @@ func (h *AdminHandler) CreateConsentRequest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	consentID := generateID()
+	consentID := security.GenerateID("consent")
 	_, err = h.db.ExecContext(r.Context(),
 		`INSERT INTO consent_requests (id, case_id, device_id, requested_by, path, scope_type, status, requested_at, expires_at, notes)
 		 VALUES (?, ?, ?, 'admin', ?, ?, 'pending', ?, datetime('now', '+24 hours'), ?)`,
@@ -276,6 +281,10 @@ func (h *AdminHandler) CreateConsentRequest(w http.ResponseWriter, r *http.Reque
 		JSONError(w, http.StatusInternalServerError, "could not create consent request")
 		return
 	}
+
+	h.auditLog(r, "create_consent_request", "case", caseID, map[string]any{
+		"path": req.Path, "scope_type": req.ScopeType, "consent_id": consentID,
+	})
 
 	JSON(w, http.StatusOK, map[string]any{
 		"id":      consentID,
@@ -338,7 +347,32 @@ func (h *AdminHandler) UpdatePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.auditLog(r, "update_plan", "plan", planID, map[string]any{
+		"name": req.Name, "price": req.PriceMonthlyCents,
+	})
+
 	JSON(w, http.StatusOK, map[string]string{"message": "plan updated"})
+}
+
+// GetAggregatedUsage returns total usage across all devices.
+func (h *AdminHandler) GetAggregatedUsage(w http.ResponseWriter, r *http.Request) {
+	usage, err := h.billing.GetAggregatedUsage()
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not retrieve usage")
+		return
+	}
+	JSON(w, http.StatusOK, map[string]any{"usage": usage})
+}
+
+// auditLog records a staff action in the audit log.
+func (h *AdminHandler) auditLog(r *http.Request, action, targetType, targetID string, details map[string]any) {
+	detailsJSON := "{}"
+	if b, err := json.Marshal(details); err == nil {
+		detailsJSON = string(b)
+	}
+	_, _ = h.db.ExecContext(r.Context(),
+		`INSERT INTO audit_logs (actor, action, target_type, target_id, details_json) VALUES (?, ?, ?, ?, ?)`,
+		"admin", action, targetType, targetID, detailsJSON)
 }
 
 func nullTime(t sql.NullTime) string {

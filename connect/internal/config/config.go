@@ -13,16 +13,17 @@ var C Config
 
 // Config is the top-level application configuration.
 type Config struct {
-	Server    ServerConfig    `mapstructure:"server" yaml:"server"`
-	Database  DatabaseConfig  `mapstructure:"database" yaml:"database"`
-	Auth      AuthConfig      `mapstructure:"auth" yaml:"auth"`
-	Stripe    StripeConfig    `mapstructure:"stripe" yaml:"stripe"`
-	Crypto    CryptoConfig    `mapstructure:"crypto" yaml:"crypto"`
-	SMTP      SMTPConfig      `mapstructure:"smtp" yaml:"smtp"`
-	DNS       DNSConfig       `mapstructure:"dns" yaml:"dns"`
-	Inference InferenceConfig `mapstructure:"inference" yaml:"inference"`
-	Backup    BackupConfig    `mapstructure:"backup" yaml:"backup"`
-	Tunnel    TunnelConfig    `mapstructure:"tunnel" yaml:"tunnel"`
+	Server     ServerConfig     `mapstructure:"server" yaml:"server"`
+	Database   DatabaseConfig   `mapstructure:"database" yaml:"database"`
+	Auth       AuthConfig       `mapstructure:"auth" yaml:"auth"`
+	Stripe     StripeConfig     `mapstructure:"stripe" yaml:"stripe"`
+	SMTP       SMTPConfig       `mapstructure:"smtp" yaml:"smtp"`
+	DNS        DNSConfig        `mapstructure:"dns" yaml:"dns"`
+	Inference  InferenceConfig  `mapstructure:"inference" yaml:"inference"`
+	Backup     BackupConfig     `mapstructure:"backup" yaml:"backup"`
+	Tunnel     TunnelConfig     `mapstructure:"tunnel" yaml:"tunnel"`
+	Relay      RelayConfig      `mapstructure:"relay" yaml:"relay"`
+	Web        WebConfig        `mapstructure:"web" yaml:"web"`
 }
 
 type ServerConfig struct {
@@ -35,22 +36,19 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	DeviceTokenSecret string `mapstructure:"device_token_secret" yaml:"device_token_secret"`
-	AdminTokenSecret  string `mapstructure:"admin_token_secret" yaml:"admin_token_secret"`
-	SessionTTLHours   int    `mapstructure:"session_ttl_hours" yaml:"session_ttl_hours"`
+	DeviceTokenSecret  string `mapstructure:"device_token_secret" yaml:"device_token_secret"`
+	AdminTokenSecret   string `mapstructure:"admin_token_secret" yaml:"admin_token_secret"`
+	CustomerTokenSecret string `mapstructure:"customer_token_secret" yaml:"customer_token_secret"`
+	SessionTTLHours    int    `mapstructure:"session_ttl_hours" yaml:"session_ttl_hours"`
 }
 
 type StripeConfig struct {
-	SecretKey     string `mapstructure:"secret_key" yaml:"secret_key"`
-	WebhookSecret string `mapstructure:"webhook_secret" yaml:"webhook_secret"`
-	Enabled       bool   `mapstructure:"enabled" yaml:"enabled"`
-}
-
-type CryptoConfig struct {
-	Enabled      bool   `mapstructure:"enabled" yaml:"enabled"`
-	BTCAddress   string `mapstructure:"btc_address" yaml:"btc_address"`
-	ETHAddress   string `mapstructure:"eth_address" yaml:"eth_address"`
-	ReconcileURL string `mapstructure:"reconcile_url" yaml:"reconcile_url"`
+	SecretKey      string `mapstructure:"secret_key" yaml:"secret_key"`
+	WebhookSecret  string `mapstructure:"webhook_secret" yaml:"webhook_secret"`
+	Enabled        bool   `mapstructure:"enabled" yaml:"enabled"`
+	PriceFree      string `mapstructure:"price_free" yaml:"price_free"`
+	PriceLite      string `mapstructure:"price_lite" yaml:"price_lite"`
+	PriceOne       string `mapstructure:"price_one" yaml:"price_one"`
 }
 
 type SMTPConfig struct {
@@ -90,6 +88,17 @@ type TunnelConfig struct {
 	AccountID string `mapstructure:"account_id" yaml:"account_id"`
 }
 
+type RelayConfig struct {
+	HetznerAPIKey string `mapstructure:"hetzner_api_key" yaml:"hetzner_api_key"`
+	AkamaiAPIKey  string `mapstructure:"akamai_api_key" yaml:"akamai_api_key"`
+	FallbackLabel string `mapstructure:"fallback_label" yaml:"fallback_label"`
+}
+
+type WebConfig struct {
+	CustomerDir string `mapstructure:"customer_dir" yaml:"customer_dir"`
+	AdminDir     string `mapstructure:"admin_dir" yaml:"admin_dir"`
+}
+
 func Load(path string) error {
 	v := viper.New()
 	v.SetEnvPrefix("CONNECT")
@@ -119,4 +128,6 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("database.path", "connect.db")
 	v.SetDefault("auth.session_ttl_hours", 168)
+	v.SetDefault("web.customer_dir", "web/customer/dist")
+	v.SetDefault("web.admin_dir", "web/admin/dist")
 }

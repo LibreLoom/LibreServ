@@ -3,7 +3,7 @@ import ModalCard from "../../cards/ModalCard";
 
 export function ActionConfirmModal({ action, onConfirm, onCancel, isConfirming }) {
   return (
-    <ModalCard title={`Confirm: ${action.label}`} onClose={onCancel}>
+    <ModalCard title={`Confirm: ${action.label}`} onClose={onCancel} data-slot="action-confirm-modal">
       <div className="space-y-4">
         {action.confirm?.message && (
           <div className="flex items-start gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">

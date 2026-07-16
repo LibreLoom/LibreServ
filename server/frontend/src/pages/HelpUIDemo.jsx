@@ -1,7 +1,7 @@
 /* color-scan: ignore-file - test fixture with intentional avatar colors */
 import { useState } from "react";
 import { AlertCircle } from "lucide-react";
-import HeaderCard from "../components/cards/HeaderCard.jsx";
+import Page from "../components/ui/Page.jsx";
 import Card from "../components/cards/Card.jsx";
 import Button from "../components/ui/Button.jsx";
 import EmptyState from "../components/common/EmptyState.jsx";
@@ -39,10 +39,8 @@ export default function HelpUIDemo() {
   const [input, setInput] = useState("");
 
   return (
-    <main className="bg-primary text-secondary px-8 pt-5 pb-32 min-h-screen">
-      <HeaderCard title="Help Components" />
-
-      <div className="mt-8 space-y-10 max-w-3xl">
+    <Page title="Help Components" className="min-h-screen">
+      <div className="mt-8 space-y-10 max-w-3xl" data-slot="help-uidemo">
 
         <Section title="EmptyState — Not Configured">
           <Card noHeightAnim noPopIn>
@@ -155,7 +153,7 @@ export default function HelpUIDemo() {
               { value: "route/kimi-k2.6", label: "Kimi K2.6" },
               { value: "route/deepseek-r1", label: "DeepSeek R1" },
             ]}
-            bg="primary"
+            surface="primary"
           />
         </Section>
 
@@ -180,6 +178,6 @@ export default function HelpUIDemo() {
         </Section>
 
       </div>
-    </main>
+    </Page>
   );
 }

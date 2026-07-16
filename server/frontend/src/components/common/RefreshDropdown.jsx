@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { cn } from "@/lib/utils";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 
 const REFRESH_INTERVALS = [
@@ -16,6 +17,7 @@ const REFRESH_INTERVALS = [
 /** @param {{ value: any, onChange: any, onOpenChange?: any }} _ */
 export default function RefreshDropdown({ value, onChange, onOpenChange }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, width: 0 });
   const containerRef = useRef(null);
   const portalRef = useRef(null);
@@ -34,6 +36,14 @@ export default function RefreshDropdown({ value, onChange, onOpenChange }) {
     }
   };
 
+  const close = useCallback(() => {
+    setIsClosing(true);
+    setTimeout(() => {
+      setIsOpen(false);
+      setIsClosing(false);
+    }, 160);
+  }, []);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (
@@ -42,13 +52,13 @@ export default function RefreshDropdown({ value, onChange, onOpenChange }) {
       ) {
         return;
       }
-      setIsOpen(false);
+      close();
       onOpenChange?.(false);
     }
 
     function handleEscape(event) {
       if (event.key === "Escape") {
-        setIsOpen(false);
+        close();
         onOpenChange?.(false);
         buttonRef.current?.focus();
       }
@@ -73,29 +83,33 @@ export default function RefreshDropdown({ value, onChange, onOpenChange }) {
       window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", handleScroll);
     };
-  }, [isOpen, onOpenChange]);
+  }, [isOpen, onOpenChange, close]);
 
   const handleSelect = (intervalValue) => {
     onChange(intervalValue);
+    close();
+    onOpenChange?.(false);
     buttonRef.current?.focus();
   };
 
   const handleToggle = () => {
-    if (!isOpen) {
+    if (isOpen) {
+      close();
+      onOpenChange?.(false);
+    } else {
       updatePosition();
+      setIsOpen(true);
+      onOpenChange?.(true);
     }
-    const newState = !isOpen;
-    setIsOpen(newState);
-    onOpenChange?.(newState);
   };
 
   return (
-    <div className="relative w-full" ref={containerRef}>
+    <div className={cn("relative w-full")} ref={containerRef} data-slot="refresh-dropdown">
       <button
         ref={buttonRef}
         type="button"
         onClick={handleToggle}
-        className="inline-flex flex-col items-start gap-0 px-0 py-0 bg-transparent text-primary text-xs font-medium motion-safe:transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary"
+        className={cn("inline-flex flex-col items-start gap-0 px-0 py-0 bg-transparent text-primary text-xs font-medium motion-safe:transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-primary", "no-focus-outline")}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         aria-label={`Refresh interval: ${selectedInterval?.label || "select"}`}
@@ -117,21 +131,21 @@ export default function RefreshDropdown({ value, onChange, onOpenChange }) {
               left: position.left,
               width: position.width,
             }}
-            className="bg-secondary text-accent ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 pop-in overflow-hidden"
+            className={cn("bg-secondary text-primary ring-inset ring-2 ring-accent rounded-large-element py-0 z-100 overflow-hidden", isClosing ? "animate-dropdown-close" : "animate-dropdown-open")}
             tabIndex={-1}
           >
-            {REFRESH_INTERVALS.map((interval) => (
-              <li key={interval.value}>
+            {REFRESH_INTERVALS.map((interval, i) => (
+              <li
+                key={interval.value}
+                className={isClosing ? "" : "animate-dropdown-option"}
+                style={isClosing ? undefined : { animationDelay: `${i * 30}ms` }}
+              >
                 <button
                   type="button"
                   role="option"
                   aria-selected={value === interval.value}
                   onClick={() => handleSelect(interval.value)}
-                  className={`w-full text-left px-4 py-2 text-xs motion-safe:transition-colors cursor-pointer rounded-none ${
-                    value === interval.value
-                      ? "bg-accent text-primary font-medium"
-                      : "hover:bg-primary/10"
-                  }`}
+                  className={cn("w-full text-left px-4 py-2 text-xs motion-safe:transition-all motion-safe:duration-150 motion-safe:ease-out cursor-pointer rounded-none", value === interval.value ? "bg-accent text-primary font-medium" : "hover:bg-primary/10 hover:motion-safe:translate-x-0.5")}
                 >
                   {interval.label}
                 </button>

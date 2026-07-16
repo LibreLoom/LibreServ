@@ -1,7 +1,9 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
-import { Eye, EyeOff, ExternalLink, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
 import CollapsibleSection from "../../common/CollapsibleSection";
+import Callout from "../../common/Callout";
 
 const inputClass = "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
@@ -19,7 +21,7 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
   const [showToken, setShowToken] = useState(false);
 
   return (
-    <div>
+    <div data-slot="token-input">
       <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-2">
         Connect your Cloudflare account
       </h2>
@@ -40,7 +42,7 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
               onChange={(e) => onTokenChange(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
               placeholder="v4Yx..."
-              className={`${inputClass} pr-12`}
+              className={cn(inputClass, "pr-12")}
               autoComplete="off"
               spellCheck={false}
             />
@@ -90,7 +92,9 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
               href="https://dash.cloudflare.com/profile/api-tokens"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-pill border border-primary/15 bg-primary/5 text-primary px-3.5 py-2 font-mono text-xs motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/10 hover:border-primary/25"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-pill border border-primary/15 bg-primary/5 text-primary px-3.5 py-2 font-mono text-xs motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/10 hover:border-primary/25",
+              )}
             >
               <ExternalLink size={12} />
               Open Dashboard
@@ -99,7 +103,9 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
               href="https://developers.cloudflare.com/fundamentals/api/get-started/create-token/"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-pill border border-primary/10 text-primary/50 px-3.5 py-2 font-mono text-xs motion-safe:transition-all motion-safe:duration-200 hover:text-primary/70 hover:border-primary/20"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-pill border border-primary/10 text-primary/50 px-3.5 py-2 font-mono text-xs motion-safe:transition-all motion-safe:duration-200 hover:text-primary/70 hover:border-primary/20",
+              )}
             >
               <ExternalLink size={12} />
               Open Documentation
@@ -109,9 +115,8 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
       </CollapsibleSection>
 
       {error && (
-        <div className="flex items-start gap-2.5 p-4 rounded-card border border-error/25 bg-error/10 mt-4 animate-in fade-in slide-in-from-bottom-1 duration-200">
-          <AlertCircle className="w-4 h-4 text-error flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-primary/80">{error}</p>
+        <div className="mt-4 animate-in fade-in slide-in-from-bottom-1 duration-200">
+          <Callout tone="error">{error}</Callout>
         </div>
       )}
     </div>

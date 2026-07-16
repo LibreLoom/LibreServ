@@ -5,7 +5,7 @@ export function ActionCard({ action, onExecute, disabled, loading }) {
   const hasOptions = action.options?.length > 0;
 
   return (
-    <div className="flex items-center justify-between p-4 border border-secondary/20 rounded-large-element hover:border-secondary/40 motion-safe:transition-colors">
+    <div className="flex items-center justify-between p-4 border border-secondary/20 rounded-large-element hover:border-secondary/40 motion-safe:transition-colors" data-slot="action-card">
       <div className="flex items-center gap-3">
         <div className="p-2 bg-secondary/10 rounded-full">
           <Wrench className="text-accent" size={20} />

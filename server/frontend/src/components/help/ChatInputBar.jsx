@@ -28,7 +28,7 @@ function ChatInputBar({
   }
 
   return (
-    <div className="border-t border-primary/10 p-4">
+    <div data-slot="help-chat-input" className="border-t border-primary/10 p-4">
       <div className="flex gap-3 items-end">
         <textarea
           ref={textareaRef}

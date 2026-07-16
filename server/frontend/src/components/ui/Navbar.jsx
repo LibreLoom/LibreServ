@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import {
 	Grid2X2,
 	Home,
@@ -18,26 +19,27 @@ const TRANSITION = {
   full: "motion-safe:transition-all duration-300 ease-out",
 };
 
-const navButtonClasses =
-  "flex " +
-  "items-center " +
-  "gap-2 " +
-  `${TRANSITION.base} ` +
-  "px-3 " +
-  "py-1.5 " +
-  "rounded-pill " +
-  "hover:bg-primary " +
-  "hover:text-secondary " +
-  "aria-[current=page]:bg-primary " +
-  "aria-[current=page]:text-secondary " +
-  "hover:aria-[current=page]:text-primary " +
-  "hover:aria-[current=page]:bg-secondary " +
-  "hover:aria-[current=page]:ring-3 " +
-  "hover:aria-[current=page]:ring-accent " +
-  "focus-visible:ring-3 " +
-  "focus-visible:ring-accent ";
+const navButtonClasses = cn(
+  "flex",
+  "items-center",
+  "gap-2",
+  TRANSITION.base,
+  "px-3",
+  "py-1.5",
+  "rounded-pill",
+  "hover:bg-primary",
+  "hover:text-secondary",
+  "aria-[current=page]:bg-primary",
+  "aria-[current=page]:text-secondary",
+  "hover:aria-[current=page]:text-primary",
+  "hover:aria-[current=page]:bg-secondary",
+  "hover:aria-[current=page]:ring-3",
+  "hover:aria-[current=page]:ring-accent",
+  "focus-visible:ring-3",
+  "focus-visible:ring-accent",
+);
 
-const menuItemClasses = `flex items-center gap-2 px-3 py-2 rounded-pill ${TRANSITION.base}`;
+const menuItemClasses = cn("flex", "items-center", "gap-2", "px-3", "py-2", "rounded-pill", TRANSITION.base);
 
 const navButtons = [
 	{ to: "/", icon: Home, label: "Dashboard" },
@@ -315,7 +317,7 @@ export default function Navbar() {
   );
 
   return (
-    <>
+    <div data-slot="navbar">
       <div className="hidden xl:flex">
         <nav
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 min-w-screen pl-6 pr-6"
@@ -331,7 +333,7 @@ export default function Navbar() {
             <div className="group flex items-center gap-2 relative">
               <button
                 type="button"
-                className={`font-semibold text-sm inline-block min-w-[6ch] max-w-[18ch] truncate text-left ${TRANSITION.full} ${user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"} translate-y-[-0.5px]`}
+                className={cn("font-semibold", "text-sm", "inline-block", "min-w-[6ch]", "max-w-[18ch]", "truncate", "text-left", TRANSITION.full, user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1", "translate-y-[-0.5px]")}
                 aria-label="User menu"
                 aria-haspopup="menu"
               >
@@ -343,15 +345,15 @@ export default function Navbar() {
 
               <div
                 role="menu"
-                className={`absolute bottom-0 right-0 pb-16 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto ${TRANSITION.full}`}
+                className={cn("absolute", "bottom-0", "right-0", "pb-16", "opacity-0", "pointer-events-none", "group-hover:opacity-100", "group-hover:pointer-events-auto", TRANSITION.full)}
               >
                 <div
-                  className={`bg-secondary rounded-large-element ring-2 ring-accent px-4 py-3 flex flex-col gap-2 min-w-48 translate-y-2 group-hover:translate-y-0 ${TRANSITION.full}`}
+                  className={cn("bg-secondary", "text-primary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", "group-hover:translate-y-0", TRANSITION.full)}
                 >
                   <NavLink
                     to="/users"
                     role="menuitem"
-                    className={`${menuItemClasses} hover:bg-primary hover:text-secondary`}
+                    className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
                   >
                     <Users size={16} aria-hidden="true" />
                     <span className="text-sm font-semibold">Manage Users</span>
@@ -359,7 +361,7 @@ export default function Navbar() {
                   <NavLink
                     to={`/users/${user?.id || ""}`}
                     role="menuitem"
-                    className={`${menuItemClasses} hover:bg-primary hover:text-secondary`}
+                    className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
                   >
                     <Settings size={16} aria-hidden="true" />
                     <span className="text-sm font-semibold">
@@ -371,7 +373,7 @@ export default function Navbar() {
                     onClick={async () => {
                       await logout();
                     }}
-                    className={`${menuItemClasses} hover:bg-accent hover:text-primary text-left`}
+                    className={cn(menuItemClasses, "hover:bg-accent", "hover:text-primary", "text-left")}
                   >
                     <X size={16} aria-hidden="true" />
                     <span className="text-sm font-semibold">Sign Out</span>
@@ -386,7 +388,7 @@ export default function Navbar() {
       <button
         ref={menuButtonRef}
         type="button"
-        className={`xl:hidden fixed bottom-5 right-5 flex flex-col justify-center items-center w-[60px] h-[60px] bg-secondary border-2 border-accent rounded-full cursor-grab p-0 z-[1001] touch-none select-none ${isDragging ? "cursor-grabbing scale-105 transition-none" : "transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]"} ${isMobileMenuOpen ? "active" : ""}`}
+        className={cn("xl:hidden", "fixed", "bottom-5", "right-5", "flex", "flex-col", "justify-center", "items-center", "w-[60px]", "h-[60px]", "bg-secondary", "border-2", "border-accent", "rounded-full", "cursor-grab", "p-0", "z-[1001]", "touch-none", "select-none", isDragging ? "cursor-grabbing scale-105 transition-none" : "transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "active" : "")}
         style={getHamburgerStyle()}
         onClick={() => !hasMoved && setIsMobileMenuOpen(!isMobileMenuOpen)}
         onMouseDown={handleDragStart}
@@ -395,14 +397,14 @@ export default function Navbar() {
         aria-expanded={isMobileMenuOpen}
         aria-controls={mobileMenuId}
       >
-        <span className={`absolute w-6 h-[3px] bg-primary rounded-[10px] transition-all duration-400 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2"}`} />
-        <span className={`absolute w-6 h-[3px] bg-primary rounded-[10px] transition-all duration-400 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100"}`} />
-        <span className={`absolute w-6 h-[3px] bg-primary rounded-[10px] transition-all duration-400 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2"}`} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-[10px]", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-[10px]", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-[10px]", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2")} />
       </button>
 
       <button
         type="button"
-        className={`fixed inset-0 ${TRANSITION.base} bg-secondary/60 backdrop-blur-sm z-999 ${isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none"}`}
+        className={cn("fixed", "inset-0", TRANSITION.base, "bg-secondary/60", "backdrop-blur-sm", "z-999", isMobileMenuOpen ? "opacity-100" : "opacity-0 pointer-events-none")}
         onClick={() => {
           setIsMobileMenuOpen(false);
           menuButtonRef.current?.focus();
@@ -415,7 +417,7 @@ export default function Navbar() {
       <dialog
         id={mobileMenuId}
         ref={dialogRef}
-        className={`fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 z-2000 xl:hidden bg-transparent ${TRANSITION.full} ${isMobileMenuOpen ? "opacity-100 visible scale-100" : "opacity-0 invisible scale-95"}`}
+        className={cn("fixed", "top-1/2", "-translate-y-1/2", "left-1/2", "-translate-x-1/2", "z-2000", "xl:hidden", "bg-transparent", TRANSITION.full, isMobileMenuOpen ? "opacity-100 visible scale-100" : "opacity-0 invisible scale-95")}
         open
         aria-modal="true"
         role="dialog"
@@ -430,7 +432,7 @@ export default function Navbar() {
               <React.Fragment key={`mobileNav-${item.to}`}>
                 <NavLink
                   to={item.to}
-                  className={`justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
+                  className={cn("justify-center", "border-6", "border-secondary", "py-4", navButtonClasses)}
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     menuButtonRef.current?.focus();
@@ -450,7 +452,7 @@ export default function Navbar() {
               onClick={async () => {
                 await logout();
               }}
-              className={`w-full justify-center border-6 border-secondary py-4 ${navButtonClasses}`}
+              className={cn("w-full", "justify-center", "border-6", "border-secondary", "py-4", navButtonClasses)}
             >
               <X size={18} aria-hidden="true" />
               <span>Sign Out</span>
@@ -458,6 +460,6 @@ export default function Navbar() {
           </div>
         </nav>
       </dialog>
-    </>
+    </div>
   );
 }

@@ -1,16 +1,18 @@
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 import { Check, X, Loader2 } from "lucide-react";
 
 /** @param {{ label: any, done?: any, failed?: any, spinner?: any, children?: any }} _ */
 export default function StatusRow({ label, done, failed, spinner, children }) {
   return (
-    <div className="flex items-start gap-3 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200">
+    <div className="flex items-start gap-3 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200" data-slot="status-row">
       <div
-        className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${
+        className={cn(
+          "flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5",
           done    ? "bg-primary/15" :
           failed  ? "bg-error/20" :
-                    "bg-primary/10"
-        }`}
+                    "bg-primary/10",
+        )}
       >
         {done    ? <Check size={14} className="text-primary/70" /> :
          failed  ? <X size={14} className="text-error" /> :
@@ -18,11 +20,12 @@ export default function StatusRow({ label, done, failed, spinner, children }) {
                    <div className="w-3 h-3 rounded-full border-2 border-primary/25" />}
       </div>
       <div className="flex-1">
-        <span className={`text-sm ${
+        <span className={cn(
+          "text-sm",
           done    ? "text-primary/70" :
           failed  ? "text-error" :
-                    "text-primary/60"
-        }`}>
+                    "text-primary/60",
+        )}>
           {label}
         </span>
         {children}

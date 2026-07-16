@@ -1,4 +1,5 @@
-import { useRef, useEffect, useState, useMemo } from "react";
+import { cn } from "@/lib/utils";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import PropTypes from "prop-types";
 import { useAuth } from "../hooks/useAuth";
@@ -7,6 +8,7 @@ import { login as loginQuips } from "../assets/greetings";
 import api from "../lib/api";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
+import FormInput from "../components/common/forms/FormInput";
 import Alert from "../components/common/Alert";
 import MfaChallenge from "../components/auth/MfaChallenge";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
@@ -63,16 +65,14 @@ function ForgotPasswordModal({ isOpen, onClose }) {
             Enter your email address and we'll send you a link to reset your password.
           </p>
           <form onSubmit={handleSubmit}>
-            <label htmlFor="reset-email" className="text-primary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block">
-              Email
-            </label>
-            <input
-              id="reset-email"
+            <FormInput
+              label="Email"
+              name="reset-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
-              className="w-full border-2 border-accent rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent"
+              surface="secondary"
               required
             />
             {error && (
@@ -99,7 +99,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
   const [errorStatus, setErrorStatus] = useState(null);
   const [showResetModal, setShowResetModal] = useState(false);
   const [mfa, setMfa] = useState(null);
-  const errorRef = useRef(null);
+  
   const { login, me } = useAuth();
   const loginQuip = useMemo(() => getLoginQuip(), []);
   const { smtpConfigured } = useSettingsStatus();
@@ -129,11 +129,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
     }
   }
 
-  useEffect(() => {
-    if (errorStatus && errorRef.current) {
-      errorRef.current.focus();
-    }
-  }, [errorStatus]);
+  
 
   // If the user is already logged in and this is an OIDC flow, skip the
   // login form and redirect straight to the OIDC callback.
@@ -232,11 +228,12 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
   
   return (
     <main
-        className={embedded ? "w-full" : "fixed inset-0 grid place-items-center bg-primary px-4"}
+        data-slot="login-page"
+        className={cn(embedded ? "w-full" : "fixed inset-0 grid place-items-center bg-primary px-4")}
         id="main-content"
         tabIndex={-1}
       >
-      <div className={embedded ? "w-full" : "relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8"}>
+      <div className={cn(embedded ? "w-full" : "relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8")}>
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
         </span>
@@ -261,35 +258,29 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           aria-busy={loading}
           className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
         >
-          <label htmlFor="username" className={`text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1`}>
-            Username
-          </label>
-          <input
-            value={username}
-            placeholder="e.g. admin"
-            id="username"
-            onChange={(e) => setUsername(e.target.value)}
-            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
+          <FormInput
+            label="Username"
             name="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="e.g. admin"
             autoComplete="username"
+            surface="primary"
             aria-invalid={Boolean(errorStatus)}
             aria-describedby={errorStatus ? "login-error" : undefined}
-          ></input>
-          <label htmlFor="password" className={`text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1`}>
-            Password
-          </label>
-          <input
-            value={password}
-            placeholder="e.g. hunter2"
-            id="password"
-            onChange={(e) => setPassword(e.target.value)}
-            type="password"
-            className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 focus:ring-2 focus:ring-accent focus:ring-offset-2"
+          />
+          <FormInput
+            label="Password"
             name="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="e.g. hunter2"
             autoComplete="current-password"
+            surface="primary"
             aria-invalid={Boolean(errorStatus)}
             aria-describedby={errorStatus ? "login-error" : undefined}
-          ></input>
+          />
           {smtpConfigured && (
             <a
               onClick={() => setShowResetModal(true)}
@@ -298,26 +289,19 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
               Forgot password?
             </a>
           )}
-          <button
+          <Button
             type="submit"
-            className={`bg-secondary text-primary rounded-pill p-2 mt-6 transition-all duration-300 ease-out hover:bg-primary hover:text-secondary hover:ring-accent hover:ring-2 disabled:bg-accent disabled:cursor-not-allowed disabled:ring-0`}
-            disabled={loading}
-            aria-busy={loading}
+            variant="secondary"
+            fullWidth
+            loading={loading}
+            className="mt-6"
           >
-            <span className="flex items-center justify-center">
-              <span className="sr-only">{loading ? "Logging in, please wait" : ""}</span>
-              <span className={`overflow-hidden transition-all duration-300 ease-out ${loading ? "w-5 mr-1" : "w-0"}`} aria-hidden="true">
-                <span className="inline-block w-4 h-4 border-2 border-primary border-t-primary rounded-full animate-spin"></span>
-              </span>
-              <span>Login</span>
-            </span>
-          </button>
+            Login
+          </Button>
           <div
-            className={`text-secondary/80 overflow-hidden transition-all duration-300 ease-in-out ${errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0"}`}
+            className={cn(`text-secondary/80 overflow-hidden transition-all duration-300 ease-in-out`, errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0")}
             role="alert"
             aria-live="assertive"
-            ref={errorRef}
-            tabIndex={-1}
             id="login-error"
           >
             {errorStatus && calculateErrorHTML()}

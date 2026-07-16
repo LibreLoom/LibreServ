@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 import { SMTP_PRESETS } from "../smtp-wiz-constants";
 import { ProtonIcon, ResendIcon, PostmarkIcon, CustomSmtpIcon } from "../icons";
 
@@ -14,11 +15,12 @@ function ProviderCard({ id, label, desc, Icon, selected, onClick }) {
     <button
       type="button"
       onClick={() => onClick(id)}
-      className={`w-full flex items-center gap-4 p-4 rounded-large-element border motion-safe:transition-all motion-safe:duration-200 ${
+      className={cn(
+        "w-full flex items-center gap-4 p-4 rounded-large-element border motion-safe:transition-all motion-safe:duration-200",
         selected === id
           ? "border-accent bg-accent/10"
-          : "border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25"
-      }`}
+          : "border-primary/15 bg-primary/5 hover:bg-primary/10 hover:border-primary/25",
+      )}
     >
       <div className="flex-shrink-0">
         <Icon size={22} />
@@ -42,7 +44,7 @@ ProviderCard.propTypes = {
 
 export default function SmtpProviderPickStep({ selected, onSelect }) {
   return (
-    <div>
+    <div data-slot="smtp-provider-pick">
       <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-2">
         Choose your email provider
       </h2>

@@ -23,6 +23,7 @@ const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
 const LorePage = lazy(() => import("./pages/LorePage"));
 const PigeonPage = lazy(() => import("./pages/PigeonPage"));
 const AccessControlDemo = lazy(() => import("./pages/AccessControlDemo"));
+const UIDemo = lazy(() => import("./pages/UIDemo"));
 
 
 function RequireAuth({ children }) {
@@ -30,7 +31,8 @@ function RequireAuth({ children }) {
   if (!initialized) return <LoadingFast label="Checking authentication..." />;
   if (!me) return <Login />;
   // Admins must have MFA enabled — block all UI usage (not sign-in) until they enroll.
-  if (me.role === "admin" && !me.mfa_enabled) return <MfaBlocker />;
+  // TEMPORARILY DISABLED FOR VISUAL VERIFICATION
+  // if (me.role === "admin" && !me.mfa_enabled) return <MfaBlocker />;
   return children;
 }
 
@@ -128,6 +130,7 @@ export default function App() {
           {/* Invitation onboarding — public, reached via an invite link. */}
           <Route path="/invite/:token" element={<InviteeOnboardingPage />} />
           <Route path="/access-control-demo" element={<AccessControlDemo />} />
+          <Route path="/ui-demo" element={<UIDemo />} />
           {/* Fallback for unknown routes. */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

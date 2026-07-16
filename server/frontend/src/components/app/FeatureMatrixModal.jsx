@@ -17,6 +17,7 @@ function FeatureMatrixModal({ appId, onClose }) {
       }
       onClose={onClose}
       size="lg"
+      data-slot="feature-matrix-modal"
     >
       {isLoading && (
         <div className="flex items-center justify-center py-12">

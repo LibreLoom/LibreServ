@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
 import {
   ShieldCheck,
@@ -152,7 +153,7 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
     }));
 
   return (
-    <section className="mt-8">
+    <section className={cn("mt-8")} data-slot="access-control-section">
       <Card className="bg-primary! text-secondary! border-2! border-secondary!">
         {/* Section header — matches AppDetailPage pattern */}
         <div className="flex items-center gap-2 mb-6">

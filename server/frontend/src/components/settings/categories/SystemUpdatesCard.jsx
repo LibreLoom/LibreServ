@@ -100,7 +100,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
   const notChecked = !updateInfo;
 
   return (
-    <>
+    <div data-slot="system-updates-card">
       <SettingsCard
         icon={Download}
         title="System Updates"
@@ -228,7 +228,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
                   }
                 }}
                 placeholder="https://gt.plainskill.net/api/v1"
-                className="w-full md:w-64 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full md:w-64 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
               />
             </SettingsRow>
             <SettingsRow label="Owner" stack>
@@ -237,7 +237,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
                 value={updateSettings?.owner || ""}
                 onChange={(e) => onUpdateSettingsChange?.({ owner: e.target.value })}
                 placeholder="libreloom"
-                className="w-full md:w-40 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full md:w-40 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
               />
             </SettingsRow>
             <SettingsRow label="Repo" stack hideDivider>
@@ -246,7 +246,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
                 value={updateSettings?.repo || ""}
                 onChange={(e) => onUpdateSettingsChange?.({ repo: e.target.value })}
                 placeholder="libreserv"
-                className="w-full md:w-40 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent"
+                className="w-full md:w-40 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
               />
             </SettingsRow>
           </div>
@@ -278,7 +278,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
         >
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="markdown-content overflow-y-auto flex-1 px-1">
-              <div className="bg-primary rounded-large-element px-5 py-3">
+              <div className="bg-primary text-secondary rounded-large-element px-5 py-3">
                 <ReactMarkdown
                 rehypePlugins={[rehypeSanitize]}
                 components={{
@@ -363,6 +363,6 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
         </div>
       </ModalCard>
       )}
-    </>
+    </div>
   );
 }

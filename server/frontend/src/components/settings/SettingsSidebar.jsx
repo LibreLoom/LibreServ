@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { ChevronRight, Lock } from "lucide-react";
 import SettingsUserCard from "./SettingsUserCard";
 import CardButton from "../cards/CardButton";
@@ -13,7 +14,8 @@ export default function SettingsSidebar({
   const categories = visibleCategories(isAdmin);
   return (
     <nav
-      className={`flex flex-col gap-2 ${className}`}
+      data-slot="settings-sidebar"
+      className={cn("flex flex-col gap-2", className)}
       aria-label="Settings categories"
     >
       <SettingsUserCard user={user} />
@@ -26,8 +28,9 @@ export default function SettingsSidebar({
           {categories.map(({ id, label, icon: Icon }, index) => {
             const isActive = activeCategory === id;
             return (
-<li
+        <li
           key={id}
+          className="animate-nav-slide-in"
           style={{
             animationDelay: `${index * 50}ms`,
           }}
@@ -45,9 +48,7 @@ export default function SettingsSidebar({
             trailing={
               <ChevronRight
                 size={16}
-                className={`shrink-0 transition-transform duration-200 ${
-                  isActive ? "translate-x-1" : ""
-                }`}
+                className={cn("shrink-0 transition-transform duration-200", isActive && "translate-x-1")}
               />
             }
           />

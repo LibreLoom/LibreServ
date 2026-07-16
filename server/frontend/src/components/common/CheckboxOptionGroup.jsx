@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import PropTypes from "prop-types";
 
 export default function CheckboxOptionGroup({
@@ -7,15 +8,15 @@ export default function CheckboxOptionGroup({
   className = "",
 }) {
   return (
-    <div className={`space-y-2 ${className}`}>
+    <div className={cn("space-y-2", className)} data-slot="checkbox-option-group">
       {options.map((opt) => (
         <label
           key={opt.key}
-          className={`flex peer items-center gap-3 p-2.5 rounded-large-element border cursor-pointer transition-all duration-200 ${
-            values[opt.key]
-              ? "border-accent bg-accent/10"
-              : "border-primary/10 hover:bg-primary/5 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent"
-          }`}
+          className={cn(
+            "flex peer items-center gap-3 p-2.5 rounded-large-element border cursor-pointer transition-all duration-200",
+            values[opt.key] && "border-accent bg-accent/10",
+            !values[opt.key] && "border-primary/10 hover:bg-primary/5 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent",
+          )}
         >
           <input
             type="checkbox"
@@ -25,14 +26,18 @@ export default function CheckboxOptionGroup({
             tabIndex={0}
           />
           <div
-            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${
-              values[opt.key] ? "border-accent bg-accent" : "border-accent/40"
-            }`}
+            className={cn(
+              "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200",
+              values[opt.key] && "border-accent bg-accent",
+              !values[opt.key] && "border-accent/40",
+            )}
           >
             <div
-              className={`w-2.5 h-2.5 rounded-full bg-primary transition-all duration-200 ${
-                values[opt.key] ? "scale-100 opacity-100" : "scale-0 opacity-0"
-              }`}
+              className={cn(
+                "w-2.5 h-2.5 rounded-full bg-primary transition-all duration-200",
+                values[opt.key] && "scale-100 opacity-100",
+                !values[opt.key] && "scale-0 opacity-0",
+              )}
             />
           </div>
           <div className="flex-1">

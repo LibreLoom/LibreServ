@@ -19,6 +19,7 @@ export default function MfaBlocker() {
   const { refreshAuth } = useAuth();
   return (
     <main
+      data-slot="auth-mfa-blocker"
       className="fixed inset-0 grid place-items-center bg-primary px-4 overflow-auto"
       id="main-content"
       tabIndex={-1}

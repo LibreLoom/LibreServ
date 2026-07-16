@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { statusConfig, normalizeResources } from "../../data/statusConfig";
 import BaseCard from "./BaseCard";
 
@@ -52,7 +53,7 @@ export default function DetailedStatCard({
   }
 
   return (
-    <BaseCard icon={Icon} title={name}>
+    <BaseCard icon={Icon} title={name} data-slot="detailed-stat-card">
       {statusText && (
         <div className="flex items-center gap-2 text-sm mb-4">
           <StatusIcon size={16} className={config.color} aria-hidden="true" />
@@ -60,7 +61,7 @@ export default function DetailedStatCard({
         </div>
       )}
 
-      <div className={`text-primary text-sm font-medium ${config.color}`}>
+      <div className={cn("text-primary text-sm font-medium", config.color)}>
         Resource Usage
       </div>
       <div className="space-y-3 mt-2">

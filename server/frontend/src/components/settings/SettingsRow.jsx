@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 /**
  * @param {{ label: any, description?: any, children: any, className?: string, hideDivider?: boolean, compact?: boolean, mono?: boolean, stack?: boolean }} _
  */
@@ -13,16 +14,17 @@ export default function SettingsRow({
 }) {
   return (
     <div
-      className={`${
-        stack ? "flex flex-col gap-3 md:flex-row md:items-center md:justify-between" : "flex items-center justify-between"
-      } ${
-        compact ? "py-1" : "py-3"
-      } px-4 ${
-        hideDivider ? "" : "border-b border-primary/10"
-      } ${className}`}
+      data-slot="settings-row"
+      className={cn(
+        stack ? "flex flex-col gap-3 md:flex-row md:items-center md:justify-between" : "flex items-center justify-between",
+        compact ? "py-1" : "py-3",
+        "px-4",
+        !hideDivider && "border-b border-primary/10",
+        className,
+      )}
     >
       <div className={stack ? "md:flex-1 md:min-w-0 md:pr-4" : "flex-1 min-w-0 pr-4"}>
-        <div className={`text-primary ${mono ? 'font-mono' : ''}`}>{label}</div>
+        <div className={cn("text-primary", mono && "font-mono")}>{label}</div>
         {description && (
           <div className="text-sm text-accent mt-0.5">{description}</div>
         )}

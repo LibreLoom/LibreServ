@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
 // SupportHandler handles device-facing support case operations.
@@ -32,7 +33,7 @@ func (h *SupportHandler) CreateCase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deviceID := middleware.GetDeviceID(r.Context())
-	caseID := generateID()
+	caseID := security.GenerateID("case")
 	scopesJSON := "[]"
 	if len(req.Scopes) > 0 {
 		b, _ := json.Marshal(req.Scopes)

@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
+import FieldLabel from "../common/forms/FieldLabel";
 import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
@@ -105,7 +107,7 @@ function formatNextRun(cronExpr) {
 }
 
 function inputClass() {
-  return "w-full px-3 py-2 bg-primary border border-primary/20 rounded-pill font-mono text-sm text-secondary focus-visible:ring-2 focus:ring-accent";
+  return "w-full px-5 py-2 bg-primary border border-primary/20 rounded-pill font-mono text-sm text-secondary focus-visible:ring-2 focus:ring-accent";
 }
 
 const INITIAL_FORM = {
@@ -297,7 +299,7 @@ export default function ScheduleForm() {
 
   if (loading) {
     return (
-      <Card className="p-6">
+      <Card className="p-6" data-slot="schedule-form">
         <div className="flex items-center justify-center">
           <Loader2 className="w-5 h-5 animate-spin text-accent" />
         </div>
@@ -309,8 +311,9 @@ export default function ScheduleForm() {
     <>
       <Card
         icon={Calendar}
-        title="Backup Schedules"
         padding={false}
+        noPopIn
+        data-slot="schedule-form"
         headerActions={
           <button
             onClick={() => setShowModal(true)}
@@ -346,11 +349,12 @@ export default function ScheduleForm() {
                       {getAppName(schedule.app_id)}
                     </span>
                     <span
-                      className={`px-2 py-0.5 rounded-pill text-xs ${
+                      className={cn(
+                        "px-2 py-0.5 rounded-pill text-xs",
                         schedule.enabled
                           ? "bg-success/20 text-success"
-                          : "bg-warning/20 text-warning"
-                      }`}
+                          : "bg-warning/20 text-warning",
+                      )}
                     >
                       {schedule.enabled ? "Active" : "Paused"}
                     </span>
@@ -407,9 +411,9 @@ export default function ScheduleForm() {
         >
           <div className="space-y-4">
             <div>
-              <label htmlFor="schedule-app" className="block text-sm font-mono text-primary/70 mb-2">
+              <FieldLabel htmlFor="schedule-app" surface="secondary">
                 Select App
-              </label>
+              </FieldLabel>
               <Dropdown
                 id="schedule-app"
                 value={formData.app_id}
@@ -417,21 +421,21 @@ export default function ScheduleForm() {
                 placeholder="Select an app..."
                 fullWidth
                 disabled={!!editingSchedule}
-                bg="primary"
+                surface="primary"
                 options={apps.map((app) => ({ value: app.id, label: app.name }))}
               />
             </div>
 
             <div>
-              <label htmlFor="schedule-cron" className="block text-sm font-mono text-primary/70 mb-2">
+              <FieldLabel htmlFor="schedule-cron" surface="secondary">
                 Schedule
-              </label>
+              </FieldLabel>
               <Dropdown
                 id="schedule-cron"
                 value={formData.cron_expr}
                 onChange={(val) => setFormData({ ...formData, cron_expr: val })}
                 fullWidth
-                bg="primary"
+                surface="primary"
                 options={SCHEDULE_PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}
               />
             </div>
@@ -439,21 +443,21 @@ export default function ScheduleForm() {
             {formData.cron_expr === "custom" && (
               <div className="p-4 bg-primary/5 border border-primary/10 rounded-card space-y-4">
                 <div>
-                  <label className="block text-sm font-mono text-primary/70 mb-2">How often?</label>
+                  <FieldLabel surface="secondary">How often?</FieldLabel>
                   <Dropdown
                     value={formData.custom_freq}
                     onChange={(val) => setFormData({ ...formData, custom_freq: val })}
                     fullWidth
-                    bg="primary"
+                    surface="primary"
                     options={CUSTOM_FREQ_OPTIONS}
                   />
                 </div>
 
                 {formData.custom_freq === "interval" ? (
                   <div>
-                    <label htmlFor="custom-interval" className="block text-sm font-mono text-primary/70 mb-2">
+                    <FieldLabel htmlFor="custom-interval" surface="secondary">
                       Run every
-                    </label>
+                    </FieldLabel>
                     <div className="flex items-center gap-2">
                       <input
                         id="custom-interval"
@@ -470,25 +474,25 @@ export default function ScheduleForm() {
                 ) : (
                   <>
                     <div>
-                      <label className="block text-sm font-mono text-primary/70 mb-2">What time?</label>
+                      <FieldLabel surface="secondary">What time?</FieldLabel>
                       <div className="flex items-center gap-2">
                         <Dropdown
                           value={formData.custom_hour}
                           onChange={(val) => setFormData({ ...formData, custom_hour: val })}
-                          bg="primary"
+                          surface="primary"
                           options={HOUR_OPTIONS}
                         />
                         <span className="text-accent font-mono">:</span>
                         <Dropdown
                           value={formData.custom_minute}
                           onChange={(val) => setFormData({ ...formData, custom_minute: val })}
-                          bg="primary"
+                          surface="primary"
                           options={MINUTE_OPTIONS}
                         />
                         <Dropdown
                           value={formData.custom_ampm}
                           onChange={(val) => setFormData({ ...formData, custom_ampm: val })}
-                          bg="primary"
+                          surface="primary"
                           options={[{ label: "AM", value: "am" }, { label: "PM", value: "pm" }]}
                         />
                       </div>
@@ -496,12 +500,12 @@ export default function ScheduleForm() {
 
                     {formData.custom_freq === "weekly" && (
                       <div>
-                        <label className="block text-sm font-mono text-primary/70 mb-2">Which day?</label>
+                        <FieldLabel surface="secondary">Which day?</FieldLabel>
                         <Dropdown
                           value={formData.custom_day}
                           onChange={(val) => setFormData({ ...formData, custom_day: val })}
                           fullWidth
-                          bg="primary"
+                          surface="primary"
                           options={DAY_OPTIONS}
                         />
                       </div>
@@ -518,9 +522,9 @@ export default function ScheduleForm() {
             )}
 
             <div>
-              <label htmlFor="schedule-retention" className="block text-sm font-mono text-primary/70 mb-2">
+              <FieldLabel htmlFor="schedule-retention" surface="secondary">
                 Retention (keep last N backups)
-              </label>
+              </FieldLabel>
               <input
                 id="schedule-retention"
                 type="number"

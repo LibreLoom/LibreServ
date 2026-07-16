@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 
-const CELL_BASE = "py-2.5 bg-secondary group-hover:bg-primary/5 transition-colors";
+const CELL_BASE = "py-2.5 bg-secondary text-primary group-hover:bg-primary/5 transition-colors";
 const CELL_FIRST = "pl-3 rounded-l-large-element";
 const CELL_LAST = "pr-3 rounded-r-large-element";
 const CELL_MIDDLE = "px-1";
@@ -16,7 +17,7 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
   const wrapperStyle = scrollable ? { maxHeight: maxHeight || "24rem" } : undefined;
 
   return (
-    <div className={`bg-primary/5 rounded-card p-3 ${className}`}>
+    <div className={cn("bg-primary/5 rounded-card p-3", className)} data-slot="table">
       <div className={scrollable ? "overflow-y-auto" : undefined} style={wrapperStyle}>
         <table className="w-full text-sm border-separate border-spacing-y-2">
           <thead>
@@ -25,7 +26,7 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
                 <th
                   key={col.key}
                   scope="col"
-                  className={`${ALIGN[col.align] || ALIGN.left} px-3 py-1.5 text-xs font-medium text-accent/70 ${col.hidden ? `hidden ${col.hidden}:table-cell` : ""} ${col.width || ""}`}
+                  className={cn(`${ALIGN[col.align] || ALIGN.left} px-3 py-1.5 text-xs font-medium text-accent/70`, col.hidden ? `hidden ${col.hidden}:table-cell` : "", col.width || "")}
                 >
                   {col.srOnly ? <span className="sr-only">{col.label}</span> : col.label}
                 </th>
@@ -53,7 +54,7 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
                       : row[col.key];
 
                     return (
-                      <td key={col.key} className={cellClasses}>
+                      <td key={col.key} className={cn(cellClasses)}>
                         {content}
                       </td>
                     );

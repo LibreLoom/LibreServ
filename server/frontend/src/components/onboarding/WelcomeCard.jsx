@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Sparkles, Download, Shield, X, CircleCheck } from "lucide-react";
@@ -54,6 +55,7 @@ export default function WelcomeCard() {
 
   return (
     <div
+      data-slot="welcome-card"
       onTransitionEnd={handleTransitionEnd}
       className="overflow-hidden transition-all duration-300 ease-in-out"
       style={{ maxHeight: maxH, opacity: hiding ? 0 : 1 }}
@@ -84,10 +86,10 @@ export default function WelcomeCard() {
           <Link
             key={to}
             to={to}
-            className="group flex flex-col items-center text-center p-4 rounded-large-element bg-primary/10 hover:bg-primary/20 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+            className="group flex flex-col items-center text-center p-4 rounded-large-element bg-primary/10 hover:bg-primary/20 transition-all duration-200 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
           >
             <Icon
-              className={`w-8 h-8 mb-2 ${color} group-hover:scale-110 transition-transform`}
+              className={cn("w-8 h-8 mb-2", color, "group-hover:scale-110 transition-transform")}
               aria-hidden="true"
             />
             <span className="font-mono text-sm text-primary font-medium">
@@ -107,9 +109,7 @@ export default function WelcomeCard() {
         />
         <CircleCheck
           size={18}
-          className={`transition-colors ${
-            dontShow ? "text-accent" : "text-primary/30"
-          }`}
+          className={cn("transition-colors", dontShow ? "text-accent" : "text-primary/30")}
         />
         <span className="text-xs text-primary/50">
           Don&apos;t show this again

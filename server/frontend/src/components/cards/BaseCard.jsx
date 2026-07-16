@@ -1,4 +1,5 @@
 import IconCircle from "../ui/IconCircle";
+import Card from "./Card";
 import PropTypes from "prop-types";
 
 /**
@@ -13,24 +14,24 @@ export default function BaseCard({
   className = "",
 }) {
   return (
-    <div className={`pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] self-start ${className}`}>
+    <Card padding={false} className={className} data-slot="base-card">
       {(Icon || title) && (
         <>
-          <div className="flex items-center gap-4 mb-4">
+          <div className="flex items-center gap-4 mb-4 p-5 pb-0">
             {Icon && <IconCircle icon={Icon} size="lg" />}
             <div className="text-left">
               {title && <div className="font-semibold">{title}</div>}
               {subtitle && <div className="text-sm text-accent">{subtitle}</div>}
             </div>
           </div>
-          <div className="h-1 bg-primary rounded-pill mx-1 mb-4" aria-hidden="true" />
+          <div className="h-1 bg-primary rounded-pill mx-5 mb-4" aria-hidden="true" />
         </>
       )}
-      
-      {children}
-      
-      {actions && <div className="mt-4">{actions}</div>}
-    </div>
+      <div className="p-5">
+        {children}
+        {actions && <div className="mt-4">{actions}</div>}
+      </div>
+    </Card>
   );
 }
 

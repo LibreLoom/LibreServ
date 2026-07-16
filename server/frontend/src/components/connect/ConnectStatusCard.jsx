@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 import { Plug, PlugZap, ExternalLink, LogOut } from "lucide-react";
 import Card from "../cards/Card.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
@@ -34,70 +35,70 @@ export default function ConnectStatusCard({
   if (!connected) {
     return (
       <>
-        <Card icon={Plug} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn}>
+        <Card icon={Plug} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn} data-slot="connect-status-card">
           <div className="p-5 space-y-4">
+          <p className="text-sm text-accent">
+            LibreServ Connect handles the external services your server needs —
+            email, a domain name, backups, and more. Everything in one place.
+          </p>
+          <Button onClick={() => setShowTokenInput(true)}>
+            Add Connect
+          </Button>
+          <p className="text-xs text-accent">
+            Don't have an account?{" "}
+            <button
+              onClick={onOpenPlanPage}
+              className="link-accent-card"
+            >
+              Create one at connect.serv.libreloom.org
+            </button>
+          </p>
+        </div>
+      </Card>
+
+      {showTokenInput && (
+        <ModalCard title="Enter Your Connect Token" onClose={() => setShowTokenInput(false)} size="md">
+          {({close}) => (
+          <div className="space-y-4">
             <p className="text-sm text-accent">
-              LibreServ Connect handles the external services your server needs —
-              email, a domain name, backups, and more. Everything in one place.
-            </p>
-            <Button onClick={() => setShowTokenInput(true)}>
-              Add Connect
-            </Button>
-            <p className="text-xs text-accent">
-              Don't have an account?{" "}
+              Go to{" "}
               <button
                 onClick={onOpenPlanPage}
                 className="link-accent-card"
               >
-                Create one at connect.serv.libreloom.org
-              </button>
+                connect.serv.libreloom.org
+              </button>{" "}
+              to create an account and get your Connect token. Paste it here.
             </p>
-          </div>
-        </Card>
-
-        {showTokenInput && (
-          <ModalCard title="Enter Your Connect Token" onClose={() => setShowTokenInput(false)} size="md">
-            {({close}) => (
-            <div className="space-y-4">
-              <p className="text-sm text-accent">
-                Go to{" "}
-                <button
-                  onClick={onOpenPlanPage}
-                  className="link-accent-card"
-                >
-                  connect.serv.libreloom.org
-                </button>{" "}
-                to create an account and get your Connect token. Paste it here.
-              </p>
-              <input
-                type="text"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Paste your Connect token here"
-                className="w-full px-4 py-3 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
-              />
-              <div className="flex gap-2 pt-2">
-                <Button
-                  onClick={() => onActivate && onActivate(token)}
-                  disabled={!token.trim() || loading}
-                  loading={loading}
-                >
-                  {loading ? "Connecting..." : "Connect"}
-                </Button>
-                <Button variant="accent" onClick={close}>
-                  Back
-                </Button>
-              </div>
+            <input
+              type="text"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste your Connect token here"
+              className="w-full px-4 py-3 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
+            />
+            <div className="flex gap-2 pt-2">
+              <Button
+                onClick={() => onActivate && onActivate(token)}
+                disabled={!token.trim() || loading}
+                loading={loading}
+              >
+                {loading ? "Connecting..." : "Connect"}
+              </Button>
+              <Button variant="accent" onClick={close}>
+                Back
+              </Button>
             </div>
-            )}
-          </ModalCard>
-        )}
+          </div>
+          )}
+        </ModalCard>
+      )}
       </>
     );
   }
 
   return (
-    <Card icon={PlugZap} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn}>
+    <Card icon={PlugZap} title="LibreServ Connect" noHeightAnim noPopIn={noPopIn} data-slot="connect-status-card">
       <div className="p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -106,7 +107,7 @@ export default function ConnectStatusCard({
           </div>
           {planBadge && (
             <span
-              className={`text-xs px-3 py-1 rounded-pill font-medium ${planBadge.class}`}
+              className={cn("text-xs px-3 py-1 rounded-pill font-medium", planBadge.class)}
             >
               {planBadge.label}
             </span>

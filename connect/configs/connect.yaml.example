@@ -8,18 +8,16 @@ database:
 auth:
     device_token_secret: CHANGE_ME
     admin_token_secret: CHANGE_ME
+    customer_token_secret: CHANGE_ME
     session_ttl_hours: 168
 
 stripe:
     enabled: false
     secret_key: ""
     webhook_secret: ""
-
-crypto:
-    enabled: false
-    btc_address: ""
-    eth_address: ""
-    reconcile_url: ""
+    price_free: ""
+    price_lite: ""
+    price_one: ""
 
 smtp:
     host: smtp.libreloom.org
@@ -52,3 +50,12 @@ tunnel:
     provider: cloudflare
     api_token: ""
     account_id: ""
+
+relay:
+    hetzner_api_key: ""
+    akamai_api_key: ""
+    fallback_label: homelab
+
+web:
+    customer_dir: web/customer/dist
+    admin_dir: web/admin/dist

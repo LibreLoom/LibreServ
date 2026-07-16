@@ -20,7 +20,7 @@ function CompleteStep({ app, instance, onDone }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-slot="complete-step">
       <div className="text-center space-y-4">
         <CheckCircle className="mx-auto text-accent" size={48} />
         <h2 className="font-mono text-2xl font-normal text-secondary">

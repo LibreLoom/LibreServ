@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Navigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
 import InstallWizard from "../components/app/wizard/InstallWizard";
 
 export default function AppInstallPage() {
@@ -30,19 +30,10 @@ export default function AppInstallPage() {
   }
 
   return (
-    <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
-      aria-labelledby="install-title"
-      id="main-content"
-      tabIndex={-1}
-    >
-      <HeaderCard
-        id="install-title"
-        title={app ? `Install ${app.name}` : "Install App"}
-      />
+    <Page data-slot="app-install-page" title={app ? `Install ${app.name}` : "Install App"} titleId="install-title" headerClassName="">
       <div className="mt-8">
         <InstallWizard appId={appId} initialInstanceId={initialInstanceId} />
       </div>
-    </main>
+    </Page>
   );
 }

@@ -6,6 +6,7 @@ import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
 import InfoPopover from "../common/InfoPopover";
+import FieldLabel from "../common/forms/FieldLabel";
 
 const PROVIDERS = [
   { value: "local", label: "This Device" },
@@ -28,7 +29,7 @@ const INITIAL_FORM = {
 };
 
 function inputClass() {
-  return "w-full px-3 py-2 bg-primary border border-primary/20 rounded-pill font-mono text-sm text-secondary focus-visible:ring-2 focus:ring-accent";
+  return "w-full px-5 py-2 bg-primary border border-primary/20 rounded-pill font-mono text-sm text-secondary focus-visible:ring-2 focus:ring-accent";
 }
 
 export default function BackupRepoConfig() {
@@ -243,6 +244,7 @@ export default function BackupRepoConfig() {
         title="Backup Destinations"
         padding={false}
         noPopIn
+        data-slot="backup-repo-config"
         headerActions={
           <button
             onClick={() => setShowModal(true)}
@@ -329,7 +331,7 @@ export default function BackupRepoConfig() {
         >
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-mono text-primary/70 mb-2">Provider</label>
+              <FieldLabel surface="secondary">Provider</FieldLabel>
               <Dropdown
                 value={form.provider}
                 onChange={val => setForm(f => ({
@@ -344,18 +346,18 @@ export default function BackupRepoConfig() {
                 }))}
                 fullWidth
                 options={PROVIDERS}
-                bg="primary"
+                surface="primary"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-mono text-primary/70 mb-2">App</label>
+              <FieldLabel surface="secondary">App</FieldLabel>
               <Dropdown
                 value={form.app_id}
                 onChange={val => setForm(f => ({ ...f, app_id: val }))}
                 placeholder="All apps (default)"
                 fullWidth
-                bg="primary"
+                surface="primary"
                 options={[
                   { value: "", label: "All apps (default)" },
                   ...apps.map(app => ({ value: app.id, label: app.name })),
@@ -366,7 +368,7 @@ export default function BackupRepoConfig() {
             {form.provider === "b2" && (
               <>
                 <div>
-                  <label className="block text-sm font-mono text-primary/70 mb-2">Bucket Name</label>
+                  <FieldLabel surface="secondary">Bucket Name</FieldLabel>
                   <input
                     type="text"
                     value={form.bucket}
@@ -376,7 +378,7 @@ export default function BackupRepoConfig() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-mono text-primary/70 mb-2">Key ID</label>
+                  <FieldLabel surface="secondary">Key ID</FieldLabel>
                   <input
                     type="text"
                     value={form.key_id}
@@ -385,7 +387,7 @@ export default function BackupRepoConfig() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-mono text-primary/70 mb-2">Key Secret</label>
+                  <FieldLabel surface="secondary">Key Secret</FieldLabel>
                   <input
                     type="password"
                     value={form.key_secret}
@@ -399,7 +401,7 @@ export default function BackupRepoConfig() {
             {form.provider === "s3" && (
               <>
                 <div>
-                  <label className="block text-sm font-mono text-primary/70 mb-2">Endpoint</label>
+                  <FieldLabel surface="secondary">Endpoint</FieldLabel>
                   <input
                     type="text"
                     value={form.endpoint}
@@ -409,7 +411,7 @@ export default function BackupRepoConfig() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-mono text-primary/70 mb-2">Access Key</label>
+                  <FieldLabel surface="secondary">Access Key</FieldLabel>
                   <input
                     type="text"
                     value={form.key_id}
@@ -418,7 +420,7 @@ export default function BackupRepoConfig() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-mono text-primary/70 mb-2">Secret Key</label>
+                  <FieldLabel surface="secondary">Secret Key</FieldLabel>
                   <input
                     type="password"
                     value={form.key_secret}
@@ -427,7 +429,7 @@ export default function BackupRepoConfig() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-mono text-primary/70 mb-2">Region</label>
+                  <FieldLabel surface="secondary">Region</FieldLabel>
                   <input
                     type="text"
                     value={form.region}
@@ -441,7 +443,7 @@ export default function BackupRepoConfig() {
 
             {form.provider === "sftp" && (
               <div>
-                <label className="block text-sm font-mono text-primary/70 mb-2">Server Address</label>
+                <FieldLabel surface="secondary">Server Address</FieldLabel>
                 <input
                   type="text"
                   value={form.sftp_host}
@@ -460,7 +462,7 @@ export default function BackupRepoConfig() {
 
             <div>
               <div className="flex items-center gap-2">
-                <label className="text-sm font-mono text-primary/70">Upload Limit</label>
+                <label className="text-sm font-mono text-primary/70 translate-x-5">Upload Limit</label>
                 <InfoPopover>
                   Throttle backup uploads to avoid saturating your connection. Set to 0 for no limit.
                 </InfoPopover>
@@ -477,7 +479,7 @@ export default function BackupRepoConfig() {
             </div>
 
             <div>
-              <label className="text-sm font-mono text-primary/70">Download Limit</label>
+              <label className="text-sm font-mono text-primary/70 translate-x-5">Download Limit</label>
               <input
                 type="number"
                 min="0"

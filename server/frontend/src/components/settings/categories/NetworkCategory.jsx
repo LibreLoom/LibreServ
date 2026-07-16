@@ -1,5 +1,6 @@
+import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, ToggleLeft, ToggleRight, AlertTriangle, ExternalLink, ChevronDown, ChevronUp, Shield, Radio } from "lucide-react";
+import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, ChevronUp, Shield, Radio } from "lucide-react";
 import PropTypes from "prop-types";
 import ConfirmModal from "../../common/ConfirmModal";
 import SettingsCard from "../SettingsCard";
@@ -54,9 +55,9 @@ function RemoteAccessStatusCard({ connectivity, index }) {
   return (
     <SettingsCard icon={Radio} title="Remote Access" index={index}>
       <div className="px-5 py-4 space-y-4">
-        <div className={`rounded-large-element border ${cfg.bg} px-4 py-3 flex items-center gap-3`}>
-          <Icon className={`w-5 h-5 ${cfg.className}`} />
-          <span className={`font-mono text-sm font-semibold ${cfg.className}`}>{cfg.label}</span>
+        <div className={cn("rounded-large-element border px-4 py-3 flex items-center gap-3", cfg.bg)}>
+          <Icon className={cn("w-5 h-5", cfg.className)} />
+          <span className={cn("font-mono text-sm font-semibold", cfg.className)}>{cfg.label}</span>
         </div>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -148,7 +149,7 @@ function IPMonitorCard({ ddns, index }) {
               { value: "60", label: "60 min" },
             ]}
             width={80}
-            bg="primary"
+            surface="primary"
           />
           <span className="text-xs text-primary/50">Check interval</span>
 
@@ -182,7 +183,7 @@ function UPnPCard({ upnp, index }) {
             label="Enabled"
             value={upnp.enabled
               ? <span className="text-success">Yes</span>
-              : <span className="text-secondary/50">No</span>
+              : <span className="text-primary/50">No</span>
             }
             mono={false}
           />
@@ -236,10 +237,10 @@ function PortForwardingGuideCard({ connectivity, index }) {
 
         {showSteps && (
           <ol className="list-decimal list-inside space-y-2 text-xs text-primary/70 leading-relaxed">
-            <li>Open your router settings (usually <span className="font-mono text-secondary">http://192.168.1.1</span> or <span className="font-mono text-secondary">http://10.0.0.1</span>)</li>
+            <li>Open your router settings (usually <span className="font-mono text-primary">http://192.168.1.1</span> or <span className="font-mono text-primary">http://10.0.0.1</span>)</li>
             <li>Find the <strong>Port Forwarding</strong> or <strong>NAT</strong> section</li>
-            <li>Add a rule: forward <span className="font-mono text-secondary">TCP port 80</span> to <span className="font-mono text-secondary">{localIP || "this device"}</span></li>
-            <li>Add a rule: forward <span className="font-mono text-secondary">TCP port 443</span> to <span className="font-mono text-secondary">{localIP || "this device"}</span></li>
+            <li>Add a rule: forward <span className="font-mono text-primary">TCP port 80</span> to <span className="font-mono text-primary">{localIP || "this device"}</span></li>
+            <li>Add a rule: forward <span className="font-mono text-primary">TCP port 443</span> to <span className="font-mono text-primary">{localIP || "this device"}</span></li>
             <li>Save and apply</li>
           </ol>
         )}
@@ -279,7 +280,7 @@ function CGNATGuidanceCard({ connectivity, index }) {
 
         <div className="space-y-2">
           <div className="rounded-large-element bg-secondary/5 border border-primary/10 px-4 py-3">
-            <p className="text-sm font-mono text-secondary mb-1">Cloudflare Tunnel</p>
+            <p className="text-sm font-mono text-primary mb-1">Cloudflare Tunnel</p>
             <p className="text-xs text-primary/60 leading-relaxed">
               Routes traffic through Cloudflare's network. Requires a domain managed by Cloudflare. Free for personal use.
             </p>
@@ -294,7 +295,7 @@ function CGNATGuidanceCard({ connectivity, index }) {
           </div>
 
           <div className="rounded-large-element bg-secondary/5 border border-primary/10 px-4 py-3">
-            <p className="text-sm font-mono text-secondary mb-1">WireGuard VPS</p>
+            <p className="text-sm font-mono text-primary mb-1">WireGuard VPS</p>
             <p className="text-xs text-primary/60 leading-relaxed">
               Rent a small server (~$5/month) and create a private tunnel. Full control, no third-party dependency.
             </p>
@@ -309,7 +310,7 @@ function CGNATGuidanceCard({ connectivity, index }) {
           </div>
 
           <div className="rounded-large-element bg-secondary/5 border border-primary/10 px-4 py-3">
-            <p className="text-sm font-mono text-secondary mb-1">Contact Your ISP</p>
+            <p className="text-sm font-mono text-primary mb-1">Contact Your ISP</p>
             <p className="text-xs text-primary/60 leading-relaxed">
               Ask your provider for a public IP address. Some ISPs will provide one for free or a small fee.
             </p>
@@ -467,7 +468,7 @@ export default function NetworkCategory({ settings }) {
   let cardIndex = 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-slot="network-category">
       <RemoteAccessStatusCard connectivity={connectivity} index={cardIndex++} />
 
       <SettingsCard icon={Globe} title="Domain & DNS" padding={false} index={cardIndex++}>

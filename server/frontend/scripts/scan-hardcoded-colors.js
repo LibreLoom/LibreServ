@@ -525,26 +525,8 @@ function shouldIgnoreLine(filePath, lineText) {
       return true;
     }
   }
-  if (ext === ".js" || ext === ".jsx" || ext === ".ts" || ext === ".tsx") {
-    if (/^\s*const\s+DEFAULT_(LIGHT|DARK)_COLORS\s*=/.test(lineText)) {
-      return true;
-    }
-    if (/^\s*const\s+presets\s*=/.test(lineText)) {
-      return true;
-    }
-    if (/\|\|\s*["']#(?:[0-9a-fA-F]{3,6})["']/.test(lineText)) {
-      return true;
-    }
-    if (/^\s+\w+:\s*["']#(?:[0-9a-fA-F]{3,6})["']/.test(lineText)) {
-      return true;
-    }
-    if (lineText.includes("placeholder=") && lineText.includes('"#')) {
-      return true;
-    }
-    if (/\{\s*label:\s*"/.test(lineText) && lineText.includes("colors:")) {
-      return true;
-    }
-  }
+  // JS/JSX: no broad allow-lists. Hardcoded hex in JS is always a violation —
+  // use theme tokens or the // color-scan: ignore-line directive with a reason.
   return false;
 }
 

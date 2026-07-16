@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import { ChevronDown } from "lucide-react";
 import { useState, useId } from "react";
+import { cn } from "@/lib/utils";
 
 export default function CollapsibleSection({
   title,
@@ -8,7 +9,6 @@ export default function CollapsibleSection({
   defaultOpen = false,
   mono = false,
   size = "sm",
-  background = false,
   pill = false,
   className = "",
 }) {
@@ -17,37 +17,50 @@ export default function CollapsibleSection({
   const sizeClass = size === "xs" ? "text-xs" : size === "md" ? "text-base" : "text-sm";
 
   const wrapperClass = pill
-    ? `border rounded-large-element bg-primary/5 motion-safe:transition-colors motion-safe:duration-150 ${open ? "border-primary/20" : "border-primary/10 hover:border-primary/25"} ${className}`
+    ? cn(
+        "border rounded-large-element bg-primary/5 motion-safe:transition-colors motion-safe:duration-150",
+        open ? "border-primary/20" : "border-primary/10 hover:border-primary/25",
+        className
+      )
     : className;
 
   return (
-    <div className={wrapperClass}>
+    <div data-slot="collapsible" className={wrapperClass}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1.5 ${sizeClass} ${pill ? "text-primary font-medium" : "text-secondary/70"} motion-safe:transition-all w-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill ${
-          pill ? "py-2 px-3" : "py-1"
-        } ${mono ? "font-mono" : ""}`}
+        className={cn(
+          "flex items-center gap-1.5 motion-safe:transition-all w-full",
+          "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 rounded-pill",
+          sizeClass,
+          pill ? "text-primary font-medium py-2 px-3" : "text-inherit py-1",
+          mono && "font-mono"
+        )}
         aria-expanded={open}
         aria-controls={contentId}
       >
         <ChevronDown
           size={size === "xs" ? 12 : size === "md" ? 18 : 14}
-          className={`motion-safe:transition-transform duration-200 ${
-            open ? "rotate-180" : "rotate-0"
-          }`}
+          className={cn("motion-safe:transition-transform duration-200", open ? "rotate-180" : "rotate-0")}
           aria-hidden="true"
         />
         <span>{title}</span>
       </button>
       <div
         id={contentId}
-        className={`grid motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)] ${
+        className={cn(
+          "grid motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-        }`}
+        )}
       >
         <div className="overflow-hidden">
-          <div className={pill ? "px-3 pb-4" : background ? "mt-3 bg-primary/5 rounded-card p-3" : "pt-2 pl-6"}>
+          <div
+            key={open ? "open" : "closed"}
+            className={cn(
+              pill ? "px-3 pb-4" : "pt-2 pl-6",
+              open && "animate-alert-enter"
+            )}
+          >
             {children}
           </div>
         </div>
@@ -62,7 +75,6 @@ CollapsibleSection.propTypes = {
   defaultOpen: PropTypes.bool,
   mono: PropTypes.bool,
   size: PropTypes.oneOf(["sm", "md", "xs"]),
-  background: PropTypes.bool,
   pill: PropTypes.bool,
   className: PropTypes.string,
 };

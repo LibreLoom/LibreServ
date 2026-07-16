@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { Loader2, AlertCircle, ShieldCheck } from "lucide-react";
@@ -74,7 +75,7 @@ export default function InviteeOnboardingPage() {
 
   if (loading) {
     return (
-      <main className="fixed inset-0 grid place-items-center bg-primary px-4">
+      <main className="fixed inset-0 grid place-items-center bg-primary px-4" data-slot="invitee-onboarding">
         <Loader2 className="animate-spin text-accent" size={28} />
       </main>
     );
@@ -84,7 +85,7 @@ export default function InviteeOnboardingPage() {
   // shape with valid=false — no leak of which.
   if (!invite || invite.valid === false) {
     return (
-      <main className="fixed inset-0 grid place-items-center bg-primary px-4" id="main-content" tabIndex={-1}>
+      <main className="fixed inset-0 grid place-items-center bg-primary px-4" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
         <div className="w-full max-w-lg bg-secondary text-primary rounded-large-element ring-2 ring-accent p-8 text-center">
           <AlertCircle size={32} className="text-accent mx-auto mb-3" />
           <h1 className="font-mono text-xl mb-2">This invitation isn't valid</h1>
@@ -100,7 +101,7 @@ export default function InviteeOnboardingPage() {
   const isAdmin = invite.role === "admin";
 
   return (
-    <main className="fixed inset-0 grid place-items-center bg-primary px-4 overflow-auto" id="main-content" tabIndex={-1}>
+    <main className="fixed inset-0 grid place-items-center bg-primary px-4 overflow-auto" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
       <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8 my-8">
         <span className="text-primary font-mono text-2xl block text-center">LibreServ</span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
@@ -151,7 +152,7 @@ export default function InviteeOnboardingPage() {
                 {[1, 2, 3, 4, 5].map((i) => (
                   <div
                     key={i}
-                    className={`h-1 flex-1 rounded-full ${i <= strength.score ? "bg-accent" : "bg-secondary/20"}`}
+                    className={cn("h-1 flex-1 rounded-full", i <= strength.score ? "bg-accent" : "bg-secondary/20")}
                   />
                 ))}
               </div>

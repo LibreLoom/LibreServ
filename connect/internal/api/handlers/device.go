@@ -6,20 +6,23 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
 // DeviceHandler handles device activation, status, and lifecycle.
 type DeviceHandler struct {
-	db *sql.DB
+	db      *sql.DB
+	billing *billing.Service
 }
 
 func NewDeviceHandler(db *sql.DB) *DeviceHandler {
-	return &DeviceHandler{db: db}
+	return &DeviceHandler{db: db, billing: billing.NewService(db)}
 }
 
 func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +35,7 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenHash := hashToken(req.Token)
-	deviceID := generateID()
+	deviceID := security.GenerateID("dev")
 
 	// Determine plan from token prefix or default to free
 	planID := "free"
@@ -40,8 +43,8 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		switch req.Token[0] {
 		case '1', 'o', 'O':
 			planID = "one"
-		case 'p', 'P':
-			planID = "payg"
+		case 'l', 'L':
+			planID = "lite"
 		}
 	}
 
@@ -65,7 +68,10 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		 ON CONFLICT(device_id) DO UPDATE SET
 		   plan_id = excluded.plan_id,
 		   status = 'active'`,
-		generateID(), deviceID, planID, time.Now())
+		security.GenerateID("sub"), deviceID, planID, time.Now())
+
+	// Ensure credit account exists
+	_ = h.billing.EnsureAccountCredits(deviceID)
 
 	status := h.buildStatus(r.Context(), deviceID, planID, req.Token)
 	JSON(w, http.StatusOK, status)
@@ -100,17 +106,24 @@ func (h *DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 
 func (h *DeviceHandler) Usage(w http.ResponseWriter, r *http.Request) {
 	deviceID := middleware.GetDeviceID(r.Context())
-	var totalCost float64
-	_ = h.db.QueryRowContext(r.Context(),
-		"SELECT COALESCE(SUM(cost_usd), 0) FROM usage_events WHERE device_id = ? AND timestamp >= date('now', 'start of month')",
-		deviceID).Scan(&totalCost)
+	summary, err := h.billing.GetUsageSummary(deviceID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not retrieve usage")
+		return
+	}
+
+	balance, _ := h.billing.GetBalance(deviceID)
 
 	JSON(w, http.StatusOK, map[string]any{
-		"current_cycle_start": time.Now().AddDate(0, 0, -15).Format(time.RFC3339),
-		"current_cycle_end":   time.Now().AddDate(0, 0, 15).Format(time.RFC3339),
-		"total_cost_usd":      totalCost,
-		"credit_cap_usd":      10.00,
-		"remaining_usd":       10.00 - totalCost,
+		"device_id":        summary.DeviceID,
+		"plan_id":          summary.PlanID,
+		"current_cycle_start": summary.CycleStart,
+		"current_cycle_end":   summary.CycleEnd,
+		"total_cost_usd":      summary.TotalCostUSD,
+		"provider_cost_usd":   summary.ProviderCostUSD,
+		"credits_used":        summary.CreditsUsed,
+		"credit_balance_cents": balance,
+		"by_service":          summary.ByService,
 	})
 }
 
@@ -145,41 +158,23 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, token
 		}
 	}
 
+	// Human support availability depends on plan
+	if !catalog.HasHumanSupport(planID) {
+		services["support"]["state"] = "unavailable"
+	}
+
 	return map[string]any{
 		"connected": true,
 		"plan": map[string]string{
 			"id":   planID,
-			"name": planName(planID),
+			"name": catalog.PlanName(planID),
 		},
 		"services":   services,
 		"token_hint": tokenHint,
 	}
 }
 
-func planName(id string) string {
-	switch id {
-	case "one":
-		return "Connect One"
-	case "payg":
-		return "Connect PAYG"
-	default:
-		return "Connect Free"
-	}
-}
-
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
-}
-
-func generateID() string {
-	return fmt.Sprintf("dev_%d_%s", time.Now().Unix(), randomHex(8))
-}
-
-func randomHex(n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = byte(97 + (i % 26)) // simplistic; replace with crypto/rand in production
-	}
-	return hex.EncodeToString(b)[:n*2]
 }

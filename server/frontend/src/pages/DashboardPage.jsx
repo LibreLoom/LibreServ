@@ -1,9 +1,10 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import { Clock, Server, CheckCircle, AlertCircle, XCircle, WifiOff, RefreshCw, Database } from "lucide-react";
 
 import StatCard from "../components/cards/StatCard";
-import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
 import AppCards from "../components/cards/AppCards";
 import DropdownCard from "../components/cards/DropdownCard";
 import SystemHealthCard from "../components/cards/SystemHealthCard";
@@ -195,9 +196,10 @@ export default function Dashboard() {
     <span className="inline-flex flex-wrap items-center justify-center gap-2">
       <span>{showUsername ? `${greetingBase},` : greetingBase}</span>
       <span
-        className={`transition-all duration-300 ease-out ${
-          showUsername ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1"
-        } motion-reduce:transition-none`}
+        className={cn(
+          "transition-all duration-300 ease-out motion-reduce:transition-none",
+          showUsername ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1",
+        )}
         aria-hidden={!showUsername}
       >
         {showUsername ? user.username : ""}
@@ -212,7 +214,7 @@ export default function Dashboard() {
       title="Click to view remote access settings"
     >
       <StatusIconComponent
-        className={`w-4 h-4 md:w-5 md:h-5 ${remoteAccessStatus.className}`}
+        className={cn("w-4 h-4 md:w-5 md:h-5", remoteAccessStatus.className)}
         aria-hidden="true"
       />
       <span>{remoteAccessStatus.text}</span>
@@ -226,21 +228,16 @@ export default function Dashboard() {
   );
 
   return (
-    <main
-      className="bg-primary text-secondary px-0 pt-5 pb-32"
-      aria-labelledby="dashboard-title"
-      id="main-content"
-      tabIndex={-1}
+    <Page
+      data-slot="dashboard-page"
+      title={greetingTitle}
+      titleId="dashboard-title"
+      padded={false}
+      headerClassName="px-8 mb-10"
+      headerCardClassName="group"
+      leftContent={refreshControl}
+      rightContent={statusBadge}
     >
-      <header className="px-8 mb-10">
-        <HeaderCard
-          id="dashboard-title"
-          title={greetingTitle}
-          className="group"
-          leftContent={refreshControl}
-          rightContent={statusBadge}
-        ></HeaderCard>
-      </header>
 
       <section className="px-8 mb-10">
         <WelcomeCard />
@@ -253,7 +250,7 @@ export default function Dashboard() {
                 ? new Date(repoStatus[0].last_pull).toLocaleString(undefined, { timeStyle: "short" })
                 : "never"}
             </span>
-            <Link to="/settings" className="text-accent hover:text-primary transition-colors">
+            <Link to="/settings" className="text-accent hover:text-secondary transition-colors">
               Check now
             </Link>
           </div>
@@ -290,6 +287,6 @@ export default function Dashboard() {
           <AppCards refreshInterval={refreshInterval} />
         </div>
       </section>
-    </main>
+    </Page>
   );
 }

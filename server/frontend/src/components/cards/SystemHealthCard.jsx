@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { memo } from "react";
 import PropTypes from "prop-types";
 import { CheckCircle, XCircle, HelpCircle, HeartPulse } from "lucide-react";
@@ -44,11 +45,11 @@ function SystemHealthCard({ checks = {}, overallPass, loading, error }) {
   const overallClass = overallPass ? "text-success" : "text-error";
 
   return (
-    <Card icon={HeartPulse} title="System Health" padding={false}>
+    <Card icon={HeartPulse} title="System Health" padding={false} data-slot="system-health-card">
       <div className="px-5 py-4 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-sm text-primary/70">Overall</span>
-          <span className={`text-sm font-mono font-medium ${overallClass}`}>
+          <span className={cn("text-sm font-mono font-medium", overallClass)}>
             {overallLabel}
           </span>
         </div>
@@ -68,7 +69,7 @@ function SystemHealthCard({ checks = {}, overallPass, loading, error }) {
                 <li key={name} className="flex items-start gap-2">
                   <Icon
                     size={16}
-                    className={`${className} mt-0.5 shrink-0`}
+                    className={cn(className, "mt-0.5", "shrink-0")}
                     aria-hidden="true"
                   />
                   <div className="min-w-0">

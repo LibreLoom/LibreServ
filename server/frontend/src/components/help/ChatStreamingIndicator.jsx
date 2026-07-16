@@ -2,7 +2,7 @@ import { Bot } from "lucide-react";
 
 function ChatStreamingIndicator() {
   return (
-    <div className="flex gap-2 justify-start">
+    <div data-slot="help-chat-streaming" className="flex gap-2 justify-start">
       <div className="shrink-0 mt-1 w-6 h-6 rounded-pill bg-primary text-secondary flex items-center justify-center">
         <Bot size={11} strokeWidth={2.5} />
       </div>

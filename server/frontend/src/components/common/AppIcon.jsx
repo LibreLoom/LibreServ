@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { cn } from "@/lib/utils";
 import PropTypes from "prop-types";
 import DOMPurify from "dompurify";
 
@@ -78,7 +79,7 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
       <div
         role="img"
         aria-label={`${appId} icon`}
-        className={`rounded-large-element bg-secondary/10 flex items-center justify-center ${className}`}
+        className={cn("rounded-large-element bg-secondary/10 flex items-center justify-center", className)}
         style={{ width: size, height: size }}
       >
         <span
@@ -95,7 +96,7 @@ export default function AppIcon({ appId, size = 48, className = "" }) {
     <span
       role="img"
       aria-label={`${appId} icon`}
-      className={`inline-block align-middle ${className}`}
+      className={cn("inline-block align-middle", className)}
       style={{ width: size, height: size }}
       dangerouslySetInnerHTML={{ __html: svg }}
     />

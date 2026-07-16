@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { User, Shield, Trash2, Settings, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -6,6 +7,7 @@ import HeaderCard from "../components/cards/HeaderCard";
 import VerificationCard from "../components/cards/VerificationCard";
 import Table from "../components/common/Table";
 import Pill from "../components/common/Pill";
+import StateOverlay from "../components/common/StateOverlay";
 import api from "../lib/api";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 import { useAuth } from "../hooks/useAuth";
@@ -114,8 +116,8 @@ export default function UsersPage() {
 
   return (
     <>
-      <main
-        className={`bg-primary text-secondary px-8 pt-5 pb-32 ${showVerification ? "pop-out" : "pop-in"}`}
+      <main data-slot="users"
+        className={cn("bg-primary text-secondary px-8 pt-5 pb-32", showVerification ? "pop-out" : "pop-in")}
         aria-labelledby="users-title"
         id="main-content"
         tabIndex={-1}
@@ -125,33 +127,13 @@ export default function UsersPage() {
         </header>
 
         {loading && showLoading && (
-          // Delayed loader avoids flicker on fast responses.
-          <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
-            <Card className="w-[70vw] sm:w-[20vw]">
-              <div
-                className="my-5 text-center"
-                role="status"
-                aria-live="polite"
-              >
-                <p>Loading users...</p>
-              </div>
-            </Card>
-          </div>
+          <StateOverlay message="Loading users..." />
         )}
 
         {error && (
-          // Full-screen error so it can't be missed.
-          <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
-            <Card className="w-[70vw] sm:w-[20vw] border-2 border-accent">
-              <div
-                className="my-5 text-center"
-                role="status"
-                aria-live="polite"
-              >
-                <p>Error: {error}</p>
-              </div>
-            </Card>
-          </div>
+          <StateOverlay kind="error">
+            <p className="text-secondary/80">Error: {error}</p>
+          </StateOverlay>
         )}
 
         {!loading && !error && users.length === 0 && (
@@ -217,7 +199,7 @@ export default function UsersPage() {
                         <span className="inline-flex items-center gap-1">
                           <Link
                             to={`/users/${row.id}`}
-                            className="p-1.5 rounded-full hover:bg-primary/10 text-primary/60 hover:text-primary motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                            className="p-1.5 rounded-full hover:bg-primary/10 text-primary/60 hover:text-secondary motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 no-focus-outline"
                             aria-label={`Manage ${row.username}`}
                           >
                             <Settings size={16} />
@@ -225,7 +207,7 @@ export default function UsersPage() {
                           <button
                             type="button"
                             onClick={() => handleDeleteClick(row.id, row.username)}
-                            className="p-1.5 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+                            className="p-1.5 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
                             aria-label={`Delete ${row.username}`}
                           >
                             <Trash2 size={16} />
@@ -245,7 +227,7 @@ export default function UsersPage() {
         {!loading && !error && users.length > 0 && (
           <Link
             to="/users/create"
-             className="fixed bottom-8 right-8 z-40 bg-secondary text-primary rounded-full p-4 motion-safe:transition-all hover:scale-110 focus-visible:ring-2 focus:ring-primary focus:ring-offset-2"
+             className="fixed bottom-8 right-8 z-40 bg-secondary text-primary rounded-full p-4 motion-safe:transition-all hover:scale-110 focus-visible:ring-2 focus:ring-primary focus:ring-offset-2 no-focus-outline"
             aria-label="Add new user"
           >
             <Plus size={32} aria-hidden="true" />

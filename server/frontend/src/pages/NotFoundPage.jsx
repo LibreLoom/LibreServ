@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useId, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronDown, Ghost, Home } from "lucide-react";
@@ -123,7 +124,7 @@ export default function NotFoundPage({ includeMain = true }) {
 
   return (
     <Wrapper
-      className="bg-primary text-secondary px-8 pt-10 pb-32"
+      className="bg-primary text-secondary px-8 pt-10 pb-32" data-slot="not-found"
       aria-labelledby={regionTitleId}
       aria-describedby={detailsId}
       id="main-content"
@@ -230,29 +231,32 @@ export default function NotFoundPage({ includeMain = true }) {
                 onClick={() => setIsInvestigationOpen((open) => !open)}
                 aria-expanded={isInvestigationOpen}
                 aria-controls={investigationId}
-                className={
+                className={cn(
                   "w-full flex items-center justify-between gap-3 rounded-large-element px-4 py-3 font-bold text-left " +
-                  "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2"
-                }
+                  "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
+                )}
               >
                 <span>Highly Scientific Investigation (Optional)</span>
                 <ChevronDown
                   size={20}
                   aria-hidden="true"
-                  className={`shrink-0 motion-safe:transition-transform duration-200 ${
-                    isInvestigationOpen ? "rotate-180" : "rotate-0"
-                  }`}
+                  className={cn(
+                    "shrink-0 motion-safe:transition-transform duration-200",
+                    isInvestigationOpen ? "rotate-180" : "rotate-0",
+                  )}
                 />
               </button>
 
               <div
                 id={investigationId}
                 {...panelA11yProps}
-                className={`overflow-hidden px-4 ${
+                className={cn(
+                  "overflow-hidden px-4",
                   isInvestigationOpen
                     ? "max-h-128 pb-4 opacity-100"
-                    : "max-h-0 pb-0 opacity-0 pointer-events-none select-none"
-                } motion-safe:transition-all motion-safe:duration-300 ease-out`}
+                    : "max-h-0 pb-0 opacity-0 pointer-events-none select-none",
+                  "motion-safe:transition-all motion-safe:duration-300 ease-out",
+                )}
               >
                 <div className="pt-2 text-primary/70">
                   {bestMatch ? (

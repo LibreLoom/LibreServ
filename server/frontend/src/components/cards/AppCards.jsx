@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings } from "lucide-react";
+import Card from "./Card";
 import CardButton from "./CardButton";
 import AppIcon from "../common/AppIcon";
 import StatusPill from "../common/StatusPill";
@@ -40,7 +41,8 @@ function AppCardInner({ app }) {
   const uptimeLabel = isRunning ? "Uptime" : "Downtime";
 
   return (
-    <div ref={ref} className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] self-start relative">
+    <div ref={ref} className="self-start" data-slot="app-card">
+    <Card noHeightAnim className="relative">
       <StatusPill status={app.status} compact={isNarrow} className="absolute top-3 right-3 z-10" />
 
       <div className="flex items-center gap-4">
@@ -100,6 +102,7 @@ function AppCardInner({ app }) {
       )}
 
       <CardButton action={`/apps/${app.id}`} actionLabel="Manage" icon={Settings} />
+    </Card>
     </div>
   );
 }
@@ -108,7 +111,7 @@ const AppCard = memo(AppCardInner);
 
 function NoAppsCard() {
   return (
-    <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 flex flex-col items-center text-center">
+    <Card className="flex flex-col items-center text-center" data-slot="no-apps-card">
       <div className="flex items-center gap-4 mb-4">
         <div className="h-12 w-12 rounded-pill bg-primary/10 text-primary/30 flex items-center justify-center" aria-hidden="true">
           <Package size={22} />
@@ -130,7 +133,7 @@ function NoAppsCard() {
       >
         Install an App
       </Link>
-    </div>
+    </Card>
   );
 }
 
@@ -140,7 +143,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
 
   if (isLoading) {
     return (
-      <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
+      <Card className="self-start" data-slot="app-card-loading">
         <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center animate-pulse" aria-hidden="true">
             <Package size={22} className="text-primary/30" />
@@ -149,7 +152,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
             <div className="font-mono font-normal text-primary/50">Loading apps...</div>
           </div>
         </div>
-      </div>
+      </Card>
     );
   }
 
@@ -159,7 +162,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
 
   if (error) {
     return (
-      <div className="pop-in flex-1 mx-1.25 bg-secondary text-primary rounded-3xl p-5 self-start">
+      <Card className="self-start" data-slot="app-card-error">
         <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-pill bg-primary/10 flex items-center justify-center" aria-hidden="true">
             <Package size={22} className="text-error" />
@@ -169,7 +172,7 @@ export default function AppCards({ refreshInterval = 30000 }) {
             <div className="font-mono font-normal text-sm text-primary/50">{error.message}</div>
           </div>
         </div>
-      </div>
+      </Card>
     );
   }
 

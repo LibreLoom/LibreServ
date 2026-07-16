@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
-import { Globe, AlertTriangle, Loader2, ArrowUpRight, ShieldAlert, ExternalLink } from "lucide-react";
+import { Globe, AlertTriangle, ArrowUpRight, ShieldAlert, ExternalLink } from "lucide-react";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import ConfirmModal from "../../common/ConfirmModal";
@@ -45,7 +45,7 @@ export default function DomainManagementCard({ currentDomain, onDomainChange, on
     return (
       <SettingsCard icon={Globe} title="Domain Connection" index={1}>
         <div className="px-5 py-4 flex justify-center">
-          <div className="w-full max-w-sm rounded-large-element border border-primary/10 bg-secondary overflow-hidden">
+          <div className="w-full max-w-sm rounded-large-element border border-primary/10 bg-secondary text-primary overflow-hidden">
             <div className="px-8 py-12 flex flex-col items-center text-center">
               <div className="inline-flex items-center gap-4 px-8 py-4 rounded-pill bg-accent/15 text-accent mb-8 border border-accent/20">
                 <Globe size={28} />
@@ -70,10 +70,10 @@ export default function DomainManagementCard({ currentDomain, onDomainChange, on
   }
 
   return (
-    <>
+    <div data-slot="domain-management-card">
       <SettingsCard icon={Globe} title="Connected Domain" index={1}>
         <div className="px-5 py-4">
-          <div className="rounded-large-element border border-primary/10 bg-secondary overflow-hidden">
+          <div className="rounded-large-element border border-primary/10 bg-secondary text-primary overflow-hidden">
             <div className="px-4 py-3.5 space-y-4">
               <div className="flex flex-col gap-3">
                 <div className="flex items-center justify-between">
@@ -141,6 +141,6 @@ export default function DomainManagementCard({ currentDomain, onDomainChange, on
         confirmLabel="Disconnect"
         loading={disconnecting}
       />
-    </>
+    </div>
   );
 }

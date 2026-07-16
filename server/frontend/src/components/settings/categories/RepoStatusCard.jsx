@@ -203,7 +203,7 @@ export default function RepoStatusCard({ index = 0 }) {
   };
 
   return (
-    <>
+    <div data-slot="repo-status-card">
       <SettingsCard
         icon={Database}
         title="App Repositories"
@@ -310,6 +310,6 @@ export default function RepoStatusCard({ index = 0 }) {
           onAdded={fetchStatus}
         />
       )}
-    </>
+    </div>
   );
 }

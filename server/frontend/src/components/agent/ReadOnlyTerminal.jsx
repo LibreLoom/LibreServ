@@ -26,7 +26,7 @@ export default function ReadOnlyTerminal({ content, title, maxHeight = "300px" }
   }
 
   return (
-    <div className="rounded-large-element overflow-hidden border border-primary/10">
+    <div data-slot="agent-read-only-terminal" className="rounded-large-element overflow-hidden border border-primary/10">
       <div className="flex items-center justify-between px-3 py-1.5 bg-primary/5 border-b border-primary/10">
         <div className="flex items-center gap-1.5 text-xs text-primary/50 font-mono">
           <Terminal size={12} />

@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 
 /**
@@ -29,7 +30,10 @@ export default function ClickableCard({
   className = "",
   children,
 }) {
-  const classes = `pop-in block w-full text-left bg-secondary text-primary rounded-3xl p-5 cursor-pointer motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 ${className}`;
+  const classes = cn(
+    "pop-in block w-full text-left bg-secondary text-primary rounded-large-element p-5 cursor-pointer motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+    className,
+  );
 
   if (external) {
     return (
@@ -40,6 +44,7 @@ export default function ClickableCard({
         aria-label={ariaLabel}
         title={title}
         className={classes}
+        data-slot="clickable-card"
       >
         {children}
       </a>
@@ -48,7 +53,7 @@ export default function ClickableCard({
 
   if (action) {
     return (
-      <Link to={action} aria-label={ariaLabel} title={title} className={classes}>
+      <Link to={action} aria-label={ariaLabel} title={title} className={classes} data-slot="clickable-card">
         {children}
       </Link>
     );
@@ -61,6 +66,7 @@ export default function ClickableCard({
       aria-label={ariaLabel}
       title={title}
       className={classes}
+      data-slot="clickable-card"
     >
       {children}
     </button>

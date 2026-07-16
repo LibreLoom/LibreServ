@@ -1,23 +1,13 @@
 import PropTypes from "prop-types";
-import { AlertCircle, CheckCircle, AlertTriangle, Info } from "lucide-react";
+import Callout from "./Callout";
 
-const VARIANTS = {
-  error: { icon: AlertCircle, bg: "bg-error/10", border: "border-error/20", text: "text-error" },
-  success: { icon: CheckCircle, bg: "bg-success/10", border: "border-success/20", text: "text-success" },
-  warning: { icon: AlertTriangle, bg: "bg-warning/10", border: "border-warning/20", text: "text-warning" },
-  info: { icon: Info, bg: "bg-info/10", border: "border-info/20", text: "text-info" },
-};
-
+/** @param {{ variant?: "error"|"success"|"warning"|"info", message: string, className?: string, rounded?: "pill"|"large-element" }} props */
 export default function Alert({ variant = "info", message, className = "", rounded = "pill" }) {
-  const config = VARIANTS[variant] || VARIANTS.info;
-  const Icon = config.icon;
-  const radius = rounded === "large-element" ? "rounded-large-element" : "rounded-pill";
-
+  const tone = variant === "success" ? "success" : variant === "warning" ? "warning" : variant === "error" ? "error" : "info";
   return (
-    <div className={`p-3 ${config.bg} ${config.border} border ${radius} flex items-start gap-2 ${className}`}>
-      <Icon size={16} className={`${config.text} mt-0.5 flex-shrink-0`} aria-hidden="true" />
-      <div className={`text-sm ${config.text}`}>{message}</div>
-    </div>
+    <Callout tone={tone} rounded={rounded} className={className}>
+      {message}
+    </Callout>
   );
 }
 

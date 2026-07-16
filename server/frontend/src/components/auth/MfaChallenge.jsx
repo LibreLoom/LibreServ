@@ -116,8 +116,8 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
   // --- Selection screen ---
   if (!selected) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 text-secondary">
+      <div data-slot="auth-mfa-selection" className="space-y-4">
+        <div className="flex items-center gap-2 text-primary">
           <ShieldCheck size={18} className="text-accent" />
           <p className="text-sm">Verify it's you — pick a way to continue.</p>
         </div>
@@ -139,7 +139,7 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
                     setError(null);
                     if (isWebAuthn) verifyWebAuthn(m.type);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element border-2 border-secondary/30 hover:border-accent hover:ring-2 hover:ring-accent motion-safe:transition-all text-secondary"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element border-2 border-primary/30 hover:border-accent hover:ring-2 hover:ring-accent motion-safe:transition-all text-primary"
                 >
                   <Icon size={18} className="text-accent shrink-0" />
                   <span className="text-sm">{meta.label}</span>
@@ -164,7 +164,7 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
           <button
             type="button"
             onClick={onBack}
-            className="flex items-center gap-1 text-xs text-secondary/70 hover:text-secondary"
+            className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary"
           >
             <ArrowLeft size={12} /> Back to password
           </button>
@@ -198,7 +198,7 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
   if (isWebAuthn) {
     // WebAuthn flows directly from selection (no code field); show a retry.
     return (
-      <div className="space-y-3 text-secondary">
+      <div data-slot="auth-mfa-webauthn" className="space-y-3 text-primary">
         <p className="text-sm">Waiting for your {meta.label.toLowerCase()}…</p>
         {error && <Alert variant="error" message={error} />}
         <button
@@ -212,7 +212,7 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
         <button
           type="button"
           onClick={() => setSelected(null)}
-          className="flex items-center gap-1 text-xs text-secondary/70 hover:text-secondary"
+          className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary"
         >
           <ArrowLeft size={12} /> Choose another method
         </button>
@@ -239,16 +239,17 @@ function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, s
   const inputId = useId();
   return (
     <form
+      data-slot="auth-mfa-entry"
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
       }}
-      className="space-y-3 text-secondary"
+      className="space-y-3 text-primary"
     >
       <button
         type="button"
         onClick={onBack}
-        className="flex items-center gap-1 text-xs text-secondary/70 hover:text-secondary"
+        className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary"
       >
         <ArrowLeft size={12} /> Choose another method
       </button>
@@ -261,7 +262,7 @@ function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, s
         value={code}
         onChange={(e) => setCode(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-4 py-2 border-2 border-secondary/30 rounded-pill bg-secondary text-primary focus:ring-2 focus:ring-accent focus:ring-offset-2"
+        className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2"
         autoFocus={autoFocus}
       />
       {error && <Alert variant="error" message={error} />}

@@ -1,29 +1,21 @@
 import { useCallback, useState } from "react";
+import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
+import Callout from "./Callout";
 
-const VARIANTS = {
-  default: {
-    iconColor: "text-accent",
-    bannerClass: "bg-primary/10 border-primary/20 text-primary",
-    confirmClass: "bg-accent text-primary hover:ring-2 hover:ring-accent",
-  },
-  warning: {
-    iconColor: "text-warning",
-    bannerClass: "bg-warning/10 border-warning/30",
-    confirmClass: "bg-warning text-secondary hover:ring-2 hover:ring-primary",
-  },
-  danger: {
-    iconColor: "text-error",
-    bannerClass: "bg-error/10 border-error/30",
-    confirmClass: "bg-error text-secondary hover:ring-2 hover:ring-primary",
-  },
-  "danger-undoable": {
-    iconColor: "text-error",
-    bannerClass: "bg-error/10 border-error/30",
-    confirmClass: "bg-error text-secondary hover:ring-2 hover:ring-primary",
-  },
+const CONFIRM_CLASS = {
+  default: "bg-accent text-primary hover:ring-2 hover:ring-accent",
+  warning: "bg-warning text-secondary hover:ring-2 hover:ring-primary",
+  danger: "bg-error text-secondary hover:ring-2 hover:ring-primary",
+  "danger-undoable": "bg-error text-secondary hover:ring-2 hover:ring-primary",
+};
+
+const BANNER_TONE = {
+  warning: "warning",
+  danger: "error",
+  "danger-undoable": "error",
 };
 
 /**
@@ -61,7 +53,9 @@ export default function ConfirmModal({
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const shouldRender = open || isClosing;
-  const styles = VARIANTS[variant] || VARIANTS.default;
+  const iconColor = variant === "danger" || variant === "danger-undoable" ? "text-error" : variant === "warning" ? "text-warning" : "text-accent";
+  const confirmClass = CONFIRM_CLASS[variant] || CONFIRM_CLASS.default;
+  const bannerTone = BANNER_TONE[variant];
 
   const handleClose = useCallback(() => {
     if (loading || isClosing) return;
@@ -90,7 +84,7 @@ export default function ConfirmModal({
       <div className="flex items-start gap-3">
         {Icon && (
           <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
-            <Icon size={24} className={styles.iconColor} />
+            <Icon size={24} className={iconColor} />
           </div>
         )}
         <div className="flex-1">
@@ -101,14 +95,13 @@ export default function ConfirmModal({
         </div>
       </div>
 
-      {variant === "danger" && (
-        <div className={`mt-4 border rounded-card p-3 ${styles.bannerClass}`}>
-          <p className="font-mono text-xs">This action cannot be undone.</p>
-        </div>
-      )}
-      {variant === "warning" && (
-        <div className={`mt-4 border rounded-card p-3 ${styles.bannerClass}`}>
-          <p className="font-mono text-xs">Please review before proceeding.</p>
+      {bannerTone && (
+        <div className="mt-4">
+          <Callout tone={bannerTone} rounded="card">
+            {variant === "danger"
+              ? "This action cannot be undone."
+              : "Please review before proceeding."}
+          </Callout>
         </div>
       )}
 
@@ -116,14 +109,14 @@ export default function ConfirmModal({
         <button
           onClick={handleClose}
           disabled={loading}
-          className="flex-1 px-4 py-2 rounded-pill border-2 border-accent/30 bg-secondary text-primary hover:bg-accent/20 transition-all font-mono text-sm disabled:opacity-50"
+          className={cn("flex-1 px-4 py-2 rounded-pill border-2 border-accent/30 bg-secondary text-primary hover:bg-accent/20 transition-all font-mono text-sm disabled:opacity-50")}
         >
           Cancel
         </button>
         <button
           onClick={handleConfirm}
           disabled={loading || disabledConfirm}
-          className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill transition-all font-mono text-sm disabled:opacity-50 ${styles.confirmClass}`}
+          className={cn("flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill transition-all font-mono text-sm disabled:opacity-50", confirmClass)}
         >
           {loading ? (
             <Loader2 size={16} className="animate-spin" aria-hidden="true" />

@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import PropTypes from "prop-types";
@@ -14,7 +15,7 @@ export default function Expandable({
   const toggle = () => setIsOpen(!isOpen);
 
   return (
-    <div className={className}>
+    <div className={cn(className)} data-slot="expandable">
       <button
         type="button"
         onClick={toggle}
@@ -23,16 +24,14 @@ export default function Expandable({
       >
         <ChevronDown
           size={16}
-          className={`motion-safe:transition-transform duration-200 ${isOpen ? "rotate-180" : "rotate-0"}`}
+          className={cn("motion-safe:transition-transform duration-200", isOpen ? "rotate-180" : "rotate-0")}
           aria-hidden="true"
         />
         <span>{isOpen ? expandedLabel : label}</span>
       </button>
 
       <div
-        className={`motion-safe:transition-all duration-300 ease-out ${
-          isOpen ? "max-h-96 overflow-visible" : "max-h-0 overflow-hidden"
-        }`}
+        className={cn("motion-safe:transition-all duration-300 ease-out", isOpen ? "max-h-96 overflow-visible" : "max-h-0 overflow-hidden")}
         aria-hidden={!isOpen}
       >
         {children}

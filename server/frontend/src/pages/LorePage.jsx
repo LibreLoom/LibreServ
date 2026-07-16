@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import Card from "../components/cards/Card";
 import ClickableCard from "../components/cards/ClickableCard";
-import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
 import TypewriterLoader from "../components/ui/TypewriterLoader";
 
 export default function LorePage() {
@@ -26,22 +26,19 @@ export default function LorePage() {
   }, []);
 
   return (
-    <main
-      className="bg-primary text-secondary px-0 pt-5 pb-32"
-      id="main-content"
-      tabIndex={-1}
+    <Page
+      title="Lore"
+      padded={false}
+      headerClassName="px-8 mb-10"
+      bottomContent={
+        <p className="text-lg text-primary font-semibold">
+          You found the lore page!
+        </p>
+      }
     >
-      {/* Header */}
-      <header className="px-8 mb-10">
-        <HeaderCard title="Lore">
-          <p className="text-lg text-primary font-semibold">
-            You found the lore page!
-          </p>
-        </HeaderCard>
-      </header>
 
       {/* Content */}
-      <section className="px-8" aria-label="Lore content">
+      <section className="px-8" aria-label="Lore content" data-slot="lore">
         <Card>
           {loading && <TypewriterLoader message="Loading lore..." size="sm" />}
           {error && <p className="text-primary">Error: {error}</p>}
@@ -109,7 +106,7 @@ export default function LorePage() {
                     if (inline) {
                       return (
                         <code
-                          className="bg-secondary px-1 py-0.5 rounded text-sm"
+                          className="bg-secondary text-primary px-1 py-0.5 rounded text-sm"
                           {...props}
                         />
                       );
@@ -156,6 +153,6 @@ export default function LorePage() {
           )}
         </Card>
       </section>
-    </main>
+    </Page>
   );
 }

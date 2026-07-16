@@ -82,10 +82,13 @@ CREATE TABLE IF NOT EXISTS service_credentials (
 CREATE TABLE IF NOT EXISTS usage_events (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	plan_id TEXT NOT NULL DEFAULT 'free',
 	service_type TEXT NOT NULL,
 	metric TEXT NOT NULL,
 	value REAL NOT NULL DEFAULT 0,
 	cost_usd REAL NOT NULL DEFAULT 0,
+	credits_consumed REAL NOT NULL DEFAULT 0,
+	provider_cost REAL NOT NULL DEFAULT 0,
 	metadata_json TEXT DEFAULT '{}',
 	timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -100,6 +103,87 @@ CREATE TABLE IF NOT EXISTS billing_cycles (
 	status TEXT NOT NULL DEFAULT 'open',
 	stripe_invoice_id TEXT,
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS account_credits (
+	id TEXT PRIMARY KEY,
+	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	balance_cents INTEGER NOT NULL DEFAULT 0,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS credit_transactions (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	amount_cents INTEGER NOT NULL,
+	direction TEXT NOT NULL CHECK(direction IN ('credit','debit')),
+	reason TEXT NOT NULL,
+	reference_id TEXT,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+	id TEXT PRIMARY KEY,
+	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	stripe_invoice_id TEXT,
+	status TEXT NOT NULL DEFAULT 'draft',
+	amount_cents INTEGER NOT NULL DEFAULT 0,
+	period_start DATE NOT NULL,
+	period_end DATE NOT NULL,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	paid_at DATETIME
+);
+
+CREATE TABLE IF NOT EXISTS ai_providers (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL UNIQUE,
+	base_url TEXT NOT NULL,
+	api_key TEXT NOT NULL,
+	enabled BOOLEAN NOT NULL DEFAULT 1,
+	tier TEXT NOT NULL DEFAULT 'paid',
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ai_models (
+	id TEXT PRIMARY KEY,
+	provider_id TEXT NOT NULL REFERENCES ai_providers(id) ON DELETE CASCADE,
+	model_id TEXT NOT NULL,
+	display_name TEXT NOT NULL,
+	role TEXT NOT NULL DEFAULT 'agent',
+	input_price_per_million REAL NOT NULL DEFAULT 0,
+	output_price_per_million REAL NOT NULL DEFAULT 0,
+	cache_price_per_million REAL NOT NULL DEFAULT 0,
+	context_window INTEGER NOT NULL DEFAULT 0,
+	enabled BOOLEAN NOT NULL DEFAULT 1,
+	sort_order INTEGER NOT NULL DEFAULT 0,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(provider_id, model_id)
+);
+
+CREATE TABLE IF NOT EXISTS ai_fallback_chains (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	role TEXT NOT NULL,
+	tier TEXT NOT NULL DEFAULT 'paid',
+	model_id TEXT NOT NULL REFERENCES ai_models(id) ON DELETE CASCADE,
+	priority INTEGER NOT NULL DEFAULT 0,
+	UNIQUE(role, tier, model_id)
+);
+
+CREATE TABLE IF NOT EXISTS relay_regions (
+	id TEXT PRIMARY KEY,
+	name TEXT NOT NULL,
+	provider TEXT NOT NULL,
+	region TEXT NOT NULL,
+	host TEXT NOT NULL,
+	capacity_gb INTEGER NOT NULL DEFAULT 0,
+	used_gb REAL NOT NULL DEFAULT 0,
+	is_premium BOOLEAN NOT NULL DEFAULT 1,
+	is_healthy BOOLEAN NOT NULL DEFAULT 1,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS support_cases (
@@ -145,23 +229,52 @@ CREATE TABLE IF NOT EXISTS admin_accounts (
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR IGNORE INTO plans (id, name, description, price_monthly_cents, limits_json) VALUES
+CREATE TABLE IF NOT EXISTS audit_logs (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	actor TEXT NOT NULL,
+	action TEXT NOT NULL,
+	target_type TEXT NOT NULL,
+	target_id TEXT,
+	details_json TEXT DEFAULT '{}',
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS customer_sessions (
+	id TEXT PRIMARY KEY,
+	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	token_hash TEXT NOT NULL UNIQUE,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	expires_at DATETIME NOT NULL
+);
+
+INSERT OR REPLACE INTO plans (id, name, description, price_monthly_cents, limits_json) VALUES
 ('free', 'Connect Free', 'Get started with basic services. No credit card required.', 0,
- '{"max_emails_per_day":30,"tunnel_mbps":1,"tunnel_gb_per_mo":1,"ai_messages_per_mo":50,"backup_gb":0}'),
-('one', 'Connect One', 'All services, unlimited. Fixed monthly price.', 1500,
- '{"max_emails_per_day":0,"tunnel_mbps":100,"tunnel_gb_per_mo":0,"ai_messages_per_mo":0,"backup_gb":0}'),
-('payg', 'Connect PAYG', 'All services, pay for what you use.', 0,
- '{"max_emails_per_day":0,"tunnel_mbps":100,"tunnel_gb_per_mo":0,"ai_messages_per_mo":0,"backup_gb":0}');
+ '{"backup_gb":0,"ai_credit_cents":0,"tunnel_gb":0,"smtp_monthly":30,"ai_messages_per_day":50,"domain":"*.free.servers.libreloom.org","human_support":false}'),
+('lite', 'Connect Lite', 'All services with a generous monthly allowance. Pay only for overage.', 600,
+ '{"backup_gb":100,"ai_credit_cents":200,"tunnel_gb":50,"smtp_monthly":250,"domain":"*.servers.libreloom.org","human_support":true}'),
+('one', 'Connect One', 'Everything included with the largest allowance. Best value for active users.', 2500,
+ '{"backup_gb":1024,"ai_credit_cents":500,"tunnel_gb":200,"smtp_monthly":2500,"domain":"*.servers.libreloom.org","human_support":true}');
 
 CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(token_hash);
 CREATE INDEX IF NOT EXISTS idx_devices_plan ON devices(plan_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_device ON subscriptions(device_id);
 CREATE INDEX IF NOT EXISTS idx_credentials_device ON service_credentials(device_id);
 CREATE INDEX IF NOT EXISTS idx_usage_device ON usage_events(device_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_usage_plan ON usage_events(plan_id);
 CREATE INDEX IF NOT EXISTS idx_cases_device ON support_cases(device_id);
 CREATE INDEX IF NOT EXISTS idx_cases_status ON support_cases(status);
 CREATE INDEX IF NOT EXISTS idx_messages_case ON case_messages(case_id);
 CREATE INDEX IF NOT EXISTS idx_consent_case ON consent_requests(case_id);
+CREATE INDEX IF NOT EXISTS idx_credits_device ON account_credits(device_id);
+CREATE INDEX IF NOT EXISTS idx_credit_tx_device ON credit_transactions(device_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_device ON invoices(device_id);
+CREATE INDEX IF NOT EXISTS idx_ai_models_provider ON ai_models(provider_id);
+CREATE INDEX IF NOT EXISTS idx_ai_models_role ON ai_models(role);
+CREATE INDEX IF NOT EXISTS idx_fallback_role ON ai_fallback_chains(role, tier);
+CREATE INDEX IF NOT EXISTS idx_relay_provider ON relay_regions(provider);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor);
+CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_customer_sessions_device ON customer_sessions(device_id);
 		`,
 	},
 }

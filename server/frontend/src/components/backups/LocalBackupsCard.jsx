@@ -57,6 +57,7 @@ export default function LocalBackupsCard({
         </button>
       }
       className="animate-in fade-in slide-in-from-bottom-2"
+      data-slot="local-backups-card"
     >
       <div
         key={loading ? "loading" : loadError ? "error" : recentBackups.length === 0 ? "empty" : "list"}

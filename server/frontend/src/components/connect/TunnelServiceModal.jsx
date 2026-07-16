@@ -25,7 +25,7 @@ export default function TunnelServiceModal({ open, onClose, service, connectStat
         : "Disabled";
 
   return (
-    <ModalCard title="Tunnel" onClose={onClose} size="md">
+    <ModalCard title="Tunnel" onClose={onClose} size="md" data-slot="tunnel-service-modal">
       {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
@@ -55,7 +55,7 @@ export default function TunnelServiceModal({ open, onClose, service, connectStat
         />
 
         {useConnect && connectWarning.show ? (
-          <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+          <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-secondary">
               <AlertTriangle size={16} className="text-warning shrink-0" />
               {connectWarning.label}

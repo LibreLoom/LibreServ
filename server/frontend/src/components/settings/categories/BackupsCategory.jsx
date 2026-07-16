@@ -8,6 +8,7 @@ import ScheduleForm from "../../backups/ScheduleForm";
 import ConfirmModal from "../../common/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 import Dropdown from "../../common/Dropdown";
+import FieldLabel from "../../common/forms/FieldLabel";
 import SettingsCard from "../SettingsCard.jsx";
 import SettingsRow from "../SettingsRow.jsx";
 
@@ -209,7 +210,7 @@ export default function BackupsCategory() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-slot="backups-category">
       <LocalBackupsCard
         backups={backups}
         apps={apps}
@@ -253,15 +254,15 @@ export default function BackupsCategory() {
           <p className="text-xs text-primary/50 mb-4">
             Create a backup of an app's data. You can restore from it later if something goes wrong.
           </p>
-          <label className="block text-sm font-mono text-primary/70 mb-2">
+          <FieldLabel surface="secondary">
             Select App
-          </label>
+          </FieldLabel>
           <Dropdown
             value={selectedApp}
             onChange={setSelectedApp}
             placeholder="Select an app..."
             fullWidth
-            bg="primary"
+            surface="primary"
             options={apps.map((app) => ({ value: app.id, label: app.name }))}
           />
           <div className="flex gap-3 mt-4">

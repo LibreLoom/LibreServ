@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Globe, Loader2, Network, Server, XCircle } from "lucide-react";
+import { CheckCircle2, Globe, Loader2, Network, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
 import Card from "../cards/Card";
 import Dropdown from "../common/Dropdown";
 import Toggle from "../common/Toggle";
 import { useAuth } from "../../hooks/useAuth";
+import { cn } from "@/lib/utils";
 import { testBackend } from "../../lib/network-api";
 
 /**
@@ -271,7 +272,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
     <ModalCard
       title={title}
       onClose={handleClose}
-      className={isClosing ? "animate-out fade-out" : "animate-in fade-in"}
+      className={cn(isClosing ? "animate-out fade-out" : "animate-in fade-in")}
     >
       {confirmClose && (
         <div className="mb-4 bg-warning/10 border border-warning/30 rounded-card p-3">
@@ -332,7 +333,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                     onChange={handleChange("subdomain")}
                     placeholder="e.g. nextcloud"
                     disabled={loading}
-                    className={`w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none ${errors.subdomain ? "border-error focus:border-error focus:ring-2 focus:ring-error/30" : "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30"}`}
+                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.subdomain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.subdomain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
                   />
                   {errors.subdomain && (
                     <p className="text-error text-xs mt-1">{errors.subdomain}</p>
@@ -353,7 +354,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                     onChange={handleChange("domain")}
                     placeholder={defaultDomain || "e.g. example.com"}
                     disabled={loading}
-                    className={`w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none ${errors.domain ? "border-error focus:border-error focus:ring-2 focus:ring-error/30" : "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30"}`}
+                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.domain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.domain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
                   />
                   {errors.domain && (
                     <p className="text-error text-xs mt-1">{errors.domain}</p>
@@ -373,7 +374,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
           )}
 
           <Card noPopIn className="mb-6 !bg-primary/5 !border !border-primary/10">
-            <div className="rounded-card bg-secondary border border-primary/10">
+            <div className="rounded-card bg-secondary text-primary border border-primary/10">
               <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
                 App<span className="text-error ml-0.5">*</span>
               </label>
@@ -393,7 +394,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
             </div>
 
             {selectedApp && (
-              <div className="rounded-card bg-secondary border border-primary/10 mt-2">
+              <div className="rounded-card bg-secondary text-primary border border-primary/10 mt-2">
                 <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
                   Backend
                 </label>
@@ -440,7 +441,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
                       )}
                     </button>
                     {backendTestResult && (
-                      <div className={`flex items-center gap-1 text-xs ${backendTestResult.reachable ? "text-success" : "text-error"}`}>
+                      <div className={cn("flex items-center gap-1 text-xs", backendTestResult.reachable ? "text-success" : "text-error")}>
                         {backendTestResult.reachable ? (
                           <>
                             <CheckCircle2 size={12} />

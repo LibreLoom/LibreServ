@@ -106,7 +106,7 @@ export default function ObjectNotFound({
 
   return (
      <Wrapper
-       className="bg-primary text-secondary px-8 pt-10 pb-32 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+       className="bg-primary text-secondary px-8 pt-10 pb-32 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline" data-slot="object-not-found"
        aria-labelledby={regionTitleId}
        aria-describedby={detailsId}
        id="main-content"

@@ -121,7 +121,7 @@ func (h *MFAHandler) VerifyTOTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.authService.VerifyTOTP(r.Context(), userID, strings.TrimSpace(req.Code)); err != nil {
-		JSONError(w, http.StatusUnauthorized, "That code didn't work. Make sure your device's time is correct and try again.")
+		JSONError(w, http.StatusBadRequest, "That code didn't work. Make sure your device's time is correct and try again.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]string{"message": "Authenticator app added."})
@@ -164,7 +164,7 @@ func (h *MFAHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.authService.VerifyEmailSetup(r.Context(), userID, strings.TrimSpace(req.Code)); err != nil {
-		JSONError(w, http.StatusUnauthorized, "That code didn't work, or it may have expired. Try sending a new one.")
+		JSONError(w, http.StatusBadRequest, "That code didn't work, or it may have expired. Try sending a new one.")
 		return
 	}
 	JSON(w, http.StatusOK, map[string]string{"message": "Email sign-in code added."})

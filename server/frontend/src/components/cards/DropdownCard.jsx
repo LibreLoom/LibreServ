@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { Server } from "lucide-react";
 import Card from "./Card";
 import MiniStatCard from "./MiniStatCard";
@@ -15,7 +16,7 @@ export default function DropdownCard({
   Icon = Server,
 }) {
   return (
-    <div className="transition-transform duration-200 ease-[var(--motion-easing-emphasized)] hover:scale-[1.02] w-full h-fit self-start">
+    <div className={cn("transition-transform duration-200 ease-[var(--motion-easing-emphasized)]", "hover:scale-[1.02]", "w-full", "h-fit", "self-start")} data-slot="dropdown-card">
     <Card padding={false}>
       <div className="p-6">
         <div className="flex items-center gap-5">

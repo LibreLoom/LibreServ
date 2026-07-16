@@ -7,6 +7,7 @@ export default function DebugCard({ content, onReload }) {
 
   return (
     <Card
+      data-slot="network-debug"
       icon={FileCode}
       title="Advanced"
       padding={false}

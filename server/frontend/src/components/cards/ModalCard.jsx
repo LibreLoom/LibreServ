@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import Card from "./Card";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 
@@ -34,8 +35,11 @@ export default function ModalCard({
   const dialogRef = useRef(null);
   const closeButtonRef = useRef(null);
   const previousFocusRef = useRef(null);
-  const hasFocusedRef = useRef(false);
   const { outerRef, innerRef } = useAnimatedHeight();
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const isClosingRef = useRef(false);
 
   const setRefs = useCallback((node) => {
     dialogRef.current = node;
@@ -43,19 +47,17 @@ export default function ModalCard({
   }, [outerRef]);
 
   const handleClose = useCallback(() => {
-    if (isClosing) return;
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
     setIsClosing(true);
     setTimeout(() => {
-      onClose?.();
+      onCloseRef.current?.();
     }, 300);
-  }, [isClosing, onClose]);
+  }, []);
 
   const content = typeof children === "function" ? children({ close: handleClose }) : children;
 
   useEffect(() => {
-    if (hasFocusedRef.current) return;
-    hasFocusedRef.current = true;
-
     previousFocusRef.current = document.activeElement;
     document.body.style.overflow = "hidden";
     if (initialFocusRef?.current) {
@@ -94,7 +96,8 @@ export default function ModalCard({
       document.removeEventListener("keydown", handleKeyDown);
       previousFocusRef.current?.focus?.();
     };
-  }, [handleClose, initialFocusRef]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const widthClasses =
     size === "fullscreen"
@@ -118,25 +121,46 @@ export default function ModalCard({
 
   return createPortal(
     <div
-      className={`fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 ${mobileFsClasses} ${isClosing ? "animate-out fade-out" : "animate-in fade-in"}`}
+      data-slot="dialog-overlay"
+      className={cn(
+        "fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50",
+        mobileFsClasses,
+        isClosing ? "animate-out fade-out" : "animate-in fade-in"
+      )}
       onClick={handleClose}
     >
       <div
         ref={setRefs}
+        data-slot="dialog-content"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`w-full ${widthClasses} ${maxHeightClasses} overflow-hidden rounded-large-element transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]`}
+        className={cn(
+          "w-full overflow-hidden rounded-large-element",
+          "transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]",
+          widthClasses,
+          maxHeightClasses
+        )}
         style={{ transitionDuration: "var(--motion-duration-medium2)" }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div ref={innerRef} className={`${maxHeightClasses} overflow-y-auto`}>
-        <Card noHeightAnim noPopIn className={`relative overflow-hidden ${className} ${isClosing ? "pop-out" : "pop-in"}`}>
+        <div ref={innerRef} className={cn(maxHeightClasses, "overflow-y-auto")}>
+        <Card
+          noHeightAnim
+          noPopIn
+          className={cn("relative overflow-hidden", className, isClosing ? "pop-out" : "pop-in")}
+        >
           {showCloseButton && (
             <button
               type="button"
+              data-slot="dialog-close"
               onClick={handleClose}
-              className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+              className={cn(
+                "absolute top-5 right-5 p-2 rounded-pill text-primary",
+                "motion-safe:transition-all hover:bg-primary hover:text-secondary",
+                "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+                "focus-visible:ring-offset-secondary no-focus-outline"
+              )}
               aria-label="Close"
               ref={closeButtonRef}
             >

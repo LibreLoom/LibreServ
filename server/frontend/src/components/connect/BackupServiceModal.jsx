@@ -26,7 +26,7 @@ export default function BackupServiceModal({ open, onClose, service, repos, conn
         : "Disabled";
 
   return (
-    <ModalCard title="Cloud Backup Storage" onClose={onClose} size="lg">
+    <ModalCard title="Cloud Backup Storage" onClose={onClose} size="lg" data-slot="backup-service-modal">
       {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
@@ -65,7 +65,7 @@ export default function BackupServiceModal({ open, onClose, service, repos, conn
         />
 
         {useConnect && connectWarning.show ? (
-          <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+          <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
             <div className="flex items-center gap-2 text-sm text-secondary">
               <AlertTriangle size={16} className="text-warning shrink-0" />
               {connectWarning.label}
@@ -99,7 +99,7 @@ export default function BackupServiceModal({ open, onClose, service, repos, conn
 
           {useConnect && (
             <>
-              <div className="flex items-center gap-3 p-3 rounded-large-element bg-primary border-2 border-accent/20">
+              <div className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-accent/20">
                 <Check size={16} className="text-accent shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-secondary font-medium">Connect Storage</p>
@@ -109,7 +109,7 @@ export default function BackupServiceModal({ open, onClose, service, repos, conn
                   Connect
                 </span>
               </div>
-              <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+              <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
                 <p className="text-sm text-secondary font-medium">
                   Backup Recovery Key
                 </p>
@@ -125,7 +125,7 @@ export default function BackupServiceModal({ open, onClose, service, repos, conn
             repos.map((repo, i) => (
               <div
                 key={repo.id || i}
-                className="flex items-center gap-3 p-3 rounded-large-element bg-primary border-2 border-secondary/10"
+                className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10"
               >
                 <Database size={16} className="text-accent shrink-0" />
                 <div className="flex-1 min-w-0">

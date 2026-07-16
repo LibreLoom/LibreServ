@@ -1,7 +1,9 @@
+import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/common/ErrorDisplay";
+import Page from "../components/ui/Page";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
@@ -149,19 +151,6 @@ export default function SettingsPage() {
     saveTimeoutRef.current = setTimeout(performSave, DEBOUNCE_MS);
   }, [performSave]);
 
-  const handleLoggingChange = (level) => {
-    setSettings((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        logging: { ...prev?.logging, level },
-      };
-    });
-    pendingSettingsRef.current = { logging: { level } };
-    setSaveStatus("unsaved");
-    scheduleSave();
-  };
-
   const handleThemeChange = (value) => {
     setTheme(value);
   };
@@ -245,7 +234,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <main className="bg-primary text-secondary min-h-screen">
+    <Page className={cn("min-h-screen")} data-slot="settings">
       {error && (
         <div className="px-4 pt-4">
           <ErrorDisplay message={error} onDismiss={() => setError(null)} />
@@ -278,7 +267,6 @@ export default function SettingsPage() {
             notificationsSettings={notificationsSettings}
             onNotificationsSettingsChange={handleNotificationsSettingsChange}
             onTestNotification={handleTestNotification}
-            onLoggingChange={handleLoggingChange}
             updateSettings={settings?.updates}
             onUpdateSettingsChange={handleUpdateSettingsChange}
             colors={colors}
@@ -336,7 +324,6 @@ export default function SettingsPage() {
               notificationsSettings={notificationsSettings}
               onNotificationsSettingsChange={handleNotificationsSettingsChange}
               onTestNotification={handleTestNotification}
-              onLoggingChange={handleLoggingChange}
               updateSettings={settings?.updates}
               onUpdateSettingsChange={handleUpdateSettingsChange}
               colors={colors}
@@ -362,6 +349,6 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
-    </main>
+    </Page>
   );
 }

@@ -25,6 +25,7 @@ function AdvancedContent({ show, advancedFields, config, handleFieldChange, erro
                 field={field}
                 value={config[field.name]}
                 onChange={(value) => handleFieldChange(field.name, value)}
+                surface="primary"
               />
               {errors[field.name] && (
                 <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
@@ -100,7 +101,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
 
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6" data-slot="configure-step">
       <div className="text-center space-y-2">
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Configure {app?.name || "App"}
@@ -126,6 +127,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
                   field={field}
                   value={config[field.name]}
                   onChange={(value) => handleFieldChange(field.name, value)}
+                  surface="primary"
                 />
                 {errors[field.name] && (
                   <p className="text-xs text-secondary mt-1">{errors[field.name]}</p>
@@ -153,7 +155,7 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
         </div>
       )}
 
-      {configuration.length === 0 && !isSharedAccount && (
+      {configuration.length === 0 && (
         <div className="text-center py-8">
           <Info className="mx-auto text-secondary/50 mb-3" size={32} />
           <p className="text-secondary/70">No configuration needed.</p>

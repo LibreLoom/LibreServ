@@ -1,15 +1,18 @@
 import { useCallback, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Dropdown from "../components/common/Dropdown";
+import Button from "../components/ui/Button";
 import AppIcon from "../components/common/AppIcon";
+import StateOverlay from "../components/common/StateOverlay";
 import { Search, Download, Check, Settings, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink } from "lucide-react";
 import StatusPill from "../components/common/StatusPill";
 import { useApps } from "../hooks/useApps";
 import { useCatalog } from "../hooks/useCatalog";
 import FeatureMatrixPill from "../components/app/FeatureMatrixPill";
 import { sanitizeURL } from "../lib/sanitize";
+import { cn } from "@/lib/utils";
 
 function formatDuration(seconds) {
   if (!seconds || seconds < 0) return "-";
@@ -35,9 +38,10 @@ function formatBytes(bytes) {
   return `${value.toFixed(1)} ${units[unitIndex]}`;
 }
 
-function AppCatalogCard({ app, isInstalled, onInstall }) {
+function AppCatalogCard({ app, isInstalled, onInstall, index }) {
   return (
-    <Card className="relative flex flex-col h-full" noHeightAnim>
+    <div className="animate-alert-enter" style={{ animationDelay: `${index * 45}ms` }}>
+    <Card className="relative flex flex-col h-full" noHeightAnim noPopIn>
       <div className="flex items-start gap-4">
         <AppIcon appId={app.id} size={48} className="flex-shrink-0" />
 
@@ -71,25 +75,30 @@ function AppCatalogCard({ app, isInstalled, onInstall }) {
       <FeatureMatrixPill appId={app.id} className="mt-3" />
 
       {!isInstalled && (
-        <button
+        <Button
+          variant="accent"
+          fullWidth
+          className="mt-4"
           onClick={() => onInstall(app.id)}
-          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-primary hover:ring-2 transition-all font-mono font-medium text-sm"
         >
           <Download size={16} />
           Install
-        </button>
+        </Button>
       )}
 
       {isInstalled && (
-        <button
+        <Button
+          variant="ghost"
+          fullWidth
           disabled
-          className="mt-4 w-full flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-secondary/10 text-secondary/50 font-mono text-sm cursor-not-allowed"
+          className="mt-4"
         >
           <Check size={16} />
           Already Installed
-        </button>
+        </Button>
       )}
     </Card>
+    </div>
   );
 }
 
@@ -134,70 +143,67 @@ export default function AppsPage() {
 
   if (error) {
     return (
-      <main className="bg-primary text-secondary px-8 pt-5 pb-32">
-        <HeaderCard id="apps-title" title="Apps" />
+      <Page title="Apps" titleId="apps-title">
         <div className="mt-8 text-center">
           <p className="text-secondary/70">Failed to load app catalog. Please try again.</p>
-          <button
+          <Button
+            variant="secondary"
+            className="mt-4"
             onClick={() => window.location.reload()}
-            className="mt-4 px-6 py-2 rounded-pill bg-accent text-primary"
           >
             Try Again
-          </button>
+          </Button>
         </div>
-      </main>
+      </Page>
     );
   }
 
   return (
-    <main
-      className={`bg-primary text-secondary px-8 pt-5 pb-32 ${loading ? "pop-out" : "pop-in"}`}
-      aria-labelledby="apps-title"
-      id="main-content"
-      tabIndex={-1}
+    <Page
+      data-slot="apps-page"
+      title="Apps"
+      titleId="apps-title"
+      className={cn(loading && "pop-out", !loading && "pop-in")}
     >
-      <HeaderCard id="apps-title" title="Apps" />
-
       {loading && (
-        <div className="fixed inset-0 flex items-center justify-center bg-primary/60 backdrop-blur-sm">
-          <Card className="w-[70vw] sm:w-[20vw]">
-            <div className="my-5 text-center" role="status" aria-live="polite">
-              <p>Loading apps...</p>
-            </div>
-          </Card>
-        </div>
+        <StateOverlay message="Loading apps..." />
       )}
 
-      <div className="mt-5 flex flex-col sm:flex-row gap-3">
-        <div className="relative w-full sm:max-w-sm transition-all duration-300">
+      <div className="mt-5 flex items-center bg-secondary text-primary rounded-pill whitespace-nowrap">
+        <div className="relative flex-1 min-w-0">
           <Search
             size={18}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-secondary/50"
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/40 pointer-events-none"
           />
-           <input
-             type="text"
-             placeholder="Search apps..."
-             value={searchQuery}
-             onChange={(e) => setSearchQuery(e.target.value)}
-             className="w-full pl-11 pr-4 py-2 border-2 border-secondary/30 rounded-pill bg-primary text-secondary focus:ring-2 focus:ring-accent focus:ring-offset-2 transition-all duration-300"
-           />
+          <input
+            type="text"
+            placeholder="Search apps..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-11 pr-3 py-2.5 bg-transparent text-primary placeholder:text-primary/50 focus:outline-none no-focus-outline font-mono text-sm"
+          />
         </div>
 
         {categories.length > 1 && (
-          <Dropdown
-            label="Category"
-            value={selectedCategory}
-            onChange={setSelectedCategory}
-            placeholder="All Categories"
-            width={160}
-            options={[
-              { value: "", label: "All Categories" },
-              ...categories.map((cat) => ({
-                value: cat,
-                label: cat.charAt(0).toUpperCase() + cat.slice(1),
-              })),
-            ]}
-          />
+          <div className="pr-1.5 py-1 shrink-0">
+            <Dropdown
+              ghost
+              value={selectedCategory}
+              onChange={setSelectedCategory}
+              placeholder="All Categories"
+              options={[
+                { value: "", label: "All Categories" },
+                ...categories.map((cat) => {
+                  const LABELS = { ai: "AI", seo: "SEO" };
+                  return {
+                    value: cat,
+                    label: LABELS[cat] || (cat.charAt(0).toUpperCase() + cat.slice(1)),
+                  };
+                }),
+              ]}
+              className="shrink-0"
+            />
+          </div>
         )}
       </div>
 
@@ -210,13 +216,13 @@ export default function AppsPage() {
           </p>
         </div>
       )}
-
       {filteredCatalog.length > 0 && (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCatalog.map((app) => (
+          {filteredCatalog.map((app, index) => (
             <AppCatalogCard
               key={app.id}
               app={app}
+              index={index}
               isInstalled={installedAppIds.has(app.id)}
               onInstall={handleInstall}
             />
@@ -291,24 +297,24 @@ export default function AppsPage() {
                   </div>
 
                   <div className="mt-auto pt-4 flex gap-2">
-                    <Link
-                      to={`/apps/${app.id}`}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary hover:ring-2 motion-safe:transition-all font-mono text-sm"
+                    <Button
+                      variant="accent"
+                      className="flex-1"
+                      onClick={() => navigate(`/apps/${app.id}`)}
                     >
                       <Settings size={16} />
                       Manage
-                    </Link>
+                    </Button>
                     {appUrl && (
-                      <a
-                        href={appUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <Button
+                        variant="outline"
+                        surface="secondary"
                         aria-label={`${app.name} (opens in new tab)`}
-                        className="flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors font-mono text-sm"
+                        onClick={() => window.open(appUrl, "_blank", "noopener,noreferrer")}
                       >
                         <ExternalLink size={16} aria-hidden="true" />
                         Open
-                      </a>
+                      </Button>
                     )}
                   </div>
                 </Card>
@@ -317,6 +323,6 @@ export default function AppsPage() {
           </div>
         </section>
       )}
-    </main>
+    </Page>
   );
 }

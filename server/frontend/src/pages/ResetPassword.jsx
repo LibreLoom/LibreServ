@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Button from "../components/ui/Button";
+import FormInput from "../components/common/forms/FormInput";
 import Alert from "../components/common/Alert";
 import { useToast } from "../context/ToastContext";
 import { passwordreset as resetQuips } from "../assets/greetings";
@@ -103,7 +104,7 @@ export default function ResetPassword() {
 
   if (validating) {
     return (
-      <main className="fixed inset-0 grid place-items-center bg-primary px-4">
+      <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
         <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8">
           <span className="text-primary font-mono text-2xl block text-center">
             LibreServ
@@ -123,7 +124,7 @@ export default function ResetPassword() {
 
   if (!tokenValid && !success) {
     return (
-      <main className="fixed inset-0 grid place-items-center bg-primary px-4">
+      <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
         <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8">
           <span className="text-primary font-mono text-2xl block text-center">
             LibreServ
@@ -150,7 +151,7 @@ export default function ResetPassword() {
   }
 
   return (
-    <main className="fixed inset-0 grid place-items-center bg-primary px-4">
+    <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
       <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8">
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
@@ -176,33 +177,29 @@ export default function ResetPassword() {
             aria-busy={loading}
             className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
           >
-            <label htmlFor="new-password" className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1">
-              New Password
-            </label>
-            <input
-              id="new-password"
+            <FormInput
+              label="New Password"
+              name="new-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"
-              className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
               required
               minLength={8}
               autoComplete="new-password"
+              surface="primary"
             />
 
-            <label htmlFor="confirm-password" className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1">
-              Confirm Password
-            </label>
-            <input
-              id="confirm-password"
+            <FormInput
+              label="Confirm Password"
+              name="confirm-password"
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-enter password"
-              className="placeholder:text-secondary/60 border-2 border-secondary rounded-pill p-2 mb-4 focus:ring-2 focus:ring-accent focus:ring-offset-2"
               required
               autoComplete="new-password"
+              surface="primary"
             />
 
             {error && (

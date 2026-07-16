@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
 
 /* Load FreeMono font locally */
 @font-face {
@@ -51,21 +54,29 @@
   initial-value: #767676;
 }
 
-@theme {
-  /* Setup Fonts */
+@theme inline {
   --font-mono: "FreeMono", "Courier New", monospace;
   --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
 
-  /* Setup Colors - reference CSS variables defined in :root/.dark */
+  /* Setup Colors - Simplex Mono identity mapped to shadcn semantic tokens */
   --color-primary: var(--primary);
   --color-secondary: var(--secondary);
   --color-accent: var(--accent);
+
+  /* shadcn semantic tokens — mapped to Simplex Mono identity */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
 
   /* Status Colors - Standard colors independent of theme */
   --color-success: var(--palette-success, #22c55e);
   --color-warning: var(--palette-warning, #eab308);
   --color-error: var(--palette-error, #ef4444);
   --color-info: var(--palette-info, #3b82f6);
+  --color-destructive: var(--color-error);
 
   /* Status Muted Colors - readable inline text regardless of theme */
   /* color-scan: ignore-next-line */
@@ -77,18 +88,19 @@
   /* color-scan: ignore-next-line */
   --color-info-muted: #60a5fa;
 
-  /* Status Background Colors - rgba works regardless of theme */
-  --bg-success: rgba(34, 197, 94, 0.4);
-  --bg-warning: rgba(234, 179, 8, 0.4);
-  --bg-error: rgba(239, 68, 68, 0.4);
-  --bg-info: rgba(59, 130, 246, 0.4);
-
   /* Setup Pill Shape */
   --radius-pill: 9999px;
-  /* Setup Large Element Shape */
   --radius-large-element: 24px;
   --radius-button: 9999px;
   --radius-card: 24px;
+
+  /* shadcn radius scale */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
 
   /* M3 Motion Tokens */
   --motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
@@ -106,6 +118,7 @@
   --motion-duration-long1: 450ms;
   --motion-duration-long2: 500ms;
 }
+
 
 html {
   background-color: var(--color-primary);
@@ -138,14 +151,28 @@ html[data-theme-transitioning] * {
   --primary: #ffffff;
   --secondary: #000000;
   --accent: #767676;
+  --radius: 1.5rem;
+  /* shadcn semantic tokens — Simplex Mono identity (inverted surfaces) */
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #000000;
+  --card-foreground: #ffffff;
+  --popover: #000000;
+  --popover-foreground: #ffffff;
 }
 
 .dark {
   --primary: #000000;
   --secondary: #ffffff;
   --accent: #767676;
+  /* shadcn semantic tokens — Simplex Mono identity (inverted surfaces) */
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
 }
-
 body {
   background-color: var(--color-primary);
   color: var(--color-secondary);
@@ -186,15 +213,37 @@ body {
     }
 }
 
-/* Dropdown open animation - expands from button */
+/* Dropdown animations — origin-aware expand/collapse from trigger */
 @keyframes dropdown-open {
     from {
         opacity: 0;
-        transform: translateY(-4px) scaleY(0.9);
+        transform: translateY(-6px) scaleY(0.94);
     }
     to {
         opacity: 1;
         transform: translateY(0) scaleY(1);
+    }
+}
+
+@keyframes dropdown-close {
+    from {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-4px) scaleY(0.94);
+    }
+}
+
+@keyframes dropdown-option-enter {
+    from {
+        opacity: 0;
+        transform: translateY(-14px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
     }
 }
 
@@ -203,7 +252,88 @@ body {
 }
 
 .animate-dropdown-open {
-    animation: dropdown-open 200ms ease-out both;
+    animation: dropdown-open 220ms var(--motion-easing-emphasized-decelerate) both;
+    transform-origin: top center;
+    will-change: transform, opacity;
+}
+
+.animate-dropdown-close {
+    animation: dropdown-close 160ms var(--motion-easing-emphasized-accelerate) both;
+    transform-origin: top center;
+    will-change: transform, opacity;
+}
+
+.animate-dropdown-option {
+    animation: dropdown-option-enter 260ms var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
+}
+
+/* Toggle thumb — subtle scale overshoot when it lands */
+@keyframes toggle-thumb-settle {
+    0% {
+        transform: scale(1);
+    }
+    40% {
+        transform: scale(1.12);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.animate-toggle-settle {
+    animation: toggle-thumb-settle 200ms var(--motion-easing-emphasized) both;
+}
+
+/* SegmentedControl indicator — scale pulse when it lands on a new position */
+@keyframes segmented-settle {
+    0% {
+        transform: scaleX(1) scaleY(1);
+    }
+    50% {
+        transform: scaleX(1.03) scaleY(1.08);
+    }
+    100% {
+        transform: scaleX(1) scaleY(1);
+    }
+}
+
+.animate-segmented-settle {
+    animation: segmented-settle 200ms var(--motion-easing-emphasized) both;
+}
+
+/* Alert/Callout — slide down + fade in on mount */
+@keyframes alert-enter {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-alert-enter {
+    animation: alert-enter 220ms var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
+}
+
+/* Settings sidebar nav — staggered slide-in from left */
+@keyframes nav-slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.animate-nav-slide-in {
+    animation: nav-slide-in 200ms var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
 }
 
 /* Pop-out animation for modal/dialog exits */
@@ -554,6 +684,17 @@ body {
     .animate-cursor-blink {
         animation: none;
         opacity: 1;
+    }
+    .animate-dropdown-open,
+    .animate-dropdown-close,
+    .animate-dropdown-option,
+    .animate-toggle-settle,
+    .animate-segmented-settle,
+    .animate-alert-enter,
+    .animate-nav-slide-in {
+        animation: none !important;
+        opacity: 1;
+        transform: none;
     }
 }
 

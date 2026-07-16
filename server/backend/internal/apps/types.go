@@ -72,6 +72,11 @@ type AppDefinition struct {
 	// Deployment configuration
 	Deployment DeploymentConfig `yaml:"deployment" json:"deployment"`
 
+	// OIDCRedirectPath is the callback path the app uses for OIDC auth.
+	// Defaults to /callback if not set. Used by the auto-provisioner to
+	// register the correct redirect URI with the OIDC client.
+	OIDCRedirectPath string `yaml:"oidc_redirect_path,omitempty" json:"oidc_redirect_path,omitempty"`
+
 	// User-configurable fields shown during installation
 	Configuration []ConfigField `yaml:"configuration" json:"configuration"`
 

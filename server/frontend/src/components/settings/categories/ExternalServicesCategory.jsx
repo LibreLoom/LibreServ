@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
   Mail,
@@ -67,7 +68,7 @@ export default function ExternalServicesCategory({
   const aiSettings = settings?.ai_support || {};
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-slot="external-services-category">
       <p className="text-sm text-accent px-1">
         A server needs a few things from the outside world — a way to send email,
         a domain name to reach it, and a place to store backups. Here are all the
@@ -113,7 +114,7 @@ export default function ExternalServicesCategory({
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-xs px-2.5 py-1 rounded-pill font-medium ${badge.class}`}>
+                    <span className={cn("text-xs px-2.5 py-1 rounded-pill font-medium", badge.class)}>
                       {badge.label}
                     </span>
                     <svg

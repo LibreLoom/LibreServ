@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useRef, useEffect } from "react";
 import { CheckCircle, XCircle, ChevronDown, Copy, Check, Loader2 } from "lucide-react";
 import { useScriptStream } from "../../hooks/useScriptStream";
@@ -146,15 +147,13 @@ function DetailsToggle({ detailsOpen, setDetailsOpen, copied, onCopy, lines, out
       >
         <ChevronDown
           size={14}
-          className={`motion-safe:transition-transform ${detailsOpen ? "rotate-180" : "rotate-0"}`}
+          className={cn("motion-safe:transition-transform", detailsOpen && "rotate-180", !detailsOpen && "rotate-0")}
         />
         {detailsOpen ? "Hide details" : "View details"}
       </button>
 
       <div
-        className={`overflow-hidden motion-safe:transition-all motion-safe:duration-300 ${
-          detailsOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0 pointer-events-none"
-        }`}
+        className={cn("overflow-hidden motion-safe:transition-all motion-safe:duration-300", detailsOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0 pointer-events-none")}
       >
         <div className="rounded-card border border-secondary/10 bg-primary/20 p-4 text-left">
           <div className="mb-3 flex items-center justify-between gap-3 border-b border-secondary/10 pb-3">

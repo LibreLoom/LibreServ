@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import GeneralCategory from "./categories/GeneralCategory.jsx";
 import AppearanceCategory from "./categories/AppearanceCategory.jsx";
 import SecurityCategory from "./categories/SecurityCategory.jsx";
@@ -41,7 +42,6 @@ export default function SettingsContent({
   notificationsSettings,
   onNotificationsSettingsChange,
   onTestNotification,
-  onLoggingChange,
   updateSettings,
   onUpdateSettingsChange,
   colors,
@@ -72,10 +72,7 @@ export default function SettingsContent({
     switch (category) {
       case "general":
         return {
-          settings: {
-            ...settings,
-            onLoggingChange,
-          },
+          settings,
           use12HourTime,
           on12HourTimeChange,
           updateSettings,
@@ -129,9 +126,9 @@ export default function SettingsContent({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="sticky top-0 z-10 bg-primary pt-1 flex items-center justify-between">
-        <h1 className="text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-2 duration-300">
+    <div data-slot="settings-content" className={cn("space-y-4")}>
+      <div className={cn("sticky top-0 z-10 bg-primary text-secondary pt-1 flex items-center justify-between")}>
+        <h1 className={cn("text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-2 duration-300")}>
           {title}
         </h1>
         <SaveStatusIndicator
@@ -140,7 +137,7 @@ export default function SettingsContent({
           onSavedComplete={onSavedComplete}
         />
       </div>
-      <div key={category} className="animate-in fade-in duration-300 pb-16 md:pb-20">
+      <div key={category} className={cn("animate-in fade-in duration-300 pb-16 md:pb-20")}>
         <CategoryComponent {...getSettingsProps()} />
       </div>
     </div>

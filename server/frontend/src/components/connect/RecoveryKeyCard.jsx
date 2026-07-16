@@ -61,6 +61,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
 
   return (
     <Card icon={Key} title="Backup Recovery Key" noHeightAnim
+      data-slot="recovery-key-card"
       headerActions={
         <span className="text-xs px-2.5 py-1 rounded-pill bg-primary border-2 border-warning/30 text-warning font-medium flex items-center gap-1">
           <AlertTriangle size={12} />
@@ -83,7 +84,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
         )}
 
         {error && (
-          <div className="bg-primary border-2 border-warning/20 rounded-large-element p-3 text-xs text-accent">
+          <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-3 text-xs text-accent">
             {error}
           </div>
         )}
@@ -123,7 +124,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
           )}
         </div>
 
-        <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 flex items-start gap-3">
+        <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 flex items-start gap-3">
           <AlertTriangle size={18} className="text-warning shrink-0 mt-0.5" />
           <div className="text-xs text-accent space-y-1">
             <p className="font-medium text-secondary">Without this key:</p>

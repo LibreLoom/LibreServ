@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Save, ArrowRight } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
-import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import FormInput from "../components/common/forms/FormInput";
 import Button from "../components/ui/Button";
@@ -95,16 +95,7 @@ export default function MyProfile() {
   };
 
   return (
-    <main
-      className="bg-primary text-secondary px-8 pt-5 pb-32"
-      aria-labelledby="profile-title"
-      id="main-content"
-      tabIndex={-1}
-    >
-      <header className="mb-6">
-        <HeaderCard id="profile-title" title="My Account" />
-      </header>
-
+    <Page title="My Account" titleId="profile-title" headerClassName="mb-6" data-slot="my-profile">
       <div className="max-w-lg mx-auto space-y-6">
         <Card title="Profile">
           <div className="space-y-4">
@@ -199,6 +190,6 @@ export default function MyProfile() {
         <MfaCard />
         <ApiTokensCard />
       </div>
-    </main>
+    </Page>
   );
 }

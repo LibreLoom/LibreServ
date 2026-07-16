@@ -84,6 +84,7 @@ func (r *RepoClient) Pull(ctx context.Context) error {
 			ReferenceName: plumbing.NewBranchReferenceName(branch),
 			SingleBranch:  true,
 			Depth:         1,
+			Force:         true,
 			Auth:          auth,
 		})
 		if err != nil && err != git.NoErrAlreadyUpToDate {

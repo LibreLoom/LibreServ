@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useRef } from "react";
 import { Palette, Moon, Sun, Monitor, RotateCcw, Check } from "lucide-react";
 import Toggle from "../../common/Toggle";
@@ -11,6 +12,7 @@ const THEME_OPTIONS = [
   { value: "dark", icon: Moon, label: "Dark" },
 ];
 
+/* color-scan: ignore-file custom theme color picker UI — hex values are the data */
 function ColorInput({ label, value, onChange, description }) {
   const [inputValue, setInputValue] = useState(value || "#000000");
   const [isValid, setIsValid] = useState(true);
@@ -63,9 +65,7 @@ function ColorInput({ label, value, onChange, description }) {
           value={inputValue}
           onChange={handleChange}
           placeholder="#000000"
-          className={`w-24 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 ${
-            isValid ? "border-primary/20" : "border-error"
-          } text-primary focus-visible:ring-2 focus-visible:ring-accent`}
+          className={cn("w-24 px-2 py-1 text-sm font-mono rounded-pill bg-primary/10 border-2 text-primary focus-visible:ring-2 focus-visible:ring-accent", isValid && "border-primary/20", !isValid && "border-error", "no-focus-outline")}
           aria-label={`${label} hex value`}
         />
       </div>
@@ -82,11 +82,7 @@ function ColorPreset({ colors, label, currentColors, onSelect }) {
   return (
     <button
       onClick={() => onSelect(colors)}
-      className={`flex flex-col items-center gap-1 p-2 rounded-large-element border transition-all ease-[var(--motion-easing-standard)] ${
-        isMatch
-          ? "border-accent bg-accent/10"
-          : "border-primary/10 hover:border-primary/30 hover:bg-primary/5"
-      }`}
+      className={cn("flex flex-col items-center gap-1 p-2 rounded-large-element border transition-all ease-[var(--motion-easing-standard)]", isMatch ? "border-accent bg-accent/10" : "border-primary/10 hover:border-primary/30 hover:bg-primary/5")}
       style={{ transitionDuration: "var(--motion-duration-short2)" }}
       aria-label={`Apply ${label} preset`}
       aria-pressed={isMatch}
@@ -192,7 +188,7 @@ export default function AppearanceCategory({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-slot="appearance-category">
       <SettingsCard icon={Palette} title="Theme" padding={false} index={0}>
         <SettingsRow label="Color Scheme" description="Choose light, dark, or follow system preference" stack>
           <SegmentedControl
@@ -204,7 +200,7 @@ export default function AppearanceCategory({
       </SettingsCard>
 
       <SettingsCard icon={Palette} title="Custom Colors" padding={false} index={1}>
-        <div className={`px-4 pt-4 ${showCustomColors ? "" : "pb-4"}`}>
+        <div className={cn("px-4 pt-4", showCustomColors ? "" : "pb-4")}>
           <Toggle
             checked={showCustomColors}
             onChange={handleToggleCustomColors}
@@ -215,9 +211,7 @@ export default function AppearanceCategory({
           />
 
           <div
-            className={`overflow-hidden transition-all ease-[var(--motion-easing-emphasized)] ${
-              showCustomColors ? "max-h-[2000px] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0"
-            }`}
+            className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", showCustomColors ? "max-h-[2000px] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0")}
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
             <div className="pt-4 border-t border-primary/10 pb-4">
@@ -268,9 +262,7 @@ export default function AppearanceCategory({
               />
 
               <div
-                className={`overflow-hidden transition-all ease-[var(--motion-easing-emphasized)] ${
-                  useSeparateDarkColors ? "max-h-[500px] opacity-100 pb-4 mt-4" : "max-h-0 opacity-0"
-                }`}
+                className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", useSeparateDarkColors ? "max-h-[500px] opacity-100 pb-4 mt-4" : "max-h-0 opacity-0")}
                 style={{ transitionDuration: "var(--motion-duration-medium2)" }}
               >
                 <div className="pt-4 border-t border-primary/10">

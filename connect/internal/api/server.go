@@ -8,17 +8,28 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/relay"
 )
 
 // Server holds all HTTP dependencies and routes.
 type Server struct {
-	db     *sql.DB
-	router *chi.Mux
+	db      *sql.DB
+	router  *chi.Mux
+	billing *billing.Service
+	models  *models.Service
+	relay   *relay.Service
 }
 
 // NewServer creates and wires the HTTP server.
 func NewServer(db *sql.DB) *Server {
-	s := &Server{db: db}
+	s := &Server{
+		db:      db,
+		billing: billing.NewService(db),
+		models:  models.NewService(db),
+		relay:   relay.NewService(db),
+	}
 	s.setupRoutes()
 	return s
 }
@@ -34,7 +45,6 @@ func (s *Server) setupRoutes() {
 	// Global middleware
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	// TODO: add CORS when frontends land
 
 	// Health
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -57,34 +67,84 @@ func (s *Server) setupRoutes() {
 			r.Get("/usage", handlers.NewDeviceHandler(s.db).Usage)
 			r.Post("/services/provision", handlers.NewProvisionHandler(s.db).Provision)
 		})
+
+		// Support & inference (device auth required)
+		r.Route("/cases", func(r chi.Router) {
+			r.Use(middleware.DeviceAuth(s.db))
+			r.Get("/", handlers.NewSupportHandler(s.db).ListCases)
+			r.Post("/", handlers.NewSupportHandler(s.db).CreateCase)
+		})
 	})
 
-	// Support & inference (device auth required)
-	r.Route("/api/v1/cases", func(r chi.Router) {
-		r.Use(middleware.DeviceAuth(s.db))
-		r.Get("/", handlers.NewSupportHandler(s.db).ListCases)
-		r.Post("/", handlers.NewSupportHandler(s.db).CreateCase)
+	// Customer portal API
+	r.Route("/portal", func(r chi.Router) {
+		portal := handlers.NewPortalHandler(s.db)
+
+		// Login is public
+		r.Post("/login", portal.Login)
+		r.Get("/plans", portal.GetPlans)
+
+		// Authenticated routes
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.CustomerAuth(s.db))
+
+			r.Get("/devices", portal.GetDevices)
+			r.Get("/usage", portal.GetUsage)
+			r.Get("/billing", portal.GetBilling)
+			r.Post("/subscribe", portal.Subscribe)
+			r.Post("/cancel", portal.Cancel)
+			r.Post("/change-plan", portal.ChangePlan)
+		})
 	})
+
+	// Billing webhooks (Stripe)
+	r.Post("/webhooks/stripe", handlers.NewBillingHandler(s.billing).StripeWebhook)
 
 	// Admin routes (separate auth)
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(middleware.AdminAuth)
 
+		admin := handlers.NewAdminHandler(s.db)
+
 		// Devices
-		r.Get("/devices", handlers.NewAdminHandler(s.db).ListDevices)
-		r.Get("/devices/{deviceID}", handlers.NewAdminHandler(s.db).GetDevice)
-		r.Get("/devices/{deviceID}/usage", handlers.NewAdminHandler(s.db).GetDeviceUsage)
-		r.Post("/devices/{deviceID}/credentials/rotate", handlers.NewAdminHandler(s.db).RotateCredentials)
+		r.Get("/devices", admin.ListDevices)
+		r.Get("/devices/{deviceID}", admin.GetDevice)
+		r.Get("/devices/{deviceID}/usage", admin.GetDeviceUsage)
+		r.Post("/devices/{deviceID}/credentials/rotate", admin.RotateCredentials)
 
 		// Cases
-		r.Get("/cases", handlers.NewAdminHandler(s.db).ListCases)
-		r.Get("/cases/{caseID}", handlers.NewAdminHandler(s.db).GetCase)
-		r.Post("/cases/{caseID}/messages", handlers.NewAdminHandler(s.db).AddCaseMessage)
-		r.Post("/cases/{caseID}/consent-requests", handlers.NewAdminHandler(s.db).CreateConsentRequest)
+		r.Get("/cases", admin.ListCases)
+		r.Get("/cases/{caseID}", admin.GetCase)
+		r.Post("/cases/{caseID}/messages", admin.AddCaseMessage)
+		r.Post("/cases/{caseID}/consent-requests", admin.CreateConsentRequest)
 
 		// Plans
-		r.Get("/plans", handlers.NewAdminHandler(s.db).ListPlans)
-		r.Put("/plans/{planID}", handlers.NewAdminHandler(s.db).UpdatePlan)
+		r.Get("/plans", admin.ListPlans)
+		r.Put("/plans/{planID}", admin.UpdatePlan)
+
+		// Usage (aggregated)
+		r.Get("/usage", admin.GetAggregatedUsage)
+
+		// AI Models config
+		mh := handlers.NewModelsHandler(s.models)
+		r.Get("/models/providers", mh.ListProviders)
+		r.Post("/models/providers", mh.CreateProvider)
+		r.Put("/models/providers/{id}", mh.UpdateProvider)
+		r.Delete("/models/providers/{id}", mh.DeleteProvider)
+		r.Get("/models", mh.ListModels)
+		r.Post("/models", mh.CreateModel)
+		r.Put("/models/{id}", mh.UpdateModel)
+		r.Delete("/models/{id}", mh.DeleteModel)
+		r.Get("/models/fallback/{role}", mh.GetFallbackChain)
+		r.Post("/models/fallback/{role}", mh.SetFallbackChain)
+
+		// Relay fleet
+		rh := handlers.NewRelayHandler(s.relay)
+		r.Get("/relay", rh.GetFleetStatus)
+		r.Get("/relay/regions", rh.ListRegions)
+		r.Post("/relay/regions", rh.CreateRegion)
+		r.Put("/relay/regions/{id}/health", rh.UpdateRegionHealth)
+		r.Delete("/relay/regions/{id}", rh.DeleteRegion)
 	})
 
 	s.router = r

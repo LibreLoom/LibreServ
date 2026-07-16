@@ -305,11 +305,12 @@ func main() {
 			if err != nil {
 				slog.Warn("failed to initialize repo set, continuing with local catalog only", "error", err)
 			} else {
-				appManager.SetRepoSet(repoSet)
-				if err := repoSet.Start(context.Background()); err != nil {
-					slog.Warn("failed to start repo set background pull", "error", err)
-				}
-				defer repoSet.Stop()
+			appManager.SetRepoSet(repoSet)
+			repoSet.SetCatalogRefreshCallback(handlers.ClearIconCache)
+			if err := repoSet.Start(context.Background()); err != nil {
+				slog.Warn("failed to start repo set background pull", "error", err)
+			}
+			defer repoSet.Stop()
 			}
 		}
 	}
@@ -395,8 +396,8 @@ func main() {
 	}
 	oidcAdminHandler := handlers.NewOIDCHandler(db, appManager, authService, issuerURL, slog.Default())
 	// Wire OIDC auto-provisioning for internal-access apps during install.
-	appManager.SetOIDCProvisioner(func(instanceID, appName string) (string, string, string, error) {
-		redirectURIs := []string{fmt.Sprintf("https://%s/callback", appName)}
+	appManager.SetOIDCProvisioner(func(instanceID, appName, redirectPath string) (string, string, string, error) {
+		redirectURIs := []string{fmt.Sprintf("https://%s%s", appName, redirectPath)}
 		cid, secret, err := handlers.ProvisionOIDCClient(db, instanceID, appName, redirectURIs, issuerURL, slog.Default())
 		return cid, secret, issuerURL, err
 	})

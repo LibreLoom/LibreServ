@@ -1,4 +1,5 @@
 import { Component } from "react";
+import { cn } from "@/lib/utils";
 import { AlertTriangle, RefreshCw, Home, Bug } from "lucide-react";
 import PropTypes from "prop-types";
 
@@ -40,17 +41,17 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       const primaryBtn =
-"inline-flex items-center justify-center gap-2 rounded-pill bg-secondary text-primary px-6 py-3 font-medium " +
-   "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent " +
-   "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+        cn("inline-flex items-center justify-center gap-2 rounded-pill bg-secondary text-primary px-6 py-3 font-medium",
+          "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent",
+          "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2");
 
-        const secondaryBtn =
-          "inline-flex items-center justify-center gap-2 ring-2 ring-secondary rounded-pill bg-transparent text-secondary px-6 py-3 font-medium " +
-"motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0 " +
-   "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+      const secondaryBtn =
+        cn("inline-flex items-center justify-center gap-2 ring-2 ring-secondary rounded-pill bg-transparent text-secondary px-6 py-3 font-medium",
+          "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0",
+          "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2");
 
       return (
-        <div className="min-h-screen bg-primary flex items-center justify-center p-4">
+        <div className={cn("min-h-screen bg-primary flex items-center justify-center p-4")} data-slot="error-boundary">
           <div className="max-w-lg w-full">
             <div className="flex justify-center mb-6">
               <div className="w-20 h-20 rounded-pill bg-error/10 flex items-center justify-center">
@@ -76,7 +77,7 @@ class ErrorBoundary extends Component {
                      Error Details (Development)
                    </span>
                  </div>
-                 <div className="bg-primary rounded-large-element p-4 font-mono text-sm overflow-x-auto border border-secondary/20">
+                 <div className="bg-primary text-secondary rounded-large-element p-4 font-mono text-sm overflow-x-auto border border-secondary/20">
                    <div className="mb-3">
                      <span className="text-secondary/60 text-xs uppercase tracking-wider mb-1 block">
                        Error
@@ -102,7 +103,7 @@ class ErrorBoundary extends Component {
             <div className="space-y-3">
               <button
                 onClick={this.handleReload}
-                className={`w-full ${primaryBtn}`}
+                className={cn("w-full", primaryBtn)}
               >
                 <RefreshCw className="w-5 h-5" />
                 Reload Page

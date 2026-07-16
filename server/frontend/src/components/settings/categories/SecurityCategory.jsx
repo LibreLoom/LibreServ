@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import {
   Check,
@@ -78,7 +79,7 @@ function StatCard({ value, label, variant = "accent" }) {
   const colorClass = variant === "warning" ? "text-warning" : variant === "error" ? "text-error" : "text-accent";
   return (
     <div className="bg-secondary text-primary rounded-large-element text-center py-3 p-5">
-      <div className={`text-2xl font-bold ${colorClass}`}>{value}</div>
+      <div className={cn("text-2xl font-bold", colorClass)}>{value}</div>
       <div className="text-xs text-accent mt-1">{label}</div>
     </div>
   );
@@ -164,7 +165,7 @@ export default function SecurityCategory() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-slot="security-category">
       {stats && (
         <div
           className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300"
@@ -187,7 +188,7 @@ export default function SecurityCategory() {
                 value={filter}
                 onChange={setFilter}
                 width={80}
-                bg="primary"
+                surface="primary"
                 options={[
                   { value: "24h", label: "24 hours" },
                   { value: "7d", label: "7 days" },
@@ -206,7 +207,7 @@ export default function SecurityCategory() {
               className="p-1.5 rounded hover:bg-primary/10 disabled:opacity-50 transition-colors"
               aria-label="Refresh activity log"
             >
-              <RefreshCw size={14} className={`text-accent ${activityLoading ? "animate-spin" : ""}`} aria-hidden="true" />
+              <RefreshCw size={14} className={cn("text-accent", activityLoading && "animate-spin")} aria-hidden="true" />
             </button>
           </div>
         }

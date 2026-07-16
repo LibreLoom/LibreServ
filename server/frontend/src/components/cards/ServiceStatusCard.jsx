@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { memo } from "react";
 import { statusConfig } from "../../data/statusConfig";
 import BaseCard from "./BaseCard";
@@ -26,16 +27,16 @@ function ServiceStatusCardInner({
   }
 
   return (
-    <BaseCard icon={Icon} title={name}>
+    <BaseCard icon={Icon} title={name} data-slot="service-status-card">
       <div className="text-left">
-        <div className={`text-sm ${config.color}`}>Status</div>
+        <div className={cn("text-sm", config.color)}>Status</div>
         {statusText && (
           <div className="flex items-center gap-1 text-sm ml-2.5">
             <StatusIcon size={14} className={config.color} aria-hidden="true" />
             <span className={config.color}>{statusText}</span>
           </div>
         )}
-        <div className={`text-sm ${config.color}`}>Resource Usage</div>
+        <div className={cn("text-sm", config.color)}>Resource Usage</div>
         {resourceUsage != null && (
           <div className="flex items-center gap-1 text-sm ml-2.5">
             <svg

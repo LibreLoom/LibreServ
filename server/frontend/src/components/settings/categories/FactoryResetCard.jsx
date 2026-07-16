@@ -42,7 +42,7 @@ function FactoryResetCard({ index = 2 }) {
   }, [confirmText, password, request, addToast, logout, navigate]);
 
   return (
-    <>
+    <div data-slot="factory-reset-card">
       <SettingsCard icon={AlertTriangle} title="Factory Reset" index={index}>
         <p className="text-sm text-muted mb-4">
           Reset this device to factory defaults. <strong>This will delete all data and settings.</strong>
@@ -117,7 +117,7 @@ function FactoryResetCard({ index = 2 }) {
           />
         </div>
       </ConfirmModal>
-    </>
+    </div>
   );
 }
 

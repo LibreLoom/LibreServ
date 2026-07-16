@@ -24,6 +24,7 @@ type OIDCHandler struct {
 	issuerURL   string
 	logger      *slog.Logger
 }
+
 // NewOIDCHandler creates a new OIDCHandler.
 func NewOIDCHandler(
 	db *database.DB,
@@ -190,7 +191,6 @@ func (h *OIDCHandler) RevokeAccess(w http.ResponseWriter, r *http.Request) {
 		"message": "Access revoked.",
 	})
 }
-
 
 // ProvisionOIDCClient creates an OIDC client for an app instance and returns
 // the plaintext client_id and client_secret. The secret is bcrypt-hashed

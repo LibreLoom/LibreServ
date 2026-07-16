@@ -6,6 +6,7 @@ import ChatPermissionPrompt from "./ChatPermissionPrompt.jsx";
 import ChatStreamingIndicator from "./ChatStreamingIndicator.jsx";
 import ChatInputBar from "./ChatInputBar.jsx";
 import ChatEmpty from "./ChatEmpty.jsx";
+import Callout from "../common/Callout";
 import ConversationSidebar from "./ConversationSidebar.jsx";
 
 function HelpChatLayout({
@@ -41,14 +42,12 @@ function HelpChatLayout({
   }
 
   return (
-    <div className="mt-6 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
+    <div data-slot="help-chat-layout" className="mt-6 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
       <div className="flex flex-col">
         <Card noHeightAnim noPopIn padding={false} className="flex-1 flex flex-col min-h-[500px] max-h-[700px]">
           {error && (
             <div className="px-5 pt-4">
-              <div className="bg-error/10 text-error rounded-large-element p-3 text-sm font-mono" role="alert">
-                {error}
-              </div>
+              <Callout tone="error" className="font-mono">{error}</Callout>
             </div>
           )}
 

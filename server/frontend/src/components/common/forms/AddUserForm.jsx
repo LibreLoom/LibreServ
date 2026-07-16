@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useCallback, useMemo } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { ArrowRight } from "lucide-react";
@@ -31,9 +32,10 @@ function PasswordStrengthIndicator({ password }) {
         {[1, 2, 3, 4, 5].map((i) => (
           <div
             key={i}
-            className={`h-1 flex-1 rounded-full transition-colors ${
-              i <= strength.score ? "bg-accent" : "bg-primary/20"
-            }`}
+            className={cn(
+              "h-1 flex-1 rounded-full transition-colors",
+              i <= strength.score ? "bg-accent" : "bg-primary/20",
+            )}
           />
         ))}
       </div>
@@ -135,7 +137,7 @@ export default function AddUserForm({ onSuccess }) {
   );
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" data-slot="add-user-form">
       <FormInput
         label="Username"
         name="username"

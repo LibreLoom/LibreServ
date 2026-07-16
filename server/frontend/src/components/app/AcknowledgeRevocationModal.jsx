@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import { ShieldAlert, AlertTriangle, Loader2 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
@@ -47,7 +48,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
       <div className="space-y-4">
         {step === 1 && (
           <>
-            <div className={`flex items-start gap-3 p-3 rounded-large-element border ${isMalicious ? "bg-error/10 border-error/30" : "bg-warning/10 border-warning/30"}`}>
+            <div className={cn("flex items-start gap-3 p-3 rounded-large-element border", isMalicious ? "bg-error/10 border-error/30" : "bg-warning/10 border-warning/30")}>
               {isMalicious ? (
                 <ShieldAlert size={20} className="text-error shrink-0 mt-0.5" />
               ) : (

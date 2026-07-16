@@ -80,7 +80,7 @@ export default function AIServiceModal({ open, onClose, service, connectStatus =
   }
 
   return (
-    <ModalCard title="AI Assistant" onClose={onClose} size="md">
+    <ModalCard title="AI Assistant" onClose={onClose} size="md" data-slot="ai-service-modal">
       {({ close }) => (
         <div className="p-5 space-y-5">
           <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
@@ -110,7 +110,7 @@ export default function AIServiceModal({ open, onClose, service, connectStatus =
           />
 
           {useConnect && connectWarning.show ? (
-            <div className="bg-primary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+            <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
               <div className="flex items-center gap-2 text-sm text-secondary">
                 <AlertTriangle size={16} className="text-warning shrink-0" />
                 {connectWarning.label}
@@ -170,7 +170,7 @@ export default function AIServiceModal({ open, onClose, service, connectStatus =
                     value={mainModel}
                     onChange={setMainModel}
                     fullWidth
-                    bg="primary"
+                    surface="primary"
                     placeholder="Select a model"
                     options={modelOptions}
                   />
@@ -194,7 +194,7 @@ export default function AIServiceModal({ open, onClose, service, connectStatus =
                     value={reviewModel}
                     onChange={setReviewModel}
                     fullWidth
-                    bg="primary"
+                    surface="primary"
                     placeholder="Select a model"
                     options={modelOptions}
                   />
@@ -217,7 +217,7 @@ export default function AIServiceModal({ open, onClose, service, connectStatus =
                   value={apiFormat}
                   onChange={setApiFormat}
                   fullWidth
-                  bg="primary"
+                  surface="primary"
                   options={FORMAT_OPTIONS}
                 />
                 <p className="text-xs text-accent mt-1 px-4">

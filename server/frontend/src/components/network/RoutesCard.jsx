@@ -9,7 +9,7 @@ import {
 import PropTypes from "prop-types";
 import Card from "../cards/Card";
 import Toggle from "../common/Toggle";
-import StatusBadge from "../common/StatusBadge";
+import Pill from "../common/Pill";
 
 function formatBackend(backend) {
   if (!backend) return "N/A";
@@ -49,6 +49,7 @@ export default function RoutesCard({
   }
   return (
     <Card
+      data-slot="network-routes"
       icon={Globe}
       title="Network Routes"
       padding={false}
@@ -120,7 +121,7 @@ export default function RoutesCard({
                       <div className="text-xs text-accent mt-0.5 flex items-center gap-2">
                         <span>{appName || formatBackend(route.backend)}</span>
                         {route.ssl && (
-                          <StatusBadge variant="success" className="text-[10px] py-0">SSL</StatusBadge>
+                          <Pill variant="success" className="text-[10px] py-0">SSL</Pill>
                         )}
                       </div>
                     </div>

@@ -1,6 +1,7 @@
+import { cn } from "@/lib/utils";
 /* color-scan: ignore-file - demo page with mock data */
 import { useState } from "react";
-import HeaderCard from "../components/cards/HeaderCard.jsx";
+import Page from "../components/ui/Page.jsx";
 import AccessControlSection from "../components/app/AccessControlSection.jsx";
 
 /**
@@ -113,10 +114,8 @@ export default function AccessControlDemo() {
   });
 
   return (
-    <main className="bg-primary text-secondary px-8 pt-5 pb-32 min-h-screen">
-      <HeaderCard title="Access Control — Component Preview" />
-
-      <div className="mt-6 max-w-3xl">
+    <Page title="Access Control — Component Preview" className="min-h-screen">
+      <div className="mt-6 max-w-3xl" data-slot="access-control-demo">
         <p className="text-sm text-secondary/80 mb-6">
           This page previews the access management UI that appears in each
           app's settings. Switch between the two access models to see how the
@@ -127,21 +126,23 @@ export default function AccessControlDemo() {
         <div className="flex gap-2 mb-8">
           <button
             onClick={() => setVariant("internal")}
-            className={`px-6 py-3 rounded-pill font-mono transition-colors ${
+            className={cn(
+              "px-6 py-3 rounded-pill font-mono transition-colors",
               variant === "internal"
                 ? "bg-secondary text-primary"
-                : "border-2 border-primary/20 text-secondary/80 hover:bg-primary/5"
-            }`}
+                : "border-2 border-primary/20 text-secondary/80 hover:bg-primary/5",
+            )}
           >
             Internal (SSO)
           </button>
           <button
             onClick={() => setVariant("external")}
-            className={`px-6 py-3 rounded-pill font-mono transition-colors ${
+            className={cn(
+              "px-6 py-3 rounded-pill font-mono transition-colors",
               variant === "external"
                 ? "bg-secondary text-primary"
-                : "border-2 border-primary/20 text-secondary/80 hover:bg-primary/5"
-            }`}
+                : "border-2 border-primary/20 text-secondary/80 hover:bg-primary/5",
+            )}
           >
             External (Restricted)
           </button>
@@ -153,6 +154,6 @@ export default function AccessControlDemo() {
           appName={variant === "internal" ? "Nextcloud" : "ConvertX"}
         />
       </div>
-    </main>
+    </Page>
   );
 }

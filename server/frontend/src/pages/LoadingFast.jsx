@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import React from "react";
 
 /**
@@ -12,7 +13,8 @@ function LoadingFast({
 }) {
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-primary text-secondary transition-colors duration-200 ${className}`}
+      className={cn("fixed inset-0 z-50 flex flex-col items-center justify-center bg-primary text-secondary transition-colors duration-200", className)}
+      data-slot="loading-fast"
       aria-live="polite"
       aria-busy="true"
       data-testid={testId}
@@ -20,7 +22,7 @@ function LoadingFast({
       <div className="w-full max-w-xs px-6 sm:max-w-sm">
         {/* Typography & Branding */}
         <div
-          className={`mb-10 text-center ${!disableAnimation ? "animate-fade-in-up" : ""}`}
+          className={cn("mb-10 text-center", !disableAnimation && "animate-fade-in-up")}
         >
           <div className="mb-3 text-[0.65rem] font-sans font-semibold uppercase tracking-[0.3em] text-secondary/70 opacity-90">
             LibreServ
@@ -42,11 +44,11 @@ function LoadingFast({
         >
           {/* Primary Bar */}
           <div
-            className={`absolute bottom-0 top-0 h-full bg-accent origin-left ${!disableAnimation ? "animate-md-bar-1" : "opacity-50"}`}
+            className={cn("absolute bottom-0 top-0 h-full bg-accent origin-left", !disableAnimation ? "animate-md-bar-1" : "opacity-50")}
           ></div>
           {/* Secondary Bar */}
           <div
-            className={`absolute bottom-0 top-0 h-full bg-accent origin-left ${!disableAnimation ? "animate-md-bar-2" : "opacity-50"}`}
+            className={cn("absolute bottom-0 top-0 h-full bg-accent origin-left", !disableAnimation ? "animate-md-bar-2" : "opacity-50")}
           ></div>
         </div>
       </div>

@@ -167,14 +167,43 @@ This applies to frontend UI, API error messages shown to users, and any document
 - Run `npm run scan:colors` when modifying UI to detect hardcoded colors
 
 ### Design / Theme
-- **Read branding repo** before UI work: https://gt.plainskill.net/LibreLoom/design
+
+**This is a recurring failure mode. Agents repeatedly break contrast and abandon the design system, producing invisible text and flat boxes. Default HARD to these rules; question any deviation out loud before shipping.**
+
+Before ANY UI work:
+1. Read the branding repo: https://gt.plainskill.net/LibreLoom/design ("Simplex Mono" design language across all LibreLoom products)
+2. Recall the contrast-gotcha and pill-based-design memories from Engraphis
+3. Run `npm run scan:colors` after editing to catch hardcoded colors
+
+#### 1. Standardized colors only
+- Use theme tokens, NEVER hardcoded hex values. Tokens: `bg-primary` (page bg), `bg-secondary` (surface), `text-secondary` (text on primary bg), `text-primary` (text on secondary bg), `bg-accent` (#767676 both modes), plus `text-success`/`text-error`/`text-warning` for status.
 - Theme uses CSS custom properties that swap on `.dark` class:
   - `--primary` = page background (white/light, black/dark)
   - `--secondary` = text color (black/light, white/dark)
   - `--accent` = subtle highlights (#767676 both modes)
 - Tailwind maps: `bg-primary`, `text-secondary`, `bg-accent`, etc.
-- **CRITICAL contrast rule**: Cards on `bg-primary` use `bg-secondary text-primary`. On `bg-secondary` surfaces, use `text-primary`. On `bg-primary` surfaces, use `text-secondary`.
-- Border radius: pill `9999px`, card/large `24px`
+
+#### 2. Contrast from base colors FIRST
+- **CRITICAL**: every colored surface must set its own contrasting text token on the SAME element — never rely on inheritance across a bg change.
+  - `bg-secondary` surface → `text-primary`
+  - `bg-primary` surface → `text-secondary`
+- **Contrast is not automatic**: components are NOT automatically assigned a contrasting color; it must be set manually per component. This is the #1 invisible-element bug class — a `bg-secondary` panel without `text-primary` renders dark-on-dark in dark mode.
+- Cards on `bg-primary` use `bg-secondary text-primary`. On `bg-secondary` surfaces, use `text-primary`. On `bg-primary` surfaces, use `text-secondary`.
+
+#### 3. Opacity variants only when needed
+- Prefer base tokens at full opacity. Opacity is for status/tint surfaces, not a crutch for indecision.
+- Status tint pattern: `/20` fill + `/30` border (e.g. `bg-success/20 border-success/30`, `bg-error/20 border-error/30`).
+- Do not sprinkle opacity everywhere as a substitute for choosing the right base token.
+
+#### 4. Layered, pill-based, innovative & animated
+- Lean into the design language — this is a deliberate aesthetic, not generic Bootstrap. Push toward the distinctive layered + pill + animated look; do NOT flatten to plain boxes.
+- **Layering**: surfaces inside surfaces, each panel setting explicit contrast on itself. Layered depth, not a single flat card.
+- **Pills**: `rounded-pill` (9999px) for buttons/chips/badges/pills; `rounded-large-element` (24px) for cards/containers/rows. Border radius: pill `9999px`, card/large `24px`.
+- **Animation**: intentional motion/transitions on state changes (hover, open/close, loading, status swap). Motion should feel crafted, not absent.
+
+#### 5. Preserve monospace style
+- Simplex Mono is the brand identity. Typography: monospace for headings/code (FreeMono / monospace family like Courier New), Noto Sans for body. Keep the mono typography identity — do NOT replace with a generic sans-serif.
+
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
 ### Git

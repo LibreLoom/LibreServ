@@ -14,6 +14,7 @@ export default function DatabaseBackupCard({
       title="Database Backup"
       padding={false}
       className="animate-in fade-in slide-in-from-bottom-2"
+      data-slot="database-backup-card"
     >
       <div className="p-4 pb-0">
         <div className="bg-primary/5 border border-primary/10 rounded-large-element p-3 flex items-start gap-2">

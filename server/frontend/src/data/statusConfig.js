@@ -4,26 +4,18 @@ export const statusConfig = {
   running: {
     icon: CheckCircle,
     label: "Running",
-    colorVar: "--color-success",
-    bgVar: "--bg-success",
   },
   stopped: {
     icon: XCircle,
     label: "Stopped",
-    colorVar: "--color-warning",
-    bgVar: "--bg-warning",
   },
   error: {
     icon: AlertCircle,
     label: "Error",
-    colorVar: "--color-error",
-    bgVar: "--bg-error",
   },
   unknown: {
     icon: Circle,
     label: "Unknown",
-    colorVar: "var(--color-secondary)",
-    bgVar: "var(--bg-info)",
   },
   online: {
     icon: CheckCircle,

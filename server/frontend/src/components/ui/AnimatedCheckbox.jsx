@@ -1,19 +1,20 @@
+import { cn } from "@/lib/utils";
 import PropTypes from "prop-types";
 
 export default function AnimatedCheckbox({ checked, onChange, children, className = "" }) {
   return (
-    <label className={`flex items-center gap-2 cursor-pointer group ${className}`}>
+    <label className={cn("flex items-center gap-2 cursor-pointer group", className)} data-slot="animated-checkbox">
       <div
-        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
+        className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 flex-shrink-0",
           checked
             ? "border-accent bg-accent"
             : "border-secondary/50 group-hover:border-secondary"
-        }`}
+        )}
       >
         <svg
-          className={`w-3 h-3 text-primary transition-all duration-200 ${
+          className={cn("w-3 h-3 text-primary transition-all duration-200",
             checked ? "scale-100 opacity-100" : "scale-0 opacity-0"
-          }`}
+          )}
           viewBox="0 0 12 12"
           fill="none"
           aria-hidden="true"

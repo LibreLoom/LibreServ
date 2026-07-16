@@ -196,7 +196,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
   }
 
   return (
-    <ModalCard title={action.label} onClose={handleClose}>
+    <ModalCard title={action.label} onClose={handleClose} data-slot="action-options-modal">
       <form onSubmit={handleSubmit} className="space-y-4">
         {action.description && (
           <p className="text-sm text-primary/70 mb-4">{action.description}</p>
