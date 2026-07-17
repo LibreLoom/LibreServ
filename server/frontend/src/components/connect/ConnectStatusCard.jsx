@@ -8,7 +8,7 @@ import Button from "../ui/Button.jsx";
 const PLAN_BADGES = {
   free: { label: "Connect Free", class: "bg-accent/10 text-accent" },
   one: { label: "Connect One", class: "bg-accent text-primary" },
-  payg: { label: "Connect PAYG", class: "bg-accent text-primary" },
+  lite: { label: "Connect Lite", class: "bg-accent text-primary" },
 };
 
 export default function ConnectStatusCard({

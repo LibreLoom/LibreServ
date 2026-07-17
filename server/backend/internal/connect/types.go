@@ -15,7 +15,7 @@ type PlanID string
 const (
 	PlanFree PlanID = "free"
 	PlanOne  PlanID = "one"
-	PlanPAYG PlanID = "payg"
+	PlanLite PlanID = "lite"
 )
 
 type ConnectPlan struct {

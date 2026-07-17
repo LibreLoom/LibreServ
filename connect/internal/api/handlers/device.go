@@ -150,15 +150,15 @@ func (h *DeviceHandler) Usage(w http.ResponseWriter, r *http.Request) {
 	balance, _ := h.billing.GetBalance(deviceID)
 
 	JSON(w, http.StatusOK, map[string]any{
-		"device_id":             summary.DeviceID,
-		"plan_id":               summary.PlanID,
-		"current_cycle_start":   summary.CycleStart,
-		"current_cycle_end":     summary.CycleEnd,
-		"total_cost_usd":        summary.TotalCostUSD,
-		"provider_cost_usd":     summary.ProviderCostUSD,
-		"credits_used":          summary.CreditsUsed,
-		"credit_balance_cents":  balance,
-		"by_service":            summary.ByService,
+		"device_id":            summary.DeviceID,
+		"plan_id":              summary.PlanID,
+		"current_cycle_start":  summary.CycleStart,
+		"current_cycle_end":    summary.CycleEnd,
+		"total_cost_usd":       summary.TotalCostUSD,
+		"provider_cost_usd":    summary.ProviderCostUSD,
+		"credits_used":         summary.CreditsUsed,
+		"credit_balance_cents": balance,
+		"by_service":           summary.ByService,
 	})
 }
 
@@ -198,8 +198,8 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHi
 			"id":   planID,
 			"name": catalog.PlanName(planID),
 		},
-		"services":   services,
-		"key_hint":   keyHint,
+		"services": services,
+		"key_hint": keyHint,
 	}
 }
 

@@ -4,22 +4,22 @@ import "encoding/json"
 
 // Plan represents a subscription plan with its limits.
 type Plan struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Description     string `json:"description"`
-	PriceMonthlyCents int   `json:"price_monthly"`
-	Limits          Limits `json:"limits"`
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	Description       string `json:"description"`
+	PriceMonthlyCents int    `json:"price_monthly"`
+	Limits            Limits `json:"limits"`
 }
 
 // Limits defines the per-plan service allowances.
 type Limits struct {
-	BackupGB        int    `json:"backup_gb"`
-	AICreditCents   int    `json:"ai_credit_cents"`
-	TunnelGB        int    `json:"tunnel_gb"`
-	SMTPMonthly     int    `json:"smtp_monthly"`
-	AIMessagesPerDay int   `json:"ai_messages_per_day"`
-	Domain          string `json:"domain"`
-	HumanSupport    bool   `json:"human_support"`
+	BackupGB         int    `json:"backup_gb"`
+	AICreditCents    int    `json:"ai_credit_cents"`
+	TunnelGB         int    `json:"tunnel_gb"`
+	SMTPMonthly      int    `json:"smtp_monthly"`
+	AIMessagesPerDay int    `json:"ai_messages_per_day"`
+	Domain           string `json:"domain"`
+	HumanSupport     bool   `json:"human_support"`
 }
 
 // Overage rates — what the customer pays beyond included allowance.
@@ -44,9 +44,9 @@ type ServiceCost struct {
 
 var plans = []Plan{
 	{
-		ID:              "free",
-		Name:            "Connect Free",
-		Description:     "Get started with basic services. No credit card required.",
+		ID:                "free",
+		Name:              "Connect Free",
+		Description:       "Get started with basic services. No credit card required.",
 		PriceMonthlyCents: 0,
 		Limits: Limits{
 			BackupGB:         0,
@@ -59,9 +59,9 @@ var plans = []Plan{
 		},
 	},
 	{
-		ID:              "lite",
-		Name:            "Connect Lite",
-		Description:     "All services with a generous monthly allowance. Pay only for overage.",
+		ID:                "lite",
+		Name:              "Connect Lite",
+		Description:       "All services with a generous monthly allowance. Pay only for overage.",
 		PriceMonthlyCents: 600,
 		Limits: Limits{
 			BackupGB:         100,
@@ -74,9 +74,9 @@ var plans = []Plan{
 		},
 	},
 	{
-		ID:              "one",
-		Name:            "Connect One",
-		Description:     "Everything included with the largest allowance. Best value for active users.",
+		ID:                "one",
+		Name:              "Connect One",
+		Description:       "Everything included with the largest allowance. Best value for active users.",
 		PriceMonthlyCents: 2500,
 		Limits: Limits{
 			BackupGB:         1024,
@@ -96,7 +96,7 @@ var Costs = ServiceCost{
 	BackupEgressPerGB:       0.01,
 	SMTPPerEmail:            0.0009,
 	AgentInputPerMToken:     0.30,
-	AgentOutputPerMToken:     1.05,
+	AgentOutputPerMToken:    1.05,
 	ReviewInputPerMToken:    0.35,
 	ReviewOutputPerMToken:   0.80,
 	TunnelPremiumPerGB:      0.01,

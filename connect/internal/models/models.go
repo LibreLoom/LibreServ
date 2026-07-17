@@ -32,17 +32,17 @@ type Provider struct {
 
 // Model is an AI model with pricing.
 type Model struct {
-	ID                  string  `json:"id"`
-	ProviderID          string  `json:"provider_id"`
-	ModelID             string  `json:"model_id"`
-	DisplayName         string  `json:"display_name"`
-	Role                string  `json:"role"` // "agent" or "review"
+	ID                    string  `json:"id"`
+	ProviderID            string  `json:"provider_id"`
+	ModelID               string  `json:"model_id"`
+	DisplayName           string  `json:"display_name"`
+	Role                  string  `json:"role"` // "agent" or "review"
 	InputPricePerMillion  float64 `json:"input_price_per_million"`
 	OutputPricePerMillion float64 `json:"output_price_per_million"`
 	CachePricePerMillion  float64 `json:"cache_price_per_million"`
-	ContextWindow        int     `json:"context_window"`
-	Enabled              bool    `json:"enabled"`
-	SortOrder            int     `json:"sort_order"`
+	ContextWindow         int     `json:"context_window"`
+	Enabled               bool    `json:"enabled"`
+	SortOrder             int     `json:"sort_order"`
 }
 
 // FallbackChainEntry is one step in a role's fallback chain.

@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
 )
 
@@ -57,7 +59,7 @@ func TestProvisionSMTP(t *testing.T) {
 	}
 }
 
-func TestProvisionBackup(t *testing.T) {
+func TestProvisionBackupFreeQuotaRejection(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewProvisionHandler(db)
 
@@ -68,8 +70,27 @@ func TestProvisionBackup(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.Provision(w, req)
 
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Upgrade") {
+		t.Fatalf("expected upgrade message, got %s", w.Body.String())
+	}
+}
+
+func TestProvisionBackupPaidWithFallback(t *testing.T) {
+	db := database.OpenTestDB(t)
+	h := NewProvisionHandler(db)
+
+	deviceID := activateDevice(t, db, "one")
+	body, _ := json.Marshal(map[string]string{"service": "backup"})
+	ctx := middleware.WithDeviceID(context.Background(), deviceID)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/services/provision", bytes.NewReader(body)).WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.Provision(w, req)
+
 	if w.Code != http.StatusOK {
-		t.Fatalf("status=%d, want 200", w.Code)
+		t.Fatalf("status=%d, want 200: %s", w.Code, w.Body.String())
 	}
 	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -78,6 +99,30 @@ func TestProvisionBackup(t *testing.T) {
 	backup := resp["backup"].(map[string]any)
 	if backup["repo_type"] != "s3" {
 		t.Fatalf("repo_type=%v, want s3", backup["repo_type"])
+	}
+}
+
+func TestProvisionBackupMissingProvider(t *testing.T) {
+	db := database.OpenTestDB(t)
+	h := NewProvisionHandler(db)
+
+	// Remove the fallback backup endpoint so the only path is a configured provider.
+	oldEndpoint := config.C.Backup.Endpoint
+	config.C.Backup.Endpoint = ""
+	t.Cleanup(func() { config.C.Backup.Endpoint = oldEndpoint })
+
+	deviceID := activateDevice(t, db, "one")
+	body, _ := json.Marshal(map[string]string{"service": "backup"})
+	ctx := middleware.WithDeviceID(context.Background(), deviceID)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/services/provision", bytes.NewReader(body)).WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.Provision(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "no backup provider") {
+		t.Fatalf("expected missing provider message, got %s", w.Body.String())
 	}
 }
 

@@ -115,13 +115,13 @@ func (s *Service) RecordUsage(deviceID, planID, serviceType, metric string, valu
 
 // UsageSummary holds aggregated usage for a billing cycle.
 type UsageSummary struct {
-	DeviceID        string  `json:"device_id"`
-	PlanID          string  `json:"plan_id"`
-	TotalCostUSD    float64 `json:"total_cost_usd"`
-	ProviderCostUSD float64 `json:"provider_cost_usd"`
-	CreditsUsed     float64 `json:"credits_used"`
-	CycleStart      string  `json:"cycle_start"`
-	CycleEnd        string `json:"cycle_end"`
+	DeviceID        string                  `json:"device_id"`
+	PlanID          string                  `json:"plan_id"`
+	TotalCostUSD    float64                 `json:"total_cost_usd"`
+	ProviderCostUSD float64                 `json:"provider_cost_usd"`
+	CreditsUsed     float64                 `json:"credits_used"`
+	CycleStart      string                  `json:"cycle_start"`
+	CycleEnd        string                  `json:"cycle_end"`
 	ByService       map[string]ServiceUsage `json:"by_service"`
 }
 

@@ -273,11 +273,11 @@ func (h *PortalHandler) GenerateLicenseKey(w http.ResponseWriter, r *http.Reques
 	}
 
 	JSON(w, http.StatusOK, map[string]any{
-		"license_key":  key,
-		"key_id":       licenseID,
-		"plan_id":      req.PlanID,
-		"plan_name":    catalog.PlanName(req.PlanID),
-		"message":      "Enter this key on your LibreServ device in Settings → Connect to activate your subscription.",
+		"license_key": key,
+		"key_id":      licenseID,
+		"plan_id":     req.PlanID,
+		"plan_name":   catalog.PlanName(req.PlanID),
+		"message":     "Enter this key on your LibreServ device in Settings → Connect to activate your subscription.",
 	})
 }
 
@@ -301,23 +301,23 @@ func (h *PortalHandler) GetLicenseKeys(w http.ResponseWriter, r *http.Request) {
 	keys := []map[string]any{}
 	for rows.Next() {
 		var lk struct {
-			ID          string
-			KeyPrefix   string
-			PlanID      string
-			Status      string
-			CreatedAt   time.Time
-			ActivatedAt sql.NullTime
-			DeviceID    sql.NullString
+			ID           string
+			KeyPrefix    string
+			PlanID       string
+			Status       string
+			CreatedAt    time.Time
+			ActivatedAt  sql.NullTime
+			DeviceID     sql.NullString
 			DeviceActive sql.NullBool
 		}
 		_ = rows.Scan(&lk.ID, &lk.KeyPrefix, &lk.PlanID, &lk.Status, &lk.CreatedAt, &lk.ActivatedAt, &lk.DeviceID, &lk.DeviceActive)
 		entry := map[string]any{
-			"id":           lk.ID,
-			"key_prefix":   lk.KeyPrefix + "...",
-			"plan_id":      lk.PlanID,
-			"plan_name":    catalog.PlanName(lk.PlanID),
-			"status":       lk.Status,
-			"created_at":   lk.CreatedAt.Format(time.RFC3339),
+			"id":         lk.ID,
+			"key_prefix": lk.KeyPrefix + "...",
+			"plan_id":    lk.PlanID,
+			"plan_name":  catalog.PlanName(lk.PlanID),
+			"status":     lk.Status,
+			"created_at": lk.CreatedAt.Format(time.RFC3339),
 		}
 		if lk.ActivatedAt.Valid {
 			entry["activated_at"] = lk.ActivatedAt.Time.Format(time.RFC3339)
@@ -435,7 +435,7 @@ func (h *PortalHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 		"device_id":            summary.DeviceID,
 		"plan_id":              summary.PlanID,
 		"current_cycle_start":  summary.CycleStart,
-		"current_cycle_end":     summary.CycleEnd,
+		"current_cycle_end":    summary.CycleEnd,
 		"total_cost_usd":       summary.TotalCostUSD,
 		"provider_cost_usd":    summary.ProviderCostUSD,
 		"credits_used":         summary.CreditsUsed,
@@ -454,8 +454,8 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 	if err == sql.ErrNoRows {
 		JSON(w, http.StatusOK, map[string]any{
 			"credit_balance_cents": 0,
-			"invoices":              []any{},
-			"transactions":          []any{},
+			"invoices":             []any{},
+			"transactions":         []any{},
 		})
 		return
 	}
@@ -811,9 +811,9 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 	// For now, return a placeholder checkout URL
 	JSON(w, http.StatusOK, map[string]any{
 		"checkout_url": "#checkout-" + req.PlanID,
-		"plan_id":       req.PlanID,
-		"price_id":      priceID,
-		"account_id":    accountID,
+		"plan_id":      req.PlanID,
+		"price_id":     priceID,
+		"account_id":   accountID,
 	})
 }
 

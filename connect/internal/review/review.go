@@ -12,25 +12,25 @@ type Action struct {
 	Target      string         `json:"target"`       // what the action affects
 	Description string         `json:"description"`  // plain-language description
 	Parameters  map[string]any `json:"parameters"`   // action parameters
-	RequestedBy string         `json:"requested_by"`  // staff member
+	RequestedBy string         `json:"requested_by"` // staff member
 }
 
 // RiskLevel is the assessed danger level of an action.
 type RiskLevel string
 
 const (
-	RiskNone     RiskLevel = "none"      // no risk, safe to proceed
-	RiskLow      RiskLevel = "low"        // minimal risk, proceed with caution
-	RiskMedium   RiskLevel = "medium"     // moderate risk, confirm with user
-	RiskHigh     RiskLevel = "high"       // significant risk, require explicit consent
-	RiskCritical RiskLevel = "critical"   // severe risk, require explicit consent + supervisor
+	RiskNone     RiskLevel = "none"     // no risk, safe to proceed
+	RiskLow      RiskLevel = "low"      // minimal risk, proceed with caution
+	RiskMedium   RiskLevel = "medium"   // moderate risk, confirm with user
+	RiskHigh     RiskLevel = "high"     // significant risk, require explicit consent
+	RiskCritical RiskLevel = "critical" // severe risk, require explicit consent + supervisor
 )
 
 // Intrusiveness is how invasive the action is to the user's system.
 type Intrusiveness string
 
 const (
-	IntrusivenessNone     Intrusiveness = "none"      // read-only, no changes
+	IntrusivenessNone     Intrusiveness = "none"     // read-only, no changes
 	IntrusivenessMinimal  Intrusiveness = "minimal"  // trivial changes (e.g. restart service)
 	IntrusivenessModerate Intrusiveness = "moderate" // changes config or data
 	IntrusivenessSevere   Intrusiveness = "severe"   // destructive or irreversible
@@ -206,9 +206,9 @@ type PermissionDialog struct {
 
 // Choice is a user-selectable option in the permission dialog.
 type Choice struct {
-	ID      string `json:"id"`
-	Label   string `json:"label"`
-	Style   string `json:"style"` // "primary", "danger", "neutral"
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Style string `json:"style"` // "primary", "danger", "neutral"
 }
 
 // BuildPermissionDialog creates the consent dialog for an assessment.

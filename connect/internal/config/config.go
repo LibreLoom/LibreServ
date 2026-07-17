@@ -13,17 +13,17 @@ var C Config
 
 // Config is the top-level application configuration.
 type Config struct {
-	Server     ServerConfig     `mapstructure:"server" yaml:"server"`
-	Database   DatabaseConfig   `mapstructure:"database" yaml:"database"`
-	Auth       AuthConfig       `mapstructure:"auth" yaml:"auth"`
-	Stripe     StripeConfig     `mapstructure:"stripe" yaml:"stripe"`
-	SMTP       SMTPConfig       `mapstructure:"smtp" yaml:"smtp"`
-	DNS        DNSConfig        `mapstructure:"dns" yaml:"dns"`
-	Inference  InferenceConfig  `mapstructure:"inference" yaml:"inference"`
-	Backup     BackupConfig     `mapstructure:"backup" yaml:"backup"`
-	Tunnel     TunnelConfig     `mapstructure:"tunnel" yaml:"tunnel"`
-	Relay      RelayConfig      `mapstructure:"relay" yaml:"relay"`
-	Web        WebConfig        `mapstructure:"web" yaml:"web"`
+	Server    ServerConfig    `mapstructure:"server" yaml:"server"`
+	Database  DatabaseConfig  `mapstructure:"database" yaml:"database"`
+	Auth      AuthConfig      `mapstructure:"auth" yaml:"auth"`
+	Stripe    StripeConfig    `mapstructure:"stripe" yaml:"stripe"`
+	SMTP      SMTPConfig      `mapstructure:"smtp" yaml:"smtp"`
+	DNS       DNSConfig       `mapstructure:"dns" yaml:"dns"`
+	Inference InferenceConfig `mapstructure:"inference" yaml:"inference"`
+	Backup    BackupConfig    `mapstructure:"backup" yaml:"backup"`
+	Tunnel    TunnelConfig    `mapstructure:"tunnel" yaml:"tunnel"`
+	Relay     RelayConfig     `mapstructure:"relay" yaml:"relay"`
+	Web       WebConfig       `mapstructure:"web" yaml:"web"`
 }
 
 type ServerConfig struct {
@@ -36,19 +36,19 @@ type DatabaseConfig struct {
 }
 
 type AuthConfig struct {
-	DeviceTokenSecret  string `mapstructure:"device_token_secret" yaml:"device_token_secret"`
-	AdminTokenSecret   string `mapstructure:"admin_token_secret" yaml:"admin_token_secret"`
+	DeviceTokenSecret   string `mapstructure:"device_token_secret" yaml:"device_token_secret"`
+	AdminTokenSecret    string `mapstructure:"admin_token_secret" yaml:"admin_token_secret"`
 	CustomerTokenSecret string `mapstructure:"customer_token_secret" yaml:"customer_token_secret"`
-	SessionTTLHours    int    `mapstructure:"session_ttl_hours" yaml:"session_ttl_hours"`
+	SessionTTLHours     int    `mapstructure:"session_ttl_hours" yaml:"session_ttl_hours"`
 }
 
 type StripeConfig struct {
-	SecretKey      string `mapstructure:"secret_key" yaml:"secret_key"`
-	WebhookSecret  string `mapstructure:"webhook_secret" yaml:"webhook_secret"`
-	Enabled        bool   `mapstructure:"enabled" yaml:"enabled"`
-	PriceFree      string `mapstructure:"price_free" yaml:"price_free"`
-	PriceLite      string `mapstructure:"price_lite" yaml:"price_lite"`
-	PriceOne       string `mapstructure:"price_one" yaml:"price_one"`
+	SecretKey     string `mapstructure:"secret_key" yaml:"secret_key"`
+	WebhookSecret string `mapstructure:"webhook_secret" yaml:"webhook_secret"`
+	Enabled       bool   `mapstructure:"enabled" yaml:"enabled"`
+	PriceFree     string `mapstructure:"price_free" yaml:"price_free"`
+	PriceLite     string `mapstructure:"price_lite" yaml:"price_lite"`
+	PriceOne      string `mapstructure:"price_one" yaml:"price_one"`
 }
 
 type SMTPConfig struct {
@@ -96,7 +96,7 @@ type RelayConfig struct {
 
 type WebConfig struct {
 	CustomerDir string `mapstructure:"customer_dir" yaml:"customer_dir"`
-	AdminDir     string `mapstructure:"admin_dir" yaml:"admin_dir"`
+	AdminDir    string `mapstructure:"admin_dir" yaml:"admin_dir"`
 }
 
 func Load(path string) error {

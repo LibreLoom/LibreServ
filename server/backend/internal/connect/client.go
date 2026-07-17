@@ -232,8 +232,8 @@ func (f *FakeClient) Activate(ctx context.Context, token string) (*ConnectStatus
 	switch {
 	case strings.Contains(token, "one"):
 		plan = &ConnectPlan{ID: PlanOne, Name: "Connect One"}
-	case strings.Contains(token, "payg"):
-		plan = &ConnectPlan{ID: PlanPAYG, Name: "Connect PAYG"}
+	case strings.Contains(token, "lite"):
+		plan = &ConnectPlan{ID: PlanLite, Name: "Connect Lite"}
 	default:
 		plan = &ConnectPlan{ID: PlanFree, Name: "Connect Free"}
 	}
@@ -339,13 +339,13 @@ func (f *FakeClient) Info(ctx context.Context) (*ConnectInfo, error) {
 	return &ConnectInfo{
 		Plans: []PlanInfo{
 			{ID: PlanFree, Name: "Connect Free", Description: "Get started with basic services. No credit card required.", PriceMonthly: 0},
-			{ID: PlanOne, Name: "Connect One", Description: "All services, unlimited. Fixed monthly price.", PriceMonthly: 1500},
-			{ID: PlanPAYG, Name: "Connect PAYG", Description: "All services, pay for what you use.", PriceMonthly: 0},
+			{ID: PlanLite, Name: "Connect Lite", Description: "Essential services for a fixed monthly price.", PriceMonthly: 600},
+			{ID: PlanOne, Name: "Connect One", Description: "All services, unlimited. Fixed monthly price.", PriceMonthly: 2500},
 		},
 		PlanLimits: map[PlanID]PlanLimits{
-			PlanFree: {MaxEmailsPerDay: 30, TunnelMbps: 1, TunnelGBPerMo: 1, AIMessagesPerMo: 50},
-			PlanOne:  {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 0, AIMessagesPerMo: 0},
-			PlanPAYG: {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 0, AIMessagesPerMo: 0},
+			PlanFree: {MaxEmailsPerDay: 30, TunnelMbps: 1, TunnelGBPerMo: 1, BackupGB: 0, AIMessagesPerMo: 50},
+			PlanLite: {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 50, BackupGB: 100, AIMessagesPerMo: 0},
+			PlanOne:  {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 200, BackupGB: 1024, AIMessagesPerMo: 0},
 		},
 	}, nil
 }

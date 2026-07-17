@@ -128,7 +128,7 @@ export default function AIServiceModal({ open, onClose, service, connectStatus =
                   AI handled by LibreServ Connect
                 </div>
                 <p className="text-xs text-accent">
-                  50 messages/month on Free. One and PAYG plans have unlimited access.
+                  50 messages/month on Free. Lite and One plans have unlimited access.
                 </p>
               </div>
             </div>

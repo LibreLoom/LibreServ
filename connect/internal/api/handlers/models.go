@@ -99,16 +99,16 @@ func (h *ModelsHandler) ListModels(w http.ResponseWriter, r *http.Request) {
 // CreateModel creates a new AI model.
 func (h *ModelsHandler) CreateModel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ProviderID          string  `json:"provider_id"`
-		ModelID             string  `json:"model_id"`
-		DisplayName         string  `json:"display_name"`
-		Role                string  `json:"role"`
+		ProviderID            string  `json:"provider_id"`
+		ModelID               string  `json:"model_id"`
+		DisplayName           string  `json:"display_name"`
+		Role                  string  `json:"role"`
 		InputPricePerMillion  float64 `json:"input_price_per_million"`
 		OutputPricePerMillion float64 `json:"output_price_per_million"`
 		CachePricePerMillion  float64 `json:"cache_price_per_million"`
-		ContextWindow        int     `json:"context_window"`
-		Enabled              bool    `json:"enabled"`
-		SortOrder            int     `json:"sort_order"`
+		ContextWindow         int     `json:"context_window"`
+		Enabled               bool    `json:"enabled"`
+		SortOrder             int     `json:"sort_order"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ProviderID == "" || req.ModelID == "" {
 		JSONError(w, http.StatusBadRequest, "provider_id and model_id required")
@@ -132,15 +132,15 @@ func (h *ModelsHandler) CreateModel(w http.ResponseWriter, r *http.Request) {
 func (h *ModelsHandler) UpdateModel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var req struct {
-		ModelID             string  `json:"model_id"`
-		DisplayName         string  `json:"display_name"`
-		Role                string  `json:"role"`
+		ModelID               string  `json:"model_id"`
+		DisplayName           string  `json:"display_name"`
+		Role                  string  `json:"role"`
 		InputPricePerMillion  float64 `json:"input_price_per_million"`
 		OutputPricePerMillion float64 `json:"output_price_per_million"`
 		CachePricePerMillion  float64 `json:"cache_price_per_million"`
-		ContextWindow        int     `json:"context_window"`
-		Enabled              bool    `json:"enabled"`
-		SortOrder            int     `json:"sort_order"`
+		ContextWindow         int     `json:"context_window"`
+		Enabled               bool    `json:"enabled"`
+		SortOrder             int     `json:"sort_order"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		JSONError(w, http.StatusBadRequest, "invalid request")

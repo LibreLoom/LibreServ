@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"net"
 	"net/http"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
@@ -12,7 +13,7 @@ import (
 
 // ProvisionHandler handles service provisioning and plan info.
 type ProvisionHandler struct {
-	db *sql.DB
+	db  *sql.DB
 	svc *services.ProvisioningService
 }
 
@@ -55,11 +56,20 @@ func (h *ProvisionHandler) Provision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	creds, err := h.svc.Provision(deviceID, req.Service)
+	creds, err := h.svc.Provision(deviceID, req.Service, clientIPFromRequest(r))
 	if err != nil {
 		JSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	JSON(w, http.StatusOK, creds)
+}
+
+// clientIPFromRequest returns the client's IP without the port.
+func clientIPFromRequest(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

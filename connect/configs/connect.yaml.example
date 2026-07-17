@@ -19,6 +19,8 @@ stripe:
     price_lite: ""
     price_one: ""
 
+# Fallback email settings. The preferred way to configure email is through
+# the admin UI at Settings → Service Providers (service: smtp).
 smtp:
     host: smtp.libreloom.org
     port: 587
@@ -27,6 +29,8 @@ smtp:
     from: noreply@libreloom.org
     use_tls: true
 
+# Fallback DNS settings. The preferred way to configure DNS is through
+# the admin UI at Settings → Service Providers (service: dns).
 dns:
     provider: cloudflare
     api_token: ""
@@ -39,6 +43,8 @@ inference:
     api_key: ""
     enabled: false
 
+# Fallback backup settings. The preferred way to configure backups is through
+# the admin UI at Settings → Service Providers (service: backup).
 backup:
     provider: r2
     endpoint: ""

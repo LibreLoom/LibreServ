@@ -1,9 +1,9 @@
 const SERVICE_PLAN_AVAILABILITY = {
-  smtp: { free: true, one: true, payg: true },
-  domain: { free: true, one: true, payg: true },
-  backup: { free: false, one: true, payg: true },
-  tunnel: { free: true, one: true, payg: true },
-  ai: { free: true, one: true, payg: true },
+  smtp: { free: true, one: true, lite: true },
+  domain: { free: true, one: true, lite: true },
+  backup: { free: false, one: true, lite: true },
+  tunnel: { free: true, one: true, lite: true },
+  ai: { free: true, one: true, lite: true },
 };
 
 export function isServiceAvailableOnPlan(serviceId, planId) {

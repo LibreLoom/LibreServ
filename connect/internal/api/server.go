@@ -10,25 +10,28 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/relay"
 )
 
 // Server holds all HTTP dependencies and routes.
 type Server struct {
-	db      *sql.DB
-	router  *chi.Mux
-	billing *billing.Service
-	models  *models.Service
-	relay   *relay.Service
+	db        *sql.DB
+	router    *chi.Mux
+	billing   *billing.Service
+	models    *models.Service
+	relay     *relay.Service
+	providers *providers.Service
 }
 
 // NewServer creates and wires the HTTP server.
 func NewServer(db *sql.DB) *Server {
 	s := &Server{
-		db:      db,
-		billing: billing.NewService(db),
-		models:  models.NewService(db),
-		relay:   relay.NewService(db),
+		db:        db,
+		billing:   billing.NewService(db),
+		models:    models.NewService(db),
+		relay:     relay.NewService(db),
+		providers: providers.NewService(db),
 	}
 	s.setupRoutes()
 	return s
@@ -154,6 +157,13 @@ func (s *Server) setupRoutes() {
 
 			// Usage (aggregated)
 			r.Get("/usage", admin.GetAggregatedUsage)
+
+			// Service provider config
+			ph := handlers.NewProvidersHandler(s.providers)
+			r.Get("/providers", ph.ListProviders)
+			r.Post("/providers", ph.CreateProvider)
+			r.Put("/providers/{id}", ph.UpdateProvider)
+			r.Delete("/providers/{id}", ph.DeleteProvider)
 
 			// AI Models config
 			mh := handlers.NewModelsHandler(s.models)

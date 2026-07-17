@@ -1,29 +1,44 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
+
+	"github.com/google/uuid"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 )
 
 type ConnectHandler struct {
 	client          connect.Client
 	checker         *connect.EntitlementChecker
 	settingsService *settings.Service
+	caddyManager    *network.CaddyManager
+	backupService   *storage.BackupService
 }
 
-func NewConnectHandler(client connect.Client, checker *connect.EntitlementChecker, settingsService *settings.Service) *ConnectHandler {
+func NewConnectHandler(client connect.Client, checker *connect.EntitlementChecker, settingsService *settings.Service, caddyManager *network.CaddyManager, backupService *storage.BackupService) *ConnectHandler {
 	return &ConnectHandler{
 		client:          client,
 		checker:         checker,
 		settingsService: settingsService,
+		caddyManager:    caddyManager,
+		backupService:   backupService,
 	}
 }
+
+// smtpValidator is swapped out in tests to avoid real network calls.
+var smtpValidator = email.TestSMTP
 
 func (h *ConnectHandler) Status(w http.ResponseWriter, r *http.Request) {
 	if h.checker == nil {
@@ -122,7 +137,15 @@ func (h *ConnectHandler) UpdateServices(w http.ResponseWriter, r *http.Request) 
 			response.JSONError(w, http.StatusBadGateway, "Could not enable this service through Connect. Please try again.")
 			return
 		}
-		_ = creds
+
+		// Apply the provisioned credentials to the local server before recording the
+		// service as connected. If this fails, we keep the previous state so the user
+		// can retry without ending up with a half-configured service.
+		if err := h.applyCredentials(r.Context(), svcID, creds); err != nil {
+			slog.Error("failed to apply connect credentials", "service", svcID, "error", err)
+			response.JSONError(w, http.StatusBadGateway, fmt.Sprintf("We couldn't apply the Connect settings for %s to your server. %s", svcID, err.Error()))
+			return
+		}
 	}
 
 	// Persist the desired state so BYOK/disabled choices survive a restart.
@@ -171,6 +194,105 @@ func (h *ConnectHandler) Info(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusOK, info)
+}
+
+func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.ServiceID, creds *connect.ProvisionedCredentials) error {
+	if h.settingsService == nil {
+		return fmt.Errorf("Settings service is not available.")
+	}
+
+	switch svcID {
+	case connect.ServiceSMTP:
+		if creds.SMTP == nil {
+			return fmt.Errorf("Connect did not send any email credentials.")
+		}
+		if smtpValidator != nil {
+			cfg := config.SMTPConfig{
+				Host:     creds.SMTP.Host,
+				Port:     creds.SMTP.Port,
+				Username: creds.SMTP.Username,
+				Password: creds.SMTP.Password,
+				From:     creds.SMTP.From,
+				UseTLS:   creds.SMTP.UseTLS,
+			}
+			if err := smtpValidator(cfg); err != nil {
+				return fmt.Errorf("Could not connect to your email provider. Check that the server address and port are correct.")
+			}
+		}
+		return h.settingsService.UpdateSettings(ctx, map[string]interface{}{
+			"smtp": map[string]interface{}{
+				"host":     creds.SMTP.Host,
+				"port":     creds.SMTP.Port,
+				"username": creds.SMTP.Username,
+				"password": creds.SMTP.Password,
+				"from":     creds.SMTP.From,
+				"use_tls":  creds.SMTP.UseTLS,
+			},
+		})
+
+	case connect.ServiceDomain:
+		if creds.Domain == nil {
+			return fmt.Errorf("Connect did not send any domain credentials.")
+		}
+		domain := creds.Domain.Domain
+		if domain == "" {
+			return fmt.Errorf("Connect did not send a domain name.")
+		}
+		if err := validateDomain(domain); err != nil {
+			return fmt.Errorf("The domain name provided by Connect isn't valid.")
+		}
+		autoHTTPS := creds.Domain.AutoHTTPS
+		if err := h.settingsService.UpdateSettings(ctx, map[string]interface{}{
+			"proxy": map[string]interface{}{
+				"default_domain": domain,
+				"auto_https":     autoHTTPS,
+			},
+		}); err != nil {
+			return err
+		}
+		if h.caddyManager != nil {
+			if err := h.caddyManager.UpdateDefaults(domain, "", autoHTTPS); err != nil {
+				return fmt.Errorf("Could not apply the domain to your web server.")
+			}
+		}
+		return nil
+
+	case connect.ServiceBackup:
+		if creds.Backup == nil {
+			return fmt.Errorf("Connect did not send any backup credentials.")
+		}
+		if h.backupService == nil {
+			return fmt.Errorf("Backup service is not available.")
+		}
+		if ok, err := h.backupService.ProvisionRestic(); err != nil || !ok {
+			return fmt.Errorf("Could not set up the backup tool.")
+		}
+		envJSON, err := json.Marshal(creds.Backup.Env)
+		if err != nil {
+			return fmt.Errorf("Could not prepare the backup credentials.")
+		}
+		now := time.Now()
+		repo := &storage.BackupRepository{
+			ID:          uuid.New().String(),
+			RepoType:    creds.Backup.RepoType,
+			RepoPath:    creds.Backup.RepoPath,
+			Password:    creds.Backup.Password,
+			Credentials: string(envJSON),
+			IsSystem:    false,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if err := h.backupService.CreateRepository(ctx, repo); err != nil {
+			return fmt.Errorf("Could not save the backup repository.")
+		}
+		return nil
+
+	case connect.ServiceTunnel, connect.ServiceAI:
+		// Tunnel and AI credentials are applied by their respective services.
+		return nil
+	}
+
+	return nil
 }
 
 func defaultServiceStatuses() map[connect.ServiceID]connect.ServiceStatus {

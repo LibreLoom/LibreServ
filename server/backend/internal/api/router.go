@@ -95,7 +95,7 @@ func (s *Server) setupRoutes() {
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
 
 	// Initialize Connect handler
-	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker, s.settingsService)
+	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker, s.settingsService, s.caddyManager, s.backupService)
 
 	// Initialize AI agent chat handler
 	agentChatHandler := handlers.NewAgentChatHandler(s.db, s.authService, s.connectClient, s.connectChecker)

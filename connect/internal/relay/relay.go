@@ -20,17 +20,17 @@ func NewService(db *sql.DB) *Service {
 
 // Region is a tunnel relay node.
 type Region struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Provider  string  `json:"provider"`
-	Region    string  `json:"region"`
-	Host      string  `json:"host"`
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	Provider   string  `json:"provider"`
+	Region     string  `json:"region"`
+	Host       string  `json:"host"`
 	CapacityGB int     `json:"capacity_gb"`
-	UsedGB    float64 `json:"used_gb"`
-	IsPremium bool    `json:"is_premium"`
-	IsHealthy bool    `json:"is_healthy"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
+	UsedGB     float64 `json:"used_gb"`
+	IsPremium  bool    `json:"is_premium"`
+	IsHealthy  bool    `json:"is_healthy"`
+	CreatedAt  string  `json:"created_at"`
+	UpdatedAt  string  `json:"updated_at"`
 }
 
 // ListRegions returns all relay regions.
@@ -135,12 +135,12 @@ func (s *Service) AssignRelay(planID string) (*Region, error) {
 
 // FleetStatus returns a summary of the relay fleet.
 type FleetStatus struct {
-	TotalNodes     int     `json:"total_nodes"`
-	HealthyNodes   int     `json:"healthy_nodes"`
-	PremiumNodes   int     `json:"premium_nodes"`
-	TotalCapacityGB int    `json:"total_capacity_gb"`
-	TotalUsedGB    float64 `json:"total_used_gb"`
-	Providers      map[string]ProviderStatus `json:"providers"`
+	TotalNodes      int                       `json:"total_nodes"`
+	HealthyNodes    int                       `json:"healthy_nodes"`
+	PremiumNodes    int                       `json:"premium_nodes"`
+	TotalCapacityGB int                       `json:"total_capacity_gb"`
+	TotalUsedGB     float64                   `json:"total_used_gb"`
+	Providers       map[string]ProviderStatus `json:"providers"`
 }
 
 // ProviderStatus is per-provider relay stats.

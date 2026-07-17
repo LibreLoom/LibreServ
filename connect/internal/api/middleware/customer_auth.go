@@ -67,7 +67,7 @@ func CreateCustomerSession(db *sql.DB, accountID string) (string, error) {
 	expiresAt := time.Now().Add(time.Duration(ttl) * time.Hour)
 
 	_, err := db.Exec(
-	`INSERT INTO customer_sessions (id, account_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO customer_sessions (id, account_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
 		security.GenerateID("sess"), accountID, hash, expiresAt)
 	if err != nil {
 		return "", err
@@ -75,7 +75,6 @@ func CreateCustomerSession(db *sql.DB, accountID string) (string, error) {
 
 	return token, nil
 }
-
 
 // WithCustomerDeviceID attaches an account ID to a context for testing.
 func WithCustomerDeviceID(ctx context.Context, accountID string) context.Context {
