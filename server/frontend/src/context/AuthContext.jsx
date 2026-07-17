@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import api, { AuthError } from "../lib/api";
 import { AuthContext } from "./AuthContextContext";
 
-export function AuthProvider({ children }) {
+export function AuthProvider({ children, queryClient }) {
   const [me, setMe] = useState(null);
   const [csrfToken, setCsrfToken] = useState(null);
   const [initialized, setInitialized] = useState(false);
@@ -88,8 +88,9 @@ export function AuthProvider({ children }) {
     const csrfJSON = await csrfResponse.json();
     setMe(meJSON);
     setCsrfToken(csrfJSON.csrf_token);
+    queryClient?.invalidateQueries({ queryKey: ["user"] });
     return { status: "ok" };
-  }, []);
+  }, [queryClient]);
 
   // MFA challenge (e.g. trigger an email OTP, or get a WebAuthn challenge).
   const mfaChallenge = useCallback(async (mfaToken, type) => {
@@ -142,7 +143,8 @@ export function AuthProvider({ children }) {
     if (meResponse.status === "rejected" || csrfResponse.status === "rejected") {
       refreshAuth().catch(() => {});
     }
-  }, [refreshAuth]);
+    queryClient?.invalidateQueries({ queryKey: ["user"] });
+  }, [refreshAuth, queryClient]);
 
   const mfaRecover = useCallback(async (mfaToken, recoveryCode) => {
     await api("/auth/mfa/recover", {
@@ -174,8 +176,9 @@ export function AuthProvider({ children }) {
     } finally {
       setMe(null);
       setCsrfToken(null);
+      queryClient?.invalidateQueries({ queryKey: ["user"] });
     }
-  }, []);
+  }, [queryClient]);
 
   const request = useCallback(
     async (path, options = {}) => {

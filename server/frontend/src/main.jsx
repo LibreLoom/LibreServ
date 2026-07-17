@@ -26,7 +26,7 @@ createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
+        <AuthProvider queryClient={queryClient}>
           <ThemeProvider>
             <ToastProvider>
               <App />
