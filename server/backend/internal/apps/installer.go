@@ -183,6 +183,14 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	config["puid"] = os.Getuid()
 	config["pgid"] = os.Getgid()
 
+	// Auto-detect NVIDIA GPU availability for apps that can use GPU acceleration.
+	// This lets compose templates conditionally enable GPU support via {{if hasGPU}}
+	// without requiring the user to know or configure anything.
+	if _, err := os.Stat("/dev/nvidia0"); err == nil {
+		config["has_gpu"] = true
+	} else {
+		config["has_gpu"] = false
+	}
 	config["server"] = map[string]interface{}{
 		"server_port":      i.serverCtx.ServerPort,
 		"server_mode":      i.serverCtx.ServerMode,
@@ -206,7 +214,7 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 
 	config = i.generateAutoValues(appDef, config)
 	// Auto-provision OIDC credentials for internal-access apps
-	if appDef.Features.AccessModel == AccessModelInternal && i.oidcProvisioner != nil {
+	if appDef.AccessModel == AccessModelInternal && i.oidcProvisioner != nil {
 		appName := opts.Name
 		if appName == "" {
 			appName = appDef.Name

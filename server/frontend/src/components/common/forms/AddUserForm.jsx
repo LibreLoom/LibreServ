@@ -202,7 +202,7 @@ export default function AddUserForm({ onSuccess }) {
         </div>
       )}
 
-      <Button type="submit" variant="accent" loading={loading} className="w-full py-3">
+      <Button type="submit" variant="primary" loading={loading} className="w-full py-3">
         {loading ? (
           "Creating..."
         ) : (

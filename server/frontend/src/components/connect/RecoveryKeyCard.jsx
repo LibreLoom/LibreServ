@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Key, Copy, Download, Eye, EyeOff, AlertTriangle, Loader2 } from "lucide-react";
 import Card from "../cards/Card.jsx";
+import Button from "../ui/Button.jsx";
 import api from "../../lib/api.js";
 
 export default function RecoveryKeyCard({ repo, repoId = "" }) {
@@ -97,27 +98,30 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
             <code className="flex-1 text-xs font-mono bg-primary rounded-pill px-4 py-2.5 text-secondary overflow-hidden text-ellipsis whitespace-nowrap border-2 border-secondary/10">
               {revealed ? displayKey || "••••••••••••••••••••••••••" : "••••••••••••••••••••••••••"}
             </code>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => setRevealed(!revealed)}
-              className="p-2.5 rounded-pill bg-primary hover:bg-primary/80 border-2 border-secondary/10 text-accent hover:text-secondary motion-safe:transition-colors"
               title={revealed ? "Hide key" : "Show key"}
             >
               {revealed ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={handleCopy}
-              className="p-2.5 rounded-pill bg-primary hover:bg-primary/80 border-2 border-secondary/10 text-accent hover:text-secondary motion-safe:transition-colors"
               title={copied ? "Copied!" : "Copy to clipboard"}
             >
               <Copy size={16} />
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={handleDownload}
-              className="p-2.5 rounded-pill bg-primary hover:bg-primary/80 border-2 border-secondary/10 text-accent hover:text-secondary motion-safe:transition-colors"
               title="Download key file"
             >
               <Download size={16} />
-            </button>
+            </Button>
           </div>
           {copied && (
             <p className="text-xs text-accent">Copied to clipboard.</p>

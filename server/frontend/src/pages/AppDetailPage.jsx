@@ -45,11 +45,10 @@ import StatusPill from "../components/common/StatusPill";
 import { ActionCard } from "../components/app/actions/ActionCard";
 import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal";
 import { ExposedInfoCard } from "../components/app/ExposedInfoCard";
-import FeatureMatrix from "../components/app/FeatureMatrix";
+import AccessControlSection from "../components/app/AccessControlSection";
 import LogsViewer from "../components/app/LogsViewer";
 import RevocationBanner from "../components/app/RevocationBanner";
 import AcknowledgeRevocationModal from "../components/app/AcknowledgeRevocationModal";
-import AccessControlSection from "../components/app/AccessControlSection";
 import ReconfigureModal from "../components/app/ReconfigureModal";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -62,7 +61,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
     <ModalCard title="Uninstall App" onClose={onCancel}>
       <div className="space-y-4">
         <div className="flex items-center gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
-          <AlertTriangle className="text-secondary/80 shrink-0" size={24} />
+          <AlertTriangle className="text-primary shrink-0" size={24} />
           <p className="text-sm">
             This action <strong>cannot be undone</strong>. All data will be
             permanently deleted.
@@ -115,7 +114,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
             Cancel
           </Button>
           <Button
-            variant="accent"
+            variant="danger"
             onClick={onConfirm}
             disabled={!matches || isUninstalling}
             loading={isUninstalling}
@@ -427,7 +426,7 @@ export default function AppDetailPage() {
                   </div>
                   </div>
                   <Button
-                    variant="accent"
+                    variant="primary"
                     onClick={() => handleAppAction("update")}
                     disabled={actionLoading || availableUpdate.needs_config}
                     loading={actionLoading === "update"}
@@ -450,6 +449,7 @@ export default function AppDetailPage() {
               <div className="flex flex-wrap gap-3">
                 <Button
                   variant="secondary"
+                  surface="primary"
                   onClick={() =>
                     app.status === "stopped" && handleAppAction("start")
                   }
@@ -462,6 +462,7 @@ export default function AppDetailPage() {
 
                 <Button
                   variant="secondary"
+                  surface="primary"
                   onClick={() =>
                     app.status === "running" && handleAppAction("stop")
                   }
@@ -549,16 +550,6 @@ export default function AppDetailPage() {
               </Card>
             </section>
           )}
-
-          <section className="mt-8">
-            <Card surface="primary">
-              <div className="flex items-center gap-2 mb-6">
-                <Settings size={20} className="text-secondary/70" />
-                <h2 className="text-2xl font-mono font-normal">Capabilities</h2>
-              </div>
-              <FeatureMatrix features={catalogFeatures} compact onPrimary />
-            </Card>
-          </section>
 
           {catalogFeatures && (
             <AccessControlSection

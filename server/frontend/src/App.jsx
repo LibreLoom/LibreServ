@@ -31,8 +31,7 @@ function RequireAuth({ children }) {
   if (!initialized) return <LoadingFast label="Checking authentication..." />;
   if (!me) return <Login />;
   // Admins must have MFA enabled — block all UI usage (not sign-in) until they enroll.
-  // TEMPORARILY DISABLED FOR VISUAL VERIFICATION
-  // if (me.role === "admin" && !me.mfa_enabled) return <MfaBlocker />;
+  if (me.role === "admin" && !me.mfa_enabled) return <MfaBlocker />;
   return children;
 }
 

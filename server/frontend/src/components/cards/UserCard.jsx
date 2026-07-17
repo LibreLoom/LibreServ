@@ -35,7 +35,7 @@ export default function UserCard({
       </div>
 
       <div className="mt-4 space-y-2">
-        <Button variant="secondary" className="w-full" onClick={() => window.location.href = `/users/${id}`}>
+        <Button variant="primary" className="w-full" onClick={() => window.location.href = `/users/${id}`}>
           Manage
         </Button>
         {onDelete && (

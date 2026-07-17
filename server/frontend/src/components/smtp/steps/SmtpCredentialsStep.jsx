@@ -4,6 +4,7 @@ import PropTypes from "prop-types";
 import { Eye, EyeOff, ExternalLink, Info } from "lucide-react";
 import { SMTP_PRESETS } from "../smtp-wiz-constants";
 import Callout from "../../common/Callout";
+import Button from "../../ui/Button";
 
 const inputClass = "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
@@ -26,15 +27,12 @@ export default function SmtpCredentialsStep({ preset, config, onConfigChange, er
             <div className="space-y-2">
               <p className="leading-relaxed">{presetData.help}</p>
             {presetData.docs_url && (
-              <a
-                href={presetData.docs_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-pill border border-primary/15 bg-primary/5 text-primary px-3.5 py-2 font-mono text-xs motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/10 hover:border-primary/25"
-              >
-                <ExternalLink size={12} />
-                {presetData.link_label || "Open Documentation"}
-              </a>
+              <Button asChild variant="outline" surface="secondary" size="sm" className="font-mono text-xs">
+                <a href={presetData.docs_url} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink size={12} />
+                  {presetData.link_label || "Open Documentation"}
+                </a>
+              </Button>
             )}
             </div>
           </Callout>

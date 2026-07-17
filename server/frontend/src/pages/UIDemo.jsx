@@ -74,44 +74,41 @@ export default function UIDemo() {
               Toggle the theme to verify contrast in both modes.
             </p>
             <div className="flex items-center gap-2 p-1 bg-secondary text-primary rounded-pill">
-              <button
-                type="button"
+              <Button
+                variant={theme === "light" ? "primary" : "ghost"}
+                surface={theme === "light" ? "secondary" : "primary"}
+                size="sm"
                 data-slot="theme-toggle"
                 onClick={() => setTheme("light")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs font-mono motion-safe:transition-colors no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary",
-                  theme === "light" ? "bg-primary text-secondary" : "text-primary/70 hover:text-primary",
-                )}
-                aria-pressed={theme === "light"}
+                active={theme === "light"}
+                className="font-mono"
               >
                 <Sun size={14} aria-hidden="true" />
                 Light
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant={theme === "dark" ? "primary" : "ghost"}
+                surface={theme === "dark" ? "secondary" : "primary"}
+                size="sm"
                 data-slot="theme-toggle"
                 onClick={() => setTheme("dark")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-pill text-xs font-mono motion-safe:transition-colors no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary",
-                  theme === "dark" ? "bg-primary text-secondary" : "text-primary/70 hover:text-primary",
-                )}
-                aria-pressed={theme === "dark"}
+                active={theme === "dark"}
+                className="font-mono"
               >
                 <Moon size={14} aria-hidden="true" />
                 Dark
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant={theme === "system" ? "primary" : "ghost"}
+                surface={theme === "system" ? "secondary" : "primary"}
+                size="sm"
                 data-slot="theme-toggle"
                 onClick={() => setTheme("system")}
-                className={cn(
-                  "px-3 py-1.5 rounded-pill text-xs font-mono motion-safe:transition-colors no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-secondary",
-                  theme === "system" ? "bg-primary text-secondary" : "text-primary/70 hover:text-primary",
-                )}
-                aria-pressed={theme === "system"}
+                active={theme === "system"}
+                className="font-mono"
               >
                 System
-              </button>
+              </Button>
             </div>
           </div>
         }
@@ -429,12 +426,14 @@ export default function UIDemo() {
               title="Example modal"
               onClose={() => setDemoModalOpen(false)}
               footer={
+                ({ close }) => (
                 <div className="flex justify-end gap-2">
-                  <Button variant="ghost" onClick={() => setDemoModalOpen(false)}>
+                  <Button variant="ghost" onClick={close}>
                     Cancel
                   </Button>
-                  <Button onClick={() => setDemoModalOpen(false)}>Confirm</Button>
+                  <Button onClick={close}>Confirm</Button>
                 </div>
+                )
               }
             >
               <p className="text-primary/80 text-sm">

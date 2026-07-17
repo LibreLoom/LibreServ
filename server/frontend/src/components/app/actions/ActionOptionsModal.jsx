@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
 import ModalCard from "../../cards/ModalCard";
+import Button from "../../ui/Button";
 import ConfigFieldRenderer from "../wizard/ConfigFieldRenderer";
 import { ActionConfirmModal } from "./ActionConfirmModal";
 import { ActionResultModal } from "./ActionResultModal";
@@ -161,6 +161,8 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
   if (streamUrl && !result) {
     return (
       <ModalCard title={action.label} onClose={handleClose}>
+        {({ close }) => (
+        <>
         <div className="py-6">
           <ProgressFeedback
             streamUrl={streamUrl}
@@ -170,13 +172,17 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
           />
         </div>
         <div className="flex gap-3 pt-2">
-          <button
-            onClick={handleClose}
-            className="w-full px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors font-mono"
+          <Button
+            variant="outline"
+            surface="secondary"
+            onClick={close}
+            fullWidth
           >
             Cancel
-          </button>
+          </Button>
         </div>
+        </>
+        )}
       </ModalCard>
     );
   }
@@ -197,6 +203,7 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
 
   return (
     <ModalCard title={action.label} onClose={handleClose} data-slot="action-options-modal">
+      {({ close }) => (
       <form onSubmit={handleSubmit} className="space-y-4">
         {action.description && (
           <p className="text-sm text-primary/70 mb-4">{action.description}</p>
@@ -222,32 +229,34 @@ export function ActionOptionsModal({ action, onClose, onExecute }) {
         )}
 
         <div className="flex gap-3 pt-2">
-          <button
+          <Button
             type="button"
-            onClick={handleClose}
+            variant="outline"
+            surface="secondary"
+            onClick={close}
             disabled={executing}
-            className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors disabled:opacity-50 font-mono"
+            className="flex-1"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
+            variant="primary"
             disabled={executing}
-            className="flex-1 px-4 py-2 rounded-pill bg-primary text-secondary hover:ring-2 hover:ring-accent motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-mono"
+            loading={executing}
+            className="flex-1"
           >
             {executing ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Running...
-              </>
+              "Running..."
             ) : action.confirm?.enabled ? (
               "Continue"
             ) : (
               "Run"
             )}
-          </button>
+          </Button>
         </div>
       </form>
+      )}
     </ModalCard>
   );
 }

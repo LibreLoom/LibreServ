@@ -105,7 +105,7 @@ export default function InviteUserForm({ onSuccess } = {}) {
 
       <Button
         type="submit"
-        variant="accent"
+        variant="primary"
         loading={loading}
         disabled={!email.trim()}
         className="w-full py-3"

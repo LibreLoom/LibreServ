@@ -9,20 +9,35 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../co
 import { Sun, Moon } from "lucide-react";
 
 export default function Login() {
-  const { login, loading } = useAuth();
+  const { login, seedAdmin, loading } = useAuth();
   const { toggle } = useTheme();
   const navigate = useNavigate();
-  const [token, setToken] = useState("");
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [totpCode, setTotpCode] = useState("");
+  const [needs2FA, setNeeds2FA] = useState(false);
   const [error, setError] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     try {
-      login(token);
+      if (mode === "seed") {
+        await seedAdmin(email, password, name);
+        setMode("login");
+        setError("Admin account created. Please sign in.");
+        return;
+      }
+      const res = await login(email, password, totpCode);
+      if (res.requires_2fa) {
+        setNeeds2FA(true);
+        return;
+      }
       navigate("/");
-    } catch {
-      setError("Invalid admin token. Check the CONNECT_ADMIN_TOKEN setting.");
+    } catch (err) {
+      setError(err.message || "Could not sign in.");
     }
   };
 
@@ -40,30 +55,60 @@ export default function Login() {
         <CardHeader className="text-center">
           <CardTitle className="text-3xl">Connect Admin</CardTitle>
           <CardDescription>
-            Sign in with your admin token to manage devices, cases, and configuration.
+            {needs2FA
+              ? "Enter your authenticator code to continue."
+              : mode === "seed"
+                ? "Create the first admin account."
+                : "Sign in to manage devices, cases, and configuration."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Label htmlFor="token">Admin Token</Label>
-              <Input
-                id="token"
-                type="password"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder="Enter admin token"
-                autoFocus
-              />
-              <p className="mt-1.5 text-xs text-muted-foreground">
-                This is the admin token configured in your Connect server's auth settings.
-              </p>
-            </div>
+            {!needs2FA && (
+              <>
+                {mode === "seed" && (
+                  <div>
+                    <Label htmlFor="name">Name</Label>
+                    <Input id="name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+                  </div>
+                )}
+                <div>
+                  <Label htmlFor="email">Email</Label>
+                  <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@example.com" autoFocus />
+                </div>
+                <div>
+                  <Label htmlFor="password">Password</Label>
+                  <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={mode === "seed" ? "At least 12 characters" : "Enter your password"} />
+                </div>
+              </>
+            )}
+            {needs2FA && (
+              <div>
+                <Label htmlFor="totp">Authenticator Code</Label>
+                <Input id="totp" type="text" value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="000000" maxLength={6} autoFocus />
+              </div>
+            )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" size="lg" loading={loading}>
-              Sign In
+              {needs2FA ? "Verify" : mode === "seed" ? "Create Admin" : "Sign In"}
             </Button>
           </form>
+          {mode === "login" && !needs2FA && (
+            <button
+              onClick={() => setMode("seed")}
+              className="mt-4 w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              First time? Create the first admin account
+            </button>
+          )}
+          {mode === "seed" && (
+            <button
+              onClick={() => setMode("login")}
+              className="mt-4 w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Back to sign in
+            </button>
+          )}
         </CardContent>
       </Card>
     </div>

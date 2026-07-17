@@ -293,6 +293,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Button
             variant="outline"
+            surface="primary"
             size="sm"
             onClick={() => setDetailsOpen((open) => !open)}
             className="border-error/25 text-error hover:bg-error/10"
@@ -307,6 +308,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
           </Button>
           <Button
             variant="outline"
+            surface="primary"
             size="sm"
             onClick={handleCopyError}
             className="border-error/25 text-error hover:bg-error/10"
@@ -460,7 +462,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               detailsOpen ? "mt-3 max-h-72 translate-y-0 opacity-100" : "max-h-0 -translate-y-2 opacity-0 pointer-events-none"
             )}
           >
-            <div className="animate-dropdown-open rounded-[20px] border border-secondary/12 bg-primary/85 p-4 shadow-[0_22px_60px_rgba(0,0,0,0.12)] backdrop-blur-sm">
+            <div className="animate-dropdown-open rounded-large-element border border-secondary/12 bg-primary/85 p-4 shadow-[0_22px_60px_rgba(0,0,0,0.12)] backdrop-blur-sm">
               <div className="mb-3 flex items-center justify-between gap-3 border-b border-secondary/10 pb-3">
                 <div>
                   <p className="font-mono text-sm text-secondary">Live installation output</p>

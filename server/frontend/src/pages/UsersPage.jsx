@@ -1,9 +1,9 @@
-import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { User, Shield, Trash2, Settings, Plus } from "lucide-react";
 import { Link } from "react-router-dom";
 import Card from "../components/cards/Card";
-import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
+import Button from "../components/ui/Button";
 import VerificationCard from "../components/cards/VerificationCard";
 import Table from "../components/common/Table";
 import Pill from "../components/common/Pill";
@@ -116,15 +116,12 @@ export default function UsersPage() {
 
   return (
     <>
-      <main data-slot="users"
-        className={cn("bg-primary text-secondary px-8 pt-5 pb-32", showVerification ? "pop-out" : "pop-in")}
-        aria-labelledby="users-title"
-        id="main-content"
-        tabIndex={-1}
+      <Page
+        title="Users"
+        titleId="users-title"
+        data-slot="users"
+        className={showVerification ? "pop-out" : "pop-in"}
       >
-        <header>
-          <HeaderCard id="users-title" title="Users" />
-        </header>
 
         {loading && showLoading && (
           <StateOverlay message="Loading users..." />
@@ -204,14 +201,15 @@ export default function UsersPage() {
                           >
                             <Settings size={16} />
                           </Link>
-                          <button
-                            type="button"
+                          <Button
+                            variant="ghost"
+                            size="iconSm"
+                            surface="secondary"
                             onClick={() => handleDeleteClick(row.id, row.username)}
-                            className="p-1.5 rounded-full hover:bg-accent/20 text-primary/60 hover:text-accent motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
                             aria-label={`Delete ${row.username}`}
                           >
                             <Trash2 size={16} />
-                          </button>
+                          </Button>
                         </span>
                       ),
                     },
@@ -225,15 +223,18 @@ export default function UsersPage() {
         )}
 
         {!loading && !error && users.length > 0 && (
-          <Link
-            to="/users/create"
-             className="fixed bottom-8 right-8 z-40 bg-secondary text-primary rounded-full p-4 motion-safe:transition-all hover:scale-110 focus-visible:ring-2 focus:ring-primary focus:ring-offset-2 no-focus-outline"
-            aria-label="Add new user"
+          <Button
+            asChild
+            variant="secondary"
+            surface="primary"
+            className="fixed bottom-8 right-8 z-40 rounded-full p-4 hover:scale-110"
           >
-            <Plus size={32} aria-hidden="true" />
-          </Link>
+            <Link to="/users/create" aria-label="Add new user">
+              <Plus size={32} aria-hidden="true" />
+            </Link>
+          </Button>
         )}
-      </main>
+      </Page>
 
       {showVerification && userToDelete && (
         <VerificationCard

@@ -21,12 +21,7 @@ export const TYPE_META = {
 
 export const ORDER = ["totp", "email", "passkey", "security_key"];
 
-// Shared styles for inputs/buttons inside the inverted (bg-secondary) Card.
+// Shared styles for inputs inside the inverted (bg-secondary) Card.
+// Buttons use the canonical Button primitive (../ui/Button).
 export const inputClass =
   "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
-
-export const primaryButtonClass =
-  "group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-3 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none";
-
-export const secondaryButtonClass =
-  "w-full rounded-pill border border-primary/20 bg-transparent text-primary px-6 py-3 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8";

@@ -4,6 +4,7 @@ import { Eye, EyeOff, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CollapsibleSection from "../../common/CollapsibleSection";
 import Callout from "../../common/Callout";
+import Button from "../../ui/Button";
 
 const inputClass = "w-full px-5 py-3.5 rounded-pill border border-primary/20 bg-transparent text-primary placeholder:text-primary/50 font-mono text-sm focus:outline-none focus:border-primary/50 motion-safe:transition-colors motion-safe:duration-150";
 
@@ -88,28 +89,18 @@ export default function TokenInputStep({ token, onTokenChange, email, onEmailCha
             </div>
           ))}
           <div className="flex items-center gap-2 pt-2">
-            <a
-              href="https://dash.cloudflare.com/profile/api-tokens"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-pill border border-primary/15 bg-primary/5 text-primary px-3.5 py-2 font-mono text-xs motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/10 hover:border-primary/25",
-              )}
-            >
-              <ExternalLink size={12} />
-              Open Dashboard
-            </a>
-            <a
-              href="https://developers.cloudflare.com/fundamentals/api/get-started/create-token/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-pill border border-primary/10 text-primary/50 px-3.5 py-2 font-mono text-xs motion-safe:transition-all motion-safe:duration-200 hover:text-primary/70 hover:border-primary/20",
-              )}
-            >
-              <ExternalLink size={12} />
-              Open Documentation
-            </a>
+            <Button asChild variant="outline" surface="secondary" size="sm" className="font-mono text-xs">
+              <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer">
+                <ExternalLink size={12} />
+                Open Dashboard
+              </a>
+            </Button>
+            <Button asChild variant="outline" surface="secondary" size="sm" className="font-mono text-xs">
+              <a href="https://developers.cloudflare.com/fundamentals/api/get-started/create-token/" target="_blank" rel="noopener noreferrer">
+                <ExternalLink size={12} />
+                Open Documentation
+              </a>
+            </Button>
           </div>
         </div>
       </CollapsibleSection>

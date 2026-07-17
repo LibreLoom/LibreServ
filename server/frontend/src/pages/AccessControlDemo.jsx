@@ -1,7 +1,7 @@
-import { cn } from "@/lib/utils";
 /* color-scan: ignore-file - demo page with mock data */
 import { useState } from "react";
 import Page from "../components/ui/Page.jsx";
+import Button from "../components/ui/Button.jsx";
 import AccessControlSection from "../components/app/AccessControlSection.jsx";
 
 /**
@@ -124,28 +124,26 @@ export default function AccessControlDemo() {
 
         {/* Variant switcher */}
         <div className="flex gap-2 mb-8">
-          <button
+          <Button
+            variant={variant === "internal" ? "secondary" : "outline"}
+            surface="primary"
+            size="lg"
+            active={variant === "internal"}
             onClick={() => setVariant("internal")}
-            className={cn(
-              "px-6 py-3 rounded-pill font-mono transition-colors",
-              variant === "internal"
-                ? "bg-secondary text-primary"
-                : "border-2 border-primary/20 text-secondary/80 hover:bg-primary/5",
-            )}
+            className="font-mono"
           >
             Internal (SSO)
-          </button>
-          <button
+          </Button>
+          <Button
+            variant={variant === "external" ? "secondary" : "outline"}
+            surface="primary"
+            size="lg"
+            active={variant === "external"}
             onClick={() => setVariant("external")}
-            className={cn(
-              "px-6 py-3 rounded-pill font-mono transition-colors",
-              variant === "external"
-                ? "bg-secondary text-primary"
-                : "border-2 border-primary/20 text-secondary/80 hover:bg-primary/5",
-            )}
+            className="font-mono"
           >
             External (Restricted)
-          </button>
+          </Button>
         </div>
 
         <AccessControlSection

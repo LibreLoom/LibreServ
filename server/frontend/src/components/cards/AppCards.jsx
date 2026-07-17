@@ -2,6 +2,7 @@ import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings } from "lucide-react";
 import Card from "./Card";
+import Button from "../ui/Button";
 import CardButton from "./CardButton";
 import AppIcon from "../common/AppIcon";
 import StatusPill from "../common/StatusPill";
@@ -127,12 +128,9 @@ function NoAppsCard() {
         When apps are installed, they will appear here.
       </p>
 
-      <Link
-        to="/apps"
-        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary hover:ring-2 hover:ring-accent transition-all font-mono font-medium text-sm"
-      >
-        Install an App
-      </Link>
+      <Button asChild variant="primary" className="font-mono">
+        <Link to="/apps">Install an App</Link>
+      </Button>
     </Card>
   );
 }

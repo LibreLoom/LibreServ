@@ -85,7 +85,7 @@ function ServiceStatusCardInner({
         </Expandable>
       )}
 
-      <Button variant="secondary" className="w-full mt-4" onClick={() => window.location.href = `/apps/${name}`}>
+      <Button variant="primary" className="w-full mt-4" onClick={() => window.location.href = `/apps/${name}`}>
         Manage
       </Button>
     </BaseCard>

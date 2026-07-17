@@ -80,7 +80,8 @@ func (s *Server) setupRoutes() {
 	r.Route("/portal", func(r chi.Router) {
 		portal := handlers.NewPortalHandler(s.db)
 
-		// Login is public
+		// Public routes
+		r.Post("/register", portal.Register)
 		r.Post("/login", portal.Login)
 		r.Get("/plans", portal.GetPlans)
 
@@ -88,12 +89,30 @@ func (s *Server) setupRoutes() {
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.CustomerAuth(s.db))
 
+			// Devices
 			r.Get("/devices", portal.GetDevices)
+			r.Get("/license-keys", portal.GetLicenseKeys)
+			r.Post("/license-keys", portal.GenerateLicenseKey)
+			r.Post("/license-keys/revoke", portal.RevokeLicenseKey)
+
+			// 2FA
+			r.Post("/2fa/setup", portal.Setup2FA)
+			r.Post("/2fa/verify", portal.Verify2FA)
+			r.Post("/2fa/disable", portal.Disable2FA)
+
+			// Usage & billing
 			r.Get("/usage", portal.GetUsage)
 			r.Get("/billing", portal.GetBilling)
 			r.Post("/subscribe", portal.Subscribe)
 			r.Post("/cancel", portal.Cancel)
 			r.Post("/change-plan", portal.ChangePlan)
+
+			r.Post("/checkout", portal.CreateCheckoutSession)
+			r.Post("/billing-portal", portal.BillingPortal)
+
+			// Consent
+			r.Get("/consent", portal.GetConsentRequests)
+			r.Post("/consent/respond", portal.RespondConsent)
 		})
 	})
 
@@ -102,49 +121,61 @@ func (s *Server) setupRoutes() {
 
 	// Admin routes (separate auth)
 	r.Route("/admin", func(r chi.Router) {
-		r.Use(middleware.AdminAuth)
+		// Public admin routes (login, seed)
+		authHandler := handlers.NewAdminAuthHandler(s.db)
+		r.Post("/login", authHandler.Login)
+		r.Post("/seed", authHandler.SeedAdmin)
 
-		admin := handlers.NewAdminHandler(s.db)
+		// Authenticated admin routes
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.AdminAuth(s.db))
 
-		// Devices
-		r.Get("/devices", admin.ListDevices)
-		r.Get("/devices/{deviceID}", admin.GetDevice)
-		r.Get("/devices/{deviceID}/usage", admin.GetDeviceUsage)
-		r.Post("/devices/{deviceID}/credentials/rotate", admin.RotateCredentials)
+			admin := handlers.NewAdminHandler(s.db)
 
-		// Cases
-		r.Get("/cases", admin.ListCases)
-		r.Get("/cases/{caseID}", admin.GetCase)
-		r.Post("/cases/{caseID}/messages", admin.AddCaseMessage)
-		r.Post("/cases/{caseID}/consent-requests", admin.CreateConsentRequest)
+			// 2FA
+			r.Post("/2fa/setup", authHandler.Setup2FA)
+			r.Post("/2fa/verify", authHandler.Verify2FA)
 
-		// Plans
-		r.Get("/plans", admin.ListPlans)
-		r.Put("/plans/{planID}", admin.UpdatePlan)
+			// Devices
+			r.Get("/devices", admin.ListDevices)
+			r.Get("/devices/{deviceID}", admin.GetDevice)
+			r.Get("/devices/{deviceID}/usage", admin.GetDeviceUsage)
+			r.Post("/devices/{deviceID}/credentials/rotate", admin.RotateCredentials)
 
-		// Usage (aggregated)
-		r.Get("/usage", admin.GetAggregatedUsage)
+			// Cases
+			r.Get("/cases", admin.ListCases)
+			r.Get("/cases/{caseID}", admin.GetCase)
+			r.Post("/cases/{caseID}/messages", admin.AddCaseMessage)
+			r.Post("/cases/{caseID}/consent-requests", admin.CreateConsentRequest)
 
-		// AI Models config
-		mh := handlers.NewModelsHandler(s.models)
-		r.Get("/models/providers", mh.ListProviders)
-		r.Post("/models/providers", mh.CreateProvider)
-		r.Put("/models/providers/{id}", mh.UpdateProvider)
-		r.Delete("/models/providers/{id}", mh.DeleteProvider)
-		r.Get("/models", mh.ListModels)
-		r.Post("/models", mh.CreateModel)
-		r.Put("/models/{id}", mh.UpdateModel)
-		r.Delete("/models/{id}", mh.DeleteModel)
-		r.Get("/models/fallback/{role}", mh.GetFallbackChain)
-		r.Post("/models/fallback/{role}", mh.SetFallbackChain)
+			// Plans
+			r.Get("/plans", admin.ListPlans)
+			r.Put("/plans/{planID}", admin.UpdatePlan)
 
-		// Relay fleet
-		rh := handlers.NewRelayHandler(s.relay)
-		r.Get("/relay", rh.GetFleetStatus)
-		r.Get("/relay/regions", rh.ListRegions)
-		r.Post("/relay/regions", rh.CreateRegion)
-		r.Put("/relay/regions/{id}/health", rh.UpdateRegionHealth)
-		r.Delete("/relay/regions/{id}", rh.DeleteRegion)
+			// Usage (aggregated)
+			r.Get("/usage", admin.GetAggregatedUsage)
+
+			// AI Models config
+			mh := handlers.NewModelsHandler(s.models)
+			r.Get("/models/providers", mh.ListProviders)
+			r.Post("/models/providers", mh.CreateProvider)
+			r.Put("/models/providers/{id}", mh.UpdateProvider)
+			r.Delete("/models/providers/{id}", mh.DeleteProvider)
+			r.Get("/models", mh.ListModels)
+			r.Post("/models", mh.CreateModel)
+			r.Put("/models/{id}", mh.UpdateModel)
+			r.Delete("/models/{id}", mh.DeleteModel)
+			r.Get("/models/fallback/{role}", mh.GetFallbackChain)
+			r.Post("/models/fallback/{role}", mh.SetFallbackChain)
+
+			// Relay fleet
+			rh := handlers.NewRelayHandler(s.relay)
+			r.Get("/relay", rh.GetFleetStatus)
+			r.Get("/relay/regions", rh.ListRegions)
+			r.Post("/relay/regions", rh.CreateRegion)
+			r.Put("/relay/regions/{id}/health", rh.UpdateRegionHealth)
+			r.Delete("/relay/regions/{id}", rh.DeleteRegion)
+		})
 	})
 
 	s.router = r

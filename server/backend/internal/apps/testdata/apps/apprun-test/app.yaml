@@ -190,29 +190,7 @@ updates:
   strategy: notify
   backup_before_update: true
 
-features:
-  read_only: false
-  no_uninstall: false
-  experimental: true
-  requires_root: false
-  requires_gpu: false
-  supported_os:
-    - linux
-    - darwin
-  unsupported_os:
-    - windows
-  min_ram: 64
-  min_cpu: 1
-  access_model: internal
-  backup: supported
-  update_behavior:
-    automatic: false
-    requires_downtime: true
-    supports_rollback: true
-  custom_domains: true
-  resource_hints:
-    single_instance: true
-    privileged_required: false
+access_model: internal
 
 scripts:
   system:

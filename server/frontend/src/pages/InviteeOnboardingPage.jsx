@@ -160,13 +160,16 @@ export default function InviteeOnboardingPage() {
             </div>
           )}
 
-          <button
+          <Button
             type="submit"
+            variant="secondary"
+            surface="primary"
+            loading={submitting}
             disabled={submitting || !username.trim() || !strength.ok}
-            className="bg-secondary text-primary rounded-pill p-2 mt-6 transition-all duration-300 ease-out hover:bg-primary hover:text-secondary hover:ring-accent hover:ring-2 disabled:bg-accent disabled:cursor-not-allowed disabled:ring-0"
+            className="mt-6 p-2"
           >
             {submitting ? "Setting up…" : "Finish setup"}
-          </button>
+          </Button>
           {error && <Alert variant="error" message={error} className="mt-4" />}
         </form>
       </div>

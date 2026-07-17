@@ -6,6 +6,8 @@ import { objectnotfound as quips } from "../assets/greetings";
 
 import Card from "../components/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
+import Button from "../components/ui/Button";
 
 /* ======================================================================
    Helpers
@@ -90,28 +92,8 @@ export default function ObjectNotFound({
     }
   }
 
-  const Wrapper = includeMain ? "main" : "section";
-
-   // Shared button/link base class:
-   // We use focus-visible:ring-* for keyboard focus indicators and apply ring utilities for hover/focus states.
-    const solidPill =
-      "inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium " +
-      "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary hover:ring-solid " +
-      "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2";
-
-    const ghostPill =
-      "inline-flex items-center gap-2 rounded-pill bg-transparent text-primary px-4 py-2 text-sm font-medium ring-2 ring-accent " +
-      "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-0 " +
-      "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2";
-
-  return (
-     <Wrapper
-       className="bg-primary text-secondary px-8 pt-10 pb-32 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline" data-slot="object-not-found"
-       aria-labelledby={regionTitleId}
-       aria-describedby={detailsId}
-       id="main-content"
-       tabIndex={-1}
-     >
+  const pageContent = (
+    <>
       <span id={regionTitleId} className="sr-only">
         {titleLabel} Not Found
       </span>
@@ -162,24 +144,24 @@ export default function ObjectNotFound({
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3 justify-center">
-              <button
-                type="button"
-                onClick={handleGoBack}
-                className={solidPill}
-              >
+              <Button type="button" variant="primary" onClick={handleGoBack}>
                 <ArrowLeft size={18} aria-hidden="true" />
                 Go back
-              </button>
+              </Button>
 
-              <Link to={backTo} className={solidPill}>
-                {BackIcon ? <BackIcon size={18} aria-hidden="true" /> : null}
-                {backLabel}
-              </Link>
+              <Button asChild variant="primary">
+                <Link to={backTo}>
+                  {BackIcon ? <BackIcon size={18} aria-hidden="true" /> : null}
+                  {backLabel}
+                </Link>
+              </Button>
 
-              <Link to="/" className={ghostPill}>
-                <Home size={18} aria-hidden="true" />
-                Home
-              </Link>
+              <Button asChild variant="outline" surface="secondary">
+                <Link to="/">
+                  <Home size={18} aria-hidden="true" />
+                  Home
+                </Link>
+              </Button>
             </div>
 
             <div className="mt-8 rounded-large-element bg-primary/10 p-6">
@@ -195,6 +177,29 @@ export default function ObjectNotFound({
           </Card>
         </div>
       </div>
-    </Wrapper>
+    </>
+  );
+
+  // Embedded mode (includeMain=false): the caller provides the page shell, so
+  // render a plain section and keep the region labelling on it.
+  if (!includeMain) {
+    return (
+      <section
+        className="bg-primary text-secondary px-8 pt-10 pb-32 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
+        data-slot="object-not-found"
+        aria-labelledby={regionTitleId}
+        aria-describedby={detailsId}
+        id="main-content"
+        tabIndex={-1}
+      >
+        {pageContent}
+      </section>
+    );
+  }
+
+  return (
+    <Page className="pt-10" data-slot="object-not-found">
+      {pageContent}
+    </Page>
   );
 }

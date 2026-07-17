@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { AlertTriangle } from "lucide-react";
+import Button from "../../ui/Button";
 
 export default function SkipConfirmStep({ onBack, onSkip }) {
   return (
@@ -17,20 +18,23 @@ export default function SkipConfirmStep({ onBack, onSkip }) {
         You can configure this later in Settings &rarr; Network.
       </p>
       <div className="flex flex-col gap-3 w-full">
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          surface="secondary"
+          fullWidth
           onClick={onBack}
-          className="w-full rounded-pill border border-primary/20 bg-transparent text-primary px-6 py-3 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8"
+          className="px-6 py-3 font-mono"
         >
           Go back
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="accent"
+          fullWidth
           onClick={onSkip}
-          className="w-full rounded-pill border border-error/20 bg-error/8 text-error/80 px-6 py-3 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-error/12 hover:text-error"
+          className="px-6 py-3 font-mono"
         >
           Skip anyway
-        </button>
+        </Button>
       </div>
     </div>
   );

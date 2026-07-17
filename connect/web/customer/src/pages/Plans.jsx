@@ -24,7 +24,7 @@ export default function Plans() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl font-bold mb-2">Plans</h2>
+      <h2 className="font-mono text-2xl mb-2">Plans</h2>
       <p className="text-muted-foreground mb-8">
         Choose the plan that fits your needs. You can change or cancel at any time.
         Overage is charged at our actual cost — no hidden markups.
@@ -41,7 +41,7 @@ export default function Plans() {
                 <p className="text-sm text-muted-foreground">{plan.description}</p>
               </CardHeader>
               <CardContent>
-                <p className="font-mono text-3xl font-bold mb-4">
+                <p className="font-mono text-3xl mb-4">
                   ${plan.price_monthly / 100}
                   <span className="text-sm text-muted-foreground font-sans">/month</span>
                 </p>

@@ -1,8 +1,10 @@
 import { cn } from "@/lib/utils";
 import { memo } from "react";
 import { AlertTriangle, Info, HardDrive, Cpu, MemoryStick } from "lucide-react";
+import Card from "../../cards/Card";
 import AppIcon from "../../common/AppIcon";
-import FeatureMatrix from "../FeatureMatrix";
+import Button from "../../ui/Button";
+
 
 const ACCESS_MODEL_INFO = {
   shared_account: {
@@ -85,9 +87,9 @@ function OverviewStep({ app, features, onContinue, onBack }) {
     <div className="space-y-6">
       <div className="text-center space-y-4">
         {app?.id && (
-          <div className="w-16 h-16 mx-auto">
-            <AppIcon appId={app.id} size={64} className="text-secondary" />
-          </div>
+          <Card surface="secondary" className="inline-flex items-center justify-center w-20 h-20 p-2">
+            <AppIcon appId={app.id} size={64} className="text-primary" />
+          </Card>
         )}
         <h2 className="font-mono text-2xl font-normal text-secondary">
           Install {app?.name || "App"}
@@ -100,16 +102,6 @@ function OverviewStep({ app, features, onContinue, onBack }) {
       {features && features.access_model && (
         <div className="max-w-md mx-auto">
           <FeatureWarning info={accessInfo} />
-        </div>
-      )}
-
-      {features && (
-        <div className="max-w-2xl mx-auto">
-          <div className="border-t border-secondary/20 pt-6">
-            <div className="bg-secondary text-primary rounded-large-element p-5">
-              <FeatureMatrix features={features} />
-            </div>
-          </div>
         </div>
       )}
 
@@ -137,20 +129,24 @@ function OverviewStep({ app, features, onContinue, onBack }) {
       )}
 
       <div className="flex justify-center gap-3 pt-4">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          surface="primary"
           onClick={onBack}
-          className="px-6 py-2 rounded-pill border-2 border-secondary/30 text-secondary hover:bg-secondary/10 motion-safe:transition-all font-mono"
+          className="px-6"
         >
           Cancel
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="secondary"
+          surface="primary"
           onClick={onContinue}
-          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
+          className="px-6"
         >
           Continue
-        </button>
+        </Button>
       </div>
     </div>
   );

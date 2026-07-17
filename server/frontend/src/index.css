@@ -152,26 +152,19 @@ html[data-theme-transitioning] * {
   --secondary: #000000;
   --accent: #767676;
   --radius: 1.5rem;
-  /* shadcn semantic tokens — Simplex Mono identity (inverted surfaces) */
-  --background: #ffffff;
-  --foreground: #000000;
-  --card: #000000;
-  --card-foreground: #ffffff;
-  --popover: #000000;
-  --popover-foreground: #ffffff;
+  /* shadcn semantic tokens — derived from the palette so one change propagates */
+  --background: var(--primary);
+  --foreground: var(--secondary);
+  --card: var(--secondary);
+  --card-foreground: var(--primary);
+  --popover: var(--secondary);
+  --popover-foreground: var(--primary);
 }
 
 .dark {
   --primary: #000000;
   --secondary: #ffffff;
   --accent: #767676;
-  /* shadcn semantic tokens — Simplex Mono identity (inverted surfaces) */
-  --background: #000000;
-  --foreground: #ffffff;
-  --card: #ffffff;
-  --card-foreground: #000000;
-  --popover: #ffffff;
-  --popover-foreground: #000000;
 }
 body {
   background-color: var(--color-primary);
@@ -205,7 +198,7 @@ body {
 @keyframes pop-in {
     from {
         opacity: 0;
-        transform: translateY(6px) scale(0.96);
+        transform: translateY(12px) scale(0.95);
     }
     to {
         opacity: 1;
@@ -245,10 +238,6 @@ body {
         opacity: 1;
         transform: translateY(0) scale(1);
     }
-}
-
-.pop-in {
-    animation: pop-in 200ms ease-out both;
 }
 
 .animate-dropdown-open {
@@ -319,6 +308,24 @@ body {
     will-change: transform, opacity;
 }
 
+/* PillGauge — per-segment fill-up on mount */
+@keyframes pill-gauge-fill {
+    from {
+        opacity: 0;
+        transform: scaleX(0.3);
+    }
+    to {
+        opacity: 1;
+        transform: scaleX(1);
+    }
+}
+
+.animate-pill-gauge-fill {
+    animation: pill-gauge-fill 300ms var(--motion-easing-emphasized-decelerate) both;
+    transform-origin: left center;
+    will-change: transform, opacity;
+}
+
 /* Settings sidebar nav — staggered slide-in from left */
 @keyframes nav-slide-in {
     from {
@@ -344,12 +351,33 @@ body {
     }
     to {
         opacity: 0;
-        transform: translateY(6px) scale(0.96);
+        transform: translateY(14px) scale(0.94);
     }
 }
 
 .pop-out {
-    animation: pop-out 200ms ease-in both;
+    animation: pop-out 220ms var(--motion-easing-emphasized-accelerate) both;
+}
+
+.pop-in {
+    animation: pop-in 300ms var(--motion-easing-emphasized-decelerate) both;
+}
+
+/* Staggered card grid entrance — rise up + subtle scale, cascading wave */
+@keyframes card-stagger {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.animate-card-stagger {
+    animation: card-stagger var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
 }
 
 /* Material Design 3 Indeterminate Linear Progress Animations */
@@ -675,12 +703,6 @@ body {
         opacity: 1;
         transform: none;
     }
-    .animate-in,
-    .animate-out {
-        animation: none !important;
-        opacity: 1;
-        transform: none;
-    }
     .animate-cursor-blink {
         animation: none;
         opacity: 1;
@@ -691,7 +713,9 @@ body {
     .animate-toggle-settle,
     .animate-segmented-settle,
     .animate-alert-enter,
-    .animate-nav-slide-in {
+    .animate-nav-slide-in,
+    .animate-card-stagger,
+    .animate-pill-gauge-fill {
         animation: none !important;
         opacity: 1;
         transform: none;
@@ -733,6 +757,31 @@ body {
     .delay-75, .delay-100, .delay-150, .delay-200,
     .delay-300, .delay-400, .delay-500, .delay-600, .delay-700 {
         animation-delay: 0ms;
+    }
+}
+
+/* Route change — page content rises in softly */
+@keyframes page-enter {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-page-enter {
+    animation: page-enter 320ms var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-page-enter {
+        animation: none !important;
+        opacity: 1;
+        transform: none;
     }
 }
 

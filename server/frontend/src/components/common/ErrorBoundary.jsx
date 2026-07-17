@@ -2,6 +2,7 @@ import { Component } from "react";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, RefreshCw, Home, Bug } from "lucide-react";
 import PropTypes from "prop-types";
+import Button from "../ui/Button";
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -40,16 +41,6 @@ class ErrorBoundary extends Component {
 
   render() {
     if (this.state.hasError) {
-      const primaryBtn =
-        cn("inline-flex items-center justify-center gap-2 rounded-pill bg-secondary text-primary px-6 py-3 font-medium",
-          "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent",
-          "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2");
-
-      const secondaryBtn =
-        cn("inline-flex items-center justify-center gap-2 ring-2 ring-secondary rounded-pill bg-transparent text-secondary px-6 py-3 font-medium",
-          "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0",
-          "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2");
-
       return (
         <div className={cn("min-h-screen bg-primary flex items-center justify-center p-4")} data-slot="error-boundary">
           <div className="max-w-lg w-full">
@@ -101,23 +92,36 @@ class ErrorBoundary extends Component {
              )}
 
             <div className="space-y-3">
-              <button
+              <Button
+                variant="secondary"
+                surface="primary"
+                size="lg"
+                fullWidth
                 onClick={this.handleReload}
-                className={cn("w-full", primaryBtn)}
               >
                 <RefreshCw className="w-5 h-5" />
                 Reload Page
-              </button>
+              </Button>
 
               <div className="grid grid-cols-2 gap-3">
-                <button onClick={this.handleGoBack} className={secondaryBtn}>
+                <Button
+                  variant="outline"
+                  surface="primary"
+                  size="lg"
+                  onClick={this.handleGoBack}
+                >
                   Go Back
-                </button>
+                </Button>
 
-                <button onClick={this.handleGoHome} className={secondaryBtn}>
+                <Button
+                  variant="outline"
+                  surface="primary"
+                  size="lg"
+                  onClick={this.handleGoHome}
+                >
                   <Home className="w-5 h-5" />
                   Go Home
-                </button>
+                </Button>
               </div>
             </div>
 

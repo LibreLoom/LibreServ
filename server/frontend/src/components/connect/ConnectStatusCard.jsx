@@ -85,7 +85,7 @@ export default function ConnectStatusCard({
               >
                 {loading ? "Connecting..." : "Connect"}
               </Button>
-              <Button variant="accent" onClick={close}>
+              <Button variant="outline" onClick={close}>
                 Back
               </Button>
             </div>
@@ -123,7 +123,7 @@ export default function ConnectStatusCard({
         </p>
 
         <div className="flex gap-2">
-          <Button variant="accent" onClick={onOpenPlanPage}>
+          <Button variant="primary" onClick={onOpenPlanPage}>
             <ExternalLink size={16} /> Manage Plan
           </Button>
           <Button variant="danger" onClick={onDeactivate}>

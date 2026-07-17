@@ -54,3 +54,18 @@ func RandomPassword(n int) string {
 func RandomString(n int) string {
 	return RandomPassword(n)
 }
+
+// GenerateLicenseKey creates a human-readable license key in the format XXXX-XXXX-XXXX-XXXX.
+func GenerateLicenseKey() string {
+	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no I, O, 0, 1 to avoid confusion
+	b := make([]byte, 16)
+	max := big.NewInt(int64(len(chars)))
+	for i := range b {
+		idx, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			panic("crypto/rand failed: " + err.Error())
+		}
+		b[i] = chars[idx.Int64()]
+	}
+	return fmt.Sprintf("%s-%s-%s-%s", string(b[0:4]), string(b[4:8]), string(b[8:12]), string(b[12:16]))
+}

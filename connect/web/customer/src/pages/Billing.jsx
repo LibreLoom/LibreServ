@@ -20,17 +20,17 @@ export default function Billing() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl font-bold mb-6">Billing</h2>
+      <h2 className="font-mono text-2xl mb-6">Billing</h2>
 
       <Card className="mb-6">
         <CardHeader><CardTitle className="text-sm text-muted-foreground">Account Credit Balance</CardTitle></CardHeader>
         <CardContent>
-          <p className="font-mono text-3xl font-bold">${(balance / 100).toFixed(2)}</p>
+          <p className="font-mono text-3xl">${(balance / 100).toFixed(2)}</p>
           <p className="text-sm text-muted-foreground mt-1">1 credit = $0.01. Credits apply to subscriptions and overage.</p>
         </CardContent>
       </Card>
 
-      <h3 className="font-mono text-lg font-bold mb-4">Invoices</h3>
+      <h3 className="font-mono text-lg mb-4">Invoices</h3>
       {invoices.length === 0 ? (
         <Card className="mb-8"><p className="text-muted-foreground text-center">No invoices yet.</p></Card>
       ) : (
@@ -49,7 +49,7 @@ export default function Billing() {
         </div>
       )}
 
-      <h3 className="font-mono text-lg font-bold mb-4">Recent Transactions</h3>
+      <h3 className="font-mono text-lg mb-4">Recent Transactions</h3>
       {transactions.length === 0 ? (
         <Card className="mb-8"><p className="text-muted-foreground text-center">No transactions yet.</p></Card>
       ) : (
@@ -60,7 +60,7 @@ export default function Billing() {
                 <p className="font-mono text-sm">{tx.reason}</p>
                 <p className="text-sm text-muted-foreground">{new Date(tx.created_at).toLocaleString()}</p>
               </div>
-              <p className={`font-mono font-bold ${tx.direction === "credit" ? "text-success" : "text-destructive"}`}>
+              <p className={`font-mono ${tx.direction === "credit" ? "text-success" : "text-destructive"}`}>
                 {tx.direction === "credit" ? "+" : "−"}${(tx.amount_cents / 100).toFixed(2)}
               </p>
             </Card>

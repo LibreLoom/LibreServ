@@ -16,7 +16,7 @@ func TestSupportCreateCase(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewSupportHandler(db)
 
-	deviceID := activateDevice(t, db, "support_case_token")
+	deviceID := activateDevice(t, db, "free")
 	body, _ := json.Marshal(map[string]string{"summary": "My Nextcloud won't start"})
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/cases", bytes.NewReader(body)).WithContext(ctx)
@@ -42,7 +42,7 @@ func TestSupportListCases(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewSupportHandler(db)
 
-	deviceID := activateDevice(t, db, "support_list_token")
+	deviceID := activateDevice(t, db, "free")
 	// Create a case
 	body, _ := json.Marshal(map[string]string{"summary": "Disk full"})
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
@@ -71,7 +71,7 @@ func TestSupportCreateCaseMissingSummary(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewSupportHandler(db)
 
-	deviceID := activateDevice(t, db, "support_bad_token")
+	deviceID := activateDevice(t, db, "free")
 	body, _ := json.Marshal(map[string]string{})
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/cases", bytes.NewReader(body)).WithContext(ctx)

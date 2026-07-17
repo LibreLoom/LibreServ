@@ -8,12 +8,12 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
 /**
  * @typedef {object} ModalCardProps
  * @property {import('react').ReactNode} [title]
- * @property {import('react').ReactNode|function({close: function}): import('react').ReactNode} [children]
+ * @property {import('react').ReactNode|function({close: () => void}): import('react').ReactNode} [children]
  * @property {() => void} [onClose]
  * @property {boolean} [showCloseButton]
  * @property {string} [size]
  * @property {boolean} [mobileFullscreen]
- * @property {import('react').ReactNode} [footer]
+ * @property {import('react').ReactNode | function({ close: () => void }): import('react').ReactNode} [footer]
  * @property {string} [className]
  * @property {import('react').RefObject} [initialFocusRef]
  */
@@ -116,7 +116,7 @@ export default function ModalCard({
         : "max-h-full sm:max-h-[calc(95vh-4rem)]";
 
   const mobileFsClasses = mobileFullscreen
-    ? "p-0 sm:p-4 [&>div>div>div]:rounded-none sm:[&>div>div>div]:rounded-[24px]"
+    ? "p-0 sm:p-4 [&>div>div>div]:rounded-none sm:[&>div>div>div]:rounded-large-element"
     : "p-4";
 
   return createPortal(
@@ -125,7 +125,7 @@ export default function ModalCard({
       className={cn(
         "fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50",
         mobileFsClasses,
-        isClosing ? "animate-out fade-out" : "animate-in fade-in"
+        isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95"
       )}
       onClick={handleClose}
     >
@@ -178,7 +178,7 @@ export default function ModalCard({
 
           {footer && (
             <div className="mt-4">
-              {footer}
+              {typeof footer === "function" ? footer({ close: handleClose }) : footer}
             </div>
           )}
         </Card>

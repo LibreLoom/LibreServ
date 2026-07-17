@@ -50,10 +50,6 @@ vi.mock("../components/common/StatusPill", () => ({
   default: ({ status }) => <span data-testid="status-pill">{status}</span>,
 }));
 
-vi.mock("../components/app/FeatureMatrixPill", () => ({
-  default: ({ appId }) => <span data-testid={`features-${appId}`}>Features</span>,
-}));
-
 vi.mock("../lib/sanitize", () => ({
   sanitizeURL: (url) => url,
 }));
@@ -88,9 +84,11 @@ describe("AppsPage", () => {
     expect(screen.getByPlaceholderText("Search apps...")).toBeInTheDocument();
   });
 
-  it("shows available catalog apps (excluding installed)", () => {
+  it("shows installed apps at top of catalog grid", () => {
     renderWithProviders(<AppsPage />);
-    expect(screen.queryByText("Nextcloud")).not.toBeInTheDocument();
+    // Nextcloud is installed — it should now appear in the unified grid
+    // (sorted to the top), not be hidden.
+    expect(screen.getByText("Nextcloud")).toBeInTheDocument();
     expect(screen.getByText("SearXNG")).toBeInTheDocument();
   });
 
@@ -99,9 +97,10 @@ describe("AppsPage", () => {
     expect(screen.getByText("Install")).toBeInTheDocument();
   });
 
-  it("shows installed section with installed apps", () => {
+  it("shows Manage button for installed apps", () => {
     renderWithProviders(<AppsPage />);
-    expect(screen.getByText("Installed Apps")).toBeInTheDocument();
+    // Installed apps show a Manage button instead of Install
+    expect(screen.getByText("Manage")).toBeInTheDocument();
   });
 
   it("navigates to install page on Install click", async () => {

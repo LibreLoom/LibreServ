@@ -1,4 +1,5 @@
-import { Wrench, Play, Loader2 } from "lucide-react";
+import { Wrench, Play } from "lucide-react";
+import Button from "../../ui/Button";
 
 /** @param {{ action: any, onExecute: any, disabled?: any, loading?: any }} _ */
 export function ActionCard({ action, onExecute, disabled, loading }) {
@@ -19,23 +20,22 @@ export function ActionCard({ action, onExecute, disabled, loading }) {
           )}
         </div>
       </div>
-      <button
+      <Button
+        variant="secondary"
+        surface="primary"
         onClick={() => onExecute(action)}
         disabled={disabled || loading}
-        className="flex items-center gap-2 px-4 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/80 disabled:opacity-50 disabled:cursor-not-allowed motion-safe:transition-all font-mono"
+        loading={loading}
       >
         {loading ? (
-          <>
-            <Loader2 size={16} className="animate-spin" />
-            Running...
-          </>
+          "Running..."
         ) : (
           <>
             <Play size={16} />
             Run
           </>
         )}
-      </button>
+      </Button>
     </div>
   );
 }

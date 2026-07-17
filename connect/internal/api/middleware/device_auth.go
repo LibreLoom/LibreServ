@@ -7,30 +7,47 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const DeviceContextKey = "connect_device_id"
 
 type deviceContext struct{}
 
+// DeviceAuth authenticates devices using their license key as a bearer token.
 func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			token := extractBearer(r)
-			if token == "" {
-				http.Error(w, `{"error":"missing token"}`, http.StatusUnauthorized)
+			key := extractBearer(r)
+			if key == "" {
+				http.Error(w, `{"error":"missing license key"}`, http.StatusUnauthorized)
 				return
 			}
 
-			hash := hashToken(token)
+			hash := hashToken(key)
 			var deviceID string
 			var isActive bool
 			err := db.QueryRowContext(r.Context(),
-				"SELECT id, is_active FROM devices WHERE token_hash = ?", hash).Scan(&deviceID, &isActive)
-			if err != nil || !isActive {
-				http.Error(w, `{"error":"invalid or inactive token"}`, http.StatusUnauthorized)
+				`SELECT d.id, d.is_active FROM devices d
+				 JOIN license_keys lk ON d.license_key_id = lk.id
+				 WHERE lk.key_hash = ? AND lk.status = 'active'`, hash).
+				Scan(&deviceID, &isActive)
+			if err == sql.ErrNoRows {
+				http.Error(w, `{"error":"invalid or inactive license key"}`, http.StatusUnauthorized)
 				return
 			}
+			if err != nil {
+				http.Error(w, `{"error":"authentication error"}`, http.StatusInternalServerError)
+				return
+			}
+			if !isActive {
+				http.Error(w, `{"error":"device is not active"}`, http.StatusUnauthorized)
+				return
+			}
+
+			// Update last seen
+			_, _ = db.ExecContext(r.Context(),
+				"UPDATE devices SET last_seen_at = ? WHERE id = ?", time.Now(), deviceID)
 
 			ctx := context.WithValue(r.Context(), deviceContext{}, deviceID)
 			next.ServeHTTP(w, r.WithContext(ctx))

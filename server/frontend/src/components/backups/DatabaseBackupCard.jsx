@@ -1,5 +1,6 @@
 import { DatabaseBackup, Loader2, Save, Upload, Info } from "lucide-react";
 import Card from "../cards/Card";
+import Button from "../ui/Button";
 
 export default function DatabaseBackupCard({
   savingDb,
@@ -28,18 +29,15 @@ export default function DatabaseBackupCard({
         className="animate-in fade-in slide-in-from-bottom-2 p-4 flex flex-col sm:flex-row gap-3"
         style={{ animationDuration: "var(--motion-duration-medium2)" }}
       >
-        <button
+        <Button
+          variant="primary"
           onClick={onSaveDb}
-          disabled={savingDb}
-          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-pill bg-primary text-secondary hover:opacity-90 transition-opacity disabled:opacity-50 font-mono text-sm"
+          loading={savingDb}
+          className="flex-1 py-3"
         >
-          {savingDb ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <Save size={16} />
-          )}
+          {!savingDb && <Save size={16} aria-hidden="true" />}
           {savingDb ? "Saving..." : "Save DB"}
-        </button>
+        </Button>
 
         <label className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-pill border border-primary/20 text-primary hover:bg-primary/5 cursor-pointer transition-colors font-mono text-sm">
           {uploadingDb ? (

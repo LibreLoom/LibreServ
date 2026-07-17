@@ -1,23 +1,17 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Clock, Server, CheckCircle, AlertCircle, XCircle, WifiOff, RefreshCw, Database } from "lucide-react";
 
-import StatCard from "../components/cards/StatCard";
+import UptimeCard from "../components/cards/UptimeCard";
 import Page from "../components/ui/Page";
 import AppCards from "../components/cards/AppCards";
-import DropdownCard from "../components/cards/DropdownCard";
-import SystemHealthCard from "../components/cards/SystemHealthCard";
-import RefreshDropdown, { REFRESH_INTERVALS } from "../components/common/RefreshDropdown";
-import WelcomeCard from "../components/onboarding/WelcomeCard";
-import api from "../lib/api";
+import StressIndexCard from "../components/cards/StressIndexCard";
+import CriticalIssues from "../components/common/CriticalIssues";
+import InstallFirstAppCard from "../components/onboarding/InstallFirstAppCard";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
 import { useUser } from "../hooks/useUser";
 import { useUptime } from "../hooks/useUptime";
 import { useMonitoring } from "../hooks/useMonitoring";
-import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck";
-import { useConnectivity, getRemoteAccessStatus } from "../hooks/useConnectivity";
 
 import {
   getBreakdownItems,
@@ -60,19 +54,6 @@ function formatUptime(seconds) {
   return parts.join(" ") || "0 secs";
 }
 
-const REFRESH_INTERVAL_STORAGE_KEY = "dashboard_stress_refresh_interval_ms";
-
-function isValidRefreshInterval(value) {
-  return REFRESH_INTERVALS.some((interval) => interval.value === value);
-}
-
-function getInitialRefreshInterval() {
-  if (typeof window === "undefined") return 30000;
-  const raw = window.localStorage.getItem(REFRESH_INTERVAL_STORAGE_KEY);
-  const parsed = Number(raw);
-  return isValidRefreshInterval(parsed) ? parsed : 30000;
-}
-
 function clamp01(value) {
   if (!Number.isFinite(value)) return 0;
   if (value < 0) return 0;
@@ -84,15 +65,7 @@ export default function Dashboard() {
   const greeting = useMemo(() => getGreeting(), []);
   const { data: user } = useUser();
   const { data: uptimeSeconds } = useUptime();
-  const [refreshInterval, setRefreshInterval] = useState(getInitialRefreshInterval);
-  const { data: resources } = useMonitoring(refreshInterval);
-  const {
-    data: healthCheck,
-    isLoading: healthLoading,
-    error: healthError,
-  } = useSystemHealthCheck();
-  const { data: connectivity } = useConnectivity(30000);
-  const navigate = useNavigate();
+  const { data: resources } = useMonitoring();
 
   // Store server uptime and fetch timestamp for drift-free calculation
   const uptimeDataRef = useRef({ serverUptime: 0, fetchTime: 0 });
@@ -124,11 +97,6 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [getDisplayUptime]);
 
-  // Persist user-selected refresh interval
-  useEffect(() => {
-    window.localStorage.setItem(REFRESH_INTERVAL_STORAGE_KEY, String(refreshInterval));
-  }, [refreshInterval]);
-
   const stressIndex = useMemo(() => {
     if (!resources) return 0;
     return totalResourceUsage({
@@ -149,45 +117,6 @@ export default function Dashboard() {
     });
   }, [resources]);
 
-  const [repoStatus, setRepoStatus] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchRepoStatus = async () => {
-      try {
-        const res = await api("/repos/status");
-        if (res.ok && !cancelled) {
-          const data = await res.json();
-          setRepoStatus(data);
-        }
-      } catch {
-        // Silently ignore - non-critical
-      }
-    };
-    fetchRepoStatus();
-    return () => { cancelled = true; };
-  }, []);
-
-  const remoteAccessStatus = useMemo(
-    () => getRemoteAccessStatus(connectivity),
-    [connectivity],
-  );
-
-  const StatusIconComponent = useMemo(() => {
-    switch (remoteAccessStatus.icon) {
-      case "check-circle":
-        return CheckCircle;
-      case "alert-circle":
-        return AlertCircle;
-      case "x-circle":
-        return XCircle;
-      case "wifi-off":
-        return WifiOff;
-      default:
-        return CheckCircle;
-    }
-  }, [remoteAccessStatus.icon]);
-
   const greetingBase = greeting.endsWith(", ")
     ? greeting.slice(0, -2)
     : greeting;
@@ -206,26 +135,6 @@ export default function Dashboard() {
       </span>
     </span>
   );
-  const statusBadge = (
-    <button
-      type="button"
-      onClick={() => navigate("/settings/network")}
-      className="inline-flex items-center gap-2 text-xs md:text-sm font-semibold hover:opacity-80 transition-opacity cursor-pointer"
-      title="Click to view remote access settings"
-    >
-      <StatusIconComponent
-        className={cn("w-4 h-4 md:w-5 md:h-5", remoteAccessStatus.className)}
-        aria-hidden="true"
-      />
-      <span>{remoteAccessStatus.text}</span>
-    </button>
-  );
-  const refreshControl = (
-    <div className="flex items-center gap-2 text-xs md:text-sm text-primary/70">
-      <RefreshCw size={14} className="text-accent" aria-hidden="true" />
-      <RefreshDropdown value={refreshInterval} onChange={setRefreshInterval} />
-    </div>
-  );
 
   return (
     <Page
@@ -235,26 +144,10 @@ export default function Dashboard() {
       padded={false}
       headerClassName="px-8 mb-10"
       headerCardClassName="group"
-      leftContent={refreshControl}
-      rightContent={statusBadge}
+      rightContent={<CriticalIssues />}
     >
-
       <section className="px-8 mb-10">
-        <WelcomeCard />
-        {repoStatus && repoStatus.length > 0 && (
-          <div className="mt-3 flex items-center gap-2 text-xs text-secondary/60">
-            <Database size={12} className="text-accent" />
-            <span>
-              App repository: last checked{" "}
-              {repoStatus[0].last_pull && repoStatus[0].last_pull !== "0001-01-01T00:00:00Z"
-                ? new Date(repoStatus[0].last_pull).toLocaleString(undefined, { timeStyle: "short" })
-                : "never"}
-            </span>
-            <Link to="/settings" className="text-accent hover:text-secondary transition-colors">
-              Check now
-            </Link>
-          </div>
-        )}
+        <InstallFirstAppCard />
       </section>
 
       <section
@@ -262,29 +155,15 @@ export default function Dashboard() {
         aria-label="Dashboard metrics"
       >
         <div className="grid grid-cols-1 gap-6 flex-1 content-start order-1 md:order-0">
-          <StatCard
-            icon={Clock}
-            label="Uptime"
-            value={displayUptime}
-            delta=""
-          />
-          <DropdownCard
-            title="Server Stress Index"
-            subtitle="How busy your device is"
+          <UptimeCard value={displayUptime} />
+          <StressIndexCard
             value={resources ? Math.round(stressIndex * 100) + "%" : "Loading..."}
             breakdownItems={stressBreakdown}
-            Icon={Server}
-          />
-          <SystemHealthCard
-            checks={healthCheck?.checks}
-            overallPass={healthCheck?.overall_pass}
-            loading={healthLoading}
-            error={healthError}
           />
         </div>
 
-        <div className="flex-1 grid grid-cols-1 xl:grid-cols-3 gap-6 content-start order-2 md:order-1">
-          <AppCards refreshInterval={refreshInterval} />
+        <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-6 content-start order-2 md:order-1">
+          <AppCards />
         </div>
       </section>
     </Page>

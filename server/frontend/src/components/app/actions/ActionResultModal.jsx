@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Copy, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ModalCard from "../../cards/ModalCard";
+import Button from "../../ui/Button";
 
 /** @param {{ result: any, onClose: any, action?: any }} _ */
 export function ActionResultModal({ result, onClose }) {
@@ -113,14 +114,16 @@ export function ActionResultModal({ result, onClose }) {
                   {showVerbose ? "Hide output" : "View output"}
                 </button>
 
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
+                  surface="secondary"
                   onClick={handleCopy}
-                  className="inline-flex items-center gap-1 rounded-pill border border-secondary/20 px-3 py-1 text-xs font-mono text-primary hover:bg-primary/5 transition-colors"
                   aria-label="Copy output to clipboard"
                 >
                   {copied ? <Check size={14} className="text-success" aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
                   {copied ? "Copied" : "Copy"}
-                </button>
+                </Button>
               </div>
 
               <div
@@ -145,12 +148,14 @@ export function ActionResultModal({ result, onClose }) {
             </div>
           )}
 
-          <button
+          <Button
+            variant="outline"
+            surface="secondary"
             onClick={/** @type {import('react').MouseEventHandler<HTMLButtonElement>} */ (closeHandler)}
-            className="w-full px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors font-mono"
+            fullWidth
           >
             Close
-          </button>
+          </Button>
         </div>
       );
       }}

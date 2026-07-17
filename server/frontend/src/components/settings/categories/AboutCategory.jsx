@@ -1,5 +1,6 @@
-import { Heart } from "lucide-react";
+import { Heart, Coffee } from "lucide-react";
 import SettingsCard from "../SettingsCard";
+import Button from "../../ui/Button";
 
 export default function AboutCategory() {
   return (
@@ -15,6 +16,28 @@ export default function AboutCategory() {
               <Heart size={14} className="text-error" />
               <span>Made with love for the open source community</span>
             </div>
+          </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard icon={Coffee} title="Support LibreServ" padding={false} index={1}>
+        <div className="px-5 py-4">
+          <p className="text-sm text-accent leading-relaxed">
+            LibreServ is free and open source. If it has made running your own
+            server a little easier, you can help keep it going with a small
+            contribution — entirely optional, always appreciated.
+          </p>
+          <div className="mt-4">
+            <Button asChild variant="primary">
+              <a
+                href="https://ko-fi.com/libreloom"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Coffee size={16} aria-hidden="true" />
+                Support us on Ko-fi
+              </a>
+            </Button>
           </div>
         </div>
       </SettingsCard>

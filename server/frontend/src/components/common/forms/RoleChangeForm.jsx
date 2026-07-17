@@ -91,7 +91,7 @@ export default function RoleChangeForm({ user, onSuccess, onCancel }) {
         </Button>
         <Button
           type="submit"
-          variant="accent"
+          variant="primary"
           loading={loading}
           className="flex-1"
         >

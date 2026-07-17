@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Card from "../cards/Card";
 import AppIcon from "../common/AppIcon";
+import Button from "../ui/Button";
 import { formatDate, formatBytes } from "../../lib/backups-utils";
 import { useTimeFormat } from "../../hooks/useTimeFormat";
 
@@ -72,24 +73,18 @@ export default function LocalBackupsCard({
           <div className="px-4 py-6 text-center">
             <AlertTriangle className="w-10 h-10 text-error mx-auto mb-2" />
             <p className="text-sm text-error mb-3">{loadError}</p>
-            <button
-              onClick={onRetry}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
-            >
+            <Button variant="outline" surface="secondary" onClick={onRetry}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : recentBackups.length === 0 ? (
           <div className="px-4 py-6 text-center">
             <span className="opacity-50 block mb-2"><DatabaseBackup className="w-10 h-10 text-primary mx-auto" /></span>
             <p className="text-sm text-accent">No backups yet</p>
-            <button
-              onClick={onCreate}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
-            >
+            <Button variant="primary" onClick={onCreate} className="mt-3">
               <Plus size={16} />
               Create Backup
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="divide-y divide-primary/10">
@@ -118,22 +113,24 @@ export default function LocalBackupsCard({
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="iconSm"
                     onClick={() => onRestore(backup)}
                     title="Restore backup"
-                    className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
                     aria-label="Restore backup"
                   >
                     <span className="opacity-50"><RotateCcw size={14} className="text-accent" aria-hidden="true" /></span>
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="iconSm"
                     onClick={() => onDelete(backup)}
                     title="Delete backup"
-                    className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
                     aria-label="Delete backup"
                   >
                     <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
-                  </button>
+                  </Button>
                 </div>
               </div>
             ))}

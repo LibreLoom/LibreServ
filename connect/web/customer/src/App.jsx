@@ -3,10 +3,12 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext.jsx";
 
 const Login = lazy(() => import("./pages/Login.jsx"));
+const Register = lazy(() => import("./pages/Register.jsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
 const Plans = lazy(() => import("./pages/Plans.jsx"));
 const Usage = lazy(() => import("./pages/Usage.jsx"));
 const Billing = lazy(() => import("./pages/Billing.jsx"));
+const Security = lazy(() => import("./pages/Security.jsx"));
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -16,8 +18,8 @@ function ProtectedRoute({ children }) {
 
 function Loading() {
   return (
-    <div className="min-h-screen bg-primary text-secondary flex items-center justify-center">
-      <p className="font-mono text-accent animate-pulse">Loading...</p>
+    <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+      <p className="font-mono text-muted-foreground animate-pulse">Loading...</p>
     </div>
   );
 }
@@ -27,10 +29,12 @@ export default function App() {
     <Suspense fallback={<Loading />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/usage" element={<ProtectedRoute><Usage /></ProtectedRoute>} />
         <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
+        <Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

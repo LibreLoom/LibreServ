@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
-import { DatabaseBackup, Download, Trash2, AlertTriangle, RotateCcw, Loader2 } from "lucide-react";
+import { DatabaseBackup, Download, Trash2, AlertTriangle, RotateCcw } from "lucide-react";
 import LocalBackupsCard from "../../backups/LocalBackupsCard";
 import DatabaseBackupCard from "../../backups/DatabaseBackupCard";
 import ScheduleForm from "../../backups/ScheduleForm";
@@ -9,6 +9,7 @@ import ConfirmModal from "../../common/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 import Dropdown from "../../common/Dropdown";
 import FieldLabel from "../../common/forms/FieldLabel";
+import Button from "../../ui/Button";
 import SettingsCard from "../SettingsCard.jsx";
 import SettingsRow from "../SettingsRow.jsx";
 
@@ -251,6 +252,8 @@ export default function BackupsCategory() {
           title="Create Backup"
           onClose={() => { setShowCreateModal(false); setSelectedApp(""); }}
         >
+          {({ close }) => (
+          <>
           <p className="text-xs text-primary/50 mb-4">
             Create a backup of an app's data. You can restore from it later if something goes wrong.
           </p>
@@ -266,22 +269,33 @@ export default function BackupsCategory() {
             options={apps.map((app) => ({ value: app.id, label: app.name }))}
           />
           <div className="flex gap-3 mt-4">
-            <button
-              onClick={() => { setShowCreateModal(false); setSelectedApp(""); }}
+            <Button
+              variant="outline"
+              onClick={close}
               disabled={creating}
-              className="flex-1 px-4 py-2 rounded-pill border-2 border-accent/30 bg-secondary text-primary hover:bg-accent/20 transition-all font-mono text-sm disabled:opacity-50"
+              className="flex-1"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={handleCreateBackup}
               disabled={creating || !selectedApp}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-accent transition-all font-mono text-sm disabled:opacity-50"
+              loading={creating}
+              className="flex-1"
             >
-              {creating ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <DatabaseBackup size={16} aria-hidden="true" />}
-              {creating ? "Creating..." : "Create"}
-            </button>
+              {creating ? (
+                "Creating..."
+              ) : (
+                <>
+                  <DatabaseBackup size={16} aria-hidden="true" />
+                  Create
+                </>
+              )}
+            </Button>
           </div>
+          </>
+          )}
         </ModalCard>
       )}
 

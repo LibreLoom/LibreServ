@@ -158,7 +158,7 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-error/10 border border-error/20 rounded-card">
+            <div className="mb-4 p-3 bg-error/10 border border-error/20 rounded-large-element">
               <div className="flex items-start gap-2">
                 <AlertCircle size={16} className="text-error flex-shrink-0 mt-0.5" />
                 <span className="text-sm text-error">{error}</span>

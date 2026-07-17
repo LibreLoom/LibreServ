@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import { Plus, MessageSquare, Settings } from "lucide-react";
 import Card from "../cards/Card.jsx";
+import Button from "../ui/Button.jsx";
 import ConversationItem from "./ConversationItem.jsx";
 
 function ConversationSidebar({
@@ -18,14 +19,14 @@ function ConversationSidebar({
       icon={MessageSquare}
       title="Previous Sessions"
       headerActions={
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="iconSm"
           onClick={onNewChat}
-          className="rounded-pill bg-primary text-secondary p-1.5 motion-safe:transition-all hover:ring-2 hover:ring-accent cursor-pointer focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
           aria-label="New conversation"
         >
           <Plus size={14} />
-        </button>
+        </Button>
       }
       className="h-full flex flex-col"
     >

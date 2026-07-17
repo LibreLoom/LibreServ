@@ -201,14 +201,16 @@ export default function SecurityCategory() {
                 {formatTimestamp(lastUpdated.toISOString(), use12HourTime)}
               </span>
             )}
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              surface="primary"
               onClick={loadActivityData}
               disabled={activityLoading}
-              className="p-1.5 rounded hover:bg-primary/10 disabled:opacity-50 transition-colors"
               aria-label="Refresh activity log"
             >
               <RefreshCw size={14} className={cn("text-accent", activityLoading && "animate-spin")} aria-hidden="true" />
-            </button>
+            </Button>
           </div>
         }
       >

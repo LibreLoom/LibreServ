@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { ExternalLink } from "lucide-react";
+import Button from "../../ui/Button";
 import {
   CloudflareIcon,
   PorkbunIcon,
@@ -43,22 +44,20 @@ export default function SearchDomainStep({ registrar, onContinue }) {
       </p>
 
       <div className="w-full space-y-3">
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="group w-full flex items-center justify-center gap-2 rounded-pill border border-primary/15 bg-primary/5 text-primary py-4 px-6 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/10 hover:border-primary/25"
-        >
-          <ExternalLink size={16} />
-          Open {label}
-        </a>
-        <button
-          type="button"
+        <Button asChild variant="outline" surface="secondary" fullWidth className="py-4 px-6 font-mono text-sm">
+          <a href={url} target="_blank" rel="noopener noreferrer">
+            <ExternalLink size={16} />
+            Open {label}
+          </a>
+        </Button>
+        <Button
+          variant="primary"
+          fullWidth
           onClick={onContinue}
-          className="group w-full flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 px-6 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+          className="py-4 px-6 font-mono tracking-wide"
         >
           I&rsquo;ve bought my domain!
-        </button>
+        </Button>
       </div>
     </div>
   );

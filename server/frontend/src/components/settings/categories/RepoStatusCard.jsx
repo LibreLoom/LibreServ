@@ -45,6 +45,7 @@ function AddRepoModal({ onClose, onAdded }) {
 
   return (
     <ModalCard title="Add Repository" onClose={onClose} size="sm">
+      {({ close }) => (
       <div className="space-y-4">
         <div>
           <label className="text-sm text-primary/70 block mb-1">Repository URL</label>
@@ -88,29 +89,26 @@ function AddRepoModal({ onClose, onAdded }) {
         )}
 
         <div className="flex gap-3 pt-2">
-          <button
-            onClick={onClose}
+          <Button
+            variant="outline"
+            onClick={close}
             disabled={adding}
-            className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+            className="flex-1"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             onClick={handleAdd}
             disabled={!url.trim() || adding}
-            className="flex-1 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            loading={adding}
+            className="flex-1"
           >
-            {adding ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Adding...
-              </>
-            ) : (
-              "Add Repository"
-            )}
-          </button>
+            {adding ? "Adding..." : "Add Repository"}
+          </Button>
         </div>
       </div>
+      )}
     </ModalCard>
   );
 }
@@ -251,12 +249,15 @@ export default function RepoStatusCard({ index = 0 }) {
             </div>
           ) : fetchError ? (
             <div className="flex items-center justify-center py-6">
-              <button
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="sm"
                 onClick={fetchStatus}
-                className="text-sm text-error hover:text-primary transition-colors"
+                className="text-error hover:text-primary"
               >
                 Could not load repository status. Click to retry.
-              </button>
+              </Button>
             </div>
           ) : repos.length === 0 ? (
             <div className="text-sm text-primary/50 text-center py-6">
@@ -290,13 +291,15 @@ export default function RepoStatusCard({ index = 0 }) {
                       )}
                     </div>
                   </div>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => handleRemove(i)}
-                    className="p-2 rounded-pill text-primary/40 hover:text-error hover:bg-error/10 transition-colors"
                     aria-label="Remove repository"
+                    className="hover:bg-error/10 hover:text-error"
                   >
                     <Trash2 size={16} />
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>

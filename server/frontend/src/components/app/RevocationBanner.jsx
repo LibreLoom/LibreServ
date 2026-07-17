@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { ShieldAlert, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 import Card from "../cards/Card";
+import Button from "../ui/Button";
 
 export default function RevocationBanner({ notice, appName, acknowledged, onSeeDetails }) {
   const [expanded, setExpanded] = useState(false);
@@ -70,12 +71,12 @@ export default function RevocationBanner({ notice, appName, acknowledged, onSeeD
               )}
 
               <div className="flex gap-3 mt-4">
-                <button
+                <Button
+                  variant="primary"
                   onClick={onSeeDetails}
-                  className="px-4 py-2 rounded-pill border-2 border-accent/30 text-primary hover:bg-accent/10 transition-colors text-sm font-mono"
                 >
                   Acknowledge & Continue
-                </button>
+                </Button>
                 <span className="flex items-center text-sm text-primary/50">
                   Or wait for a fixed version
                 </span>

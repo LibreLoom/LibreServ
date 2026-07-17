@@ -40,10 +40,7 @@ version: "1.0"
 category: productivity
 deployment:
   image: testapp:latest
-features:
-  access_model: internal
-  requires_setup: false
-  requires_domain: false
+access_model: internal
 `
 	if err := os.WriteFile(filepath.Join(appDir, "app.yaml"), []byte(appYAML), 0o644); err != nil {
 		t.Fatalf("write app.yaml: %v", err)
@@ -62,10 +59,7 @@ version: "2.0"
 category: development
 deployment:
   image: anotherapp:latest
-features:
-  access_model: external
-  requires_setup: true
-  requires_domain: true
+access_model: external
 `
 	if err := os.WriteFile(filepath.Join(app2Dir, "app.yaml"), []byte(app2YAML), 0o644); err != nil {
 		t.Fatalf("write app2.yaml: %v", err)

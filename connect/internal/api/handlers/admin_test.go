@@ -34,7 +34,7 @@ func TestAdminListDevices(t *testing.T) {
 	h := NewAdminHandler(db)
 
 	// Activate a device so we have data
-	activateDevice(t, db, "admin_list_token")
+	activateDevice(t, db, "free")
 
 	req := adminRequest(t, http.MethodGet, "/admin/devices", nil)
 	w := httptest.NewRecorder()
@@ -67,7 +67,7 @@ func TestAdminGetDevice(t *testing.T) {
 	setAdminToken(t)
 	h := NewAdminHandler(db)
 
-	deviceID := activateDevice(t, db, "admin_get_token")
+	deviceID := activateDevice(t, db, "free")
 
 	req := adminRequest(t, http.MethodGet, "/admin/devices/"+deviceID, nil)
 	req = chiRequest(http.MethodGet, "/admin/devices/"+deviceID, nil, map[string]string{"deviceID": deviceID})
@@ -112,7 +112,7 @@ func TestAdminListCases(t *testing.T) {
 	setAdminToken(t)
 	h := NewAdminHandler(db)
 
-	deviceID := activateDevice(t, db, "admin_cases_token")
+	deviceID := activateDevice(t, db, "free")
 	// Create case directly in DB
 	_, err := db.Exec("INSERT INTO support_cases (id, device_id, summary, status, scopes_json) VALUES (?, ?, ?, 'open', '[]')",
 		"case_admin_1", deviceID, "Admin view test")
@@ -143,7 +143,7 @@ func TestAdminCreateConsentRequest(t *testing.T) {
 	setAdminToken(t)
 	h := NewAdminHandler(db)
 
-	deviceID := activateDevice(t, db, "admin_consent_token")
+	deviceID := activateDevice(t, db, "free")
 	// Create a case directly
 	_, err := db.Exec("INSERT INTO support_cases (id, device_id, summary, status, scopes_json) VALUES (?, ?, ?, 'open', '[]')",
 		"case_consent_1", deviceID, "Please help")

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
 import StatusRow from "../../setup/steps/StatusRow";
+import Button from "../../ui/Button";
 
 export default function SmtpTestingStep({ error, onRetry }) {
   const [showSend, setShowSend] = useState(false);
@@ -57,13 +58,13 @@ export default function SmtpTestingStep({ error, onRetry }) {
       </div>
       {error && (
         <div className="mt-5">
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={onRetry}
-            className="rounded-pill bg-primary text-secondary px-5 py-2.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+            className="px-5 py-2.5 font-mono"
           >
             Retry
-          </button>
+          </Button>
         </div>
       )}
     </div>

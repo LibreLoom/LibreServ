@@ -138,7 +138,7 @@ export default function ResetPassword() {
             <Alert variant="error" message={error || "Invalid or expired reset link"} />
           </div>
           <Button
-            variant="secondary"
+            variant="primary"
             onClick={() => navigate("/login")}
             fullWidth
             className="mt-6"
@@ -209,6 +209,7 @@ export default function ResetPassword() {
             <Button
               type="submit"
               variant="secondary"
+              surface="primary"
               disabled={loading}
               fullWidth
               className="mt-2"

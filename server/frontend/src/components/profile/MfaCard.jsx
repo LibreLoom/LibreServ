@@ -5,6 +5,7 @@ import {
   Loader2,
   LifeBuoy,
   Copy,
+  Check,
   ArrowRight,
 } from "lucide-react";
 import PropTypes from "prop-types";
@@ -21,13 +22,7 @@ import {
   bufToB64url,
   plainWebAuthnError,
 } from "../../utils/webauthn";
-import {
-  TYPE_META,
-  ORDER,
-  inputClass,
-  primaryButtonClass,
-  secondaryButtonClass,
-} from "./mfa-shared";
+import { TYPE_META, ORDER, inputClass } from "./mfa-shared";
 
 /**
  * @param {{ onMethodEnabled?: () => void, onComplete?: () => void, embedded?: boolean } | undefined} [props]
@@ -41,6 +36,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
   const [remainingRecovery, setRemainingRecovery] = useState(null);
   const [enrolling, setEnrolling] = useState(null); // type being enrolled
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(null); // string[] once
+  const [copied, setCopied] = useState(false);
   const [generatingRecovery, setGeneratingRecovery] = useState(false);
   const [removingId, setRemovingId] = useState(null);
   const [lastMethodError, setLastMethodError] = useState(null);
@@ -135,6 +131,8 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
     if (!showRecoveryCodes) return;
     try {
       await navigator.clipboard.writeText(showRecoveryCodes.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
       addToast({ type: "success", message: "Recovery codes copied." });
     } catch {
       addToast({ type: "error", message: "Couldn't copy — copy them manually." });
@@ -198,20 +196,19 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
                         ) : null;
                       })()}
                     </span>
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="iconSm"
+                      surface="primary"
                       onClick={() => handleRemove(m)}
-                      disabled={removingId === m.id}
-                      className="text-secondary/60 hover:text-error motion-safe:transition-colors disabled:opacity-50"
+                      loading={removingId === m.id}
+                      className="text-secondary/60 hover:text-error motion-safe:transition-colors"
                       aria-label={`Remove ${meta.label}`}
                       title="Remove this method"
                     >
-                      {removingId === m.id ? (
-                        <Loader2 size={16} className="animate-spin" />
-                      ) : (
-                        <Trash2 size={16} />
-                      )}
-                    </button>
+                      {removingId === m.id ? null : <Trash2 size={16} />}
+                    </Button>
                   </li>
                 );
               })}
@@ -274,7 +271,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
             </span>
             <Button
               type="button"
-              variant="accent"
+              variant="primary"
               size="sm"
               loading={generatingRecovery}
               onClick={handleGenerateRecovery}
@@ -290,13 +287,16 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
             <div className="mt-3 p-4 rounded-large-element bg-primary text-secondary border-2 border-accent/40">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium">Save these now — they won't be shown again</span>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  surface="primary"
                   onClick={copyCodes}
-                  className="text-xs text-accent hover:text-secondary flex items-center gap-1"
+                  className="text-xs text-accent hover:text-secondary"
                 >
-                  <Copy size={12} /> Copy all
-                </button>
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                </Button>
               </div>
               <ol className="grid grid-cols-2 gap-1 text-sm font-mono">
                 {showRecoveryCodes.map((c, i) => (
@@ -310,15 +310,17 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
 
         {onComplete && (
           <div className="pt-2">
-            <button
+            <Button
               type="button"
+              variant="primary"
+              fullWidth
               onClick={onComplete}
               disabled={!hasAny}
-              className={primaryButtonClass}
+              className="group py-3"
             >
               {hasAny ? "Continue" : "Enable a method to continue"}
               <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -549,10 +551,10 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                     For example "My phone" or "Office key".
                   </p>
                 </div>
-                <button type="submit" className={primaryButtonClass}>
+                <Button type="submit" variant="primary" fullWidth className="group py-3">
                   Register {label}
                   <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-                </button>
+                </Button>
               </form>
             </>
           )}
@@ -583,17 +585,20 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                 <code className="flex-1 block p-2 bg-primary rounded-pill break-all text-secondary text-xs">
                   {totp.secret}
                 </code>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  surface="secondary"
                   onClick={copySecret}
-                  className="shrink-0 text-xs text-accent hover:text-primary flex items-center gap-1"
+                  className="shrink-0 text-xs text-accent hover:text-primary"
                   aria-label="Copy manual key"
                 >
                   <Copy size={12} />{" "}
                   <span ref={copyLabelRef} className="inline-block whitespace-nowrap">
                     {secretCopied ? "Copied" : "Copy"}
                   </span>
-                </button>
+                </Button>
               </div>
             </CollapsibleSection>
           )}
@@ -623,28 +628,39 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             className={inputClass}
             autoFocus
           />
-          <button type="submit" disabled={busy || !code} className={primaryButtonClass}>
+          <Button
+            type="submit"
+            variant="primary"
+            fullWidth
+            loading={busy}
+            disabled={!code}
+            className="group py-3"
+          >
             {busy ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Verifying&hellip;
-              </>
+              <>Verifying&hellip;</>
             ) : (
               <>
                 Verify &amp; enable
                 <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
               </>
             )}
-          </button>
+          </Button>
         </form>
       )}
 
       {/* Persistent escape hatch: always available so the user can pick a
           different method if this one isn't working (e.g. setup errored before
           the verify form appeared, or the browser prompt was denied). */}
-      <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+      <Button
+        type="button"
+        variant="outline"
+        surface="secondary"
+        fullWidth
+        onClick={onCancel}
+        className="py-3"
+      >
         Back
-      </button>
+      </Button>
 
       {error && <Alert variant="error" message={error} rounded="large-element" />}
     </div>
@@ -776,13 +792,15 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
           message={availError || "Your session expired. Please log in again to continue setup."}
           rounded="large-element"
         />
-        <button
+        <Button
           type="button"
+          variant="primary"
+          fullWidth
           onClick={() => onSessionExpired?.()}
-          className={primaryButtonClass}
+          className="py-3"
         >
           Log in again
-        </button>
+        </Button>
       </div>
     );
   }
@@ -807,9 +825,16 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
                 message={availError || "Couldn't check which sign-in methods are available."}
                 rounded="large-element"
               />
-              <button type="button" onClick={refreshAvailability} className={secondaryButtonClass}>
+              <Button
+                type="button"
+                variant="outline"
+                surface="secondary"
+                fullWidth
+                onClick={refreshAvailability}
+                className="py-3"
+              >
                 Try again
-              </button>
+              </Button>
             </div>
           )}
           {!loadingAvail && availability != null && availableTypes.length === 0 && (
@@ -874,13 +899,16 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
             <div className="p-4 rounded-large-element bg-primary text-secondary border-2 border-accent/40">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium">Save these now — they won't be shown again</span>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  surface="primary"
                   onClick={copyCodes}
-                  className="text-xs text-accent hover:text-secondary flex items-center gap-1"
+                  className="text-xs text-accent hover:text-secondary"
                 >
-                  <Copy size={12} /> {copied ? "Copied" : "Copy all"}
-                </button>
+                  {copied ? <Check size={12} /> : <Copy size={12} />}
+                </Button>
               </div>
               <ol className="grid grid-cols-2 gap-1 text-sm font-mono">
                 {codes.map((c, i) => (
@@ -888,27 +916,32 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
                 ))}
               </ol>
             </div>
-            <button
+            <Button
               type="button"
+              variant="primary"
+              fullWidth
               onClick={() => {
                 setBackupAcknowledged(true);
                 setPhase("setup");
               }}
-              className={primaryButtonClass}
+              className="group py-3"
             >
               I've saved my codes
               <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-            </button>
+            </Button>
           </>
         )}
 
-        <button
+        <Button
           type="button"
+          variant="outline"
+          surface="secondary"
+          fullWidth
           onClick={() => setPhase("choose")}
-          className={secondaryButtonClass}
+          className="py-3"
         >
           Back
-        </button>
+        </Button>
       </div>
     );
   }
