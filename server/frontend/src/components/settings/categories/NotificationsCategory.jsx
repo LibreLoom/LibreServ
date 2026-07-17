@@ -127,7 +127,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
         >
           <a
             href="#external_services"
-            className="text-xs link-accent-card px-3 py-1.5 rounded-pill bg-primary border-2 border-secondary/10"
+            className="text-xs px-3 py-1.5 rounded-pill bg-primary text-secondary border-2 border-secondary/10 hover:bg-accent hover:text-primary hover:border-accent motion-safe:transition-colors"
           >
             External Services →
           </a>
