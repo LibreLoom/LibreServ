@@ -579,7 +579,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             )}
           </div>
           {totp.secret && (
-            <CollapsibleSection title="Can't scan? Show the manual key" size="xs" className="text-primary/70">
+            <CollapsibleSection title="Can't scan? Clcik to show the one-time password code" size="xs" className="text-primary/70">
               <div className="flex items-center gap-2">
                 {/* color-scan: ignore-next-line manual key needs a high-contrast surface for legibility + selection */}
                 <code className="flex-1 block p-2 bg-primary rounded-pill break-all text-secondary text-xs">
@@ -775,10 +775,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
 
   function chooseMethod(type) {
     setSelectedType(type);
-    // Only show backup codes the first time the user picks a method. Once
-    // they've clicked "I've saved my codes" we keep our promise that the codes
-    // won't be shown again, even if they go back and pick a different method.
-    setPhase(backupAcknowledged ? "setup" : "backup");
+    setPhase("setup");
   }
 
   // Session expired during setup MFA. A plain "Try again" would softlock the
@@ -786,7 +783,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
   // SetupPage to swap in the login gate by delegating to the callback prop.
   if (sessionExpired || availAuthError) {
     return (
-      <div className="space-y-4">
+      <div key="phase-expired" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <Alert
           variant="error"
           message={availError || "Your session expired. Please log in again to continue setup."}
@@ -806,9 +803,11 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
   }
 
   // Phase 1 — Choose a method
+  // Each phase root is keyed so React remounts it on phase change, replaying
+  // the enter animation (a patched-in-place div would not animate).
   if (phase === "choose") {
     return (
-      <div className="space-y-4">
+      <div key="phase-choose" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-primary/60 mb-3">
             Step 1 — Choose a method
@@ -871,13 +870,13 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
     );
   }
 
-  // Phase 2 — Backup codes
+  // Phase 3 — Backup codes (comes last now)
   if (phase === "backup") {
     return (
-      <div className="space-y-4">
+      <div key="phase-backup" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.18em] text-primary/60 mb-3">
-            Step 2 — Save your backup codes
+            Step 3 — Save your backup codes
           </p>
           <p className="text-sm text-primary/70 mb-4">
             These one-time codes let you sign in if you lose access to your phone or
@@ -922,7 +921,7 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
               fullWidth
               onClick={() => {
                 setBackupAcknowledged(true);
-                setPhase("setup");
+                onComplete?.();
               }}
               className="group py-3"
             >
@@ -948,16 +947,16 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
 
   // Phase 3 — Setup (enroll + verify the chosen method)
   return (
-    <div className="space-y-4">
+    <div key="phase-setup" className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div>
         <p className="font-mono text-xs uppercase tracking-[0.18em] text-primary/60 mb-3">
-          Step 3 — Set up {selectedType ? TYPE_META[selectedType].label.toLowerCase() : "your method"}
+          Step 2 — Set up {selectedType ? TYPE_META[selectedType].label.toLowerCase() : "your method"}
         </p>
       </div>
       <EnrollFlow
         type={selectedType}
         onCancel={() => setPhase("choose")}
-        onEnrolled={onComplete}
+        onEnrolled={() => setPhase(backupAcknowledged ? "choose" : "backup")}
         onSessionExpired={() => setSessionExpired(true)}
       />
     </div>

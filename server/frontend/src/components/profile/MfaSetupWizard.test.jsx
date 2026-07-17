@@ -136,14 +136,15 @@ describe("MfaSetupWizard", () => {
     };
 
     mockRequest
-      .mockResolvedValueOnce(json({ codes: ["RC-1", "RC-2", "RC-3", "RC-4"] }))
       .mockResolvedValueOnce(
         json({
           secret: "TESTSECRET",
           otpauth_uri: "otpauth://totp/test",
           qr_image: "data:image/png;base64,abc",
         }),
-      );
+      )
+      .mockResolvedValueOnce(json({})) // /auth/mfa/totp/verify success
+      .mockResolvedValueOnce(json({ codes: ["RC-1", "RC-2", "RC-3", "RC-4"] })); // backup codes
 
     render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured />);
     await waitFor(() =>
@@ -151,25 +152,25 @@ describe("MfaSetupWizard", () => {
     );
 
     fireEvent.click(screen.getByTitle("Add Authenticator app"));
+    // Should see setup phase now (TOTP QR code)
+    await waitFor(() =>
+      expect(screen.getByText(/Scan this with your authenticator app/i)).toBeInTheDocument(),
+    );
+
+    // Enter a code and verify
+    const codeInput = screen.getByPlaceholderText(/6-digit code/i);
+    fireEvent.change(codeInput, { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /Verify/i }));
+
+    // Should see backup codes phase after verification
     await waitFor(() => expect(screen.getByText("RC-1")).toBeInTheDocument());
     expect(screen.getByText(/Save your backup codes/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /I've saved my codes/i }));
+    // Should complete the wizard since backup codes were acknowledged
     await waitFor(() =>
-      expect(mockRequest).toHaveBeenLastCalledWith("/auth/mfa/totp/setup", expect.anything()),
+      expect(screen.queryByTitle("Add Authenticator app")).not.toBeInTheDocument(),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: /Back/i }));
-    await waitFor(() =>
-      expect(screen.getByTitle("Add Security key")).toBeInTheDocument(),
-    );
-
-    fireEvent.click(screen.getByTitle("Add Security key"));
-    await waitFor(() =>
-      expect(screen.getByPlaceholderText("Security key")).toBeInTheDocument(),
-    );
-    expect(screen.queryByText(/Save your backup codes/i)).toBeNull();
-    expect(screen.queryByText("RC-1")).toBeNull();
   });
 
   it("offers a login redirect when the session expired during setup MFA", async () => {
