@@ -24,17 +24,17 @@ type RepoStatus struct {
 }
 
 type RepoSet struct {
-	logger       *slog.Logger
-	clients      []*RepoClient
-	catalog      *Catalog
-	basePath     string
-	interval     time.Duration
-	mu           sync.RWMutex
-	stopCh       chan struct{}
-	stopOnce     sync.Once
-	started      bool
-	onRevocation       func(ctx context.Context) error
-	onCatalogRefresh   func()
+	logger           *slog.Logger
+	clients          []*RepoClient
+	catalog          *Catalog
+	basePath         string
+	interval         time.Duration
+	mu               sync.RWMutex
+	stopCh           chan struct{}
+	stopOnce         sync.Once
+	started          bool
+	onRevocation     func(ctx context.Context) error
+	onCatalogRefresh func()
 }
 
 func NewRepoSet(logger *slog.Logger, configs []config.RepoConfig, basePath string, interval time.Duration) (*RepoSet, error) {

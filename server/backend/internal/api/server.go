@@ -17,9 +17,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/audit"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
@@ -96,37 +96,37 @@ type Server struct {
 	ddnsService     *network.DDNSService
 	tunnelService   *network.TunnelService
 	// agentChat removed — field was unused
-	selfHealMonitor *agent.SelfHealingMonitor
-	connectClient   connect.Client
-	connectChecker  *connect.EntitlementChecker
-	emailSender     EmailSender // sends MFA email-OTP codes; nil disables email MFA
-	oidcHandler     http.Handler     // OIDC provider endpoints (discovery, authorize, token, userinfo)
+	selfHealMonitor  *agent.SelfHealingMonitor
+	connectClient    connect.Client
+	connectChecker   *connect.EntitlementChecker
+	emailSender      EmailSender           // sends MFA email-OTP codes; nil disables email MFA
+	oidcHandler      http.Handler          // OIDC provider endpoints (discovery, authorize, token, userinfo)
 	oidcAdminHandler *handlers.OIDCHandler // admin API for managing OIDC clients per app
 }
 
 // ServerConfig holds configuration for creating a new Server
 type ServerConfig struct {
-	Host            string
-	Port            int
-	DevMode         bool
-	DB              *database.DB
-	AppManager      *apps.Manager
-	AuthService     *auth.Service
-	Monitor         *monitoring.Monitor
-	BackupService   *storage.BackupService
-	RuntimeClient   *podman.Client
-	CaddyManager    *network.CaddyManager
-	ACMEManager     *network.ACMEManager
-	SetupService    *setup.Service
-	SupportService  *support.Service
-	LicenseService  middleware.LicenseChecker
-	SysChecker      *system.UpdateChecker
-	AuditService    *audit.Service
-	SettingsService *settings.Service
-	ConnectClient   connect.Client
-	ConnectChecker  *connect.EntitlementChecker
-	EmailSender     EmailSender
-	OIDCHandler     http.Handler
+	Host             string
+	Port             int
+	DevMode          bool
+	DB               *database.DB
+	AppManager       *apps.Manager
+	AuthService      *auth.Service
+	Monitor          *monitoring.Monitor
+	BackupService    *storage.BackupService
+	RuntimeClient    *podman.Client
+	CaddyManager     *network.CaddyManager
+	ACMEManager      *network.ACMEManager
+	SetupService     *setup.Service
+	SupportService   *support.Service
+	LicenseService   middleware.LicenseChecker
+	SysChecker       *system.UpdateChecker
+	AuditService     *audit.Service
+	SettingsService  *settings.Service
+	ConnectClient    connect.Client
+	ConnectChecker   *connect.EntitlementChecker
+	EmailSender      EmailSender
+	OIDCHandler      http.Handler
 	OIDCAdminHandler *handlers.OIDCHandler
 }
 
@@ -186,29 +186,29 @@ func NewServer(cfg ServerConfig) *Server {
 	securityService := security.NewService(cfg.DB, logger, notifier)
 
 	server := &Server{
-		router:          r,
-		addr:            addr,
-		db:              cfg.DB,
-		appManager:      cfg.AppManager,
-		authService:     cfg.AuthService,
-		monitor:         cfg.Monitor,
-		backupService:   cfg.BackupService,
-		devMode:         cfg.DevMode,
-		logger:          logger,
-		runtimeClient:   cfg.RuntimeClient,
-		caddyManager:    cfg.CaddyManager,
-		acmeManager:     cfg.ACMEManager,
-		setupService:    cfg.SetupService,
-		supportService:  cfg.SupportService,
-		licenseService:  cfg.LicenseService,
-		sysChecker:      cfg.SysChecker,
-		audit:           cfg.AuditService,
-		securityService: securityService,
-		settingsService: cfg.SettingsService,
-		connectClient:   cfg.ConnectClient,
-		connectChecker:  cfg.ConnectChecker,
-		emailSender:     cfg.EmailSender,
-		oidcHandler:     cfg.OIDCHandler,
+		router:           r,
+		addr:             addr,
+		db:               cfg.DB,
+		appManager:       cfg.AppManager,
+		authService:      cfg.AuthService,
+		monitor:          cfg.Monitor,
+		backupService:    cfg.BackupService,
+		devMode:          cfg.DevMode,
+		logger:           logger,
+		runtimeClient:    cfg.RuntimeClient,
+		caddyManager:     cfg.CaddyManager,
+		acmeManager:      cfg.ACMEManager,
+		setupService:     cfg.SetupService,
+		supportService:   cfg.SupportService,
+		licenseService:   cfg.LicenseService,
+		sysChecker:       cfg.SysChecker,
+		audit:            cfg.AuditService,
+		securityService:  securityService,
+		settingsService:  cfg.SettingsService,
+		connectClient:    cfg.ConnectClient,
+		connectChecker:   cfg.ConnectChecker,
+		emailSender:      cfg.EmailSender,
+		oidcHandler:      cfg.OIDCHandler,
 		oidcAdminHandler: cfg.OIDCAdminHandler,
 	}
 

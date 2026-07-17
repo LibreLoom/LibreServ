@@ -38,14 +38,14 @@ type CaddyManager struct {
 }
 
 type routeView struct {
-	ID                string
-	FullDomain        string
-	Backend           string
-	SSL               bool
-	Enabled           bool
-	RestrictedAccess  bool
-	TLSCert           string
-	TLSKey            string
+	ID               string
+	FullDomain       string
+	Backend          string
+	SSL              bool
+	Enabled          bool
+	RestrictedAccess bool
+	TLSCert          string
+	TLSKey           string
 }
 
 type wildcardBlock struct {

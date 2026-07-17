@@ -1,9 +1,10 @@
 package apps
+
 import (
-	"log/slog"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 

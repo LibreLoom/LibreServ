@@ -305,12 +305,12 @@ func main() {
 			if err != nil {
 				slog.Warn("failed to initialize repo set, continuing with local catalog only", "error", err)
 			} else {
-			appManager.SetRepoSet(repoSet)
-			repoSet.SetCatalogRefreshCallback(handlers.ClearIconCache)
-			if err := repoSet.Start(context.Background()); err != nil {
-				slog.Warn("failed to start repo set background pull", "error", err)
-			}
-			defer repoSet.Stop()
+				appManager.SetRepoSet(repoSet)
+				repoSet.SetCatalogRefreshCallback(handlers.ClearIconCache)
+				if err := repoSet.Start(context.Background()); err != nil {
+					slog.Warn("failed to start repo set background pull", "error", err)
+				}
+				defer repoSet.Stop()
 			}
 		}
 	}
@@ -403,27 +403,27 @@ func main() {
 	})
 
 	server := api.NewServer(api.ServerConfig{
-		Host:            cfg.Server.Host,
-		Port:            cfg.Server.Port,
-		DevMode:         cfg.Server.Mode == "development",
-		DB:              db,
-		AppManager:      appManager,
-		AuthService:     authService,
-		Monitor:         monitor,
-		BackupService:   backupService,
-		RuntimeClient:   runtimeClient,
-		CaddyManager:    caddyManager,
-		ACMEManager:     acmeManager,
-		SetupService:    setupService,
-		SupportService:  supportService,
-		LicenseService:  lic,
-		SysChecker:      sysChecker,
-		AuditService:    auditService,
-		SettingsService: settingsService,
-		ConnectClient:   connectClient,
-		ConnectChecker:  connectChecker,
-		EmailSender:     mfaEmail,
-		OIDCHandler:     oidcHandler,
+		Host:             cfg.Server.Host,
+		Port:             cfg.Server.Port,
+		DevMode:          cfg.Server.Mode == "development",
+		DB:               db,
+		AppManager:       appManager,
+		AuthService:      authService,
+		Monitor:          monitor,
+		BackupService:    backupService,
+		RuntimeClient:    runtimeClient,
+		CaddyManager:     caddyManager,
+		ACMEManager:      acmeManager,
+		SetupService:     setupService,
+		SupportService:   supportService,
+		LicenseService:   lic,
+		SysChecker:       sysChecker,
+		AuditService:     auditService,
+		SettingsService:  settingsService,
+		ConnectClient:    connectClient,
+		ConnectChecker:   connectChecker,
+		EmailSender:      mfaEmail,
+		OIDCHandler:      oidcHandler,
 		OIDCAdminHandler: oidcAdminHandler,
 	}).WithJobQueue(jobQueue)
 

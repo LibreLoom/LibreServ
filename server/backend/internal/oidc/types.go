@@ -18,15 +18,15 @@ import (
 
 // Client represents an OIDC client registration (oidc_clients table).
 type Client struct {
-	ID            string    `db:"id" json:"id"`
-	InstanceID    string    `db:"instance_id" json:"instance_id"`
-	ClientID      string    `db:"client_id" json:"client_id"`
-	ClientSecret  string    `db:"client_secret" json:"-"`
-	RedirectURIs  []string  `db:"-" json:"redirect_uris"`
-	Scopes        string    `db:"scopes" json:"scopes"`
-	Name          string    `db:"name" json:"name"`
-	CreatedAt     time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt     time.Time `db:"updated_at" json:"updated_at"`
+	ID           string    `db:"id" json:"id"`
+	InstanceID   string    `db:"instance_id" json:"instance_id"`
+	ClientID     string    `db:"client_id" json:"client_id"`
+	ClientSecret string    `db:"client_secret" json:"-"`
+	RedirectURIs []string  `db:"-" json:"redirect_uris"`
+	Scopes       string    `db:"scopes" json:"scopes"`
+	Name         string    `db:"name" json:"name"`
+	CreatedAt    time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time `db:"updated_at" json:"updated_at"`
 }
 
 func (c *Client) Scan(value interface{}) error {
@@ -80,26 +80,26 @@ type AuthRequest struct {
 
 var _ op.AuthRequest = (*AuthRequest)(nil)
 
-func (r *AuthRequest) GetID() string                           { return r.id }
-func (r *AuthRequest) GetACR() string                          { return r.acr }
-func (r *AuthRequest) GetAMR() []string                        { return r.amr }
-func (r *AuthRequest) GetAudience() []string                   { return r.audience }
-func (r *AuthRequest) GetAuthTime() time.Time                  { return r.authTime }
-func (r *AuthRequest) GetClientID() string                     { return r.clientID }
-func (r *AuthRequest) GetCodeChallenge() *oidc.CodeChallenge   { return r.codeChallenge }
-func (r *AuthRequest) GetNonce() string                        { return r.nonce }
-func (r *AuthRequest) GetRedirectURI() string                  { return r.redirectURI }
-func (r *AuthRequest) GetResponseType() oidc.ResponseType      { return r.responseType }
-func (r *AuthRequest) GetResponseMode() oidc.ResponseMode      { return r.responseMode }
-func (r *AuthRequest) GetScopes() []string                     { return r.scopes }
-func (r *AuthRequest) GetState() string                        { return r.state }
-func (r *AuthRequest) GetSubject() string                      { return r.subject }
-func (r *AuthRequest) Done() bool                              { return r.isDone }
+func (r *AuthRequest) GetID() string                         { return r.id }
+func (r *AuthRequest) GetACR() string                        { return r.acr }
+func (r *AuthRequest) GetAMR() []string                      { return r.amr }
+func (r *AuthRequest) GetAudience() []string                 { return r.audience }
+func (r *AuthRequest) GetAuthTime() time.Time                { return r.authTime }
+func (r *AuthRequest) GetClientID() string                   { return r.clientID }
+func (r *AuthRequest) GetCodeChallenge() *oidc.CodeChallenge { return r.codeChallenge }
+func (r *AuthRequest) GetNonce() string                      { return r.nonce }
+func (r *AuthRequest) GetRedirectURI() string                { return r.redirectURI }
+func (r *AuthRequest) GetResponseType() oidc.ResponseType    { return r.responseType }
+func (r *AuthRequest) GetResponseMode() oidc.ResponseMode    { return r.responseMode }
+func (r *AuthRequest) GetScopes() []string                   { return r.scopes }
+func (r *AuthRequest) GetState() string                      { return r.state }
+func (r *AuthRequest) GetSubject() string                    { return r.subject }
+func (r *AuthRequest) Done() bool                            { return r.isDone }
 
 // Setters (called by storage.CreateAuthRequest).
-func (r *AuthRequest) SetDone()                                        { r.isDone = true }
-func (r *AuthRequest) SetAMR(amr []string)                             { r.amr = amr }
-func (r *AuthRequest) SetCodeChallenge(cc *oidc.CodeChallenge)         { r.codeChallenge = cc }
+func (r *AuthRequest) SetDone()                                { r.isDone = true }
+func (r *AuthRequest) SetAMR(amr []string)                     { r.amr = amr }
+func (r *AuthRequest) SetCodeChallenge(cc *oidc.CodeChallenge) { r.codeChallenge = cc }
 
 // ============================================================================
 // Token / RefreshToken — in-memory
@@ -140,15 +140,15 @@ type RefreshTokenRequest struct {
 
 var _ op.RefreshTokenRequest = (*RefreshTokenRequest)(nil)
 
-func (r *RefreshTokenRequest) GetApplicationID() string   { return r.applicationID }
-func (r *RefreshTokenRequest) GetUserID() string          { return r.userID }
-func (r *RefreshTokenRequest) GetAMR() []string           { return r.amr }
-func (r *RefreshTokenRequest) GetAuthTime() time.Time     { return r.authTime }
-func (r *RefreshTokenRequest) GetAudience() []string                { return nil }
-func (r *RefreshTokenRequest) GetClientID() string                  { return r.applicationID }
-func (r *RefreshTokenRequest) GetSubject() string                   { return r.userID }
-func (r *RefreshTokenRequest) SetCurrentScopes(scopes []string)     { r.scopes = scopes }
-func (r *RefreshTokenRequest) GetScopes() []string                  { return r.scopes }
+func (r *RefreshTokenRequest) GetApplicationID() string         { return r.applicationID }
+func (r *RefreshTokenRequest) GetUserID() string                { return r.userID }
+func (r *RefreshTokenRequest) GetAMR() []string                 { return r.amr }
+func (r *RefreshTokenRequest) GetAuthTime() time.Time           { return r.authTime }
+func (r *RefreshTokenRequest) GetAudience() []string            { return nil }
+func (r *RefreshTokenRequest) GetClientID() string              { return r.applicationID }
+func (r *RefreshTokenRequest) GetSubject() string               { return r.userID }
+func (r *RefreshTokenRequest) SetCurrentScopes(scopes []string) { r.scopes = scopes }
+func (r *RefreshTokenRequest) GetScopes() []string              { return r.scopes }
 
 // ============================================================================
 // Consent (persistent)
@@ -197,7 +197,7 @@ type publicKey struct {
 
 var _ op.Key = (*publicKey)(nil)
 
-func (k *publicKey) ID() string                           { return k.id }
-func (k *publicKey) Algorithm() jose.SignatureAlgorithm  { return k.algorithm }
-func (k *publicKey) Use() string                          { return "sig" }
-func (k *publicKey) Key() any                             { return k.pubKey }
+func (k *publicKey) ID() string                         { return k.id }
+func (k *publicKey) Algorithm() jose.SignatureAlgorithm { return k.algorithm }
+func (k *publicKey) Use() string                        { return "sig" }
+func (k *publicKey) Key() any                           { return k.pubKey }

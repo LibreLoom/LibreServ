@@ -67,7 +67,6 @@ func (s *BackupService) RestoreApp(ctx context.Context, backupID string, targetA
 		log.Printf("App %s stopped successfully", targetAppID)
 	}
 
-
 	return s.restoreWithRestic(ctx, backup, targetAppID, appPath, opts, result, startTime)
 }
 
@@ -415,7 +414,6 @@ func (s *BackupService) CleanupGhostDatabaseBackups(ctx context.Context) error {
 	}
 	return nil
 }
-
 
 func rewriteInstanceID(appPath, oldInstanceID, newInstanceID string) error {
 	if oldInstanceID == "" || newInstanceID == "" || oldInstanceID == newInstanceID {
