@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import PropTypes from "prop-types";
-import ModalCard from "../cards/ModalCard";
-import Callout from "./Callout";
+import ModalCard from "./ModalCard";
+import Callout from "../common/Callout";
 import Button from "../ui/Button";
 
 // Maps the modal's semantic variant to the canonical Button variant.

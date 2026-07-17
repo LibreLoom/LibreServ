@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import Card from "./Card";
+import Card from "../cards/Card";
 import CollapsibleSection from "../common/CollapsibleSection";
 import PillGauge from "../ui/PillGauge";
 

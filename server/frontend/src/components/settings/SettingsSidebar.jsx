@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { ChevronRight, Lock } from "lucide-react";
 import SettingsUserCard from "./SettingsUserCard";
-import CardButton from "../cards/CardButton";
+import CardButton from "../ui/CardButton";
 import { visibleCategories } from "./settingsCategories";
 
 export default function SettingsSidebar({

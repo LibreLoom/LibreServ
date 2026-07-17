@@ -1,6 +1,6 @@
 import { ArrowLeft } from "lucide-react";
 import Card from "../components/cards/Card";
-import CardButton from "../components/cards/CardButton";
+import CardButton from "../components/ui/CardButton";
 import Page from "../components/ui/Page";
 import pigeonImg from "../assets/pigeon.jpg";
 

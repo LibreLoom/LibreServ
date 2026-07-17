@@ -37,7 +37,7 @@ vi.mock("../hooks/useSystemHealthCheck", () => ({
   useSystemHealthCheck: vi.fn(),
 }));
 
-vi.mock("../components/cards/UptimeCard", () => ({
+vi.mock("../components/dashboard/UptimeCard", () => ({
   default: ({ value }) => <div data-testid="uptime-card"><span>{value}</span></div>,
 }));
 
@@ -51,11 +51,11 @@ vi.mock("../components/cards/HeaderCard", () => ({
   ),
 }));
 
-vi.mock("../components/cards/AppCards", () => ({
+vi.mock("../components/dashboard/AppCards", () => ({
   default: () => <div data-testid="app-cards">App Cards</div>,
 }));
 
-vi.mock("../components/cards/StressIndexCard", () => ({
+vi.mock("../components/dashboard/StressIndexCard", () => ({
   default: ({ value }) => <div data-testid="stress-index-card"><span>{value}</span></div>,
 }));
 

@@ -1,4 +1,4 @@
-import Card from "../cards/Card";
+import Card from "./Card";
 import { cn } from "@/lib/utils";
 
 /**

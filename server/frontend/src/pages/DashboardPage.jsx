@@ -1,10 +1,10 @@
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 
-import UptimeCard from "../components/cards/UptimeCard";
+import UptimeCard from "../components/dashboard/UptimeCard";
 import Page from "../components/ui/Page";
-import AppCards from "../components/cards/AppCards";
-import StressIndexCard from "../components/cards/StressIndexCard";
+import AppCards from "../components/dashboard/AppCards";
+import StressIndexCard from "../components/dashboard/StressIndexCard";
 import CriticalIssues from "../components/common/CriticalIssues";
 import InstallFirstAppCard from "../components/onboarding/InstallFirstAppCard";
 

@@ -5,7 +5,7 @@ import Card from "../components/cards/Card";
 import Dropdown from "../components/common/Dropdown";
 import Button from "../components/ui/Button";
 import AppIcon from "../components/common/AppIcon";
-import StateOverlay from "../components/common/StateOverlay";
+import StateOverlay from "../components/cards/StateOverlay";
 import { Search, Download, Check, Settings, ExternalLink } from "lucide-react";
 import StatusPill from "../components/common/StatusPill";
 import { useApps } from "../hooks/useApps";

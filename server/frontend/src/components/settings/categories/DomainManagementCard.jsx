@@ -5,7 +5,7 @@ import { useToast } from "../../../context/ToastContext";
 import { Globe, AlertTriangle, ArrowUpRight, ShieldAlert, ExternalLink } from "lucide-react";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
-import ConfirmModal from "../../common/ConfirmModal";
+import ConfirmModal from "../../cards/ConfirmModal";
 
 export default function DomainManagementCard({ currentDomain, onDomainChange, onChangeDomain }) {
   const { request } = useAuth();

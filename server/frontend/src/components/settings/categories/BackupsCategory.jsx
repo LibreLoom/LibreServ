@@ -5,7 +5,7 @@ import { DatabaseBackup, Download, Trash2, AlertTriangle, RotateCcw } from "luci
 import LocalBackupsCard from "../../backups/LocalBackupsCard";
 import DatabaseBackupCard from "../../backups/DatabaseBackupCard";
 import ScheduleForm from "../../backups/ScheduleForm";
-import ConfirmModal from "../../common/ConfirmModal";
+import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 import Dropdown from "../../common/Dropdown";
 import FieldLabel from "../../common/forms/FieldLabel";

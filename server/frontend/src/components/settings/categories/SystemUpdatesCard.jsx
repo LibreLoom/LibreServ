@@ -7,7 +7,7 @@ import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info, ExternalL
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow";
 import Button from "../../ui/Button";
-import ConfirmModal from "../../common/ConfirmModal";
+import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 
 export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateSettingsChange }) {

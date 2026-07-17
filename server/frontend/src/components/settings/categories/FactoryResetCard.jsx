@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 
-import ConfirmModal from "../../common/ConfirmModal";
+import ConfirmModal from "../../cards/ConfirmModal";
 import Button from "../../ui/Button";
 import SettingsCard from "../SettingsCard";
 import { useAuth } from "../../../hooks/useAuth";

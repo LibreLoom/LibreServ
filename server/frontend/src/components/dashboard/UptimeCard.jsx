@@ -1,4 +1,4 @@
-import Card from "./Card";
+import Card from "../cards/Card";
 
 /**
  * UptimeCard — dashboard metric showing how long the device has been running.

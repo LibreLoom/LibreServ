@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, Upload } from "lucide-react";
 import PropTypes from "prop-types";
-import ConfirmModal from "../common/ConfirmModal";
+import ConfirmModal from "../cards/ConfirmModal";
 import Dropdown from "../common/Dropdown";
 
 export default function RestoreAppSelector({ backup, apps, onRestore, onClose }) {

@@ -1,9 +1,9 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
 import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings } from "lucide-react";
-import Card from "./Card";
+import Card from "../cards/Card";
 import Button from "../ui/Button";
-import CardButton from "./CardButton";
+import CardButton from "../ui/CardButton";
 import AppIcon from "../common/AppIcon";
 import StatusPill from "../common/StatusPill";
 import { useApps } from "../../hooks/useApps";

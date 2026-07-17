@@ -1,10 +1,16 @@
-import { cn } from "@/lib/utils";
+// @ts-nocheck — polymorphic `as` forwards arbitrary element props (href/to/type) to Card; TS can't express this via JSDoc. Card itself remains type-checked.
 import { Link } from "react-router-dom";
+
+import Card from "./Card";
 
 /**
  * A standardized clickable card that wraps arbitrary content rather than the
  * fixed icon + label of CardButton. Renders as a route Link, an external
  * anchor, or a <button> (when `onClick` is given instead of `action`).
+ *
+ * Composes the Card primitive via its `as` prop, so it inherits Card's
+ * surface contract, pop-in animation, and rounded-large-element radius
+ * rather than duplicating those classes.
  *
  * Use this when a whole block of content should be a single clickable surface
  * (e.g. wrapping custom markup or art) but should still read as a card.
@@ -30,45 +36,57 @@ export default function ClickableCard({
   className = "",
   children,
 }) {
-  const classes = cn(
-    "pop-in block w-full text-left bg-secondary text-primary rounded-large-element p-5 cursor-pointer motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
-    className,
-  );
+  // Interactive behavior layered on top of Card's surface/animation/radius.
+  const interactiveClasses = "block w-full text-left cursor-pointer motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-in-out hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
+
+  const cardClassName = `${interactiveClasses} ${className}`;
 
   if (external) {
     return (
-      <a
+      <Card
+        as="a"
         href={action}
         target="_blank"
         rel="noopener noreferrer"
         aria-label={ariaLabel}
         title={title}
-        className={classes}
         data-slot="clickable-card"
+        className={cardClassName}
+        noHeightAnim
       >
         {children}
-      </a>
+      </Card>
     );
   }
 
   if (action) {
     return (
-      <Link to={action} aria-label={ariaLabel} title={title} className={classes} data-slot="clickable-card">
+      <Card
+        as={Link}
+        to={action}
+        aria-label={ariaLabel}
+        title={title}
+        data-slot="clickable-card"
+        className={cardClassName}
+        noHeightAnim
+      >
         {children}
-      </Link>
+      </Card>
     );
   }
 
   return (
-    <button
+    <Card
+      as="button"
       type={type}
       onClick={onClick}
       aria-label={ariaLabel}
       title={title}
-      className={classes}
       data-slot="clickable-card"
+      className={cardClassName}
+      noHeightAnim
     >
       {children}
-    </button>
+    </Card>
   );
 }

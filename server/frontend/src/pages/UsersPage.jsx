@@ -4,10 +4,10 @@ import { Link } from "react-router-dom";
 import Card from "../components/cards/Card";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
-import VerificationCard from "../components/cards/VerificationCard";
+import ConfirmModal from "../components/cards/ConfirmModal";
 import Table from "../components/common/Table";
 import Pill from "../components/common/Pill";
-import StateOverlay from "../components/common/StateOverlay";
+import StateOverlay from "../components/cards/StateOverlay";
 import api from "../lib/api";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 import { useAuth } from "../hooks/useAuth";
@@ -236,17 +236,16 @@ export default function UsersPage() {
         )}
       </Page>
 
-      {showVerification && userToDelete && (
-        <VerificationCard
-          title="Delete User"
-          message={`Are you sure you want to delete user "${userToDelete.name}"? This action cannot be undone.`}
-          confirmLabel="Delete"
-          cancelLabel="Cancel"
-          variant="danger"
-          onConfirm={handleConfirmDelete}
-          onCancel={() => setShowVerification(false)}
-        />
-      )}
+      <ConfirmModal
+        open={showVerification && !!userToDelete}
+        title="Delete User"
+        message={`Are you sure you want to delete user "${userToDelete?.name}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        icon={User}
+        onConfirm={handleConfirmDelete}
+        onClose={() => setShowVerification(false)}
+      />
     </>
   );
 }

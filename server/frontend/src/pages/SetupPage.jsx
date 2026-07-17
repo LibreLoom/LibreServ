@@ -7,7 +7,7 @@ import api from "../lib/api";
 import { getConnectivityStatus } from "../lib/network-api";
 import DomainWizard from "../components/setup/DomainWizard";
 import SmtpWizard from "../components/smtp/SmtpWizard";
-import ConfirmModal from "../components/common/ConfirmModal";
+import ConfirmModal from "../components/cards/ConfirmModal";
 import PreflightRemediation from "../components/setup/PreflightRemediation";
 import { summarizeError } from "../lib/preflight-errors";
 import useSetupProgress from "../hooks/useSetupProgress";

@@ -18,7 +18,7 @@ import Button from "../components/ui/Button";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import AppIcon from "../components/common/AppIcon";
-import StateOverlay from "../components/common/StateOverlay";
+import StateOverlay from "../components/cards/StateOverlay";
 import { sanitizeURL } from "../lib/sanitize";
 import {
   Grid2X2,

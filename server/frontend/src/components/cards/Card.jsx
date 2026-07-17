@@ -14,7 +14,9 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
  * @property {import('react').ReactNode} [headerActions]
  * @property {boolean} [padding]
  * @property {"primary"|"secondary"} [surface] Surface this card establishes. "secondary" (default) is the normal card surface (bg-secondary text-primary); "primary" inverts it (bg-primary text-secondary) for panels that should blend with the page.
+ * @property {import('react').ElementType} [as] Render as a different element or component (e.g. Link, "button", "a"). Interactive props like `to`, `href`, `onClick`, `type` pass through via rest.
  * @property {(event: React.AnimationEvent) => void} [onAnimationEnd]
+ * @property {Record<string, any>} [rest] Additional props spread onto the rendered element (for `as` consumers).
  */
 
 /** @param {CardProps} props */
@@ -28,7 +30,9 @@ function Card({
   headerActions,
   padding = true,
   surface = "secondary",
+  as: As = "div",
   onAnimationEnd,
+  ...rest
 }) {
   const { outerRef, innerRef } = useAnimatedHeight();
 
@@ -43,7 +47,7 @@ function Card({
 
   if (noHeightAnim) {
     return (
-      <div
+      <As
         data-slot="card"
         data-surface={surface}
         className={cn(
@@ -54,6 +58,7 @@ function Card({
           className
         )}
         onAnimationEnd={onAnimationEnd}
+        {...rest}
       >
         {hasHeader && (
           <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
@@ -65,7 +70,7 @@ function Card({
           </div>
         )}
         {children}
-      </div>
+      </As>
     );
   }
 
@@ -75,7 +80,7 @@ function Card({
       className="overflow-hidden rounded-large-element transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
-      <div
+      <As
         ref={innerRef}
         data-slot="card"
         data-surface={surface}
@@ -86,6 +91,7 @@ function Card({
           className
         )}
         onAnimationEnd={onAnimationEnd}
+        {...rest}
       >
         {hasHeader && (
           <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
@@ -97,7 +103,7 @@ function Card({
           </div>
         )}
         {padding ? <div className="p-5">{children}</div> : children}
-      </div>
+      </As>
     </div>
   );
 }
@@ -112,6 +118,7 @@ Card.propTypes = {
   headerActions: PropTypes.node,
   padding: PropTypes.bool,
   surface: PropTypes.oneOf(["primary", "secondary"]),
+  as: PropTypes.elementType,
   onAnimationEnd: PropTypes.func,
 };
 

@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, ChevronUp, Shield, Radio } from "lucide-react";
 import PropTypes from "prop-types";
-import ConfirmModal from "../../common/ConfirmModal";
+import ConfirmModal from "../../cards/ConfirmModal";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow.jsx";
 import RoutesCard from "../../network/RoutesCard";

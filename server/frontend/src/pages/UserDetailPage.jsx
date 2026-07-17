@@ -2,12 +2,12 @@ import { cn } from "@/lib/utils";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Card from "../components/cards/Card";
-import CardButton from "../components/cards/CardButton";
+import CardButton from "../components/ui/CardButton";
 import Button from "../components/ui/Button";
-import VerificationCard from "../components/cards/VerificationCard";
+import ConfirmModal from "../components/cards/ConfirmModal";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
-import StateOverlay from "../components/common/StateOverlay";
+import StateOverlay from "../components/cards/StateOverlay";
 import Page from "../components/ui/Page";
 import api from "../lib/api";
 import { User, Mail, Shield, Calendar, Clock } from "lucide-react";
@@ -263,17 +263,16 @@ export default function UserDetailPage() {
         </>
       )}
 
-      {showDeleteConfirm && user && (
-        <VerificationCard
-          title="Delete User"
-          message={`Are you sure you want to delete user "${user.username}"? This action cannot be undone.`}
-          confirmLabel="Delete"
-          cancelLabel="Cancel"
-          variant="danger"
-          onConfirm={handleDeleteUser}
-          onCancel={() => setShowDeleteConfirm(false)}
-        />
-      )}
+      <ConfirmModal
+        open={showDeleteConfirm && !!user}
+        title="Delete User"
+        message={`Are you sure you want to delete user "${user?.username}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        icon={User}
+        onConfirm={handleDeleteUser}
+        onClose={() => setShowDeleteConfirm(false)}
+      />
 
       {showEditModal && user && (
         <ModalCard title="Change Email" onClose={() => setShowEditModal(false)}>
