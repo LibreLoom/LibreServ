@@ -7,6 +7,7 @@ import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
 import CheckboxOptionGroup from "../common/CheckboxOptionGroup";
+import Button from "../ui/Button";
 import {
   Clock,
   Plus,
@@ -328,13 +329,14 @@ export default function ScheduleForm() {
           <div className="px-4 py-6 text-center">
             <span className="opacity-50 block mb-2"><Clock className="w-10 h-10 text-primary mx-auto" aria-hidden="true" /></span>
             <p className="text-sm text-accent">No backup schedules configured</p>
-            <button
+            <Button
+              variant="primary"
               onClick={() => setShowModal(true)}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm"
+              className="mt-3"
             >
               <Plus size={16} aria-hidden="true" />
               Create Schedule
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="p-4 space-y-3">
@@ -364,27 +366,25 @@ export default function ScheduleForm() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="iconSm"
                     onClick={() => handleEdit(schedule)}
                     title="Edit schedule"
-                    className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
                     aria-label="Edit schedule"
                   >
                     <Edit2 size={14} className="text-accent opacity-50" aria-hidden="true" />
-                  </button>
-                  <button
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="iconSm"
                     onClick={() => handleDelete(schedule)}
-                    disabled={deleting === schedule.id}
+                    loading={deleting === schedule.id}
                     title="Delete schedule"
-                    className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all disabled:opacity-50"
                     aria-label="Delete schedule"
                   >
-                    {deleting === schedule.id ? (
-                      <Loader2 size={14} className="animate-spin text-accent" aria-hidden="true" />
-                    ) : (
-                      <Trash2 size={14} className="text-accent opacity-50" aria-hidden="true" />
-                    )}
-                  </button>
+                    <Trash2 size={14} className="text-accent opacity-50" aria-hidden="true" />
+                  </Button>
                 </div>
               </div>
             ))}
@@ -398,14 +398,16 @@ export default function ScheduleForm() {
           onClose={closeModal}
           footer={
             <div className="flex gap-3 w-full">
-              <button
+              <Button
+                variant="primary"
                 onClick={handleSave}
-                disabled={saving || !formData.app_id}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm disabled:opacity-50"
+                loading={saving}
+                disabled={!formData.app_id}
+                className="flex-1"
               >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {!saving && <Save className="w-4 h-4" />}
                 {editingSchedule ? "Update" : "Create"}
-              </button>
+              </Button>
             </div>
           }
         >

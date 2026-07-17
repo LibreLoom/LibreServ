@@ -1,9 +1,9 @@
-import { cn } from "@/lib/utils";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/common/ErrorDisplay";
 import Page from "../components/ui/Page";
+import Button from "../components/ui/Button";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
@@ -234,28 +234,42 @@ export default function SettingsPage() {
   };
 
   return (
-    <Page className={cn("min-h-screen")} data-slot="settings">
+    <Page
+      padded={false}
+      className="h-[100dvh] flex flex-col overflow-hidden pt-0 pb-0"
+      data-slot="settings"
+    >
       {error && (
-        <div className="px-4 pt-4">
+        <div className="px-8 pt-5">
           <ErrorDisplay message={error} onDismiss={() => setError(null)} />
-          <button
+          <Button
+            variant="outline"
+            surface="primary"
+            size="sm"
             onClick={loadData}
-            className="mt-2 px-4 py-2 text-sm font-mono rounded-pill border-2 border-secondary text-secondary hover:bg-secondary hover:text-primary motion-safe:transition-colors"
+            className="mt-2 font-mono"
           >
             Retry
-          </button>
+          </Button>
         </div>
       )}
 
-      <div className="hidden md:flex md:gap-6 md:p-6 md:pt-8 pb-20 h-[calc(100vh-4rem)] overflow-hidden">
-        <div className="w-[28%] min-w-[260px] max-w-[360px] flex-shrink-0">
+      {/* Desktop: two-column fixed frame.
+          The page never scrolls — only the content panel does.
+          min-h-0 is the flexbox incantation that lets overflow-y-auto work
+          inside a flex child (without it the child won't shrink below its
+          content size and overflow is ignored). */}
+      <div className="hidden md:flex flex-1 gap-6 px-8 pt-5 overflow-hidden min-h-0">
+        {/* Sidebar — fixed frame, scrolls only if categories overflow */}
+        <div className="w-[28%] min-w-[260px] max-w-[360px] flex-shrink-0 overflow-y-auto pb-24">
           <SettingsSidebar
             user={user}
             activeCategory={activeCategory}
             onCategoryChange={setActiveCategory}
           />
         </div>
-        <div className="flex-1 overflow-y-auto pl-10 pr-12 animate-in fade-in slide-in-from-right-2 duration-300">
+        {/* Content — the only thing that scrolls */}
+        <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-2 duration-300">
           <SettingsContent
             category={activeCategory}
             settings={settings}
@@ -292,9 +306,10 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="md:hidden">
+      {/* Mobile: single scroll container, page never scrolls */}
+      <div className="md:hidden flex-1 overflow-y-auto min-h-0">
         {!showMobileContent ? (
-          <div className="p-4 pt-6">
+          <div className="p-4 pt-6 pb-24">
             <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-200">
               Settings
             </h1>
@@ -305,14 +320,17 @@ export default function SettingsPage() {
             />
           </div>
         ) : (
-          <div className="p-4 pt-6 pb-20 animate-in fade-in slide-in-from-right-4 duration-300">
-            <button
+          <div className="p-4 pt-6 pb-24 animate-in fade-in slide-in-from-right-4 duration-300">
+            <Button
+              variant="ghost"
+              surface="primary"
+              size="sm"
               onClick={handleBackToSidebar}
-              className="flex items-center gap-2 px-3 py-1.5 mb-4 -ml-3 text-accent hover:text-secondary transition-colors duration-200 rounded-pill"
+              className="mb-4 -ml-3"
             >
               <ArrowLeft size={18} />
               <span>Back</span>
-            </button>
+            </Button>
             <SettingsContent
               category={activeCategory}
               settings={settings}

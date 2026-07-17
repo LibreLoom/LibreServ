@@ -12,7 +12,7 @@ export function CardHeader({ className = "", ...props }) {
 
 /** @param {any} props */
 export function CardTitle({ className = "", ...props }) {
-  return <h3 className={cn("font-mono text-lg font-bold leading-none tracking-tight", className)} {...props} />;
+  return <h3 className={cn("font-mono text-lg leading-none tracking-tight", className)} {...props} />;
 }
 
 /** @param {any} props */

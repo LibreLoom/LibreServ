@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import ConfigFieldRenderer from "./ConfigFieldRenderer";
+import Button from "../../ui/Button";
 import { Info, ChevronDown, ChevronUp } from "lucide-react";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
@@ -166,19 +167,23 @@ function ConfigureStep({ app, config, onConfigChange, onContinue, onBack }) {
       )}
 
       <div className="flex justify-center gap-3 pt-4">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          surface="primary"
           onClick={onBack}
-          className="px-6 py-2 rounded-pill border-2 border-secondary/30 text-secondary hover:bg-secondary/10 motion-safe:transition-all font-mono"
+          className="px-6"
         >
           Back
-        </button>
-        <button
+        </Button>
+        <Button
           type="submit"
-          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
+          variant="secondary"
+          surface="primary"
+          className="px-6"
         >
           Install
-        </button>
+        </Button>
       </div>
     </form>
   );

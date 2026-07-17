@@ -127,7 +127,7 @@ export default function MyProfile() {
               />
               <Button
                 type="submit"
-                variant="accent"
+                variant="primary"
                 loading={emailSaving}
                 disabled={!emailDirty || emailSaving}
                 className="w-full"
@@ -178,7 +178,7 @@ export default function MyProfile() {
             )}
             <Button
               type="submit"
-              variant="accent"
+              variant="primary"
               loading={pwSaving}
               className="w-full"
             >

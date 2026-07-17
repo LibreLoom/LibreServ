@@ -44,7 +44,7 @@ function FactoryResetCard({ index = 2 }) {
   return (
     <div data-slot="factory-reset-card">
       <SettingsCard icon={AlertTriangle} title="Factory Reset" index={index}>
-        <p className="text-sm text-muted mb-4">
+        <p className="text-sm text-primary mb-4">
           Reset this device to factory defaults. <strong>This will delete all data and settings.</strong>
         </p>
         <Button
@@ -84,7 +84,7 @@ function FactoryResetCard({ index = 2 }) {
             <li>All security events and audit logs</li>
             <li>All network and notification settings</li>
           </ul>
-          <p className="font-semibold text-danger">
+          <p className="font-semibold text-error">
             This action cannot be undone.
           </p>
         </div>
@@ -99,7 +99,7 @@ function FactoryResetCard({ index = 2 }) {
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
             placeholder="Type RESET"
-            className="w-full px-3 py-2 rounded-card bg-secondary border-2 border-accent/30 text-primary font-mono text-sm focus:border-accent focus:outline-none"
+            className="w-full px-3 py-2 rounded-large-element bg-secondary border-2 border-accent/30 text-primary font-mono text-sm focus:border-accent focus:outline-none"
           />
         </div>
 
@@ -112,7 +112,7 @@ function FactoryResetCard({ index = 2 }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Your password"
-            className="w-full px-3 py-2 rounded-card bg-secondary border-2 border-accent/30 text-primary font-mono text-sm focus:border-accent focus:outline-none"
+            className="w-full px-3 py-2 rounded-large-element bg-secondary border-2 border-accent/30 text-primary font-mono text-sm focus:border-accent focus:outline-none"
             autoComplete="off"
           />
         </div>

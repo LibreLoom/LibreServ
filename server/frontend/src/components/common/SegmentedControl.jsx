@@ -1,5 +1,6 @@
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
+import { haptic } from "../../utils/haptics";
 
 export default function SegmentedControl({
   options,
@@ -36,7 +37,10 @@ export default function SegmentedControl({
       {options.map(({ value: optValue, icon: Icon, label }) => (
         <button
           key={optValue}
-          onClick={() => onChange(optValue)}
+          onClick={() => {
+            haptic("tap");
+            onChange(optValue);
+          }}
           className={cn(
             "relative z-10 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-pill",
             "text-xs font-medium transition-[color] ease-[var(--motion-easing-standard)]",

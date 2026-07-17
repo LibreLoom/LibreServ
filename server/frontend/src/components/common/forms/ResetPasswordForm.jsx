@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import { useAuth } from "../../../hooks/useAuth";
 import { Lock } from "lucide-react";
+import Button from "../../ui/Button";
 
 /**
  * @param {{ user: any, onSuccess?: any, onCancel?: any }} _
@@ -183,24 +184,23 @@ export default function ResetPasswordForm({ user, onSuccess, onCancel }) {
       )}
 
       <div className="flex gap-3">
-           <button
-             type="button"
-             onClick={onCancel}
-            className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary hover:ring-solid font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
-             disabled={loading}
-           >
-          Cancel
-        </button>
-        <button
-          type="submit"
+        <Button
+          variant="outline"
+          surface="secondary"
+          onClick={onCancel}
           disabled={loading}
-          className={cn(
-            "flex-1 px-4 py-2 bg-accent text-primary rounded-pill font-medium motion-safe:transition-all hover:ring-2 hover:ring-primary flex items-center justify-center gap-2",
-            loading && "opacity-50 cursor-not-allowed",
-          )}
+          className="flex-1"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          variant="accent"
+          loading={loading}
+          className="flex-1"
         >
           {loading ? "Resetting..." : "Reset Password"}
-        </button>
+        </Button>
       </div>
     </form>
   );

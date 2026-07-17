@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Globe, Loader2, Network, XCircle } from "lucide-react";
+import { CheckCircle2, Globe, Network, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
-import Card from "../cards/Card";
 import Dropdown from "../common/Dropdown";
 import Toggle from "../common/Toggle";
+import Button from "../ui/Button";
 import { useAuth } from "../../hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { testBackend } from "../../lib/network-api";
@@ -275,21 +275,25 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
       className={cn(isClosing ? "animate-out fade-out" : "animate-in fade-in")}
     >
       {confirmClose && (
-        <div className="mb-4 bg-warning/10 border border-warning/30 rounded-card p-3">
+        <div className="mb-4 bg-warning/10 border border-warning/30 rounded-large-element p-3">
           <p className="font-mono text-xs text-warning mb-3">Route is being saved. Cancel?</p>
           <div className="flex gap-2">
-            <button
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setConfirmClose(false)}
-              className="flex-1 px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-colors cursor-pointer"
+              className="flex-1"
             >
               Continue Saving
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="accent"
+              size="sm"
               onClick={handleForceClose}
-              className="flex-1 px-3 py-1.5 rounded-pill bg-warning/20 text-warning text-xs font-mono hover:bg-warning/30 transition-colors cursor-pointer"
+              className="flex-1"
             >
               Cancel &amp; Close
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -303,13 +307,14 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
           <p className="text-xs text-primary/50 mb-6">
             Install and start an app before creating a route.
           </p>
-          <button
+          <Button
             type="button"
+            variant="outline"
+            fullWidth
             onClick={handleClose}
-            className="w-full px-4 py-2 rounded-pill border-2 border-primary/20 text-primary hover:bg-primary/10 transition-all font-mono text-sm cursor-pointer"
           >
             Close
-          </button>
+          </Button>
         </div>
       ) : (
         <form onSubmit={handleSubmit}>
@@ -365,7 +370,7 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
           )}
 
           {mode === "edit" && route && (
-            <div className="mb-5 flex items-center gap-2 px-4 py-2.5 rounded-card bg-primary/5">
+            <div className="mb-5 flex items-center gap-2 px-4 py-2.5 rounded-large-element bg-primary/5">
               <Globe size={16} className="text-primary/50 shrink-0" />
               <p className="font-mono text-sm text-primary truncate">
                 {route.subdomain ? `${route.subdomain}.${route.domain}` : route.domain}
@@ -373,95 +378,91 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
             </div>
           )}
 
-          <Card noPopIn className="mb-6 !bg-primary/5 !border !border-primary/10">
-            <div className="rounded-card bg-secondary text-primary border border-primary/10">
-              <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
-                App<span className="text-error ml-0.5">*</span>
-              </label>
-              <div className="px-3 pb-3">
-                <Dropdown
-                  value={formData.appId}
-                  onChange={(val) => handleChange("appId")({ target: { value: val } })}
-                  placeholder="Select an app..."
-                  fullWidth
-                  disabled={loading}
-                  options={runningApps.map((app) => ({ value: app.id, label: app.name }))}
-                />
+          <div className="rounded-large-element bg-primary/5 border border-primary/10 mb-6 p-1">
+              <div className="rounded-large-element bg-secondary text-primary border border-primary/10">
+                <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
+                  App<span className="text-error ml-0.5">*</span>
+                </label>
+                <div className="px-3 pb-3">
+                  <Dropdown
+                    value={formData.appId}
+                    onChange={(val) => handleChange("appId")({ target: { value: val } })}
+                    placeholder="Select an app..."
+                    fullWidth
+                    disabled={loading}
+                    options={runningApps.map((app) => ({ value: app.id, label: app.name }))}
+                  />
+                </div>
+                {errors.appId && (
+                  <p className="text-error text-xs mt-1 px-3 pb-3">{errors.appId}</p>
+                )}
               </div>
-              {errors.appId && (
-                <p className="text-error text-xs mt-1 px-3 pb-3">{errors.appId}</p>
+
+              {selectedApp && (
+                <div className="rounded-large-element bg-secondary text-primary border border-primary/10 mt-2">
+                  <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
+                    Backend
+                  </label>
+                  {showBackendPicker ? (
+                    <>
+                      <div className="px-3 pb-3">
+                        <Dropdown
+                          value={formData.backendName}
+                          onChange={(val) => handleChange("backendName")({ target: { value: val } })}
+                          fullWidth
+                          disabled={loading}
+                          options={appBackends.map((backend) => ({
+                            value: backend.name,
+                            label: backend.name ? `${backend.name} — ${backend.url}` : backend.url,
+                          }))}
+                        />
+                      </div>
+                      {errors.backendName && (
+                        <p className="text-error text-xs mt-1 px-3 pb-3">{errors.backendName}</p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="px-3 pb-3">
+                      <p className="font-mono text-sm text-primary bg-primary/10 rounded-pill px-4 py-2 truncate">
+                        {selectedBackend?.url || "No backend available"}
+                      </p>
+                    </div>
+                  )}
+                  {selectedBackend?.url && (
+                    <div className="mt-2 flex items-center gap-2 px-3 pb-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => doTestBackend(selectedBackend.url)}
+                        disabled={loading}
+                        loading={testingBackend}
+                        className="whitespace-nowrap"
+                      >
+                        {testingBackend ? "Testing..." : "Test Connection"}
+                      </Button>
+                      {backendTestResult && (
+                        <div className={cn("flex items-center gap-1 text-xs", backendTestResult.reachable ? "text-success" : "text-error")}>
+                          {backendTestResult.reachable ? (
+                            <>
+                              <CheckCircle2 size={12} />
+                              <span className="font-mono">Reachable</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle size={12} />
+                              <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
-            {selectedApp && (
-              <div className="rounded-card bg-secondary text-primary border border-primary/10 mt-2">
-                <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
-                  Backend
-                </label>
-                {showBackendPicker ? (
-                  <>
-                    <div className="px-3 pb-3">
-                      <Dropdown
-                        value={formData.backendName}
-                        onChange={(val) => handleChange("backendName")({ target: { value: val } })}
-                        fullWidth
-                        disabled={loading}
-                        options={appBackends.map((backend) => ({
-                          value: backend.name,
-                          label: backend.name ? `${backend.name} — ${backend.url}` : backend.url,
-                        }))}
-                      />
-                    </div>
-                    {errors.backendName && (
-                      <p className="text-error text-xs mt-1 px-3 pb-3">{errors.backendName}</p>
-                    )}
-                  </>
-                ) : (
-                  <div className="px-3 pb-3">
-                    <p className="font-mono text-sm text-primary bg-primary/10 rounded-pill px-4 py-2 truncate">
-                      {selectedBackend?.url || "No backend available"}
-                    </p>
-                  </div>
-                )}
-                {selectedBackend?.url && (
-                  <div className="mt-2 flex items-center gap-2 px-3 pb-3">
-                    <button
-                      type="button"
-                      onClick={() => doTestBackend(selectedBackend.url)}
-                      disabled={testingBackend || loading}
-                      className="px-3 py-1.5 rounded-pill bg-primary/10 text-primary text-xs font-mono hover:bg-primary/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      {testingBackend ? (
-                        <>
-                          <Loader2 size={12} className="animate-spin" />
-                          Testing...
-                        </>
-                      ) : (
-                        "Test Connection"
-                      )}
-                    </button>
-                    {backendTestResult && (
-                      <div className={cn("flex items-center gap-1 text-xs", backendTestResult.reachable ? "text-success" : "text-error")}>
-                        {backendTestResult.reachable ? (
-                          <>
-                            <CheckCircle2 size={12} />
-                            <span className="font-mono">Reachable</span>
-                          </>
-                        ) : (
-                          <>
-                            <XCircle size={12} />
-                            <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-
-          <div className="space-y-3 mb-5 mt-4 p-4 rounded-card bg-primary/5 border border-primary/10">
+          <div className="space-y-3 mb-5 mt-4 p-4 rounded-large-element bg-primary/5 border border-primary/10">
             <Toggle
               checked={formData.enabled}
               onChange={(val) => setFormData((prev) => ({ ...prev, enabled: val }))}
@@ -485,22 +486,23 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
           )}
 
           <div className="flex gap-3 pt-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={handleClose}
               disabled={loading}
-              className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/20 bg-secondary text-primary hover:bg-primary/10 transition-all font-mono text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1"
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              disabled={loading}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-accent transition-all font-mono text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              variant="primary"
+              loading={loading}
+              className="flex-1"
             >
-              {loading && <Loader2 size={16} className="animate-spin" aria-hidden="true" />}
               {loading ? "Saving..." : submitLabel}
-            </button>
+            </Button>
           </div>
         </form>
       )}

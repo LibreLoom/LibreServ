@@ -371,42 +371,8 @@ func TestAppRunTest_Features(t *testing.T) {
 	catalog, _ := setupTestCatalog(t)
 	app := getAppDef(t, catalog)
 
-	f := app.Features
-	if f.Experimental != true {
-		t.Error("expected experimental = true")
-	}
-	if f.AccessModel != AccessModelInternal {
-		t.Errorf("expected access_model = %q, got %q", AccessModelInternal, f.AccessModel)
-	}
-	if f.Backup != FeatureSupported {
-		t.Errorf("expected backup = %q, got %q", FeatureSupported, f.Backup)
-	}
-	if !f.CustomDomains {
-		t.Error("expected custom_domains = true")
-	}
-	if !f.UpdateBehavior.RequiresDowntime {
-		t.Error("expected update_behavior.requires_downtime = true")
-	}
-	if !f.UpdateBehavior.SupportsRollback {
-		t.Error("expected update_behavior.supports_rollback = true")
-	}
-	if !f.ResourceHints.SingleInstance {
-		t.Error("expected resource_hints.single_instance = true")
-	}
-	if f.ResourceHints.PrivilegedRequired {
-		t.Error("expected resource_hints.privileged_required = false")
-	}
-	if len(f.SupportedOS) == 0 {
-		t.Error("expected supported_os to be set")
-	}
-	if len(f.UnsupportedOS) == 0 {
-		t.Error("expected unsupported_os to be set")
-	}
-	if f.MinRAM == 0 {
-		t.Error("expected features.min_ram to be set")
-	}
-	if f.MinCPU == 0 {
-		t.Error("expected features.min_cpu to be set")
+	if app.AccessModel != AccessModelInternal {
+		t.Errorf("expected access_model = %q, got %q", AccessModelInternal, app.AccessModel)
 	}
 }
 
@@ -1369,22 +1335,6 @@ func TestAppRunTest_ServerContextDefaults(t *testing.T) {
 	}
 	if !strings.Contains(ctx3.ServerURL, "9090") {
 		t.Errorf("expected port 9090 in URL, got %s", ctx3.ServerURL)
-	}
-}
-
-func TestAppRunTest_DefaultFeatures(t *testing.T) {
-	defaults := GetDefaultFeatures()
-	if defaults.AccessModel != AccessModelInternal {
-		t.Errorf("expected default access_model %q, got %q", AccessModelInternal, defaults.AccessModel)
-	}
-	if defaults.Backup != FeatureSupported {
-		t.Errorf("expected default backup %q, got %q", FeatureSupported, defaults.Backup)
-	}
-	if defaults.CustomDomains != true {
-		t.Error("expected default custom_domains = true")
-	}
-	if defaults.UpdateBehavior.RequiresDowntime != true {
-		t.Error("expected default update_behavior.requires_downtime = true")
 	}
 }
 

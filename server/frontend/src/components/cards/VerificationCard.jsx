@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import Card from "./Card";
+import Button from "../ui/Button";
 
 /**
  * VerificationCard - Modal card for confirming destructive actions like user deletion
@@ -89,7 +90,10 @@ export default function VerificationCard({
   }, [handleClose]);
 
   return (
-    <div className="fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" data-slot="verification-card">
+    <div className={cn(
+      "fixed inset-0 bg-primary/60 backdrop-blur-sm flex items-center justify-center z-50 p-4",
+      isClosing ? "animate-out fade-out zoom-out-95" : "animate-in fade-in zoom-in-95"
+    )} data-slot="verification-card">
       <div
         ref={dialogRef}
         role="alertdialog"
@@ -100,15 +104,17 @@ export default function VerificationCard({
       >
         <Card className={cn("relative", isClosing && "pop-out")}>
           {/* Close button */}
-             <button
-               type="button"
-               onClick={handleClose}
-              className="absolute top-5 right-5 p-2 rounded-pill text-primary motion-safe:transition-all hover:bg-primary hover:text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
-               aria-label="Close"
-               ref={closeButtonRef}
-             >
+          <Button
+            variant="ghost"
+            size="icon"
+            surface="secondary"
+            onClick={handleClose}
+            className="absolute top-5 right-5"
+            aria-label="Close"
+            ref={closeButtonRef}
+          >
             <X size={20} aria-hidden="true" />
-          </button>
+          </Button>
 
           {/* Warning icon and title */}
           <div className="flex items-center gap-4 mb-4">
@@ -135,25 +141,21 @@ export default function VerificationCard({
 
           {/* Action buttons */}
           <div className="flex gap-3">
-             <button
-               type="button"
-               onClick={handleClose}
-              className="flex-1 px-4 py-2 bg-primary text-secondary rounded-pill motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary font-medium text-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline"
-             >
+            <Button
+              variant="outline"
+              surface="secondary"
+              onClick={handleClose}
+              className="flex-1"
+            >
               {cancelLabel}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant={variant === "danger" ? "danger" : "primary"}
               onClick={handleConfirm}
-            className={cn(
-              "flex-1 px-4 py-2 rounded-pill font-medium text-sm motion-safe:transition-all hover:ring-2 focus-visible:ring-2 focus-visible:ring-offset-2",
-              variant === "danger"
-                ? "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent focus-visible:ring-primary"
-                : "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-primary focus-visible:ring-accent",
-            )}
+              className="flex-1"
             >
               {confirmLabel}
-            </button>
+            </Button>
           </div>
         </Card>
       </div>

@@ -2,6 +2,7 @@ import { memo, useState, useCallback, useMemo } from "react";
 import { Check, AlertTriangle, Loader2 } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../../hooks/useAuth.jsx";
+import Button from "../../ui/Button";
 
 function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loading }) {
   const { request } = useAuth();
@@ -208,22 +209,26 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
       </div>
 
       <div className="flex justify-center gap-3 pt-4">
-        <button
+        <Button
           type="button"
+          variant="outline"
+          surface="primary"
           onClick={onBack}
           disabled={loading}
-          className="px-6 py-2 rounded-pill border-2 border-secondary/30 text-secondary hover:bg-secondary/10 motion-safe:transition-all font-mono"
+          className="px-6"
         >
           Back
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant="secondary"
+          surface="primary"
           onClick={handleContinue}
           disabled={!isNextEnabled || loading}
-          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
+          className="px-6"
         >
           Continue
-        </button>
+        </Button>
       </div>
     </div>
   );

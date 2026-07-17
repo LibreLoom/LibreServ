@@ -1,15 +1,17 @@
-import { useCallback, useState } from "react";
-import { cn } from "@/lib/utils";
-import { Loader2 } from "lucide-react";
+import { useCallback } from "react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
 import Callout from "./Callout";
+import Button from "../ui/Button";
 
-const CONFIRM_CLASS = {
-  default: "bg-accent text-primary hover:ring-2 hover:ring-accent",
-  warning: "bg-warning text-secondary hover:ring-2 hover:ring-primary",
-  danger: "bg-error text-secondary hover:ring-2 hover:ring-primary",
-  "danger-undoable": "bg-error text-secondary hover:ring-2 hover:ring-primary",
+// Maps the modal's semantic variant to the canonical Button variant.
+// "warning" keeps its yellow fill via a className override since Button has
+// no warning variant of its own.
+const CONFIRM_VARIANT = {
+  default: "accent",
+  warning: "accent",
+  danger: "danger",
+  "danger-undoable": "danger",
 };
 
 const BANNER_TONE = {
@@ -51,81 +53,75 @@ export default function ConfirmModal({
   disabledConfirm = false,
   initialFocusRef,
 }) {
-  const [isClosing, setIsClosing] = useState(false);
-  const shouldRender = open || isClosing;
   const iconColor = variant === "danger" || variant === "danger-undoable" ? "text-error" : variant === "warning" ? "text-warning" : "text-accent";
-  const confirmClass = CONFIRM_CLASS[variant] || CONFIRM_CLASS.default;
+  const confirmVariant = CONFIRM_VARIANT[variant] || CONFIRM_VARIANT.default;
   const bannerTone = BANNER_TONE[variant];
-
-  const handleClose = useCallback(() => {
-    if (loading || isClosing) return;
-    setIsClosing(true);
-    setTimeout(() => {
-      onClose?.();
-      setIsClosing(false);
-    }, 200);
-  }, [loading, isClosing, onClose]);
 
   const handleConfirm = useCallback(() => {
     if (loading) return;
     onConfirm?.();
   }, [loading, onConfirm]);
 
-  if (!shouldRender) return null;
+  if (!open) return null;
 
   return (
     <ModalCard
       title={title}
-      onClose={handleClose}
+      onClose={onClose}
       size="sm"
-      className={isClosing ? "animate-out fade-out" : "animate-in fade-in"}
       initialFocusRef={initialFocusRef}
     >
-      <div className="flex items-start gap-3">
-        {Icon && (
-          <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
-            <Icon size={24} className={iconColor} />
+      {({ close }) => (
+        <>
+          <div className="flex items-start gap-3">
+            {Icon && (
+              <div className="flex-shrink-0 mt-0.5" aria-hidden="true">
+                <Icon size={24} className={iconColor} />
+              </div>
+            )}
+            <div className="flex-1">
+              {message && (
+                <p className="font-mono text-sm text-primary/70 mb-2">{message}</p>
+              )}
+              {children}
+            </div>
           </div>
-        )}
-        <div className="flex-1">
-          {message && (
-            <p className="font-mono text-sm text-primary/70 mb-2">{message}</p>
+
+          {bannerTone && (
+            <div className="mt-4">
+              <Callout tone={bannerTone} rounded="card">
+                {variant === "danger"
+                  ? "This action cannot be undone."
+                  : "Please review before proceeding."}
+              </Callout>
+            </div>
           )}
-          {children}
-        </div>
-      </div>
 
-      {bannerTone && (
-        <div className="mt-4">
-          <Callout tone={bannerTone} rounded="card">
-            {variant === "danger"
-              ? "This action cannot be undone."
-              : "Please review before proceeding."}
-          </Callout>
-        </div>
+          <div className="flex gap-3 mt-6">
+            <Button
+              variant="outline"
+              surface="secondary"
+              onClick={close}
+              disabled={loading}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={confirmVariant}
+              onClick={handleConfirm}
+              loading={loading}
+              disabled={disabledConfirm}
+              className={variant === "warning" ? "flex-1 bg-warning text-secondary" : "flex-1"}
+            >
+              {!loading && ConfirmIcon ? (
+                <ConfirmIcon size={16} aria-hidden="true" />
+              ) : null}
+              {loading ? "Processing..." : confirmLabel}
+            </Button>
+          </div>
+        </>
       )}
-
-      <div className="flex gap-3 mt-6">
-        <button
-          onClick={handleClose}
-          disabled={loading}
-          className={cn("flex-1 px-4 py-2 rounded-pill border-2 border-accent/30 bg-secondary text-primary hover:bg-accent/20 transition-all font-mono text-sm disabled:opacity-50")}
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleConfirm}
-          disabled={loading || disabledConfirm}
-          className={cn("flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill transition-all font-mono text-sm disabled:opacity-50", confirmClass)}
-        >
-          {loading ? (
-            <Loader2 size={16} className="animate-spin" aria-hidden="true" />
-          ) : ConfirmIcon ? (
-            <ConfirmIcon size={16} aria-hidden="true" />
-          ) : null}
-          {loading ? "Processing..." : confirmLabel}
-        </button>
-      </div>
     </ModalCard>
   );
 }

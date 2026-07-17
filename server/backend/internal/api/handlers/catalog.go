@@ -145,12 +145,12 @@ func (h *CatalogHandler) GetAppFeatures(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	features := app.Features
-	if features.AccessModel == "" {
-		features = apps.GetDefaultFeatures()
+	model := app.AccessModel
+	if model == "" {
+		model = apps.AccessModelInternal
 	}
 
-	JSON(w, http.StatusOK, features)
+	JSON(w, http.StatusOK, map[string]string{"access_model": string(model)})
 }
 
 func (h *CatalogHandler) GetAppIcon(w http.ResponseWriter, r *http.Request) {

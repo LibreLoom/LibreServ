@@ -29,7 +29,7 @@ export default function Devices() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl font-bold mb-6">Devices</h2>
+      <h2 className="font-mono text-2xl mb-6">Devices</h2>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -41,7 +41,7 @@ export default function Devices() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-mono text-sm font-bold">{d.id}</p>
+                  <p className="font-mono text-sm">{d.id}</p>
                   <p className="text-sm text-muted-foreground">{d.plan_id}</p>
                 </div>
                 <StatusBadge status={d.is_active ? "active" : "inactive"} />
@@ -79,7 +79,7 @@ export default function Devices() {
               {deviceUsage && (
                 <div className="mt-4 pt-4 border-t border-border">
                   <p className="font-mono text-sm text-muted-foreground mb-2">Usage This Cycle</p>
-                  <p className="font-mono text-lg font-bold">${(deviceUsage.total_cost_usd || 0).toFixed(2)}</p>
+                  <p className="font-mono text-lg">${(deviceUsage.total_cost_usd || 0).toFixed(2)}</p>
                 </div>
               )}
 

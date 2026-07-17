@@ -1,6 +1,7 @@
 import { FileCode, RefreshCw } from "lucide-react";
 import Card from "../cards/Card";
 import CollapsibleSection from "../common/CollapsibleSection";
+import Button from "../ui/Button";
 
 export default function DebugCard({ content, onReload }) {
   const isEmpty = !content || content.trim().length === 0;
@@ -12,14 +13,15 @@ export default function DebugCard({ content, onReload }) {
       title="Advanced"
       padding={false}
       headerActions={
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           onClick={onReload}
-          className="flex items-center gap-1 text-xs text-accent hover:text-primary transition-colors"
           title="Reload configuration"
         >
           <RefreshCw size={14} aria-hidden="true" />
           Reload
-        </button>
+        </Button>
       }
     >
       <div className="px-4 py-3">

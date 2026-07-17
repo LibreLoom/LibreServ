@@ -1,10 +1,12 @@
 import { cn } from "@/lib/utils";
 import { useState, useRef } from "react";
-import { Palette, Moon, Sun, Monitor, RotateCcw, Check } from "lucide-react";
+import { Palette, Moon, Sun, Monitor, RotateCcw, Check, Vibrate } from "lucide-react";
 import Toggle from "../../common/Toggle";
 import SegmentedControl from "../../common/SegmentedControl";
 import SettingsRow from "../SettingsRow";
 import SettingsCard from "../SettingsCard";
+import Button from "../../ui/Button";
+import { useHapticsEnabled, setHapticsEnabled } from "../../../utils/haptics";
 
 const THEME_OPTIONS = [
   { value: "system", icon: Monitor, label: "System" },
@@ -80,9 +82,11 @@ function ColorPreset({ colors, label, currentColors, onSelect }) {
     currentColors?.accent === colors.accent;
 
   return (
-    <button
+    <Button
+      variant="ghost"
+      surface="secondary"
       onClick={() => onSelect(colors)}
-      className={cn("flex flex-col items-center gap-1 p-2 rounded-large-element border transition-all ease-[var(--motion-easing-standard)]", isMatch ? "border-accent bg-accent/10" : "border-primary/10 hover:border-primary/30 hover:bg-primary/5")}
+      className={cn("flex flex-col items-center gap-1 p-2 rounded-large-element border", isMatch ? "border-accent bg-accent/10" : "border-primary/10 hover:border-primary/30 hover:bg-primary/5")}
       style={{ transitionDuration: "var(--motion-duration-short2)" }}
       aria-label={`Apply ${label} preset`}
       aria-pressed={isMatch}
@@ -93,7 +97,7 @@ function ColorPreset({ colors, label, currentColors, onSelect }) {
         <div className="w-4 h-4 rounded-full border border-primary" style={{ backgroundColor: colors.accent }} aria-hidden="true" />
       </div>
       <span className="text-xs text-accent">{label}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -158,6 +162,7 @@ export default function AppearanceCategory({
   isCustomTheme,
 }) {
   const [showCustomColors, setShowCustomColors] = useState(isCustomTheme);
+  const hapticsEnabled = useHapticsEnabled();
 
   const darkMode = resolvedTheme === "dark";
 
@@ -211,7 +216,7 @@ export default function AppearanceCategory({
           />
 
           <div
-            className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", showCustomColors ? "max-h-[2000px] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0")}
+            className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", showCustomColors ? "max-h-[100dvh] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0")}
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
             <div className="pt-4 border-t border-primary/10 pb-4">
@@ -262,7 +267,7 @@ export default function AppearanceCategory({
               />
 
               <div
-                className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", useSeparateDarkColors ? "max-h-[500px] opacity-100 pb-4 mt-4" : "max-h-0 opacity-0")}
+                className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", useSeparateDarkColors ? "max-h-96 opacity-100 pb-4 mt-4" : "max-h-0 opacity-0")}
                 style={{ transitionDuration: "var(--motion-duration-medium2)" }}
               >
                 <div className="pt-4 border-t border-primary/10">
@@ -292,17 +297,31 @@ export default function AppearanceCategory({
             </div>
 
             <div className="mt-4 pt-4 border-t border-primary/10">
-              <button
+              <Button
+                variant="ghost"
+                surface="secondary"
+                size="sm"
                 onClick={handleReset}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all ease-[var(--motion-easing-standard)] text-sm"
-                style={{ transitionDuration: "var(--motion-duration-short2)" }}
                 aria-label="Reset colors to default"
               >
                 <RotateCcw size={14} />
                 <span>Reset to Default</span>
-              </button>
+              </Button>
             </div>
           </div>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard icon={Vibrate} title="Haptics" padding={false} index={2}>
+        <div className="px-4 py-4">
+          <Toggle
+            checked={hapticsEnabled}
+            onChange={setHapticsEnabled}
+            label="Vibration Feedback"
+            description="Feel a short buzz when you press buttons and flip switches. Only works on phones and other devices that can vibrate."
+            iconOn={Check}
+            iconOff={Vibrate}
+          />
         </div>
       </SettingsCard>
     </div>

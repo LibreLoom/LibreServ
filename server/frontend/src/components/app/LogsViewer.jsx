@@ -12,13 +12,10 @@ import {
 import Card from "../cards/Card";
 import ModalCard from "../cards/ModalCard";
 import Toggle from "../common/Toggle";
+import Button from "../ui/Button";
 
 const DEFAULT_LINE_COUNT = 500;
 const LOAD_MORE_INCREMENT = 500;
-const CONTROL_BUTTON_CLASS =
-  "rounded-pill border-2 border-accent bg-secondary px-4 py-2 text-sm font-sans text-primary transition-all hover:scale-105 hover:bg-accent/20 hover:border-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2";
-const ICON_BUTTON_CLASS =
-  "p-2 rounded-pill border-2 border-primary/20 bg-secondary text-primary transition-all hover:scale-105 hover:bg-primary/10 hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
 function normaliseLines(input) {
   if (!input) return [];
@@ -199,14 +196,16 @@ export default function LogsViewer({
       <div className="flex flex-col min-h-0 space-y-2 sm:space-y-4">
         {/* Mobile toolbar */}
         <div className="flex sm:hidden items-center gap-2 shrink-0">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon"
+            surface="secondary"
             onClick={handleToggleSearch}
-            className={cn(ICON_BUTTON_CLASS, showSearch || filter ? "border-accent text-accent" : "")}
+            className={showSearch || filter ? "text-accent" : ""}
             aria-label="Toggle search"
           >
             <Search size={18} aria-hidden="true" />
-          </button>
+          </Button>
 
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-primary/20 bg-secondary text-primary">
             <ArrowDownToLine size={14} className={cn("shrink-0 transition-colors", autoScroll ? "text-accent" : "text-primary/40")} aria-hidden="true" />
@@ -218,14 +217,15 @@ export default function LogsViewer({
             />
           </div>
 
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon"
+            surface="secondary"
             onClick={handleDownload}
-            className={ICON_BUTTON_CLASS}
             aria-label="Download logs"
           >
             <Download size={18} aria-hidden="true" />
-          </button>
+          </Button>
         </div>
 
         {/* Mobile collapsible search */}
@@ -278,15 +278,16 @@ export default function LogsViewer({
               />
             </div>
 
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              surface="secondary"
               onClick={handleDownload}
-              className={CONTROL_BUTTON_CLASS}
               title="Download logs"
+              className="border-accent hover:bg-accent/20 hover:text-primary"
             >
-              <Download size={16} className="inline -mt-0.5 mr-1.5" />
+              <Download size={16} className="inline -mt-0.5" />
               Download
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -322,14 +323,16 @@ export default function LogsViewer({
 
             <div className="flex items-center gap-2">
               {hasMoreToLoad && !filter && (
-                <button
-                  type="button"
+                <Button
+                  variant="outline"
+                  size="sm"
+                  surface="secondary"
                   onClick={handleLoadMore}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 rounded-pill border border-primary/20 bg-secondary px-3 py-1.5 text-xs font-sans text-primary/80 transition-colors hover:border-accent hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  className="flex-1 sm:flex-none"
                 >
                   <ChevronDown size={14} />
                   Load {LOAD_MORE_INCREMENT} more
-                </button>
+                </Button>
               )}
 
               {isStreaming && filteredLines.length === 0 && (

@@ -25,56 +25,91 @@ func NewDeviceHandler(db *sql.DB) *DeviceHandler {
 	return &DeviceHandler{db: db, billing: billing.NewService(db)}
 }
 
+// Activate registers a device using a license key.
+// The license key is purchased on the customer portal and entered on the device.
 func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Token string `json:"token"`
+		LicenseKey string `json:"license_key"`
+		DeviceName string `json:"device_name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
-		JSONError(w, http.StatusBadRequest, "token required")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LicenseKey == "" {
+		JSONError(w, http.StatusBadRequest, "license_key required")
 		return
 	}
 
-	tokenHash := hashToken(req.Token)
-	deviceID := security.GenerateID("dev")
+	keyHash := hashToken(req.LicenseKey)
 
-	// Determine plan from token prefix or default to free
-	planID := "free"
-	if len(req.Token) > 0 {
-		switch req.Token[0] {
-		case '1', 'o', 'O':
-			planID = "one"
-		case 'l', 'L':
-			planID = "lite"
+	// Look up the license key
+	var licenseID, planID, status string
+	var accountID sql.NullString
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT id, account_id, plan_id, status FROM license_keys WHERE key_hash = ?`,
+		keyHash).Scan(&licenseID, &accountID, &planID, &status)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusUnauthorized, "invalid license key")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not validate license key")
+		return
+	}
+
+	if status == "revoked" {
+		JSONError(w, http.StatusForbidden, "this license key has been revoked")
+		return
+	}
+	if status == "active" {
+		// Already activated — return existing device info
+		var deviceID string
+		_ = h.db.QueryRowContext(r.Context(),
+			"SELECT id FROM devices WHERE license_key_id = ?", licenseID).Scan(&deviceID)
+		if deviceID != "" {
+			// Update last seen
+			_, _ = h.db.ExecContext(r.Context(),
+				"UPDATE devices SET last_seen_at = ?, is_active = 1 WHERE id = ?", time.Now(), deviceID)
+			status := h.buildStatus(r.Context(), deviceID, planID, req.LicenseKey[:8]+"...")
+			JSON(w, http.StatusOK, status)
+			return
 		}
 	}
 
-	// Upsert device
-	_, err := h.db.ExecContext(r.Context(),
-		`INSERT INTO devices (id, token_hash, plan_id, activated_at, last_seen_at, is_active)
-		 VALUES (?, ?, ?, ?, ?, 1)
-		 ON CONFLICT(token_hash) DO UPDATE SET
-		   last_seen_at = excluded.last_seen_at,
-		   is_active = 1`,
-		deviceID, tokenHash, planID, time.Now(), time.Now())
+	// Create device
+	deviceID := security.GenerateID("dev")
+	var accountVal any
+	if accountID.Valid {
+		accountVal = accountID.String
+	}
+	_, err = h.db.ExecContext(r.Context(),
+		`INSERT INTO devices (id, account_id, license_key_id, plan_id, activated_at, last_seen_at, is_active)
+		 VALUES (?, ?, ?, ?, ?, ?, 1)`,
+		deviceID, accountVal, licenseID, planID, time.Now(), time.Now())
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not activate device")
 		return
 	}
 
+	// Mark license key as active
+	_, _ = h.db.ExecContext(r.Context(),
+		"UPDATE license_keys SET status = 'active', device_id = ?, activated_at = ? WHERE id = ?",
+		deviceID, time.Now(), licenseID)
+
 	// Create or update subscription
 	_, _ = h.db.ExecContext(r.Context(),
 		`INSERT INTO subscriptions (id, device_id, plan_id, status, started_at)
 		 VALUES (?, ?, ?, 'active', ?)
-		 ON CONFLICT(device_id) DO UPDATE SET
-		   plan_id = excluded.plan_id,
-		   status = 'active'`,
+		 ON CONFLICT(device_id) DO UPDATE SET plan_id = excluded.plan_id, status = 'active'`,
 		security.GenerateID("sub"), deviceID, planID, time.Now())
 
 	// Ensure credit account exists
 	_ = h.billing.EnsureAccountCredits(deviceID)
 
-	status := h.buildStatus(r.Context(), deviceID, planID, req.Token)
-	JSON(w, http.StatusOK, status)
+	keyHint := req.LicenseKey
+	if len(keyHint) > 8 {
+		keyHint = keyHint[:8] + "..."
+	}
+
+	statusResp := h.buildStatus(r.Context(), deviceID, planID, keyHint)
+	JSON(w, http.StatusOK, statusResp)
 }
 
 func (h *DeviceHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
@@ -92,15 +127,15 @@ func (h *DeviceHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 
 func (h *DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	deviceID := middleware.GetDeviceID(r.Context())
-	var planID, tokenHash string
+	var planID string
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT plan_id, token_hash FROM devices WHERE id = ?", deviceID).Scan(&planID, &tokenHash)
+		"SELECT plan_id FROM devices WHERE id = ?", deviceID).Scan(&planID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "device not found")
 		return
 	}
 
-	status := h.buildStatus(r.Context(), deviceID, planID, tokenHash)
+	status := h.buildStatus(r.Context(), deviceID, planID, "")
 	JSON(w, http.StatusOK, status)
 }
 
@@ -115,24 +150,19 @@ func (h *DeviceHandler) Usage(w http.ResponseWriter, r *http.Request) {
 	balance, _ := h.billing.GetBalance(deviceID)
 
 	JSON(w, http.StatusOK, map[string]any{
-		"device_id":        summary.DeviceID,
-		"plan_id":          summary.PlanID,
-		"current_cycle_start": summary.CycleStart,
-		"current_cycle_end":   summary.CycleEnd,
-		"total_cost_usd":      summary.TotalCostUSD,
-		"provider_cost_usd":   summary.ProviderCostUSD,
-		"credits_used":        summary.CreditsUsed,
-		"credit_balance_cents": balance,
-		"by_service":          summary.ByService,
+		"device_id":             summary.DeviceID,
+		"plan_id":               summary.PlanID,
+		"current_cycle_start":   summary.CycleStart,
+		"current_cycle_end":     summary.CycleEnd,
+		"total_cost_usd":        summary.TotalCostUSD,
+		"provider_cost_usd":     summary.ProviderCostUSD,
+		"credits_used":          summary.CreditsUsed,
+		"credit_balance_cents":  balance,
+		"by_service":            summary.ByService,
 	})
 }
 
-func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, token string) map[string]any {
-	tokenHint := ""
-	if len(token) > 4 {
-		tokenHint = token[:4] + "..."
-	}
-
+func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHint string) map[string]any {
 	rows, _ := h.db.QueryContext(ctx,
 		"SELECT service_type, is_active FROM service_credentials WHERE device_id = ? AND is_active = 1",
 		deviceID)
@@ -158,7 +188,6 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, token
 		}
 	}
 
-	// Human support availability depends on plan
 	if !catalog.HasHumanSupport(planID) {
 		services["support"]["state"] = "unavailable"
 	}
@@ -170,7 +199,7 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, token
 			"name": catalog.PlanName(planID),
 		},
 		"services":   services,
-		"token_hint": tokenHint,
+		"key_hint":   keyHint,
 	}
 }
 

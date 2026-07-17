@@ -1,12 +1,13 @@
 import { cn } from "@/lib/utils";
 import { useState } from "react";
-import { Mail, Bell, RefreshCw } from "lucide-react";
+import { Mail, Bell } from "lucide-react";
 import Toggle from "../../common/Toggle";
 import CheckboxOptionGroup from "../../common/CheckboxOptionGroup";
 import RadioOptionGroup from "../../common/RadioOptionGroup";
 import Alert from "../../common/Alert";
 import SettingsCard from "../SettingsCard";
 import SettingsRow from "../SettingsRow.jsx";
+import Button from "../../ui/Button";
 import { useToast } from "../../../context/ToastContext";
 
 const FREQUENCY_OPTIONS = [
@@ -151,23 +152,20 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                     </div>
                   </div>
                 </div>
-                <button
+                <Button
+                  variant="primary"
                   onClick={handleTestNotification}
-                  disabled={testing}
-                  className="inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2 text-sm font-medium bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary motion-safe:transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary disabled:opacity-50 disabled:cursor-not-allowed no-focus-outline"
+                  loading={testing}
                 >
                   {testing ? (
-                    <>
-                      <RefreshCw size={14} className="animate-spin" />
-                      Sending...
-                    </>
+                    "Sending..."
                   ) : (
                     <>
                       <Mail size={14} />
                       Send Test
                     </>
                   )}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -197,7 +195,7 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
           />
 
           <div
-            className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", settings?.notify?.enabled ? "max-h-[2000px] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0")}
+            className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", settings?.notify?.enabled ? "max-h-[100dvh] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0")}
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
             <div className="pt-4 border-t border-primary/10 space-y-6">

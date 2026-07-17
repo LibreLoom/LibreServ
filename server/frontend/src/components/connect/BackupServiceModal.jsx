@@ -82,7 +82,7 @@ export default function BackupServiceModal({ open, onClose, service, repos, conn
             <span className="text-sm text-primary font-medium">
               Backup Destinations
             </span>
-            <Button variant="accent" size="sm" onClick={() => setShowAddRepo(true)}>
+            <Button variant="primary" size="sm" onClick={() => setShowAddRepo(true)}>
               <Plus size={14} /> Add Destination
             </Button>
           </div>
@@ -91,7 +91,7 @@ export default function BackupServiceModal({ open, onClose, service, repos, conn
             <div className="p-3 rounded-large-element border-2 border-accent/20 bg-primary/5 space-y-3">
               <p className="text-sm text-primary">Add a new backup destination</p>
               <div className="flex gap-2">
-                <Button size="sm" variant="accent" onClick={() => setShowAddRepo(false)}>Cancel</Button>
+                <Button size="sm" variant="outline" onClick={() => setShowAddRepo(false)}>Cancel</Button>
                 <Button size="sm">Save</Button>
               </div>
             </div>
@@ -148,7 +148,7 @@ export default function BackupServiceModal({ open, onClose, service, repos, conn
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="accent" onClick={close} disabled={saving}>
+          <Button variant="outline" onClick={close} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={async () => {

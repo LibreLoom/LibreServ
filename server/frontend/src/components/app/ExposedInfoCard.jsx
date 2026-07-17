@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { useState, useRef, useEffect } from "react";
 import Card from "../cards/Card";
+import Button from "../ui/Button";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
 
 const GROUP_LABELS = {
@@ -241,18 +242,22 @@ export function ExposedInfoCard({ info }) {
               </div>
               <div className="flex gap-2 shrink-0 self-end sm:self-auto">
                 {field.revealable && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    surface="secondary"
                     onClick={() => toggleReveal(key)}
-                    className="p-2 rounded-pill hover:bg-secondary/10 transition-colors text-secondary/60 hover:text-secondary"
                     aria-label={revealed[key] ? `Hide ${field.label}` : `Reveal ${field.label}`}
                   >
                     {revealed[key] ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+                  </Button>
                 )}
                 {field.copyable && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    surface="secondary"
                     onClick={() => copyToClipboard(key, field.value)}
-                    className="p-2 rounded-pill hover:bg-secondary/10 transition-colors text-secondary/60 hover:text-secondary"
                     aria-label={`Copy ${field.label} to clipboard`}
                   >
                     {copied[key] ? (
@@ -260,7 +265,7 @@ export function ExposedInfoCard({ info }) {
                     ) : (
                       <Copy size={16} />
                     )}
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>

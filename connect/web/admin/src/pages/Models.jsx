@@ -46,7 +46,7 @@ export default function Models() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl font-bold mb-2">AI Models</h2>
+      <h2 className="font-mono text-2xl mb-2">AI Models</h2>
       <p className="text-muted-foreground mb-6">
         Configure AI inference providers and models. No provider URLs are hardcoded — all are loaded from the database.
         Free-tier models are configured separately from paid models.
@@ -81,7 +81,7 @@ export default function Models() {
             {(providers?.providers || []).map((p) => (
               <Card key={p.id} className="flex items-center justify-between">
                 <div>
-                  <p className="font-mono font-bold">{p.name}</p>
+                  <p className="font-mono">{p.name}</p>
                   <p className="text-sm text-muted-foreground">{p.base_url}</p>
                   <div className="flex gap-2 mt-1">
                     <Badge variant={p.tier === "free" ? "info" : "default"}>{p.tier}</Badge>
@@ -137,7 +137,7 @@ export default function Models() {
             {(models?.models || []).map((m) => (
               <Card key={m.id} className="flex items-center justify-between">
                 <div>
-                  <p className="font-mono font-bold">{m.display_name}</p>
+                  <p className="font-mono">{m.display_name}</p>
                   <p className="text-sm text-muted-foreground">{m.model_id} · {m.role}</p>
                   <p className="text-sm text-muted-foreground">In: ${m.input_price_per_million}/M · Out: ${m.output_price_per_million}/M</p>
                 </div>

@@ -1,9 +1,11 @@
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import ModalCard from "../../cards/ModalCard";
+import Button from "../../ui/Button";
 
 export function ActionConfirmModal({ action, onConfirm, onCancel, isConfirming }) {
   return (
     <ModalCard title={`Confirm: ${action.label}`} onClose={onCancel} data-slot="action-confirm-modal">
+      {({ close }) => (
       <div className="space-y-4">
         {action.confirm?.message && (
           <div className="flex items-start gap-3 p-3 bg-accent/10 rounded-large-element border border-accent/30">
@@ -13,29 +15,27 @@ export function ActionConfirmModal({ action, onConfirm, onCancel, isConfirming }
         )}
 
         <div className="flex gap-3 pt-2">
-          <button
-            onClick={onCancel}
+          <Button
+            variant="outline"
+            surface="secondary"
+            onClick={close}
             disabled={isConfirming}
-            className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors disabled:opacity-50 font-mono"
+            className="flex-1"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="accent"
             onClick={onConfirm}
             disabled={isConfirming}
-            className="flex-1 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-mono"
+            loading={isConfirming}
+            className="flex-1"
           >
-            {isConfirming ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Confirming...
-              </>
-            ) : (
-              "Confirm"
-            )}
-          </button>
+            {isConfirming ? "Confirming..." : "Confirm"}
+          </Button>
         </div>
       </div>
+      )}
     </ModalCard>
   );
 }

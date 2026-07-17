@@ -9,6 +9,7 @@ import SubdomainStep from "./SubdomainStep";
 import NoDomainWarningStep from "./NoDomainWarningStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
+import Button from "../../ui/Button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -223,12 +224,14 @@ function InstallWizard({ appId, initialInstanceId }) {
         <p className="text-secondary/70">
           {app?.name || appId} is already installed on your device.
         </p>
-        <button
+        <Button
+          variant="secondary"
+          surface="primary"
           onClick={() => navigate("/apps")}
-          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
+          className="px-6"
         >
           Back to Apps
-        </button>
+        </Button>
       </div>
     );
   }
@@ -240,12 +243,14 @@ function InstallWizard({ appId, initialInstanceId }) {
           Something went wrong
         </h2>
         <p className="text-secondary/70">{error}</p>
-        <button
+        <Button
+          variant="secondary"
+          surface="primary"
           onClick={() => navigate("/apps")}
-          className="px-6 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all font-mono"
+          className="px-6"
         >
           Back to Apps
-        </button>
+        </Button>
       </div>
     );
   }

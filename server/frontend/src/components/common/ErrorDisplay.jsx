@@ -2,19 +2,10 @@ import { AlertCircle, AlertTriangle, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import PropTypes from "prop-types";
 import Callout from "./Callout";
+import Button from "../ui/Button";
 
 const TONE_MAP = { error: "error", warning: "warning", info: "info" };
 const ICON_MAP = { error: AlertCircle, warning: AlertTriangle, info: Info };
-
-const primaryBtn =
-  cn("inline-flex items-center gap-2 rounded-pill bg-secondary text-primary px-4 py-2 text-sm font-medium",
-    "motion-safe:transition-all hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent",
-    "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2");
-
-const secondaryBtn =
-  cn("inline-flex items-center gap-2 rounded-pill bg-transparent text-secondary px-4 py-2 text-sm font-medium",
-    "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-0",
-    "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2");
 
 /**
  * @param {{ message: any, type?: string, onDismiss?: any, dismissible?: boolean, children?: any }} _
@@ -71,9 +62,9 @@ export function FormErrorSummary({ errors, onRetry }) {
         ))}
       </ul>
       {onRetry && (
-        <button onClick={onRetry} className={primaryBtn}>
+        <Button variant="secondary" surface="primary" onClick={onRetry}>
           Try Again
-        </button>
+        </Button>
       )}
     </ErrorDisplay>
   );
@@ -89,13 +80,13 @@ export function ApiError({ error, onRetry, onDismiss }) {
     <ErrorDisplay message={message} type="error" onDismiss={onDismiss}>
       {onRetry && (
         <div className="flex gap-2">
-          <button onClick={onRetry} className={primaryBtn}>
+          <Button variant="secondary" surface="primary" onClick={onRetry}>
             Retry
-          </button>
+          </Button>
           {onDismiss && (
-            <button onClick={onDismiss} className={secondaryBtn}>
+            <Button variant="outline" surface="primary" onClick={onDismiss}>
               Dismiss
-            </button>
+            </Button>
           )}
         </div>
       )}

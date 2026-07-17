@@ -152,10 +152,10 @@ export default function EmailServiceModal({ open, onClose, service, connectStatu
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="accent" onClick={close} disabled={saving}>
+          <Button variant="outline" onClick={close} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={async () => {
+          <Button variant="primary" onClick={async () => {
             setSaving(true);
             try {
               if (useConnect) {

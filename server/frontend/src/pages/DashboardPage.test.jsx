@@ -33,8 +33,12 @@ vi.mock("../hooks/useMonitoring", () => ({
   useMonitoring: vi.fn(),
 }));
 
-vi.mock("../components/cards/StatCard", () => ({
-  default: ({ label, value }) => <div data-testid="stat-card"><span>{label}</span><span>{value}</span></div>,
+vi.mock("../hooks/useSystemHealthCheck", () => ({
+  useSystemHealthCheck: vi.fn(),
+}));
+
+vi.mock("../components/cards/UptimeCard", () => ({
+  default: ({ value }) => <div data-testid="uptime-card"><span>{value}</span></div>,
 }));
 
 vi.mock("../components/cards/HeaderCard", () => ({
@@ -51,27 +55,22 @@ vi.mock("../components/cards/AppCards", () => ({
   default: () => <div data-testid="app-cards">App Cards</div>,
 }));
 
-vi.mock("../components/cards/DropdownCard", () => ({
-  default: ({ title, value }) => <div data-testid="dropdown-card"><span>{title}</span><span>{value}</span></div>,
+vi.mock("../components/cards/StressIndexCard", () => ({
+  default: ({ value }) => <div data-testid="stress-index-card"><span>{value}</span></div>,
 }));
 
-vi.mock("../components/common/RefreshDropdown", () => ({
-  default: () => <div data-testid="refresh-dropdown">Refresh</div>,
-  REFRESH_INTERVALS: [{ value: 30000, label: "30s" }],
+vi.mock("../components/common/CriticalIssues", () => ({
+  default: () => <div data-testid="critical-issues">Critical Issues</div>,
 }));
 
-vi.mock("../components/onboarding/WelcomeCard", () => ({
-  default: () => <div data-testid="welcome-card">Welcome</div>,
-}));
-
-vi.mock("../lib/api", () => ({
-  default: vi.fn(),
+vi.mock("../components/onboarding/InstallFirstAppCard", () => ({
+  default: () => <div data-testid="install-first-app-card">Install First App</div>,
 }));
 
 import { useUser } from "../hooks/useUser";
 import { useUptime } from "../hooks/useUptime";
 import { useMonitoring } from "../hooks/useMonitoring";
-import api from "../lib/api";
+import { useSystemHealthCheck } from "../hooks/useSystemHealthCheck";
 import Dashboard from "./DashboardPage";
 
 function clearMockStorage() {
@@ -85,6 +84,7 @@ describe("DashboardPage", () => {
     vi.mocked(useUser).mockReturnValue(/** @type {any} */({ data: { username: "testuser" } }));
     vi.mocked(useUptime).mockReturnValue(/** @type {any} */({ data: 3600 }));
     vi.mocked(useMonitoring).mockReturnValue(/** @type {any} */({ data: { cpu: 0.5, ram: 0.3, disk: 0.2, net: 0.1 } }));
+    vi.mocked(useSystemHealthCheck).mockReturnValue(/** @type {any} */({ data: null, isLoading: false, error: null }));
   });
 
   it("renders the dashboard title", () => {
@@ -92,16 +92,15 @@ describe("DashboardPage", () => {
     expect(screen.getByTestId("header-card")).toBeInTheDocument();
   });
 
-  it("shows the welcome card", () => {
+  it("shows the install-first-app card", () => {
     renderWithProviders(<Dashboard />);
-    expect(screen.getByTestId("welcome-card")).toBeInTheDocument();
+    expect(screen.getByTestId("install-first-app-card")).toBeInTheDocument();
   });
 
-  it("shows stat cards with uptime and stress index", () => {
+  it("shows uptime and stress index cards", () => {
     renderWithProviders(<Dashboard />);
-    const statCards = screen.getAllByTestId("stat-card");
-    expect(statCards.length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByTestId("dropdown-card")).toBeInTheDocument();
+    expect(screen.getByTestId("uptime-card")).toBeInTheDocument();
+    expect(screen.getByTestId("stress-index-card")).toBeInTheDocument();
   });
 
   it("shows app cards section", () => {
@@ -109,29 +108,15 @@ describe("DashboardPage", () => {
     expect(screen.getByTestId("app-cards")).toBeInTheDocument();
   });
 
-  it("shows refresh dropdown", () => {
+  it("shows critical issues in the header right content", () => {
     renderWithProviders(<Dashboard />);
-    expect(screen.getByTestId("refresh-dropdown")).toBeInTheDocument();
+    expect(screen.getByTestId("critical-issues")).toBeInTheDocument();
   });
 
   it("renders with loading state when no resources", () => {
     vi.mocked(useMonitoring).mockReturnValue(/** @type {any} */({ data: null }));
     renderWithProviders(<Dashboard />);
-    const dropdownCard = screen.getByTestId("dropdown-card");
-    expect(dropdownCard.textContent).toContain("Loading...");
-  });
-
-  it("renders system status badge", async () => {
-    renderWithProviders(<Dashboard />);
-    expect(await screen.findByText("Checking...")).toBeInTheDocument();
-  });
-
-  it("shows repo status when data available", async () => {
-    vi.mocked(api).mockResolvedValue(/** @type {any} */({
-      ok: true,
-      json: () => Promise.resolve([{ last_pull: "2024-01-15T10:30:00Z" }]),
-    }));
-    renderWithProviders(<Dashboard />);
-    expect(await screen.findByText(/App repository/)).toBeInTheDocument();
+    const stressCard = screen.getByTestId("stress-index-card");
+    expect(stressCard.textContent).toContain("Loading...");
   });
 });

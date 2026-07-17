@@ -1,8 +1,9 @@
 import { cn } from "@/lib/utils";
 import { useState, useCallback } from "react";
-import { ShieldAlert, AlertTriangle, Loader2 } from "lucide-react";
+import { ShieldAlert, AlertTriangle } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import ModalCard from "../cards/ModalCard";
+import Button from "../ui/Button";
 
 export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledged }) {
   const { request } = useAuth();
@@ -45,6 +46,7 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
       onClose={onClose}
       size="md"
     >
+      {({ close }) => (
       <div className="space-y-4">
         {step === 1 && (
           <>
@@ -71,18 +73,21 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
             </p>
 
             <div className="flex gap-3 pt-2">
-              <button
-                onClick={onClose}
-                className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+              <Button
+                variant="outline"
+                surface="secondary"
+                onClick={close}
+                className="flex-1"
               >
                 Wait for Fixed Version
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="accent"
                 onClick={() => setStep(2)}
-                className="flex-1 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 transition-colors disabled:opacity-50"
+                className="flex-1"
               >
                 I Understand the Risk
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -117,31 +122,29 @@ export default function AcknowledgeRevocationModal({ app, onClose, onAcknowledge
             )}
 
             <div className="flex gap-3 pt-2">
-              <button
+              <Button
+                variant="outline"
+                surface="secondary"
                 onClick={() => { setStep(1); setTypedText(""); }}
                 disabled={acknowledging}
-                className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors disabled:opacity-50"
+                className="flex-1"
               >
                 Back
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="accent"
                 onClick={handleAcknowledge}
                 disabled={!matchesInput || acknowledging}
-                className="flex-1 px-4 py-2 rounded-pill bg-accent text-primary hover:bg-accent/80 motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                loading={acknowledging}
+                className="flex-1"
               >
-                {acknowledging ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Acknowledging...
-                  </>
-                ) : (
-                  "Continue"
-                )}
-              </button>
+                {acknowledging ? "Acknowledging..." : "Continue"}
+              </Button>
             </div>
           </>
         )}
       </div>
+      )}
     </ModalCard>
   );
 }

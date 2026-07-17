@@ -5,47 +5,43 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(!!getToken());
-  const [device, setDevice] = useState(null);
+  const [account, setAccount] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const login = useCallback(async (token) => {
+  const login = useCallback(async (email, password, totpCode) => {
     setLoading(true);
     try {
-      const res = await api.login(token);
+      const res = await api.login(email, password, totpCode);
+      if (res.requires_2fa) {
+        return res;
+      }
       setToken(res.token);
       setIsAuthenticated(true);
-      setDevice({ id: res.device_id, plan_id: res.plan_id, plan_name: res.plan_name });
+      setAccount({ id: res.id, email: res.email, name: res.name, has_2fa: res.has_2fa });
       return res;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const register = useCallback(async (email, password, name) => {
+    return api.register(email, password, name);
+  }, []);
+
   const logout = useCallback(() => {
     clearToken();
     setIsAuthenticated(false);
-    setDevice(null);
-  }, []);
-
-  const refreshDevice = useCallback(async () => {
-    if (!getToken()) return;
-    try {
-      const dev = await api.getDevice();
-      setDevice(dev);
-    } catch {
-      clearToken();
-      setIsAuthenticated(false);
-    }
+    setAccount(null);
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      refreshDevice();
+    if (isAuthenticated && !account) {
+      // Account info is set during login; no separate fetch needed
     }
-  }, [isAuthenticated, refreshDevice]);
+  }, [isAuthenticated, account]);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, device, login, logout, refreshDevice, loading }}>
+    <AuthContext.Provider value={{ isAuthenticated, account, login, register, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

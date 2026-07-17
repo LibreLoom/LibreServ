@@ -43,7 +43,7 @@ function ChatInputBar({
         />
         {isStreaming ? (
           <Button
-            variant="danger"
+            variant="accent"
             size="md"
             onClick={onStop}
             aria-label="Stop the assistant"

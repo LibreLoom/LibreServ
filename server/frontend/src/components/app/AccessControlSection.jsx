@@ -14,6 +14,7 @@ import {
 import Card from "../cards/Card";
 import Toggle from "../common/Toggle";
 import Dropdown from "../common/Dropdown";
+import Button from "../ui/Button";
 import api from "../../lib/api";
 import { useToast } from "../../context/ToastContext";
 
@@ -243,14 +244,16 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
                   bg="primary"
                 />
               </div>
-              <button
+              <Button
+                variant="secondary"
+                surface="primary"
+                size="lg"
                 onClick={handleGrantAccess}
                 disabled={!selectedUser}
-                className="flex items-center justify-center gap-2 px-6 py-3 rounded-pill bg-secondary text-primary hover:bg-secondary/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
               >
                 <UserPlus size={18} />
                 Grant access
-              </button>
+              </Button>
             </div>
 
             {/* Access list — rounded-large-element rows, no dividers */}
@@ -290,13 +293,15 @@ export default function AccessControlSection({ instanceId, accessModel, appName 
                         )}
                       </div>
                     </div>
-                    <button
+                    <Button
+                      variant="outline"
+                      surface="primary"
                       onClick={() => handleRevokeAccess(entry.user_id)}
-                      className="flex items-center gap-1 px-4 py-2 rounded-pill border-2 border-error/40 text-error hover:bg-error/10 transition-colors font-mono text-sm shrink-0"
+                      className="border-error/40 text-error hover:bg-error/10 hover:text-error shrink-0"
                     >
                       <Trash2 size={14} />
                       Revoke
-                    </button>
+                    </Button>
                   </div>
                 ))}
               </div>

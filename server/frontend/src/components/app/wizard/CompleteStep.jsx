@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { CheckCircle, ExternalLink, ArrowLeft, Copy, Check } from "lucide-react";
 import { useState } from "react";
+import Button from "../../ui/Button";
 
 function CompleteStep({ app, instance, onDone }) {
   const [copied, setCopied] = useState(false);
@@ -61,13 +62,15 @@ function CompleteStep({ app, instance, onDone }) {
             <code className="flex-1 px-3 py-2 bg-primary rounded-large-element font-mono text-sm text-secondary">
               {generatedPassword}
             </code>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
+              surface="primary"
               onClick={() => handleCopy(generatedPassword)}
-              className="p-2 rounded-large-element hover:bg-secondary/20 motion-safe:transition-all"
               aria-label="Copy password"
             >
               {copied ? <Check size={18} className="text-secondary" /> : <Copy size={18} />}
-            </button>
+            </Button>
           </div>
           <p className="text-xs text-secondary/70 mt-2">
             Save this password. You'll need it to log in.
@@ -77,23 +80,22 @@ function CompleteStep({ app, instance, onDone }) {
 
       <div className="flex flex-col sm:flex-row justify-center gap-3 pt-4">
         {appUrl && (
-          <a
-            href={appUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 px-6 py-2 rounded-pill bg-accent text-primary hover:bg-accent/90 motion-safe:transition-all font-mono"
-          >
-            Open App
-            <ExternalLink size={16} />
-          </a>
+          <Button asChild variant="secondary" surface="primary" className="px-6 font-mono">
+            <a href={appUrl} target="_blank" rel="noopener noreferrer">
+              Open App
+              <ExternalLink size={16} />
+            </a>
+          </Button>
         )}
-        <button
+        <Button
+          variant="outline"
+          surface="primary"
           onClick={onDone}
-          className="inline-flex items-center justify-center gap-2 px-6 py-2 rounded-pill border-2 border-secondary/30 text-secondary hover:bg-secondary/10 motion-safe:transition-all font-mono"
+          className="px-6"
         >
           <ArrowLeft size={16} />
           Back to Apps
-        </button>
+        </Button>
       </div>
     </div>
   );

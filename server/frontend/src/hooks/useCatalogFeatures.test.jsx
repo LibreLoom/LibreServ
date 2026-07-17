@@ -9,7 +9,7 @@ describe("useCatalogFeatures", () => {
 
   it("fetches features for a given appId", async () => {
     const request = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ features: ["backup", "monitoring"] }),
+      json: () => Promise.resolve({ access_model: "internal" }),
     });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }) => (
@@ -20,7 +20,7 @@ describe("useCatalogFeatures", () => {
 
     const { result } = renderHook(() => useCatalogFeatures("nextcloud"), { wrapper });
     await waitFor(() => {
-      expect(result.current.data.features).toEqual(["backup", "monitoring"]);
+      expect(result.current.data.access_model).toBe("internal");
     });
     expect(request).toHaveBeenCalledWith("/catalog/nextcloud/features");
   });

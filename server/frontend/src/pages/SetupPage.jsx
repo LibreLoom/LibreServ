@@ -16,6 +16,7 @@ import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
 import { StepTransitionContext } from "../components/setup/StepTransitionContext";
 import { StepTransitionProvider } from "../components/setup/StepTransition";
 import { MfaSetupWizard } from "../components/profile/MfaCard";
+import Button from "../components/ui/Button";
 import Login from "./Login";
 
 // ─── Step constants ───────────────────────────────────────────────────────────
@@ -297,20 +298,16 @@ function SetupCodeStep({ onCodeVerified }) {
           </div>
         )}
 
-        <button
+        <Button
+          variant="primary"
           onClick={handleSubmit}
+          loading={loading}
           disabled={loading || code.length !== 6}
-          className="group inline-flex items-center gap-2.5 rounded-pill bg-primary text-secondary px-9 py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.03] active:scale-[0.98] disabled:opacity-40 disabled:hover:scale-100"
+          className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
         >
-          {loading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <>
-              Verify
-              <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-            </>
-          )}
-        </button>
+          Verify
+          <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+        </Button>
 
         <p className="mt-9 text-xs text-primary/20">
           LibreServ &bull; Self-hosted cloud platform
@@ -343,13 +340,14 @@ function WelcomeStep({ onBegin }) {
           Let&rsquo;s get LibreServ set up for you.
         </p>
 
-        <button
+        <Button
+          variant="primary"
           onClick={onBegin}
-          className="group inline-flex items-center gap-2.5 rounded-pill bg-primary text-secondary px-9 py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.03] active:scale-[0.98]"
+          className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
         >
           Begin Setup
           <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-        </button>
+        </Button>
 
         <p className="mt-9 text-xs text-primary/20">
           LibreServ &bull; Self-hosted cloud platform
@@ -602,30 +600,29 @@ function PreflightStep({ onPass }) {
         <div className="flex flex-col gap-3">
           {/* Continue — only when all passed */}
           {allPassed && (
-            <button
+            <Button
+              variant="primary"
+              fullWidth
               onClick={onPass}
-              className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] animate-in fade-in slide-in-from-bottom-2 duration-300"
+              className="group py-4 font-mono tracking-wide hover:scale-[1.02] animate-in fade-in slide-in-from-bottom-2 duration-300"
             >
               Continue
               <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-            </button>
+            </Button>
           )}
 
           {/* Re-run — when failed or errored */}
           {showRerunButton && (
-            <button
+            <Button
+              variant="outline"
+              surface="secondary"
+              fullWidth
               onClick={runChecks}
-              disabled={running}
-              className="w-full inline-flex items-center justify-center rounded-pill border border-primary/20 bg-transparent text-primary py-3.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8 disabled:opacity-50 animate-in fade-in slide-in-from-bottom-2 duration-300"
+              loading={running}
+              className="py-3.5 font-mono animate-in fade-in slide-in-from-bottom-2 duration-300"
             >
-              <span
-                className={cn("overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out", running ? "w-5 mr-2" : "w-0 mr-0")}
-                aria-hidden="true"
-              >
-                <Loader2 className="w-4 h-4 animate-spin" />
-              </span>
               Re-run checks
-            </button>
+            </Button>
           )}
         </div>
       </SetupCard>
@@ -835,23 +832,23 @@ function AccountStep({ onSuccess, onError }) {
 
           {/* Submit */}
           <div className="pt-2 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300">
-            <button
+            <Button
               type="submit"
+              variant="primary"
+              fullWidth
+              loading={submitting}
               disabled={!isValid || submitting}
-              className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none"
+              className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
             >
               {submitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Creating account&hellip;
-                </>
+                "Creating account…"
               ) : (
                 <>
                   Create account
                   <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
                 </>
               )}
-            </button>
+            </Button>
           </div>
         </form>
       </SetupCard>
@@ -930,13 +927,15 @@ function DomainIntroStep({ onStart, onSkip }) {
         </div>
 
         <div className="flex flex-col gap-3">
-          <button
+          <Button
+            variant="primary"
+            fullWidth
             onClick={onStart}
-            className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+            className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
           >
             Set Up Remote Access
             <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-          </button>
+          </Button>
           <div className="text-center">
             <button
               onClick={() => setShowSkipModal(true)}
@@ -1073,13 +1072,15 @@ function NatDetectStep({ onContinue, onBack }) {
             <p className="font-mono text-sm text-primary/60 mb-2">Could not detect network type</p>
             <p className="text-xs text-primary/35 mb-6">{detectError}</p>
             <div className="flex flex-col gap-3 w-full">
-              <button
+              <Button
+                variant="primary"
+                fullWidth
                 onClick={onContinue}
-                className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
               >
                 Continue Anyway
                 <ArrowRight className="w-4 h-4" />
-              </button>
+              </Button>
               <button
                 onClick={onBack}
                 className="text-primary/30 hover:text-primary/50 font-mono text-xs motion-safe:transition-colors motion-safe:duration-150"
@@ -1143,13 +1144,15 @@ function NatDetectStep({ onContinue, onBack }) {
         )}
 
         <div className="flex flex-col gap-3 mt-8">
-          <button
+          <Button
+            variant="primary"
+            fullWidth
             onClick={onContinue}
-            className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+            className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
           >
             {natGroup === "tunnel_needed" ? "Set Up Domain + Tunnel" : "Set Up Domain"}
             <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-          </button>
+          </Button>
           <button
             onClick={onBack}
             className="text-primary/30 hover:text-primary/50 font-mono text-xs motion-safe:transition-colors motion-safe:duration-150"
@@ -1207,13 +1210,15 @@ function SmtpIntroStep({ onStart, onSkip }) {
         </div>
 
         <div className="flex flex-col gap-3">
-          <button
+          <Button
+            variant="primary"
+            fullWidth
             onClick={onStart}
-            className="group w-full inline-flex items-center justify-center gap-2 rounded-pill bg-primary text-secondary py-4 font-mono text-sm tracking-wide motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+            className="group py-4 font-mono tracking-wide hover:scale-[1.02]"
           >
             Start Email Setup
             <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-          </button>
+          </Button>
           <div className="text-center">
             <button
               onClick={() => setShowSkipModal(true)}
@@ -1260,12 +1265,14 @@ function ErrorStep({ message }) {
         <p className="text-sm text-primary/55 mb-8 leading-relaxed animate-in fade-in slide-in-from-bottom-2 duration-300 delay-150">
           {message}
         </p>
-        <button
+        <Button
+          variant="outline"
+          surface="secondary"
           onClick={() => window.location.reload()}
-          className="inline-flex items-center gap-2 rounded-pill border border-primary/20 px-7 py-3.5 font-mono text-sm text-primary motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/8"
+          className="px-7 py-3.5 font-mono"
         >
           Try again
-        </button>
+        </Button>
       </SetupCard>
     </SetupShell>
   );

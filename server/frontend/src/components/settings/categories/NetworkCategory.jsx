@@ -226,14 +226,17 @@ function PortForwardingGuideCard({ connectivity, index }) {
           Your router needs to be told to send incoming traffic to this device. This is a one-time setup in your router settings.
         </p>
 
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          surface="secondary"
+          size="sm"
           onClick={() => setShowSteps(!showSteps)}
-          className="flex items-center gap-2 text-sm text-accent hover:text-accent/80 font-mono"
+          className="font-mono"
         >
           {showSteps ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           {showSteps ? "Hide steps" : "Show steps"}
-        </button>
+        </Button>
 
         {showSteps && (
           <ol className="list-decimal list-inside space-y-2 text-xs text-primary/70 leading-relaxed">
@@ -573,7 +576,7 @@ export default function NetworkCategory({ settings }) {
         loading={deleteLoading}
       >
         {appLinkedRoute && (
-          <div className="mt-3 bg-warning/10 border border-warning/30 rounded-card p-3">
+          <div className="mt-3 bg-warning/10 border border-warning/30 rounded-large-element p-3">
             <p className="font-mono text-xs text-warning">
               This route was automatically created for <strong>{appLinkedRoute}</strong>. Deleting it may make the app inaccessible.
             </p>

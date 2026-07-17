@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import StatusRow from "./StatusRow";
 import Callout from "../../common/Callout";
+import Button from "../../ui/Button";
 
 export default function ConnectingStep({ domain, connectStatus, publicIP, applyError, onRetry, onSkip }) {
   const dnsDone        = connectStatus?.dns_records === "done";
@@ -51,21 +52,22 @@ export default function ConnectingStep({ domain, connectStatus, publicIP, applyE
           </Callout>
           <div className="flex gap-3">
             {!certUnavail && (
-              <button
-                type="button"
+              <Button
+                variant="primary"
                 onClick={onRetry}
-                className="rounded-pill bg-primary text-secondary px-5 py-2.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:scale-[1.02] active:scale-[0.98]"
+                className="px-5 py-2.5 font-mono"
               >
                 Retry
-              </button>
+              </Button>
             )}
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              surface="secondary"
               onClick={onSkip}
-              className="rounded-pill border border-primary/20 text-primary px-5 py-2.5 font-mono text-sm motion-safe:transition-all motion-safe:duration-200 hover:bg-primary/5"
+              className="px-5 py-2.5 font-mono"
             >
               Continue without HTTPS
-            </button>
+            </Button>
           </div>
         </div>
       )}

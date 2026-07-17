@@ -39,9 +39,35 @@ var migrations = []migration{
 	{
 		name: "001_init",
 		sql: `
+CREATE TABLE IF NOT EXISTS customer_accounts (
+	id TEXT PRIMARY KEY,
+	email TEXT NOT NULL UNIQUE,
+	password_hash TEXT NOT NULL,
+	name TEXT,
+	totp_secret TEXT,
+	totp_enabled BOOLEAN NOT NULL DEFAULT 0,
+	is_active BOOLEAN NOT NULL DEFAULT 1,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS license_keys (
+	id TEXT PRIMARY KEY,
+	key_hash TEXT NOT NULL UNIQUE,
+	key_prefix TEXT NOT NULL,
+	account_id TEXT REFERENCES customer_accounts(id) ON DELETE CASCADE,
+	plan_id TEXT NOT NULL DEFAULT 'free',
+	device_id TEXT REFERENCES devices(id) ON DELETE SET NULL,
+	status TEXT NOT NULL DEFAULT 'unused' CHECK(status IN ('unused','active','revoked','expired')),
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	activated_at DATETIME,
+	expires_at DATETIME
+);
+
 CREATE TABLE IF NOT EXISTS devices (
 	id TEXT PRIMARY KEY,
-	token_hash TEXT NOT NULL UNIQUE,
+	account_id TEXT REFERENCES customer_accounts(id) ON DELETE SET NULL,
+	license_key_id TEXT REFERENCES license_keys(id) ON DELETE SET NULL,
 	plan_id TEXT NOT NULL DEFAULT 'free',
 	activated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_seen_at DATETIME,
@@ -225,8 +251,11 @@ CREATE TABLE IF NOT EXISTS admin_accounts (
 	email TEXT NOT NULL UNIQUE,
 	password_hash TEXT NOT NULL,
 	name TEXT,
+	totp_secret TEXT,
+	totp_enabled BOOLEAN NOT NULL DEFAULT 0,
 	is_active BOOLEAN NOT NULL DEFAULT 1,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -241,7 +270,15 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE TABLE IF NOT EXISTS customer_sessions (
 	id TEXT PRIMARY KEY,
-	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	account_id TEXT NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
+	token_hash TEXT NOT NULL UNIQUE,
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	expires_at DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS admin_sessions (
+	id TEXT PRIMARY KEY,
+	admin_id TEXT NOT NULL REFERENCES admin_accounts(id) ON DELETE CASCADE,
 	token_hash TEXT NOT NULL UNIQUE,
 	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	expires_at DATETIME NOT NULL
@@ -255,7 +292,12 @@ INSERT OR REPLACE INTO plans (id, name, description, price_monthly_cents, limits
 ('one', 'Connect One', 'Everything included with the largest allowance. Best value for active users.', 2500,
  '{"backup_gb":1024,"ai_credit_cents":500,"tunnel_gb":200,"smtp_monthly":2500,"domain":"*.servers.libreloom.org","human_support":true}');
 
-CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(token_hash);
+CREATE INDEX IF NOT EXISTS idx_license_keys_hash ON license_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_license_keys_account ON license_keys(account_id);
+CREATE INDEX IF NOT EXISTS idx_license_keys_status ON license_keys(status);
+CREATE INDEX IF NOT EXISTS idx_devices_license ON devices(license_key_id);
+CREATE INDEX IF NOT EXISTS idx_customer_accounts_email ON customer_accounts(email);
+CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
 CREATE INDEX IF NOT EXISTS idx_devices_plan ON devices(plan_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_device ON subscriptions(device_id);
 CREATE INDEX IF NOT EXISTS idx_credentials_device ON service_credentials(device_id);
@@ -274,7 +316,7 @@ CREATE INDEX IF NOT EXISTS idx_fallback_role ON ai_fallback_chains(role, tier);
 CREATE INDEX IF NOT EXISTS idx_relay_provider ON relay_regions(provider);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor);
 CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_type, target_id);
-CREATE INDEX IF NOT EXISTS idx_customer_sessions_device ON customer_sessions(device_id);
+CREATE INDEX IF NOT EXISTS idx_customer_sessions_account ON customer_sessions(account_id);
 		`,
 	},
 }

@@ -30,7 +30,7 @@ export default function Plans() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl font-bold mb-2">Plans</h2>
+      <h2 className="font-mono text-2xl mb-2">Plans</h2>
       <p className="text-muted-foreground mb-6">View and edit subscription plan definitions. Changes take effect immediately.</p>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -56,7 +56,7 @@ export default function Plans() {
                   <p className="text-sm text-muted-foreground">{plan.description}</p>
                 </CardHeader>
                 <CardContent>
-                  <p className="font-mono text-2xl font-bold mb-3">${plan.price_monthly / 100}/mo</p>
+                  <p className="font-mono text-2xl mb-3">${plan.price_monthly / 100}/mo</p>
                 </CardContent>
                 <CardFooter>
                   <Button variant="outline" size="sm" onClick={() => startEdit(plan)}>Edit</Button>

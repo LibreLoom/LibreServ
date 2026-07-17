@@ -28,6 +28,21 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // Auth
+  login: (email, password, totpCode) => request("/admin/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password, totp_code: totpCode || "" }),
+  }),
+  seedAdmin: (email, password, name) => request("/admin/seed", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name }),
+  }),
+  setup2FA: () => request("/admin/2fa/setup", { method: "POST" }),
+  verify2FA: (code) => request("/admin/2fa/verify", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  }),
+
   // Devices
   listDevices: () => request("/admin/devices"),
   getDevice: (id) => request(`/admin/devices/${id}`),

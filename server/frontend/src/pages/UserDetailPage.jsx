@@ -224,7 +224,7 @@ export default function UserDetailPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
                 <Button
-                  variant="secondary"
+                  variant="primary"
                   fullWidth
                   onClick={() => setShowEditModal(true)}
                   className="h-full"
@@ -232,7 +232,7 @@ export default function UserDetailPage() {
                   <span className="text-sm font-medium">Change Email</span>
                 </Button>
                 <Button
-                  variant="secondary"
+                  variant="primary"
                   fullWidth
                   onClick={() => setShowRoleModal(true)}
                   className="h-full"
@@ -241,7 +241,7 @@ export default function UserDetailPage() {
                 </Button>
                 {smtpConfigured && (
                   <Button
-                    variant="secondary"
+                    variant="accent"
                     fullWidth
                     onClick={() => setShowResetPasswordModal(true)}
                     className="h-full"
@@ -250,7 +250,7 @@ export default function UserDetailPage() {
                   </Button>
                 )}
                 <Button
-                  variant="accent"
+                  variant="danger"
                   fullWidth
                   onClick={() => setShowDeleteConfirm(true)}
                   className="h-full"
@@ -277,21 +277,25 @@ export default function UserDetailPage() {
 
       {showEditModal && user && (
         <ModalCard title="Change Email" onClose={() => setShowEditModal(false)}>
+          {({ close }) => (
           <ChangeEmailForm
             user={user}
             onSuccess={handleEditSuccess}
-            onCancel={() => setShowEditModal(false)}
+            onCancel={close}
           />
+          )}
         </ModalCard>
       )}
 
       {showRoleModal && user && (
         <ModalCard title="Change Role" onClose={() => setShowRoleModal(false)}>
+          {({ close }) => (
           <RoleChangeForm
             user={user}
             onSuccess={handleRoleChangeSuccess}
-            onCancel={() => setShowRoleModal(false)}
+            onCancel={close}
           />
+          )}
         </ModalCard>
       )}
 
@@ -300,11 +304,13 @@ export default function UserDetailPage() {
           title="Reset Password"
           onClose={() => setShowResetPasswordModal(false)}
         >
+          {({ close }) => (
           <ResetPasswordForm
             user={user}
             onSuccess={handleResetPasswordSuccess}
-            onCancel={() => setShowResetPasswordModal(false)}
+            onCancel={close}
           />
+          )}
         </ModalCard>
       )}
     </Page>

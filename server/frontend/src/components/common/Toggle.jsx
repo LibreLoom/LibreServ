@@ -1,6 +1,7 @@
 import PropTypes from "prop-types";
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import { haptic } from "../../utils/haptics";
 
 const toggleTrackVariants = cva(
   "relative inline-flex h-7 w-12 shrink-0 items-center rounded-pill transition-all ease-[var(--motion-easing-emphasized)] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 active:scale-95",
@@ -74,7 +75,10 @@ export default function Toggle({
       <button
         type="button"
         data-slot="switch"
-        onClick={() => onChange(!checked)}
+        onClick={() => {
+          haptic("tap");
+          onChange(!checked);
+        }}
         disabled={disabled}
         className={cn(toggleTrackVariants({ checked, disabled }))}
         style={{ transitionDuration: "var(--motion-duration-short4)" }}

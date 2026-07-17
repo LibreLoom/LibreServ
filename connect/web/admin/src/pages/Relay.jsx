@@ -31,7 +31,7 @@ export default function Relay() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl font-bold mb-2">Relay Fleet</h2>
+      <h2 className="font-mono text-2xl mb-2">Relay Fleet</h2>
       <p className="text-muted-foreground mb-6">
         Tunnel relay nodes provide encrypted public access to LibreServ devices.
         Premium relays (Hetzner/Akamai) serve paid plans; non-premium relays serve the free tier.
@@ -39,10 +39,10 @@ export default function Relay() {
 
       {fleet && (
         <div className="grid gap-4 md:grid-cols-4 mb-8">
-          <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">Total Nodes</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl font-bold">{fleet.total_nodes}</p></CardContent></Card>
-          <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">Healthy</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl font-bold">{fleet.healthy_nodes}</p></CardContent></Card>
-          <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">Premium</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl font-bold">{fleet.premium_nodes}</p></CardContent></Card>
-          <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">Capacity</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl font-bold">{fleet.total_capacity_gb} GB</p></CardContent></Card>
+          <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">Total Nodes</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{fleet.total_nodes}</p></CardContent></Card>
+          <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">Healthy</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{fleet.healthy_nodes}</p></CardContent></Card>
+          <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">Premium</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{fleet.premium_nodes}</p></CardContent></Card>
+          <Card><CardHeader><CardTitle className="text-sm text-muted-foreground">Capacity</CardTitle></CardHeader><CardContent><p className="font-mono text-2xl">{fleet.total_capacity_gb} GB</p></CardContent></Card>
         </div>
       )}
 
@@ -74,7 +74,7 @@ export default function Relay() {
           <Card key={r.id} className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <p className="font-mono font-bold">{r.name}</p>
+                <p className="font-mono">{r.name}</p>
                 <Badge variant={r.is_premium ? "info" : "default"}>{r.is_premium ? "premium" : "free"}</Badge>
                 <StatusBadge status={r.is_healthy ? "healthy" : "unhealthy"} />
               </div>

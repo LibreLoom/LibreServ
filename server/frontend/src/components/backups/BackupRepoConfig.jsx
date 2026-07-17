@@ -7,6 +7,7 @@ import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
 import InfoPopover from "../common/InfoPopover";
 import FieldLabel from "../common/forms/FieldLabel";
+import Button from "../ui/Button";
 
 const PROVIDERS = [
   { value: "local", label: "This Device" },
@@ -208,7 +209,8 @@ export default function BackupRepoConfig() {
           <p className="text-sm text-accent">
             Cloud backup destinations require the advanced backup tool, which provides deduplication, compression, and encryption for your backups.
           </p>
-          <button
+          <Button
+            variant="primary"
             onClick={async () => {
               setProvisioning(true);
               try {
@@ -226,12 +228,11 @@ export default function BackupRepoConfig() {
                 setProvisioning(false);
               }
             }}
-            disabled={provisioning}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm disabled:opacity-50"
+            loading={provisioning}
           >
-            {provisioning ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+            {!provisioning && <Plus size={14} aria-hidden="true" />}
             {provisioning ? "Installing..." : "Install Now"}
-          </button>
+          </Button>
         </div>
       </Card>
     );
@@ -283,19 +284,16 @@ export default function BackupRepoConfig() {
                     )}
                   </div>
                 </div>
-                <button
+                <Button
+                  variant="ghost"
+                  size="iconSm"
                   onClick={() => handleDelete(repo.id)}
-                  disabled={deleting === repo.id}
+                  loading={deleting === repo.id}
                   title="Remove destination"
-                  className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all disabled:opacity-50"
                   aria-label="Remove destination"
                 >
-                  {deleting === repo.id ? (
-                    <Loader2 size={14} className="animate-spin text-accent" aria-hidden="true" />
-                  ) : (
-                    <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
-                  )}
-                </button>
+                  <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
+                </Button>
               </div>
             ))}
           </div>
@@ -309,23 +307,28 @@ export default function BackupRepoConfig() {
           footer={
             <div className="flex gap-3 w-full">
               {form.provider !== "local" && (
-                <button
+                <Button
+                  variant="outline"
+                  surface="secondary"
                   onClick={handleTest}
-                  disabled={testing || !canSave}
-                  className="flex-1 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                  loading={testing}
+                  disabled={!canSave}
+                  className="flex-1"
                 >
-                  {testing ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
+                  {!testing && <Plug size={14} aria-hidden="true" />}
                   {testing ? "Testing..." : "Test Connection"}
-                </button>
+                </Button>
               )}
-              <button
+              <Button
+                variant="primary"
                 onClick={handleSave}
-                disabled={saving || !canSave}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-pill bg-accent text-primary hover:ring-2 transition-all font-mono text-sm disabled:opacity-50"
+                loading={saving}
+                disabled={!canSave}
+                className="flex-1"
               >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {!saving && <Save className="w-4 h-4" />}
                 Add Destination
-              </button>
+              </Button>
             </div>
           }
         >

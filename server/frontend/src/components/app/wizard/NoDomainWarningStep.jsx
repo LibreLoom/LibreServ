@@ -2,6 +2,7 @@ import { memo } from "react";
 import { AlertTriangle, Globe, ArrowRight, Check } from "lucide-react";
 import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
+import Button from "../../ui/Button";
 
 function NoDomainWarningStep({ app, onBack, onContinue }) {
   const navigate = useNavigate();
@@ -46,33 +47,39 @@ function NoDomainWarningStep({ app, onBack, onContinue }) {
       </div>
 
       <div className="flex flex-col gap-3 pt-4">
-        <button
+        <Button
           type="button"
+          variant="secondary"
+          surface="primary"
+          size="lg"
+          fullWidth
           onClick={handleSetupRemoteAccess}
-          className="w-full px-6 py-3 rounded-pill bg-secondary text-primary hover:ring-2 hover:ring-accent motion-safe:transition-all font-mono flex items-center justify-center gap-2"
         >
           <Globe size={18} />
           Set Up Remote Access
           <ArrowRight size={18} />
-        </button>
-        
+        </Button>
+
         <div className="flex gap-3">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            surface="primary"
             onClick={onBack}
             disabled={false}
-            className="flex-1 px-6 py-2 rounded-pill border-2 border-secondary/30 text-secondary hover:bg-secondary/10 motion-safe:transition-all font-mono"
+            className="flex-1 px-6"
           >
             Back
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="accent"
             onClick={onContinue}
             disabled={false}
-            className="flex-1 px-6 py-2 rounded-pill bg-accent text-primary hover:ring-2 hover:ring-secondary motion-safe:transition-all font-mono"
+            className="flex-1 px-6"
           >
             Install Anyway (Local Only)
-          </button>
+          </Button>
         </div>
       </div>
     </div>

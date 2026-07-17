@@ -68,7 +68,7 @@ function InfoPopover({ children }) {
             className="fixed z-[100] w-64"
             style={{ top: position.top, left: position.left }}
           >
-            <div className="bg-secondary border border-primary/20 rounded-[12px] p-3 shadow-xl text-sm text-primary/80">
+            <div className="bg-secondary border border-primary/20 rounded-large-element p-3 shadow-xl text-sm text-primary/80">
               <span id={titleId} className="sr-only">
                 Additional information
               </span>

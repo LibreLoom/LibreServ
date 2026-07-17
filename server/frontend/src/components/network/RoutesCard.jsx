@@ -10,6 +10,7 @@ import PropTypes from "prop-types";
 import Card from "../cards/Card";
 import Toggle from "../common/Toggle";
 import Pill from "../common/Pill";
+import Button from "../ui/Button";
 
 function formatBackend(backend) {
   if (!backend) return "N/A";
@@ -54,13 +55,14 @@ export default function RoutesCard({
       title="Network Routes"
       padding={false}
       headerActions={
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           onClick={onAdd}
-          className="flex items-center gap-1 text-xs text-accent hover:text-primary transition-colors"
         >
           <Plus size={14} aria-hidden="true" />
           Add Route
-        </button>
+        </Button>
       }
       className="animate-in fade-in slide-in-from-bottom-2"
     >
@@ -76,24 +78,18 @@ export default function RoutesCard({
         ) : error ? (
           <div className="px-4 py-6 text-center">
             <p className="text-sm text-error mb-3">{error}</p>
-            <button
-              onClick={onRetry}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary/10 text-primary hover:bg-primary/20 transition-all font-mono text-sm"
-            >
+            <Button onClick={onRetry}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : routes.length === 0 ? (
           <div className="px-4 py-6 text-center">
             <span className="opacity-50 block mb-2"><Globe className="w-10 h-10 text-primary mx-auto" /></span>
             <p className="text-sm text-accent">No routes configured</p>
-            <button
-              onClick={onAdd}
-              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-pill bg-primary text-secondary hover:ring-2 hover:ring-accent transition-all font-mono text-sm"
-            >
+            <Button onClick={onAdd} className="mt-3">
               <Plus size={16} aria-hidden="true" />
               Add your first route
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="divide-y divide-primary/10">
@@ -132,22 +128,25 @@ export default function RoutesCard({
                       onChange={() => onToggle(route)}
                       disabled={togglingId === route.id}
                     />
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
                       onClick={() => onEdit(route)}
                       title="Edit route"
-                      className="p-1.5 rounded-pill hover:bg-primary/10 text-accent/50 hover:text-accent transition-all"
                       aria-label="Edit route"
                     >
                       <span className="opacity-50"><Pencil size={14} className="text-accent" aria-hidden="true" /></span>
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
                       onClick={() => onDelete(route)}
                       title="Delete route"
-                      className="p-1.5 rounded-pill hover:bg-error/10 text-accent/50 hover:text-error transition-all"
                       aria-label="Delete route"
+                      className="hover:bg-error/10 hover:text-error"
                     >
                       <span className="opacity-50"><Trash2 size={14} className="text-accent" aria-hidden="true" /></span>
-                    </button>
+                    </Button>
                   </div>
                 </div>
               );

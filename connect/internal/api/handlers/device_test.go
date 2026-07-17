@@ -11,53 +11,97 @@ import (
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
-func activateDevice(t *testing.T, db *sql.DB, token string) string {
+// activateDevice creates a license key and activates a device with it.
+// Returns the device ID.
+func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 	t.Helper()
-	body, _ := json.Marshal(map[string]string{"token": token})
+	if planID == "" {
+		planID = "free"
+	}
+
+	// Create a license key
+	key := security.GenerateLicenseKey()
+	keyHash := hashToken(key)
+	licenseID := security.GenerateID("lic")
+	_, err := db.Exec(
+		`INSERT INTO license_keys (id, key_hash, key_prefix, plan_id, status) VALUES (?, ?, ?, ?, 'unused')`,
+		licenseID, keyHash, key[:8], planID)
+	if err != nil {
+		t.Fatalf("create license key: %v", err)
+	}
+
+	// Activate device with the license key
+	body, _ := json.Marshal(map[string]string{"license_key": key})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/activate", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	NewDeviceHandler(db).Activate(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("activate failed: %d %s", w.Code, w.Body.String())
 	}
-	// Query to get the device ID from the created record
+
+	// Query to get the device ID
 	var deviceID string
-	err := db.QueryRow("SELECT id FROM devices WHERE token_hash = ?", hashToken(token)).Scan(&deviceID)
+	err = db.QueryRow("SELECT id FROM devices WHERE license_key_id = ?", licenseID).Scan(&deviceID)
 	if err != nil {
 		t.Fatalf("find activated device: %v", err)
 	}
 	return deviceID
 }
 
+// activateDeviceWithKey activates a device with a specific license key and returns both.
+func activateDeviceWithKey(t *testing.T, db *sql.DB, planID string) (string, string) {
+	t.Helper()
+	if planID == "" {
+		planID = "free"
+	}
+
+	key := security.GenerateLicenseKey()
+	keyHash := hashToken(key)
+	licenseID := security.GenerateID("lic")
+	_, err := db.Exec(
+		`INSERT INTO license_keys (id, key_hash, key_prefix, plan_id, status) VALUES (?, ?, ?, ?, 'unused')`,
+		licenseID, keyHash, key[:8], planID)
+	if err != nil {
+		t.Fatalf("create license key: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]string{"license_key": key})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/activate", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	NewDeviceHandler(db).Activate(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("activate failed: %d %s", w.Code, w.Body.String())
+	}
+
+	var deviceID string
+	err = db.QueryRow("SELECT id FROM devices WHERE license_key_id = ?", licenseID).Scan(&deviceID)
+	if err != nil {
+		t.Fatalf("find activated device: %v", err)
+	}
+	return deviceID, key
+}
+
 func TestDeviceActivate(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewDeviceHandler(db)
 
-	body, _ := json.Marshal(map[string]string{"token": "free_test_token_123"})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/activate", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-	h.Activate(w, req)
+	deviceID := activateDevice(t, db, "free")
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("activate status=%d, want 200", w.Code)
+	var planID string
+	err := db.QueryRow("SELECT plan_id FROM devices WHERE id = ?", deviceID).Scan(&planID)
+	if err != nil {
+		t.Fatalf("query device: %v", err)
 	}
-
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode: %v", err)
+	if planID != "free" {
+		t.Fatalf("plan=%s, want free", planID)
 	}
-	if !resp["connected"].(bool) {
-		t.Fatal("expected connected=true")
-	}
-	plan := resp["plan"].(map[string]any)
-	if plan["id"] != "free" {
-		t.Fatalf("plan=%v, want free", plan["id"])
-	}
+	_ = h // keep compiler happy
 }
 
-func TestDeviceActivateMissingToken(t *testing.T) {
+func TestDeviceActivateMissingKey(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewDeviceHandler(db)
 
@@ -75,7 +119,7 @@ func TestDeviceStatus(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewDeviceHandler(db)
 
-	deviceID := activateDevice(t, db, "status_test_token")
+	deviceID := activateDevice(t, db, "free")
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
@@ -97,7 +141,7 @@ func TestDeviceDeactivate(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewDeviceHandler(db)
 
-	deviceID := activateDevice(t, db, "deactivate_test_token")
+	deviceID := activateDevice(t, db, "free")
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/deactivate", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
@@ -107,7 +151,6 @@ func TestDeviceDeactivate(t *testing.T) {
 		t.Fatalf("status=%d, want 200", w.Code)
 	}
 
-	// Verify device is inactive
 	var active bool
 	err := db.QueryRow("SELECT is_active FROM devices WHERE id = ?", deviceID).Scan(&active)
 	if err != nil {
@@ -122,7 +165,7 @@ func TestDeviceUsage(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewDeviceHandler(db)
 
-	deviceID := activateDevice(t, db, "usage_test_token")
+	deviceID := activateDevice(t, db, "free")
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage", nil).WithContext(ctx)
 	w := httptest.NewRecorder()

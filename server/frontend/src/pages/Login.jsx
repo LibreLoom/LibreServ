@@ -292,6 +292,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           <Button
             type="submit"
             variant="secondary"
+            surface="primary"
             fullWidth
             loading={loading}
             className="mt-6"

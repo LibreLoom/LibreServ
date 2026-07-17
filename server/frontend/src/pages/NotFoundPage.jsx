@@ -7,6 +7,8 @@ import { notfound as quips } from "../assets/greetings";
 
 import Card from "../components/cards/Card";
 import HeaderCard from "../components/cards/HeaderCard";
+import Page from "../components/ui/Page";
+import Button from "../components/ui/Button";
 import {
   normalizePathname,
   pickStableQuip,
@@ -89,7 +91,8 @@ export default function NotFoundPage({ includeMain = true }) {
   }, []);
 
   // Focus the main region when landing on 404 (good for a11y + keyboard users).
-  // Remove the “mystery grey line” by disabling default focus outline on the wrapper (see Wrapper classes below).
+  // The “mystery grey line” is avoided by disabling the default focus outline on
+  // the wrapper (Page shell, or the section's inline style in embedded mode).
   useEffect(() => {
     const main = document.getElementById("main-content");
     if (main && typeof main.focus === "function") main.focus();
@@ -104,8 +107,6 @@ export default function NotFoundPage({ includeMain = true }) {
     }
   }
 
-  const Wrapper = includeMain ? "main" : "section";
-
   // Accordion a11y safety: when closed, keep it out of pointer interactions.
   // (No interactive elements inside today, but this prevents future foot-guns.)
   const panelA11yProps = isInvestigationOpen
@@ -115,22 +116,8 @@ export default function NotFoundPage({ includeMain = true }) {
         inert: true,
       });
 
-  // Shared button/link base class:
-  // We use focus-visible:ring-* for keyboard focus indicators and apply ring utilities for hover/focus states.
-  const solidPill =
-    "inline-flex items-center gap-2 rounded-pill bg-primary text-secondary px-4 py-2 text-sm font-medium " +
-    "motion-safe:transition-all hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary " +
-    "focus-visible:ring-2 focus:ring-accent focus:ring-offset-2";
-
-  return (
-    <Wrapper
-      className="bg-primary text-secondary px-8 pt-10 pb-32" data-slot="not-found"
-      aria-labelledby={regionTitleId}
-      aria-describedby={detailsId}
-      id="main-content"
-      tabIndex={-1}
-      style={{ outline: "none" }}
-    >
+  const pageContent = (
+    <>
       {/* Reliable region label (does not depend on HeaderCard internals). */}
       <span id={regionTitleId} className="sr-only">
         Page Not Found
@@ -176,9 +163,9 @@ export default function NotFoundPage({ includeMain = true }) {
                     <ul className="mt-4 flex flex-wrap gap-3">
                       {suggestedPages.map((page) => (
                         <li key={page.to}>
-                          <Link to={page.to} className={solidPill}>
-                            {page.label}
-                          </Link>
+                          <Button asChild variant="primary">
+                            <Link to={page.to}>{page.label}</Link>
+                          </Button>
                         </li>
                       ))}
                     </ul>
@@ -197,19 +184,17 @@ export default function NotFoundPage({ includeMain = true }) {
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3 justify-center">
-              <button
-                type="button"
-                onClick={handleGoBack}
-                className={solidPill}
-              >
+              <Button type="button" variant="primary" onClick={handleGoBack}>
                 <ArrowLeft size={18} aria-hidden="true" />
                 Go back
-              </button>
+              </Button>
 
-              <Link to="/" className={solidPill}>
-                <Home size={18} aria-hidden="true" />
-                Home
-              </Link>
+              <Button asChild variant="primary">
+                <Link to="/">
+                  <Home size={18} aria-hidden="true" />
+                  Home
+                </Link>
+              </Button>
             </div>
 
             <div className="mt-8 rounded-large-element bg-primary/10 p-6">
@@ -328,6 +313,30 @@ export default function NotFoundPage({ includeMain = true }) {
           </Card>
         </div>
       </div>
-    </Wrapper>
+    </>
+  );
+
+  // Embedded mode (includeMain=false): the caller provides the page shell, so
+  // render a plain section and keep the region labelling on it.
+  if (!includeMain) {
+    return (
+      <section
+        className="bg-primary text-secondary px-8 pt-10 pb-32"
+        data-slot="not-found"
+        aria-labelledby={regionTitleId}
+        aria-describedby={detailsId}
+        id="main-content"
+        tabIndex={-1}
+        style={{ outline: "none" }}
+      >
+        {pageContent}
+      </section>
+    );
+  }
+
+  return (
+    <Page className="pt-10" data-slot="not-found">
+      {pageContent}
+    </Page>
   );
 }

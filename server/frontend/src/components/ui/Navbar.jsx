@@ -327,9 +327,13 @@ export default function Navbar() {
             <span className="font-mono px-3 py-1.5 flex items-center">
               LibreServ
             </span>
+            {/* Simplex Mono: nav sections are separated by accent "|" dividers
+                that almost span the navbar's full height. */}
+            <div aria-hidden="true" className="h-8 w-0.5 rounded-full bg-accent" />
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtonsElements}
             </div>
+            <div aria-hidden="true" className="h-8 w-0.5 rounded-full bg-accent" />
             <div className="group flex items-center gap-2 relative">
               <button
                 type="button"
@@ -397,9 +401,9 @@ export default function Navbar() {
         aria-expanded={isMobileMenuOpen}
         aria-controls={mobileMenuId}
       >
-        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-[10px]", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2")} />
-        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-[10px]", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100")} />
-        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-[10px]", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 rotate-45" : "-translate-y-2")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "opacity-0 scale-0" : "opacity-100 scale-100")} />
+        <span className={cn("absolute", "w-6", "h-[3px]", "bg-primary", "rounded-full", "transition-all", "duration-400", "ease-[cubic-bezier(0.34,1.56,0.64,1)]", isMobileMenuOpen ? "translate-y-0 -rotate-45" : "translate-y-2")} />
       </button>
 
       <button
@@ -424,7 +428,7 @@ export default function Navbar() {
         aria-label="Primary navigation"
       >
          <nav
-           className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-3xl justify-start ring-2 ring-accent"
+           className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start ring-2 ring-accent"
            aria-label="Primary"
          >
           <div className="p-2.5 gap-1 flex flex-col">
@@ -445,7 +449,7 @@ export default function Navbar() {
               </React.Fragment>
             ))}
           </div>
-          <div className="h-px bg-primary/20 mx-4" aria-hidden="true" />
+          <div className="h-0.5 bg-accent rounded-full mx-4" aria-hidden="true" />
           <div className="p-2.5">
             <button
               type="button"

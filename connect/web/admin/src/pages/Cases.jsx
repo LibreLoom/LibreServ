@@ -26,7 +26,7 @@ export default function Cases() {
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl font-bold mb-6">Support Cases</h2>
+      <h2 className="font-mono text-2xl mb-6">Support Cases</h2>
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
@@ -38,7 +38,7 @@ export default function Cases() {
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-mono text-sm font-bold">{c.summary}</p>
+                  <p className="font-mono text-sm">{c.summary}</p>
                   <p className="text-sm text-muted-foreground">{c.device_id}</p>
                 </div>
                 <StatusBadge status={c.status} />

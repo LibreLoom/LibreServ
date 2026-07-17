@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Loader2, Settings, ChevronDown, ChevronUp, Info, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard";
+import Button from "../ui/Button";
 import ConfigFieldRenderer from "./wizard/ConfigFieldRenderer";
 
 function AdvancedContent({ show, advancedFields, config, handleFieldChange, errors }) {
@@ -161,31 +162,30 @@ export default function ReconfigureModal({ app, onClose, request, onSuccess }) {
       size="lg"
       data-slot="reconfigure-modal"
       footer={
+        ({ close }) => (
         <div className="flex gap-3 pt-2">
-          <button
+          <Button
             type="button"
-            onClick={() => onClose()}
+            variant="outline"
+            surface="secondary"
+            onClick={close}
             disabled={submitting}
-            className="flex-1 px-4 py-2 rounded-pill border-2 border-primary/30 text-primary hover:bg-primary/5 transition-colors disabled:opacity-50 font-mono"
+            className="flex-1"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
             form="reconfigure-form"
+            variant="accent"
             disabled={submitting || loadingFields || !hasFields}
-            className="flex-1 px-4 py-2 rounded-pill bg-secondary text-primary hover:bg-secondary/90 motion-safe:transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-mono"
+            loading={submitting}
+            className="flex-1"
           >
-            {submitting ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Applying...
-              </>
-            ) : (
-              "Apply & Restart"
-            )}
-          </button>
+            {submitting ? "Applying..." : "Apply & Restart"}
+          </Button>
         </div>
+        )
       }
     >
       <form id="reconfigure-form" onSubmit={handleSubmit} className="space-y-4">

@@ -9,6 +9,7 @@ const Cases = lazy(() => import("./pages/Cases.jsx"));
 const Plans = lazy(() => import("./pages/Plans.jsx"));
 const Models = lazy(() => import("./pages/Models.jsx"));
 const Relay = lazy(() => import("./pages/Relay.jsx"));
+const Security = lazy(() => import("./pages/Security.jsx"));
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/models" element={<ProtectedRoute><Models /></ProtectedRoute>} />
         <Route path="/relay" element={<ProtectedRoute><Relay /></ProtectedRoute>} />
+        <Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

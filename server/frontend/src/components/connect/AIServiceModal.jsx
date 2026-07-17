@@ -234,7 +234,7 @@ export default function AIServiceModal({ open, onClose, service, connectStatus =
           )}
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="accent" onClick={close} disabled={saving}>
+            <Button variant="outline" onClick={close} disabled={saving}>
               Cancel
             </Button>
             <Button onClick={() => handleSave(close)} disabled={saving} loading={saving}>

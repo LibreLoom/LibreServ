@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSmoothResize } from "../../hooks/useSmoothResize";
+import { haptic } from "../../utils/haptics";
 
 /**
  * @typedef {object} DropdownProps
@@ -102,6 +103,7 @@ export default function Dropdown({
   }, [isOpen, updatePosition]);
 
   const handleSelect = (optionValue) => {
+    haptic("tap");
     onChange(optionValue);
     close();
     buttonRef.current?.focus();

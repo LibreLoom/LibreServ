@@ -37,7 +37,7 @@ func TestProvisionSMTP(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewProvisionHandler(db)
 
-	deviceID := activateDevice(t, db, "smtp_provision_token")
+	deviceID := activateDevice(t, db, "free")
 	body, _ := json.Marshal(map[string]string{"service": "smtp"})
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/services/provision", bytes.NewReader(body)).WithContext(ctx)
@@ -61,7 +61,7 @@ func TestProvisionBackup(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewProvisionHandler(db)
 
-	deviceID := activateDevice(t, db, "backup_provision_token")
+	deviceID := activateDevice(t, db, "free")
 	body, _ := json.Marshal(map[string]string{"service": "backup"})
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/services/provision", bytes.NewReader(body)).WithContext(ctx)
@@ -85,7 +85,7 @@ func TestProvisionAI(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewProvisionHandler(db)
 
-	deviceID := activateDevice(t, db, "ai_provision_token")
+	deviceID := activateDevice(t, db, "free")
 	body, _ := json.Marshal(map[string]string{"service": "ai"})
 	ctx := middleware.WithDeviceID(context.Background(), deviceID)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/services/provision", bytes.NewReader(body)).WithContext(ctx)
