@@ -579,7 +579,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             )}
           </div>
           {totp.secret && (
-            <CollapsibleSection title="Can't scan? Clcik to show the one-time password code" size="xs" className="text-primary/70">
+            <CollapsibleSection title="Can't scan? Click to show the one-time password code" size="xs" className="text-primary/70">
               <div className="flex items-center gap-2">
                 {/* color-scan: ignore-next-line manual key needs a high-contrast surface for legibility + selection */}
                 <code className="flex-1 block p-2 bg-primary rounded-pill break-all text-secondary text-xs">
