@@ -55,6 +55,7 @@ dev/
 server/backend/dev/
 server/backend/bin/
 server/backend/configs/libreserv.yaml
+connect/configs/connect.yaml
 *.db
 .env
 .env.local
