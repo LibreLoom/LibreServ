@@ -109,6 +109,8 @@ opencode.jsonc
 # only dist/index.html is committed as the stable entry point)
 connect/web/admin/dist/assets/
 connect/web/customer/dist/assets/
+connect/internal/api/admin/dist/assets/
+connect/internal/api/customer/dist/assets/
 
 # Agent config
 .pi/
