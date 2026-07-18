@@ -36,7 +36,7 @@ func TestAdminListDevices(t *testing.T) {
 	// Activate a device so we have data
 	activateDevice(t, db, "free")
 
-	req := adminRequest(t, http.MethodGet, "/admin/devices", nil)
+	req := adminRequest(t, http.MethodGet, "/api/admin/devices", nil)
 	w := httptest.NewRecorder()
 	h.ListDevices(w, req)
 
@@ -69,8 +69,8 @@ func TestAdminGetDevice(t *testing.T) {
 
 	deviceID := activateDevice(t, db, "free")
 
-	req := adminRequest(t, http.MethodGet, "/admin/devices/"+deviceID, nil)
-	req = chiRequest(http.MethodGet, "/admin/devices/"+deviceID, nil, map[string]string{"deviceID": deviceID})
+	req := adminRequest(t, http.MethodGet, "/api/admin/devices/"+deviceID, nil)
+	req = chiRequest(http.MethodGet, "/api/admin/devices/"+deviceID, nil, map[string]string{"deviceID": deviceID})
 	req.Header.Set("Authorization", "Bearer admin-test-token")
 	w := httptest.NewRecorder()
 	h.GetDevice(w, req)
@@ -92,7 +92,7 @@ func TestAdminGetDeviceNotFound(t *testing.T) {
 	setAdminToken(t)
 	h := NewAdminHandler(db)
 
-	req := adminRequest(t, http.MethodGet, "/admin/devices/nonexistent", nil)
+	req := adminRequest(t, http.MethodGet, "/api/admin/devices/nonexistent", nil)
 	w := httptest.NewRecorder()
 	h.GetDevice(w, req)
 
@@ -121,7 +121,7 @@ func TestAdminListCases(t *testing.T) {
 	}
 
 	// Admin list
-	listReq := adminRequest(t, http.MethodGet, "/admin/cases", nil)
+	listReq := adminRequest(t, http.MethodGet, "/api/admin/cases", nil)
 	w := httptest.NewRecorder()
 	h.ListCases(w, listReq)
 
@@ -155,8 +155,8 @@ func TestAdminCreateConsentRequest(t *testing.T) {
 		"path":       "/apps/nextcloud/data/config.php",
 		"scope_type": "file",
 	})
-	req := adminRequest(t, http.MethodPost, "/admin/cases/case_consent_1/consent-requests", body)
-	req = chiRequest(http.MethodPost, "/admin/cases/case_consent_1/consent-requests", body, map[string]string{"caseID": "case_consent_1"})
+	req := adminRequest(t, http.MethodPost, "/api/admin/cases/case_consent_1/consent-requests", body)
+	req = chiRequest(http.MethodPost, "/api/admin/cases/case_consent_1/consent-requests", body, map[string]string{"caseID": "case_consent_1"})
 	req.Header.Set("Authorization", "Bearer admin-test-token")
 	w := httptest.NewRecorder()
 	h.CreateConsentRequest(w, req)

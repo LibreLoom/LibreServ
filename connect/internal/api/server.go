@@ -122,8 +122,9 @@ func (s *Server) setupRoutes() {
 	// Billing webhooks (Stripe)
 	r.Post("/webhooks/stripe", handlers.NewBillingHandler(s.billing).StripeWebhook)
 
-	// Admin routes (separate auth)
-	r.Route("/admin", func(r chi.Router) {
+	// Admin API routes (separate auth) — under /api/admin to avoid
+	// collision with the admin SPA served at /admin/* by the catch-all.
+	r.Route("/api/admin", func(r chi.Router) {
 		// Public admin routes (login, seed)
 		authHandler := handlers.NewAdminAuthHandler(s.db)
 		r.Post("/login", authHandler.Login)
@@ -187,6 +188,12 @@ func (s *Server) setupRoutes() {
 			r.Delete("/relay/regions/{id}", rh.DeleteRegion)
 		})
 	})
+
+	// SPA catch-all — must be last. Serves embedded frontend assets with
+	// SPA fallback. Host-based: admin.* gets admin dashboard, everything
+	// else gets customer portal. API routes above always take priority.
+	// Chi doesn't match "/*" as a route — use NotFound to catch unmatched.
+	r.NotFound(s.spaMiddleware())
 
 	s.router = r
 	slog.Info("routes registered")

@@ -1,0 +1,35 @@
+services:
+  connect:
+    build: .
+    image: localhost:5000/atlas/connect:rootless
+    container_name: connect
+    restart: always
+    user: "1000:1000"
+    env_file:
+      - /stack/compose/.secrets/connect.env
+    environment:
+      - CONNECT_SERVER_PORT=8080
+      - CONNECT_DATABASE_PATH=/data/connect.db
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=50m
+    volumes:
+      - /stack/volumes/connect/data:/data
+      - /stack/compose/connect/connect.yaml:/app/configs/connect.yaml:ro
+    working_dir: /app
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "/connect-server", "--health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [proxy-net]
+
+networks:
+  proxy-net:
+    external: true

@@ -29,7 +29,7 @@ func TestAdminProvidersCRUD(t *testing.T) {
 		},
 		"enabled": true,
 	})
-	req := httptest.NewRequest(http.MethodPost, "/admin/providers", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/providers", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	h.CreateProvider(w, req)
 	if w.Code != http.StatusOK {
@@ -42,7 +42,7 @@ func TestAdminProvidersCRUD(t *testing.T) {
 	id := created["id"].(string)
 
 	// List
-	req = httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/providers", nil)
 	w = httptest.NewRecorder()
 	h.ListProviders(w, req)
 	if w.Code != http.StatusOK {
@@ -67,7 +67,7 @@ func TestAdminProvidersCRUD(t *testing.T) {
 		"settings": map[string]string{},
 		"enabled":  false,
 	})
-	req = chiRequest(http.MethodPut, "/admin/providers/"+id, body, map[string]string{"id": id})
+	req = chiRequest(http.MethodPut, "/api/admin/providers/"+id, body, map[string]string{"id": id})
 	w = httptest.NewRecorder()
 	h.UpdateProvider(w, req)
 	if w.Code != http.StatusOK {
@@ -75,7 +75,7 @@ func TestAdminProvidersCRUD(t *testing.T) {
 	}
 
 	// Delete
-	req = chiRequest(http.MethodDelete, "/admin/providers/"+id, nil, map[string]string{"id": id})
+	req = chiRequest(http.MethodDelete, "/api/admin/providers/"+id, nil, map[string]string{"id": id})
 	w = httptest.NewRecorder()
 	h.DeleteProvider(w, req)
 	if w.Code != http.StatusOK {
@@ -83,7 +83,7 @@ func TestAdminProvidersCRUD(t *testing.T) {
 	}
 
 	// List should be empty now
-	req = httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req = httptest.NewRequest(http.MethodGet, "/api/admin/providers", nil)
 	w = httptest.NewRecorder()
 	h.ListProviders(w, req)
 	if w.Code != http.StatusOK {

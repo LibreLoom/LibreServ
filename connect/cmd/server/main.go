@@ -1,10 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
@@ -12,6 +14,26 @@ import (
 )
 
 func main() {
+	healthFlag := flag.Bool("health", false, "run health check against the server and exit")
+	flag.Parse()
+
+	if *healthFlag {
+		port := 8080
+		if p := os.Getenv("CONNECT_SERVER_PORT"); p != "" {
+			fmt.Sscanf(p, "%d", &port)
+		}
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
+		if err != nil {
+			os.Exit(1)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	cfgPath := os.Getenv("CONNECT_CONFIG")
 	if cfgPath == "" {
 		cfgPath = "configs/connect.yaml"
