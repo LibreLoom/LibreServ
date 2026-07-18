@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/pagination"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
@@ -165,6 +166,15 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An admin must not change their own role — a self-role change is a
+	// privilege path that can lock them out of admin access. Email edits are fine.
+	if req.Role != "" && req.Role != user.Role {
+		if requesterID, ok := middleware.GetUserID(r.Context()); ok && requesterID == userID {
+			JSONError(w, http.StatusForbidden, "You can't change your own role. Ask another administrator to change it for you.")
+			return
+		}
+	}
+
 	if req.Email != "" {
 		user.Email = validation.TrimAndSanitize(req.Email)
 	}
@@ -191,6 +201,13 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// An admin must not delete their own account — that ends their own
+	// session and is a path to accidental lockout.
+	if requesterID, ok := middleware.GetUserID(r.Context()); ok && requesterID == userID {
+		JSONError(w, http.StatusForbidden, "You can't delete your own account. Ask another administrator to remove you.")
+		return
+	}
+
 	if err := h.authService.DeleteUser(r.Context(), userID); err != nil {
 		if err == auth.ErrUserNotFound {
 			JSONError(w, http.StatusNotFound, "We couldn't find that user. They may have been deleted.")
@@ -207,5 +224,49 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"message": "user deleted",
 		"user_id": userID,
+	})
+}
+
+// SetPasswordRequest is the body for the admin set-password endpoint.
+type SetPasswordRequest struct {
+	NewPassword string `json:"new_password"`
+}
+
+// SetUserPassword handles PUT /api/v1/users/{userID}/password
+// Lets an administrator set a user's password directly, without the old
+// password. This is the admin password-management action (distinct from the
+// self-service /auth/change-password flow, which verifies the old password).
+func (h *UsersHandler) SetUserPassword(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "userID")
+	if userID == "" {
+		JSONError(w, http.StatusBadRequest, "We couldn't identify which user. Please refresh and try again.")
+		return
+	}
+
+	var req SetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
+		return
+	}
+	if req.NewPassword == "" {
+		JSONError(w, http.StatusBadRequest, "Please enter a new password.")
+		return
+	}
+	if err := h.authService.ValidatePassword(req.NewPassword); err != nil {
+		JSONError(w, http.StatusBadRequest, "That password doesn't meet the requirements. Use at least 12 characters with letters and numbers.")
+		return
+	}
+
+	if err := h.authService.SetPassword(r.Context(), userID, req.NewPassword); err != nil {
+		if err == auth.ErrUserNotFound {
+			JSONError(w, http.StatusNotFound, "We couldn't find that user. They may have been deleted.")
+			return
+		}
+		JSONError(w, http.StatusInternalServerError, "We couldn't set that password. Please try again.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"message": "password updated",
 	})
 }

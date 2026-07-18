@@ -487,6 +487,19 @@ func (s *Service) ResetPasswordWithToken(ctx context.Context, userID, newPasswor
 	return s.setPasswordInternal(ctx, user, newPassword, "Password reset via token")
 }
 
+// SetPassword sets a user's password directly, without verifying the old
+// password. This is the admin user-management operation (distinct from the
+// self-service ChangePassword, which requires the current password). The
+// caller is responsible for authorization — the endpoint must be admin-gated.
+func (s *Service) SetPassword(ctx context.Context, userID, newPassword string) error {
+	user, err := s.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	return s.setPasswordInternal(ctx, user, newPassword, "Password set by administrator")
+}
+
 // setPasswordInternal is a helper that sets a new password and revokes tokens.
 func (s *Service) setPasswordInternal(ctx context.Context, user *models.User, newPassword, reason string) error {
 	// Prevent reusing the current password
