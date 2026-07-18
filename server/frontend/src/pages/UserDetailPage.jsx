@@ -14,9 +14,9 @@ import api from "../lib/api";
 import { User, Shield, KeyRound, Pencil, Trash2 } from "lucide-react";
 import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
 import RoleChangeForm from "../components/common/forms/RoleChangeForm";
-import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
+import SetPasswordForm from "../components/common/forms/SetPasswordForm";
+import { useAuth } from "../hooks/useAuth";
 import { useTimeFormat } from "../hooks/useTimeFormat";
-import { useSettingsStatus } from "../hooks/useSettingsStatus";
 
 // Whole days between a timestamp and now. null when the timestamp is missing.
 // ponytail: tiny local helper — only this page needs relative-day math right now;
@@ -55,7 +55,7 @@ export default function UserDetailPage() {
   const { userId } = useParams();
   const navigate = useNavigate();
   const { formatDateLong } = useTimeFormat();
-  const { smtpConfigured } = useSettingsStatus();
+  const { me } = useAuth();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showLoading, setShowLoading] = useState(false);
@@ -64,7 +64,7 @@ export default function UserDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showRoleModal, setShowRoleModal] = useState(false);
-  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
+  const [showSetPasswordModal, setShowSetPasswordModal] = useState(false);
 
   useEffect(() => {
     let delayTimer;
@@ -129,8 +129,8 @@ export default function UserDetailPage() {
     setShowRoleModal(false);
   };
 
-  const handleResetPasswordSuccess = () => {
-    setShowResetPasswordModal(false);
+  const handleSetPasswordSuccess = () => {
+    setShowSetPasswordModal(false);
   };
 
   const formatDate = (dateString) => {
@@ -156,6 +156,10 @@ export default function UserDetailPage() {
   const loginDays = user?.last_login ? daysSince(user.last_login) : null;
   const modDays = user ? daysSince(user.updated_at) : null;
   const tier = activityTier(loginDays);
+  // An admin must not change their own role or delete their own account —
+  // both are backend-enforced (403), and hidden here too. Password can always
+  // be set (admins may set their own password directly).
+  const isSelf = Boolean(me?.id && user && me.id === user.id);
 
   return (
     <Page
@@ -233,24 +237,26 @@ export default function UserDetailPage() {
                   <Pencil size={14} aria-hidden="true" />
                   Change Email
                 </Button>
-                <Button variant="outline" surface="primary" onClick={() => setShowRoleModal(true)}>
-                  <Shield size={14} aria-hidden="true" />
-                  Change Role
-                </Button>
-                {smtpConfigured && (
-                  <Button
-                    variant="accent"
-                    surface="primary"
-                    onClick={() => setShowResetPasswordModal(true)}
-                  >
-                    <KeyRound size={14} aria-hidden="true" />
-                    Reset Password
+                {!isSelf && (
+                  <Button variant="outline" surface="primary" onClick={() => setShowRoleModal(true)}>
+                    <Shield size={14} aria-hidden="true" />
+                    Change Role
                   </Button>
                 )}
-                <Button variant="danger" surface="primary" onClick={() => setShowDeleteConfirm(true)}>
-                  <Trash2 size={14} aria-hidden="true" />
-                  Delete User
+                <Button
+                  variant="accent"
+                  surface="primary"
+                  onClick={() => setShowSetPasswordModal(true)}
+                >
+                  <KeyRound size={14} aria-hidden="true" />
+                  Set Password
                 </Button>
+                {!isSelf && (
+                  <Button variant="danger" surface="primary" onClick={() => setShowDeleteConfirm(true)}>
+                    <Trash2 size={14} aria-hidden="true" />
+                    Delete User
+                  </Button>
+                )}
               </div>
             </Card>
           </section>
@@ -284,14 +290,10 @@ export default function UserDetailPage() {
         </ModalCard>
       )}
 
-      {showResetPasswordModal && user && (
-        <ModalCard title="Reset Password" onClose={() => setShowResetPasswordModal(false)}>
+      {showSetPasswordModal && user && (
+        <ModalCard title="Set Password" onClose={() => setShowSetPasswordModal(false)}>
           {({ close }) => (
-            <ResetPasswordForm
-              user={user}
-              onSuccess={handleResetPasswordSuccess}
-              onCancel={close}
-            />
+            <SetPasswordForm user={user} onSuccess={handleSetPasswordSuccess} onCancel={close} />
           )}
         </ModalCard>
       )}
