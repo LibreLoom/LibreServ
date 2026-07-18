@@ -520,7 +520,7 @@ func (h *AppsHandler) ReconfigureApp(w http.ResponseWriter, r *http.Request) {
 		if h.auditLog != nil {
 			h.auditLog.Log(r.Context(), "app.reconfigure", instanceID, "", "failure", err.Error(), nil)
 		}
-		JSONError(w, http.StatusInternalServerError, "We couldn't update this app's settings. "+err.Error())
+		JSONError(w, http.StatusInternalServerError, "We couldn't update this app's settings. Please check the configuration and try again.")
 		return
 	}
 

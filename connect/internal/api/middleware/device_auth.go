@@ -30,7 +30,7 @@ func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 			err := db.QueryRowContext(r.Context(),
 				`SELECT d.id, d.is_active FROM devices d
 				 JOIN license_keys lk ON d.license_key_id = lk.id
-				 WHERE lk.key_hash = ? AND lk.status = 'active'`, hash).
+				 WHERE lk.key_hash = $1 AND lk.status = 'active'`, hash).
 				Scan(&deviceID, &isActive)
 			if err == sql.ErrNoRows {
 				http.Error(w, `{"error":"invalid or inactive license key"}`, http.StatusUnauthorized)
@@ -47,7 +47,7 @@ func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 
 			// Update last seen
 			_, _ = db.ExecContext(r.Context(),
-				"UPDATE devices SET last_seen_at = ? WHERE id = ?", time.Now(), deviceID)
+				"UPDATE devices SET last_seen_at = $1 WHERE id = $2", time.Now(), deviceID)
 
 			ctx := context.WithValue(r.Context(), deviceContext{}, deviceID)
 			next.ServeHTTP(w, r.WithContext(ctx))

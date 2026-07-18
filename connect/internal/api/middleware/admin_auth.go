@@ -29,7 +29,7 @@ func AdminAuth(db *sql.DB) func(http.Handler) http.Handler {
 			var adminID string
 			var expiresAt time.Time
 			err := db.QueryRowContext(r.Context(),
-				"SELECT admin_id, expires_at FROM admin_sessions WHERE token_hash = ?", hash).
+				"SELECT admin_id, expires_at FROM admin_sessions WHERE token_hash = $1", hash).
 				Scan(&adminID, &expiresAt)
 			if err == nil {
 				if time.Now().After(expiresAt) {
@@ -76,7 +76,7 @@ func CreateAdminSession(db *sql.DB, adminID string) (string, error) {
 	expiresAt := time.Now().Add(time.Duration(ttl) * time.Hour)
 
 	_, err := db.Exec(
-		`INSERT INTO admin_sessions (id, admin_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO admin_sessions (id, admin_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
 		security.GenerateID("asess"), adminID, hash, expiresAt)
 	if err != nil {
 		return "", err

@@ -67,7 +67,7 @@ func (h *AdminHandler) GetDevice(w http.ResponseWriter, r *http.Request) {
 		Metadata    string
 	}
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id, plan_id, activated_at, last_seen_at, is_active, metadata_json FROM devices WHERE id = ?",
+		"SELECT id, plan_id, activated_at, last_seen_at, is_active, metadata_json FROM devices WHERE id = $1",
 		deviceID).Scan(&d.ID, &d.PlanID, &d.ActivatedAt, &d.LastSeenAt, &d.IsActive, &d.Metadata)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusNotFound, "device not found")
@@ -111,7 +111,7 @@ func (h *AdminHandler) RotateCredentials(w http.ResponseWriter, r *http.Request)
 	}
 
 	_, err := h.db.ExecContext(r.Context(),
-		"UPDATE service_credentials SET is_active = 0, revoked_at = ? WHERE device_id = ? AND service_type = ?",
+		"UPDATE service_credentials SET is_active = FALSE, revoked_at = $1 WHERE device_id = $2 AND service_type = $3",
 		time.Now(), deviceID, req.Service)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not revoke credentials")
@@ -179,7 +179,7 @@ func (h *AdminHandler) GetCase(w http.ResponseWriter, r *http.Request) {
 	}
 	err := h.db.QueryRowContext(r.Context(),
 		`SELECT id, device_id, summary, status, session_code, contact, scopes_json, created_at, updated_at
-		 FROM support_cases WHERE id = ?`, caseID).Scan(&c.ID, &c.DeviceID, &c.Summary, &c.Status, &c.SessionCode, &c.Contact, &c.ScopesJSON, &c.CreatedAt, &c.UpdatedAt)
+		 FROM support_cases WHERE id = $1`, caseID).Scan(&c.ID, &c.DeviceID, &c.Summary, &c.Status, &c.SessionCode, &c.Contact, &c.ScopesJSON, &c.CreatedAt, &c.UpdatedAt)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusNotFound, "case not found")
 		return
@@ -191,7 +191,7 @@ func (h *AdminHandler) GetCase(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch messages
 	mrows, _ := h.db.QueryContext(r.Context(),
-		`SELECT author, text, timestamp FROM case_messages WHERE case_id = ? ORDER BY timestamp ASC`, caseID)
+		`SELECT author, text, timestamp FROM case_messages WHERE case_id = $1 ORDER BY timestamp ASC`, caseID)
 	defer mrows.Close()
 	messages := []map[string]any{}
 	for mrows.Next() {
@@ -231,7 +231,7 @@ func (h *AdminHandler) AddCaseMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := h.db.ExecContext(r.Context(),
-		`INSERT INTO case_messages (case_id, author, text, timestamp) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO case_messages (case_id, author, text, timestamp) VALUES ($1, $2, $3, $4)`,
 		caseID, "agent", req.Text, time.Now())
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not add message")
@@ -239,7 +239,7 @@ func (h *AdminHandler) AddCaseMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = h.db.ExecContext(r.Context(),
-		"UPDATE support_cases SET updated_at = ? WHERE id = ?", time.Now(), caseID)
+		"UPDATE support_cases SET updated_at = $1 WHERE id = $2", time.Now(), caseID)
 
 	h.auditLog(r, "add_case_message", "case", caseID, map[string]any{"text_length": len(req.Text)})
 
@@ -262,7 +262,7 @@ func (h *AdminHandler) CreateConsentRequest(w http.ResponseWriter, r *http.Reque
 	// Look up device_id from case
 	var deviceID string
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT device_id FROM support_cases WHERE id = ?", caseID).Scan(&deviceID)
+		"SELECT device_id FROM support_cases WHERE id = $1", caseID).Scan(&deviceID)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusNotFound, "case not found")
 		return
@@ -275,7 +275,7 @@ func (h *AdminHandler) CreateConsentRequest(w http.ResponseWriter, r *http.Reque
 	consentID := security.GenerateID("consent")
 	_, err = h.db.ExecContext(r.Context(),
 		`INSERT INTO consent_requests (id, case_id, device_id, requested_by, path, scope_type, status, requested_at, expires_at, notes)
-		 VALUES (?, ?, ?, 'admin', ?, ?, 'pending', ?, datetime('now', '+24 hours'), ?)`,
+		 VALUES ($1, $2, $3, 'admin', $4, $5, 'pending', $6, NOW() + INTERVAL '24 hours', $7)`,
 		consentID, caseID, deviceID, req.Path, req.ScopeType, time.Now(), req.Notes)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not create consent request")
@@ -340,7 +340,7 @@ func (h *AdminHandler) UpdatePlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := h.db.ExecContext(r.Context(),
-		`UPDATE plans SET name = ?, description = ?, price_monthly_cents = ?, limits_json = ? WHERE id = ?`,
+		`UPDATE plans SET name = $1, description = $2, price_monthly_cents = $3, limits_json = $4 WHERE id = $5`,
 		req.Name, req.Description, req.PriceMonthlyCents, req.LimitsJSON, planID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not update plan")
@@ -371,7 +371,7 @@ func (h *AdminHandler) auditLog(r *http.Request, action, targetType, targetID st
 		detailsJSON = string(b)
 	}
 	_, _ = h.db.ExecContext(r.Context(),
-		`INSERT INTO audit_logs (actor, action, target_type, target_id, details_json) VALUES (?, ?, ?, ?, ?)`,
+		`INSERT INTO audit_logs (actor, action, target_type, target_id, details_json) VALUES ($1, $2, $3, $4, $5)`,
 		"admin", action, targetType, targetID, detailsJSON)
 }
 

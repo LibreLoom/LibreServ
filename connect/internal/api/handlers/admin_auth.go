@@ -41,7 +41,7 @@ func (h *AdminAuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		IsActive     bool
 	}
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active FROM admin_accounts WHERE email = ?`,
+		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active FROM admin_accounts WHERE email = $1`,
 		req.Email).Scan(&account.ID, &account.PasswordHash, &account.Name, &account.TOTPSecret, &account.TOTPEnabled, &account.IsActive)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusUnauthorized, "invalid email or password")
@@ -107,12 +107,12 @@ func (h *AdminAuthHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 
 	var email string
 	_ = h.db.QueryRowContext(r.Context(),
-		"SELECT email FROM admin_accounts WHERE id = ?", adminID).Scan(&email)
+		"SELECT email FROM admin_accounts WHERE id = $1", adminID).Scan(&email)
 
 	uri := auth.TOTPURI(secret, email, "Connect Admin")
 
 	_, err = h.db.ExecContext(r.Context(),
-		"UPDATE admin_accounts SET totp_secret = ? WHERE id = ?", secret, adminID)
+		"UPDATE admin_accounts SET totp_secret = $1 WHERE id = $2", secret, adminID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not save secret")
 		return
@@ -138,7 +138,7 @@ func (h *AdminAuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 
 	var secret sql.NullString
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT totp_secret FROM admin_accounts WHERE id = ?", adminID).Scan(&secret)
+		"SELECT totp_secret FROM admin_accounts WHERE id = $1", adminID).Scan(&secret)
 	if err != nil || !secret.Valid {
 		JSONError(w, http.StatusBadRequest, "set up 2FA first")
 		return
@@ -150,7 +150,7 @@ func (h *AdminAuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = h.db.ExecContext(r.Context(),
-		"UPDATE admin_accounts SET totp_enabled = 1, updated_at = ? WHERE id = ?", time.Now(), adminID)
+		"UPDATE admin_accounts SET totp_enabled = TRUE, updated_at = $1 WHERE id = $2", time.Now(), adminID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not enable 2FA")
 		return
@@ -190,7 +190,7 @@ func (h *AdminAuthHandler) SeedAdmin(w http.ResponseWriter, r *http.Request) {
 
 	adminID := security.GenerateID("admin")
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO admin_accounts (id, email, password_hash, name) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO admin_accounts (id, email, password_hash, name) VALUES ($1, $2, $3, $4)`,
 		adminID, req.Email, hash, req.Name)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not create admin account")

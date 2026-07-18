@@ -81,7 +81,7 @@ func (s *Service) GetProvider(id string) (*Provider, error) {
 	var p Provider
 	var createdAt, updatedAt time.Time
 	err := s.db.QueryRow(
-		`SELECT id, name, base_url, api_key, enabled, tier, created_at, updated_at FROM ai_providers WHERE id = ?`, id).
+		`SELECT id, name, base_url, api_key, enabled, tier, created_at, updated_at FROM ai_providers WHERE id = $1`, id).
 		Scan(&p.ID, &p.Name, &p.BaseURL, &p.APIKey, &p.Enabled, &p.Tier, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -99,7 +99,7 @@ func (s *Service) CreateProvider(name, baseURL, apiKey, tier string, enabled boo
 	id := security.GenerateID("prov")
 	now := time.Now()
 	_, err := s.db.Exec(
-		`INSERT INTO ai_providers (id, name, base_url, api_key, enabled, tier, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO ai_providers (id, name, base_url, api_key, enabled, tier, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, name, baseURL, apiKey, enabled, tier, now, now)
 	if err != nil {
 		return nil, err
@@ -110,14 +110,14 @@ func (s *Service) CreateProvider(name, baseURL, apiKey, tier string, enabled boo
 // UpdateProvider updates an existing provider.
 func (s *Service) UpdateProvider(id, name, baseURL, apiKey, tier string, enabled bool) error {
 	_, err := s.db.Exec(
-		`UPDATE ai_providers SET name = ?, base_url = ?, api_key = ?, tier = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE ai_providers SET name = $1, base_url = $2, api_key = $3, tier = $4, enabled = $5, updated_at = $6 WHERE id = $7`,
 		name, baseURL, apiKey, tier, enabled, time.Now(), id)
 	return err
 }
 
 // DeleteProvider removes a provider (cascades to models).
 func (s *Service) DeleteProvider(id string) error {
-	_, err := s.db.Exec("DELETE FROM ai_providers WHERE id = ?", id)
+	_, err := s.db.Exec("DELETE FROM ai_providers WHERE id = $1", id)
 	return err
 }
 
@@ -129,7 +129,7 @@ func (s *Service) ListModels(role string) ([]Model, error) {
 		rows, err = s.db.Query(
 			`SELECT id, provider_id, model_id, display_name, role, input_price_per_million, output_price_per_million,
 			        cache_price_per_million, context_window, enabled, sort_order
-			 FROM ai_models WHERE role = ? ORDER BY sort_order, display_name`, role)
+			 FROM ai_models WHERE role = $1 ORDER BY sort_order, display_name`, role)
 	} else {
 		rows, err = s.db.Query(
 			`SELECT id, provider_id, model_id, display_name, role, input_price_per_million, output_price_per_million,
@@ -159,7 +159,7 @@ func (s *Service) CreateModel(providerID, modelID, displayName, role string, inp
 	id := security.GenerateID("model")
 	_, err := s.db.Exec(
 		`INSERT INTO ai_models (id, provider_id, model_id, display_name, role, input_price_per_million, output_price_per_million, cache_price_per_million, context_window, enabled, sort_order, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		id, providerID, modelID, displayName, role, inputPrice, outputPrice, cachePrice, contextWindow, enabled, sortOrder, time.Now(), time.Now())
 	if err != nil {
 		return nil, err
@@ -172,14 +172,14 @@ func (s *Service) CreateModel(providerID, modelID, displayName, role string, inp
 // UpdateModel updates an existing model.
 func (s *Service) UpdateModel(id, modelID, displayName, role string, inputPrice, outputPrice, cachePrice float64, contextWindow int, enabled bool, sortOrder int) error {
 	_, err := s.db.Exec(
-		`UPDATE ai_models SET model_id = ?, display_name = ?, role = ?, input_price_per_million = ?, output_price_per_million = ?, cache_price_per_million = ?, context_window = ?, enabled = ?, sort_order = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE ai_models SET model_id = $1, display_name = $2, role = $3, input_price_per_million = $4, output_price_per_million = $5, cache_price_per_million = $6, context_window = $7, enabled = $8, sort_order = $9, updated_at = $10 WHERE id = $11`,
 		modelID, displayName, role, inputPrice, outputPrice, cachePrice, contextWindow, enabled, sortOrder, time.Now(), id)
 	return err
 }
 
 // DeleteModel removes a model.
 func (s *Service) DeleteModel(id string) error {
-	_, err := s.db.Exec("DELETE FROM ai_models WHERE id = ?", id)
+	_, err := s.db.Exec("DELETE FROM ai_models WHERE id = $1", id)
 	return err
 }
 
@@ -191,7 +191,7 @@ func (s *Service) GetFallbackChain(role, tier string) ([]Model, error) {
 		        m.context_window, m.enabled, m.sort_order
 		 FROM ai_fallback_chains fc
 		 JOIN ai_models m ON fc.model_id = m.id
-		 WHERE fc.role = ? AND fc.tier = ? AND m.enabled = 1
+		 WHERE fc.role = $1 AND fc.tier = $2 AND m.enabled = TRUE
 		 ORDER BY fc.priority`, role, tier)
 	if err != nil {
 		return nil, err
@@ -219,14 +219,14 @@ func (s *Service) SetFallbackChain(role, tier string, modelIDs []string) error {
 	}
 	defer tx.Rollback()
 
-	_, err = tx.Exec("DELETE FROM ai_fallback_chains WHERE role = ? AND tier = ?", role, tier)
+	_, err = tx.Exec("DELETE FROM ai_fallback_chains WHERE role = $1 AND tier = $2", role, tier)
 	if err != nil {
 		return err
 	}
 
 	for i, modelID := range modelIDs {
 		_, err = tx.Exec(
-			`INSERT OR IGNORE INTO ai_fallback_chains (role, tier, model_id, priority) VALUES (?, ?, ?, ?)`,
+			`INSERT INTO ai_fallback_chains (role, tier, model_id, priority) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
 			role, tier, modelID, i)
 		if err != nil {
 			return err

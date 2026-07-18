@@ -143,7 +143,7 @@ func (h *ConnectHandler) UpdateServices(w http.ResponseWriter, r *http.Request) 
 		// can retry without ending up with a half-configured service.
 		if err := h.applyCredentials(r.Context(), svcID, creds); err != nil {
 			slog.Error("failed to apply connect credentials", "service", svcID, "error", err)
-			response.JSONError(w, http.StatusBadGateway, fmt.Sprintf("We couldn't apply the Connect settings for %s to your server. %s", svcID, err.Error()))
+			response.JSONError(w, http.StatusBadGateway, fmt.Sprintf("We couldn't apply the Connect settings for %s to your server. %v", svcID, err))
 			return
 		}
 	}

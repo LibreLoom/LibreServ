@@ -26,7 +26,7 @@ func CustomerAuth(db *sql.DB) func(http.Handler) http.Handler {
 			var accountID string
 			var expiresAt time.Time
 			err := db.QueryRowContext(r.Context(),
-				"SELECT account_id, expires_at FROM customer_sessions WHERE token_hash = ?", hash).
+				"SELECT account_id, expires_at FROM customer_sessions WHERE token_hash = $1", hash).
 				Scan(&accountID, &expiresAt)
 			if err == sql.ErrNoRows {
 				http.Error(w, `{"error":"invalid or expired session"}`, http.StatusUnauthorized)
@@ -67,7 +67,7 @@ func CreateCustomerSession(db *sql.DB, accountID string) (string, error) {
 	expiresAt := time.Now().Add(time.Duration(ttl) * time.Hour)
 
 	_, err := db.Exec(
-		`INSERT INTO customer_sessions (id, account_id, token_hash, expires_at) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO customer_sessions (id, account_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
 		security.GenerateID("sess"), accountID, hash, expiresAt)
 	if err != nil {
 		return "", err

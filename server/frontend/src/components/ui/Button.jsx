@@ -63,15 +63,15 @@ function Slot({ children, ...props }) {
 }
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all active:motion-safe:scale-95 no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed",
+  "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all active:motion-safe:scale-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed",
   {
     variants: {
       variant: {
         // SOLID — surface-aware inversion on hover
         primary: "bg-primary text-secondary hover:bg-accent hover:text-primary hover:scale-105",
         secondary: "bg-secondary text-primary hover:bg-accent hover:text-primary hover:scale-105",
-        accent: "bg-accent text-primary hover:bg-primary hover:text-secondary hover:scale-105 ring-2 ring-transparent hover:ring-error/50 motion-safe:transition-shadow",
-        danger: "bg-error text-secondary hover:bg-accent hover:text-primary hover:scale-105 ring-2 ring-transparent hover:ring-error/50 motion-safe:transition-shadow",
+        accent: "bg-accent text-primary hover:bg-primary hover:text-secondary hover:scale-105 ring-2 ring-transparent hover:ring-error/50",
+        danger: "bg-error text-secondary hover:bg-accent hover:text-primary hover:scale-105 ring-2 ring-transparent hover:ring-error/50",
         nav: "bg-transparent text-secondary hover:bg-secondary/10",
         // OUTLINE — transparent, fills on hover (surface-aware via compound variants)
         outline: "bg-transparent border-2 hover:scale-105",

@@ -166,3 +166,80 @@ func TestProvisionRequiresAuth(t *testing.T) {
 		t.Fatalf("status=%d, want 401 (no device context)", w.Code)
 	}
 }
+
+func TestProvisionDomainFreePlan(t *testing.T) {
+	db := database.OpenTestDB(t)
+	h := NewProvisionHandler(db)
+
+	deviceID := activateDevice(t, db, "free")
+	body, _ := json.Marshal(map[string]string{"service": "domain"})
+	ctx := middleware.WithDeviceID(context.Background(), deviceID)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/services/provision", bytes.NewReader(body)).WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.Provision(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	domain, ok := resp["domain"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing domain object")
+	}
+	domainName, ok := domain["domain"].(string)
+	if !ok {
+		t.Fatal("domain domain is not a string")
+	}
+	if !strings.Contains(domainName, "free.servers.libreloom.org") {
+		t.Fatalf("domain=%q, want it to contain free.servers.libreloom.org", domainName)
+	}
+	if domain["auto_https"] != true {
+		t.Fatalf("auto_https=%v, want true", domain["auto_https"])
+	}
+	if domain["dns_managed"] != false {
+		t.Fatalf("dns_managed=%v, want false", domain["dns_managed"])
+	}
+}
+
+func TestProvisionDomainPaidPlan(t *testing.T) {
+	db := database.OpenTestDB(t)
+	h := NewProvisionHandler(db)
+
+	deviceID := activateDevice(t, db, "one")
+	body, _ := json.Marshal(map[string]string{"service": "domain"})
+	ctx := middleware.WithDeviceID(context.Background(), deviceID)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/services/provision", bytes.NewReader(body)).WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.Provision(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	domain, ok := resp["domain"].(map[string]any)
+	if !ok {
+		t.Fatal("response missing domain object")
+	}
+	domainName, ok := domain["domain"].(string)
+	if !ok {
+		t.Fatal("domain domain is not a string")
+	}
+	if !strings.Contains(domainName, "servers.libreloom.org") {
+		t.Fatalf("domain=%q, want it to contain servers.libreloom.org", domainName)
+	}
+	if strings.Contains(domainName, "free.") {
+		t.Fatalf("domain=%q, should NOT contain free.", domainName)
+	}
+	if domain["auto_https"] != true {
+		t.Fatalf("auto_https=%v, want true", domain["auto_https"])
+	}
+	if domain["dns_managed"] != false {
+		t.Fatalf("dns_managed=%v, want false", domain["dns_managed"])
+	}
+}

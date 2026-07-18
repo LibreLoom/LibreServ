@@ -12,8 +12,6 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-const API_BASE = "/api/admin";
-
 async function request(path, options = {}) {
   const token = getToken();
   const headers = { "Content-Type": "application/json", ...options.headers };
@@ -21,7 +19,7 @@ async function request(path, options = {}) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(path, { ...options, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "Request failed" }));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -31,88 +29,100 @@ async function request(path, options = {}) {
 
 export const api = {
   // Auth
-  login: (email, password, totpCode) => request("/login", {
+  login: (email, password, totpCode) => request("/admin/login", {
     method: "POST",
     body: JSON.stringify({ email, password, totp_code: totpCode || "" }),
   }),
-  seedAdmin: (email, password, name) => request("/seed", {
+  seedAdmin: (email, password, name) => request("/admin/seed", {
     method: "POST",
     body: JSON.stringify({ email, password, name }),
   }),
-  setup2FA: () => request("/2fa/setup", { method: "POST" }),
-  verify2FA: (code) => request("/2fa/verify", {
+  setup2FA: () => request("/admin/2fa/setup", { method: "POST" }),
+  verify2FA: (code) => request("/admin/2fa/verify", {
     method: "POST",
     body: JSON.stringify({ code }),
   }),
 
   // Devices
-  listDevices: () => request("/devices"),
-  getDevice: (id) => request(`/devices/${id}`),
-  getDeviceUsage: (id) => request(`/devices/${id}/usage`),
-  rotateCredentials: (id, service) => request(`/devices/${id}/credentials/rotate`, {
+  listDevices: () => request("/admin/devices"),
+  getDevice: (id) => request(`/admin/devices/${id}`),
+  getDeviceUsage: (id) => request(`/admin/devices/${id}/usage`),
+  rotateCredentials: (id, service) => request(`/admin/devices/${id}/credentials/rotate`, {
     method: "POST",
     body: JSON.stringify({ service }),
   }),
 
   // Cases
-  listCases: () => request("/cases"),
-  getCase: (id) => request(`/cases/${id}`),
-  addCaseMessage: (caseId, text) => request(`/cases/${caseId}/messages`, {
+  listCases: () => request("/admin/cases"),
+  getCase: (id) => request(`/admin/cases/${id}`),
+  addCaseMessage: (caseId, text) => request(`/admin/cases/${caseId}/messages`, {
     method: "POST",
     body: JSON.stringify({ text }),
   }),
-  createConsentRequest: (caseId, body) => request(`/cases/${caseId}/consent-requests`, {
+  createConsentRequest: (caseId, body) => request(`/admin/cases/${caseId}/consent-requests`, {
     method: "POST",
     body: JSON.stringify(body),
   }),
 
   // Plans
-  listPlans: () => request("/plans"),
-  updatePlan: (id, body) => request(`/plans/${id}`, {
+  listPlans: () => request("/admin/plans"),
+  updatePlan: (id, body) => request(`/admin/plans/${id}`, {
     method: "PUT",
     body: JSON.stringify(body),
   }),
 
   // Usage
-  getAggregatedUsage: () => request("/usage"),
+  getAggregatedUsage: () => request("/admin/usage"),
 
   // AI Models
-  listProviders: () => request("/models/providers"),
-  createProvider: (body) => request("/models/providers", {
+  listProviders: () => request("/admin/models/providers"),
+  createProvider: (body) => request("/admin/models/providers", {
     method: "POST",
     body: JSON.stringify(body),
   }),
-  updateProvider: (id, body) => request(`/models/providers/${id}`, {
+  updateProvider: (id, body) => request(`/admin/models/providers/${id}`, {
     method: "PUT",
     body: JSON.stringify(body),
   }),
-  deleteProvider: (id) => request(`/models/providers/${id}`, { method: "DELETE" }),
-  listModels: (role) => request(`/models${role ? `?role=${role}` : ""}`),
-  createModel: (body) => request("/models", {
+  deleteProvider: (id) => request(`/admin/models/providers/${id}`, { method: "DELETE" }),
+  listModels: (role) => request(`/admin/models${role ? `?role=${role}` : ""}`),
+  createModel: (body) => request("/admin/models", {
     method: "POST",
     body: JSON.stringify(body),
   }),
-  updateModel: (id, body) => request(`/models/${id}`, {
+  updateModel: (id, body) => request(`/admin/models/${id}`, {
     method: "PUT",
     body: JSON.stringify(body),
   }),
-  deleteModel: (id) => request(`/models/${id}`, { method: "DELETE" }),
-  getFallbackChain: (role, tier) => request(`/models/fallback/${role}${tier ? `?tier=${tier}` : ""}`),
-  setFallbackChain: (role, body) => request(`/models/fallback/${role}`, {
+  deleteModel: (id) => request(`/admin/models/${id}`, { method: "DELETE" }),
+  getFallbackChain: (role, tier) => request(`/admin/models/fallback/${role}${tier ? `?tier=${tier}` : ""}`),
+  setFallbackChain: (role, body) => request(`/admin/models/fallback/${role}`, {
     method: "POST",
     body: JSON.stringify(body),
   }),
 
   // Relay
-  getFleetStatus: () => request("/relay"),
-  listRegions: () => request("/relay/regions"),
-  createRegion: (body) => request("/relay/regions", {
+  getFleetStatus: () => request("/admin/relay"),
+  listRegions: () => request("/admin/relay/regions"),
+  createRegion: (body) => request("/admin/relay/regions", {
     method: "POST",
     body: JSON.stringify(body),
   }),
-  updateRegionHealth: (id, isHealthy) => request(`/relay/regions/${id}/health`, {
+  updateRegionHealth: (id, isHealthy) => request(`/admin/relay/regions/${id}/health`, {
     method: "PUT",
     body: JSON.stringify({ is_healthy: isHealthy }),
   }),
-  deleteRegion: (id) => request(`/relay/regions/${id}`, { method: "DELETE" }),
+  deleteRegion: (id) => request(`/admin/relay/regions/${id}`, { method: "DELETE" }),
+  // Service Providers (backup, smtp, dns)
+  listServiceProviders: (service) =>
+    request(`/admin/providers${service ? `?service=${service}` : ""}`),
+  createServiceProvider: (body) => request("/admin/providers", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
+  updateServiceProvider: (id, body) => request(`/admin/providers/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  }),
+  deleteServiceProvider: (id) => request(`/admin/providers/${id}`, { method: "DELETE" }),
 };

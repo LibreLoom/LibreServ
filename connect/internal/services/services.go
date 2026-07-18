@@ -20,7 +20,7 @@ type ProvisioningService struct {
 	providers *providers.Service
 	b2        *providers.B2Client
 	resend    *providers.ResendClient
-	dns       *providers.PorkbunClient
+	dns       *providers.CloudflareClient
 }
 
 // NewProvisioningService creates a provisioning service with default upstream clients.
@@ -30,12 +30,12 @@ func NewProvisioningService(db *sql.DB) *ProvisioningService {
 		providers: providers.NewService(db),
 		b2:        providers.NewB2Client(nil),
 		resend:    providers.NewResendClient(nil),
-		dns:       providers.NewPorkbunClient(nil),
+		dns:       providers.NewCloudflareClient(nil),
 	}
 }
 
 // NewProvisioningServiceWithClients creates a provisioning service with injectable clients (used in tests).
-func NewProvisioningServiceWithClients(db *sql.DB, prov *providers.Service, b2 *providers.B2Client, resend *providers.ResendClient, dns *providers.PorkbunClient) *ProvisioningService {
+func NewProvisioningServiceWithClients(db *sql.DB, prov *providers.Service, b2 *providers.B2Client, resend *providers.ResendClient, dns *providers.CloudflareClient) *ProvisioningService {
 	return &ProvisioningService{
 		db:        db,
 		providers: prov,
@@ -70,11 +70,11 @@ func (s *ProvisioningService) Provision(deviceID, serviceType, clientIP string) 
 	credsJSON := mustJSON(creds)
 	_, err = s.db.Exec(
 		`INSERT INTO service_credentials (id, device_id, service_type, credentials_json, provisioned_at, is_active)
-		 VALUES (?, ?, ?, ?, ?, 1)
+		 VALUES ($1, $2, $3, $4, $5, TRUE)
 		 ON CONFLICT(device_id, service_type) DO UPDATE SET
 		   credentials_json = excluded.credentials_json,
 		   provisioned_at = excluded.provisioned_at,
-		   is_active = 1`,
+		   is_active = TRUE`,
 		security.GenerateID("cred"), deviceID, serviceType, credsJSON, time.Now())
 	if err != nil {
 		return nil, err
@@ -86,7 +86,7 @@ func (s *ProvisioningService) Provision(deviceID, serviceType, clientIP string) 
 // Revoke deactivates credentials for a service on a device.
 func (s *ProvisioningService) Revoke(deviceID, serviceType string) error {
 	_, err := s.db.Exec(
-		"UPDATE service_credentials SET is_active = 0, revoked_at = ? WHERE device_id = ? AND service_type = ?",
+		"UPDATE service_credentials SET is_active = FALSE, revoked_at = $1 WHERE device_id = $2 AND service_type = $3",
 		time.Now(), deviceID, serviceType)
 	return err
 }
@@ -94,7 +94,7 @@ func (s *ProvisioningService) Revoke(deviceID, serviceType string) error {
 // ListActive returns all active service credentials for a device.
 func (s *ProvisioningService) ListActive(deviceID string) ([]string, error) {
 	rows, err := s.db.Query(
-		"SELECT service_type FROM service_credentials WHERE device_id = ? AND is_active = 1", deviceID)
+		"SELECT service_type FROM service_credentials WHERE device_id = $1 AND is_active = TRUE", deviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (s *ProvisioningService) generateBackup(sub string) (map[string]any, error)
 
 func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (map[string]any, error) {
 	var planID string
-	if err := s.db.QueryRow("SELECT plan_id FROM devices WHERE id = ?", deviceID).Scan(&planID); err != nil {
+	if err := s.db.QueryRow("SELECT plan_id FROM devices WHERE id = $1", deviceID).Scan(&planID); err != nil {
 		return nil, fmt.Errorf("could not find your device plan: %w", err)
 	}
 
@@ -252,7 +252,7 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 	}
 
 	dnsManaged := false
-	if prov != nil && prov.Credential("api_key", "") != "" && prov.Credential("secret_key", "") != "" {
+	if prov != nil && prov.Credential("api_token", "") != "" {
 		recordName := sub
 		if parent := prov.Setting("zone", ""); parent != "" {
 			zone = parent
@@ -262,8 +262,8 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 			ip = "127.0.0.1"
 		}
 		dnsManaged, _ = s.dns.CreateRecord(
-			prov.Credential("api_key", ""),
-			prov.Credential("secret_key", ""),
+			prov.Credential("api_token", ""),
+			"",
 			zone,
 			recordName,
 			"A",

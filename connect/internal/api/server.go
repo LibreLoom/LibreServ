@@ -2,13 +2,18 @@ package api
 
 import (
 	"database/sql"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/relay"
@@ -22,6 +27,8 @@ type Server struct {
 	models    *models.Service
 	relay     *relay.Service
 	providers *providers.Service
+	adminFS   http.FileSystem
+	custFS    http.FileSystem
 }
 
 // NewServer creates and wires the HTTP server.
@@ -33,6 +40,8 @@ func NewServer(db *sql.DB) *Server {
 		relay:     relay.NewService(db),
 		providers: providers.NewService(db),
 	}
+	s.adminFS = openStaticFS(config.C.Web.AdminDir)
+	s.custFS = openStaticFS(config.C.Web.CustomerDir)
 	s.setupRoutes()
 	return s
 }
@@ -122,9 +131,8 @@ func (s *Server) setupRoutes() {
 	// Billing webhooks (Stripe)
 	r.Post("/webhooks/stripe", handlers.NewBillingHandler(s.billing).StripeWebhook)
 
-	// Admin API routes (separate auth) — under /api/admin to avoid
-	// collision with the admin SPA served at /admin/* by the catch-all.
-	r.Route("/api/admin", func(r chi.Router) {
+	// Admin routes (separate auth)
+	r.Route("/admin", func(r chi.Router) {
 		// Public admin routes (login, seed)
 		authHandler := handlers.NewAdminAuthHandler(s.db)
 		r.Post("/login", authHandler.Login)
@@ -187,14 +195,90 @@ func (s *Server) setupRoutes() {
 			r.Put("/relay/regions/{id}/health", rh.UpdateRegionHealth)
 			r.Delete("/relay/regions/{id}", rh.DeleteRegion)
 		})
+
+		// Admin SPA: serve index.html for any unmatched path under /admin.
+		// API routes above are matched first; only browser navigation reaches here.
+		r.Get("/*", s.serveAdminSPA)
+		r.NotFound(s.serveAdminSPA)
 	})
 
-	// SPA catch-all — must be last. Serves embedded frontend assets with
-	// SPA fallback. Host-based: admin.* gets admin dashboard, everything
-	// else gets customer portal. API routes above always take priority.
-	// Chi doesn't match "/*" as a route — use NotFound to catch unmatched.
-	r.NotFound(s.spaMiddleware())
+	// Customer SPA: serve index.html for any unmatched path.
+	// API routes above are matched first; only browser navigation reaches here.
+	r.Get("/*", s.serveCustomerSPA)
+	r.NotFound(s.serveCustomerSPA)
 
 	s.router = r
 	slog.Info("routes registered")
+}
+
+// openStaticFS opens a directory for static file serving. If the directory
+// does not exist (e.g. dist not built yet), it returns nil and the server
+// skips static serving for that UI.
+func openStaticFS(dir string) http.FileSystem {
+	if dir == "" {
+		return nil
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		slog.Warn("static directory not found, skipping", "dir", dir)
+		return nil
+	}
+	return http.Dir(dir)
+}
+
+// serveAdminSPA serves the admin web UI from adminFS with index.html fallback
+// for client-side routing.
+func (s *Server) serveAdminSPA(w http.ResponseWriter, r *http.Request) {
+	if s.adminFS == nil {
+		http.NotFound(w, r)
+		return
+	}
+	// Strip the /admin prefix so paths resolve relative to the dist root.
+	rel := strings.TrimPrefix(r.URL.Path, "/admin")
+	rel = strings.TrimPrefix(rel, "/")
+	s.serveStatic(w, r, s.adminFS, rel)
+}
+
+// serveCustomerSPA serves the customer web UI from custFS with index.html
+// fallback for client-side routing.
+func (s *Server) serveCustomerSPA(w http.ResponseWriter, r *http.Request) {
+	if s.custFS == nil {
+		http.NotFound(w, r)
+		return
+	}
+	rel := strings.TrimPrefix(r.URL.Path, "/")
+	s.serveStatic(w, r, s.custFS, rel)
+}
+
+// serveStatic serves a file from the given filesystem, falling back to
+// index.html for SPA routes (paths without a file extension).
+func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request, fsys http.FileSystem, rel string) {
+	if rel == "" || rel == "." {
+		rel = "index.html"
+	}
+
+	// SPA fallback: if the path has no file extension and the file doesn't
+	// exist, serve index.html so the client-side router can handle it.
+	if path.Ext(rel) == "" {
+		if _, err := fsys.Open(rel); err != nil {
+			rel = "index.html"
+		}
+	}
+
+	// Security: prevent directory traversal. http.FileServer already guards
+	// against this, but we set the path explicitly for clarity.
+	f, err := fsys.Open(rel)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+
+	stat, err := f.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Serve the file using http.ServeContent for proper caching headers.
+	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f.(io.ReadSeeker))
 }

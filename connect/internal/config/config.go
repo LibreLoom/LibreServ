@@ -32,7 +32,7 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Path string `mapstructure:"path" yaml:"path"`
+	URL string `mapstructure:"url" yaml:"url"`
 }
 
 type AuthConfig struct {
@@ -126,7 +126,7 @@ func Load(path string) error {
 func SetDefaults(v *viper.Viper) {
 	v.SetDefault("server.address", "")
 	v.SetDefault("server.port", 8080)
-	v.SetDefault("database.path", "connect.db")
+	v.SetDefault("database.url", "postgres://localhost:5432/libreserv_connect?sslmode=disable")
 	v.SetDefault("auth.session_ttl_hours", 168)
 	v.SetDefault("web.customer_dir", "web/customer/dist")
 	v.SetDefault("web.admin_dir", "web/admin/dist")

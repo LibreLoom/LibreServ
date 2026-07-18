@@ -13,6 +13,13 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
 )
 
+// Version info injected via ldflags at build time.
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildTime = "unknown"
+)
+
 func main() {
 	healthFlag := flag.Bool("health", false, "run health check against the server and exit")
 	flag.Parse()
@@ -48,7 +55,7 @@ func main() {
 		}
 	}
 
-	db, err := database.Open(config.C.Database.Path)
+	db, err := database.Open(config.C.Database.URL)
 	if err != nil {
 		slog.Error("failed to open database", "error", err)
 		os.Exit(1)
@@ -69,7 +76,7 @@ func main() {
 	}
 	bind := fmt.Sprintf("%s:%d", addr, port)
 
-	slog.Info("connect server starting", "address", bind)
+	slog.Info("connect server starting", "address", bind, "version", version, "commit", gitCommit, "built", buildTime)
 	if err := http.ListenAndServe(bind, srv.Router()); err != nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)

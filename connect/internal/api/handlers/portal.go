@@ -51,7 +51,7 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	accountID := security.GenerateID("acct")
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO customer_accounts (id, email, password_hash, name) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO customer_accounts (id, email, password_hash, name) VALUES ($1, $2, $3, $4)`,
 		accountID, req.Email, hash, req.Name)
 	if err != nil {
 		JSONError(w, http.StatusConflict, "an account with this email already exists")
@@ -85,7 +85,7 @@ func (h *PortalHandler) Login(w http.ResponseWriter, r *http.Request) {
 		IsActive     bool
 	}
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active FROM customer_accounts WHERE email = ?`,
+		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active FROM customer_accounts WHERE email = $1`,
 		req.Email).Scan(&account.ID, &account.PasswordHash, &account.Name, &account.TOTPSecret, &account.TOTPEnabled, &account.IsActive)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusUnauthorized, "invalid email or password")
@@ -151,12 +151,12 @@ func (h *PortalHandler) Setup2FA(w http.ResponseWriter, r *http.Request) {
 
 	var email string
 	_ = h.db.QueryRowContext(r.Context(),
-		"SELECT email FROM customer_accounts WHERE id = ?", accountID).Scan(&email)
+		"SELECT email FROM customer_accounts WHERE id = $1", accountID).Scan(&email)
 
 	uri := auth.TOTPURI(secret, email, "LibreServ Connect")
 
 	_, err = h.db.ExecContext(r.Context(),
-		"UPDATE customer_accounts SET totp_secret = ? WHERE id = ?", secret, accountID)
+		"UPDATE customer_accounts SET totp_secret = $1 WHERE id = $2", secret, accountID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not save secret")
 		return
@@ -182,7 +182,7 @@ func (h *PortalHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 
 	var secret sql.NullString
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT totp_secret FROM customer_accounts WHERE id = ?", accountID).Scan(&secret)
+		"SELECT totp_secret FROM customer_accounts WHERE id = $1", accountID).Scan(&secret)
 	if err != nil || !secret.Valid {
 		JSONError(w, http.StatusBadRequest, "set up 2FA first")
 		return
@@ -194,7 +194,7 @@ func (h *PortalHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = h.db.ExecContext(r.Context(),
-		"UPDATE customer_accounts SET totp_enabled = 1, updated_at = ? WHERE id = ?", time.Now(), accountID)
+		"UPDATE customer_accounts SET totp_enabled = TRUE, updated_at = $1 WHERE id = $2", time.Now(), accountID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not enable 2FA")
 		return
@@ -217,7 +217,7 @@ func (h *PortalHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 
 	var secret sql.NullString
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT totp_secret FROM customer_accounts WHERE id = ?", accountID).Scan(&secret)
+		"SELECT totp_secret FROM customer_accounts WHERE id = $1", accountID).Scan(&secret)
 	if err != nil || !secret.Valid {
 		JSONError(w, http.StatusBadRequest, "2FA not configured")
 		return
@@ -229,7 +229,7 @@ func (h *PortalHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = h.db.ExecContext(r.Context(),
-		"UPDATE customer_accounts SET totp_enabled = 0, totp_secret = NULL, updated_at = ? WHERE id = ?",
+		"UPDATE customer_accounts SET totp_enabled = FALSE, totp_secret = NULL, updated_at = $1 WHERE id = $2",
 		time.Now(), accountID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not disable 2FA")
@@ -265,7 +265,7 @@ func (h *PortalHandler) GenerateLicenseKey(w http.ResponseWriter, r *http.Reques
 	licenseID := security.GenerateID("lic")
 	_, err := h.db.ExecContext(r.Context(),
 		`INSERT INTO license_keys (id, key_hash, key_prefix, account_id, plan_id, status)
-		 VALUES (?, ?, ?, ?, ?, 'unused')`,
+		 VALUES ($1, $2, $3, $4, $5, 'unused')`,
 		licenseID, keyHash, keyPrefix, accountID, req.PlanID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not generate license key")
@@ -290,7 +290,7 @@ func (h *PortalHandler) GetLicenseKeys(w http.ResponseWriter, r *http.Request) {
 		        d.id, d.is_active
 		 FROM license_keys lk
 		 LEFT JOIN devices d ON lk.device_id = d.id
-		 WHERE lk.account_id = ?
+		 WHERE lk.account_id = $1
 		 ORDER BY lk.created_at DESC`, accountID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not retrieve license keys")
@@ -345,7 +345,7 @@ func (h *PortalHandler) RevokeLicenseKey(w http.ResponseWriter, r *http.Request)
 	}
 
 	_, err := h.db.ExecContext(r.Context(),
-		"UPDATE license_keys SET status = 'revoked' WHERE id = ? AND account_id = ? AND status != 'revoked'",
+		"UPDATE license_keys SET status = 'revoked' WHERE id = $1 AND account_id = $2 AND status != 'revoked'",
 		req.KeyID, accountID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not revoke license key")
@@ -360,7 +360,7 @@ func (h *PortalHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT id, plan_id, activated_at, last_seen_at, is_active FROM devices WHERE account_id = ? ORDER BY activated_at DESC`,
+		`SELECT id, plan_id, activated_at, last_seen_at, is_active FROM devices WHERE account_id = $1 ORDER BY activated_at DESC`,
 		accountID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not get devices")
@@ -413,7 +413,7 @@ func (h *PortalHandler) GetUsage(w http.ResponseWriter, r *http.Request) {
 
 	var deviceID string
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id FROM devices WHERE account_id = ? AND is_active = 1 LIMIT 1", accountID).Scan(&deviceID)
+		"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
 	if err == sql.ErrNoRows {
 		JSON(w, http.StatusOK, map[string]any{"message": "no devices linked to this account"})
 		return
@@ -450,7 +450,7 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 
 	var deviceID string
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id FROM devices WHERE account_id = ? AND is_active = 1 LIMIT 1", accountID).Scan(&deviceID)
+		"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
 	if err == sql.ErrNoRows {
 		JSON(w, http.StatusOK, map[string]any{
 			"credit_balance_cents": 0,
@@ -468,7 +468,7 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.QueryContext(r.Context(),
 		`SELECT id, stripe_invoice_id, status, amount_cents, period_start, period_end, created_at, paid_at
-		 FROM invoices WHERE device_id = ? ORDER BY created_at DESC LIMIT 12`, deviceID)
+		 FROM invoices WHERE device_id = $1 ORDER BY created_at DESC LIMIT 12`, deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not retrieve billing")
 		return
@@ -503,7 +503,7 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 
 	txRows, err := h.db.QueryContext(r.Context(),
 		`SELECT amount_cents, direction, reason, created_at FROM credit_transactions
-		 WHERE device_id = ? ORDER BY created_at DESC LIMIT 20`, deviceID)
+		 WHERE device_id = $1 ORDER BY created_at DESC LIMIT 20`, deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not retrieve transactions")
 		return
@@ -554,7 +554,7 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	deviceID := req.DeviceID
 	if deviceID == "" {
 		err := h.db.QueryRowContext(r.Context(),
-			"SELECT id FROM devices WHERE account_id = ? AND is_active = 1 LIMIT 1", accountID).Scan(&deviceID)
+			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
 		if err != nil {
 			JSONError(w, http.StatusBadRequest, "no device linked to your account")
 			return
@@ -563,7 +563,7 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.db.ExecContext(r.Context(),
 		`INSERT INTO subscriptions (id, device_id, plan_id, status, started_at)
-		 VALUES (?, ?, ?, 'active', ?)
+		 VALUES ($1, $2, $3, 'active', $4)
 		 ON CONFLICT(device_id) DO UPDATE SET plan_id = excluded.plan_id, status = 'active', started_at = excluded.started_at`,
 		security.GenerateID("sub"), deviceID, req.PlanID, time.Now())
 	if err != nil {
@@ -572,7 +572,7 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = h.db.ExecContext(r.Context(),
-		"UPDATE devices SET plan_id = ? WHERE id = ?", req.PlanID, deviceID)
+		"UPDATE devices SET plan_id = $1 WHERE id = $2", req.PlanID, deviceID)
 
 	JSON(w, http.StatusOK, map[string]any{
 		"message":   "subscription created",
@@ -587,14 +587,14 @@ func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 
 	var deviceID string
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT id FROM devices WHERE account_id = ? AND is_active = 1 LIMIT 1", accountID).Scan(&deviceID)
+		"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
 	if err != nil {
 		JSONError(w, http.StatusBadRequest, "no device linked to your account")
 		return
 	}
 
 	_, err = h.db.ExecContext(r.Context(),
-		"UPDATE subscriptions SET status = 'cancelled', ends_at = ? WHERE device_id = ? AND status = 'active'",
+		"UPDATE subscriptions SET status = 'cancelled', ends_at = $1 WHERE device_id = $2 AND status = 'active'",
 		time.Now().AddDate(0, 1, 0), deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not cancel subscription")
@@ -602,7 +602,7 @@ func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = h.db.ExecContext(r.Context(),
-		"UPDATE devices SET plan_id = 'free' WHERE id = ?", deviceID)
+		"UPDATE devices SET plan_id = 'free' WHERE id = $1", deviceID)
 
 	JSON(w, http.StatusOK, map[string]string{"message": "subscription cancelled"})
 }
@@ -627,7 +627,7 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 	deviceID := req.DeviceID
 	if deviceID == "" {
 		err := h.db.QueryRowContext(r.Context(),
-			"SELECT id FROM devices WHERE account_id = ? AND is_active = 1 LIMIT 1", accountID).Scan(&deviceID)
+			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
 		if err != nil {
 			JSONError(w, http.StatusBadRequest, "no device linked to your account")
 			return
@@ -635,7 +635,7 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err := h.db.ExecContext(r.Context(),
-		`UPDATE subscriptions SET plan_id = ?, started_at = ? WHERE device_id = ? AND status = 'active'`,
+		`UPDATE subscriptions SET plan_id = $1, started_at = $2 WHERE device_id = $3 AND status = 'active'`,
 		req.PlanID, time.Now(), deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not change plan")
@@ -643,7 +643,7 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = h.db.ExecContext(r.Context(),
-		"UPDATE devices SET plan_id = ? WHERE id = ?", req.PlanID, deviceID)
+		"UPDATE devices SET plan_id = $1 WHERE id = $2", req.PlanID, deviceID)
 
 	JSON(w, http.StatusOK, map[string]any{
 		"message":   "plan changed",
@@ -681,7 +681,7 @@ func (h *PortalHandler) RespondConsent(w http.ResponseWriter, r *http.Request) {
 	err := h.db.QueryRowContext(r.Context(),
 		`SELECT cr.device_id FROM consent_requests cr
 		 JOIN devices d ON cr.device_id = d.id
-		 WHERE cr.id = ? AND d.account_id = ?`, consentID, accountID).Scan(&deviceID)
+		 WHERE cr.id = $1 AND d.account_id = $2`, consentID, accountID).Scan(&deviceID)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusNotFound, "consent request not found")
 		return
@@ -692,7 +692,7 @@ func (h *PortalHandler) RespondConsent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, err = h.db.ExecContext(r.Context(),
-		`UPDATE consent_requests SET status = ?, responded_at = ? WHERE id = ? AND status = 'pending'`,
+		`UPDATE consent_requests SET status = $1, responded_at = $2 WHERE id = $3 AND status = 'pending'`,
 		req.Decision, time.Now(), consentID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not respond to consent request")
@@ -713,7 +713,7 @@ func (h *PortalHandler) GetConsentRequests(w http.ResponseWriter, r *http.Reques
 		`SELECT cr.id, cr.case_id, cr.path, cr.scope_type, cr.status, cr.requested_at, cr.expires_at, cr.notes
 		 FROM consent_requests cr
 		 JOIN devices d ON cr.device_id = d.id
-		 WHERE d.account_id = ? AND cr.status = 'pending'
+		 WHERE d.account_id = $1 AND cr.status = 'pending'
 		 ORDER BY cr.requested_at DESC`, accountID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not retrieve consent requests")

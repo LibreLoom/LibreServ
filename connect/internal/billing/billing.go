@@ -22,7 +22,7 @@ func NewService(db *sql.DB) *Service {
 // EnsureAccountCredits creates a zero-balance credit account for a device if none exists.
 func (s *Service) EnsureAccountCredits(deviceID string) error {
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO account_credits (id, device_id, balance_cents) VALUES (?, ?, 0)`,
+		`INSERT INTO account_credits (id, device_id, balance_cents) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING`,
 		security.GenerateID("cred"), deviceID)
 	return err
 }
@@ -34,7 +34,7 @@ func (s *Service) GetBalance(deviceID string) (int, error) {
 	}
 	var balance int
 	err := s.db.QueryRow(
-		"SELECT balance_cents FROM account_credits WHERE device_id = ?", deviceID).Scan(&balance)
+		"SELECT balance_cents FROM account_credits WHERE device_id = $1", deviceID).Scan(&balance)
 	return balance, err
 }
 
@@ -51,14 +51,14 @@ func (s *Service) AddCredit(deviceID string, amountCents int, reason, referenceI
 	}
 
 	_, err = tx.Exec(
-		`UPDATE account_credits SET balance_cents = balance_cents + ?, updated_at = ? WHERE device_id = ?`,
+		`UPDATE account_credits SET balance_cents = balance_cents + $1, updated_at = $2 WHERE device_id = $3`,
 		amountCents, time.Now(), deviceID)
 	if err != nil {
 		return err
 	}
 
 	_, err = tx.Exec(
-		`INSERT INTO credit_transactions (device_id, amount_cents, direction, reason, reference_id) VALUES (?, ?, 'credit', ?, ?)`,
+		`INSERT INTO credit_transactions (device_id, amount_cents, direction, reason, reference_id) VALUES ($1, $2, 'credit', $3, $4)`,
 		deviceID, amountCents, reason, referenceID)
 	if err != nil {
 		return err
@@ -77,7 +77,7 @@ func (s *Service) DeductCredit(deviceID string, amountCents int, reason, referen
 
 	var balance int
 	err = tx.QueryRow(
-		"SELECT balance_cents FROM account_credits WHERE device_id = ?", deviceID).Scan(&balance)
+		"SELECT balance_cents FROM account_credits WHERE device_id = $1", deviceID).Scan(&balance)
 	if err != nil {
 		return err
 	}
@@ -87,14 +87,14 @@ func (s *Service) DeductCredit(deviceID string, amountCents int, reason, referen
 	}
 
 	_, err = tx.Exec(
-		`UPDATE account_credits SET balance_cents = balance_cents - ?, updated_at = ? WHERE device_id = ?`,
+		`UPDATE account_credits SET balance_cents = balance_cents - $1, updated_at = $2 WHERE device_id = $3`,
 		amountCents, time.Now(), deviceID)
 	if err != nil {
 		return err
 	}
 
 	_, err = tx.Exec(
-		`INSERT INTO credit_transactions (device_id, amount_cents, direction, reason, reference_id) VALUES (?, ?, 'debit', ?, ?)`,
+		`INSERT INTO credit_transactions (device_id, amount_cents, direction, reason, reference_id) VALUES ($1, $2, 'debit', $3, $4)`,
 		deviceID, amountCents, reason, referenceID)
 	if err != nil {
 		return err
@@ -108,7 +108,7 @@ func (s *Service) RecordUsage(deviceID, planID, serviceType, metric string, valu
 	creditsConsumed := costUSD * 100 // 1 USD = 100 credits (1 credit = 1 cent)
 	_, err := s.db.Exec(
 		`INSERT INTO usage_events (device_id, plan_id, service_type, metric, value, cost_usd, credits_consumed, provider_cost)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		deviceID, planID, serviceType, metric, value, costUSD, creditsConsumed, providerCost)
 	return err
 }
@@ -135,7 +135,7 @@ type ServiceUsage struct {
 // GetUsageSummary returns aggregated usage for the current billing cycle.
 func (s *Service) GetUsageSummary(deviceID string) (*UsageSummary, error) {
 	var planID string
-	err := s.db.QueryRow("SELECT plan_id FROM devices WHERE id = ?", deviceID).Scan(&planID)
+	err := s.db.QueryRow("SELECT plan_id FROM devices WHERE id = $1", deviceID).Scan(&planID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (s *Service) GetUsageSummary(deviceID string) (*UsageSummary, error) {
 	rows, err := s.db.Query(
 		`SELECT service_type, SUM(value), SUM(cost_usd), SUM(credits_consumed), SUM(provider_cost)
 		 FROM usage_events
-		 WHERE device_id = ? AND timestamp >= ?
+		 WHERE device_id = $1 AND timestamp >= $2
 		 GROUP BY service_type`,
 		deviceID, cycleStart)
 	if err != nil {
@@ -191,7 +191,7 @@ func (s *Service) GetAggregatedUsage() (map[string]float64, error) {
 	rows, err := s.db.Query(
 		`SELECT service_type, SUM(cost_usd), SUM(provider_cost), SUM(credits_consumed)
 		 FROM usage_events
-		 WHERE timestamp >= ?
+		 WHERE timestamp >= $1
 		 GROUP BY service_type`,
 		cycleStart)
 	if err != nil {
@@ -219,7 +219,7 @@ func (s *Service) GetAggregatedUsage() (map[string]float64, error) {
 func (s *Service) CreateInvoice(deviceID string, amountCents int, periodStart, periodEnd time.Time, stripeInvoiceID string) error {
 	_, err := s.db.Exec(
 		`INSERT INTO invoices (id, device_id, stripe_invoice_id, status, amount_cents, period_start, period_end)
-		 VALUES (?, ?, ?, 'open', ?, ?, ?)`,
+		 VALUES ($1, $2, $3, 'open', $4, $5, $6)`,
 		security.GenerateID("inv"), deviceID, stripeInvoiceID, amountCents, periodStart, periodEnd)
 	return err
 }
@@ -227,7 +227,7 @@ func (s *Service) CreateInvoice(deviceID string, amountCents int, periodStart, p
 // MarkInvoicePaid marks an invoice as paid.
 func (s *Service) MarkInvoicePaid(invoiceID string) error {
 	_, err := s.db.Exec(
-		`UPDATE invoices SET status = 'paid', paid_at = ? WHERE id = ?`,
+		`UPDATE invoices SET status = 'paid', paid_at = $1 WHERE id = $2`,
 		time.Now(), invoiceID)
 	return err
 }
@@ -236,7 +236,7 @@ func (s *Service) MarkInvoicePaid(invoiceID string) error {
 // Returns remaining allowance and whether usage is within limits.
 func (s *Service) CheckQuota(deviceID, serviceType string, requested float64) (remaining float64, allowed bool, err error) {
 	var planID string
-	err = s.db.QueryRow("SELECT plan_id FROM devices WHERE id = ?", deviceID).Scan(&planID)
+	err = s.db.QueryRow("SELECT plan_id FROM devices WHERE id = $1", deviceID).Scan(&planID)
 	if err != nil {
 		return 0, false, err
 	}
@@ -275,7 +275,7 @@ func (s *Service) CheckQuota(deviceID, serviceType string, requested float64) (r
 	}
 
 	err = s.db.QueryRow(
-		`SELECT COALESCE(SUM(value), 0) FROM usage_events WHERE device_id = ? AND service_type = ? AND metric = ? AND timestamp >= ?`,
+		`SELECT COALESCE(SUM(value), 0) FROM usage_events WHERE device_id = $1 AND service_type = $2 AND metric = $3 AND timestamp >= $4`,
 		deviceID, serviceType, metric, cycleStart).Scan(&used)
 	if err != nil {
 		return 0, false, err

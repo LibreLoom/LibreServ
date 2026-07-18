@@ -17,7 +17,7 @@ export default function SkipConfirmStep({ onBack, onSkip }) {
       <p className="text-primary/35 text-xs mb-8">
         You can configure this later in Settings &rarr; Network.
       </p>
-      <div className="flex flex-col gap-3 w-full">
+      <div className="flex flex-col gap-3 w-full px-1">
         <Button
           variant="outline"
           surface="secondary"
@@ -28,7 +28,7 @@ export default function SkipConfirmStep({ onBack, onSkip }) {
           Go back
         </Button>
         <Button
-          variant="accent"
+          variant="danger"
           fullWidth
           onClick={onSkip}
           className="px-6 py-3 font-mono"

@@ -42,7 +42,7 @@ func (h *SupportHandler) CreateCase(w http.ResponseWriter, r *http.Request) {
 
 	_, err := h.db.ExecContext(r.Context(),
 		`INSERT INTO support_cases (id, device_id, summary, session_code, contact, status, scopes_json)
-		 VALUES (?, ?, ?, ?, ?, 'open', ?)`,
+		 VALUES ($1, $2, $3, $4, $5, 'open', $6)`,
 		caseID, deviceID, req.Summary, req.SessionCode, req.Contact, scopesJSON)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not create case")
@@ -61,7 +61,7 @@ func (h *SupportHandler) ListCases(w http.ResponseWriter, r *http.Request) {
 	deviceID := middleware.GetDeviceID(r.Context())
 	rows, err := h.db.QueryContext(r.Context(),
 		`SELECT id, summary, status, session_code, contact, created_at, updated_at
-		 FROM support_cases WHERE device_id = ? ORDER BY created_at DESC`, deviceID)
+		 FROM support_cases WHERE device_id = $1 ORDER BY created_at DESC`, deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not list cases")
 		return

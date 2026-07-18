@@ -141,8 +141,8 @@ export default function UsersPage() {
 
         {!loading && !error && users.length > 0 && (
           <section className="mt-5" aria-label="User list">
-            <Card className="overflow-hidden p-0">
-              <div className="p-4 overflow-x-auto">
+            <Card surface="primary" padding={false} className="overflow-hidden">
+              <div className="overflow-x-auto">
                 <Table
                   columns={[
                     {
@@ -190,17 +190,22 @@ export default function UsersPage() {
                     {
                       key: "actions",
                       label: "Actions",
+                      align: "center",
                       srOnly: true,
-                      width: "w-12",
+                      width: "w-24",
                       render: (row) => (
-                        <span className="inline-flex items-center gap-1">
-                          <Link
-                            to={`/users/${row.id}`}
-                            className="p-1.5 rounded-full hover:bg-primary/10 text-primary/60 hover:text-secondary motion-safe:transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 no-focus-outline"
+                        <span className="flex items-center justify-center gap-1">
+                          <Button
+                            asChild
+                            variant="ghost"
+                            size="iconSm"
+                            surface="secondary"
                             aria-label={`Manage ${row.username}`}
                           >
-                            <Settings size={16} />
-                          </Link>
+                            <Link to={`/users/${row.id}`}>
+                              <Settings size={16} />
+                            </Link>
+                          </Button>
                           <Button
                             variant="ghost"
                             size="iconSm"

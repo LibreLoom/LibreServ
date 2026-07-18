@@ -4,17 +4,19 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // DB holds the application database connection.
 var DB *sql.DB
 
-func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", path+"?_journal=WAL&_fk=1")
+func Open(url string) (*sql.DB, error) {
+	db, err := sql.Open("pgx", url)
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("ping database: %w", err)
 	}
@@ -45,10 +47,21 @@ CREATE TABLE IF NOT EXISTS customer_accounts (
 	password_hash TEXT NOT NULL,
 	name TEXT,
 	totp_secret TEXT,
-	totp_enabled BOOLEAN NOT NULL DEFAULT 0,
-	is_active BOOLEAN NOT NULL DEFAULT 1,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+	is_active BOOLEAN NOT NULL DEFAULT TRUE,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS devices (
+	id TEXT PRIMARY KEY,
+	account_id TEXT REFERENCES customer_accounts(id) ON DELETE SET NULL,
+	license_key_id TEXT,
+	plan_id TEXT NOT NULL DEFAULT 'free',
+	activated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	last_seen_at TIMESTAMP,
+	metadata_json TEXT DEFAULT '{}',
+	is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS license_keys (
@@ -59,20 +72,9 @@ CREATE TABLE IF NOT EXISTS license_keys (
 	plan_id TEXT NOT NULL DEFAULT 'free',
 	device_id TEXT REFERENCES devices(id) ON DELETE SET NULL,
 	status TEXT NOT NULL DEFAULT 'unused' CHECK(status IN ('unused','active','revoked','expired')),
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	activated_at DATETIME,
-	expires_at DATETIME
-);
-
-CREATE TABLE IF NOT EXISTS devices (
-	id TEXT PRIMARY KEY,
-	account_id TEXT REFERENCES customer_accounts(id) ON DELETE SET NULL,
-	license_key_id TEXT REFERENCES license_keys(id) ON DELETE SET NULL,
-	plan_id TEXT NOT NULL DEFAULT 'free',
-	activated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	last_seen_at DATETIME,
-	metadata_json TEXT DEFAULT '{}',
-	is_active BOOLEAN NOT NULL DEFAULT 1
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	activated_at TIMESTAMP,
+	expires_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -88,10 +90,10 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
 	plan_id TEXT NOT NULL REFERENCES plans(id),
 	status TEXT NOT NULL DEFAULT 'active',
-	started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	ends_at DATETIME,
+	started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	ends_at TIMESTAMP,
 	stripe_subscription_id TEXT,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS service_credentials (
@@ -99,24 +101,24 @@ CREATE TABLE IF NOT EXISTS service_credentials (
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
 	service_type TEXT NOT NULL,
 	credentials_json TEXT NOT NULL DEFAULT '{}',
-	provisioned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	revoked_at DATETIME,
-	is_active BOOLEAN NOT NULL DEFAULT 1,
+	provisioned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	revoked_at TIMESTAMP,
+	is_active BOOLEAN NOT NULL DEFAULT TRUE,
 	UNIQUE(device_id, service_type)
 );
 
 CREATE TABLE IF NOT EXISTS usage_events (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	id SERIAL PRIMARY KEY,
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
 	plan_id TEXT NOT NULL DEFAULT 'free',
 	service_type TEXT NOT NULL,
 	metric TEXT NOT NULL,
-	value REAL NOT NULL DEFAULT 0,
-	cost_usd REAL NOT NULL DEFAULT 0,
-	credits_consumed REAL NOT NULL DEFAULT 0,
-	provider_cost REAL NOT NULL DEFAULT 0,
+	value DOUBLE PRECISION NOT NULL DEFAULT 0,
+	cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+	credits_consumed DOUBLE PRECISION NOT NULL DEFAULT 0,
+	provider_cost DOUBLE PRECISION NOT NULL DEFAULT 0,
 	metadata_json TEXT DEFAULT '{}',
-	timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS billing_cycles (
@@ -124,29 +126,29 @@ CREATE TABLE IF NOT EXISTS billing_cycles (
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
 	start_date DATE NOT NULL,
 	end_date DATE NOT NULL,
-	total_cost_usd REAL NOT NULL DEFAULT 0,
-	credit_cap_usd REAL,
+	total_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
+	credit_cap_usd DOUBLE PRECISION,
 	status TEXT NOT NULL DEFAULT 'open',
 	stripe_invoice_id TEXT,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS account_credits (
 	id TEXT PRIMARY KEY,
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
 	balance_cents INTEGER NOT NULL DEFAULT 0,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS credit_transactions (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	id SERIAL PRIMARY KEY,
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
 	amount_cents INTEGER NOT NULL,
 	direction TEXT NOT NULL CHECK(direction IN ('credit','debit')),
 	reason TEXT NOT NULL,
 	reference_id TEXT,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS invoices (
@@ -157,8 +159,8 @@ CREATE TABLE IF NOT EXISTS invoices (
 	amount_cents INTEGER NOT NULL DEFAULT 0,
 	period_start DATE NOT NULL,
 	period_end DATE NOT NULL,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	paid_at DATETIME
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	paid_at TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS ai_providers (
@@ -166,10 +168,10 @@ CREATE TABLE IF NOT EXISTS ai_providers (
 	name TEXT NOT NULL UNIQUE,
 	base_url TEXT NOT NULL,
 	api_key TEXT NOT NULL,
-	enabled BOOLEAN NOT NULL DEFAULT 1,
+	enabled BOOLEAN NOT NULL DEFAULT TRUE,
 	tier TEXT NOT NULL DEFAULT 'paid',
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS ai_models (
@@ -178,19 +180,19 @@ CREATE TABLE IF NOT EXISTS ai_models (
 	model_id TEXT NOT NULL,
 	display_name TEXT NOT NULL,
 	role TEXT NOT NULL DEFAULT 'agent',
-	input_price_per_million REAL NOT NULL DEFAULT 0,
-	output_price_per_million REAL NOT NULL DEFAULT 0,
-	cache_price_per_million REAL NOT NULL DEFAULT 0,
+	input_price_per_million DOUBLE PRECISION NOT NULL DEFAULT 0,
+	output_price_per_million DOUBLE PRECISION NOT NULL DEFAULT 0,
+	cache_price_per_million DOUBLE PRECISION NOT NULL DEFAULT 0,
 	context_window INTEGER NOT NULL DEFAULT 0,
-	enabled BOOLEAN NOT NULL DEFAULT 1,
+	enabled BOOLEAN NOT NULL DEFAULT TRUE,
 	sort_order INTEGER NOT NULL DEFAULT 0,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	UNIQUE(provider_id, model_id)
 );
 
 CREATE TABLE IF NOT EXISTS ai_fallback_chains (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	id SERIAL PRIMARY KEY,
 	role TEXT NOT NULL,
 	tier TEXT NOT NULL DEFAULT 'paid',
 	model_id TEXT NOT NULL REFERENCES ai_models(id) ON DELETE CASCADE,
@@ -205,11 +207,11 @@ CREATE TABLE IF NOT EXISTS relay_regions (
 	region TEXT NOT NULL,
 	host TEXT NOT NULL,
 	capacity_gb INTEGER NOT NULL DEFAULT 0,
-	used_gb REAL NOT NULL DEFAULT 0,
-	is_premium BOOLEAN NOT NULL DEFAULT 1,
-	is_healthy BOOLEAN NOT NULL DEFAULT 1,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	used_gb DOUBLE PRECISION NOT NULL DEFAULT 0,
+	is_premium BOOLEAN NOT NULL DEFAULT TRUE,
+	is_healthy BOOLEAN NOT NULL DEFAULT TRUE,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS support_cases (
@@ -220,16 +222,16 @@ CREATE TABLE IF NOT EXISTS support_cases (
 	contact TEXT,
 	status TEXT NOT NULL DEFAULT 'open',
 	scopes_json TEXT NOT NULL DEFAULT '[]',
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS case_messages (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	id SERIAL PRIMARY KEY,
 	case_id TEXT NOT NULL REFERENCES support_cases(id) ON DELETE CASCADE,
 	author TEXT NOT NULL,
 	text TEXT NOT NULL,
-	timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS consent_requests (
@@ -240,9 +242,9 @@ CREATE TABLE IF NOT EXISTS consent_requests (
 	path TEXT NOT NULL,
 	scope_type TEXT NOT NULL CHECK(scope_type IN ('file','directory','credential')),
 	status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','granted','denied','expired')),
-	requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	responded_at DATETIME,
-	expires_at DATETIME,
+	requested_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	responded_at TIMESTAMP,
+	expires_at TIMESTAMP,
 	notes TEXT
 );
 
@@ -252,10 +254,10 @@ CREATE TABLE IF NOT EXISTS admin_accounts (
 	password_hash TEXT NOT NULL,
 	name TEXT,
 	totp_secret TEXT,
-	totp_enabled BOOLEAN NOT NULL DEFAULT 0,
-	is_active BOOLEAN NOT NULL DEFAULT 1,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+	is_active BOOLEAN NOT NULL DEFAULT TRUE,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS service_providers (
@@ -264,46 +266,51 @@ CREATE TABLE IF NOT EXISTS service_providers (
 	name TEXT NOT NULL,
 	credentials_json TEXT NOT NULL DEFAULT '{}',
 	settings_json TEXT NOT NULL DEFAULT '{}',
-	enabled BOOLEAN NOT NULL DEFAULT 1,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	enabled BOOLEAN NOT NULL DEFAULT TRUE,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	UNIQUE(service, name)
 );
 CREATE INDEX IF NOT EXISTS idx_providers_service ON service_providers(service);
 
 CREATE TABLE IF NOT EXISTS audit_logs (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	id SERIAL PRIMARY KEY,
 	actor TEXT NOT NULL,
 	action TEXT NOT NULL,
 	target_type TEXT NOT NULL,
 	target_id TEXT,
 	details_json TEXT DEFAULT '{}',
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS customer_sessions (
 	id TEXT PRIMARY KEY,
 	account_id TEXT NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
 	token_hash TEXT NOT NULL UNIQUE,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	expires_at DATETIME NOT NULL
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	expires_at TIMESTAMP NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS admin_sessions (
 	id TEXT PRIMARY KEY,
 	admin_id TEXT NOT NULL REFERENCES admin_accounts(id) ON DELETE CASCADE,
 	token_hash TEXT NOT NULL UNIQUE,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	expires_at DATETIME NOT NULL
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	expires_at TIMESTAMP NOT NULL
 );
 
-INSERT OR REPLACE INTO plans (id, name, description, price_monthly_cents, limits_json) VALUES
+INSERT INTO plans (id, name, description, price_monthly_cents, limits_json) VALUES
 ('free', 'Connect Free', 'Get started with basic services. No credit card required.', 0,
  '{"backup_gb":0,"ai_credit_cents":0,"tunnel_gb":0,"smtp_monthly":30,"ai_messages_per_day":50,"domain":"*.free.servers.libreloom.org","human_support":false}'),
 ('lite', 'Connect Lite', 'All services with a generous monthly allowance. Pay only for overage.', 600,
  '{"backup_gb":100,"ai_credit_cents":200,"tunnel_gb":50,"smtp_monthly":250,"domain":"*.servers.libreloom.org","human_support":true}'),
 ('one', 'Connect One', 'Everything included with the largest allowance. Best value for active users.', 2500,
- '{"backup_gb":1024,"ai_credit_cents":500,"tunnel_gb":200,"smtp_monthly":2500,"domain":"*.servers.libreloom.org","human_support":true}');
+ '{"backup_gb":1024,"ai_credit_cents":500,"tunnel_gb":200,"smtp_monthly":2500,"domain":"*.servers.libreloom.org","human_support":true}')
+ON CONFLICT (id) DO UPDATE SET
+	name = EXCLUDED.name,
+	description = EXCLUDED.description,
+	price_monthly_cents = EXCLUDED.price_monthly_cents,
+	limits_json = EXCLUDED.limits_json;
 
 CREATE INDEX IF NOT EXISTS idx_license_keys_hash ON license_keys(key_hash);
 CREATE INDEX IF NOT EXISTS idx_license_keys_account ON license_keys(account_id);

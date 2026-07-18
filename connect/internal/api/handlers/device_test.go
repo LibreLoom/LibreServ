@@ -27,7 +27,7 @@ func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 	keyHash := hashToken(key)
 	licenseID := security.GenerateID("lic")
 	_, err := db.Exec(
-		`INSERT INTO license_keys (id, key_hash, key_prefix, plan_id, status) VALUES (?, ?, ?, ?, 'unused')`,
+		`INSERT INTO license_keys (id, key_hash, key_prefix, plan_id, status) VALUES ($1, $2, $3, $4, 'unused')`,
 		licenseID, keyHash, key[:8], planID)
 	if err != nil {
 		t.Fatalf("create license key: %v", err)
@@ -44,7 +44,7 @@ func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 
 	// Query to get the device ID
 	var deviceID string
-	err = db.QueryRow("SELECT id FROM devices WHERE license_key_id = ?", licenseID).Scan(&deviceID)
+	err = db.QueryRow("SELECT id FROM devices WHERE license_key_id = $1", licenseID).Scan(&deviceID)
 	if err != nil {
 		t.Fatalf("find activated device: %v", err)
 	}
@@ -62,7 +62,7 @@ func activateDeviceWithKey(t *testing.T, db *sql.DB, planID string) (string, str
 	keyHash := hashToken(key)
 	licenseID := security.GenerateID("lic")
 	_, err := db.Exec(
-		`INSERT INTO license_keys (id, key_hash, key_prefix, plan_id, status) VALUES (?, ?, ?, ?, 'unused')`,
+		`INSERT INTO license_keys (id, key_hash, key_prefix, plan_id, status) VALUES ($1, $2, $3, $4, 'unused')`,
 		licenseID, keyHash, key[:8], planID)
 	if err != nil {
 		t.Fatalf("create license key: %v", err)
@@ -77,7 +77,7 @@ func activateDeviceWithKey(t *testing.T, db *sql.DB, planID string) (string, str
 	}
 
 	var deviceID string
-	err = db.QueryRow("SELECT id FROM devices WHERE license_key_id = ?", licenseID).Scan(&deviceID)
+	err = db.QueryRow("SELECT id FROM devices WHERE license_key_id = $1", licenseID).Scan(&deviceID)
 	if err != nil {
 		t.Fatalf("find activated device: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestDeviceActivate(t *testing.T) {
 	deviceID := activateDevice(t, db, "free")
 
 	var planID string
-	err := db.QueryRow("SELECT plan_id FROM devices WHERE id = ?", deviceID).Scan(&planID)
+	err := db.QueryRow("SELECT plan_id FROM devices WHERE id = $1", deviceID).Scan(&planID)
 	if err != nil {
 		t.Fatalf("query device: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestDeviceDeactivate(t *testing.T) {
 	}
 
 	var active bool
-	err := db.QueryRow("SELECT is_active FROM devices WHERE id = ?", deviceID).Scan(&active)
+	err := db.QueryRow("SELECT is_active FROM devices WHERE id = $1", deviceID).Scan(&active)
 	if err != nil {
 		t.Fatalf("query: %v", err)
 	}

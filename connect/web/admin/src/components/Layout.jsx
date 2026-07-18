@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "./ui/button.jsx";
 import { Separator } from "./ui/separator.jsx";
-import { LayoutDashboard, Server, LifeBuoy, Package, Cpu, Globe, Shield, LogOut, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, Server, LifeBuoy, Package, Cpu, Globe, Shield, Cloud, LogOut, Sun, Moon } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -12,7 +12,7 @@ const navItems = [
   { to: "/plans", label: "Plans", icon: Package },
   { to: "/models", label: "AI Models", icon: Cpu },
   { to: "/relay", label: "Relay", icon: Globe },
-  { to: "/security", label: "Security", icon: Shield },
+  { to: "/providers", label: "Providers", icon: Cloud },
 ];
 
 export function Layout({ children }) {

@@ -43,7 +43,7 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	var licenseID, planID, status string
 	var accountID sql.NullString
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, account_id, plan_id, status FROM license_keys WHERE key_hash = ?`,
+		`SELECT id, account_id, plan_id, status FROM license_keys WHERE key_hash = $1`,
 		keyHash).Scan(&licenseID, &accountID, &planID, &status)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusUnauthorized, "invalid license key")
@@ -62,11 +62,11 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		// Already activated — return existing device info
 		var deviceID string
 		_ = h.db.QueryRowContext(r.Context(),
-			"SELECT id FROM devices WHERE license_key_id = ?", licenseID).Scan(&deviceID)
+			"SELECT id FROM devices WHERE license_key_id = $1", licenseID).Scan(&deviceID)
 		if deviceID != "" {
 			// Update last seen
 			_, _ = h.db.ExecContext(r.Context(),
-				"UPDATE devices SET last_seen_at = ?, is_active = 1 WHERE id = ?", time.Now(), deviceID)
+				"UPDATE devices SET last_seen_at = $1, is_active = TRUE WHERE id = $2", time.Now(), deviceID)
 			status := h.buildStatus(r.Context(), deviceID, planID, req.LicenseKey[:8]+"...")
 			JSON(w, http.StatusOK, status)
 			return
@@ -81,7 +81,7 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	}
 	_, err = h.db.ExecContext(r.Context(),
 		`INSERT INTO devices (id, account_id, license_key_id, plan_id, activated_at, last_seen_at, is_active)
-		 VALUES (?, ?, ?, ?, ?, ?, 1)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
 		deviceID, accountVal, licenseID, planID, time.Now(), time.Now())
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not activate device")
@@ -90,13 +90,13 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 
 	// Mark license key as active
 	_, _ = h.db.ExecContext(r.Context(),
-		"UPDATE license_keys SET status = 'active', device_id = ?, activated_at = ? WHERE id = ?",
+		"UPDATE license_keys SET status = 'active', device_id = $1, activated_at = $2 WHERE id = $3",
 		deviceID, time.Now(), licenseID)
 
 	// Create or update subscription
 	_, _ = h.db.ExecContext(r.Context(),
 		`INSERT INTO subscriptions (id, device_id, plan_id, status, started_at)
-		 VALUES (?, ?, ?, 'active', ?)
+		 VALUES ($1, $2, $3, 'active', $4)
 		 ON CONFLICT(device_id) DO UPDATE SET plan_id = excluded.plan_id, status = 'active'`,
 		security.GenerateID("sub"), deviceID, planID, time.Now())
 
@@ -115,13 +115,13 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 func (h *DeviceHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	deviceID := middleware.GetDeviceID(r.Context())
 	_, err := h.db.ExecContext(r.Context(),
-		"UPDATE devices SET is_active = 0 WHERE id = ?", deviceID)
+		"UPDATE devices SET is_active = FALSE WHERE id = $1", deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not deactivate")
 		return
 	}
 	_, _ = h.db.ExecContext(r.Context(),
-		"UPDATE subscriptions SET status = 'cancelled' WHERE device_id = ?", deviceID)
+		"UPDATE subscriptions SET status = 'cancelled' WHERE device_id = $1", deviceID)
 	JSON(w, http.StatusOK, map[string]string{"message": "deactivated"})
 }
 
@@ -129,7 +129,7 @@ func (h *DeviceHandler) Status(w http.ResponseWriter, r *http.Request) {
 	deviceID := middleware.GetDeviceID(r.Context())
 	var planID string
 	err := h.db.QueryRowContext(r.Context(),
-		"SELECT plan_id FROM devices WHERE id = ?", deviceID).Scan(&planID)
+		"SELECT plan_id FROM devices WHERE id = $1", deviceID).Scan(&planID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "device not found")
 		return
@@ -164,7 +164,7 @@ func (h *DeviceHandler) Usage(w http.ResponseWriter, r *http.Request) {
 
 func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHint string) map[string]any {
 	rows, _ := h.db.QueryContext(ctx,
-		"SELECT service_type, is_active FROM service_credentials WHERE device_id = ? AND is_active = 1",
+		"SELECT service_type, is_active FROM service_credentials WHERE device_id = $1 AND is_active = TRUE",
 		deviceID)
 	defer rows.Close()
 

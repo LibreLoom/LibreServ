@@ -38,7 +38,7 @@ func (s *Service) List(service string) ([]Provider, error) {
 	if service != "" {
 		rows, err = s.db.Query(
 			`SELECT id, service, name, credentials_json, settings_json, enabled, created_at, updated_at
-			 FROM service_providers WHERE service = ? ORDER BY name`, service)
+			 FROM service_providers WHERE service = $1 ORDER BY name`, service)
 	} else {
 		rows, err = s.db.Query(
 			`SELECT id, service, name, credentials_json, settings_json, enabled, created_at, updated_at
@@ -64,7 +64,7 @@ func (s *Service) List(service string) ([]Provider, error) {
 func (s *Service) Get(id string) (*Provider, error) {
 	row := s.db.QueryRow(
 		`SELECT id, service, name, credentials_json, settings_json, enabled, created_at, updated_at
-		 FROM service_providers WHERE id = ?`, id)
+		 FROM service_providers WHERE id = $1`, id)
 	p, err := scanProvider(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -79,7 +79,7 @@ func (s *Service) Get(id string) (*Provider, error) {
 func (s *Service) FindEnabled(service string) (*Provider, error) {
 	row := s.db.QueryRow(
 		`SELECT id, service, name, credentials_json, settings_json, enabled, created_at, updated_at
-		 FROM service_providers WHERE service = ? AND enabled = 1 ORDER BY created_at LIMIT 1`, service)
+		 FROM service_providers WHERE service = $1 AND enabled = TRUE ORDER BY created_at LIMIT 1`, service)
 	p, err := scanProvider(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -98,7 +98,7 @@ func (s *Service) Create(service, name string, credentials, settings map[string]
 	settingsJSON := mustJSONStringMap(settings)
 	_, err := s.db.Exec(
 		`INSERT INTO service_providers (id, service, name, credentials_json, settings_json, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		id, service, name, credJSON, settingsJSON, enabled, now, now)
 	if err != nil {
 		return nil, err
@@ -119,15 +119,15 @@ func (s *Service) Update(id, service, name string, credentials, settings map[str
 	settingsJSON := mustJSONStringMap(settings)
 	_, err := s.db.Exec(
 		`UPDATE service_providers
-		 SET service = ?, name = ?, credentials_json = ?, settings_json = ?, enabled = ?, updated_at = ?
-		 WHERE id = ?`,
+		 SET service = $1, name = $2, credentials_json = $3, settings_json = $4, enabled = $5, updated_at = $6
+		 WHERE id = $7`,
 		service, name, credJSON, settingsJSON, enabled, time.Now(), id)
 	return err
 }
 
 // Delete removes a provider.
 func (s *Service) Delete(id string) error {
-	_, err := s.db.Exec("DELETE FROM service_providers WHERE id = ?", id)
+	_, err := s.db.Exec("DELETE FROM service_providers WHERE id = $1", id)
 	return err
 }
 

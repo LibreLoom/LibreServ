@@ -3,7 +3,7 @@ server:
     port: 8080
 
 database:
-    path: /var/home/plainskill/Projects/LibreServ/connect/connect.db
+    url: "postgres://localhost:5432/libreserv_connect?sslmode=disable"
 
 auth:
     device_token_secret: CHANGE_ME

@@ -64,7 +64,7 @@ func (s *Service) CreateRegion(name, provider, region, host string, capacityGB i
 	now := time.Now()
 	_, err := s.db.Exec(
 		`INSERT INTO relay_regions (id, name, provider, region, host, capacity_gb, used_gb, is_premium, is_healthy, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, 1, ?, ?)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, 0, $7, 1, $8, $9)`,
 		id, name, provider, region, host, capacityGB, isPremium, now, now)
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (s *Service) CreateRegion(name, provider, region, host string, capacityGB i
 // UpdateRegionHealth updates the health status of a relay region.
 func (s *Service) UpdateRegionHealth(id string, isHealthy bool) error {
 	_, err := s.db.Exec(
-		`UPDATE relay_regions SET is_healthy = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE relay_regions SET is_healthy = $1, updated_at = $2 WHERE id = $3`,
 		isHealthy, time.Now(), id)
 	return err
 }
@@ -87,14 +87,14 @@ func (s *Service) UpdateRegionHealth(id string, isHealthy bool) error {
 // UpdateRegionUsage records current bandwidth usage for a relay region.
 func (s *Service) UpdateRegionUsage(id string, usedGB float64) error {
 	_, err := s.db.Exec(
-		`UPDATE relay_regions SET used_gb = ?, updated_at = ? WHERE id = ?`,
+		`UPDATE relay_regions SET used_gb = $1, updated_at = $2 WHERE id = $3`,
 		usedGB, time.Now(), id)
 	return err
 }
 
 // DeleteRegion removes a relay region.
 func (s *Service) DeleteRegion(id string) error {
-	_, err := s.db.Exec("DELETE FROM relay_regions WHERE id = ?", id)
+	_, err := s.db.Exec("DELETE FROM relay_regions WHERE id = $1", id)
 	return err
 }
 
@@ -107,7 +107,7 @@ func (s *Service) AssignRelay(planID string) (*Region, error) {
 	var createdAt, updatedAt time.Time
 
 	query := `SELECT id, name, provider, region, host, capacity_gb, used_gb, is_premium, is_healthy, created_at, updated_at
-		  FROM relay_regions WHERE is_healthy = 1 AND is_premium = ? AND used_gb < capacity_gb
+		  FROM relay_regions WHERE is_healthy = 1 AND is_premium = $1 AND used_gb < capacity_gb
 		  ORDER BY (used_gb / capacity_gb) ASC LIMIT 1`
 	err := s.db.QueryRow(query, wantPremium).Scan(
 		&r.ID, &r.Name, &r.Provider, &r.Region, &r.Host,

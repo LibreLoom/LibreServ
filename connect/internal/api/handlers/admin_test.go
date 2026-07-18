@@ -114,7 +114,7 @@ func TestAdminListCases(t *testing.T) {
 
 	deviceID := activateDevice(t, db, "free")
 	// Create case directly in DB
-	_, err := db.Exec("INSERT INTO support_cases (id, device_id, summary, status, scopes_json) VALUES (?, ?, ?, 'open', '[]')",
+	_, err := db.Exec("INSERT INTO support_cases (id, device_id, summary, status, scopes_json) VALUES ($1, $2, $3, 'open', '[]')",
 		"case_admin_1", deviceID, "Admin view test")
 	if err != nil {
 		t.Fatalf("insert case: %v", err)
@@ -145,7 +145,7 @@ func TestAdminCreateConsentRequest(t *testing.T) {
 
 	deviceID := activateDevice(t, db, "free")
 	// Create a case directly
-	_, err := db.Exec("INSERT INTO support_cases (id, device_id, summary, status, scopes_json) VALUES (?, ?, ?, 'open', '[]')",
+	_, err := db.Exec("INSERT INTO support_cases (id, device_id, summary, status, scopes_json) VALUES ($1, $2, $3, 'open', '[]')",
 		"case_consent_1", deviceID, "Please help")
 	if err != nil {
 		t.Fatalf("insert case: %v", err)
