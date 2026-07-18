@@ -1,21 +1,55 @@
-import { cn } from "@/lib/utils";
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import Card from "../components/cards/Card";
-import CardButton from "../components/ui/CardButton";
+import MetricCard from "../components/cards/MetricCard";
 import Button from "../components/ui/Button";
+import Pill from "../components/common/Pill";
+import ValueDisplay from "../components/common/ValueDisplay";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import ModalCard from "../components/cards/ModalCard";
 import ObjectNotFound from "./ObjectNotFound";
 import StateOverlay from "../components/cards/StateOverlay";
 import Page from "../components/ui/Page";
 import api from "../lib/api";
-import { User, Mail, Shield, Calendar, Clock } from "lucide-react";
+import { User, Shield, KeyRound, Pencil, Trash2 } from "lucide-react";
 import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
 import RoleChangeForm from "../components/common/forms/RoleChangeForm";
 import ResetPasswordForm from "../components/common/forms/ResetPasswordForm";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
+
+// Whole days between a timestamp and now. null when the timestamp is missing.
+// ponytail: tiny local helper — only this page needs relative-day math right now;
+// promote to time-utils if a second caller appears.
+function daysSince(dateString) {
+  if (!dateString) return null;
+  return Math.floor((Date.now() - new Date(dateString).getTime()) / 86400000);
+}
+
+// Complete class strings — Tailwind's JIT only emits classes it can see as
+// literals, so dynamic `text-${variant}` would silently produce no color.
+const TIER_TEXT = {
+  success: "text-success",
+  warning: "text-warning",
+  error: "text-error",
+  muted: "text-accent",
+};
+
+// At-a-glance login health, derived purely from last_login. Maps to the same
+// token-based status colors the rest of the app uses (success/warning/error/muted).
+function activityTier(daysSinceLogin) {
+  if (daysSinceLogin === null) return { label: "Never", variant: "muted" };
+  if (daysSinceLogin <= 7) return { label: "Active", variant: "success" };
+  if (daysSinceLogin <= 30) return { label: "Recent", variant: "warning" };
+  return { label: "Dormant", variant: "error" };
+}
+
+// "X days ago" / "Today" / "Never" — humanised relative time for stat tiles.
+function relativeLabel(days) {
+  if (days === null) return "Never";
+  if (days < 1) return "Today";
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 export default function UserDetailPage() {
   const { userId } = useParams();
@@ -103,26 +137,8 @@ export default function UserDetailPage() {
     if (!dateString) return "Unknown";
     return formatDateLong(dateString);
   };
-  const showName = Boolean(user?.username || user?.email);
-  const nameValue = user?.username || user?.email || "";
-  const userTitle = (
-    <span className="inline-flex flex-wrap items-center justify-center gap-2">
-      <span>User:</span>
-      <span
-        className={cn(
-          "transition-all duration-300 ease-out",
-          showName ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1",
-          "motion-reduce:transition-none",
-        )}
-        aria-hidden={!showName}
-      >
-        {showName ? nameValue : ""}
-      </span>
-    </span>
-  );
 
   if (!loading && (notFound || (!error && !user))) {
-    // If the API returns nothing or 404 for an existing route, show a 404 panel.
     return (
       <ObjectNotFound
         objectLabel="user"
@@ -134,20 +150,37 @@ export default function UserDetailPage() {
     );
   }
 
+  // Derived stats — all computable from the fields the API already returns
+  // (created_at / updated_at / last_login). No new backend work needed.
+  const ageDays = user ? daysSince(user.created_at) : null;
+  const loginDays = user?.last_login ? daysSince(user.last_login) : null;
+  const modDays = user ? daysSince(user.updated_at) : null;
+  const tier = activityTier(loginDays);
+
   return (
-    <Page data-slot="user-detail"
-      title={userTitle}
+    <Page
+      data-slot="user-detail"
+      title={user?.username || user?.email || "User"}
       titleId="user-detail-title"
       leftContent={
         <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary text-secondary">
           <User size={22} className="text-secondary" aria-hidden />
         </span>
       }
-      headerClassName="mb-10"
+      rightContent={
+        user && (
+          <span className="flex items-center gap-2">
+            <Pill variant={user.role === "admin" ? "accent" : "default"}>
+              <Shield size={12} className="mr-1" aria-hidden="true" />
+              {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
+            </Pill>
+            <Pill variant={tier.variant}>{tier.label}</Pill>
+          </span>
+        )
+      }
+      headerClassName="mb-6"
     >
-      {loading && showLoading && (
-        <StateOverlay message="Loading user..." />
-      )}
+      {loading && showLoading && <StateOverlay message="Loading user..." />}
 
       {error && (
         <StateOverlay kind="error">
@@ -155,107 +188,68 @@ export default function UserDetailPage() {
         </StateOverlay>
       )}
 
-      {/* User Details */}
       {!loading && !error && user && (
         <>
-          <section
-            className="grid grid-cols-1 md:grid-cols-2 gap-6"
-            aria-label="User details"
-          >
-            {/* Summary cards show key profile data at a glance. */}
-            <Card className="motion-safe:transition hover:scale-[1.02]">
-              <div className="flex items-center gap-3 mb-3">
-                <Mail size={20} className="text-accent" aria-hidden="true" />
-                <h2 className="text-xl font-mono font-normal">Email</h2>
-              </div>
-              <p className="text-lg ml-8">{user.email}</p>
-            </Card>
-
-            <Card className="motion-safe:transition hover:scale-[1.02]">
-              <div className="flex items-center gap-3 mb-3">
-                <Shield size={20} className="text-accent" aria-hidden="true" />
-                <h2 className="text-xl font-mono font-normal">Role</h2>
-              </div>
-              <p className="text-lg ml-8">
-                {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
-              </p>
-            </Card>
-
-            <Card className="motion-safe:transition hover:scale-[1.02]">
-              <div className="flex items-center gap-3 mb-3">
-                <Calendar
-                  size={20}
-                  className="text-accent"
-                  aria-hidden="true"
-                />
-                <h2 className="text-xl font-mono font-normal">
-                  Account Created
-                </h2>
-              </div>
-              <p className="text-lg ml-8">{formatDate(user.created_at)}</p>
-            </Card>
-
-            <Card className="motion-safe:transition hover:scale-[1.02]">
-              <div className="flex items-center gap-3 mb-3">
-                <Calendar
-                  size={20}
-                  className="text-accent"
-                  aria-hidden="true"
-                />
-                <h2 className="text-xl font-mono font-normal">Last Updated</h2>
-              </div>
-              <p className="text-lg ml-8">{formatDate(user.updated_at)}</p>
-            </Card>
-
-            <Card className="motion-safe:transition hover:scale-[1.02]">
-              <div className="flex items-center gap-3 mb-3">
-                <Clock size={20} className="text-accent" aria-hidden="true" />
-                <h2 className="text-xl font-mono font-normal">Last Login</h2>
-              </div>
-              <p className="text-lg ml-8">{formatDate(user.last_login) || "Never"}</p>
-            </Card>
-            {/* Ideas for more cards? */}
+          {/* At-a-glance derived stats — relative time since each key event. */}
+          <section className="grid grid-cols-1 sm:grid-cols-3 gap-4" aria-label="User stats">
+            <MetricCard label="Account Age" value={relativeLabel(ageDays)} />
+            <MetricCard
+              label="Since Login"
+              value={relativeLabel(loginDays)}
+              valueClassName={TIER_TEXT[tier.variant]}
+            />
+            <MetricCard label="Last Modified" value={relativeLabel(modDays)} />
           </section>
-          <section className="mt-6">
-            <Card surface="primary">
-              <h2 className="text-2xl font-mono font-normal mb-6">
-                User Tools
-              </h2>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-                <Button
-                  variant="primary"
-                  fullWidth
-                  onClick={() => setShowEditModal(true)}
-                  className="h-full"
-                >
-                  <span className="text-sm font-medium">Change Email</span>
+          {/* Profile details — dense label/value rows in a single card. */}
+          <section className="mt-4" aria-label="Profile details">
+            <Card padding={false}>
+              <div className="px-5 pt-4 pb-2 flex items-center gap-2">
+                <User size={18} className="text-accent" aria-hidden="true" />
+                <h2 className="text-lg font-mono font-normal">Profile</h2>
+              </div>
+              <div className="px-5 pb-5 flex flex-col gap-2">
+                <ValueDisplay label="Email" value={user.email} mono={false} />
+                <ValueDisplay label="Account Created" value={formatDate(user.created_at)} />
+                <ValueDisplay label="Last Updated" value={formatDate(user.updated_at)} />
+                <ValueDisplay
+                  label="Last Login"
+                  value={user.last_login ? formatDate(user.last_login) : "Never"}
+                />
+                <ValueDisplay label="User ID" value={user.id} />
+              </div>
+            </Card>
+          </section>
+
+          {/* Actions — compact pill button row instead of full-width grid. */}
+          <section className="mt-4" aria-label="User actions">
+            <Card surface="primary">
+              <div className="flex items-center gap-2 mb-3">
+                <Shield size={18} className="text-accent" aria-hidden="true" />
+                <h2 className="text-lg font-mono font-normal">Actions</h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" surface="primary" onClick={() => setShowEditModal(true)}>
+                  <Pencil size={14} aria-hidden="true" />
+                  Change Email
                 </Button>
-                <Button
-                  variant="primary"
-                  fullWidth
-                  onClick={() => setShowRoleModal(true)}
-                  className="h-full"
-                >
-                  <span className="text-sm font-medium">Change Role</span>
+                <Button variant="outline" surface="primary" onClick={() => setShowRoleModal(true)}>
+                  <Shield size={14} aria-hidden="true" />
+                  Change Role
                 </Button>
                 {smtpConfigured && (
                   <Button
                     variant="accent"
-                    fullWidth
+                    surface="primary"
                     onClick={() => setShowResetPasswordModal(true)}
-                    className="h-full"
                   >
-                    <span className="text-sm font-medium">Reset Password</span>
+                    <KeyRound size={14} aria-hidden="true" />
+                    Reset Password
                   </Button>
                 )}
-                <Button
-                  variant="danger"
-                  fullWidth
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="h-full"
-                >
-                  <span className="text-sm font-medium">Delete User</span>
+                <Button variant="danger" surface="primary" onClick={() => setShowDeleteConfirm(true)}>
+                  <Trash2 size={14} aria-hidden="true" />
+                  Delete User
                 </Button>
               </div>
             </Card>
@@ -277,11 +271,7 @@ export default function UserDetailPage() {
       {showEditModal && user && (
         <ModalCard title="Change Email" onClose={() => setShowEditModal(false)}>
           {({ close }) => (
-          <ChangeEmailForm
-            user={user}
-            onSuccess={handleEditSuccess}
-            onCancel={close}
-          />
+            <ChangeEmailForm user={user} onSuccess={handleEditSuccess} onCancel={close} />
           )}
         </ModalCard>
       )}
@@ -289,26 +279,19 @@ export default function UserDetailPage() {
       {showRoleModal && user && (
         <ModalCard title="Change Role" onClose={() => setShowRoleModal(false)}>
           {({ close }) => (
-          <RoleChangeForm
-            user={user}
-            onSuccess={handleRoleChangeSuccess}
-            onCancel={close}
-          />
+            <RoleChangeForm user={user} onSuccess={handleRoleChangeSuccess} onCancel={close} />
           )}
         </ModalCard>
       )}
 
       {showResetPasswordModal && user && (
-        <ModalCard
-          title="Reset Password"
-          onClose={() => setShowResetPasswordModal(false)}
-        >
+        <ModalCard title="Reset Password" onClose={() => setShowResetPasswordModal(false)}>
           {({ close }) => (
-          <ResetPasswordForm
-            user={user}
-            onSuccess={handleResetPasswordSuccess}
-            onCancel={close}
-          />
+            <ResetPasswordForm
+              user={user}
+              onSuccess={handleResetPasswordSuccess}
+              onCancel={close}
+            />
           )}
         </ModalCard>
       )}
