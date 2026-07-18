@@ -25,15 +25,17 @@ type ConnectHandler struct {
 	settingsService *settings.Service
 	caddyManager    *network.CaddyManager
 	backupService   *storage.BackupService
+	tunnelService   *network.TunnelService
 }
 
-func NewConnectHandler(client connect.Client, checker *connect.EntitlementChecker, settingsService *settings.Service, caddyManager *network.CaddyManager, backupService *storage.BackupService) *ConnectHandler {
+func NewConnectHandler(client connect.Client, checker *connect.EntitlementChecker, settingsService *settings.Service, caddyManager *network.CaddyManager, backupService *storage.BackupService, tunnelService *network.TunnelService) *ConnectHandler {
 	return &ConnectHandler{
 		client:          client,
 		checker:         checker,
 		settingsService: settingsService,
 		caddyManager:    caddyManager,
 		backupService:   backupService,
+		tunnelService:   tunnelService,
 	}
 }
 
@@ -285,9 +287,26 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 		if err := h.backupService.CreateRepository(ctx, repo); err != nil {
 			return fmt.Errorf("Could not save the backup repository.")
 		}
+	case connect.ServiceTunnel:
+		if creds.Tunnel == nil {
+			return fmt.Errorf("Connect did not send any tunnel credentials.")
+		}
+		if creds.Tunnel.TunnelToken == "" {
+			return fmt.Errorf("Connect did not send a tunnel token.")
+		}
+		if h.tunnelService == nil {
+			return fmt.Errorf("Tunnel service is not available on this server.")
+		}
+		// Enable the tunnel with the Connect-provisioned token and start cloudflared.
+		if err := h.tunnelService.Enable(network.TunnelProviderCloudflare, creds.Tunnel.TunnelToken); err != nil {
+			return fmt.Errorf("Could not configure the tunnel service.")
+		}
+		if err := h.tunnelService.Start(context.Background()); err != nil {
+			return fmt.Errorf("The tunnel was configured but could not be started. Check your network connection and try again from Settings.")
+		}
 		return nil
 
-	case connect.ServiceTunnel, connect.ServiceAI:
+	case connect.ServiceAI:
 		// Tunnel and AI credentials are applied by their respective services.
 		return nil
 	}

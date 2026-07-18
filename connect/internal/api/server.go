@@ -16,7 +16,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/relay"
 )
 
 // Server holds all HTTP dependencies and routes.
@@ -25,7 +24,6 @@ type Server struct {
 	router    *chi.Mux
 	billing   *billing.Service
 	models    *models.Service
-	relay     *relay.Service
 	providers *providers.Service
 	adminFS   http.FileSystem
 	custFS    http.FileSystem
@@ -37,7 +35,6 @@ func NewServer(db *sql.DB) *Server {
 		db:        db,
 		billing:   billing.NewService(db),
 		models:    models.NewService(db),
-		relay:     relay.NewService(db),
 		providers: providers.NewService(db),
 	}
 	s.adminFS = openStaticFS(config.C.Web.AdminDir)
@@ -122,14 +119,20 @@ func (s *Server) setupRoutes() {
 			r.Post("/checkout", portal.CreateCheckoutSession)
 			r.Post("/billing-portal", portal.BillingPortal)
 
+			// Domains
+			r.Post("/domains/search", portal.SearchDomains)
+			r.Post("/domains/check", portal.CheckDomain)
+			r.Post("/domains/register", portal.RegisterDomain)
+			r.Get("/domains", portal.ListDomains)
+
 			// Consent
 			r.Get("/consent", portal.GetConsentRequests)
 			r.Post("/consent/respond", portal.RespondConsent)
 		})
 	})
 
-	// Billing webhooks (Stripe)
-	r.Post("/webhooks/stripe", handlers.NewBillingHandler(s.billing).StripeWebhook)
+	// Billing webhooks (Polar)
+	r.Post("/webhooks/polar", handlers.NewBillingHandler(s.billing).PolarWebhook)
 
 	// Admin routes (separate auth)
 	r.Route("/admin", func(r chi.Router) {
@@ -167,6 +170,9 @@ func (s *Server) setupRoutes() {
 			// Usage (aggregated)
 			r.Get("/usage", admin.GetAggregatedUsage)
 
+			// Tunnels
+			r.Get("/tunnels", admin.ListTunnels)
+
 			// Service provider config
 			ph := handlers.NewProvidersHandler(s.providers)
 			r.Get("/providers", ph.ListProviders)
@@ -185,15 +191,6 @@ func (s *Server) setupRoutes() {
 			r.Put("/models/{id}", mh.UpdateModel)
 			r.Delete("/models/{id}", mh.DeleteModel)
 			r.Get("/models/fallback/{role}", mh.GetFallbackChain)
-			r.Post("/models/fallback/{role}", mh.SetFallbackChain)
-
-			// Relay fleet
-			rh := handlers.NewRelayHandler(s.relay)
-			r.Get("/relay", rh.GetFleetStatus)
-			r.Get("/relay/regions", rh.ListRegions)
-			r.Post("/relay/regions", rh.CreateRegion)
-			r.Put("/relay/regions/{id}/health", rh.UpdateRegionHealth)
-			r.Delete("/relay/regions/{id}", rh.DeleteRegion)
 		})
 
 		// Admin SPA: serve index.html for any unmatched path under /admin.

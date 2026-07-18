@@ -1,10 +1,9 @@
 package handlers
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
-	"io"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -14,17 +13,20 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers/polar"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
 // PortalHandler handles customer-facing self-service API.
 type PortalHandler struct {
-	db      *sql.DB
-	billing *billing.Service
+	db        *sql.DB
+	billing   *billing.Service
+	registrar *providers.RegistrarClient
 }
 
 func NewPortalHandler(db *sql.DB) *PortalHandler {
-	return &PortalHandler{db: db, billing: billing.NewService(db)}
+	return &PortalHandler{db: db, billing: billing.NewService(db), registrar: providers.NewRegistrarClient(nil)}
 }
 
 // Register creates a new customer account.
@@ -467,7 +469,7 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 	balance, _ := h.billing.GetBalance(deviceID)
 
 	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT id, stripe_invoice_id, status, amount_cents, period_start, period_end, created_at, paid_at
+		`SELECT id, polar_invoice_id, status, amount_cents, period_start, period_end, created_at, paid_at
 		 FROM invoices WHERE device_id = $1 ORDER BY created_at DESC LIMIT 12`, deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not retrieve billing")
@@ -478,26 +480,26 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 	invoices := []map[string]any{}
 	for rows.Next() {
 		var inv struct {
-			ID              string
-			StripeInvoiceID sql.NullString
-			Status          string
-			AmountCents     int
-			PeriodStart     time.Time
-			PeriodEnd       time.Time
-			CreatedAt       time.Time
-			PaidAt          sql.NullTime
+			ID             string
+			PolarInvoiceID sql.NullString
+			Status         string
+			AmountCents    int
+			PeriodStart    time.Time
+			PeriodEnd      time.Time
+			CreatedAt      time.Time
+			PaidAt         sql.NullTime
 		}
-		_ = rows.Scan(&inv.ID, &inv.StripeInvoiceID, &inv.Status, &inv.AmountCents,
+		_ = rows.Scan(&inv.ID, &inv.PolarInvoiceID, &inv.Status, &inv.AmountCents,
 			&inv.PeriodStart, &inv.PeriodEnd, &inv.CreatedAt, &inv.PaidAt)
 		invoices = append(invoices, map[string]any{
-			"id":                inv.ID,
-			"stripe_invoice_id": nullString(inv.StripeInvoiceID),
-			"status":            inv.Status,
-			"amount_cents":      inv.AmountCents,
-			"period_start":      inv.PeriodStart.Format(time.RFC3339),
-			"period_end":        inv.PeriodEnd.Format(time.RFC3339),
-			"created_at":        inv.CreatedAt.Format(time.RFC3339),
-			"paid_at":           nullTime(inv.PaidAt),
+			"id":               inv.ID,
+			"polar_invoice_id": nullString(inv.PolarInvoiceID),
+			"status":           inv.Status,
+			"amount_cents":     inv.AmountCents,
+			"period_start":     inv.PeriodStart.Format(time.RFC3339),
+			"period_end":       inv.PeriodEnd.Format(time.RFC3339),
+			"created_at":       inv.CreatedAt.Format(time.RFC3339),
+			"paid_at":          nullTime(inv.PaidAt),
 		})
 	}
 
@@ -582,6 +584,8 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 }
 
 // Cancel cancels the device's subscription.
+// If Polar is enabled, revokes the subscription on Polar's side (immediate cancel).
+// The webhook will confirm the revocation, but we update our DB immediately for UX.
 func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
@@ -593,9 +597,24 @@ func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If Polar is enabled, revoke the subscription on Polar's side
+	if config.C.Polar.Enabled {
+		var polarSubID string
+		_ = h.db.QueryRowContext(r.Context(),
+			"SELECT polar_subscription_id FROM subscriptions WHERE device_id = $1 AND status = 'active'",
+			deviceID).Scan(&polarSubID)
+		if polarSubID != "" {
+			client := polar.NewClient(config.C.Polar.AccessToken, config.C.Polar.Sandbox)
+			if err := client.RevokeSubscription(r.Context(), polarSubID); err != nil {
+				JSONError(w, http.StatusInternalServerError, "could not cancel subscription with Polar")
+				return
+			}
+		}
+	}
+
 	_, err = h.db.ExecContext(r.Context(),
 		"UPDATE subscriptions SET status = 'cancelled', ends_at = $1 WHERE device_id = $2 AND status = 'active'",
-		time.Now().AddDate(0, 1, 0), deviceID)
+		time.Now(), deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not cancel subscription")
 		return
@@ -608,6 +627,8 @@ func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 }
 
 // ChangePlan changes the device's subscription plan.
+// If Polar is enabled, updates the product on Polar's side.
+// For upgrades from free to paid, creates a new checkout session instead.
 func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 	var req struct {
@@ -630,6 +651,29 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
 		if err != nil {
 			JSONError(w, http.StatusBadRequest, "no device linked to your account")
+			return
+		}
+	}
+
+	// If the target plan is paid and Polar is enabled, we need a checkout session
+	// (either for a new subscription or an upgrade from free)
+	if catalog.IsPaidPlan(req.PlanID) && config.C.Polar.Enabled {
+		var polarSubID string
+		_ = h.db.QueryRowContext(r.Context(),
+			"SELECT polar_subscription_id FROM subscriptions WHERE device_id = $1 AND status = 'active'",
+			deviceID).Scan(&polarSubID)
+
+		if polarSubID != "" {
+			// Existing paid subscription — update the product on Polar
+			productID := planToProduct(req.PlanID)
+			client := polar.NewClient(config.C.Polar.AccessToken, config.C.Polar.Sandbox)
+			if err := client.UpdateSubscriptionProduct(r.Context(), polarSubID, productID); err != nil {
+				JSONError(w, http.StatusInternalServerError, "could not change plan with Polar")
+				return
+			}
+		} else {
+			// No existing Polar subscription — redirect to checkout
+			h.CreateCheckoutSession(w, r)
 			return
 		}
 	}
@@ -749,17 +793,17 @@ func (h *PortalHandler) GetConsentRequests(w http.ResponseWriter, r *http.Reques
 	JSON(w, http.StatusOK, map[string]any{"consent_requests": requests})
 }
 
-// CreateCheckoutSession creates a Stripe Checkout session for subscribing to a plan.
+// CreateCheckoutSession creates a Polar checkout session for subscribing to a plan.
+// The user is redirected to Polar's hosted checkout page. After payment, Polar
+// sends a webhook to our /webhooks/polar endpoint, which records the subscription.
 func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
-	bodyBytes, _ := io.ReadAll(r.Body)
-	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	var req struct {
 		PlanID   string `json:"plan_id"`
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.Unmarshal(bodyBytes, &req); err != nil || req.PlanID == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PlanID == "" {
 		JSONError(w, http.StatusBadRequest, "plan_id required")
 		return
 	}
@@ -776,68 +820,262 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if !config.C.Stripe.Enabled {
-		// Stripe not configured — subscribe directly (dev mode)
+	if !config.C.Polar.Enabled {
+		// Polar not configured — subscribe directly (dev mode)
 		h.Subscribe(w, r)
 		return
 	}
 
-	// Get Stripe price ID for the plan
-	var priceID string
-	switch req.PlanID {
-	case "lite":
-		priceID = config.C.Stripe.PriceLite
-	case "one":
-		priceID = config.C.Stripe.PriceOne
-	}
-	if priceID == "" {
-		JSONError(w, http.StatusInternalServerError, "stripe price not configured for this plan")
+	// Get Polar product ID for the plan
+	productID := planToProduct(req.PlanID)
+	if productID == "" {
+		JSONError(w, http.StatusInternalServerError, "polar product not configured for this plan")
 		return
 	}
 
-	// In production, create a real Stripe Checkout Session here:
-	// session, err := stripeClient.CheckoutSessions.New(&stripe.CheckoutSessionParams{
-	//     PaymentMethodTypes: []*string{stripe.String("card")},
-	//     LineItems: []*stripe.CheckoutSessionLineItemParams{{
-	//         Price:    stripe.String(priceID),
-	//         Quantity: stripe.Int64(1),
-	//     }},
-	//     Mode:       stripe.String("subscription"),
-	//     SuccessURL: stripe.String(config.C.Server.BaseURL + "/portal/billing?status=success"),
-	//     CancelURL:  stripe.String(config.C.Server.BaseURL + "/portal/plans?status=cancelled"),
-	//     ClientReferenceID: stripe.String(accountID),
-	// })
+	// Determine the device ID to link this checkout to
+	deviceID := req.DeviceID
+	if deviceID == "" {
+		err := h.db.QueryRowContext(r.Context(),
+			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
+		if err != nil {
+			JSONError(w, http.StatusBadRequest, "no device linked to your account")
+			return
+		}
+	}
 
-	// For now, return a placeholder checkout URL
+	// Forward the customer's IP for tax calculation
+	customerIP := r.RemoteAddr
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		customerIP = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+	}
+
+	successURL := config.C.Server.BaseURL + "/billing?status=success"
+
+	client := polar.NewClient(config.C.Polar.AccessToken, config.C.Polar.Sandbox)
+	session, err := client.CreateCheckout(r.Context(), productID, deviceID, successURL, customerIP)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not create checkout session")
+		return
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
-		"checkout_url": "#checkout-" + req.PlanID,
+		"checkout_url": session.URL,
+		"session_id":   session.ID,
 		"plan_id":      req.PlanID,
-		"price_id":     priceID,
-		"account_id":   accountID,
 	})
 }
 
-// BillingPortal redirects to Stripe's billing portal for subscription management.
+// BillingPortal returns the URL for managing a subscription.
+// Polar doesn't have a separate billing portal — customers manage their
+// subscription from our Billing page. We return the Polar customer portal
+// URL if available, otherwise our own billing page.
 func (h *PortalHandler) BillingPortal(w http.ResponseWriter, r *http.Request) {
-	accountID := middleware.GetCustomerDeviceID(r.Context())
-
-	if !config.C.Stripe.Enabled {
-		// Dev mode — redirect to our own billing page
+	if !config.C.Polar.Enabled {
 		JSON(w, http.StatusOK, map[string]any{
 			"portal_url": "/billing",
-			"message":    "Stripe not enabled. Manage your subscription from the Billing page.",
+			"message":    "Manage your subscription from the Billing page.",
 		})
 		return
 	}
 
-	// In production, create a Stripe Billing Portal session:
-	// session, err := stripeClient.BillingPortalSessions.New(&stripe.BillingPortalSessionParams{
-	//     Customer:  stripe.String(stripeCustomerID),
-	//     ReturnURL: stripe.String(config.C.Server.BaseURL + "/portal/billing"),
-	// })
+	// Polar's customer portal is at polar.sh — customers can manage
+	// their payment methods and subscriptions there.
+	JSON(w, http.StatusOK, map[string]any{
+		"portal_url": "https://polar.sh",
+		"message":    "Manage your payment methods on Polar. Cancel or change plans here.",
+	})
+}
+
+// lookUpTunnelCredentials queries the service_providers table for the enabled tunnel provider
+// and returns the API token and account ID extracted from the JSON columns.
+func (h *PortalHandler) lookUpTunnelCredentials(r *http.Request) (apiToken, accountID string, err error) {
+	var credentialsJSON, settingsJSON sql.NullString
+	err = h.db.QueryRowContext(r.Context(),
+		`SELECT credentials_json, settings_json FROM service_providers WHERE service = 'tunnel' AND enabled = TRUE LIMIT 1`,
+	).Scan(&credentialsJSON, &settingsJSON)
+	if err != nil {
+		return "", "", fmt.Errorf("no tunnel provider configured")
+	}
+	var creds map[string]any
+	json.Unmarshal([]byte(credentialsJSON.String), &creds)
+	if t, ok := creds["api_token"].(string); ok {
+		apiToken = t
+	}
+	var settings map[string]any
+	json.Unmarshal([]byte(settingsJSON.String), &settings)
+	if a, ok := settings["account_id"].(string); ok {
+		accountID = a
+	}
+	return apiToken, accountID, nil
+}
+
+// SearchDomains searches for available domains matching a query.
+func (h *PortalHandler) SearchDomains(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Query string `json:"query"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Query == "" {
+		JSONError(w, http.StatusBadRequest, "query is required")
+		return
+	}
+
+	apiToken, accountID, err := h.lookUpTunnelCredentials(r)
+	if err != nil {
+		JSONError(w, http.StatusBadGateway, "Cloudflare tunnel provider is not configured. Please set it up from the Admin panel.")
+		return
+	}
+
+	results, err := h.registrar.SearchDomains(accountID, apiToken, req.Query, 5)
+	if err != nil {
+		JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not search domains: %s", err.Error()))
+		return
+	}
 
 	JSON(w, http.StatusOK, map[string]any{
-		"portal_url": "#stripe-portal",
-		"account_id": accountID,
+		"domains": results,
+	})
+}
+
+// CheckDomain checks real-time availability and pricing for a specific domain.
+func (h *PortalHandler) CheckDomain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Domain == "" {
+		JSONError(w, http.StatusBadRequest, "domain is required")
+		return
+	}
+
+	apiToken, accountID, err := h.lookUpTunnelCredentials(r)
+	if err != nil {
+		JSONError(w, http.StatusBadGateway, "Cloudflare tunnel provider is not configured. Please set it up from the Admin panel.")
+		return
+	}
+
+	result, err := h.registrar.CheckDomain(accountID, apiToken, req.Domain)
+	if err != nil {
+		JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not check domain: %s", err.Error()))
+		return
+	}
+
+	JSON(w, http.StatusOK, result)
+}
+
+// RegisterDomain registers a domain via Cloudflare Registrar and records it.
+func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID string `json:"device_id"`
+		Domain   string `json:"domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceID == "" || req.Domain == "" {
+		JSONError(w, http.StatusBadRequest, "device_id and domain are required")
+		return
+	}
+
+	// Verify the device belongs to the authenticated account.
+	var accountID string
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT account_id FROM devices WHERE id = $1`, req.DeviceID,
+	).Scan(&accountID)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not verify device")
+		return
+	}
+	if accountID == "" {
+		JSONError(w, http.StatusBadRequest, "device is not linked to an account")
+		return
+	}
+
+	// Ensure the authenticated device owns the device being registered.
+	deviceOwner := middleware.GetCustomerDeviceID(r.Context())
+	if deviceOwner != req.DeviceID {
+		JSONError(w, http.StatusForbidden, "you can only register domains for your own devices")
+		return
+	}
+
+	apiToken, cfAccountID, err := h.lookUpTunnelCredentials(r)
+	if err != nil {
+		JSONError(w, http.StatusBadGateway, "Cloudflare tunnel provider is not configured. Please set it up from the Admin panel.")
+		return
+	}
+
+	if err := h.registrar.RegisterDomain(cfAccountID, apiToken, req.Domain); err != nil {
+		JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not register domain: %s", err.Error()))
+		return
+	}
+
+	domainID := security.GenerateID("dom")
+	_, err = h.db.ExecContext(r.Context(),
+		`INSERT INTO custom_domains (id, device_id, domain, registered_via, auto_renew, status) VALUES ($1, $2, $3, $4, $5, $6)`,
+		domainID, req.DeviceID, req.Domain, "cloudflare", true, "registered",
+	)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not save domain record")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"domain": req.Domain,
+		"status": "registered",
+		"id":     domainID,
+	})
+}
+
+// ListDomains returns custom domains for the authenticated account's devices.
+func (h *PortalHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+
+	rows, err := h.db.QueryContext(r.Context(),
+		`SELECT cd.id, cd.domain, cd.registered_via, cd.auto_renew, cd.status, cd.purchased_at, cd.expires_at, d.id, d.plan_id
+		 FROM custom_domains cd
+		 JOIN devices d ON cd.device_id = d.id
+		 WHERE d.account_id = $1`,
+		accountID,
+	)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not list domains")
+		return
+	}
+	defer rows.Close()
+
+	type domainRow struct {
+		ID            string
+		Domain        string
+		RegisteredVia string
+		AutoRenew     bool
+		Status        string
+		PurchasedAt   time.Time
+		ExpiresAt     sql.NullTime
+		DeviceID      string
+		PlanID        string
+	}
+
+	var domains []map[string]any
+	for rows.Next() {
+		var dr domainRow
+		if err := rows.Scan(&dr.ID, &dr.Domain, &dr.RegisteredVia, &dr.AutoRenew, &dr.Status, &dr.PurchasedAt, &dr.ExpiresAt, &dr.DeviceID, &dr.PlanID); err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not parse domain row")
+			return
+		}
+		domains = append(domains, map[string]any{
+			"id":             dr.ID,
+			"domain":         dr.Domain,
+			"registered_via": dr.RegisteredVia,
+			"auto_renew":     dr.AutoRenew,
+			"status":         dr.Status,
+			"purchased_at":   dr.PurchasedAt,
+			"expires_at":     dr.ExpiresAt,
+			"device_id":      dr.DeviceID,
+			"plan_id":        dr.PlanID,
+		})
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"domains": domains,
 	})
 }

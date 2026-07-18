@@ -6,6 +6,7 @@ export default function SegmentedControl({
   options,
   value,
   onChange,
+  onDisabledClick = (_value) => {},
   className = "",
 }) {
   const selectedIndex = options.findIndex((o) => o.value === value);
@@ -34,21 +35,32 @@ export default function SegmentedControl({
           className="h-full w-full rounded-pill bg-accent animate-segmented-settle"
         />
       </div>
-      {options.map(({ value: optValue, icon: Icon, label }) => (
+      {options.map(({ value: optValue, icon: Icon, label, disabled, title }) => (
         <button
           key={optValue}
+          title={title}
           onClick={() => {
+            if (disabled) {
+              haptic("error");
+              onDisabledClick(optValue);
+              return;
+            }
             haptic("tap");
             onChange(optValue);
           }}
           className={cn(
             "relative z-10 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-pill",
             "text-xs font-medium transition-[color] ease-[var(--motion-easing-standard)]",
-            value === optValue ? "text-primary" : "text-accent hover:text-primary"
+            disabled
+              ? "text-accent opacity-50 cursor-not-allowed"
+              : value === optValue
+                ? "text-primary"
+                : "text-accent hover:text-primary"
           )}
           style={{ transitionDuration: "var(--motion-duration-short2)" }}
           role="radio"
           aria-checked={value === optValue}
+          aria-disabled={disabled || undefined}
           aria-label={label}
         >
           {Icon && <Icon size={14} />}
@@ -65,9 +77,12 @@ SegmentedControl.propTypes = {
       value: PropTypes.string.isRequired,
       label: PropTypes.string.isRequired,
       icon: PropTypes.elementType,
+      disabled: PropTypes.bool,
+      title: PropTypes.string,
     })
   ).isRequired,
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
+  onDisabledClick: PropTypes.func,
   className: PropTypes.string,
 };

@@ -14,6 +14,15 @@ export default function Billing() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["billing"] }),
   });
 
+  const portalMut = useMutation({
+    mutationFn: api.getBillingPortal,
+    onSuccess: (data) => {
+      if (data.portal_url && data.portal_url !== "/billing") {
+        window.open(data.portal_url, "_blank");
+      }
+    },
+  });
+
   const balance = billing?.credit_balance_cents || 0;
   const invoices = billing?.invoices || [];
   const transactions = billing?.transactions || [];
@@ -27,6 +36,23 @@ export default function Billing() {
         <CardContent>
           <p className="font-mono text-3xl">${(balance / 100).toFixed(2)}</p>
           <p className="text-sm text-muted-foreground mt-1">1 credit = $0.01. Credits apply to subscriptions and overage.</p>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader><CardTitle className="text-sm text-muted-foreground">Payment Method</CardTitle></CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            Your payment method is managed securely by Polar, our payment processor.
+            Update your card or billing details there.
+          </p>
+          <Button
+            variant="outline"
+            loading={portalMut.isPending}
+            onClick={() => portalMut.mutate()}
+          >
+            Manage payment method on Polar
+          </Button>
         </CardContent>
       </Card>
 
@@ -72,7 +98,7 @@ export default function Billing() {
         <CardHeader><CardTitle className="text-sm text-destructive">Cancel Subscription</CardTitle></CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">
-            Cancelling will downgrade your device to the Free plan at the end of the current billing cycle.
+            Cancelling will downgrade your device to the Free plan immediately.
             You can re-subscribe at any time.
           </p>
           <Button

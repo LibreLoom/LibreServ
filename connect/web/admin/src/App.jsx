@@ -7,10 +7,9 @@ const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
 const Devices = lazy(() => import("./pages/Devices.jsx"));
 const Cases = lazy(() => import("./pages/Cases.jsx"));
 const Plans = lazy(() => import("./pages/Plans.jsx"));
-const Models = lazy(() => import("./pages/Models.jsx"));
-const Relay = lazy(() => import("./pages/Relay.jsx"));
 const Security = lazy(() => import("./pages/Security.jsx"));
 const Providers = lazy(() => import("./pages/Providers.jsx"));
+const Tunnels = lazy(() => import("./pages/Tunnels.jsx"));
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -35,9 +34,8 @@ export default function App() {
         <Route path="/devices" element={<ProtectedRoute><Devices /></ProtectedRoute>} />
         <Route path="/cases" element={<ProtectedRoute><Cases /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
-        <Route path="/models" element={<ProtectedRoute><Models /></ProtectedRoute>} />
-        <Route path="/relay" element={<ProtectedRoute><Relay /></ProtectedRoute>} />
         <Route path="/providers" element={<ProtectedRoute><Providers /></ProtectedRoute>} />
+        <Route path="/tunnels" element={<ProtectedRoute><Tunnels /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

@@ -397,3 +397,65 @@ func TestCheckPathWritableCreatesNonexistentDirectory(t *testing.T) {
 		t.Fatalf("expected directory to exist, got: %v", err)
 	}
 }
+
+// TestFrontendStepContractKeptInSync guards against the recurring bug where the
+// frontend STEP constants drift from the backend step registry. The setup wizard
+// persists progress via PUT /setup/progress, and a mismatch (frontend step name or
+// step-data key the backend rejects) surfaces as a "Failed to save progress" error
+// screen mid-wizard. This test fixes the exact set of step names and step-data keys
+// the frontend writes so any drift fails CI instead of a user's setup.
+//
+// If this test fails: either add the missing constant to the frontend STEP map (and
+// mirror it here) or register the new step/key in internal/setup/steps.go. Do not
+// remove entries without updating both sides.
+func TestFrontendStepContractKeptInSync(t *testing.T) {
+	// Every main step the frontend advances/saves via PUT /setup/progress.
+	// Source: STEP map in server/frontend/src/pages/SetupPage.jsx.
+	frontendMainSteps := []string{
+		"welcome",
+		"preflight",
+		"account",
+		"remote_access",
+		"smtp",
+		"external_services",
+		"mfa",
+		"complete",
+	}
+	for _, step := range frontendMainSteps {
+		if !setup.IsValidMainStep(step) {
+			t.Errorf("frontend persists main step %q, but backend rejects it — add it to validMainSteps in internal/setup/steps.go", step)
+		}
+	}
+
+	// Every step-data key the frontend writes alongside progress saves.
+	// Source: handlePreflightPass / handleAccountSuccess / handleDomainComplete /
+	// handleSmtpComplete / handleConnectActivate / handleExternalServicesSkip /
+	// handleMfaSuccess in SetupPage.jsx.
+	frontendStepDataKeys := []string{
+		"preflight_passed",
+		"account_completed",
+		"admin_email",
+		"domain_completed",
+		"domain_skipped",
+		"remote_access_completed",
+		"remote_access_skipped",
+		"has_domain",
+		"provider",
+		"registrar",
+		"domain_name",
+		"cf_ns_confirmed",
+		"smtp_completed",
+		"smtp_skipped",
+		"smtp_provider",
+		"connect_activated",
+		"external_services_skipped",
+		"mfa_completed",
+	}
+	for _, key := range frontendStepDataKeys {
+		// ValidateStepData rejects maps containing unknown keys, so build a
+		// single-key map per assertion to pinpoint the offender.
+		if !setup.ValidateStepData(map[string]interface{}{key: true}) {
+			t.Errorf("frontend writes step_data key %q, but backend rejects it — add it to allowedStepDataKeys in internal/setup/steps.go", key)
+		}
+	}
+}

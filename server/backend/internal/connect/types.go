@@ -123,8 +123,9 @@ type BackupCredentials struct {
 }
 
 type TunnelCredentials struct {
-	Provider string `json:"provider"`
-	Token    string `json:"token"`
+	Provider    string `json:"provider"`
+	TunnelToken string `json:"tunnel_token"`
+	TunnelID    string `json:"tunnel_id"`
 }
 
 type ConnectInfo struct {

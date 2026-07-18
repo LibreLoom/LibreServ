@@ -74,6 +74,9 @@ export const api = {
   // Usage
   getAggregatedUsage: () => request("/admin/usage"),
 
+  // Tunnels
+  listTunnels: () => request("/admin/tunnels"),
+
   // AI Models
   listProviders: () => request("/admin/models/providers"),
   createProvider: (body) => request("/admin/models/providers", {
@@ -101,18 +104,6 @@ export const api = {
     body: JSON.stringify(body),
   }),
 
-  // Relay
-  getFleetStatus: () => request("/admin/relay"),
-  listRegions: () => request("/admin/relay/regions"),
-  createRegion: (body) => request("/admin/relay/regions", {
-    method: "POST",
-    body: JSON.stringify(body),
-  }),
-  updateRegionHealth: (id, isHealthy) => request(`/admin/relay/regions/${id}/health`, {
-    method: "PUT",
-    body: JSON.stringify({ is_healthy: isHealthy }),
-  }),
-  deleteRegion: (id) => request(`/admin/relay/regions/${id}`, { method: "DELETE" }),
   // Service Providers (backup, smtp, dns)
   listServiceProviders: (service) =>
     request(`/admin/providers${service ? `?service=${service}` : ""}`),

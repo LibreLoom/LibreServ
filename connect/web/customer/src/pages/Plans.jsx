@@ -12,11 +12,26 @@ export default function Plans() {
   const { data } = useQuery({ queryKey: ["plans"], queryFn: api.getPlans });
 
   const subscribeMut = useMutation({
-    mutationFn: api.subscribe,
+    mutationFn: async (planId) => {
+      const res = await api.createCheckout(planId);
+      // Polar returns a checkout URL — redirect the user there
+      if (res.checkout_url && res.checkout_url !== "#") {
+        window.location.href = res.checkout_url;
+      }
+      // Free plan or dev mode — no redirect needed
+      return res;
+    },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["plans"] }); refreshDevice(); },
   });
   const changePlanMut = useMutation({
-    mutationFn: api.changePlan,
+    mutationFn: async (planId) => {
+      const res = await api.changePlan(planId);
+      // If changing to a paid plan from free, Polar checkout URL is returned
+      if (res.checkout_url && res.checkout_url !== "#") {
+        window.location.href = res.checkout_url;
+      }
+      return res;
+    },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["plans"] }); refreshDevice(); },
   });
 

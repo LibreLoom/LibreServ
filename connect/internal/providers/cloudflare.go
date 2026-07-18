@@ -109,6 +109,53 @@ func (c *CloudflareClient) CreateRecord(apiToken, _ /* secretKey unused */, zone
 	return true, nil
 }
 
+// CreateCNAME creates a proxied CNAME record pointing to a target (e.g. a tunnel).
+// Used to route a hostname to a Cloudflare Tunnel: hostname → {tunnelID}.cfargotunnel.com.
+// The record is proxied (orange cloud) so Cloudflare terminates TLS at the edge.
+func (c *CloudflareClient) CreateCNAME(apiToken, zone, hostname, target string) (bool, error) {
+	if apiToken == "" {
+		return false, fmt.Errorf("Cloudflare API token is not configured")
+	}
+	if zone == "" || hostname == "" || target == "" {
+		return false, fmt.Errorf("zone, hostname, and target are required")
+	}
+
+	baseURL := c.baseURL
+	if baseURL == "" {
+		baseURL = "https://api.cloudflare.com/client/v4"
+	}
+
+	zoneID, err := c.lookupZoneID(baseURL, apiToken, zone)
+	if err != nil {
+		return false, fmt.Errorf("could not find Cloudflare zone %q: %w", zone, err)
+	}
+
+	recordName := hostname
+	if !isFullHostname(hostname) {
+		recordName = hostname + "." + zone
+	}
+
+	body := cloudflareCreateRecordRequest{
+		Type:    "CNAME",
+		Name:    recordName,
+		Content: target,
+		TTL:     1, // automatic
+		Proxied: true,
+	}
+
+	url := fmt.Sprintf("%s/zones/%s/dns_records", baseURL, zoneID)
+	headers := map[string]string{"Authorization": "Bearer " + apiToken}
+
+	var resp cloudflareRecordResponse
+	if _, err := doJSON(c.httpClient, http.MethodPost, url, headers, body, &resp); err != nil {
+		return false, fmt.Errorf("could not create CNAME record at Cloudflare: %w", err)
+	}
+	if !resp.Success && len(resp.Errors) > 0 {
+		return false, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+	}
+	return true, nil
+}
+
 // lookupZoneID finds the Cloudflare zone ID for a given zone name.
 func (c *CloudflareClient) lookupZoneID(baseURL, apiToken, zoneName string) (string, error) {
 	url := fmt.Sprintf("%s/zones?name=%s", baseURL, zoneName)

@@ -76,6 +76,11 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ plan_id: planId, device_id: deviceId || "" }),
   }),
+  createCheckout: (planId, deviceId) => request("/portal/checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan_id: planId, device_id: deviceId || "" }),
+  }),
+  getBillingPortal: () => request("/portal/billing-portal", { method: "POST" }),
 
   // Usage & billing
   getUsage: () => request("/portal/usage"),
@@ -86,5 +91,18 @@ export const api = {
   respondConsent: (id, decision) => request("/portal/consent/respond", {
     method: "POST",
     body: JSON.stringify({ id, decision }),
+  }),
+  // Domains
+  searchDomains: (query) => request("/portal/domains/search", {
+    method: "POST",
+    body: JSON.stringify({ query }),
+  }),
+  checkDomain: (domain) => request("/portal/domains/check", {
+    method: "POST",
+    body: JSON.stringify({ domain }),
+  }),
+  registerDomain: (deviceId, domain) => request("/portal/domains/register", {
+    method: "POST",
+    body: JSON.stringify({ device_id: deviceId, domain }),
   }),
 };

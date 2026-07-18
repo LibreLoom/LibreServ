@@ -7,6 +7,7 @@ import api from "../lib/api";
 import { getConnectivityStatus } from "../lib/network-api";
 import DomainWizard from "../components/setup/DomainWizard";
 import SmtpWizard from "../components/smtp/SmtpWizard";
+import ExternalServicesStep from "../components/setup/ExternalServicesStep";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import PreflightRemediation from "../components/setup/PreflightRemediation";
 import { summarizeError } from "../lib/preflight-errors";
@@ -24,9 +25,10 @@ const STEP = {
   SETUP_CODE:  "setup_code",
   WELCOME:      "welcome",
   PREFLIGHT:   "preflight",
-  REMOTE_ACCESS: "remote_access",
-  SMTP:        "smtp",
   ACCOUNT:     "account",
+  REMOTE_ACCESS: "remote_access",
+  SMTP:             "smtp",
+  EXTERNAL_SERVICES: "external_services",
   MFA:         "mfa",
   CREATING:    "creating",
   COMPLETE:    "complete",
@@ -93,7 +95,7 @@ SetupCard.propTypes = {
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
-const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.REMOTE_ACCESS, STEP.SMTP, STEP.MFA, STEP.COMPLETE];
+const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.REMOTE_ACCESS, STEP.SMTP, STEP.EXTERNAL_SERVICES, STEP.MFA, STEP.COMPLETE];
 
 function StepDots({ current }) {
   const idx = VISIBLE_STEPS.indexOf(current);
@@ -1327,6 +1329,7 @@ const STEP_ORDER = [
   STEP.ACCOUNT,
   STEP.REMOTE_ACCESS,
   STEP.SMTP,
+  STEP.EXTERNAL_SERVICES,
   STEP.MFA,
   STEP.COMPLETE,
 ];
@@ -1465,8 +1468,13 @@ export default function SetupPage() {
 
           if (step === STEP.SMTP) {
             if (savedData.smtp_completed || savedData.smtp_skipped) {
-              setStep(STEP.MFA);
-              saveProgress(STEP.MFA, "", { ...savedData });
+              if (savedData.connect_activated || savedData.external_services_skipped) {
+                setStep(STEP.MFA);
+                saveProgress(STEP.MFA, "", { ...savedData });
+              } else {
+                setStep(STEP.EXTERNAL_SERVICES);
+                saveProgress(STEP.EXTERNAL_SERVICES, "", { ...savedData });
+              }
               return;
             }
             if (saved.current_sub_step) {
@@ -1549,17 +1557,25 @@ export default function SetupPage() {
   const handleStartSmtpWizard = useCallback(() => {
     setShowSmtpWizard(true);
   }, []);
-
   const handleSmtpComplete = useCallback(async () => {
     const data = { ...(progressRef.current.stepData || {}), smtp_completed: true };
-    await advanceStep(STEP.MFA, "", data);
+    await advanceStep(STEP.EXTERNAL_SERVICES, "", data);
   }, [advanceStep]);
-
   const handleSmtpSkip = useCallback(async () => {
     const data = { ...(progressRef.current.stepData || {}), smtp_skipped: true };
+    await advanceStep(STEP.EXTERNAL_SERVICES, "", data);
+  }, [advanceStep]);
+
+  const handleConnectActivate = useCallback(async (token) => {
+    await api("/api/connect/activate", { method: "PUT", body: JSON.stringify({ token }) });
+    const data = { ...(progressRef.current.stepData || {}), connect_activated: true };
     await advanceStep(STEP.MFA, "", data);
   }, [advanceStep]);
 
+  const handleExternalServicesSkip = useCallback(async () => {
+    const data = { ...(progressRef.current.stepData || {}), external_services_skipped: true };
+    await advanceStep(STEP.MFA, "", data);
+  }, [advanceStep]);
   const handleAccountSuccess = useCallback(async (adminEmail) => {
     const data = { ...(progressRef.current.stepData || {}), account_completed: true, admin_email: adminEmail };
     progressRef.current.stepData = data;
@@ -1675,6 +1691,17 @@ export default function SetupPage() {
         />
       );
     }
+  } else if (step === STEP.EXTERNAL_SERVICES) {
+    renderedStep = (
+      <SetupShell>
+        <SetupCard className="" header={<StepDots current={STEP.EXTERNAL_SERVICES} />}>
+          <ExternalServicesStep
+            onActivate={handleConnectActivate}
+            onSkip={handleExternalServicesSkip}
+          />
+        </SetupCard>
+      </SetupShell>
+    );
   } else if (step === STEP.MFA) {
     renderedStep = (
       <MfaStep

@@ -21,6 +21,7 @@ type ProvisioningService struct {
 	b2        *providers.B2Client
 	resend    *providers.ResendClient
 	dns       *providers.CloudflareClient
+	tunnel    *providers.TunnelClient
 }
 
 // NewProvisioningService creates a provisioning service with default upstream clients.
@@ -31,17 +32,19 @@ func NewProvisioningService(db *sql.DB) *ProvisioningService {
 		b2:        providers.NewB2Client(nil),
 		resend:    providers.NewResendClient(nil),
 		dns:       providers.NewCloudflareClient(nil),
+		tunnel:    providers.NewTunnelClient(nil),
 	}
 }
 
 // NewProvisioningServiceWithClients creates a provisioning service with injectable clients (used in tests).
-func NewProvisioningServiceWithClients(db *sql.DB, prov *providers.Service, b2 *providers.B2Client, resend *providers.ResendClient, dns *providers.CloudflareClient) *ProvisioningService {
+func NewProvisioningServiceWithClients(db *sql.DB, prov *providers.Service, b2 *providers.B2Client, resend *providers.ResendClient, dns *providers.CloudflareClient, tunnel *providers.TunnelClient) *ProvisioningService {
 	return &ProvisioningService{
 		db:        db,
 		providers: prov,
 		b2:        b2,
 		resend:    resend,
 		dns:       dns,
+		tunnel:    tunnel,
 	}
 }
 
@@ -125,12 +128,7 @@ func (s *ProvisioningService) generateCredentials(deviceID, service, clientIP st
 	case "backup":
 		return s.generateBackup(sub)
 	case "tunnel":
-		return map[string]any{
-			"tunnel": map[string]any{
-				"provider": "connect",
-				"token":    fmt.Sprintf("tunnel-%s-%s", sub, security.RandomPassword(16)),
-			},
-		}, nil
+		return s.generateTunnel(deviceID, sub)
 	case "ai":
 		baseURL := config.C.Inference.BaseURL
 		if baseURL == "" {
@@ -250,26 +248,40 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 	if err != nil {
 		return nil, fmt.Errorf("could not look up DNS provider: %w", err)
 	}
-
 	dnsManaged := false
 	if prov != nil && prov.Credential("api_token", "") != "" {
 		recordName := sub
 		if parent := prov.Setting("zone", ""); parent != "" {
 			zone = parent
 		}
-		ip := clientIP
-		if ip == "" {
-			ip = "127.0.0.1"
+
+		// Check if the device has a provisioned tunnel. If so, create a
+		// CNAME pointing at the tunnel instead of an A record to the IP.
+		tunnelID := s.findDeviceTunnelID(deviceID)
+		if tunnelID != "" {
+			cnameTarget := fmt.Sprintf("%s.cfargotunnel.com", tunnelID)
+			dnsManaged, _ = s.dns.CreateCNAME(
+				prov.Credential("api_token", ""),
+				zone,
+				recordName,
+				cnameTarget,
+			)
+		} else {
+			// No tunnel — fall back to A record with the device IP.
+			ip := clientIP
+			if ip == "" {
+				ip = "127.0.0.1"
+			}
+			dnsManaged, _ = s.dns.CreateRecord(
+				prov.Credential("api_token", ""),
+				"",
+				zone,
+				recordName,
+				"A",
+				ip,
+				600,
+			)
 		}
-		dnsManaged, _ = s.dns.CreateRecord(
-			prov.Credential("api_token", ""),
-			"",
-			zone,
-			recordName,
-			"A",
-			ip,
-			600,
-		)
 	} else if config.C.DNS.Provider != "" && config.C.DNS.APIToken != "" && config.C.DNS.Zone != "" {
 		// Legacy fallback: we only know the zone, so use the full subdomain as the record name.
 		ip := clientIP
@@ -296,6 +308,57 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 			"dns_managed": dnsManaged,
 		},
 	}, nil
+}
+
+// generateTunnel creates a Cloudflare Tunnel for the device and returns the
+// tunnel token the device uses to run cloudflared. The tunnel is named after
+// the device for easy identification in the Cloudflare dashboard.
+func (s *ProvisioningService) generateTunnel(deviceID, sub string) (map[string]any, error) {
+	prov, err := s.providers.FindEnabled("tunnel")
+	if err != nil {
+		return nil, fmt.Errorf("could not look up tunnel provider: %w", err)
+	}
+
+	if prov == nil || prov.Credential("api_token", "") == "" || prov.Credential("account_id", "") == "" {
+		return nil, fmt.Errorf("tunnel provider is not configured. Add a Cloudflare tunnel provider in the admin portal under Service Providers (service: tunnel).")
+	}
+
+	accountID := prov.Credential("account_id", "")
+	apiToken := prov.Credential("api_token", "")
+	tunnelName := fmt.Sprintf("libreserv-%s", sub)
+
+	creds, err := s.tunnel.CreateTunnel(accountID, apiToken, tunnelName)
+	if err != nil {
+		return nil, fmt.Errorf("could not create tunnel: %w", err)
+	}
+
+	return map[string]any{
+		"tunnel": map[string]any{
+			"provider":     "cloudflare",
+			"tunnel_token": creds.Token,
+			"tunnel_id":    creds.TunnelID,
+		},
+	}, nil
+}
+
+// findDeviceTunnelID looks up the tunnel ID for a device from the
+// service_credentials table. Returns empty string if no active tunnel exists.
+func (s *ProvisioningService) findDeviceTunnelID(deviceID string) string {
+	var credsJSON string
+	err := s.db.QueryRow(
+		`SELECT credentials_json FROM service_credentials
+		 WHERE device_id = $1 AND service_type = 'tunnel' AND is_active = TRUE`,
+		deviceID).Scan(&credsJSON)
+	if err != nil {
+		return ""
+	}
+	var creds struct {
+		TunnelID string `json:"tunnel_id"`
+	}
+	if json.Unmarshal([]byte(credsJSON), &creds) != nil {
+		return ""
+	}
+	return creds.TunnelID
 }
 
 func mustJSON(v any) string {

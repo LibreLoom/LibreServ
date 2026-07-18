@@ -15,7 +15,6 @@ type Plan struct {
 type Limits struct {
 	BackupGB         int    `json:"backup_gb"`
 	AICreditCents    int    `json:"ai_credit_cents"`
-	TunnelGB         int    `json:"tunnel_gb"`
 	SMTPMonthly      int    `json:"smtp_monthly"`
 	AIMessagesPerDay int    `json:"ai_messages_per_day"`
 	Domain           string `json:"domain"`
@@ -25,7 +24,6 @@ type Limits struct {
 // Overage rates — what the customer pays beyond included allowance.
 type Overage struct {
 	BackupPerTBMonth float64 // USD per TB/month
-	TunnelPerGB      float64 // USD per GB
 	SMTPPerEmail     float64 // USD per email
 	AIAtCost         bool    // charged at actual provider cost
 }
@@ -39,7 +37,6 @@ type ServiceCost struct {
 	AgentOutputPerMToken    float64 // GLM-5.2: $1.05/M output
 	ReviewInputPerMToken    float64 // DSv4 Pro: $0.35/M input
 	ReviewOutputPerMToken   float64 // DSv4 Pro: $0.80/M output
-	TunnelPremiumPerGB      float64 // $0.01/GB
 }
 
 var plans = []Plan{
@@ -51,7 +48,6 @@ var plans = []Plan{
 		Limits: Limits{
 			BackupGB:         0,
 			AICreditCents:    0,
-			TunnelGB:         0,
 			SMTPMonthly:      30,
 			AIMessagesPerDay: 50,
 			Domain:           "*.free.servers.libreloom.org",
@@ -66,7 +62,6 @@ var plans = []Plan{
 		Limits: Limits{
 			BackupGB:         100,
 			AICreditCents:    200,
-			TunnelGB:         50,
 			SMTPMonthly:      250,
 			AIMessagesPerDay: 0,
 			Domain:           "*.servers.libreloom.org",
@@ -81,7 +76,6 @@ var plans = []Plan{
 		Limits: Limits{
 			BackupGB:         1024,
 			AICreditCents:    500,
-			TunnelGB:         200,
 			SMTPMonthly:      2500,
 			AIMessagesPerDay: 0,
 			Domain:           "*.servers.libreloom.org",
@@ -99,26 +93,22 @@ var Costs = ServiceCost{
 	AgentOutputPerMToken:    1.05,
 	ReviewInputPerMToken:    0.35,
 	ReviewOutputPerMToken:   0.80,
-	TunnelPremiumPerGB:      0.01,
 }
 
 // Overage rates per plan.
 var overageRates = map[string]Overage{
 	"free": {
 		BackupPerTBMonth: 0, // not available
-		TunnelPerGB:      0,
 		SMTPPerEmail:     0,
 		AIAtCost:         false,
 	},
 	"lite": {
 		BackupPerTBMonth: 7.50, // cost + small markup
-		TunnelPerGB:      0.01,
 		SMTPPerEmail:     0.001,
 		AIAtCost:         true,
 	},
 	"one": {
 		BackupPerTBMonth: 6.95, // you-pay-what-we-pay
-		TunnelPerGB:      0.01,
 		SMTPPerEmail:     0.001,
 		AIAtCost:         true,
 	},

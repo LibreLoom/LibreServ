@@ -75,7 +75,7 @@ func setupConnectTest(t *testing.T) (*ConnectHandler, *settings.Service, *networ
 	backupSvc := storage.NewBackupService(db, nil, filepath.Join(tmpDir, "backups"), filepath.Join(tmpDir, "appdata"))
 	backupSvc.SetEncryptionKey("test-encryption-key-for-testing-only")
 
-	return NewConnectHandler(connect.NewFakeClient(), nil, svc, cm, backupSvc), svc, cm, backupSvc, db
+	return NewConnectHandler(connect.NewFakeClient(), nil, svc, cm, backupSvc, nil), svc, cm, backupSvc, db
 }
 
 func TestConnectUpdateServicesAppliesSMTP(t *testing.T) {

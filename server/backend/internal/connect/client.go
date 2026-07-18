@@ -301,8 +301,9 @@ func (f *FakeClient) Provision(ctx context.Context, service ServiceID) (*Provisi
 		}
 	case ServiceTunnel:
 		creds.Tunnel = &TunnelCredentials{
-			Provider: "connect",
-			Token:    "tunnel-token-" + f.token[:8],
+			Provider:    "cloudflare",
+			TunnelToken: "tunnel-token-" + f.token[:8],
+			TunnelID:    "fake-tunnel-id-" + f.token[:8],
 		}
 	case ServiceAI:
 		sub := ""

@@ -30,6 +30,7 @@ PG_DB="libreserv_connect"
 PG_USER="libreserv_connect"
 PG_HOST="localhost"
 PG_PORT="5432"
+BASE_URL="${BASE_URL:-}"
 
 # Colors
 RED='\033[0;31m'
@@ -140,6 +141,7 @@ create_configs() {
 server:
     address: "127.0.0.1"
     port: ${port}
+    base_url: "${BASE_URL}"
 
 database:
     url: "postgres://${PG_USER}:CHANGE_ME_PASSWORD@${PG_HOST}:${PG_PORT}/${PG_DB}?sslmode=disable"
@@ -150,8 +152,14 @@ auth:
     customer_token_secret: ${customer_secret}
     session_ttl_hours: 168
 
-stripe:
+polar:
     enabled: false
+    access_token: ""
+    webhook_secret: ""
+    sandbox: true
+    product_free: ""
+    product_lite: ""
+    product_one: ""
 
 web:
     customer_dir: ${INSTALL_DIR}/web/customer

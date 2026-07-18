@@ -99,6 +99,57 @@ func (h *AdminHandler) GetDeviceUsage(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, summary)
 }
 
+// ListTunnels returns all provisioned tunnels for devices.
+func (h *AdminHandler) ListTunnels(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.QueryContext(r.Context(),
+		`SELECT sc.id, sc.device_id, sc.credentials_json, sc.is_active, sc.provisioned_at, d.id as device_name
+		 FROM service_credentials sc
+		 LEFT JOIN devices d ON sc.device_id = d.id
+		 WHERE sc.service_type = 'tunnel'
+		 ORDER BY sc.provisioned_at DESC`)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not list tunnels")
+		return
+	}
+	defer rows.Close()
+
+	tunnels := []map[string]any{}
+	for rows.Next() {
+		var d struct {
+			ID          string
+			DeviceID    string
+			CredJSON    string
+			IsActive    bool
+			Provisioned time.Time
+			DeviceName  sql.NullString
+		}
+		_ = rows.Scan(&d.ID, &d.DeviceID, &d.CredJSON, &d.IsActive, &d.Provisioned, &d.DeviceName)
+
+		var tunnelName string
+		if d.CredJSON != "" {
+			var creds map[string]any
+			if json.Unmarshal([]byte(d.CredJSON), &creds) == nil {
+				if name, ok := creds["name"].(string); ok && name != "" {
+					tunnelName = name
+				} else if hostname, ok := creds["hostname"].(string); ok && hostname != "" {
+					tunnelName = hostname
+				}
+			}
+		}
+
+		tunnels = append(tunnels, map[string]any{
+			"id":             d.ID,
+			"device_id":      d.DeviceID,
+			"tunnel_name":    tunnelName,
+			"is_active":      d.IsActive,
+			"provisioned_at": d.Provisioned.Format(time.RFC3339),
+			"device_name":    d.DeviceName.String,
+		})
+	}
+
+	JSON(w, http.StatusOK, map[string]any{"tunnels": tunnels})
+}
+
 // RotateCredentials forces re-provisioning of credentials for a specific service on a device.
 func (h *AdminHandler) RotateCredentials(w http.ResponseWriter, r *http.Request) {
 	deviceID := chi.URLParam(r, "deviceID")

@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 	status TEXT NOT NULL DEFAULT 'active',
 	started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	ends_at TIMESTAMP,
-	stripe_subscription_id TEXT,
+	polar_subscription_id TEXT,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS billing_cycles (
 	total_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
 	credit_cap_usd DOUBLE PRECISION,
 	status TEXT NOT NULL DEFAULT 'open',
-	stripe_invoice_id TEXT,
+	polar_invoice_id TEXT,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS credit_transactions (
 CREATE TABLE IF NOT EXISTS invoices (
 	id TEXT PRIMARY KEY,
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-	stripe_invoice_id TEXT,
+	polar_invoice_id TEXT,
 	status TEXT NOT NULL DEFAULT 'draft',
 	amount_cents INTEGER NOT NULL DEFAULT 0,
 	period_start DATE NOT NULL,
@@ -198,20 +198,6 @@ CREATE TABLE IF NOT EXISTS ai_fallback_chains (
 	model_id TEXT NOT NULL REFERENCES ai_models(id) ON DELETE CASCADE,
 	priority INTEGER NOT NULL DEFAULT 0,
 	UNIQUE(role, tier, model_id)
-);
-
-CREATE TABLE IF NOT EXISTS relay_regions (
-	id TEXT PRIMARY KEY,
-	name TEXT NOT NULL,
-	provider TEXT NOT NULL,
-	region TEXT NOT NULL,
-	host TEXT NOT NULL,
-	capacity_gb INTEGER NOT NULL DEFAULT 0,
-	used_gb DOUBLE PRECISION NOT NULL DEFAULT 0,
-	is_premium BOOLEAN NOT NULL DEFAULT TRUE,
-	is_healthy BOOLEAN NOT NULL DEFAULT TRUE,
-	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS support_cases (
@@ -272,6 +258,19 @@ CREATE TABLE IF NOT EXISTS service_providers (
 	UNIQUE(service, name)
 );
 CREATE INDEX IF NOT EXISTS idx_providers_service ON service_providers(service);
+CREATE TABLE IF NOT EXISTS custom_domains (
+	id TEXT PRIMARY KEY,
+	device_id TEXT REFERENCES devices(id) ON DELETE CASCADE,
+	domain TEXT NOT NULL UNIQUE,
+	registered_via TEXT NOT NULL DEFAULT 'cloudflare',
+	registration_cost_cents INTEGER,
+	auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
+	status TEXT NOT NULL DEFAULT 'active',
+	purchased_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	expires_at TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_custom_domains_device ON custom_domains(device_id);
+CREATE INDEX IF NOT EXISTS idx_custom_domains_domain ON custom_domains(domain);
 
 CREATE TABLE IF NOT EXISTS audit_logs (
 	id SERIAL PRIMARY KEY,
@@ -298,6 +297,7 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	expires_at TIMESTAMP NOT NULL
 );
+
 
 INSERT INTO plans (id, name, description, price_monthly_cents, limits_json) VALUES
 ('free', 'Connect Free', 'Get started with basic services. No credit card required.', 0,
@@ -332,9 +332,6 @@ CREATE INDEX IF NOT EXISTS idx_credit_tx_device ON credit_transactions(device_id
 CREATE INDEX IF NOT EXISTS idx_invoices_device ON invoices(device_id);
 CREATE INDEX IF NOT EXISTS idx_ai_models_provider ON ai_models(provider_id);
 CREATE INDEX IF NOT EXISTS idx_ai_models_role ON ai_models(role);
-CREATE INDEX IF NOT EXISTS idx_fallback_role ON ai_fallback_chains(role, tier);
-CREATE INDEX IF NOT EXISTS idx_relay_provider ON relay_regions(provider);
-CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor);
 CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_account ON customer_sessions(account_id);
 		`,

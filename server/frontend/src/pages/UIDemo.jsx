@@ -1,10 +1,14 @@
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Check,
   Moon,
+  Plus,
   Search,
+  Settings,
   Sun,
+  Trash2,
   User,
 } from "lucide-react";
 import { useTheme } from "../hooks/useTheme.jsx";
@@ -152,33 +156,107 @@ export default function UIDemo() {
 
         {/* Buttons */}
         <Section title="Buttons">
-          <Card noHeightAnim noPopIn>
-            <div className="space-y-8 p-2">
-              <div className="flex flex-wrap items-center gap-3">
-                <Button variant="primary">Primary</Button>
-                <Button variant="secondary">Secondary</Button>
-                <Button variant="accent">Accent</Button>
-                <Button variant="danger">Danger</Button>
-                <Button variant="ghost" surface="secondary">Ghost</Button>
-                <Button variant="outline" surface="secondary">Outline</Button>
+          <div className="space-y-6">
+            {/* Solid variants — surface-aware inversion on hover */}
+            <Card noHeightAnim noPopIn>
+              <div className="p-2 space-y-6">
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">Solid variants · on card (secondary surface)</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button variant="primary">Primary</Button>
+                    <Button variant="secondary">Secondary</Button>
+                    <Button variant="accent">Accent</Button>
+                    <Button variant="danger">Danger</Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">Solid variants · on page (primary surface)</p>
+                  <div className="bg-primary text-secondary rounded-large-element p-4 ring-1 ring-inset ring-accent/30">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button variant="primary" surface="primary">Primary</Button>
+                      <Button variant="secondary" surface="primary">Secondary</Button>
+                      <Button variant="accent" surface="primary">Accent</Button>
+                      <Button variant="danger" surface="primary">Danger</Button>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button size="sm">Small</Button>
-                <Button size="md">Medium</Button>
-                <Button size="lg">Large</Button>
-              </div>
+            </Card>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <Button loading smoothResize>Loading</Button>
-                <Button disabled>Disabled</Button>
-                <Button variant="accent" loading smoothResize>
-                  Saving
-                </Button>
+            {/* Surface-aware chrome — outline / ghost / nav adapt to backdrop */}
+            <Card noHeightAnim noPopIn>
+              <div className="p-2 space-y-6">
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">Outline / ghost / nav · on card (secondary surface)</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button variant="outline" surface="secondary">Outline</Button>
+                    <Button variant="ghost" surface="secondary">Ghost</Button>
+                    <Button variant="nav" surface="secondary">Nav</Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">Outline / ghost / nav · on page (primary surface)</p>
+                  <div className="bg-primary text-secondary rounded-large-element p-4 ring-1 ring-inset ring-accent/30">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button variant="outline" surface="primary">Outline</Button>
+                      <Button variant="ghost" surface="primary">Ghost</Button>
+                      <Button variant="nav" surface="primary">Nav</Button>
+                    </div>
+                  </div>
+                </div>
               </div>
+            </Card>
 
-              <Button fullWidth>Full-width primary action</Button>
-            </div>
-          </Card>
+            {/* Sizes & icon buttons */}
+            <Card noHeightAnim noPopIn>
+              <div className="p-2 space-y-6">
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">Sizes</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button size="sm">Small</Button>
+                    <Button size="md">Medium</Button>
+                    <Button size="lg">Large</Button>
+                    <Button size="icon" aria-label="Icon button"><Plus size={18} aria-hidden="true" /></Button>
+                    <Button size="iconSm" aria-label="Small icon button"><Settings size={16} aria-hidden="true" /></Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">With leading icons</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button variant="primary"><Plus size={14} aria-hidden="true" /> Add</Button>
+                    <Button variant="outline" surface="secondary"><Search size={14} aria-hidden="true" /> Search</Button>
+                    <Button variant="danger"><Trash2 size={14} aria-hidden="true" /> Delete</Button>
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* States & capabilities */}
+            <Card noHeightAnim noPopIn>
+              <div className="p-2 space-y-6">
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">States — loading / disabled / active (no hover grow or click shrink when uninteractable)</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button loading smoothResize>Loading</Button>
+                    <Button disabled>Disabled</Button>
+                    <Button variant="accent" loading smoothResize>Saving</Button>
+                    <Button variant="outline" surface="secondary" active>Active</Button>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">Full width</p>
+                  <Button fullWidth>Full-width primary action</Button>
+                </div>
+                <div>
+                  <p className="text-xs font-mono text-secondary/60 mb-3">asChild — router Link styled as a button</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button asChild variant="primary"><Link to="/ui-demo">Link as button</Link></Button>
+                    <Button asChild variant="outline" surface="secondary"><Link to="/ui-demo">Outline link</Link></Button>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          </div>
         </Section>
 
         {/* Form inputs */}

@@ -6,7 +6,6 @@ import { Layout } from "../components/Layout.jsx";
 export default function Dashboard() {
   const { data: usage } = useQuery({ queryKey: ["aggregated-usage"], queryFn: api.getAggregatedUsage });
   const { data: devices } = useQuery({ queryKey: ["devices"], queryFn: api.listDevices });
-  const { data: fleet } = useQuery({ queryKey: ["fleet"], queryFn: api.getFleetStatus });
 
   const deviceCount = devices?.devices?.length || 0;
   const activeDevices = (devices?.devices || []).filter((d) => d.is_active).length;
@@ -16,7 +15,7 @@ export default function Dashboard() {
     <Layout>
       <h2 className="font-mono text-2xl mb-6">Dashboard</h2>
 
-      <div className="grid gap-4 md:grid-cols-4 mb-8">
+      <div className="grid gap-4 md:grid-cols-3 mb-8">
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Total Devices</CardTitle></CardHeader>
           <CardContent><p className="font-mono text-2xl">{deviceCount}</p></CardContent>
@@ -28,10 +27,6 @@ export default function Dashboard() {
         <Card>
           <CardHeader><CardTitle className="text-sm text-muted-foreground">Monthly Cost</CardTitle></CardHeader>
           <CardContent><p className="font-mono text-2xl">${totalCost.toFixed(2)}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle className="text-sm text-muted-foreground">Relay Nodes</CardTitle></CardHeader>
-          <CardContent><p className="font-mono text-2xl">{fleet?.healthy_nodes || 0}/{fleet?.total_nodes || 0}</p></CardContent>
         </Card>
       </div>
 

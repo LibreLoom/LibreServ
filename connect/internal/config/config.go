@@ -16,19 +16,19 @@ type Config struct {
 	Server    ServerConfig    `mapstructure:"server" yaml:"server"`
 	Database  DatabaseConfig  `mapstructure:"database" yaml:"database"`
 	Auth      AuthConfig      `mapstructure:"auth" yaml:"auth"`
-	Stripe    StripeConfig    `mapstructure:"stripe" yaml:"stripe"`
+	Polar     PolarConfig     `mapstructure:"polar" yaml:"polar"`
 	SMTP      SMTPConfig      `mapstructure:"smtp" yaml:"smtp"`
 	DNS       DNSConfig       `mapstructure:"dns" yaml:"dns"`
 	Inference InferenceConfig `mapstructure:"inference" yaml:"inference"`
 	Backup    BackupConfig    `mapstructure:"backup" yaml:"backup"`
 	Tunnel    TunnelConfig    `mapstructure:"tunnel" yaml:"tunnel"`
-	Relay     RelayConfig     `mapstructure:"relay" yaml:"relay"`
 	Web       WebConfig       `mapstructure:"web" yaml:"web"`
 }
 
 type ServerConfig struct {
 	Address string `mapstructure:"address" yaml:"address"`
 	Port    int    `mapstructure:"port" yaml:"port"`
+	BaseURL string `mapstructure:"base_url" yaml:"base_url"`
 }
 
 type DatabaseConfig struct {
@@ -42,13 +42,14 @@ type AuthConfig struct {
 	SessionTTLHours     int    `mapstructure:"session_ttl_hours" yaml:"session_ttl_hours"`
 }
 
-type StripeConfig struct {
-	SecretKey     string `mapstructure:"secret_key" yaml:"secret_key"`
+type PolarConfig struct {
+	AccessToken   string `mapstructure:"access_token" yaml:"access_token"`
 	WebhookSecret string `mapstructure:"webhook_secret" yaml:"webhook_secret"`
 	Enabled       bool   `mapstructure:"enabled" yaml:"enabled"`
-	PriceFree     string `mapstructure:"price_free" yaml:"price_free"`
-	PriceLite     string `mapstructure:"price_lite" yaml:"price_lite"`
-	PriceOne      string `mapstructure:"price_one" yaml:"price_one"`
+	Sandbox       bool   `mapstructure:"sandbox" yaml:"sandbox"`
+	ProductFree   string `mapstructure:"product_free" yaml:"product_free"`
+	ProductLite   string `mapstructure:"product_lite" yaml:"product_lite"`
+	ProductOne    string `mapstructure:"product_one" yaml:"product_one"`
 }
 
 type SMTPConfig struct {
@@ -87,13 +88,6 @@ type TunnelConfig struct {
 	APIToken  string `mapstructure:"api_token" yaml:"api_token"`
 	AccountID string `mapstructure:"account_id" yaml:"account_id"`
 }
-
-type RelayConfig struct {
-	HetznerAPIKey string `mapstructure:"hetzner_api_key" yaml:"hetzner_api_key"`
-	AkamaiAPIKey  string `mapstructure:"akamai_api_key" yaml:"akamai_api_key"`
-	FallbackLabel string `mapstructure:"fallback_label" yaml:"fallback_label"`
-}
-
 type WebConfig struct {
 	CustomerDir string `mapstructure:"customer_dir" yaml:"customer_dir"`
 	AdminDir    string `mapstructure:"admin_dir" yaml:"admin_dir"`

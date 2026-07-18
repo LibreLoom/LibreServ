@@ -6,6 +6,7 @@ const Login = lazy(() => import("./pages/Login.jsx"));
 const Register = lazy(() => import("./pages/Register.jsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
 const Plans = lazy(() => import("./pages/Plans.jsx"));
+const Onboarding = lazy(() => import("./pages/Onboarding.jsx"));
 const Usage = lazy(() => import("./pages/Usage.jsx"));
 const Billing = lazy(() => import("./pages/Billing.jsx"));
 const Security = lazy(() => import("./pages/Security.jsx"));
@@ -29,6 +30,7 @@ export default function App() {
     <Suspense fallback={<Loading />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/register" element={<Register />} />
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />

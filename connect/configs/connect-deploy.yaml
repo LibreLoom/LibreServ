@@ -7,9 +7,9 @@ database:
     url: "postgres://localhost:5432/libreserv_connect?sslmode=disable"
 
 auth:
-    device_token_secret: CHANGE_ME
-    admin_token_secret: CHANGE_ME
-    customer_token_secret: CHANGE_ME
+    device_token_secret: ""
+    admin_token_secret: ""
+    customer_token_secret: ""
     session_ttl_hours: 168
 
 polar:
@@ -21,8 +21,6 @@ polar:
     product_lite: ""
     product_one: ""
 
-# Fallback email settings. The preferred way to configure email is through
-# the admin UI at Settings → Service Providers (service: smtp).
 smtp:
     host: smtp.libreloom.org
     port: 587
@@ -31,8 +29,6 @@ smtp:
     from: noreply@libreloom.org
     use_tls: true
 
-# Fallback DNS settings. The preferred way to configure DNS is through
-# the admin UI at Settings → Service Providers (service: dns).
 dns:
     provider: cloudflare
     api_token: ""
@@ -45,8 +41,6 @@ inference:
     api_key: ""
     enabled: false
 
-# Fallback backup settings. The preferred way to configure backups is through
-# the admin UI at Settings → Service Providers (service: backup).
 backup:
     provider: r2
     endpoint: ""

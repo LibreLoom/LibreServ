@@ -1,6 +1,7 @@
 server:
     address: ""
     port: 8080
+    base_url: ""
 
 database:
     url: "postgres://localhost:5432/libreserv_connect?sslmode=disable"
@@ -11,13 +12,14 @@ auth:
     customer_token_secret: CHANGE_ME
     session_ttl_hours: 168
 
-stripe:
+polar:
     enabled: false
-    secret_key: ""
+    access_token: ""
     webhook_secret: ""
-    price_free: ""
-    price_lite: ""
-    price_one: ""
+    sandbox: true
+    product_free: ""
+    product_lite: ""
+    product_one: ""
 
 smtp:
     host: smtp.libreloom.org
@@ -50,11 +52,6 @@ tunnel:
     provider: cloudflare
     api_token: ""
     account_id: ""
-
-relay:
-    hetzner_api_key: ""
-    akamai_api_key: ""
-    fallback_label: homelab
 
 web:
     customer_dir: web/customer/dist

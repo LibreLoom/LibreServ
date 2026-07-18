@@ -6,16 +6,16 @@
  * ═══════════════════════════════════════════════════════════════════════
  *
  * 1. SOLID (color invert + scale on hover) — the default. Use for actions.
- *    primary   — page-bg fill. Hover → accent. Use on CARDS only.
+ *    primary   — page-bg fill. Hover → secondary. Use on CARDS only.
  *                The single most important action on a card surface.
  *    secondary — card-bg fill. Hover → accent. Use on the PAGE only.
  *                The primary action when rendered directly on the page bg.
- *    accent    — CAUTION/DANGER fill. Hover → surface-aware invert with an
- *                error ring. Use for actions that are destructive, hard to
- *                undo, or have significant side effects: "Remove", "Revoke",
+ *    accent    — CAUTION/DANGER fill. Hover → surface-aware invert. Use for
+ *                actions that are destructive, hard to undo, or have
+ *                significant side effects: "Remove", "Revoke",
  *                "Reset Password", "Force Update", "Deactivate", etc.
- *    danger    — error fill. Hover → accent. SEVERE destructive actions ONLY.
- *                "Delete", "Uninstall", "Factory Reset", "Erase".
+ *    danger    — error fill. Hover → primary text. SEVERE destructive
+ *                actions ONLY: "Delete", "Uninstall", "Factory Reset", "Erase".
  *
  *    All solid variants scale to 105% on hover (transform-based, no layout
  *    shift). primary/secondary are surface-restricted: their bg is a surface
@@ -63,18 +63,18 @@ function Slot({ children, ...props }) {
 }
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all active:motion-safe:scale-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed",
+  "inline-flex items-center justify-center gap-2 rounded-pill font-medium motion-safe:transition-all enabled:active:motion-safe:scale-95 outline-none no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed",
   {
     variants: {
       variant: {
         // SOLID — surface-aware inversion on hover
-        primary: "bg-primary text-secondary hover:bg-accent hover:text-primary hover:scale-105",
-        secondary: "bg-secondary text-primary hover:bg-accent hover:text-primary hover:scale-105",
-        accent: "bg-accent text-primary hover:bg-primary hover:text-secondary hover:scale-105 ring-2 ring-transparent hover:ring-error/50",
-        danger: "bg-error text-secondary hover:text-primary hover:scale-105",
+        primary: "bg-primary text-secondary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-primary",
+        secondary: "bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-secondary",
+        accent: "bg-accent text-primary hover:bg-secondary hover:text-primary hover:ring-2 hover:ring-accent",
+        danger: "bg-error text-secondary hover:text-primary",
         nav: "bg-transparent text-secondary hover:bg-secondary/10",
         // OUTLINE — transparent, fills on hover (surface-aware via compound variants)
-        outline: "bg-transparent border-2 hover:scale-105",
+        outline: "bg-transparent border-2",
         // TINT-ON-HOVER (surface-aware via compound variants)
         ghost: "bg-transparent",
       },

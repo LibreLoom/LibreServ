@@ -19,6 +19,11 @@ func NewService(db *sql.DB) *Service {
 	return &Service{db: db}
 }
 
+// DB returns the underlying database connection (used by webhook handlers).
+func (s *Service) DB() *sql.DB {
+	return s.db
+}
+
 // EnsureAccountCredits creates a zero-balance credit account for a device if none exists.
 func (s *Service) EnsureAccountCredits(deviceID string) error {
 	_, err := s.db.Exec(
@@ -216,19 +221,11 @@ func (s *Service) GetAggregatedUsage() (map[string]float64, error) {
 }
 
 // CreateInvoice creates an invoice record for a billing period.
-func (s *Service) CreateInvoice(deviceID string, amountCents int, periodStart, periodEnd time.Time, stripeInvoiceID string) error {
+func (s *Service) CreateInvoice(deviceID string, amountCents int, periodStart, periodEnd time.Time, polarInvoiceID string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO invoices (id, device_id, stripe_invoice_id, status, amount_cents, period_start, period_end)
+		`INSERT INTO invoices (id, device_id, polar_invoice_id, status, amount_cents, period_start, period_end)
 		 VALUES ($1, $2, $3, 'open', $4, $5, $6)`,
-		security.GenerateID("inv"), deviceID, stripeInvoiceID, amountCents, periodStart, periodEnd)
-	return err
-}
-
-// MarkInvoicePaid marks an invoice as paid.
-func (s *Service) MarkInvoicePaid(invoiceID string) error {
-	_, err := s.db.Exec(
-		`UPDATE invoices SET status = 'paid', paid_at = $1 WHERE id = $2`,
-		time.Now(), invoiceID)
+		security.GenerateID("inv"), deviceID, polarInvoiceID, amountCents, periodStart, periodEnd)
 	return err
 }
 
@@ -257,9 +254,6 @@ func (s *Service) CheckQuota(deviceID, serviceType string, requested float64) (r
 	case "backup":
 		metric = "gb"
 		limit = float64(plan.Limits.BackupGB)
-	case "tunnel":
-		metric = "gb"
-		limit = float64(plan.Limits.TunnelGB)
 	case "smtp":
 		metric = "emails"
 		limit = float64(plan.Limits.SMTPMonthly)

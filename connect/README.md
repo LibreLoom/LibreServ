@@ -47,7 +47,7 @@ Requires `Authorization: Bearer $CONNECT_ADMIN_TOKEN`.
 
 ## Billing
 
-- Stripe integration enabled by config
+- Polar integration enabled by config (Merchant of Record — handles global tax)
 - Crypto wallet billing deferred (manual reconciliation)
 
 ## Permission / Consent Model

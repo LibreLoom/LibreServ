@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.
 import { Layout } from "../components/Layout.jsx";
 
 const serviceLabels = {
-  smtp: "Email Relay", domain: "Domain & DNS", backup: "Cloud Backup",
+  smtp: "Email", domain: "Domain & DNS", backup: "Cloud Backup",
   tunnel: "Tunnel Access", ai: "AI Assistant", support: "Human Support",
 };
 
