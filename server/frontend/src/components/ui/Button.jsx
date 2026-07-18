@@ -71,7 +71,7 @@ const buttonVariants = cva(
         primary: "bg-primary text-secondary hover:bg-accent hover:text-primary hover:scale-105",
         secondary: "bg-secondary text-primary hover:bg-accent hover:text-primary hover:scale-105",
         accent: "bg-accent text-primary hover:bg-primary hover:text-secondary hover:scale-105 ring-2 ring-transparent hover:ring-error/50",
-        danger: "bg-error text-secondary hover:bg-accent hover:text-primary hover:scale-105 ring-2 ring-transparent hover:ring-error/50",
+        danger: "bg-error text-secondary hover:text-primary hover:scale-105",
         nav: "bg-transparent text-secondary hover:bg-secondary/10",
         // OUTLINE — transparent, fills on hover (surface-aware via compound variants)
         outline: "bg-transparent border-2 hover:scale-105",
