@@ -58,7 +58,7 @@ export default function AddUserPage() {
         )}
 
         {!smtpConfigured && (
-          <p className="text-xs text-secondary/50 mt-6 text-center">
+          <p className="text-xs text-primary mt-6 text-center">
             Want to send an invitation instead? Set up email in Settings → External Services first.
           </p>
         )}

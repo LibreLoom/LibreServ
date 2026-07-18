@@ -327,13 +327,9 @@ export default function Navbar() {
             <span className="font-mono px-3 py-1.5 flex items-center">
               LibreServ
             </span>
-            {/* Simplex Mono: nav sections are separated by accent "|" dividers
-                that almost span the navbar's full height. */}
-            <div aria-hidden="true" className="h-8 w-0.5 rounded-full bg-accent" />
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtonsElements}
             </div>
-            <div aria-hidden="true" className="h-8 w-0.5 rounded-full bg-accent" />
             <div className="group flex items-center gap-2 relative">
               <button
                 type="button"
@@ -449,7 +445,6 @@ export default function Navbar() {
               </React.Fragment>
             ))}
           </div>
-          <div className="h-0.5 bg-accent rounded-full mx-4" aria-hidden="true" />
           <div className="p-2.5">
             <button
               type="button"

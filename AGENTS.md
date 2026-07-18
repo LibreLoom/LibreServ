@@ -190,8 +190,9 @@ Before ANY UI work:
 - **Contrast is not automatic**: components are NOT automatically assigned a contrasting color; it must be set manually per component. This is the #1 invisible-element bug class — a `bg-secondary` panel without `text-primary` renders dark-on-dark in dark mode.
 - Cards on `bg-primary` use `bg-secondary text-primary`. On `bg-secondary` surfaces, use `text-primary`. On `bg-primary` surfaces, use `text-secondary`.
 
-#### 3. Opacity variants only when needed
-- Prefer base tokens at full opacity. Opacity is for status/tint surfaces, not a crutch for indecision.
+#### 3. Prefer full-opacity colors
+- **Default to full-opacity tokens.** Use `text-primary`, `text-secondary`, `bg-primary`, `bg-secondary`, `bg-accent` at full opacity — NOT `text-primary/70`, `text-secondary/50`, etc. Opacity modifiers (`/70`, `/50`, `/10`) are a common cause of low-contrast text. Reach for them only when you have a concrete reason (a status tint surface), never as a default for body text, labels, or hints.
+- Opacity is for status/tint surfaces only, not a crutch for indecision or "muted" text. If text looks too loud, pick a different token — don't dial down the opacity.
 - Status tint pattern: `/20` fill + `/30` border (e.g. `bg-success/20 border-success/30`, `bg-error/20 border-error/30`).
 - Do not sprinkle opacity everywhere as a substitute for choosing the right base token.
 
