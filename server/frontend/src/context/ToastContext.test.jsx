@@ -117,6 +117,15 @@ describe("ToastContext", () => {
       result.current.addToast({ message: "Second" });
       result.current.addToast({ message: "Third" });
     });
+    // Oldest is evicted with an exit animation, not a hard cut.
+    expect(result.current.toasts).toHaveLength(3);
+    expect(result.current.toasts[0]).toMatchObject({ message: "First", exiting: true });
+    expect(result.current.toasts[1].message).toBe("Second");
+    expect(result.current.toasts[2].message).toBe("Third");
+
+    act(() => {
+      vi.advanceTimersByTime(420);
+    });
     expect(result.current.toasts).toHaveLength(2);
     expect(result.current.toasts[0].message).toBe("Second");
     expect(result.current.toasts[1].message).toBe("Third");

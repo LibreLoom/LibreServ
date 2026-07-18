@@ -785,53 +785,48 @@ body {
     }
 }
 
-/* Toast animations */
+/* Toast — M3 spring entrance; exit is JS-driven (height + margin collapse) */
 @keyframes toast-enter {
     0% {
         opacity: 0;
-        transform: translateX(40px) scale(0.92);
+        transform: translate(28px, -6px) scale(0.82);
     }
-    60% {
+    55% {
         opacity: 1;
-        transform: translateX(-2px) scale(1.015);
-    }
-    80% {
-        transform: translateX(1px) scale(0.998);
+        transform: translate(-3px, 1px) scale(1.035);
     }
     100% {
         opacity: 1;
-        transform: translateX(0) scale(1);
-    }
-}
-
-@keyframes toast-exit {
-    0% {
-        opacity: 1;
-        transform: translateX(0) scale(1);
-        max-height: 120px;
-        margin-bottom: 8px;
-    }
-    30% {
-        opacity: 0;
-        transform: translateX(24px) scale(0.96);
-    }
-    100% {
-        opacity: 0;
-        transform: translateX(24px) scale(0.96);
-        max-height: 0;
-        margin-bottom: 0;
-        padding-top: 0;
-        padding-bottom: 0;
+        transform: translate(0, 0) scale(1);
     }
 }
 
 .animate-toast-enter {
-    animation: toast-enter 350ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: toast-enter 380ms var(--motion-easing-emphasized) both;
+    will-change: transform, opacity;
+}
+
+/* Exit: fast fade + subtle scale; the grid row collapses layout height separately */
+@keyframes toast-exit {
+    0% { opacity: 1; transform: scale(1); }
+    45% { opacity: 0; transform: scale(0.94); }
+    100% { opacity: 0; transform: scale(0.9); }
 }
 
 .animate-toast-exit {
-    animation: toast-exit 400ms cubic-bezier(0.4, 0, 0.2, 1) both;
-    overflow: hidden;
+    animation: toast-exit 320ms var(--motion-easing-emphasized-accelerate) both;
+    will-change: transform, opacity;
+}
+
+/* Circular time-ring around the icon — depletes over the toast lifetime */
+@keyframes toast-ring {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: 75.4; }
+}
+
+.toast-ring {
+    animation: toast-ring 3000ms linear forwards;
+    will-change: stroke-dashoffset;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -840,6 +835,9 @@ body {
         animation: none !important;
         opacity: 1;
         transform: none;
+    }
+    .toast-ring {
+        animation: none !important;
     }
 }
 

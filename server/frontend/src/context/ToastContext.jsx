@@ -72,11 +72,20 @@ export function ToastProvider({ children, maxToasts = 5 }) {
 
       setToasts((prev) => {
         const newToasts = [...prev, toast];
-        if (newToasts.length > maxToasts) {
-          const removed = newToasts.shift();
-          if (removed && timersRef.current.has(removed.id)) {
-            clearTimeout(timersRef.current.get(removed.id).timer);
-            timersRef.current.delete(removed.id);
+        const active = newToasts.filter((t) => !t.exiting);
+        if (active.length > maxToasts) {
+          // Evict the oldest active toast with an exit animation, not a hard cut.
+          const victim = active[0];
+          const idx = newToasts.findIndex((t) => t.id === victim.id);
+          if (idx !== -1) {
+            newToasts[idx] = { ...victim, exiting: true };
+            if (timersRef.current.has(victim.id)) {
+              clearTimeout(timersRef.current.get(victim.id).timer);
+              timersRef.current.delete(victim.id);
+            }
+            setTimeout(() => {
+              setToasts((cur) => cur.filter((t) => t.id !== victim.id));
+            }, 420);
           }
         }
         return newToasts;
