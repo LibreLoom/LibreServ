@@ -98,6 +98,15 @@ build_binary() {
         -o "/tmp/${BINARY_NAME}-new" ./cmd/server
 
     cd "$REPO_ROOT"
+
+    # Copy built web UIs to the install directory.
+    # The Go binary serves these as static files; they must be updated
+    # alongside the binary or the browser loads stale JS bundles.
+    log_info "  Copying web UIs to ${INSTALL_DIR}/web/..."
+    mkdir -p "${INSTALL_DIR}/web/admin" "${INSTALL_DIR}/web/customer"
+    cp -a "$REPO_ROOT/connect/web/admin/dist/." "${INSTALL_DIR}/web/admin/"
+    cp -a "$REPO_ROOT/connect/web/customer/dist/." "${INSTALL_DIR}/web/customer/"
+
     log_info "  Build complete"
 }
 
