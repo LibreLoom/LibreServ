@@ -654,7 +654,7 @@ export default function Onboarding() {
         <Card className="w-full max-w-xl overflow-hidden">
           <CardContent className="px-10 py-10">
             <ErrorBanner error={error} onDismiss={clearError} />
-            <div key={step} className={cn("mt-2 animate-in duration-300 fill-mode-both", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}>
+            <div key={step} className={cn("mt-2 animate-in duration-300 fill-mode-both", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")} style={{ animationDuration: "300ms", animationFillMode: "both" }}>
               {stepComponents[step]?.()}
             </div>
           </CardContent>

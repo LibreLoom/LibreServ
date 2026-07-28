@@ -146,6 +146,19 @@ body {
 .animate-fade-in-up { animation: fade-in-up 300ms ease-out both; }
 .animate-pop-in { animation: pop-in 200ms ease-out both; }
 
+/* Step transition animations — match LibreServ main app */
+@keyframes slide-in-from-right-pop {
+    from { opacity: 0; transform: translateX(32px) scale(0.96); }
+    to { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes slide-in-from-left-pop {
+    from { opacity: 0; transform: translateX(-32px) scale(0.96); }
+    to { opacity: 1; transform: translateX(0) scale(1); }
+}
+.slide-in-from-right-pop { animation-name: slide-in-from-right-pop; }
+.slide-in-from-left-pop { animation-name: slide-in-from-left-pop; }
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-fade-in, .animate-fade-in-up, .animate-pop-in { animation: none; }
+  .animate-fade-in, .animate-fade-in-up, .animate-pop-in,
+  .slide-in-from-right-pop, .slide-in-from-left-pop { animation: none; }
 }
