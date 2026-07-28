@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"log/slog"
 	"net/http"
 	"strings"
 )
@@ -15,8 +14,6 @@ import (
 func SPAFallback(serveSPA http.HandlerFunc) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			accept := r.Header.Get("Accept")
-			slog.Info("SPAFallback", "path", r.URL.Path, "method", r.Method, "accept", accept, "isNav", isBrowserNavigation(r))
 			if isBrowserNavigation(r) {
 				serveSPA(w, r)
 				return

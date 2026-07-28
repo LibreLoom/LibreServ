@@ -96,6 +96,7 @@ func (s *Server) setupRoutes() {
 
 		// Authenticated routes
 		r.Group(func(r chi.Router) {
+			r.Use(middleware.SPAFallback(s.serveCustomerSPA))
 			r.Use(middleware.CustomerAuth(s.db))
 
 			// Devices
