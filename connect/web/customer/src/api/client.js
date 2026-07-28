@@ -19,7 +19,7 @@ async function request(path, options = {}) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(path, { ...options, headers });
+  const res = await fetch(path, { ...options, headers, cache: "no-store" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "Request failed" }));
     throw new Error(body.error || `HTTP ${res.status}`);

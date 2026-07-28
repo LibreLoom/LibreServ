@@ -281,6 +281,12 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request, fsys http.F
 		return
 	}
 
-	// Serve the file using http.ServeContent for proper caching headers.
+	// Prevent browser caching of SPA HTML fallback responses. Without this,
+	// the browser caches the HTML for a route like /admin/providers and
+	// serves it to subsequent fetch() calls to the same URL, breaking API
+	// calls that expect JSON.
+	if path.Ext(rel) == "" {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f.(io.ReadSeeker))
 }
