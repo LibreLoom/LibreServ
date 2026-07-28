@@ -354,7 +354,7 @@ export default function Onboarding() {
                 )}
               </div>
               {isCurrent && (
-                <div className="flex items-center gap-1.5 mt-2 text-card-foreground">
+                <div className="flex items-center gap-1.5 mt-2 text-card-foreground animate-in fade-in slide-in-from-bottom-1 duration-200">
                   <Check className="w-3.5 h-3.5" />
                   <span className="text-xs font-mono">Selected</span>
                 </div>
@@ -365,7 +365,7 @@ export default function Onboarding() {
       </div>
 
       {selectedPlan && !isFreePlan && (
-        <div className="w-full max-w-sm mt-4 rounded-large-element border border-border bg-muted p-4 text-left">
+        <div className="w-full max-w-sm mt-4 rounded-large-element border border-border bg-muted p-4 text-left animate-in fade-in slide-in-from-bottom-2 duration-300">
           <p className="text-xs text-muted-foreground">
             Payment is handled securely by Stripe. You'll check out from your dashboard after setup.
           </p>
