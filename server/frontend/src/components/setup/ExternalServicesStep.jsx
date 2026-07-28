@@ -1,29 +1,39 @@
 import { useState } from "react";
-import { ExternalLink, Settings, ArrowRight } from "lucide-react";
+import { Globe, Mail, Shield, DatabaseBackup, ArrowRight, ArrowLeft, Key, ExternalLink } from "lucide-react";
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 import Button from "../ui/Button";
 
 const CONNECT_URL = "https://connect.serv.libreloom.org/onboarding";
 
+const SERVICES = [
+  { icon: Globe, label: "Domain", desc: "Reach your apps by name instead of a number" },
+  { icon: Mail, label: "Email", desc: "Notifications and password resets" },
+  { icon: Shield, label: "Remote access", desc: "Use LibreServ away from home" },
+  { icon: DatabaseBackup, label: "Backup", desc: "Protect your data in the cloud" },
+];
+
 /**
  * ExternalServicesStep — rendered inside SetupPage's card shell.
+ * Card surface is bg-secondary text-primary. All muted text uses text-accent.
  *
- * Gives the user two paths:
- * 1. "Use LibreServ Connect" — opens the Connect onboarding flow in a new tab.
- *    The user creates an account, selects a plan, gets a license key, and pastes
- *    it back here. The device activates and all external services (email, domain,
- *    tunnel, backups) are auto-provisioned through Connect.
- * 2. "Set up manually" — skips to MFA. The user configures each service
+ * Two paths:
+ * 1. "Use LibreServ Connect" — immediately opens Connect onboarding in a new
+ *    tab, then shows a focused paste-your-key view. If the popup was blocked,
+ *    a fallback link is shown.
+ * 2. "Set up on your own" — skips to MFA. The user configures each service
  *    individually later in Settings → External Services.
  */
 export default function ExternalServicesStep({ onActivate, onSkip }) {
+  const [mode, setMode] = useState(null); // null | "connect"
   const [token, setToken] = useState("");
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState("");
+  const [popupBlocked, setPopupBlocked] = useState(false);
 
   const handleActivate = async () => {
     if (!token.trim()) {
-      setError("Please paste your Connect token here.");
+      setError("Please paste your Connect license key.");
       return;
     }
     setActivating(true);
@@ -31,107 +41,166 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
     try {
       await onActivate(token.trim());
     } catch (err) {
-      setError(err.message || "Could not connect to LibreServ Connect. Please check your token and try again.");
+      setError(err.message || "Could not connect to LibreServ Connect. Check your key and try again.");
       setActivating(false);
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleActivate();
+  const handleChooseConnect = () => {
+    // Try to open Connect in a new tab immediately
+    const win = window.open(CONNECT_URL, "_blank", "noopener,noreferrer");
+    if (!win) {
+      setPopupBlocked(true);
     }
+    setMode("connect");
   };
 
+  // Landing view — explain the concept and offer two paths
+  if (mode === null) {
+    return (
+      <div className="flex flex-col items-center text-center py-4" data-slot="external-services">
+        <Globe size={48} className="text-accent mx-auto mb-4" />
+        <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
+          Connect to the outside world
+        </h1>
+        <p className="text-accent text-sm leading-relaxed max-w-md mb-2">
+          LibreServ works on its own. But a few external services make it
+          much more useful — and harder to accidentally lock yourself out.
+        </p>
+
+        <div className="w-full max-w-sm space-y-2 mb-8">
+          {SERVICES.map(({ icon: Icon, label, desc }) => (
+            <div key={label} className="flex items-start gap-3 text-left">
+              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center mt-0.5">
+                <Icon size={14} className="text-accent" />
+              </div>
+              <div>
+                <span className="font-mono text-sm text-primary">{label}</span>
+                <p className="text-xs text-accent mt-0.5">{desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="w-full max-w-sm space-y-2.5">
+          <button
+            type="button"
+            onClick={handleChooseConnect}
+            className={cn(
+              "w-full flex items-center gap-4 p-4 rounded-large-element border",
+              "border-accent/30 bg-accent/10 hover:bg-accent/20 hover:border-accent/40",
+              "text-primary motion-safe:transition-all motion-safe:duration-200",
+            )}
+          >
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-accent/20 flex items-center justify-center">
+              <ExternalLink size={18} className="text-accent" />
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-mono text-sm text-primary">Use LibreServ Connect</div>
+              <div className="text-xs text-accent mt-0.5">
+                One signup handles all four services. Free plan available.
+              </div>
+            </div>
+            <ArrowRight size={16} className="text-accent flex-shrink-0" />
+          </button>
+
+          <button
+            type="button"
+            onClick={onSkip}
+            className={cn(
+              "w-full flex items-center gap-4 p-4 rounded-large-element border",
+              "border-accent/15 hover:border-accent/30",
+              "text-primary motion-safe:transition-all motion-safe:duration-200",
+            )}
+          >
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-accent/10 flex items-center justify-center">
+              <ArrowRight size={18} className="text-accent" />
+            </div>
+            <div className="flex-1 text-left">
+              <div className="font-mono text-sm text-primary">Set up on your own</div>
+              <div className="text-xs text-accent mt-0.5">
+                Configure each service individually later. You can always switch to Connect.
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Connect flow — focused on pasting the key, with popup-blocked fallback
   return (
-    <>
-      <h1 className="font-mono text-2xl text-primary mb-2">
-        External Services
+    <div className="flex flex-col items-center text-center py-4" data-slot="external-services-connect">
+      <Key size={48} className="text-accent mx-auto mb-4" />
+      <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
+        Paste your license key
       </h1>
-      <p className="text-primary/50 text-sm leading-relaxed mb-6">
-        Your server needs a few things from the outside world — email, a
-        domain name, remote access, and backups. You can set all of these up
-        at once through LibreServ Connect, or configure them manually later.
+      <p className="text-accent text-sm leading-relaxed max-w-md mb-6">
+        We've opened the Connect setup in a new tab. Complete the signup there,
+        then copy the license key from the final step and paste it below.
       </p>
 
-      {/* Option 1: Use Connect */}
-      <div className="rounded-large-element border-2 border-accent/30 p-5 mb-4 bg-primary/5">
-        <div className="flex items-start gap-3 mb-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-pill bg-accent/20 flex items-center justify-center">
-            <ExternalLink className="w-4 h-4 text-accent" />
-          </div>
-          <div>
-            <h2 className="font-mono text-base text-primary">
-              Use LibreServ Connect
-            </h2>
-            <p className="text-primary/50 text-xs mt-1">
-              Automatically sets up email, domain, tunnel, and backups.
-              Takes about 2 minutes.
-            </p>
-          </div>
-        </div>
-
-        <Button
-          asChild
-          fullWidth
-          className="mb-3"
-        >
-          <a href={CONNECT_URL} target="_blank" rel="noopener noreferrer">
-            Get started with Connect
-            <ArrowRight className="w-4 h-4 ml-2" />
-          </a>
-        </Button>
-
-        <div className="mt-4">
-          <label className="text-xs text-primary/50 font-mono mb-1.5 block">
-            Paste your Connect token here after signing up
-          </label>
-          <textarea
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Paste your license key here..."
-            rows={2}
-            className="w-full rounded-large-element border border-accent/20 bg-primary px-4 py-2.5 text-sm text-secondary font-mono focus-visible:outline-none focus-visible:border-accent resize-none"
-            disabled={activating}
-          />
-          {error && (
-            <p className="text-xs text-error mt-1.5">{error}</p>
-          )}
-          <Button
-            variant="accent"
-            size="sm"
-            className="mt-2"
-            onClick={handleActivate}
-            loading={activating}
-            disabled={!token.trim()}
-          >
-            Activate
+      {popupBlocked && (
+        <div className="w-full max-w-sm mb-6 rounded-large-element border border-accent/30 bg-accent/10 p-4 text-left">
+          <p className="text-sm text-primary font-mono mb-2">
+            Popup blocked
+          </p>
+          <p className="text-xs text-accent mb-3">
+            Your browser blocked the new tab. Open this link manually:
+          </p>
+          <Button asChild fullWidth size="sm" variant="outline">
+            <a href={CONNECT_URL} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="w-4 h-4 mr-2" />
+              connect.serv.libreloom.org
+            </a>
           </Button>
         </div>
+      )}
+
+      <div className="w-full max-w-sm space-y-3">
+        <input
+          type="text"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleActivate();
+            }
+          }}
+          placeholder="Paste your license key here..."
+          autoFocus
+          disabled={activating}
+          className={cn(
+            "w-full px-4 py-3 rounded-pill font-mono text-sm",
+            "bg-primary text-secondary border-2 border-accent/30",
+            "focus:border-accent focus:outline-none",
+            "motion-safe:transition-colors placeholder:text-secondary/40",
+          )}
+        />
+        {error && (
+          <p className="text-xs text-error">{error}</p>
+        )}
+        <Button
+          variant="accent"
+          fullWidth
+          onClick={handleActivate}
+          loading={activating}
+          disabled={!token.trim()}
+        >
+          <Key className="w-4 h-4 mr-2" />
+          Activate Connect
+        </Button>
       </div>
 
-      {/* Option 2: Set up manually */}
-      <div className="rounded-large-element border border-accent/10 p-5">
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 rounded-pill bg-accent/10 flex items-center justify-center">
-            <Settings className="w-4 h-4 text-accent/60" />
-          </div>
-          <div className="flex-1">
-            <h2 className="font-mono text-base text-primary/80">
-              Set up manually
-            </h2>
-            <p className="text-primary/50 text-xs mt-1 mb-3">
-              Configure each service individually in Settings after setup.
-              You can always enable Connect later.
-            </p>
-            <Button variant="outline" size="sm" onClick={onSkip}>
-              Skip for now
-            </Button>
-          </div>
-        </div>
-      </div>
-    </>
+      <button
+        type="button"
+        onClick={() => { setMode(null); setError(""); setPopupBlocked(false); }}
+        className="flex items-center gap-1.5 text-sm text-accent hover:text-primary mt-6 motion-safe:transition-colors"
+      >
+        <ArrowLeft size={14} /> Back
+      </button>
+    </div>
   );
 }
 

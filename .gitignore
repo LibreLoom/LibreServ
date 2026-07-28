@@ -115,3 +115,5 @@ connect/internal/api/customer/dist/assets/
 
 # Agent config
 .pi/
+# OpenMP / omp artifacts
+.omp

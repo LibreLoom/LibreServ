@@ -11,6 +11,7 @@ import {
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
 import Alert from "../common/Alert";
+import OtpInput from "../ui/OtpInput";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
 import { bufToB64url, prepareRequestOptions } from "../../utils/webauthn";
@@ -175,6 +176,8 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
   }
 
   // --- Recovery code entry ---
+  // Recovery codes are variable-length freeform strings, not fixed-width OTPs,
+  // so they use the plain text input (EntryShell with no maxLength).
   if (selected === "recovery") {
     return (
       <EntryShell

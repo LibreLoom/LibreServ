@@ -2,7 +2,15 @@ import { cn } from "../../lib/utils.js";
 
 /** @param {any} props */
 export function Card({ className = "", ...props }) {
-  return <div className={cn("rounded-lg border border-border bg-card text-card-foreground p-6", className)} {...props} />;
+  return (
+    <div
+      className={cn(
+        "rounded-large-element border border-border bg-card text-card-foreground shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden",
+        className
+      )}
+      {...props}
+    />
+  );
 }
 
 /** @param {any} props */

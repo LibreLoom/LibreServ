@@ -673,6 +673,14 @@ body {
 .animate-cursor-blink {
     animation: cursor-blink 1s step-end infinite;
 }
+/* OTP input fake caret blink (input-otp library) */
+@keyframes otp-caret-blink {
+    0%, 70%, 100% { opacity: 1; }
+    20%, 50% { opacity: 0; }
+}
+.animate-otp-caret-blink {
+    animation: otp-caret-blink 1.2s ease-out infinite;
+}
 
 /* Reduced motion accessibility - WCAG 2.1 Level AA */
 @media (prefers-reduced-motion: reduce) {
@@ -696,14 +704,8 @@ body {
         transform: none;
         transition: none;
     }
-    .slide-in-from-right-pop,
-    .slide-in-from-left-pop,
-    .slide-in-from-bottom-4 {
-        animation: none !important;
-        opacity: 1;
-        transform: none;
-    }
-    .animate-cursor-blink {
+    .animate-cursor-blink,
+    .animate-otp-caret-blink {
         animation: none;
         opacity: 1;
     }

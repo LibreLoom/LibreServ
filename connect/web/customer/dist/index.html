@@ -4,11 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LibreServ Connect</title>
+    <link rel="preload" href="/fonts/FreeMono.ttf" as="font" type="font/ttf" crossorigin />
     <script>
-      (function(){try{var t=localStorage.getItem("connect-theme");var isDark=false;if(t==="dark")isDark=true;else if(t==="system"||!t){if(window.matchMedia&&window.matchMedia("(prefers-color-scheme:dark)").matches)isDark=true;}var r=document.documentElement;if(isDark)r.classList.add("dark");}catch(e){}})();
+      (function() {
+        try {
+          var t = localStorage.getItem("connect-theme");
+          var isDark = false;
+          if (t === "dark") isDark = true;
+          else if (t === "system" || !t) {
+            if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) isDark = true;
+          }
+          if (isDark) document.documentElement.classList.add("dark");
+        } catch (e) {}
+      })();
     </script>
-    <script type="module" crossorigin src="/assets/index-B13DsEa-.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-dpaDvY9r.css">
+    <script type="module" crossorigin src="/assets/index-DZdHgi7i.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BhFEUndS.css">
   </head>
   <body>
     <div id="root"></div>

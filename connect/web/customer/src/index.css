@@ -2,7 +2,39 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@theme {
+@font-face {
+  font-family: 'FreeMono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/FreeMono.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/FreeMonoOblique.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/FreeMonoBold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/FreeMonoBoldOblique.ttf') format('truetype');
+}
+
+@theme inline {
   --font-mono: "FreeMono", "Courier New", monospace;
   --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
 
@@ -20,25 +52,31 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
 
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-error: var(--error);
-  --color-error-foreground: var(--error-foreground);
+  --color-success: var(--palette-success, #22c55e);
+  --color-warning: var(--palette-warning, #eab308);
+  --color-error: var(--palette-error, #ef4444);
+  --color-destructive: var(--color-error);
+  --color-info: var(--palette-info, #3b82f6);
 
   --radius-pill: 9999px;
+  --radius-large-element: 24px;
   --radius-lg: 24px;
   --radius-md: 16px;
   --radius-sm: 8px;
 }
 
+/*
+ * Simplex Mono identity, shadcn semantics.
+ * - background/foreground: page and its text (white+black / black+white)
+ * - card: white on light, elevated dark (#141414) on dark — never the same
+ *   flat black as the page, so cards read as layered surfaces.
+ * - primary/primary-foreground: action color (always opposite of background)
+ * - muted-foreground: #767676 gray — readable on both page and card
+ */
 :root {
   --background: #ffffff;
   --foreground: #000000;
@@ -54,45 +92,29 @@
   --muted-foreground: #767676;
   --accent: #f5f5f5;
   --accent-foreground: #000000;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
   --border: #e5e5e5;
   --input: #e5e5e5;
   --ring: #767676;
-  --success: #22c55e;
-  --success-foreground: #ffffff;
-  --warning: #eab308;
-  --warning-foreground: #000000;
-  --error: #ef4444;
-  --error-foreground: #ffffff;
 }
 
 .dark {
   --background: #000000;
   --foreground: #ffffff;
-  --card: #0a0a0a;
+  --card: #141414;
   --card-foreground: #ffffff;
-  --popover: #000000;
+  --popover: #141414;
   --popover-foreground: #ffffff;
   --primary: #ffffff;
   --primary-foreground: #000000;
-  --secondary: #1a1a1a;
+  --secondary: #242424;
   --secondary-foreground: #ffffff;
-  --muted: #1a1a1a;
+  --muted: #242424;
   --muted-foreground: #767676;
-  --accent: #1a1a1a;
+  --accent: #2a2a2a;
   --accent-foreground: #ffffff;
-  --destructive: #ef4444;
-  --destructive-foreground: #ffffff;
-  --border: #2a2a2a;
-  --input: #2a2a2a;
+  --border: #2e2e2e;
+  --input: #2e2e2e;
   --ring: #767676;
-  --success: #22c55e;
-  --success-foreground: #000000;
-  --warning: #eab308;
-  --warning-foreground: #000000;
-  --error: #ef4444;
-  --error-foreground: #ffffff;
 }
 
 html {
