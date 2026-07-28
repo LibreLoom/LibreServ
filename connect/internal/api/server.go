@@ -281,12 +281,12 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request, fsys http.F
 		return
 	}
 
-	// Prevent browser caching of SPA HTML fallback responses. Without this,
-	// the browser caches the HTML for a route like /admin/providers and
-	// serves it to subsequent fetch() calls to the same URL, breaking API
-	// calls that expect JSON.
-	if path.Ext(rel) == "" {
-		w.Header().Set("Cache-Control", "no-store")
+	// Prevent browser caching of SPA HTML responses. index.html is the SPA
+	// entry point — if the browser caches it, it loads stale JS bundle
+	// hashes after a deploy. SPA fallback routes (no extension) also need
+	// no-store so fetch() calls don't receive cached HTML.
+	if rel == "index.html" || path.Ext(rel) == "" {
+		w.Header().Set("Cache-Control", "no-store, must-revalidate")
 	}
 	http.ServeContent(w, r, stat.Name(), stat.ModTime(), f.(io.ReadSeeker))
 }
