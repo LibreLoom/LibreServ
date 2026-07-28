@@ -175,7 +175,10 @@ main() {
         if [ "${1:-}" = "--tag" ] && [ -n "${2:-}" ]; then
             ref="$2"
         else
-            ref=$(git describe --tags --match 'connect-v*' --abbrev=0 2>/dev/null || true)
+            # Latest connect-v* tag repo-wide. `git describe` only finds tags
+            # reachable from the current checkout, which breaks once the box is
+            # sitting on an older detached tag.
+            ref=$(git tag --list 'connect-v*' --sort=-v:refname | head -1)
             if [ -z "$ref" ]; then
                 log_error "No connect-v* tags found. Create one: git tag connect-v0.1.0 && git push --tags"
                 exit 1
