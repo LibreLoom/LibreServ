@@ -98,7 +98,8 @@ export default function Onboarding() {
   const plans = plansData?.plans || [];
 
   const currentPlan = selectedPlan ? plans.find((p) => p.id === selectedPlan) : null;
-  const isFreePlan = currentPlan?.name?.toLowerCase() === "free";
+  // Plans are named "Connect Free" etc. — detect free by price, not name.
+  const isFreePlan = currentPlan ? currentPlan.price_monthly === 0 : false;
 
   const clearError = () => setError("");
 

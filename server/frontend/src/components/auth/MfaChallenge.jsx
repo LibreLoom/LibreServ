@@ -239,7 +239,23 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
   );
 }
 
-function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, maxLength, label, autoFocus }) {
+/**
+ * @param {{
+ *   title?: string,
+ *   onBack?: () => void,
+ *   onSubmit?: () => void,
+ *   loading?: boolean,
+ *   disabled?: boolean,
+ *   error?: string,
+ *   code?: string,
+ *   setCode?: (v: string) => void,
+ *   placeholder?: string,
+ *   maxLength?: number,
+ *   label?: string,
+ *   autoFocus?: boolean,
+ * } | undefined} [props]
+ */
+function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, maxLength, label, autoFocus } = {}) {
   const inputId = useId();
   const isOtp = typeof maxLength === "number";
   return (

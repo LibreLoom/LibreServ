@@ -16,9 +16,9 @@ import { cn } from "../../lib/utils";
 
 /**
  * @param {{
- *   value: string,
- *   onChange: (v: string) => void,
- *   length?: number,
+ *   value?: string,
+ *   onChange?: (v: string) => void,
+ *   maxLength?: number,
  *   label?: string,
  *   onComplete?: (...args: any[]) => unknown,
  *   disabled?: boolean,
@@ -30,7 +30,7 @@ import { cn } from "../../lib/utils";
 export default function OtpInput({
   value,
   onChange,
-  length = 6,
+  maxLength = 6,
   label,
   onComplete,
   disabled = false,
@@ -43,7 +43,7 @@ export default function OtpInput({
       // `id` lands on the real <input> (input-otp forwards unknown props to it),
       // so <label htmlFor={id}> works and screen readers announce the label.
       id={id}
-      maxLength={length}
+      maxLength={maxLength}
       value={value}
       onChange={onChange}
       onComplete={onComplete}
@@ -55,7 +55,7 @@ export default function OtpInput({
       // Per-slot dimmed placeholder characters. input-otp sets aria-placeholder
       // from this on the real input; the native placeholder attribute is NOT set,
       // so tests should query by label, not by placeholder text.
-      placeholder={label ? label.slice(0, length) : undefined}
+      placeholder={label ? label.slice(0, maxLength) : undefined}
       // center so taps land on a sensible slot on mobile.
       textAlign="center"
       containerClassName={cn(
@@ -115,7 +115,7 @@ function FakeCaret() {
 OtpInput.propTypes = {
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
-  length: PropTypes.number,
+  maxLength: PropTypes.number,
   label: PropTypes.string,
   onComplete: PropTypes.func,
   disabled: PropTypes.bool,

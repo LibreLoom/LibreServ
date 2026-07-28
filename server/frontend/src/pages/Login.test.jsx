@@ -152,10 +152,10 @@ describe("Login", () => {
 
     await user.click(screen.getByText(/Authenticator app/i));
     await waitFor(() =>
-      expect(screen.getByPlaceholderText(/6-digit code/i)).toBeInTheDocument(),
+      expect(screen.getByLabelText(/Authenticator app/i)).toBeInTheDocument(),
     );
 
-    await user.type(screen.getByPlaceholderText(/6-digit code/i), "123456");
+    await user.type(screen.getByLabelText(/Authenticator app/i), "123456");
     await user.click(screen.getByRole("button", { name: /Verify/i }));
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/setup"));
