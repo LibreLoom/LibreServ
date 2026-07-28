@@ -53,7 +53,7 @@ function ProgressBar({ step }) {
 function ErrorBanner({ error, onDismiss }) {
   if (!error) return null;
   return (
-    <div className="rounded-large-element bg-error/10 border-2 border-error/30 p-3 flex items-start gap-2 animate-fade-in mb-6">
+    <div className="rounded-large-element bg-error/10 border-2 border-error/30 p-3 flex items-start gap-2 mb-6">
       <X className="w-4 h-4 text-error mt-0.5 shrink-0" />
       <p className="text-sm text-error flex-1">{error}</p>
       {onDismiss && (
@@ -69,6 +69,7 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [step, setStep] = useState(0);
+  const [direction, setDirection] = useState("right"); // "right" | "left"
   const [error, setError] = useState("");
 
   const [email, setEmail] = useState("");
@@ -178,15 +179,15 @@ export default function Onboarding() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const goNext = () => setStep((s) => s + 1);
-  const goPrev = () => setStep((s) => s - 1);
+  const goNext = () => { setDirection("right"); setStep((s) => s + 1); };
+  const goPrev = () => { setDirection("left"); setStep((s) => s - 1); };
   const goBack = () => navigate("/");
   const handleBack = step === 0 ? goBack : goPrev;
 
   // ===== Step Renderers =====
 
   const renderWelcome = () => (
-    <div className="flex flex-col items-center text-center py-4 animate-fade-in">
+    <div className="flex flex-col items-center text-center py-4">
       <Sparkles size={48} className="text-muted-foreground mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
         Set up LibreServ Connect
@@ -202,7 +203,7 @@ export default function Onboarding() {
   );
 
   const renderAuth = () => (
-    <div className="flex flex-col items-center text-center py-4 animate-fade-in">
+    <div className="flex flex-col items-center text-center py-4">
       <User size={48} className="text-muted-foreground mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
         {isLoginMode ? "Welcome back" : "Create your account"}
@@ -271,7 +272,7 @@ export default function Onboarding() {
   );
 
   const renderDevice = () => (
-    <div className="flex flex-col items-center text-center py-4 animate-fade-in">
+    <div className="flex flex-col items-center text-center py-4">
       <Server size={48} className="text-muted-foreground mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
         Name your device
@@ -302,7 +303,7 @@ export default function Onboarding() {
   );
 
   const renderPlan = () => (
-    <div className="flex flex-col items-center text-center py-4 animate-fade-in">
+    <div className="flex flex-col items-center text-center py-4">
       <Shield size={48} className="text-muted-foreground mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
         Choose a plan
@@ -383,7 +384,7 @@ export default function Onboarding() {
   };
 
   const renderFreeDomain = () => (
-    <div className="flex flex-col items-center text-center py-4 animate-fade-in">
+    <div className="flex flex-col items-center text-center py-4">
       <Globe size={48} className="text-muted-foreground mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
         Pick your free domain
@@ -421,7 +422,7 @@ export default function Onboarding() {
   );
 
   const renderPaidDomain = () => (
-    <div className="flex flex-col items-center text-center py-4 animate-fade-in">
+    <div className="flex flex-col items-center text-center py-4">
       <Globe size={48} className="text-muted-foreground mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
         Choose your domain
@@ -488,7 +489,7 @@ export default function Onboarding() {
       {domainMode === "custom" && (
         <div className="w-full max-w-sm space-y-4 text-left">
           {registeredDomain ? (
-            <div className="text-center space-y-4 animate-fade-in">
+            <div className="text-center space-y-4">
               <div className="mx-auto w-14 h-14 rounded-full bg-success/20 flex items-center justify-center">
                 <Check className="w-7 h-7 text-success" />
               </div>
@@ -576,7 +577,7 @@ export default function Onboarding() {
   );
 
   const renderLicenseKey = () => (
-    <div className="flex flex-col items-center text-center py-4 animate-fade-in">
+    <div className="flex flex-col items-center text-center py-4">
       <Key size={48} className="text-muted-foreground mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
         Your license key
@@ -650,10 +651,10 @@ export default function Onboarding() {
       <ProgressBar step={step} />
 
       <div className="flex-1 flex items-center justify-center px-4 py-8">
-        <Card className="w-full max-w-xl animate-fade-in">
+        <Card className="w-full max-w-xl overflow-hidden">
           <CardContent className="px-10 py-10">
             <ErrorBanner error={error} onDismiss={clearError} />
-            <div className="mt-2">
+            <div key={step} className={cn("mt-2 animate-in duration-300", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}>
               {stepComponents[step]?.()}
             </div>
           </CardContent>
