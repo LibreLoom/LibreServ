@@ -43,6 +43,43 @@ func CreateCheckoutSession(ctx context.Context, priceID, deviceID, successURL, c
 	return s.URL, nil
 }
 
+// CreateDomainCheckoutSession creates a Stripe Checkout session for a one-time
+// domain registration payment. The domain name and device ID are stored in
+// metadata so the webhook handler can register the domain after payment succeeds.
+func CreateDomainCheckoutSession(ctx context.Context, deviceID, domainName string, amountCents int64, successURL, cancelURL string) (sessionURL string, err error) {
+	params := &stripego.CheckoutSessionParams{
+		Mode: stripego.String(string(stripego.CheckoutSessionModePayment)),
+		LineItems: []*stripego.CheckoutSessionLineItemParams{
+			{
+				PriceData: &stripego.CheckoutSessionLineItemPriceDataParams{
+					Currency: stripego.String("usd"),
+					ProductData: &stripego.CheckoutSessionLineItemPriceDataProductDataParams{
+						Name: stripego.String("Domain registration: " + domainName + " (1 year)"),
+					},
+					UnitAmount: stripego.Int64(amountCents),
+				},
+				Quantity: stripego.Int64(1),
+			},
+		},
+		SuccessURL:        stripego.String(successURL),
+		CancelURL:         stripego.String(cancelURL),
+		ClientReferenceID: stripego.String(deviceID),
+		Metadata: map[string]string{
+			"type":         "domain_registration",
+			"domain":       domainName,
+			"device_id":    deviceID,
+			"amount_cents": fmt.Sprintf("%d", amountCents),
+		},
+	}
+	params.Context = ctx
+
+	s, err := session.New(params)
+	if err != nil {
+		return "", fmt.Errorf("create domain checkout session: %w", err)
+	}
+	return s.URL, nil
+}
+
 // CancelSubscription cancels a Stripe subscription immediately.
 func CancelSubscription(ctx context.Context, subscriptionID string) error {
 	params := &stripego.SubscriptionCancelParams{}

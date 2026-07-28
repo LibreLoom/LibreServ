@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -951,7 +952,9 @@ func (h *PortalHandler) CheckDomain(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, result)
 }
 
-// RegisterDomain registers a domain via Cloudflare Registrar and records it.
+// RegisterDomain creates a Stripe checkout session for purchasing a domain.
+// The domain is registered via Cloudflare Registrar after payment succeeds (webhook).
+// This charges the user at-cost via Stripe — no markup on the registration price.
 func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DeviceID string `json:"device_id"`
@@ -987,31 +990,63 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check domain availability and get the at-cost price from Cloudflare Registrar
 	apiToken, cfAccountID, err := h.lookUpTunnelCredentials(r)
 	if err != nil {
-		JSONError(w, http.StatusBadGateway, "Cloudflare tunnel provider is not configured. Please set it up from the Admin panel.")
+		JSONError(w, http.StatusBadGateway, "Cloudflare provider is not configured. Please set it up from the Admin panel.")
 		return
 	}
 
-	if err := h.registrar.RegisterDomain(cfAccountID, apiToken, req.Domain); err != nil {
-		JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not register domain: %s", err.Error()))
-		return
-	}
-
-	domainID := security.GenerateID("dom")
-	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO custom_domains (id, device_id, domain, registered_via, auto_renew, status) VALUES ($1, $2, $3, $4, $5, $6)`,
-		domainID, req.DeviceID, req.Domain, "cloudflare", true, "registered",
-	)
+	domainInfo, err := h.registrar.CheckDomain(cfAccountID, apiToken, req.Domain)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not save domain record")
+		JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not check domain availability: %s", err.Error()))
+		return
+	}
+	if !domainInfo.Registrable {
+		JSONError(w, http.StatusConflict, "This domain is not available for registration.")
+		return
+	}
+
+	// If Stripe is not enabled, register directly (dev mode)
+	if !config.C.Stripe.Enabled {
+		if err := h.registrar.RegisterDomain(cfAccountID, apiToken, req.Domain); err != nil {
+			JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not register domain: %s", err.Error()))
+			return
+		}
+		domainID := security.GenerateID("dom")
+		_, _ = h.db.ExecContext(r.Context(),
+			`INSERT INTO custom_domains (id, device_id, domain, registered_via, auto_renew, status) VALUES ($1, $2, $3, $4, $5, $6)`,
+			domainID, req.DeviceID, req.Domain, "cloudflare", true, "active")
+		JSON(w, http.StatusOK, map[string]any{
+			"domain": req.Domain,
+			"status": "registered",
+			"id":     domainID,
+		})
+		return
+	}
+
+	// Create a Stripe checkout session for the domain registration (at-cost, one-time payment)
+	// Parse the registration cost to cents
+	amountCents, err := parseDomainCostToCents(domainInfo.RegistrationCost)
+	if err != nil || amountCents <= 0 {
+		JSONError(w, http.StatusInternalServerError, "could not determine domain registration cost")
+		return
+	}
+
+	successURL := config.C.Server.BaseURL + "/billing?status=success"
+	cancelURL := config.C.Server.BaseURL + "/onboarding?status=cancelled"
+
+	checkoutURL, err := providers.CreateDomainCheckoutSession(r.Context(), req.DeviceID, req.Domain, amountCents, successURL, cancelURL)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not create checkout session for domain")
 		return
 	}
 
 	JSON(w, http.StatusOK, map[string]any{
-		"domain": req.Domain,
-		"status": "registered",
-		"id":     domainID,
+		"checkout_url":  checkoutURL,
+		"domain":        req.Domain,
+		"price_cents":   amountCents,
+		"price_display": fmt.Sprintf("$%.2f", float64(amountCents)/100),
 	})
 }
 
@@ -1067,4 +1102,13 @@ func (h *PortalHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{
 		"domains": domains,
 	})
+}
+
+// parseDomainCostToCents converts a price string like "11.20" to cents (1120).
+func parseDomainCostToCents(cost string) (int64, error) {
+	amount, err := strconv.ParseFloat(cost, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid cost %q: %w", cost, err)
+	}
+	return int64(amount * 100), nil
 }

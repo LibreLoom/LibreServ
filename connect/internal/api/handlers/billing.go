@@ -13,17 +13,19 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
 // BillingHandler handles Stripe webhook events.
 type BillingHandler struct {
-	billing *billing.Service
+	billing   *billing.Service
+	registrar *providers.RegistrarClient
 }
 
 // NewBillingHandler creates a billing handler.
 func NewBillingHandler(b *billing.Service) *BillingHandler {
-	return &BillingHandler{billing: b}
+	return &BillingHandler{billing: b, registrar: providers.NewRegistrarClient(nil)}
 }
 
 // StripeWebhook processes incoming Stripe webhook events.
@@ -86,12 +88,17 @@ func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Determine plan from the subscription's price items
+	// Check if this is a domain registration payment (metadata.type = domain_registration)
+	if session.Metadata != nil && session.Metadata["type"] == "domain_registration" {
+		h.handleDomainPurchase(w, r, &session)
+		return
+	}
+
+	// Otherwise it's a subscription checkout — determine plan from the subscription's price items
 	planID := "free"
 	if session.Subscription != nil {
 		planID = priceToPlanFromSubscription(session.Subscription)
 	}
-
 	_, err := h.billing.DB().Exec(
 		`INSERT INTO subscriptions (id, device_id, plan_id, status, started_at, stripe_subscription_id)
 		 VALUES ($1, $2, $3, 'active', $4, $5)
@@ -111,6 +118,58 @@ func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.
 		"UPDATE devices SET plan_id = $1 WHERE id = $2", planID, deviceID)
 
 	JSON(w, http.StatusOK, map[string]string{"message": "checkout completed"})
+}
+
+// handleDomainPurchase registers a domain after the Stripe payment succeeds.
+// Called from handleCheckoutCompleted when metadata.type == "domain_registration".
+func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Request, session *stripego.CheckoutSession) {
+	domainName := session.Metadata["domain"]
+	deviceID := session.Metadata["device_id"]
+	if domainName == "" || deviceID == "" {
+		slog.Error("domain purchase missing metadata", "metadata", session.Metadata)
+		JSONError(w, http.StatusBadRequest, "missing domain metadata")
+		return
+	}
+
+	// Look up the Cloudflare API credentials from the tunnel service provider
+	var credentialsJSON, settingsJSON string
+	err := h.billing.DB().QueryRow(
+		`SELECT credentials_json, settings_json FROM service_providers WHERE service = 'tunnel' AND enabled = TRUE LIMIT 1`,
+	).Scan(&credentialsJSON, &settingsJSON)
+	if err != nil {
+		slog.Error("no tunnel provider configured for domain registration", "error", err)
+		JSONError(w, http.StatusBadGateway, "Cloudflare provider not configured")
+		return
+	}
+
+	var creds map[string]any
+	json.Unmarshal([]byte(credentialsJSON), &creds)
+	var settings map[string]any
+	json.Unmarshal([]byte(settingsJSON), &settings)
+
+	apiToken, _ := creds["api_token"].(string)
+	cfAccountID, _ := settings["account_id"].(string)
+
+	// Register the domain via Cloudflare Registrar
+	if err := h.registrar.RegisterDomain(cfAccountID, apiToken, domainName); err != nil {
+		slog.Error("failed to register domain after payment", "error", err, "domain", domainName)
+		JSONError(w, http.StatusBadGateway, "could not register domain")
+		return
+	}
+
+	// Record the domain purchase in custom_domains
+	amountCents := session.AmountTotal
+	_, err = h.billing.DB().Exec(
+		`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, auto_renew, status)
+		 VALUES ($1, $2, $3, 'cloudflare', $4, TRUE, 'active')
+		 ON CONFLICT (domain) DO UPDATE SET status = 'active'`,
+		security.GenerateID("dom"), deviceID, domainName, int(amountCents))
+	if err != nil {
+		slog.Error("failed to record domain purchase", "error", err, "domain", domainName)
+	}
+
+	slog.Info("domain registered after payment", "domain", domainName, "device", deviceID, "cost_cents", amountCents)
+	JSON(w, http.StatusOK, map[string]string{"message": "domain registered"})
 }
 
 // handleSubscriptionCreated records a new subscription.
