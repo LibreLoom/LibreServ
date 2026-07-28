@@ -117,3 +117,4 @@ connect/internal/api/customer/dist/assets/
 .pi/
 # OpenMP / omp artifacts
 .omp
+connect/web/*/dist/
