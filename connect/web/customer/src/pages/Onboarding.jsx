@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client.js";
@@ -9,6 +9,7 @@ import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent } from "../components/ui/card.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { cn } from "../lib/utils.js";
+import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
 import {
   Globe, Shield, Key,
   ChevronRight, ChevronLeft, Copy, Check, Loader2, Search,
@@ -71,6 +72,7 @@ export default function Onboarding() {
   const [step, setStep] = useState(0);
   const [direction, setDirection] = useState("right"); // "right" | "left"
   const [error, setError] = useState("");
+  const { outerRef, innerRef } = useAnimatedHeight();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -651,14 +653,18 @@ export default function Onboarding() {
       <ProgressBar step={step} />
 
       <div className="flex-1 flex items-center justify-center px-4 py-8">
-        <Card className="w-full max-w-xl overflow-hidden">
-          <CardContent className="px-10 py-10">
+        <div
+          ref={outerRef}
+          className="w-full max-w-xl rounded-large-element border border-border bg-card text-card-foreground shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[cubic-bezier(0.05,0.7,0.1,1)]"
+          style={{ transitionDuration: "300ms" }}
+        >
+          <div ref={innerRef} className="px-10 py-10">
             <ErrorBanner error={error} onDismiss={clearError} />
-            <div key={step} className={cn("mt-2 animate-in duration-300 fill-mode-both", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")} style={{ animationDuration: "300ms", animationFillMode: "both" }}>
+            <div key={step} className={cn("mt-2", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")} style={{ animationDuration: "300ms", animationFillMode: "both" }}>
               {stepComponents[step]?.()}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
 
       {step > 0 && step < 5 && (
