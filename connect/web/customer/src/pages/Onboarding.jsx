@@ -128,34 +128,57 @@ PlanCard.propTypes = {
   onClick: PropTypes.func.isRequired,
 };
 
+const PROGRESS_KEY = "connect-onboarding-progress";
+
+function loadProgress() {
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveProgress(data) {
+  try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(data)); } catch {}
+}
+
+function clearProgress() {
+  try { localStorage.removeItem(PROGRESS_KEY); } catch {}
+}
+
 export default function Onboarding() {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [step, setStep] = useState(0);
+  const saved = useRef(loadProgress());
+  const [step, setStep] = useState(saved.current?.step || 0);
   const [direction, setDirection] = useState("right"); // "right" | "left"
   const [error, setError] = useState("");
   const { outerRef, innerRef } = useAnimatedHeight();
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(saved.current?.email || "");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
+  const [name, setName] = useState(saved.current?.name || "");
   const [isLoginMode, setIsLoginMode] = useState(false);
 
-  const [deviceName, setDeviceName] = useState("");
-  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [deviceName, setDeviceName] = useState(saved.current?.deviceName || "");
+  const [selectedPlan, setSelectedPlan] = useState(saved.current?.selectedPlan || null);
 
-  const [subdomainName, setSubdomainName] = useState("");
-  const [domainMode, setDomainMode] = useState("subdomain");
+  const [subdomainName, setSubdomainName] = useState(saved.current?.subdomainName || "");
+  const [domainMode, setDomainMode] = useState(saved.current?.domainMode || "subdomain");
   const [customDomainQuery, setCustomDomainQuery] = useState("");
   const [domainResults, setDomainResults] = useState([]);
   const [checkingDomain, setCheckingDomain] = useState(null);
   const [purchasingDomain, setPurchasingDomain] = useState(false);
-  const [registeredDomain, setRegisteredDomain] = useState(null);
+  const [registeredDomain, setRegisteredDomain] = useState(saved.current?.registeredDomain || null);
 
   const [licenseKey, setLicenseKey] = useState(null);
   const [generatingKey, setGeneratingKey] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Persist progress whenever relevant state changes
+  useEffect(() => {
+    if (step === 0 && !email && !deviceName) return; // don't save empty state
+    saveProgress({ step, email, name, deviceName, selectedPlan, subdomainName, domainMode, registeredDomain });
+  }, [step, email, name, deviceName, selectedPlan, subdomainName, domainMode, registeredDomain]);
   const { data: plansData } = useQuery({
     queryKey: ["plans"],
     queryFn: () => api.getPlans(),
@@ -661,7 +684,7 @@ export default function Onboarding() {
             </ol>
           </div>
 
-          <Button size="lg" className="w-full" onClick={() => navigate("/")}>
+          <Button size="lg" className="w-full" onClick={() => { clearProgress(); navigate("/"); }}>
             Done — open my dashboard <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
         </div>
