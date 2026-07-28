@@ -265,6 +265,7 @@ CREATE TABLE IF NOT EXISTS custom_domains (
 	registered_via TEXT NOT NULL DEFAULT 'cloudflare',
 	registration_cost_cents INTEGER,
 	auto_renew BOOLEAN NOT NULL DEFAULT FALSE,
+	renewal_subscription_id TEXT,
 	status TEXT NOT NULL DEFAULT 'active',
 	purchased_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	expires_at TIMESTAMP

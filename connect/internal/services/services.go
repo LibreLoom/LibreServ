@@ -61,7 +61,23 @@ func (s *ProvisioningService) Provision(deviceID, serviceType, clientIP string) 
 			return nil, fmt.Errorf("this service is not included in your current plan. Upgrade in Settings → Subscription to enable it.")
 		}
 	}
-
+	// For domain service, check if custom domain credentials already exist
+	// (e.g. from a domain purchase webhook). If so, return those instead
+	// of generating a new subdomain.
+	if serviceType == "domain" {
+		var existingCreds string
+		err := s.db.QueryRow(
+			`SELECT credentials_json FROM service_credentials
+			 WHERE device_id = $1 AND service_type = 'domain' AND is_active = TRUE`,
+			deviceID).Scan(&existingCreds)
+		if err == nil && existingCreds != "" {
+			// Return existing credentials (custom domain was purchased)
+			var creds map[string]any
+			if json.Unmarshal([]byte(existingCreds), &creds) == nil {
+				return creds, nil
+			}
+		}
+	}
 	creds, err := s.generateCredentials(deviceID, serviceType, clientIP)
 	if err != nil {
 		return nil, err

@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	stripego "github.com/stripe/stripe-go/v76"
@@ -157,6 +159,43 @@ func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Create DNS CNAME to route the custom domain to the device's tunnel.
+	// The zone is the registrable domain (e.g. "example.com"); we create a
+	// CNAME at the apex or www depending on what the user purchased.
+	tunnelID := h.findDeviceTunnelID(deviceID)
+	dnsConfigured := false
+	if tunnelID != "" {
+		// Extract the zone (last two labels for standard TLDs)
+		zone := extractZone(domainName)
+		cnameTarget := fmt.Sprintf("%s.cfargotunnel.com", tunnelID)
+		dnsClient := providers.NewCloudflareClient(nil)
+		dnsConfigured, _ = dnsClient.CreateCNAME(apiToken, zone, domainName, cnameTarget)
+		if !dnsConfigured {
+			slog.Warn("failed to create CNAME for custom domain", "domain", domainName, "tunnel", tunnelID)
+		}
+	} else {
+		slog.Warn("device has no tunnel, cannot route custom domain", "device", deviceID, "domain", domainName)
+	}
+
+	// Push domain credentials to the device so Caddy serves the custom domain.
+	// This is done by writing to the service_credentials table — the device
+	// picks up the credentials on next check-in.
+	domainCreds := map[string]any{
+		"domain":      domainName,
+		"provider":    "connect",
+		"auto_https":  true,
+		"dns_managed": dnsConfigured,
+	}
+	credsJSON, _ := json.Marshal(domainCreds)
+	_, _ = h.billing.DB().Exec(
+		`INSERT INTO service_credentials (id, device_id, service_type, credentials_json, is_active)
+		 VALUES ($1, $2, 'domain', $3, TRUE)
+		 ON CONFLICT (device_id, service_type) DO UPDATE SET
+		   credentials_json = excluded.credentials_json,
+		   provisioned_at = CURRENT_TIMESTAMP,
+		   is_active = TRUE`,
+		security.GenerateID("cred"), deviceID, string(credsJSON))
+
 	// Record the domain purchase in custom_domains
 	amountCents := session.AmountTotal
 	_, err = h.billing.DB().Exec(
@@ -168,7 +207,38 @@ func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Req
 		slog.Error("failed to record domain purchase", "error", err, "domain", domainName)
 	}
 
-	slog.Info("domain registered after payment", "domain", domainName, "device", deviceID, "cost_cents", amountCents)
+	// Create annual renewal subscription so the domain auto-renews each year.
+	// We query the current Cloudflare renewal cost and create a dynamic price
+	// so we capture today's rate. If the cost changes next year, we update the
+	// subscription price before renewal.
+	if session.Customer != nil && session.Customer.ID != "" {
+		// Get the current renewal cost from Cloudflare
+		domainInfo, err := h.registrar.CheckDomain(cfAccountID, apiToken, domainName)
+		if err == nil && domainInfo != nil {
+			renewalCents, parseErr := parseDomainCostToCents(domainInfo.RenewalCost)
+			if parseErr == nil && renewalCents > 0 {
+				priceID, err := providers.CreateDomainRenewalPrice(r.Context(), domainName, renewalCents)
+				if err != nil {
+					slog.Warn("failed to create renewal price", "error", err, "domain", domainName)
+				} else {
+					subID, err := providers.CreateDomainRenewalSubscription(r.Context(), session.Customer.ID, priceID, domainName)
+					if err != nil {
+						slog.Warn("failed to create renewal subscription", "error", err, "domain", domainName)
+					} else {
+						// Store the renewal subscription ID on the custom_domain record
+						_, _ = h.billing.DB().Exec(
+							`UPDATE custom_domains SET renewal_subscription_id = $1 WHERE domain = $2`,
+							subID, domainName)
+						slog.Info("domain renewal subscription created", "domain", domainName, "subscription", subID, "annual_cost_cents", renewalCents)
+					}
+				}
+			}
+		}
+	} else {
+		slog.Warn("no customer on checkout session, cannot create renewal subscription", "domain", domainName)
+	}
+
+	slog.Info("domain registered after payment", "domain", domainName, "device", deviceID, "cost_cents", amountCents, "dns_configured", dnsConfigured)
 	JSON(w, http.StatusOK, map[string]string{"message": "domain registered"})
 }
 
@@ -346,3 +416,32 @@ func planToPrice(planID string) string {
 
 // unused but keeps catalog import for future use
 var _ = catalog.PlanByID
+
+// findDeviceTunnelID looks up the tunnel ID for a device from service_credentials.
+func (h *BillingHandler) findDeviceTunnelID(deviceID string) string {
+	var credsJSON string
+	err := h.billing.DB().QueryRow(
+		`SELECT credentials_json FROM service_credentials
+		 WHERE device_id = $1 AND service_type = 'tunnel' AND is_active = TRUE`,
+		deviceID).Scan(&credsJSON)
+	if err != nil {
+		return ""
+	}
+	var creds struct {
+		TunnelID string `json:"tunnel_id"`
+	}
+	if json.Unmarshal([]byte(credsJSON), &creds) != nil {
+		return ""
+	}
+	return creds.TunnelID
+}
+
+// extractZone returns the registrable zone from a domain name.
+// e.g. "myapp.example.com" → "example.com", "example.org" → "example.org"
+func extractZone(domain string) string {
+	parts := strings.Split(domain, ".")
+	if len(parts) <= 2 {
+		return domain
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
+}
