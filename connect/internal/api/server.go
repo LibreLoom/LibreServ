@@ -143,6 +143,10 @@ func (s *Server) setupRoutes() {
 
 		// Authenticated admin routes
 		r.Group(func(r chi.Router) {
+			// Browser navigation (Accept: text/html) to any admin path serves
+			// the SPA so deep links work on hard refresh. API calls send
+			// Accept: */* and pass through to auth.
+			r.Use(middleware.SPAFallback(s.serveAdminSPA))
 			r.Use(middleware.AdminAuth(s.db))
 
 			admin := handlers.NewAdminHandler(s.db)
