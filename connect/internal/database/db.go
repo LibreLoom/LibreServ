@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 	status TEXT NOT NULL DEFAULT 'active',
 	started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	ends_at TIMESTAMP,
-	polar_subscription_id TEXT,
+	stripe_subscription_id TEXT,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS billing_cycles (
 	total_cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0,
 	credit_cap_usd DOUBLE PRECISION,
 	status TEXT NOT NULL DEFAULT 'open',
-	polar_invoice_id TEXT,
+	stripe_invoice_id TEXT,
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS credit_transactions (
 CREATE TABLE IF NOT EXISTS invoices (
 	id TEXT PRIMARY KEY,
 	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-	polar_invoice_id TEXT,
+	stripe_invoice_id TEXT,
 	status TEXT NOT NULL DEFAULT 'draft',
 	amount_cents INTEGER NOT NULL DEFAULT 0,
 	period_start DATE NOT NULL,

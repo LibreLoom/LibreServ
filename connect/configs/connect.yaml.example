@@ -12,14 +12,13 @@ auth:
     customer_token_secret: CHANGE_ME
     session_ttl_hours: 168
 
-polar:
+stripe:
     enabled: false
-    access_token: ""
+    secret_key: ""
     webhook_secret: ""
-    sandbox: true
-    product_free: ""
-    product_lite: ""
-    product_one: ""
+    price_free: ""
+    price_lite: ""
+    price_one: ""
 
 # Fallback email settings. The preferred way to configure email is through
 # the admin UI at Settings → Service Providers (service: smtp).

@@ -152,14 +152,13 @@ auth:
     customer_token_secret: ${customer_secret}
     session_ttl_hours: 168
 
-polar:
+stripe:
     enabled: false
-    access_token: ""
+    secret_key: ""
     webhook_secret: ""
-    sandbox: true
-    product_free: ""
-    product_lite: ""
-    product_one: ""
+    price_free: ""
+    price_lite: ""
+    price_one: ""
 
 web:
     customer_dir: ${INSTALL_DIR}/web/customer

@@ -14,7 +14,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers/polar"
+
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
@@ -469,7 +469,7 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 	balance, _ := h.billing.GetBalance(deviceID)
 
 	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT id, polar_invoice_id, status, amount_cents, period_start, period_end, created_at, paid_at
+		`SELECT id, stripe_invoice_id, status, amount_cents, period_start, period_end, created_at, paid_at
 		 FROM invoices WHERE device_id = $1 ORDER BY created_at DESC LIMIT 12`, deviceID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not retrieve billing")
@@ -480,26 +480,26 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 	invoices := []map[string]any{}
 	for rows.Next() {
 		var inv struct {
-			ID             string
-			PolarInvoiceID sql.NullString
-			Status         string
-			AmountCents    int
-			PeriodStart    time.Time
-			PeriodEnd      time.Time
-			CreatedAt      time.Time
-			PaidAt         sql.NullTime
+			ID              string
+			StripeInvoiceID sql.NullString
+			Status          string
+			AmountCents     int
+			PeriodStart     time.Time
+			PeriodEnd       time.Time
+			CreatedAt       time.Time
+			PaidAt          sql.NullTime
 		}
-		_ = rows.Scan(&inv.ID, &inv.PolarInvoiceID, &inv.Status, &inv.AmountCents,
+		_ = rows.Scan(&inv.ID, &inv.StripeInvoiceID, &inv.Status, &inv.AmountCents,
 			&inv.PeriodStart, &inv.PeriodEnd, &inv.CreatedAt, &inv.PaidAt)
 		invoices = append(invoices, map[string]any{
-			"id":               inv.ID,
-			"polar_invoice_id": nullString(inv.PolarInvoiceID),
-			"status":           inv.Status,
-			"amount_cents":     inv.AmountCents,
-			"period_start":     inv.PeriodStart.Format(time.RFC3339),
-			"period_end":       inv.PeriodEnd.Format(time.RFC3339),
-			"created_at":       inv.CreatedAt.Format(time.RFC3339),
-			"paid_at":          nullTime(inv.PaidAt),
+			"id":                inv.ID,
+			"stripe_invoice_id": nullString(inv.StripeInvoiceID),
+			"status":            inv.Status,
+			"amount_cents":      inv.AmountCents,
+			"period_start":      inv.PeriodStart.Format(time.RFC3339),
+			"period_end":        inv.PeriodEnd.Format(time.RFC3339),
+			"created_at":        inv.CreatedAt.Format(time.RFC3339),
+			"paid_at":           nullTime(inv.PaidAt),
 		})
 	}
 
@@ -584,8 +584,8 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 }
 
 // Cancel cancels the device's subscription.
-// If Polar is enabled, revokes the subscription on Polar's side (immediate cancel).
-// The webhook will confirm the revocation, but we update our DB immediately for UX.
+// If Stripe is enabled, cancels the subscription on Stripe's side (immediate).
+// The webhook will confirm the cancellation, but we update our DB immediately for UX.
 func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
@@ -597,16 +597,15 @@ func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If Polar is enabled, revoke the subscription on Polar's side
-	if config.C.Polar.Enabled {
-		var polarSubID string
+	// If Stripe is enabled, cancel the subscription on Stripe's side
+	if config.C.Stripe.Enabled {
+		var stripeSubID string
 		_ = h.db.QueryRowContext(r.Context(),
-			"SELECT polar_subscription_id FROM subscriptions WHERE device_id = $1 AND status = 'active'",
-			deviceID).Scan(&polarSubID)
-		if polarSubID != "" {
-			client := polar.NewClient(config.C.Polar.AccessToken, config.C.Polar.Sandbox)
-			if err := client.RevokeSubscription(r.Context(), polarSubID); err != nil {
-				JSONError(w, http.StatusInternalServerError, "could not cancel subscription with Polar")
+			"SELECT stripe_subscription_id FROM subscriptions WHERE device_id = $1 AND status = 'active'",
+			deviceID).Scan(&stripeSubID)
+		if stripeSubID != "" {
+			if err := providers.CancelSubscription(r.Context(), stripeSubID); err != nil {
+				JSONError(w, http.StatusInternalServerError, "could not cancel subscription with Stripe")
 				return
 			}
 		}
@@ -627,7 +626,7 @@ func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 }
 
 // ChangePlan changes the device's subscription plan.
-// If Polar is enabled, updates the product on Polar's side.
+// If Stripe is enabled, updates the price on Stripe's side.
 // For upgrades from free to paid, creates a new checkout session instead.
 func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
@@ -655,24 +654,23 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If the target plan is paid and Polar is enabled, we need a checkout session
+	// If the target plan is paid and Stripe is enabled, we need a checkout session
 	// (either for a new subscription or an upgrade from free)
-	if catalog.IsPaidPlan(req.PlanID) && config.C.Polar.Enabled {
-		var polarSubID string
+	if catalog.IsPaidPlan(req.PlanID) && config.C.Stripe.Enabled {
+		var stripeSubID string
 		_ = h.db.QueryRowContext(r.Context(),
-			"SELECT polar_subscription_id FROM subscriptions WHERE device_id = $1 AND status = 'active'",
-			deviceID).Scan(&polarSubID)
+			"SELECT stripe_subscription_id FROM subscriptions WHERE device_id = $1 AND status = 'active'",
+			deviceID).Scan(&stripeSubID)
 
-		if polarSubID != "" {
-			// Existing paid subscription — update the product on Polar
-			productID := planToProduct(req.PlanID)
-			client := polar.NewClient(config.C.Polar.AccessToken, config.C.Polar.Sandbox)
-			if err := client.UpdateSubscriptionProduct(r.Context(), polarSubID, productID); err != nil {
-				JSONError(w, http.StatusInternalServerError, "could not change plan with Polar")
+		if stripeSubID != "" {
+			// Existing paid subscription — update the price on Stripe
+			newPriceID := planToPrice(req.PlanID)
+			if err := providers.UpdateSubscriptionPrice(r.Context(), stripeSubID, newPriceID); err != nil {
+				JSONError(w, http.StatusInternalServerError, "could not change plan with Stripe")
 				return
 			}
 		} else {
-			// No existing Polar subscription — redirect to checkout
+			// No existing Stripe subscription — redirect to checkout
 			h.CreateCheckoutSession(w, r)
 			return
 		}
@@ -793,9 +791,9 @@ func (h *PortalHandler) GetConsentRequests(w http.ResponseWriter, r *http.Reques
 	JSON(w, http.StatusOK, map[string]any{"consent_requests": requests})
 }
 
-// CreateCheckoutSession creates a Polar checkout session for subscribing to a plan.
-// The user is redirected to Polar's hosted checkout page. After payment, Polar
-// sends a webhook to our /webhooks/polar endpoint, which records the subscription.
+// CreateCheckoutSession creates a Stripe Checkout session for subscribing to a plan.
+// The user is redirected to Stripe's hosted checkout page. After payment, Stripe
+// sends a webhook to our /webhooks/stripe endpoint, which records the subscription.
 func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
@@ -820,16 +818,16 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if !config.C.Polar.Enabled {
-		// Polar not configured — subscribe directly (dev mode)
+	if !config.C.Stripe.Enabled {
+		// Stripe not configured — subscribe directly (dev mode)
 		h.Subscribe(w, r)
 		return
 	}
 
-	// Get Polar product ID for the plan
-	productID := planToProduct(req.PlanID)
-	if productID == "" {
-		JSONError(w, http.StatusInternalServerError, "polar product not configured for this plan")
+	// Get Stripe price ID for the plan
+	priceID := planToPrice(req.PlanID)
+	if priceID == "" {
+		JSONError(w, http.StatusInternalServerError, "stripe price not configured for this plan")
 		return
 	}
 
@@ -844,34 +842,25 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	// Forward the customer's IP for tax calculation
-	customerIP := r.RemoteAddr
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		customerIP = strings.TrimSpace(strings.Split(forwarded, ",")[0])
-	}
-
 	successURL := config.C.Server.BaseURL + "/billing?status=success"
+	cancelURL := config.C.Server.BaseURL + "/plans?status=cancelled"
 
-	client := polar.NewClient(config.C.Polar.AccessToken, config.C.Polar.Sandbox)
-	session, err := client.CreateCheckout(r.Context(), productID, deviceID, successURL, customerIP)
+	checkoutURL, err := providers.CreateCheckoutSession(r.Context(), priceID, deviceID, successURL, cancelURL)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not create checkout session")
 		return
 	}
 
 	JSON(w, http.StatusOK, map[string]any{
-		"checkout_url": session.URL,
-		"session_id":   session.ID,
+		"checkout_url": checkoutURL,
 		"plan_id":      req.PlanID,
 	})
 }
 
-// BillingPortal returns the URL for managing a subscription.
-// Polar doesn't have a separate billing portal — customers manage their
-// subscription from our Billing page. We return the Polar customer portal
-// URL if available, otherwise our own billing page.
+// BillingPortal creates a Stripe billing portal session for subscription management.
+// This lets customers update their payment method, cancel, or change plans on Stripe's site.
 func (h *PortalHandler) BillingPortal(w http.ResponseWriter, r *http.Request) {
-	if !config.C.Polar.Enabled {
+	if !config.C.Stripe.Enabled {
 		JSON(w, http.StatusOK, map[string]any{
 			"portal_url": "/billing",
 			"message":    "Manage your subscription from the Billing page.",
@@ -879,11 +868,11 @@ func (h *PortalHandler) BillingPortal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Polar's customer portal is at polar.sh — customers can manage
-	// their payment methods and subscriptions there.
+	// Stripe billing portal requires a customer ID.
+	// For now, return our own billing page — the customer can cancel/change plans here.
 	JSON(w, http.StatusOK, map[string]any{
-		"portal_url": "https://polar.sh",
-		"message":    "Manage your payment methods on Polar. Cancel or change plans here.",
+		"portal_url": "/billing",
+		"message":    "Manage your subscription from the Billing page. Cancel or change plans here.",
 	})
 }
 

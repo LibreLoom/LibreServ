@@ -43,7 +43,7 @@ export default function Billing() {
         <CardHeader><CardTitle className="text-sm text-muted-foreground">Payment Method</CardTitle></CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-3">
-            Your payment method is managed securely by Polar, our payment processor.
+            Your payment method is managed securely by Stripe, our payment processor.
             Update your card or billing details there.
           </p>
           <Button
@@ -51,7 +51,7 @@ export default function Billing() {
             loading={portalMut.isPending}
             onClick={() => portalMut.mutate()}
           >
-            Manage payment method on Polar
+            Manage payment method
           </Button>
         </CardContent>
       </Card>

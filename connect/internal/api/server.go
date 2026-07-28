@@ -131,8 +131,8 @@ func (s *Server) setupRoutes() {
 		})
 	})
 
-	// Billing webhooks (Polar)
-	r.Post("/webhooks/polar", handlers.NewBillingHandler(s.billing).PolarWebhook)
+	// Billing webhooks (Stripe)
+	r.Post("/webhooks/stripe", handlers.NewBillingHandler(s.billing).StripeWebhook)
 
 	// Admin routes (separate auth)
 	r.Route("/admin", func(r chi.Router) {

@@ -428,7 +428,7 @@ export default function Onboarding() {
       {selectedPlan && !isFreePlan && (
         <div className="rounded-lg bg-muted/50 border border-border p-4">
           <p className="text-sm text-muted-foreground">
-            You'll complete payment securely via Polar after setup. We'll walk you through
+            You'll complete payment securely via Stripe after setup. We'll walk you through
             the rest of setup first, then you can check out from your dashboard.
           </p>
         </div>

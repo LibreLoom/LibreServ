@@ -7,19 +7,18 @@ import (
 	"net/http"
 	"time"
 
+	stripego "github.com/stripe/stripe-go/v76"
+	"github.com/stripe/stripe-go/v76/webhook"
+
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers/polar"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
-// BillingHandler handles Polar webhook events.
+// BillingHandler handles Stripe webhook events.
 type BillingHandler struct {
 	billing *billing.Service
-	db      interface {
-		Exec(query string, args ...any) (any, error)
-	}
 }
 
 // NewBillingHandler creates a billing handler.
@@ -27,10 +26,10 @@ func NewBillingHandler(b *billing.Service) *BillingHandler {
 	return &BillingHandler{billing: b}
 }
 
-// PolarWebhook processes incoming Polar webhook events.
-// Polar follows the Standard Webhooks spec: webhook-id, webhook-timestamp, webhook-signature headers.
-func (h *BillingHandler) PolarWebhook(w http.ResponseWriter, r *http.Request) {
-	if !config.C.Polar.Enabled {
+// StripeWebhook processes incoming Stripe webhook events.
+// Uses the Stripe SDK's built-in signature verification (tolerance 5 minutes).
+func (h *BillingHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
+	if !config.C.Stripe.Enabled {
 		JSONError(w, http.StatusServiceUnavailable, "billing is not enabled")
 		return
 	}
@@ -41,82 +40,99 @@ func (h *BillingHandler) PolarWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the webhook signature using the Standard Webhooks spec
-	_, err = polar.VerifyWebhook(body, r.Header, config.C.Polar.WebhookSecret)
+	// Verify the webhook signature using the Stripe SDK
+	event, err := webhook.ConstructEventWithOptions(body, r.Header.Get("Stripe-Signature"),
+		config.C.Stripe.WebhookSecret, webhook.ConstructEventOptions{
+			Tolerance: 5 * time.Minute,
+		})
 	if err != nil {
-		slog.Warn("polar webhook verification failed", "error", err)
+		slog.Warn("stripe webhook verification failed", "error", err)
 		JSONError(w, http.StatusForbidden, "webhook signature verification failed")
 		return
 	}
 
-	// Parse the Standard Webhooks payload: {type, timestamp, data}
-	var event struct {
-		Type      string          `json:"type"`
-		Timestamp string          `json:"timestamp"`
-		Data      json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(body, &event); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid webhook payload")
-		return
-	}
-
-	slog.Info("polar webhook received", "type", event.Type)
+	slog.Info("stripe webhook received", "type", event.Type)
 
 	switch event.Type {
-	case "subscription.created":
-		h.handleSubscriptionCreated(w, r, event.Data)
-	case "subscription.active":
-		h.handleSubscriptionActive(w, r, event.Data)
-	case "subscription.updated":
-		h.handleSubscriptionUpdated(w, r, event.Data)
-	case "subscription.canceled":
-		h.handleSubscriptionCanceled(w, r, event.Data)
-	case "subscription.revoked":
-		h.handleSubscriptionRevoked(w, r, event.Data)
-	case "subscription.uncanceled":
-		h.handleSubscriptionUncanceled(w, r, event.Data)
-	case "subscription.past_due":
-		h.handleSubscriptionPastDue(w, r, event.Data)
-	case "order.paid":
-		h.handleOrderPaid(w, r, event.Data)
+	case "checkout.session.completed":
+		h.handleCheckoutCompleted(w, r, event.Data.Raw)
+	case "customer.subscription.created":
+		h.handleSubscriptionCreated(w, r, event.Data.Raw)
+	case "customer.subscription.updated":
+		h.handleSubscriptionUpdated(w, r, event.Data.Raw)
+	case "customer.subscription.deleted":
+		h.handleSubscriptionDeleted(w, r, event.Data.Raw)
+	case "invoice.paid":
+		h.handleInvoicePaid(w, r, event.Data.Raw)
+	case "invoice.payment_failed":
+		h.handleInvoiceFailed(w, r, event.Data.Raw)
 	default:
 		JSON(w, http.StatusOK, map[string]string{"message": "event received"})
 	}
 }
 
-// subscriptionPayload extracts the fields we need from Polar subscription events.
-type subscriptionPayload struct {
-	ID                 string `json:"id"`
-	Status             string `json:"status"`
-	CustomerID         string `json:"customer_id"`
-	ProductID          string `json:"product_id"`
-	CurrentPeriodStart string `json:"current_period_start"`
-	CurrentPeriodEnd   string `json:"current_period_end"`
-	CancelAtPeriodEnd  bool   `json:"cancel_at_period_end"`
+// handleCheckoutCompleted records the subscription when checkout succeeds.
+// The client_reference_id is our device ID, set during checkout session creation.
+func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
+	var session stripego.CheckoutSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid checkout session data")
+		return
+	}
+
+	deviceID := session.ClientReferenceID
+	if deviceID == "" {
+		JSON(w, http.StatusOK, map[string]string{"message": "no client reference, skipping"})
+		return
+	}
+
+	// Determine plan from the subscription's price items
+	planID := "free"
+	if session.Subscription != nil {
+		planID = priceToPlanFromSubscription(session.Subscription)
+	}
+
+	_, err := h.billing.DB().Exec(
+		`INSERT INTO subscriptions (id, device_id, plan_id, status, started_at, stripe_subscription_id)
+		 VALUES ($1, $2, $3, 'active', $4, $5)
+		 ON CONFLICT (device_id) DO UPDATE SET
+		   plan_id = excluded.plan_id,
+		   status = 'active',
+		   stripe_subscription_id = excluded.stripe_subscription_id,
+		   started_at = excluded.started_at`,
+		security.GenerateID("sub"), deviceID, planID, time.Now(), session.Subscription.ID)
+	if err != nil {
+		slog.Error("failed to record subscription from checkout", "error", err, "device", deviceID)
+		JSONError(w, http.StatusInternalServerError, "could not record subscription")
+		return
+	}
+
+	_, _ = h.billing.DB().Exec(
+		"UPDATE devices SET plan_id = $1 WHERE id = $2", planID, deviceID)
+
+	JSON(w, http.StatusOK, map[string]string{"message": "checkout completed"})
 }
 
-// handleSubscriptionCreated records a new subscription in our DB.
-// The external_customer_id we passed during checkout links Polar's customer to our device.
+// handleSubscriptionCreated records a new subscription.
 func (h *BillingHandler) handleSubscriptionCreated(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var sub subscriptionPayload
+	var sub stripego.Subscription
 	if err := json.Unmarshal(data, &sub); err != nil {
 		JSONError(w, http.StatusBadRequest, "invalid subscription data")
 		return
 	}
 
-	// The external_customer_id is our device ID
-	deviceID := sub.CustomerID
-	planID := productToPlan(sub.ProductID)
+	deviceID := sub.Metadata["device_id"]
+	planID := priceToPlanFromSubscription(&sub)
 
 	_, err := h.billing.DB().Exec(
-		`INSERT INTO subscriptions (id, device_id, plan_id, status, started_at, polar_subscription_id)
-		 VALUES ($1, $2, $3, 'active', $4, $5)
+		`INSERT INTO subscriptions (id, device_id, plan_id, status, started_at, stripe_subscription_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)
 		 ON CONFLICT (device_id) DO UPDATE SET
 		   plan_id = excluded.plan_id,
-		   status = 'active',
-		   polar_subscription_id = excluded.polar_subscription_id,
+		   status = excluded.status,
+		   stripe_subscription_id = excluded.stripe_subscription_id,
 		   started_at = excluded.started_at`,
-		security.GenerateID("sub"), deviceID, planID, time.Now(), sub.ID)
+		security.GenerateID("sub"), deviceID, planID, string(sub.Status), time.Now(), sub.ID)
 	if err != nil {
 		slog.Error("failed to record subscription", "error", err, "device", deviceID)
 		JSONError(w, http.StatusInternalServerError, "could not record subscription")
@@ -129,178 +145,143 @@ func (h *BillingHandler) handleSubscriptionCreated(w http.ResponseWriter, r *htt
 	JSON(w, http.StatusOK, map[string]string{"message": "subscription created"})
 }
 
-// handleSubscriptionActive activates a subscription.
-func (h *BillingHandler) handleSubscriptionActive(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var sub subscriptionPayload
-	if err := json.Unmarshal(data, &sub); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid subscription data")
-		return
-	}
-
-	_, err := h.billing.DB().Exec(
-		`UPDATE subscriptions SET status = 'active' WHERE polar_subscription_id = $1`, sub.ID)
-	if err != nil {
-		slog.Error("failed to activate subscription", "error", err, "polar_sub", sub.ID)
-	}
-	JSON(w, http.StatusOK, map[string]string{"message": "subscription activated"})
-}
-
 // handleSubscriptionUpdated handles plan changes and status updates.
 func (h *BillingHandler) handleSubscriptionUpdated(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var sub subscriptionPayload
+	var sub stripego.Subscription
 	if err := json.Unmarshal(data, &sub); err != nil {
 		JSONError(w, http.StatusBadRequest, "invalid subscription data")
 		return
 	}
 
-	planID := productToPlan(sub.ProductID)
+	planID := priceToPlanFromSubscription(&sub)
 	_, err := h.billing.DB().Exec(
-		`UPDATE subscriptions SET status = $1, plan_id = $2 WHERE polar_subscription_id = $3`,
-		sub.Status, planID, sub.ID)
+		`UPDATE subscriptions SET status = $1, plan_id = $2 WHERE stripe_subscription_id = $3`,
+		string(sub.Status), planID, sub.ID)
 	if err != nil {
-		slog.Error("failed to update subscription", "error", err, "polar_sub", sub.ID)
+		slog.Error("failed to update subscription", "error", err, "stripe_sub", sub.ID)
 	}
 
-	// Update device plan
 	if planID != "" {
 		_, _ = h.billing.DB().Exec(
 			`UPDATE devices SET plan_id = $1 WHERE id = (
-				SELECT device_id FROM subscriptions WHERE polar_subscription_id = $2
+				SELECT device_id FROM subscriptions WHERE stripe_subscription_id = $2
 			)`, planID, sub.ID)
 	}
 
 	JSON(w, http.StatusOK, map[string]string{"message": "subscription updated"})
 }
 
-// handleSubscriptionCanceled marks a subscription as cancelled (may still be active until period end).
-func (h *BillingHandler) handleSubscriptionCanceled(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var sub subscriptionPayload
+// handleSubscriptionDeleted revokes the subscription — downgrade to free.
+func (h *BillingHandler) handleSubscriptionDeleted(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
+	var sub stripego.Subscription
 	if err := json.Unmarshal(data, &sub); err != nil {
 		JSONError(w, http.StatusBadRequest, "invalid subscription data")
 		return
 	}
 
 	_, err := h.billing.DB().Exec(
-		`UPDATE subscriptions SET status = 'cancelled', ends_at = $1 WHERE polar_subscription_id = $2`,
-		sub.CurrentPeriodEnd, sub.ID)
-	if err != nil {
-		slog.Error("failed to cancel subscription", "error", err, "polar_sub", sub.ID)
-	}
-	JSON(w, http.StatusOK, map[string]string{"message": "subscription cancelled"})
-}
-
-// handleSubscriptionRevoked fully ends a subscription — downgrade to free.
-func (h *BillingHandler) handleSubscriptionRevoked(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var sub subscriptionPayload
-	if err := json.Unmarshal(data, &sub); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid subscription data")
-		return
-	}
-
-	_, err := h.billing.DB().Exec(
-		`UPDATE subscriptions SET status = 'revoked', ends_at = $1 WHERE polar_subscription_id = $2`,
+		`UPDATE subscriptions SET status = 'revoked', ends_at = $1 WHERE stripe_subscription_id = $2`,
 		time.Now(), sub.ID)
 	if err != nil {
-		slog.Error("failed to revoke subscription", "error", err, "polar_sub", sub.ID)
+		slog.Error("failed to revoke subscription", "error", err, "stripe_sub", sub.ID)
 	}
 
-	// Downgrade device to free plan
 	_, _ = h.billing.DB().Exec(
 		`UPDATE devices SET plan_id = 'free' WHERE id = (
-			SELECT device_id FROM subscriptions WHERE polar_subscription_id = $1
+			SELECT device_id FROM subscriptions WHERE stripe_subscription_id = $1
 		)`, sub.ID)
 
-	JSON(w, http.StatusOK, map[string]string{"message": "subscription revoked"})
+	JSON(w, http.StatusOK, map[string]string{"message": "subscription deleted"})
 }
 
-// handleSubscriptionUncanceled reactivates a cancelled subscription.
-func (h *BillingHandler) handleSubscriptionUncanceled(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var sub subscriptionPayload
-	if err := json.Unmarshal(data, &sub); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid subscription data")
+// handleInvoicePaid records a paid invoice.
+func (h *BillingHandler) handleInvoicePaid(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
+	var invoice stripego.Invoice
+	if err := json.Unmarshal(data, &invoice); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid invoice data")
 		return
 	}
 
-	_, err := h.billing.DB().Exec(
-		`UPDATE subscriptions SET status = 'active', ends_at = NULL WHERE polar_subscription_id = $1`, sub.ID)
-	if err != nil {
-		slog.Error("failed to uncancel subscription", "error", err, "polar_sub", sub.ID)
+	deviceID := invoice.Metadata["device_id"]
+	if deviceID == "" {
+		// Try to look up device from subscription
+		_ = h.billing.DB().QueryRow(
+			"SELECT device_id FROM subscriptions WHERE stripe_subscription_id = $1",
+			invoice.Subscription,
+		).Scan(&deviceID)
 	}
-	JSON(w, http.StatusOK, map[string]string{"message": "subscription uncanceled"})
-}
 
-// handleSubscriptionPastDue marks a subscription as past_due (payment failed).
-func (h *BillingHandler) handleSubscriptionPastDue(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var sub subscriptionPayload
-	if err := json.Unmarshal(data, &sub); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid subscription data")
+	if deviceID == "" {
+		JSON(w, http.StatusOK, map[string]string{"message": "no device linked, skipping invoice"})
 		return
 	}
 
-	_, err := h.billing.DB().Exec(
-		`UPDATE subscriptions SET status = 'past_due' WHERE polar_subscription_id = $1`, sub.ID)
-	if err != nil {
-		slog.Error("failed to mark subscription past_due", "error", err, "polar_sub", sub.ID)
-	}
-	JSON(w, http.StatusOK, map[string]string{"message": "subscription past due"})
-}
-
-// orderPayload extracts fields from Polar order events.
-type orderPayload struct {
-	ID         string `json:"id"`
-	Status     string `json:"status"`
-	Amount     int    `json:"amount"`
-	CustomerID string `json:"customer_id"`
-	ProductID  string `json:"product_id"`
-}
-
-// handleOrderPaid records a paid order as an invoice.
-func (h *BillingHandler) handleOrderPaid(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var order orderPayload
-	if err := json.Unmarshal(data, &order); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid order data")
-		return
-	}
-
-	deviceID := order.CustomerID
 	now := time.Now()
-
-	// Record the invoice
 	_, err := h.billing.DB().Exec(
-		`INSERT INTO invoices (id, device_id, polar_invoice_id, status, amount_cents, period_start, period_end, paid_at)
+		`INSERT INTO invoices (id, device_id, stripe_invoice_id, status, amount_cents, period_start, period_end, paid_at)
 		 VALUES ($1, $2, $3, 'paid', $4, $5, $6, $7)
 		 ON CONFLICT DO NOTHING`,
-		security.GenerateID("inv"), deviceID, order.ID, order.Amount, now, now.AddDate(0, 1, 0), now)
+		security.GenerateID("inv"), deviceID, invoice.ID, invoice.AmountPaid, now, now.AddDate(0, 1, 0), now)
 	if err != nil {
 		slog.Error("failed to record invoice", "error", err, "device", deviceID)
 	}
 
-	JSON(w, http.StatusOK, map[string]string{"message": "order paid"})
+	JSON(w, http.StatusOK, map[string]string{"message": "invoice paid"})
 }
 
-// productToPlan maps a Polar product ID to our internal plan ID.
-func productToPlan(productID string) string {
-	if productID == config.C.Polar.ProductLite {
-		return "lite"
+// handleInvoiceFailed notes a failed payment.
+func (h *BillingHandler) handleInvoiceFailed(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
+	var invoice stripego.Invoice
+	if err := json.Unmarshal(data, &invoice); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid invoice data")
+		return
 	}
-	if productID == config.C.Polar.ProductOne {
-		return "one"
+
+	_, err := h.billing.DB().Exec(
+		`UPDATE invoices SET status = 'failed' WHERE stripe_invoice_id = $1`, invoice.ID)
+	if err != nil {
+		slog.Error("failed to mark invoice failed", "error", err, "stripe_invoice", invoice.ID)
 	}
-	if productID == config.C.Polar.ProductFree {
-		return "free"
+
+	JSON(w, http.StatusOK, map[string]string{"message": "invoice payment failed"})
+}
+
+// priceToPlan maps a Stripe price ID to our internal plan ID.
+// We use the subscription's items to find the price.
+func priceToPlan(_ int64) string {
+	// This is a fallback — the real mapping happens in priceToPlanFromSubscription
+	return "free"
+}
+
+// priceToPlanFromSubscription extracts the plan ID from a subscription's price items.
+func priceToPlanFromSubscription(sub *stripego.Subscription) string {
+	if sub == nil || len(sub.Items.Data) == 0 {
+		return ""
+	}
+	for _, item := range sub.Items.Data {
+		priceID := item.Price.ID
+		if priceID == config.C.Stripe.PriceLite {
+			return "lite"
+		}
+		if priceID == config.C.Stripe.PriceOne {
+			return "one"
+		}
+		if priceID == config.C.Stripe.PriceFree {
+			return "free"
+		}
 	}
 	return ""
 }
 
-// planToProduct maps our internal plan ID to a Polar product ID.
-func planToProduct(planID string) string {
+// planToPrice maps our internal plan ID to a Stripe price ID.
+func planToPrice(planID string) string {
 	switch planID {
 	case "lite":
-		return config.C.Polar.ProductLite
+		return config.C.Stripe.PriceLite
 	case "one":
-		return config.C.Polar.ProductOne
+		return config.C.Stripe.PriceOne
 	default:
-		return config.C.Polar.ProductFree
+		return config.C.Stripe.PriceFree
 	}
 }
 

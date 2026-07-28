@@ -16,7 +16,7 @@ type Config struct {
 	Server    ServerConfig    `mapstructure:"server" yaml:"server"`
 	Database  DatabaseConfig  `mapstructure:"database" yaml:"database"`
 	Auth      AuthConfig      `mapstructure:"auth" yaml:"auth"`
-	Polar     PolarConfig     `mapstructure:"polar" yaml:"polar"`
+	Stripe    StripeConfig    `mapstructure:"stripe" yaml:"stripe"`
 	SMTP      SMTPConfig      `mapstructure:"smtp" yaml:"smtp"`
 	DNS       DNSConfig       `mapstructure:"dns" yaml:"dns"`
 	Inference InferenceConfig `mapstructure:"inference" yaml:"inference"`
@@ -42,14 +42,13 @@ type AuthConfig struct {
 	SessionTTLHours     int    `mapstructure:"session_ttl_hours" yaml:"session_ttl_hours"`
 }
 
-type PolarConfig struct {
-	AccessToken   string `mapstructure:"access_token" yaml:"access_token"`
+type StripeConfig struct {
+	SecretKey     string `mapstructure:"secret_key" yaml:"secret_key"`
 	WebhookSecret string `mapstructure:"webhook_secret" yaml:"webhook_secret"`
 	Enabled       bool   `mapstructure:"enabled" yaml:"enabled"`
-	Sandbox       bool   `mapstructure:"sandbox" yaml:"sandbox"`
-	ProductFree   string `mapstructure:"product_free" yaml:"product_free"`
-	ProductLite   string `mapstructure:"product_lite" yaml:"product_lite"`
-	ProductOne    string `mapstructure:"product_one" yaml:"product_one"`
+	PriceFree     string `mapstructure:"price_free" yaml:"price_free"`
+	PriceLite     string `mapstructure:"price_lite" yaml:"price_lite"`
+	PriceOne      string `mapstructure:"price_one" yaml:"price_one"`
 }
 
 type SMTPConfig struct {

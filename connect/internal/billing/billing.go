@@ -221,11 +221,11 @@ func (s *Service) GetAggregatedUsage() (map[string]float64, error) {
 }
 
 // CreateInvoice creates an invoice record for a billing period.
-func (s *Service) CreateInvoice(deviceID string, amountCents int, periodStart, periodEnd time.Time, polarInvoiceID string) error {
+func (s *Service) CreateInvoice(deviceID string, amountCents int, periodStart, periodEnd time.Time, stripeInvoiceID string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO invoices (id, device_id, polar_invoice_id, status, amount_cents, period_start, period_end)
+		`INSERT INTO invoices (id, device_id, stripe_invoice_id, status, amount_cents, period_start, period_end)
 		 VALUES ($1, $2, $3, 'open', $4, $5, $6)`,
-		security.GenerateID("inv"), deviceID, polarInvoiceID, amountCents, periodStart, periodEnd)
+		security.GenerateID("inv"), deviceID, stripeInvoiceID, amountCents, periodStart, periodEnd)
 	return err
 }
 

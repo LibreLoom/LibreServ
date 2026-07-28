@@ -23,7 +23,7 @@ Connect is the cloud companion for LibreServ home servers. A user adds a device 
 ### Key principles
 
 - **No compatibility layers.** Existing `payg` plan is renamed to `lite`, migrations are rewritten in place, and obsolete code is removed as if it never existed.
-- **Polar first.** Crypto payments deferred to a later phase as account credits.
+- **Stripe first.** Crypto payments deferred to a later phase as account credits.
 - **Account credit supported from the start.** 1 USD = 1 credit.
 - **Models are live-configurable.** No hardcoded base URLs; Connect Admin configures providers, fallback chains, and per-provider pricing.
 - **Billing is transparent.** Paid inference, email, and backup are charged at LibreLoom's actual cost plus only the agreed markup.
@@ -109,7 +109,7 @@ connect/
 │   ├── api/                  # chi/v5 HTTP router
 │   │   ├── handlers/         # device, admin, provision, support, billing
 │   │   └── middleware/       # device auth, admin auth, logger, recoverer
-│   ├── billing/              # Polar, invoices, account credit, usage aggregation
+│   ├── billing/              # Stripe, invoices, account credit, usage aggregation
 │   ├── catalog/              # plan definitions, service pricing, limits
 │   ├── database/             # SQLite + migrations
 │   ├── models/               # AI provider + model configuration, fallbacks
@@ -159,7 +159,7 @@ Migration `001` is rewritten in place. Key changes:
 ### New tables
 
 - `account_credits` — balance, transactions, expiration
-- `invoices` — Polar invoice IDs, status, amount, period
+- `invoices` — Stripe invoice IDs, status, amount, period
 - `usage_events` — expanded to include `plan_id`, `credits_consumed`, `provider_cost`
 - `ai_providers` — runtime provider config
 - `ai_models` — runtime model config with pricing
@@ -225,12 +225,12 @@ POST /portal/change-plan
 - [ ] Update plan seed to `free`, `lite`, `one` with new limits.
 - [ ] Remove old `payg` references and obsolete code paths.
 - [ ] Implement account-credit table and transactions.
-- [ ] Update config example with new sections (`models`, `tunnel`, `polar`).
+- [ ] Update config example with new sections (`models`, `tunnel, stripe`).
 
 ### Phase 2 — Billing & usage (week 2–3)
 
 - [ ] Implement real usage metering for backup, AI, SMTP, tunnel.
-- [ ] Connect Polar for subscriptions and overage.
+- [ ] Connect Stripe for subscriptions and overage.
 - [ ] Implement invoice generation and account-credit redemption.
 - [ ] Expose usage APIs for device and admin.
 
@@ -291,7 +291,7 @@ POST /portal/change-plan
 ### Taxes and fees
 
 - Backup overage on One is priced at cost.
-- Sales tax/VAT is handled by Polar (Merchant of Record).
+- Sales tax/VAT is handled by Stripe Tax (add-on).
 - Account credit is 1:1 USD.
 - All you-pay-what-we-pay products will be billed with any additional taxes & fees LibreLoom pays forwarded to customer.
 
@@ -303,8 +303,8 @@ POST /portal/change-plan
 2. Do we need dedicated-domain add-ons before launch, or can it wait?
    - **Use Porkbun API.** Dedicated-domain add-ons are straightforward to add and can be implemented before launch using the Porkbun API.
 
-3. Should Polar handle sales tax automatically, or do we need a separate tax provider?
-   - **Polar handles tax as Merchant of Record.** Since LibreLoom is US-based, Polar's global tax handling covers all jurisdictions.
+3. Should Stripe handle sales tax automatically, or do we need a separate tax provider?
+   - **Stripe Tax calculates tax globally; Stripe is not MoR so you file returns.** Since LibreLoom is US-based, Stripe Tax covers all jurisdictions for $0.50/month + 0.05% per transaction.
 
 4. What is the exact non-premium fallback tunnel architecture?
    - **Home-lab overflow.** LibreLoom operates a homelab that can serve as the non-premium fallback relay pool. This is cheaper than renting extra VPSes and provides a clear quality tier below premium Hetzner/Akamai relays.

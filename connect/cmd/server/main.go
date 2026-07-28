@@ -11,6 +11,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 )
 
 // Version info injected via ldflags at build time.
@@ -53,6 +54,12 @@ func main() {
 			slog.Error("failed to load config", "error", err)
 			os.Exit(1)
 		}
+	}
+
+	// Initialize Stripe SDK if billing is enabled
+	if config.C.Stripe.Enabled {
+		providers.InitStripe()
+		slog.Info("stripe billing enabled")
 	}
 
 	db, err := database.Open(config.C.Database.URL)
