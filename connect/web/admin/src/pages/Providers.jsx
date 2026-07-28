@@ -69,7 +69,7 @@ export default function Providers() {
 
   const { data: providersData } = useQuery({
     queryKey: ["service-providers"],
-    queryFn: api.listServiceProviders,
+    queryFn: () => api.listServiceProviders(),
   });
   const providers = providersData?.providers || [];
 
