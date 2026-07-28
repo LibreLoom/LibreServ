@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client.js";
@@ -65,6 +66,71 @@ function ErrorBanner({ error, onDismiss }) {
     </div>
   );
 }
+
+// PlanCard — individual plan option with animated height for the Selected indicator.
+function PlanCard({ plan, isCurrent, onClick }) {
+  const { outerRef, innerRef } = useAnimatedHeight();
+  const limits = plan.limits || {};
+  const price = plan.price_monthly / 100;
+
+  return (
+    <div
+      ref={outerRef}
+      className={cn(
+        "overflow-hidden transition-[height] ease-[cubic-bezier(0.05,0.7,0.1,1)]",
+        "rounded-large-element border-2 motion-safe:transition-all motion-safe:duration-200",
+        isCurrent
+          ? "border-foreground/40 bg-accent"
+          : "border-border hover:bg-accent hover:border-foreground/20"
+      )}
+      style={{ transitionDuration: "300ms" }}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full text-left p-4"
+      >
+        <div ref={innerRef}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-mono text-sm text-card-foreground">{plan.name}</span>
+            <span className="font-mono text-lg text-card-foreground">
+              ${price}<span className="text-xs text-muted-foreground font-sans">/mo</span>
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {limits.backup_gb !== undefined && (
+              <Badge variant="outline">{limits.backup_gb} GB backup</Badge>
+            )}
+            {limits.tunnel_gb !== undefined && (
+              <Badge variant="outline">{limits.tunnel_gb} GB tunnel</Badge>
+            )}
+            {limits.smtp_monthly !== undefined && (
+              <Badge variant="outline">{limits.smtp_monthly} emails/mo</Badge>
+            )}
+            {(limits.ai_credit_cents || 0) > 0 && (
+              <Badge variant="outline">${(limits.ai_credit_cents / 100).toFixed(0)} AI credit</Badge>
+            )}
+          </div>
+          <div className={cn(
+            "flex items-center gap-1.5 mt-2 text-card-foreground",
+            "transition-opacity duration-200",
+            isCurrent ? "opacity-100" : "opacity-0"
+          )}>
+            <Check className="w-3.5 h-3.5" />
+            <span className="text-xs font-mono">Selected</span>
+          </div>
+        </div>
+      </button>
+    </div>
+  );
+}
+
+PlanCard.propTypes = {
+  plan: PropTypes.object.isRequired,
+  isCurrent: PropTypes.bool.isRequired,
+  onClick: PropTypes.func.isRequired,
+};
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -315,55 +381,14 @@ export default function Onboarding() {
       </p>
 
       <div className="w-full max-w-sm space-y-2.5">
-        {plans.map((plan) => {
-          const isCurrent = selectedPlan === plan.id;
-          const limits = plan.limits || {};
-          const price = plan.price_monthly / 100;
-
-          return (
-            <button
-              key={plan.id}
-              type="button"
-              onClick={() => setSelectedPlan(plan.id)}
-              className={cn(
-                "w-full text-left p-4 rounded-large-element border-2 motion-safe:transition-all motion-safe:duration-200",
-                isCurrent
-                  ? "border-foreground/40 bg-accent"
-                  : "border-border hover:bg-accent hover:border-foreground/20"
-              )}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-mono text-sm text-card-foreground">{plan.name}</span>
-                <span className="font-mono text-lg text-card-foreground">
-                  ${price}<span className="text-xs text-muted-foreground font-sans">/mo</span>
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {limits.backup_gb !== undefined && (
-                  <Badge variant="outline">{limits.backup_gb} GB backup</Badge>
-                )}
-                {limits.tunnel_gb !== undefined && (
-                  <Badge variant="outline">{limits.tunnel_gb} GB tunnel</Badge>
-                )}
-                {limits.smtp_monthly !== undefined && (
-                  <Badge variant="outline">{limits.smtp_monthly} emails/mo</Badge>
-                )}
-                {(limits.ai_credit_cents || 0) > 0 && (
-                  <Badge variant="outline">${(limits.ai_credit_cents / 100).toFixed(0)} AI credit</Badge>
-                )}
-              </div>
-              <div className={cn(
-                "flex items-center gap-1.5 mt-2 text-card-foreground",
-                "transition-opacity duration-200",
-                isCurrent ? "opacity-100" : "opacity-0"
-              )}>
-                <Check className="w-3.5 h-3.5" />
-                <span className="text-xs font-mono">Selected</span>
-              </div>
-            </button>
-          );
-        })}
+        {plans.map((plan) => (
+          <PlanCard
+            key={plan.id}
+            plan={plan}
+            isCurrent={selectedPlan === plan.id}
+            onClick={() => setSelectedPlan(plan.id)}
+          />
+        ))}
       </div>
 
       <div className={cn(
