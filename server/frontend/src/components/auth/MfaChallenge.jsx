@@ -232,14 +232,16 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
       error={error}
       code={code}
       setCode={setCode}
-      placeholder={selected === "email" ? "Enter the code from your email" : "Enter the 6-digit code"}
+      maxLength={6}
+      label={selected === "email" ? "Code from your email" : "6-digit code from your app"}
       autoFocus
     />
   );
 }
 
-function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, autoFocus }) {
+function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, maxLength, label, autoFocus }) {
   const inputId = useId();
+  const isOtp = typeof maxLength === "number";
   return (
     <form
       data-slot="auth-mfa-entry"
@@ -257,17 +259,29 @@ function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, s
         <ArrowLeft size={12} /> Choose another method
       </button>
       <label htmlFor={inputId} className="text-sm block">{title}</label>
-      <input
-        id={inputId}
-        type="text"
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        placeholder={placeholder}
-        className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2"
-        autoFocus={autoFocus}
-      />
+      {isOtp ? (
+        <OtpInput
+          id={inputId}
+          value={code}
+          onChange={setCode}
+          maxLength={maxLength}
+          label={label}
+          disabled={loading}
+          autoFocus={autoFocus}
+        />
+      ) : (
+        <input
+          id={inputId}
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder={placeholder}
+          className="w-full px-4 py-2 border-2 border-primary/30 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2"
+          autoFocus={autoFocus}
+        />
+      )}
       {error && <Alert variant="error" message={error} />}
       <Button type="submit" disabled={loading || disabled} fullWidth>
         {loading ? "Verifying…" : "Verify"}
@@ -295,5 +309,7 @@ EntryShell.propTypes = {
   code: PropTypes.string,
   setCode: PropTypes.func,
   placeholder: PropTypes.string,
+  maxLength: PropTypes.number,
+  label: PropTypes.string,
   autoFocus: PropTypes.bool,
 };

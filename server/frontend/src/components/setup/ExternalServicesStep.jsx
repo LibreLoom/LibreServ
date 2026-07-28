@@ -143,10 +143,10 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
       {popupBlocked && (
         <div className="w-full max-w-sm mb-6 rounded-large-element border border-accent/30 bg-accent/10 p-4 text-left">
           <p className="text-sm text-primary font-mono mb-2">
-            Popup blocked
+            Link didn't open?
           </p>
           <p className="text-xs text-accent mb-3">
-            Your browser blocked the new tab. Open this link manually:
+            If the new tab didn't open automatically, open it manually:
           </p>
           <Button asChild fullWidth size="sm" variant="outline">
             <a href={CONNECT_URL} target="_blank" rel="noopener noreferrer">

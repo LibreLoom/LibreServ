@@ -8,9 +8,12 @@ set -euo pipefail
 # Caddy load-balances across both; deploy drains one at a time.
 #
 # Usage:
-#   ./connect/deploy/deploy.sh                  # deploy current HEAD (after git pull)
-#   ./connect/deploy/deploy.sh --latest          # checkout and deploy latest connect-v* tag
-#   ./connect/deploy/deploy.sh --tag connect-v1.2.3  # checkout and deploy a specific tag
+#   ./connect/deploy/deploy.sh                   # deploy latest connect-v* tag (default)
+#   ./connect/deploy/deploy.sh --tag connect-v1.2.3  # deploy a specific tag
+#   ./connect/deploy/deploy.sh --head            # deploy current HEAD (dev escape hatch)
+#
+# The server is a deploy target: deploys force-checkout the ref and discard
+# any local modifications (including stray web dist/ output).
 #
 # Prerequisites:
 #   - Caddy installed and configured with connect/deploy/Caddyfile.conf
@@ -158,26 +161,34 @@ deploy_instance() {
 main() {
     log_step "LibreServ Connect — Zero-Downtime Deploy"
 
-    # Optional: checkout a specific tag or latest Connect tag
-    if [ "${1:-}" = "--tag" ] && [ -n "${2:-}" ]; then
-        local tag="$2"
-        log_info "Checking out tag ${tag}..."
-        cd "$REPO_ROOT"
-        git fetch --tags
-        git checkout "$tag"
-    elif [ "${1:-}" = "--latest" ]; then
-        log_info "Finding latest Connect tag..."
-        cd "$REPO_ROOT"
-        git fetch --tags
-        local latest_tag
-        latest_tag=$(git describe --tags --match 'connect-v*' --abbrev=0 2>/dev/null || true)
-        if [ -z "$latest_tag" ]; then
-            log_error "No connect-v* tags found. Create one: git tag connect-v1.0.0 && git push --tags"
-            exit 1
+    # Resolve which ref to deploy. The server is a deploy target, not a dev
+    # machine — it should never carry local modifications. Default is the
+    # latest connect-v* tag; --head deploys whatever is checked out.
+    local ref=""
+    cd "$REPO_ROOT"
+    git fetch --tags
+
+    if [ "${1:-}" = "--head" ]; then
+        ref="HEAD"
+        log_info "Deploying current HEAD ($(git rev-parse --short HEAD))"
+    else
+        if [ "${1:-}" = "--tag" ] && [ -n "${2:-}" ]; then
+            ref="$2"
+        else
+            ref=$(git describe --tags --match 'connect-v*' --abbrev=0 2>/dev/null || true)
+            if [ -z "$ref" ]; then
+                log_error "No connect-v* tags found. Create one: git tag connect-v0.1.0 && git push --tags"
+                exit 1
+            fi
         fi
-        log_info "Latest Connect tag: ${latest_tag}"
-        git checkout "$latest_tag"
+        log_info "Deploying ${ref}"
     fi
+
+    # Force the checkout: discard any local modifications and remove stray
+    # build outputs (web dist/) that would otherwise block the checkout.
+    # This is intentional — the deploy box must always match the ref exactly.
+    git checkout -f "$ref"
+    git clean -fd connect/web/ >/dev/null 2>&1 || true
 
     # Pre-flight checks
     for inst in "${INSTANCES[@]}"; do

@@ -15,7 +15,7 @@ import useMfaAvailability from "../../hooks/useMfaAvailability";
 import Card from "../cards/Card";
 import Button from "../ui/Button";
 import Alert from "../common/Alert";
-import CollapsibleSection from "../common/CollapsibleSection";
+import OtpInput from "../ui/OtpInput";
 import { useSmoothResize } from "../../hooks/useSmoothResize";
 import {
   prepareCreationOptions,
@@ -617,15 +617,13 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
           <label htmlFor={codeInputId} className="sr-only">
             {type === "email" ? "Code from your email" : "6-digit code from your app"}
           </label>
-          <input
+          <OtpInput
             id={codeInputId}
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
             value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder={type === "email" ? "Code from your email" : "6-digit code from your app"}
-            className={inputClass}
+            onChange={setCode}
+            maxLength={6}
+            label={type === "email" ? "Code from your email" : "6-digit code from your app"}
+            disabled={busy}
             autoFocus
           />
           <Button
