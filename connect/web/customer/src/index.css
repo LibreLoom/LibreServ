@@ -109,12 +109,14 @@
   --secondary: #242424;
   --secondary-foreground: #ffffff;
   --muted: #242424;
-  --muted-foreground: #767676;
+  /* #a3a3a3: ~6:1 on the dark card, ~5:1 on muted surfaces. #767676
+     failed contrast (~2.9:1) and made dark-mode text unreadable. */
+  --muted-foreground: #a3a3a3;
   --accent: #2a2a2a;
   --accent-foreground: #ffffff;
   --border: #2e2e2e;
   --input: #2e2e2e;
-  --ring: #767676;
+  --ring: #a3a3a3;
 }
 
 html {

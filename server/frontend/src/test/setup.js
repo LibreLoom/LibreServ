@@ -16,3 +16,9 @@ globalThis.ResizeObserver = class ResizeObserver {
     this.observed.clear();
   }
 };
+
+// Polyfill document.elementFromPoint for jsdom (needed by input-otp, which
+// uses it to map pointer events to slot positions). jsdom doesn't implement it.
+if (typeof document.elementFromPoint !== "function") {
+  document.elementFromPoint = () => null;
+}

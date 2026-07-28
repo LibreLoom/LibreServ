@@ -158,7 +158,7 @@ describe("MfaSetupWizard", () => {
     );
 
     // Enter a code and verify
-    const codeInput = screen.getByPlaceholderText(/6-digit code/i);
+    const codeInput = screen.getByLabelText(/6-digit code from your app/i);
     fireEvent.change(codeInput, { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: /Verify/i }));
 

@@ -83,7 +83,7 @@ describe("MfaChallenge", () => {
     mockVerify.mockResolvedValueOnce(undefined);
     renderChallenge();
     fireEvent.click(screen.getByText("Authenticator app"));
-    const input = await screen.findByPlaceholderText(/6-digit code/i);
+    const input = await screen.findByLabelText(/Authenticator app/i);
     fireEvent.change(input, { target: { value: "123456" } });
     fireEvent.click(screen.getByText("Verify"));
     await waitFor(() =>
@@ -96,7 +96,7 @@ describe("MfaChallenge", () => {
     mockVerify.mockResolvedValueOnce(undefined);
     renderChallenge();
     fireEvent.click(screen.getByText("Email code"));
-    const input = await screen.findByPlaceholderText(/code from your email/i);
+    const input = await screen.findByLabelText(/Email code/i);
     fireEvent.change(input, { target: { value: "999111" } });
     fireEvent.click(screen.getByText("Verify"));
     await waitFor(() =>
@@ -109,7 +109,7 @@ describe("MfaChallenge", () => {
     mockRecover.mockResolvedValueOnce(undefined);
     renderChallenge();
     fireEvent.click(screen.getByText(/Use a recovery code instead/i));
-    const input = await screen.findByPlaceholderText(/Enter a recovery code/i);
+    const input = await screen.findByLabelText(/Recovery code/i);
     fireEvent.change(input, { target: { value: "RECOVERY-1" } });
     fireEvent.click(screen.getByText("Verify"));
     await waitFor(() => expect(mockRecover).toHaveBeenCalledWith(TOKEN, "RECOVERY-1"));
@@ -121,7 +121,7 @@ describe("MfaChallenge", () => {
     mockVerify.mockRejectedValueOnce(err);
     renderChallenge();
     fireEvent.click(screen.getByText("Authenticator app"));
-    const input = await screen.findByPlaceholderText(/6-digit code/i);
+    const input = await screen.findByLabelText(/Authenticator app/i);
     fireEvent.change(input, { target: { value: "000000" } });
     fireEvent.click(screen.getByText("Verify"));
     await waitFor(() =>

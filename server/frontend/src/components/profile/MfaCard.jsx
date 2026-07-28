@@ -16,6 +16,7 @@ import Card from "../cards/Card";
 import Button from "../ui/Button";
 import Alert from "../common/Alert";
 import OtpInput from "../ui/OtpInput";
+import CollapsibleSection from "../common/CollapsibleSection";
 import { useSmoothResize } from "../../hooks/useSmoothResize";
 import {
   prepareCreationOptions,
