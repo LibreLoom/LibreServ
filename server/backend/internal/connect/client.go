@@ -117,7 +117,7 @@ func (c *RealClient) Activate(ctx context.Context, token string) (*ConnectStatus
 	c.token = token
 	c.mu.Unlock()
 
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/activate", ActivationRequest{Token: token})
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/activate", ActivationRequest{LicenseKey: token})
 	if err != nil {
 		return nil, err
 	}

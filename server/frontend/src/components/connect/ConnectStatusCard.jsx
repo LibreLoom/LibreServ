@@ -3,7 +3,8 @@ import { cn } from "@/lib/utils";
 import { Plug, PlugZap, ExternalLink, LogOut } from "lucide-react";
 import Card from "../cards/Card.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
-import Button from "../ui/Button.jsx";
+import Button from "../ui/Button";
+import Alert from "../common/Alert";
 
 const PLAN_BADGES = {
   free: { label: "Connect Free", class: "bg-accent/10 text-accent" },
@@ -24,6 +25,7 @@ export default function ConnectStatusCard({
 }) {
   const [showTokenInput, setShowTokenInput] = useState(false);
   const [token, setToken] = useState("");
+  const [error, setError] = useState(null);
 
   const planBadge = plan ? PLAN_BADGES[plan.id] : null;
 
@@ -77,9 +79,20 @@ export default function ConnectStatusCard({
               placeholder="Paste your Connect token here"
               className="w-full px-4 py-3 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
             />
+            {error && <Alert variant="error" message={error} />}
             <div className="flex gap-2 pt-2">
               <Button
-                onClick={() => onActivate && onActivate(token)}
+                onClick={async () => {
+                  if (!onActivate) return;
+                  setError(null);
+                  try {
+                    await onActivate(token);
+                    setToken("");
+                    setShowTokenInput(false);
+                  } catch (err) {
+                    setError(err.message || "Could not connect to LibreServ Connect. Please check your token and try again.");
+                  }
+                }}
                 disabled={!token.trim() || loading}
                 loading={loading}
               >

@@ -193,8 +193,10 @@ export default function SettingsPage() {
     try {
       const result = await activateConnect(token, csrfToken);
       setConnectStatus(result);
+      return result;
     } catch (err) {
       console.error("Failed to activate Connect:", err);
+      throw err;
     } finally {
       setConnectLoading(false);
     }

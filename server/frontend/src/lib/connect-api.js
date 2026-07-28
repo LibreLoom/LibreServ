@@ -1,36 +1,42 @@
 import api from "./api.js";
 
 export async function getConnectStatus() {
-  return api("/connect/status");
+  const res = await api("/connect/status");
+  return res.json();
 }
 
 export async function activateConnect(token, csrfToken) {
-  return api("/connect/activate", {
+  const res = await api("/connect/activate", {
     method: "PUT",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ license_key: token }),
   });
+  return res.json();
 }
 
 export async function deactivateConnect(csrfToken) {
-  return api("/connect/deactivate", {
+  const res = await api("/connect/deactivate", {
     method: "POST",
     headers: { "X-CSRF-Token": csrfToken },
   });
+  return res.json();
 }
 
 export async function updateConnectService(service, state, csrfToken) {
-  return api("/connect/services", {
+  const res = await api("/connect/services", {
     method: "PUT",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
     body: JSON.stringify({ service, state }),
   });
+  return res.json();
 }
 
 export async function getConnectUsage() {
-  return api("/connect/usage");
+  const res = await api("/connect/usage");
+  return res.json();
 }
 
 export async function getConnectInfo() {
-  return api("/connect/info");
+  const res = await api("/connect/info");
+  return res.json();
 }

@@ -82,7 +82,7 @@ type ServiceToggleRequest struct {
 }
 
 type ActivationRequest struct {
-	Token string `json:"token"`
+	LicenseKey string `json:"license_key"`
 }
 
 type AICredentials struct {

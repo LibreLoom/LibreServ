@@ -5,7 +5,7 @@
 // surfaces, theme tokens, monospace digits.
 //
 // Usage:
-//   <OtpInput value={code} onChange={setCode} length={6} label="6-digit code" />
+//   <OtpInput value={code} onChange={setCode} maxLength={6} />
 //
 // For variable-length freeform codes (recovery codes), keep a plain <input>;
 // this component is for fixed-length numeric codes.
@@ -19,7 +19,6 @@ import { cn } from "../../lib/utils";
  *   value?: string,
  *   onChange?: (v: string) => void,
  *   maxLength?: number,
- *   label?: string,
  *   onComplete?: (...args: any[]) => unknown,
  *   disabled?: boolean,
  *   autoFocus?: boolean,
@@ -31,7 +30,6 @@ export default function OtpInput({
   value,
   onChange,
   maxLength = 6,
-  label,
   onComplete,
   disabled = false,
   autoFocus = false,
@@ -52,23 +50,30 @@ export default function OtpInput({
       // numeric codes only — invalid keystrokes/pastes are dropped, not filtered.
       pattern="^\d+$"
       inputMode="numeric"
-      // Per-slot dimmed placeholder characters. input-otp sets aria-placeholder
-      // from this on the real input; the native placeholder attribute is NOT set,
-      // so tests should query by label, not by placeholder text.
-      placeholder={label ? label.slice(0, maxLength) : undefined}
+      // Per-slot placeholder: a dimmed hash (#) in each empty slot.
+      // input-otp fills each slot with successive chars from `placeholder`,
+      // so we pad "#" to the full length → ### ### across the grouped slots.
+      // The accessible label lives on the parent <label htmlFor={id}>.
+      placeholder={"#".repeat(maxLength)}
       // center so taps land on a sensible slot on mobile.
       textAlign="center"
       containerClassName={cn(
         "group flex items-center justify-center gap-2 has-[:disabled]:opacity-50",
         className,
       )}
-      render={({ slots }) => (
-        <div className="flex items-center gap-2">
-          {slots.map((slot, idx) => (
-            <Slot key={idx} {...slot} />
-          ))}
-        </div>
-      )}
+      render={({ slots }) => {
+        // Group slots into halves separated by a dash (Stripe-style ### — ###).
+        const mid = Math.ceil(slots.length / 2);
+        const left = slots.slice(0, mid);
+        const right = slots.slice(mid);
+        return (
+          <div className="flex items-center gap-2">
+            <SlotGroup slots={left} />
+            {right.length > 0 && <FakeDash />}
+            <SlotGroup slots={right} />
+          </div>
+        );
+      }}
     />
   );
 }
@@ -90,9 +95,9 @@ function Slot({ char, placeholderChar, isActive, hasFakeCaret }) {
         "motion-safe:transition-all motion-safe:duration-150",
         // The group-* hooks come from containerClassName="group …" on OTPInput.
         "group-hover:border-primary/40 group-focus-within:border-accent",
-        "group-focus-within:ring-2 group-focus-within:ring-accent group-focus-within:ring-offset-2 group-focus-within:ring-offset-transparent",
+        "group-focus-within:ring-1 group-focus-within:ring-accent",
         // Active slot lifts to the front + accent border.
-        isActive && "border-accent ring-2 ring-accent ring-offset-2 ring-offset-transparent z-10",
+        isActive && "border-accent ring-1 ring-accent z-10",
       )}
     >
       <div className="group-has-[input[data-input-otp-placeholder-shown]]:text-primary/30">
@@ -112,12 +117,34 @@ function FakeCaret() {
   );
 }
 
+/** A run of adjacent slots — a sub-group within the field (e.g. left half). */
+function SlotGroup({ slots }) {
+  return (
+    <div className="flex items-center gap-2">
+      {slots.map((slot, idx) => (
+        <Slot key={idx} {...slot} />
+      ))}
+    </div>
+  );
+}
+
+/** Stripe-style dash between two groups of slots. */
+function FakeDash() {
+  return (
+    <div aria-hidden className="flex w-3 items-center justify-center">
+      <div className="h-0.5 w-3 rounded-full bg-primary/30" />
+    </div>
+  );
+}
+
+SlotGroup.propTypes = {
+  slots: PropTypes.arrayOf(PropTypes.object).isRequired,
+};
+
 OtpInput.propTypes = {
   value: PropTypes.string.isRequired,
   onChange: PropTypes.func.isRequired,
   maxLength: PropTypes.number,
-  label: PropTypes.string,
-  onComplete: PropTypes.func,
   disabled: PropTypes.bool,
   autoFocus: PropTypes.bool,
   id: PropTypes.string,

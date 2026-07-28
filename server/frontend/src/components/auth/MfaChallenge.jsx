@@ -233,7 +233,6 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
       code={code}
       setCode={setCode}
       maxLength={6}
-      label={selected === "email" ? "Code from your email" : "6-digit code from your app"}
       autoFocus
     />
   );
@@ -251,11 +250,10 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
  *   setCode?: (v: string) => void,
  *   placeholder?: string,
  *   maxLength?: number,
- *   label?: string,
  *   autoFocus?: boolean,
  * } | undefined} [props]
  */
-function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, maxLength, label, autoFocus } = {}) {
+function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, maxLength, autoFocus } = {}) {
   const inputId = useId();
   const isOtp = typeof maxLength === "number";
   return (
@@ -281,7 +279,6 @@ function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, s
           value={code}
           onChange={setCode}
           maxLength={maxLength}
-          label={label}
           disabled={loading}
           autoFocus={autoFocus}
         />
@@ -326,6 +323,4 @@ EntryShell.propTypes = {
   setCode: PropTypes.func,
   placeholder: PropTypes.string,
   maxLength: PropTypes.number,
-  label: PropTypes.string,
-  autoFocus: PropTypes.bool,
 };

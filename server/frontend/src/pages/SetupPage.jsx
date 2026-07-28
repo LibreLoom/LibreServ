@@ -1567,7 +1567,7 @@ export default function SetupPage() {
   }, [advanceStep]);
 
   const handleConnectActivate = useCallback(async (token) => {
-    await api("/api/connect/activate", { method: "PUT", body: JSON.stringify({ token }) });
+    await api("/api/connect/activate", { method: "PUT", body: JSON.stringify({ license_key: token }) });
     const data = { ...(progressRef.current.stepData || {}), connect_activated: true };
     await advanceStep(STEP.MFA, "", data);
   }, [advanceStep]);

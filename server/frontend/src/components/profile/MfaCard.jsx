@@ -623,7 +623,6 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             value={code}
             onChange={setCode}
             maxLength={6}
-            label={type === "email" ? "Code from your email" : "6-digit code from your app"}
             disabled={busy}
             autoFocus
           />

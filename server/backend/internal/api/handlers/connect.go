@@ -60,12 +60,12 @@ func (h *ConnectHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		response.JSONError(w, http.StatusBadRequest, "Could not read the activation token. Please check and try again.")
 		return
 	}
-	if req.Token == "" {
-		response.JSONError(w, http.StatusBadRequest, "Please enter your Connect token.")
+	if req.LicenseKey == "" {
+		response.JSONError(w, http.StatusBadRequest, "Please enter your Connect license key.")
 		return
 	}
 
-	status, err := h.client.Activate(r.Context(), req.Token)
+	status, err := h.client.Activate(r.Context(), req.LicenseKey)
 	if err != nil {
 		slog.Error("connect activation failed", "error", err)
 		response.JSONError(w, http.StatusBadGateway, "Could not connect to LibreServ Connect. Please check your token and try again. If the problem persists, visit connect.serv.libreloom.org.")
