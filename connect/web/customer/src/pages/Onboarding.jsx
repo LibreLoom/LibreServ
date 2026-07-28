@@ -78,48 +78,46 @@ function PlanCard({ plan, isCurrent, onClick }) {
       ref={outerRef}
       className={cn(
         "overflow-hidden transition-[height] ease-[cubic-bezier(0.05,0.7,0.1,1)]",
-        "rounded-large-element border-2 motion-safe:transition-all motion-safe:duration-200",
+        "rounded-large-element border-2 motion-safe:transition-all motion-safe:duration-200 cursor-pointer",
         isCurrent
           ? "border-foreground/40 bg-accent"
           : "border-border hover:bg-accent hover:border-foreground/20"
       )}
       style={{ transitionDuration: "300ms" }}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
     >
-      <button
-        type="button"
-        onClick={onClick}
-        className="w-full text-left p-4"
-      >
-        <div ref={innerRef}>
-          <div className="flex items-center justify-between mb-1">
-            <span className="font-mono text-sm text-card-foreground">{plan.name}</span>
-            <span className="font-mono text-lg text-card-foreground">
-              ${price}<span className="text-xs text-muted-foreground font-sans">/mo</span>
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
-          <div className="flex flex-wrap gap-1.5">
-            {limits.backup_gb !== undefined && (
-              <Badge variant="outline">{limits.backup_gb} GB backup</Badge>
-            )}
-            {limits.tunnel_gb !== undefined && (
-              <Badge variant="outline">{limits.tunnel_gb} GB tunnel</Badge>
-            )}
-            {limits.smtp_monthly !== undefined && (
-              <Badge variant="outline">{limits.smtp_monthly} emails/mo</Badge>
-            )}
-            {(limits.ai_credit_cents || 0) > 0 && (
-              <Badge variant="outline">${(limits.ai_credit_cents / 100).toFixed(0)} AI credit</Badge>
-            )}
-          </div>
-          {isCurrent && (
-            <div className="flex items-center gap-1.5 mt-2 text-card-foreground animate-in fade-in slide-in-from-bottom-1 duration-200">
-              <Check className="w-3.5 h-3.5" />
-              <span className="text-xs font-mono">Selected</span>
-            </div>
+      <div ref={innerRef} className="p-4">
+        <div className="flex items-center justify-between mb-1">
+          <span className="font-mono text-sm text-card-foreground">{plan.name}</span>
+          <span className="font-mono text-lg text-card-foreground">
+            ${price}<span className="text-xs text-muted-foreground font-sans">/mo</span>
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
+        <div className="flex flex-wrap gap-1.5">
+          {limits.backup_gb !== undefined && (
+            <Badge variant="outline">{limits.backup_gb} GB backup</Badge>
+          )}
+          {limits.tunnel_gb !== undefined && (
+            <Badge variant="outline">{limits.tunnel_gb} GB tunnel</Badge>
+          )}
+          {limits.smtp_monthly !== undefined && (
+            <Badge variant="outline">{limits.smtp_monthly} emails/mo</Badge>
+          )}
+          {(limits.ai_credit_cents || 0) > 0 && (
+            <Badge variant="outline">${(limits.ai_credit_cents / 100).toFixed(0)} AI credit</Badge>
           )}
         </div>
-      </button>
+        {isCurrent && (
+          <div className="flex items-center gap-1.5 mt-2 text-card-foreground animate-in fade-in slide-in-from-bottom-1 duration-200">
+            <Check className="w-3.5 h-3.5" />
+            <span className="text-xs font-mono">Selected</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
