@@ -125,7 +125,7 @@ export default function Onboarding() {
     clearError();
     try {
       const res = await api.generateLicenseKey(selectedPlan);
-      setLicenseKey(res.key);
+      setLicenseKey(res.license_key);
     } catch (err) {
       setError(err.message || "Could not generate your license key. Try again.");
     } finally {
