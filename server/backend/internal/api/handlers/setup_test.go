@@ -415,8 +415,6 @@ func TestFrontendStepContractKeptInSync(t *testing.T) {
 		"welcome",
 		"preflight",
 		"account",
-		"remote_access",
-		"smtp",
 		"external_services",
 		"mfa",
 		"complete",
@@ -428,25 +426,13 @@ func TestFrontendStepContractKeptInSync(t *testing.T) {
 	}
 
 	// Every step-data key the frontend writes alongside progress saves.
-	// Source: handlePreflightPass / handleAccountSuccess / handleDomainComplete /
-	// handleSmtpComplete / handleConnectActivate / handleExternalServicesSkip /
+	// Source: handlePreflightPass / handleAccountSuccess /
+	// handleConnectActivate / handleExternalServicesSkip /
 	// handleMfaSuccess in SetupPage.jsx.
 	frontendStepDataKeys := []string{
 		"preflight_passed",
 		"account_completed",
 		"admin_email",
-		"domain_completed",
-		"domain_skipped",
-		"remote_access_completed",
-		"remote_access_skipped",
-		"has_domain",
-		"provider",
-		"registrar",
-		"domain_name",
-		"cf_ns_confirmed",
-		"smtp_completed",
-		"smtp_skipped",
-		"smtp_provider",
 		"connect_activated",
 		"external_services_skipped",
 		"mfa_completed",
