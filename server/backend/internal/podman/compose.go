@@ -134,12 +134,22 @@ func CreateVolumeDirs(composePath string) error {
 	return nil
 }
 
-// Up runs `docker compose up -d`
+// Up runs `docker compose up -d`.
+//
+// Before invoking compose, it ensures the Podman API daemon socket is running.
+// The docker-compose plugin that `podman compose` delegates to needs a
+// persistent daemon socket; on a fresh boot the rootless `podman.socket`
+// systemd unit is often inactive, which produces the opaque "Cannot connect to
+// the Docker daemon" error. Auto-starting the socket here prevents that.
 func (cm *ComposeManager) Up(ctx context.Context, composePath string) error {
 	// Pre-create volume directories before docker compose runs to prevent root-owned dirs
 	if err := CreateVolumeDirs(composePath); err != nil {
 		log.Printf("Warning: failed to pre-create volume directories: %v", err)
 	}
+
+	// Ensure the container daemon socket is up (best-effort; ignore failures —
+	// the compose command itself will produce a clearer error if still down).
+	EnsureSocketRunning()
 
 	composeFile, workDir := cm.getComposeArgs(composePath)
 
@@ -381,18 +391,25 @@ func ChownDir(ctx context.Context, dirPath string, uid, gid int) error {
 	return nil
 }
 
+// composeError translates raw compose-command output into actionable,
+// plain-language errors. Per LibreServ's PLAIN LANGUAGE convention, every
+// message explains what went wrong and what the user should do — never just a
+// bare technical term.
 func composeError(action string, output []byte, err error) error {
 	outStr := string(output)
 	if strings.Contains(outStr, "Cannot connect to the Docker daemon") || strings.Contains(outStr, "Cannot connect to Podman") {
-		return fmt.Errorf("container runtime not running or not accessible")
+		// The daemon socket was down when compose ran. Try to start it now so
+		// the user's next attempt (or an immediate retry) succeeds.
+		EnsureSocketRunning()
+		return fmt.Errorf("the background service that runs apps (the container daemon) is not running. LibreServ tried to start it automatically — please try again in a few seconds. If the problem persists, restart your device.")
 	}
 	if strings.Contains(outStr, "permission denied") {
-		return fmt.Errorf("permission denied accessing runtime socket")
+		return fmt.Errorf("LibreServ does not have permission to talk to the container daemon. This usually means the daemon socket file has the wrong owner. Try restarting your device, or ask your system administrator to check the Podman or Docker permissions for your user account.")
 	}
 	if strings.Contains(outStr, "unknown command \"compose\"") || strings.Contains(outStr, "looking up compose provider failed") {
-		return fmt.Errorf("compose provider not found (install podman-compose or docker-compose)")
+		return fmt.Errorf("the app-running helper (compose) is not installed. LibreServ needs the 'docker-compose' or 'podman-compose' add-on to start apps. Install one of these and try again.")
 	}
-	return fmt.Errorf("compose %s failed: %s: %w", action, outStr, err)
+	return fmt.Errorf("starting the app failed: %s", strings.TrimSpace(outStr))
 }
 
 func ComposePinImageDigest(composePath string, appImage string, digest string) error {

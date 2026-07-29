@@ -329,6 +329,8 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 // generateTunnel creates a Cloudflare Tunnel for the device and returns the
 // tunnel token the device uses to run cloudflared. The tunnel is named after
 // the device for easy identification in the Cloudflare dashboard.
+// The tunnel's initial ingress routes the device's base hostname to the
+// device's Caddy (http://localhost:80), which handles app-level routing.
 func (s *ProvisioningService) generateTunnel(deviceID, sub string) (map[string]any, error) {
 	prov, err := s.providers.FindEnabled("tunnel")
 	if err != nil {
@@ -348,6 +350,14 @@ func (s *ProvisioningService) generateTunnel(deviceID, sub string) (map[string]a
 		return nil, fmt.Errorf("could not create tunnel: %w", err)
 	}
 
+	// Configure initial ingress with the device base hostname.
+	// The device's Caddy (http://localhost:80) handles routing to individual
+	// app containers based on the Host header.
+	baseHostname := s.deviceHostname(deviceID, sub)
+	if baseHostname != "" {
+		_ = s.tunnel.ConfigureIngress(accountID, apiToken, creds.TunnelID, baseHostname, "http://localhost:80")
+	}
+
 	return map[string]any{
 		"tunnel": map[string]any{
 			"provider":     "cloudflare",
@@ -355,6 +365,194 @@ func (s *ProvisioningService) generateTunnel(deviceID, sub string) (map[string]a
 			"tunnel_id":    creds.TunnelID,
 		},
 	}, nil
+}
+
+// deviceHostname returns the full hostname for a device based on its plan.
+// e.g. "abc12345.free.servers.libreloom.org" for free plan.
+func (s *ProvisioningService) deviceHostname(deviceID, sub string) string {
+	var planID string
+	if err := s.db.QueryRow("SELECT plan_id FROM devices WHERE id = $1", deviceID).Scan(&planID); err != nil {
+		return ""
+	}
+	plan := catalog.PlanByID(planID)
+	if plan == nil {
+		plan = catalog.PlanByID("free")
+	}
+	return strings.Replace(plan.Limits.Domain, "*", sub, 1)
+}
+
+// RegisterRoute adds a public hostname to the device's tunnel and creates a
+// DNS CNAME pointing to the tunnel. Cloudflare auto-provisions an SSL cert
+// for the hostname as a tunnel public hostname — no ACM needed.
+// The hostname must be a subdomain of the device's base domain.
+// Called by the device when installing an app (e.g. Nextcloud at
+// "nextcloud.user.free.servers.libreloom.org").
+func (s *ProvisioningService) RegisterRoute(deviceID, hostname string) error {
+	if hostname == "" {
+		return fmt.Errorf("hostname is required")
+	}
+
+	// Look up the device's tunnel credentials
+	tunnelID := s.findDeviceTunnelID(deviceID)
+	if tunnelID == "" {
+		return fmt.Errorf("no tunnel is provisioned for this device. Enable Tunnel Access in your Connect settings first.")
+	}
+
+	// Get tunnel provider credentials
+	tunnelProv, err := s.providers.FindEnabled("tunnel")
+	if err != nil || tunnelProv == nil {
+		return fmt.Errorf("tunnel provider is not configured")
+	}
+	accountID := tunnelProv.Credential("account_id", "")
+	apiToken := tunnelProv.Credential("api_token", "")
+
+	// Get DNS provider
+	dnsProv, err := s.providers.FindEnabled("dns")
+	if err != nil || dnsProv == nil {
+		return fmt.Errorf("DNS provider is not configured")
+	}
+	dnsToken := dnsProv.Credential("api_token", "")
+	zone := dnsProv.Setting("zone", "")
+	if zone == "" {
+		return fmt.Errorf("DNS zone is not configured")
+	}
+
+	// Create DNS CNAME: hostname → {tunnelID}.cfargotunnel.com
+	cnameTarget := fmt.Sprintf("%s.cfargotunnel.com", tunnelID)
+	if _, err := s.dns.CreateCNAME(dnsToken, zone, hostname, cnameTarget); err != nil {
+		return fmt.Errorf("could not create DNS record for %s: %w", hostname, err)
+	}
+
+	// Rebuild tunnel ingress with all registered routes + base hostname
+	routes, err := s.listRouteHostnames(deviceID)
+	if err != nil {
+		return fmt.Errorf("could not list existing routes: %w", err)
+	}
+
+	// Add the base hostname first (if known), then all app routes
+	var sub string
+	if len(deviceID) >= 8 {
+		sub = deviceID[len(deviceID)-8:]
+	}
+	baseHostname := s.deviceHostname(deviceID, sub)
+
+	var ingressRoutes []providers.IngressRoute
+	if baseHostname != "" {
+		ingressRoutes = append(ingressRoutes, providers.IngressRoute{
+			Hostname: baseHostname,
+			Service:  "http://localhost:80",
+		})
+	}
+	for _, h := range routes {
+		if h != baseHostname {
+			ingressRoutes = append(ingressRoutes, providers.IngressRoute{
+				Hostname: h,
+				Service:  "http://localhost:80",
+			})
+		}
+	}
+	// Add the new route (if not already in the list)
+	alreadyExists := false
+	for _, h := range routes {
+		if h == hostname {
+			alreadyExists = true
+			break
+		}
+	}
+	if !alreadyExists {
+		ingressRoutes = append(ingressRoutes, providers.IngressRoute{
+			Hostname: hostname,
+			Service:  "http://localhost:80",
+		})
+	}
+
+	if err := s.tunnel.ConfigureIngressMulti(accountID, apiToken, tunnelID, ingressRoutes); err != nil {
+		return fmt.Errorf("could not update tunnel routing: %w", err)
+	}
+
+	// Store the route in the database
+	_, err = s.db.Exec(
+		`INSERT INTO device_routes (id, device_id, hostname) VALUES ($1, $2, $3)
+		 ON CONFLICT (device_id, hostname) DO NOTHING`,
+		security.GenerateID("route"), deviceID, hostname)
+	return err
+}
+
+// UnregisterRoute removes a public hostname from the device's tunnel and
+// deletes the DNS CNAME. Called by the device when removing an app.
+func (s *ProvisioningService) UnregisterRoute(deviceID, hostname string) error {
+	if hostname == "" {
+		return fmt.Errorf("hostname is required")
+	}
+
+	// Delete the DNS record
+	dnsProv, err := s.providers.FindEnabled("dns")
+	if err == nil && dnsProv != nil {
+		_ = s.dns.DeleteRecordByName(dnsProv.Credential("api_token", ""), dnsProv.Setting("zone", ""), hostname)
+	}
+
+	// Remove from database
+	_, _ = s.db.Exec("DELETE FROM device_routes WHERE device_id = $1 AND hostname = $2", deviceID, hostname)
+
+	// Rebuild tunnel ingress without the removed route
+	tunnelID := s.findDeviceTunnelID(deviceID)
+	if tunnelID != "" {
+		tunnelProv, err := s.providers.FindEnabled("tunnel")
+		if err == nil && tunnelProv != nil {
+			accountID := tunnelProv.Credential("account_id", "")
+			apiToken := tunnelProv.Credential("api_token", "")
+
+			routes, _ := s.listRouteHostnames(deviceID)
+
+			var sub string
+			if len(deviceID) >= 8 {
+				sub = deviceID[len(deviceID)-8:]
+			}
+			baseHostname := s.deviceHostname(deviceID, sub)
+
+			var ingressRoutes []providers.IngressRoute
+			if baseHostname != "" {
+				ingressRoutes = append(ingressRoutes, providers.IngressRoute{
+					Hostname: baseHostname,
+					Service:  "http://localhost:80",
+				})
+			}
+			for _, h := range routes {
+				if h != baseHostname && h != hostname {
+					ingressRoutes = append(ingressRoutes, providers.IngressRoute{
+						Hostname: h,
+						Service:  "http://localhost:80",
+					})
+				}
+			}
+
+			if len(ingressRoutes) > 0 {
+				_ = s.tunnel.ConfigureIngressMulti(accountID, apiToken, tunnelID, ingressRoutes)
+			}
+		}
+	}
+
+	return nil
+}
+
+// listRouteHostnames returns all registered route hostnames for a device.
+func (s *ProvisioningService) listRouteHostnames(deviceID string) ([]string, error) {
+	rows, err := s.db.Query(
+		"SELECT hostname FROM device_routes WHERE device_id = $1 ORDER BY created_at", deviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hostnames []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		hostnames = append(hostnames, h)
+	}
+	return hostnames, nil
 }
 
 // findDeviceTunnelID looks up the tunnel ID for a device from the

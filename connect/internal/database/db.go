@@ -274,6 +274,16 @@ CREATE TABLE IF NOT EXISTS custom_domains (
 CREATE INDEX IF NOT EXISTS idx_custom_domains_device ON custom_domains(device_id);
 CREATE INDEX IF NOT EXISTS idx_custom_domains_domain ON custom_domains(domain);
 
+CREATE TABLE IF NOT EXISTS device_routes (
+	id TEXT PRIMARY KEY,
+	device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+	hostname TEXT NOT NULL,
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(device_id, hostname)
+);
+CREATE INDEX IF NOT EXISTS idx_device_routes_device ON device_routes(device_id);
+CREATE INDEX IF NOT EXISTS idx_device_routes_hostname ON device_routes(hostname);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
 	id SERIAL PRIMARY KEY,
 	actor TEXT NOT NULL,

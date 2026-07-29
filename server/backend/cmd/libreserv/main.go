@@ -402,6 +402,26 @@ func main() {
 		return cid, secret, issuerURL, err
 	})
 
+// Wire route registrar: when apps get domain routes, register the public
+// hostname with Connect's tunnel (DNS CNAME + ingress + auto cert).
+// Only active when Connect is connected with a tunnel.
+appManager.SetRouteRegistrar(func(hostname string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := connectClient.RegisterRoute(ctx, hostname); err != nil {
+		return fmt.Errorf("could not register %s with Connect: %w", hostname, err)
+	}
+	return nil
+})
+appManager.SetRouteUnregistrar(func(hostname string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := connectClient.UnregisterRoute(ctx, hostname); err != nil {
+		return fmt.Errorf("could not unregister %s with Connect: %w", hostname, err)
+	}
+	return nil
+})
+
 	server := api.NewServer(api.ServerConfig{
 		Host:             cfg.Server.Host,
 		Port:             cfg.Server.Port,

@@ -39,6 +39,8 @@ type Manager struct {
 	backendMap     map[string][]string            // appID -> backend URLs (primary first)
 	backendByName  map[string]map[string][]string // appID -> name -> backends
 	scriptExecutor *ScriptExecutor
+	routeRegistrar    func(hostname string) error // called to register a public hostname with Connect
+	routeUnregistrar  func(hostname string) error // called to unregister a public hostname from Connect
 	updateMu       sync.Mutex
 	updating       map[string]bool
 }
@@ -182,6 +184,23 @@ func NewManager(
 									"instance_id", instanceID,
 									"route_id", route.ID,
 									"error", err,
+								)
+							}
+						}
+
+						// Register the public hostname with Connect's tunnel
+						// so DNS + tunnel ingress + cert are provisioned.
+						// Non-blocking — if Connect isn't connected, skip silently.
+						if m.routeRegistrar != nil {
+							fullHostname := subdomain + "." + domain
+							if err := m.routeRegistrar(fullHostname); err != nil {
+								m.logger.Warn("Failed to register route with Connect",
+									"hostname", fullHostname,
+									"error", err,
+								)
+							} else {
+								m.logger.Info("Registered route with Connect",
+									"hostname", fullHostname,
 								)
 							}
 						}
@@ -445,6 +464,21 @@ func (m *Manager) GetInstaller() *Installer {
 // SetOIDCProvisioner wires a callback to provision OIDC credentials during app install.
 func (m *Manager) SetOIDCProvisioner(fn func(instanceID, appName, redirectPath string) (clientID, clientSecret, issuerURL string, err error)) {
 	m.installer.SetOIDCProvisioner(fn)
+}
+
+// SetRouteRegistrar wires a callback to register a public hostname with
+// LibreServ Connect's tunnel. Called when an app gets a domain route.
+// The callback makes a POST /api/v1/routes call to Connect, which creates
+// a DNS CNAME and tunnel ingress rule. If no callback is set (Connect not
+// connected), route registration is silently skipped.
+func (m *Manager) SetRouteRegistrar(fn func(hostname string) error) {
+	m.routeRegistrar = fn
+}
+
+// SetRouteUnregistrar wires a callback to unregister a public hostname from
+// LibreServ Connect's tunnel. Called when an app is uninstalled.
+func (m *Manager) SetRouteUnregistrar(fn func(hostname string) error) {
+	m.routeUnregistrar = fn
 }
 
 // GetScriptExecutor returns the script executor
@@ -1151,6 +1185,16 @@ func (m *Manager) UninstallApp(ctx context.Context, instanceID string) error {
 			m.logger.Info("Removing route during uninstall", "instance_id", instanceID, "route_id", route.ID)
 			if err := m.caddyManager.RemoveRoute(ctx, route.ID); err != nil {
 				m.logger.Warn("Failed to remove route", "instance_id", instanceID, "error", err)
+			}
+			// Unregister the public hostname from Connect's tunnel
+			if m.routeUnregistrar != nil {
+				fullHostname := route.Subdomain + "." + route.Domain
+				if err := m.routeUnregistrar(fullHostname); err != nil {
+					m.logger.Warn("Failed to unregister route from Connect",
+						"hostname", fullHostname,
+						"error", err,
+					)
+				}
 			}
 		}
 	}

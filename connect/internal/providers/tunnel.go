@@ -98,8 +98,25 @@ type ingressRule struct {
 // "myserver.servers.libreloom.org") is mapped to a local service URL
 // (e.g. "http://localhost:8080"). A catch-all 404 rule is appended.
 func (c *TunnelClient) ConfigureIngress(accountID, apiToken, tunnelID, hostname, serviceURL string) error {
-	if tunnelID == "" || hostname == "" || serviceURL == "" {
-		return fmt.Errorf("tunnel ID, hostname, and service URL are required")
+	return c.ConfigureIngressMulti(accountID, apiToken, tunnelID, []IngressRoute{{Hostname: hostname, Service: serviceURL}})
+}
+
+// IngressRoute is a single hostname-to-service mapping for tunnel ingress.
+type IngressRoute struct {
+	Hostname string
+	Service  string
+}
+
+// ConfigureIngressMulti sets multiple ingress rules on a tunnel. Each hostname
+// is mapped to a service URL. A catch-all 404 rule is appended automatically.
+// All app subdomains route to the device's Caddy (http://localhost:80), which
+// does the actual app-level routing based on the Host header.
+func (c *TunnelClient) ConfigureIngressMulti(accountID, apiToken, tunnelID string, routes []IngressRoute) error {
+	if tunnelID == "" {
+		return fmt.Errorf("tunnel ID is required")
+	}
+	if len(routes) == 0 {
+		return fmt.Errorf("at least one ingress route is required")
 	}
 
 	baseURL := c.baseURL
@@ -111,10 +128,16 @@ func (c *TunnelClient) ConfigureIngress(accountID, apiToken, tunnelID, hostname,
 	headers := map[string]string{"Authorization": "Bearer " + apiToken}
 
 	cfg := ingressConfig{}
-	cfg.Config.Ingress = []ingressRule{
-		{Hostname: hostname, Service: serviceURL},
-		{Service: "http_status:404"},
+	for _, r := range routes {
+		if r.Hostname == "" || r.Service == "" {
+			return fmt.Errorf("hostname and service are required for each route")
+		}
+		cfg.Config.Ingress = append(cfg.Config.Ingress, ingressRule{
+			Hostname: r.Hostname,
+			Service:  r.Service,
+		})
 	}
+	cfg.Config.Ingress = append(cfg.Config.Ingress, ingressRule{Service: "http_status:404"})
 
 	var resp tunnelCreateResponse
 	if _, err := doJSON(c.httpClient, http.MethodPut, url, headers, cfg, &resp); err != nil {

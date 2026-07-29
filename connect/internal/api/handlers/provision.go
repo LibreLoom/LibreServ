@@ -65,6 +65,63 @@ func (h *ProvisionHandler) Provision(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, creds)
 }
 
+// RegisterRoute adds a public hostname to the device's tunnel.
+// Called by the device when installing an app — creates a DNS CNAME and
+// tunnel ingress rule so the app is reachable at its subdomain.
+func (h *ProvisionHandler) RegisterRoute(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hostname string `json:"hostname"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Hostname == "" {
+		JSONError(w, http.StatusBadRequest, "hostname is required")
+		return
+	}
+
+	deviceID := middleware.GetDeviceID(r.Context())
+	if deviceID == "" {
+		JSONError(w, http.StatusUnauthorized, "device authentication required")
+		return
+	}
+
+	if err := h.svc.RegisterRoute(deviceID, req.Hostname); err != nil {
+		JSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"hostname": req.Hostname,
+		"status":   "active",
+	})
+}
+
+// UnregisterRoute removes a public hostname from the device's tunnel.
+// Called by the device when removing an app.
+func (h *ProvisionHandler) UnregisterRoute(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hostname string `json:"hostname"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Hostname == "" {
+		JSONError(w, http.StatusBadRequest, "hostname is required")
+		return
+	}
+
+	deviceID := middleware.GetDeviceID(r.Context())
+	if deviceID == "" {
+		JSONError(w, http.StatusUnauthorized, "device authentication required")
+		return
+	}
+
+	if err := h.svc.UnregisterRoute(deviceID, req.Hostname); err != nil {
+		JSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"hostname": req.Hostname,
+		"status":   "removed",
+	})
+}
+
 // clientIPFromRequest returns the client's IP without the port.
 func clientIPFromRequest(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

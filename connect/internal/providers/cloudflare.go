@@ -179,6 +179,58 @@ func (c *CloudflareClient) lookupZoneID(baseURL, apiToken, zoneName string) (str
 	return resp.Result[0].ID, nil
 }
 
+// DeleteRecordByName deletes a DNS record by hostname. It searches for the
+// record by name within the zone and deletes the first match.
+func (c *CloudflareClient) DeleteRecordByName(apiToken, zone, hostname string) error {
+	if apiToken == "" || zone == "" || hostname == "" {
+		return fmt.Errorf("API token, zone, and hostname are required")
+	}
+
+	baseURL := c.baseURL
+	if baseURL == "" {
+		baseURL = "https://api.cloudflare.com/client/v4"
+	}
+
+	zoneID, err := c.lookupZoneID(baseURL, apiToken, zone)
+	if err != nil {
+		return fmt.Errorf("could not find zone: %w", err)
+	}
+
+	// Search for the record by name
+	recordName := hostname
+	if !isFullHostname(hostname) {
+		recordName = hostname + "." + zone
+	}
+
+	searchURL := fmt.Sprintf("%s/zones/%s/dns_records?name=%s", baseURL, zoneID, recordName)
+	headers := map[string]string{"Authorization": "Bearer " + apiToken}
+
+	var resp struct {
+		Success bool `json:"success"`
+		Errors  []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+		Result []struct {
+			ID string `json:"id"`
+		} `json:"result"`
+	}
+	if _, err := doJSON(c.httpClient, http.MethodGet, searchURL, headers, nil, &resp); err != nil {
+		return fmt.Errorf("could not search for DNS record: %w", err)
+	}
+	if len(resp.Result) == 0 {
+		return nil // no record to delete
+	}
+
+	// Delete the first matching record
+	deleteURL := fmt.Sprintf("%s/zones/%s/dns_records/%s", baseURL, zoneID, resp.Result[0].ID)
+	var delResp struct {
+		Success bool `json:"success"`
+	}
+	if _, err := doJSON(c.httpClient, http.MethodDelete, deleteURL, headers, nil, &delResp); err != nil {
+		return fmt.Errorf("could not delete DNS record: %w", err)
+	}
+	return nil
+}
 // isFullHostname returns true if the name looks like a full hostname (contains a dot).
 func isFullHostname(name string) bool {
 	for _, c := range name {

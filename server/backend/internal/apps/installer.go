@@ -515,16 +515,16 @@ func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *Install
 	outputCh <- ScriptOutput{Type: "stdout", Content: "Starting application services...\n"}
 	if err := i.runtime.ComposeUp(ctx, composePath); err != nil {
 		i.logger.Error("Failed to start containers", "error", err)
-		i.handleInstallFailure(instanceID, installedApp.Path, "failed to start containers: "+err.Error(), domainConfig)
-		outputCh <- ScriptOutput{Type: "error", Error: "failed to start containers: " + err.Error()}
+		i.handleInstallFailure(instanceID, installedApp.Path, "Could not start the app: "+err.Error(), domainConfig)
+		outputCh <- ScriptOutput{Type: "error", Error: "Could not start the app: " + err.Error()}
 		return
 	}
 
 	outputCh <- ScriptOutput{Type: "stdout", Content: "Waiting for services to start...\n"}
 	if err := i.waitForContainers(ctx, instanceID); err != nil {
 		i.logger.Error("Containers failed to start", "error", err)
-		i.handleInstallFailure(instanceID, installedApp.Path, "containers failed to start: "+err.Error(), domainConfig)
-		outputCh <- ScriptOutput{Type: "error", Error: "containers failed to start: " + err.Error()}
+		i.handleInstallFailure(instanceID, installedApp.Path, "The app was installed but its services did not come online in time: "+err.Error(), domainConfig)
+		outputCh <- ScriptOutput{Type: "error", Error: "The app was installed but its services did not come online in time: " + err.Error()}
 		return
 	}
 

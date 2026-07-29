@@ -75,6 +75,8 @@ func (s *Server) setupRoutes() {
 			r.Get("/status", handlers.NewDeviceHandler(s.db).Status)
 			r.Get("/usage", handlers.NewDeviceHandler(s.db).Usage)
 			r.Post("/services/provision", handlers.NewProvisionHandler(s.db).Provision)
+			r.Post("/routes", handlers.NewProvisionHandler(s.db).RegisterRoute)
+			r.Delete("/routes", handlers.NewProvisionHandler(s.db).UnregisterRoute)
 		})
 
 		// Support & inference (device auth required)

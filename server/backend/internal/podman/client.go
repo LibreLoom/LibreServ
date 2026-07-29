@@ -142,9 +142,16 @@ func connectViaSSH(cfg config.SSHConfig) (*Client, error) {
 	return &Client{cli: cli, ctx: context.Background()}, nil
 }
 
-// HealthCheck verifies that the runtime binary is available on the system.
-// Since container operations now use the Podman CLI, this checks that the
-// configured binary (e.g. "podman") is in PATH rather than a socket.
+// HealthCheck verifies that the container runtime is installed AND that its
+// API daemon socket is reachable. This is stronger than checking the binary
+// alone: `podman compose` delegates to the docker-compose plugin, which needs
+// a persistent daemon socket (the rootless `podman.socket` systemd unit). A
+// bare `podman --version` passes even when the socket is dead, which caused
+// false "healthy" reports and opaque install failures ("Cannot connect to the
+// Docker daemon").
+//
+// If the socket is absent, HealthCheck tries to start it (best-effort) before
+// giving up, so users on a fresh boot don't hit a dead-end error.
 func (c *Client) HealthCheck() error {
 	if c == nil {
 		return fmt.Errorf("container runtime not configured")
@@ -153,13 +160,76 @@ func (c *Client) HealthCheck() error {
 	if binary == "" {
 		binary = "podman"
 	}
+
+	// 1. Binary present?
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, "--version")
-	if _, err := cmd.Output(); err != nil {
+	if _, err := exec.CommandContext(ctx, binary, "--version").Output(); err != nil {
 		return fmt.Errorf("container runtime not responding: %w", err)
 	}
+
+	// 2. Daemon socket reachable? `podman ps` exercises the API (it either
+	//    talks to the running socket or forks a transient service, but if the
+	//    socket path is configured and missing it surfaces the connection
+	//    failure). We use --format to keep output minimal.
+	if err := daemonReachable(binary); err != nil {
+		// Best-effort: try to start the rootless Podman socket, then recheck.
+		if started := EnsureSocketRunning(); started {
+			if err2 := daemonReachable(binary); err2 != nil {
+				return fmt.Errorf("container runtime daemon is not running: %w", err2)
+			}
+			return nil
+		}
+		return fmt.Errorf("container runtime daemon is not running: %w", err)
+	}
 	return nil
+}
+
+// daemonReachable runs a lightweight `podman ps` to confirm the API daemon
+// (socket) is accepting connections. Distinguished from the binary check
+// because `podman --version` never touches the daemon.
+func daemonReachable(binary string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, binary, "ps", "--format", "{{.ID}}").Run(); err != nil {
+		return fmt.Errorf("daemon not reachable: %w", err)
+	}
+	return nil
+}
+
+// EnsureSocketRunning starts the rootless Podman API socket via systemd if it
+// is not already present. This mirrors the CI runner's ensurePodmanSocket
+// pattern: check for the expected socket file, and if absent, run
+// `systemctl --user start podman.socket` (best-effort, ignores errors).
+// Returns true if the socket file exists after the attempt.
+//
+// LibreServ's goal is that users never need a terminal. The Podman rootless
+// socket is a systemd user unit that is NOT enabled by default on most distros,
+// so on a fresh boot `podman compose` fails with "Cannot connect to the Docker
+// daemon". Auto-starting it removes that footgun.
+func EnsureSocketRunning() bool {
+	sp := rootlessSocketPath()
+	if sp == "" {
+		return false
+	}
+	if _, err := os.Stat(sp); err == nil {
+		return true // already present
+	}
+	// Best-effort start; ignore errors (may not be systemd, may be rootful, etc.)
+	_ = exec.Command("systemctl", "--user", "start", "podman.socket").Run()
+	_, err := os.Stat(sp)
+	return err == nil
+}
+
+// rootlessSocketPath returns the expected Podman rootless socket path for the
+// current user ($XDG_RUNTIME_DIR/podman/podman.sock), or "" if XDG_RUNTIME_DIR
+// is unset (e.g. non-Linux or unusual environment).
+func rootlessSocketPath() string {
+	run := os.Getenv("XDG_RUNTIME_DIR")
+	if run == "" {
+		return ""
+	}
+	return filepath.Join(run, "podman", "podman.sock")
 }
 
 // Binary returns the configured runtime command binary (e.g. "podman").

@@ -16,23 +16,52 @@ const ALL_INSTALL_PHASES = [
 ];
 
 function getErrorSummary(error) {
-  if (!error) return "Application startup failed";
-  return "Application startup failed";
+  if (!error) return "The app didn't finish installing.";
+  const lower = error.toLowerCase();
+  if (lower.includes("port") && lower.includes("already")) {
+    return "Another app is already using a connection this app needs.";
+  }
+  if (lower.includes("no space") || lower.includes("disk")) {
+    return "The device ran out of storage space during installation.";
+  }
+  if (lower.includes("pull") || lower.includes("download") || lower.includes("image")) {
+    return "The app couldn't be downloaded.";
+  }
+  if (lower.includes("compose") || lower.includes("container")) {
+    return "The app's services wouldn't start.";
+  }
+  if (lower.includes("network")) {
+    return "The app's network connection couldn't be set up.";
+  }
+  if (lower.includes("certificate") || lower.includes("https") || lower.includes("ssl")) {
+    return "The secure web address (HTTPS) couldn't be set up.";
+  }
+  return "The app didn't finish installing.";
 }
 
 function getErrorHint(error) {
-  if (!error) return "We couldn't finish bringing the app online.";
+  const base = "Nothing was lost, and no changes were made to your other apps.";
+  if (!error) return `Try again in a moment. ${base}`;
   const lower = error.toLowerCase();
   if (lower.includes("port") && lower.includes("already")) {
-    return "Another app on this device is already using a network connection this app needs.";
+    return "Uninstall or stop the conflicting app, then try again.";
+  }
+  if (lower.includes("no space") || lower.includes("disk")) {
+    return "Free up some storage space in Settings, then try again.";
+  }
+  if (lower.includes("pull") || lower.includes("download") || lower.includes("image")) {
+    return `Check that the device is connected to the internet, then try again. ${base}`;
   }
   if (lower.includes("compose") || lower.includes("container")) {
-    return "We couldn't start the app's services.";
+    return `This is usually temporary. Try again; if it keeps happening, restart the device from Settings. ${base}`;
   }
   if (lower.includes("network")) {
-    return "We couldn't set up the app's network connection.";
+    return `Check the device's internet connection, then try again. ${base}`;
   }
-  return "We couldn't finish bringing the app online.";
+  if (lower.includes("certificate") || lower.includes("https") || lower.includes("ssl")) {
+    return "The app itself is installed. Try again to finish setting up its web address.";
+  }
+  return `Try again in a moment. ${base}`;
 }
 
 function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
@@ -278,80 +307,108 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
     };
 
     return (
-      <div className="space-y-5 text-center">
-        <XCircle className="mx-auto text-error" size={48} />
-        <div className="space-y-3">
-          <h2 className="font-mono text-2xl font-normal text-error">
+      <div className="space-y-6 text-center">
+        <div className="pop-in mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-error/20 ring-8 ring-error/10">
+          <XCircle className="text-error" size={40} aria-hidden="true" />
+        </div>
+
+        <div className="space-y-2">
+          <h2 className="font-mono text-2xl font-normal text-secondary text-balance">
             Installation Failed
           </h2>
-          <p className="text-secondary/80">{errorSummary}</p>
-          <p className="mx-auto max-w-md text-sm leading-relaxed text-secondary/60">
+          <p className="text-secondary">{errorSummary}</p>
+          <p className="mx-auto max-w-md text-sm leading-relaxed text-secondary text-pretty">
             {errorHint}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Button
-            variant="outline"
+            variant="secondary"
             surface="primary"
-            size="sm"
+            size="lg"
+            onClick={() => window.location.reload()}
+            className="font-mono"
+          >
+            Try Again
+          </Button>
+        </div>
+
+        <div className="mx-auto w-full max-w-2xl">
+          <button
+            type="button"
             onClick={() => setDetailsOpen((open) => !open)}
-            className="border-error/25 text-error hover:bg-error/10"
+            className={cn(
+              "group relative w-full overflow-hidden rounded-pill border px-5 py-3 text-left font-mono motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out",
+              detailsOpen
+                ? "border-error/30 bg-error/10 text-secondary"
+                : "border-secondary/15 bg-secondary/8 text-secondary hover:border-secondary/30 hover:bg-secondary/12"
+            )}
             aria-expanded={detailsOpen}
             aria-controls="install-error-details"
           >
-            <ChevronDown
-              size={14}
-              className={cn("motion-safe:transition-transform", detailsOpen && "rotate-180")}
-            />
-            {detailsOpen ? "Hide details" : "Show details"}
-          </Button>
-          <Button
-            variant="outline"
-            surface="primary"
-            size="sm"
-            onClick={handleCopyError}
-            className="border-error/25 text-error hover:bg-error/10"
-          >
-            {copied ? (
-              <>
-                <Check size={14} />
-                Copied
-              </>
-            ) : (
-              <>
-                <Copy size={14} />
-                Copy error
-              </>
-            )}
-          </Button>
-        </div>
+            <span className="relative flex items-center justify-between gap-4">
+              <span className="space-y-1">
+                <span className="block text-sm">
+                  {detailsOpen ? "Hide technical details" : "What went wrong?"}
+                </span>
+                <span className="block text-xs text-secondary">
+                  The exact error, for support or debugging.
+                </span>
+              </span>
+              <span
+                className={cn(
+                  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border motion-safe:transition-all motion-safe:duration-300",
+                  detailsOpen
+                    ? "border-error/30 bg-error/10 text-error"
+                    : "border-secondary/15 text-secondary group-hover:scale-105"
+                )}
+              >
+                <ChevronDown
+                  size={18}
+                  className={cn("motion-safe:transition-transform motion-safe:duration-300", detailsOpen && "rotate-180")}
+                />
+              </span>
+            </span>
+          </button>
 
-        <div
-          id="install-error-details"
-          aria-hidden={!detailsOpen}
-          className={cn(
-            "mx-auto w-full max-w-2xl overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out",
-            detailsOpen ? "mt-1 max-h-96 opacity-100 translate-y-0" : "max-h-0 opacity-0 -translate-y-2 pointer-events-none"
-          )}
-        >
-          <div className="rounded-card border border-error/20 bg-error/10 p-4 text-left motion-safe:transition-transform motion-safe:duration-300 motion-safe:ease-out">
-            <div className="mb-3 flex items-center justify-between gap-3 border-b border-error/10 pb-3">
-              <p className="font-mono text-sm text-error">Technical details</p>
-              <p className="text-xs text-error/70">Useful for debugging or support</p>
+          <div
+            id="install-error-details"
+            aria-hidden={!detailsOpen}
+            className={cn(
+              "overflow-hidden motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-out",
+              detailsOpen ? "mt-3 max-h-96 opacity-100 translate-y-0" : "max-h-0 opacity-0 -translate-y-2 pointer-events-none"
+            )}
+          >
+            <div className="rounded-large-element border border-error/20 bg-error/10 p-4 text-left">
+              <div className="mb-3 flex items-center justify-between gap-3 border-b border-error/20 pb-3">
+                <p className="font-mono text-sm text-secondary">Technical details</p>
+                <Button
+                  variant="ghost"
+                  surface="primary"
+                  size="sm"
+                  onClick={handleCopyError}
+                  className="text-secondary"
+                >
+                  {copied ? (
+                    <>
+                      <Check size={14} />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={14} />
+                      Copy error
+                    </>
+                  )}
+                </Button>
+              </div>
+              <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-large-element bg-primary/60 px-4 py-3 font-mono text-xs leading-6 text-secondary">
+                {error}
+              </pre>
             </div>
-            <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-6 text-error/80">
-              {error}
-            </pre>
           </div>
         </div>
-
-        <button
-          onClick={() => window.location.reload()}
-          className="px-6 py-2 rounded-pill bg-error text-secondary hover:bg-error/90 motion-safe:transition-all font-mono"
-        >
-          Try Again
-        </button>
       </div>
     );
   }
