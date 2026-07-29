@@ -376,9 +376,10 @@ export default function Onboarding() {
               autoComplete="off"
             />
             <p className="mt-1.5 text-xs text-muted-foreground">
-              This becomes your sending address:{" "}
-              <span className="font-mono">{username || "username"}@resend.libreloom.org</span>.
-              Letters, numbers, and hyphens only (3-30 characters).
+              This is the address your apps will use to send email — like a return address
+              on an envelope. Your emails will come from{" "}
+              <span className="font-mono">{username || "your-name"}@resend.libreloom.org</span>.
+              Use letters, numbers, and hyphens (3-30 characters).
             </p>
           </div>
         )}
