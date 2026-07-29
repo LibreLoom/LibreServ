@@ -378,7 +378,7 @@ export default function Onboarding() {
             <p className="mt-1.5 text-xs text-muted-foreground">
               When your apps send email (like password resets or notifications), the
               "from" address will be{" "}
-              <span className="font-mono">{username || "your-name"}@resend.libreloom.org</span>.
+              <span className="font-mono">{username || "your-name"}-u@resend.libreloom.org</span>.
               This is like the return address on a letter — it tells recipients who it came from.
               Use letters, numbers, and hyphens (3-30 characters).
             </p>

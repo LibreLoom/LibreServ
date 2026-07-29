@@ -16,13 +16,20 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 )
 
-// SendingDomain is the domain all user sending addresses use.
+// SendingDomain is the domain all sending addresses use.
 const SendingDomain = "resend.libreloom.org"
 
-// Server is an SMTP server that authenticates device relay connections and
-// forwards their mail to Resend's REST API. Each user gets credentials
-// (username@resend.libreloom.org / smtp_password) and can only send from
-// their own address.
+// UserSuffix is appended to all user-chosen usernames to form the sending
+// address. This prevents users from picking names that collide with system
+// addresses (e.g., "admin", "noreply", "support"). System addresses use -s,
+// user addresses use -u.
+const UserSuffix = "-u"
+
+// SendingAddress builds the full sending address for a user: username-u@resend.libreloom.org
+func SendingAddress(username string) string {
+	return username + UserSuffix + "@" + SendingDomain
+}
+
 type Server struct {
 	db        *sql.DB
 	resend    *providers.ResendClient
@@ -278,7 +285,7 @@ func (sess *session) handleMailFrom(line string) {
 	}
 
 	// Enforce that the from address matches the authenticated user's sending address.
-	expectedFrom := sess.username + "@" + SendingDomain
+	expectedFrom := SendingAddress(sess.username)
 	// Also allow the display-name format "Name <address>"
 	fromAddrLower := strings.ToLower(fromAddr)
 	if !strings.Contains(fromAddrLower, expectedFrom) {
@@ -338,7 +345,7 @@ func (sess *session) handleData() {
 		return
 	}
 
-	fromAddr := sess.username + "@" + SendingDomain
+	fromAddr := SendingAddress(sess.username)
 	html := body.String()
 
 	sent := 0

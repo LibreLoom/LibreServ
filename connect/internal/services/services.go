@@ -12,6 +12,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/smtp"
 )
 
 // ProvisioningService handles service credential provisioning.
@@ -194,7 +195,7 @@ func (s *ProvisioningService) generateSMTP(deviceID string) (map[string]any, err
 
 	relayPort := 2525
 
-	fromAddr := fmt.Sprintf("%s@%s", username, "resend.libreloom.org")
+	fromAddr := smtp.SendingAddress(username)
 
 	return map[string]any{
 		"smtp": map[string]any{
