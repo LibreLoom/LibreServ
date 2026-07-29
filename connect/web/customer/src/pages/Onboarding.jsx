@@ -231,7 +231,7 @@ export default function Onboarding() {
         }
         // No checkout URL — fall through to next step
       } catch (err) {
-        setError(err.message || "Could not start checkout. Try again or choose Free.");
+        setError(err.message || "We couldn't start the payment process. Try again, or choose the Free plan for now and upgrade later from your dashboard.");
         setCheckoutLoading(false);
         return;
       }

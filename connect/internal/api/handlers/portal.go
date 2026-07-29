@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -686,7 +689,14 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			// No existing Stripe subscription — redirect to checkout
+			// No existing Stripe subscription — redirect to checkout.
+			// Reconstruct the request body: ChangePlan already consumed it,
+			// and CreateCheckoutSession decodes it again.
+			body, _ := json.Marshal(map[string]string{
+				"plan_id":   req.PlanID,
+				"device_id": req.DeviceID,
+			})
+			r.Body = io.NopCloser(bytes.NewReader(body))
 			h.CreateCheckoutSession(w, r)
 			return
 		}
@@ -828,15 +838,23 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if !catalog.IsPaidPlan(req.PlanID) {
-		// Free plan — no checkout needed, just subscribe directly
-		h.Subscribe(w, r)
-		return
-	}
-
-	if !config.C.Stripe.Enabled {
-		// Stripe not configured — subscribe directly (dev mode)
-		h.Subscribe(w, r)
+	if !catalog.IsPaidPlan(req.PlanID) || !config.C.Stripe.Enabled {
+		// Free plan, or Stripe not configured — set the plan on the account
+		// directly. During onboarding there may be no device yet, so we update
+		// customer_accounts.plan_id (which GenerateLicenseKey reads to stamp
+		// the plan onto the license key) instead of calling Subscribe (which
+		// requires a device and would re-decode the already-consumed body).
+		_, err := h.db.ExecContext(r.Context(),
+			"UPDATE customer_accounts SET plan_id = $1 WHERE id = $2",
+			req.PlanID, accountID)
+		if err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not set plan")
+			return
+		}
+		JSON(w, http.StatusOK, map[string]any{
+			"checkout_url": "#",
+			"plan_id":      req.PlanID,
+		})
 		return
 	}
 
@@ -847,20 +865,24 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Determine the device ID to link this checkout to (optional in
-	// one-server-per-account model — account_id is the primary key)
-	deviceID := req.DeviceID
-	if deviceID == "" {
+	// Determine the reference ID to link this checkout to. In the
+	// one-server-per-account model, account_id is the primary key — use it
+	// when no device is active yet.
+	refID := req.DeviceID
+	if refID == "" {
 		_ = h.db.QueryRowContext(r.Context(),
-			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
-		// If no device yet, that's fine — we use account_id as client_reference_id
+			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&refID)
+		if refID == "" {
+			refID = accountID // no device yet — link to the account
+		}
 	}
 
 	successURL := config.C.Server.BaseURL + "/billing?status=success"
 	cancelURL := config.C.Server.BaseURL + "/plans?status=cancelled"
 
-	checkoutURL, err := providers.CreateCheckoutSession(r.Context(), priceID, deviceID, successURL, cancelURL)
+	checkoutURL, err := providers.CreateCheckoutSession(r.Context(), priceID, refID, successURL, cancelURL)
 	if err != nil {
+		slog.Error("failed to create Stripe checkout session", "error", err, "plan", req.PlanID, "account", accountID)
 		JSONError(w, http.StatusInternalServerError, "could not create checkout session")
 		return
 	}
