@@ -8,7 +8,6 @@ import AppIcon from "../components/common/AppIcon";
 import StateOverlay from "../components/cards/StateOverlay";
 import { Search, Download, Check, Settings, ExternalLink } from "lucide-react";
 import StatusPill from "../components/common/StatusPill";
-import Pill from "../components/common/Pill";
 import { useApps } from "../hooks/useApps";
 import { useCatalog } from "../hooks/useCatalog";
 import { sanitizeURL } from "../lib/sanitize";
@@ -20,35 +19,35 @@ function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index
   return (
     <div className="animate-card-stagger" style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}>
     <Card className="relative flex flex-col h-full" noHeightAnim noPopIn>
-      {(instance || isInstalled) && (
-        <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5">
-          {instance && <StatusPill status={instance.status} />}
-          {isInstalled && (
-            <Pill variant="muted">
-              <Check size={12} strokeWidth={2.5} aria-hidden="true" />
-              <span className="font-mono font-medium">Installed</span>
-            </Pill>
-          )}
-        </div>
+      {instance && (
+        <StatusPill status={instance.status} className="absolute top-3 right-3" />
       )}
       <div className="flex items-start gap-4">
         <AppIcon appId={app.id} size={48} className="flex-shrink-0" />
 
         <div className="flex-1 min-w-0">
-          <h3 className="font-mono text-lg text-primary truncate pr-24">
-            {app.name}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-mono text-lg text-primary truncate pr-20">
+              {app.name}
+            </h3>
+            {isInstalled && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-pill bg-accent/20 text-secondary/80 text-xs font-mono">
+                <Check size={12} />
+                Installed
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      <p className="text-sm text-primary mt-3 line-clamp-2">
+      <p className="text-sm text-primary/70 mt-3 line-clamp-2">
         {app.description}
       </p>
 
       {app.category && (
-        <Pill variant="default" className="mt-2 self-start capitalize">
+        <span className="mt-2 self-start px-2 py-1 rounded-large-element bg-secondary/10 text-xs font-mono text-primary/50 capitalize">
           {app.category}
-        </Pill>
+        </span>
       )}
 
       <div className="flex-1" />
