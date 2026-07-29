@@ -56,7 +56,7 @@ var plans = []Plan{
 	},
 	{
 		ID:                "lite",
-		Name:              "Connect Lite",
+		Name:              "Connect Base",
 		Description:       "All services with a generous monthly allowance. Pay only for overage.",
 		PriceMonthlyCents: 600,
 		Limits: Limits{

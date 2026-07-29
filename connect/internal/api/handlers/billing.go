@@ -116,8 +116,7 @@ func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.
 		return
 	}
 
-	_, _ = h.billing.DB().Exec(
-		"UPDATE devices SET plan_id = $1 WHERE id = $2", planID, deviceID)
+	h.updateDevicePlan(deviceID, planID)
 
 	JSON(w, http.StatusOK, map[string]string{"message": "checkout completed"})
 }
@@ -268,8 +267,7 @@ func (h *BillingHandler) handleSubscriptionCreated(w http.ResponseWriter, r *htt
 		return
 	}
 
-	_, _ = h.billing.DB().Exec(
-		"UPDATE devices SET plan_id = $1 WHERE id = $2", planID, deviceID)
+	h.updateDevicePlan(deviceID, planID)
 
 	JSON(w, http.StatusOK, map[string]string{"message": "subscription created"})
 }
@@ -291,10 +289,12 @@ func (h *BillingHandler) handleSubscriptionUpdated(w http.ResponseWriter, r *htt
 	}
 
 	if planID != "" {
-		_, _ = h.billing.DB().Exec(
-			`UPDATE devices SET plan_id = $1 WHERE id = (
-				SELECT device_id FROM subscriptions WHERE stripe_subscription_id = $2
-			)`, planID, sub.ID)
+		var devID string
+		_ = h.billing.DB().QueryRow(
+			"SELECT device_id FROM subscriptions WHERE stripe_subscription_id = $1", sub.ID).Scan(&devID)
+		if devID != "" {
+			h.updateDevicePlan(devID, planID)
+		}
 	}
 
 	JSON(w, http.StatusOK, map[string]string{"message": "subscription updated"})
@@ -315,10 +315,12 @@ func (h *BillingHandler) handleSubscriptionDeleted(w http.ResponseWriter, r *htt
 		slog.Error("failed to revoke subscription", "error", err, "stripe_sub", sub.ID)
 	}
 
-	_, _ = h.billing.DB().Exec(
-		`UPDATE devices SET plan_id = 'free' WHERE id = (
-			SELECT device_id FROM subscriptions WHERE stripe_subscription_id = $1
-		)`, sub.ID)
+	var devID string
+	_ = h.billing.DB().QueryRow(
+		"SELECT device_id FROM subscriptions WHERE stripe_subscription_id = $1", sub.ID).Scan(&devID)
+	if devID != "" {
+		h.updateDevicePlan(devID, "free")
+	}
 
 	JSON(w, http.StatusOK, map[string]string{"message": "subscription deleted"})
 }
@@ -444,4 +446,14 @@ func extractZone(domain string) string {
 		return domain
 	}
 	return strings.Join(parts[len(parts)-2:], ".")
+}
+
+// updateDevicePlan updates the plan on both the device and its owning account.
+func (h *BillingHandler) updateDevicePlan(deviceID, planID string) {
+	_, _ = h.billing.DB().Exec(
+		"UPDATE devices SET plan_id = $1 WHERE id = $2", planID, deviceID)
+	_, _ = h.billing.DB().Exec(
+		`UPDATE customer_accounts SET plan_id = $1, updated_at = $2
+		 WHERE id = (SELECT account_id FROM devices WHERE id = $3)`,
+		planID, time.Now(), deviceID)
 }

@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS customer_accounts (
 	email TEXT NOT NULL UNIQUE,
 	password_hash TEXT NOT NULL,
 	name TEXT,
+	plan_id TEXT NOT NULL DEFAULT 'free',
 	totp_secret TEXT,
 	totp_enabled BOOLEAN NOT NULL DEFAULT FALSE,
 	is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -55,7 +56,7 @@ CREATE TABLE IF NOT EXISTS customer_accounts (
 
 CREATE TABLE IF NOT EXISTS devices (
 	id TEXT PRIMARY KEY,
-	account_id TEXT REFERENCES customer_accounts(id) ON DELETE SET NULL,
+	account_id TEXT NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
 	license_key_id TEXT,
 	plan_id TEXT NOT NULL DEFAULT 'free',
 	activated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -68,7 +69,7 @@ CREATE TABLE IF NOT EXISTS license_keys (
 	id TEXT PRIMARY KEY,
 	key_hash TEXT NOT NULL UNIQUE,
 	key_prefix TEXT NOT NULL,
-	account_id TEXT REFERENCES customer_accounts(id) ON DELETE CASCADE,
+	account_id TEXT NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
 	plan_id TEXT NOT NULL DEFAULT 'free',
 	device_id TEXT REFERENCES devices(id) ON DELETE SET NULL,
 	status TEXT NOT NULL DEFAULT 'unused' CHECK(status IN ('unused','active','revoked','expired')),
@@ -303,7 +304,7 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
 INSERT INTO plans (id, name, description, price_monthly_cents, limits_json) VALUES
 ('free', 'Connect Free', 'Get started with basic services. No credit card required.', 0,
  '{"backup_gb":0,"ai_credit_cents":0,"tunnel_gb":0,"smtp_monthly":30,"ai_messages_per_day":50,"domain":"*.free.servers.libreloom.org","human_support":false}'),
-('lite', 'Connect Lite', 'All services with a generous monthly allowance. Pay only for overage.', 600,
+('lite', 'Connect Base', 'All services with a generous monthly allowance. Pay only for overage.', 600,
  '{"backup_gb":100,"ai_credit_cents":200,"tunnel_gb":50,"smtp_monthly":250,"domain":"*.servers.libreloom.org","human_support":true}'),
 ('one', 'Connect One', 'Everything included with the largest allowance. Best value for active users.', 2500,
  '{"backup_gb":1024,"ai_credit_cents":500,"tunnel_gb":200,"smtp_monthly":2500,"domain":"*.servers.libreloom.org","human_support":true}')
@@ -335,6 +336,9 @@ CREATE INDEX IF NOT EXISTS idx_ai_models_provider ON ai_models(provider_id);
 CREATE INDEX IF NOT EXISTS idx_ai_models_role ON ai_models(role);
 CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_account ON customer_sessions(account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_license_keys_account_unique ON license_keys(account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_account_unique ON devices(account_id);
+CREATE INDEX IF NOT EXISTS idx_customer_accounts_plan ON customer_accounts(plan_id);
 		`,
 	},
 }

@@ -40,8 +40,7 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	keyHash := hashToken(req.LicenseKey)
 
 	// Look up the license key
-	var licenseID, planID, status string
-	var accountID sql.NullString
+	var licenseID, planID, status, accountID string
 	err := h.db.QueryRowContext(r.Context(),
 		`SELECT id, account_id, plan_id, status FROM license_keys WHERE key_hash = $1`,
 		keyHash).Scan(&licenseID, &accountID, &planID, &status)
@@ -73,18 +72,14 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create device
+	// Create device — one device per account (enforced by DB unique constraint)
 	deviceID := security.GenerateID("dev")
-	var accountVal any
-	if accountID.Valid {
-		accountVal = accountID.String
-	}
 	_, err = h.db.ExecContext(r.Context(),
 		`INSERT INTO devices (id, account_id, license_key_id, plan_id, activated_at, last_seen_at, is_active)
 		 VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-		deviceID, accountVal, licenseID, planID, time.Now(), time.Now())
+		deviceID, accountID, licenseID, planID, time.Now(), time.Now())
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not activate device")
+		JSONError(w, http.StatusConflict, "This account already has an activated device. Deactivate it first to activate a new one.")
 		return
 	}
 

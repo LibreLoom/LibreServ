@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.
 import { Button } from "../components/ui/button.jsx";
 import { Badge, StatusBadge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
-import { Check, X, Key, Plus, Copy } from "lucide-react";
+import { Check, X, Key, Copy, ArrowUpCircle, Shield } from "lucide-react";
 
 export default function Dashboard() {
   const { account } = useAuth();
@@ -23,12 +23,16 @@ export default function Dashboard() {
     queryFn: api.getLicenseKeys,
   });
   const { data: consentData } = useQuery({
-    queryKey: ["consent"],
+    queryKey: ["consent-requests"],
     queryFn: api.getConsentRequests,
+  });
+  const { data: plansData } = useQuery({
+    queryKey: ["plans"],
+    queryFn: api.getPlans,
   });
 
   const generateKeyMut = useMutation({
-    mutationFn: api.generateLicenseKey,
+    mutationFn: () => api.generateLicenseKey(),
     onSuccess: (data) => {
       setGeneratedKey(data);
       queryClient.invalidateQueries({ queryKey: ["license-keys"] });
@@ -41,15 +45,29 @@ export default function Dashboard() {
   });
 
   const consentMut = useMutation({
-    mutationFn: /** @param {{id: string, decision: string}} vars */ (vars) => api.respondConsent(vars.id, vars.decision),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["consent"] }),
+    mutationFn: ({ id, decision }) => api.respondConsent(id, decision),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["consent-requests"] }),
+  });
+
+  const checkoutMut = useMutation({
+    mutationFn: (planId) => api.createCheckout(planId),
+    onSuccess: (data) => {
+      if (data.checkout_url && data.checkout_url !== "#") {
+        window.location.href = data.checkout_url;
+      }
+    },
   });
 
   const devices = devicesData?.devices || [];
   const licenseKeys = keysData?.license_keys || [];
   const consentRequests = consentData?.consent_requests || [];
-  const hasDevices = devices.length > 0;
-  const activeKeys = licenseKeys.filter((k) => k.status === "unused" || k.status === "active");
+  const plans = plansData?.plans || [];
+  const hasDevice = devices.length > 0;
+
+  // Account plan from auth context (set at login/registration)
+  const accountPlanId = account?.plan_id || "free";
+  const accountPlan = plans.find((p) => p.id === accountPlanId);
+  const upgradePlans = plans.filter((p) => p.price_monthly > (accountPlan?.price_monthly || 0));
 
   const copyKey = (key) => {
     navigator.clipboard.writeText(key);
@@ -60,6 +78,44 @@ export default function Dashboard() {
   return (
     <Layout>
       <h2 className="font-mono text-2xl mb-6">Dashboard</h2>
+
+      {/* Current plan card */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            Current Plan
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-mono text-lg">{accountPlan?.name || "Connect Free"}</p>
+              <p className="text-sm text-muted-foreground">
+                {accountPlan?.price_monthly === 0
+                  ? "Free plan — no credit card required."
+                  : `$${(accountPlan?.price_monthly / 100).toFixed(0)}/mo`}
+              </p>
+            </div>
+            {upgradePlans.length > 0 && (
+              <div className="flex gap-2">
+                {upgradePlans.map((p) => (
+                  <Button
+                    key={p.id}
+                    variant="outline"
+                    size="sm"
+                    loading={checkoutMut.isPending}
+                    onClick={() => checkoutMut.mutate(p.id)}
+                  >
+                    <ArrowUpCircle className="h-4 w-4" />
+                    Upgrade to {p.name.replace("Connect ", "")}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Consent requests — only show if there are any */}
       {consentRequests.length > 0 && (
@@ -91,28 +147,20 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* No devices state — show how to get started */}
-      {!hasDevices && (
+      {/* No device state — generate a key */}
+      {!hasDevice && !generatedKey && licenseKeys.length === 0 && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Get Started</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              To connect your LibreServ device to Connect, you need a license key.
-              Choose a plan below to generate a key, then enter it on your device in Settings → Connect.
+              Generate a license key to connect your LibreServ device to Connect.
+              Then enter the key on your device to activate.
             </p>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => generateKeyMut.mutate("free")} loading={generateKeyMut.isPending}>
-                <Key className="h-4 w-4" /> Get Free Key
-              </Button>
-              <Button variant="outline" onClick={() => generateKeyMut.mutate("lite")} loading={generateKeyMut.isPending}>
-                Get Lite Key ($6/mo)
-              </Button>
-              <Button variant="outline" onClick={() => generateKeyMut.mutate("one")} loading={generateKeyMut.isPending}>
-                Get One Key ($25/mo)
-              </Button>
-            </div>
+            <Button onClick={() => generateKeyMut.mutate()} loading={generateKeyMut.isPending}>
+              <Key className="h-4 w-4" /> Generate License Key
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -125,11 +173,11 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-3">
-              Enter this key on your LibreServ device in Settings → Connect to activate your subscription.
+              Enter this key on your LibreServ device to activate Connect.
               Save it now — you won't be able to see the full key again.
             </p>
             <div className="flex items-center gap-2 rounded-lg border border-border p-4">
-              <code className="font-mono text-lg flex-1">{generatedKey.license_key}</code>
+              <code className="font-mono text-lg flex-1 break-all">{generatedKey.license_key}</code>
               <Button variant="outline" size="sm" onClick={() => copyKey(generatedKey.license_key)}>
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? "Copied" : "Copy"}
@@ -142,17 +190,16 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* License keys list */}
+      {/* License key info */}
       {licenseKeys.length > 0 && (
         <div className="mb-6">
-          <h3 className="font-mono text-lg mb-4">License Keys</h3>
+          <h3 className="font-mono text-lg mb-4">License Key</h3>
           <div className="space-y-2">
             {licenseKeys.map((lk) => (
               <Card key={lk.id} className="flex items-center justify-between">
                 <div>
                   <p className="font-mono text-sm">{lk.key_prefix}</p>
                   <p className="text-sm text-muted-foreground">{lk.plan_name}</p>
-                  {lk.device_id && <p className="text-xs text-muted-foreground">Device: {lk.device_id}</p>}
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={lk.status} />
@@ -168,11 +215,11 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Devices list — only show if there are devices */}
-      {hasDevices && (
+      {/* Device info — one device per account */}
+      {hasDevice && (
         <div className="mb-6">
-          <h3 className="font-mono text-lg mb-4">Your Devices</h3>
-          <div className="grid gap-3 md:grid-cols-2">
+          <h3 className="font-mono text-lg mb-4">Your Device</h3>
+          <div className="grid gap-3">
             {devices.map((d) => (
               <Card key={d.id}>
                 <div className="flex items-center justify-between">
@@ -186,31 +233,6 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
-      )}
-
-      {/* Generate more keys — only show if user already has devices or keys */}
-      {(hasDevices || licenseKeys.length > 0) && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Plus className="h-4 w-4" /> Add Another Device</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground mb-4">
-              Generate a new license key to connect another LibreServ device.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" size="sm" onClick={() => generateKeyMut.mutate("free")} loading={generateKeyMut.isPending}>
-                Free
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => generateKeyMut.mutate("lite")} loading={generateKeyMut.isPending}>
-                Lite ($6/mo)
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => generateKeyMut.mutate("one")} loading={generateKeyMut.isPending}>
-                One ($25/mo)
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
       )}
     </Layout>
   );

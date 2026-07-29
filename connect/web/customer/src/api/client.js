@@ -49,9 +49,9 @@ export const api = {
 
   // License keys
   getLicenseKeys: () => request("/portal/license-keys"),
-  generateLicenseKey: (planId) => request("/portal/license-keys", {
+  generateLicenseKey: () => request("/portal/license-keys", {
     method: "POST",
-    body: JSON.stringify({ plan_id: planId }),
+    body: JSON.stringify({}),
   }),
   revokeLicenseKey: (keyId) => request("/portal/license-keys/revoke", {
     method: "POST",

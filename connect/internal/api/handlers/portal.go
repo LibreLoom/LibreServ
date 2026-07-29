@@ -242,22 +242,37 @@ func (h *PortalHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]string{"message": "2FA disabled"})
 }
 
-// GenerateLicenseKey creates a new license key for a plan. The customer enters
-// this key on their LibreServ device to activate Connect services.
+// GenerateLicenseKey creates the one license key for this account. In the
+// one-server-per-account model, each account gets exactly one key. If a key
+// already exists and is unused, it is returned. If the existing key is active
+// (device already activated), a 409 is returned.
 func (h *PortalHandler) GenerateLicenseKey(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
-	var req struct {
-		PlanID string `json:"plan_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PlanID == "" {
-		JSONError(w, http.StatusBadRequest, "plan_id required")
-		return
+	// Check if the account already has a key
+	var existingKey, existingID, existingPlanID, existingStatus string
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT key_prefix || '…', id, plan_id, status FROM license_keys WHERE account_id = $1`,
+		accountID).Scan(&existingKey, &existingID, &existingPlanID, &existingStatus)
+
+	if err == nil {
+		// Key already exists — if unused, we could return the prefix but the
+		// full key is not recoverable (only the hash is stored). For unused
+		// keys we re-generate a new one and replace it.
+		if existingStatus == "active" {
+			JSONError(w, http.StatusConflict, "Your device is already activated. To get a new key, deactivate first.")
+			return
+		}
+		// Key exists but unused (or revoked) — delete it and generate a fresh one
+		_, _ = h.db.ExecContext(r.Context(), "DELETE FROM license_keys WHERE id = $1", existingID)
 	}
 
-	if catalog.PlanByID(req.PlanID) == nil {
-		JSONError(w, http.StatusBadRequest, "invalid plan")
-		return
+	// Get the account's current plan
+	var planID string
+	_ = h.db.QueryRowContext(r.Context(),
+		"SELECT plan_id FROM customer_accounts WHERE id = $1", accountID).Scan(&planID)
+	if planID == "" {
+		planID = "free"
 	}
 
 	// Generate a human-readable license key: XXXX-XXXX-XXXX-XXXX
@@ -266,10 +281,10 @@ func (h *PortalHandler) GenerateLicenseKey(w http.ResponseWriter, r *http.Reques
 	keyPrefix := key[:8]
 
 	licenseID := security.GenerateID("lic")
-	_, err := h.db.ExecContext(r.Context(),
+	_, err = h.db.ExecContext(r.Context(),
 		`INSERT INTO license_keys (id, key_hash, key_prefix, account_id, plan_id, status)
 		 VALUES ($1, $2, $3, $4, $5, 'unused')`,
-		licenseID, keyHash, keyPrefix, accountID, req.PlanID)
+		licenseID, keyHash, keyPrefix, accountID, planID)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not generate license key")
 		return
@@ -278,9 +293,9 @@ func (h *PortalHandler) GenerateLicenseKey(w http.ResponseWriter, r *http.Reques
 	JSON(w, http.StatusOK, map[string]any{
 		"license_key": key,
 		"key_id":      licenseID,
-		"plan_id":     req.PlanID,
-		"plan_name":   catalog.PlanName(req.PlanID),
-		"message":     "Enter this key on your LibreServ device in Settings → Connect to activate your subscription.",
+		"plan_id":     planID,
+		"plan_name":   catalog.PlanName(planID),
+		"message":     "Enter this key on your LibreServ device to activate Connect.",
 	})
 }
 
@@ -832,15 +847,13 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Determine the device ID to link this checkout to
+	// Determine the device ID to link this checkout to (optional in
+	// one-server-per-account model — account_id is the primary key)
 	deviceID := req.DeviceID
 	if deviceID == "" {
-		err := h.db.QueryRowContext(r.Context(),
+		_ = h.db.QueryRowContext(r.Context(),
 			"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
-		if err != nil {
-			JSONError(w, http.StatusBadRequest, "no device linked to your account")
-			return
-		}
+		// If no device yet, that's fine — we use account_id as client_reference_id
 	}
 
 	successURL := config.C.Server.BaseURL + "/billing?status=success"
