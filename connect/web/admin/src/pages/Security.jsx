@@ -11,7 +11,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { Shield, KeyRound, Users, Plus, Trash2 } from "lucide-react";
 
 export default function Security() {
-  const { account } = useAuth();
+  const { account, updateAccount } = useAuth();
   const queryClient = useQueryClient();
   const [secret, setSecret] = useState(null);
   const [verifyCode, setVerifyCode] = useState("");
@@ -33,7 +33,7 @@ export default function Security() {
   });
   const verifyMut = useMutation({
     mutationFn: api.verify2FA,
-    onSuccess: () => { setSecret(null); setVerifyCode(""); setMessage("2FA enabled successfully."); },
+    onSuccess: () => { setSecret(null); setVerifyCode(""); setMessage("2FA enabled successfully."); updateAccount({ has_2fa: true }); },
     onError: (err) => setMessage(err.message),
   });
 
