@@ -48,7 +48,8 @@ func (h *BillingHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 	// Verify the webhook signature using the Stripe SDK
 	event, err := webhook.ConstructEventWithOptions(body, r.Header.Get("Stripe-Signature"),
 		config.C.Stripe.WebhookSecret, webhook.ConstructEventOptions{
-			Tolerance: 5 * time.Minute,
+			Tolerance:                5 * time.Minute,
+			IgnoreAPIVersionMismatch: true,
 		})
 	if err != nil {
 		slog.Warn("stripe webhook verification failed", "error", err)
