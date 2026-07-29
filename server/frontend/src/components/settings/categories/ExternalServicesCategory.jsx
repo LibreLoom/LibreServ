@@ -50,6 +50,7 @@ export default function ExternalServicesCategory({
   repos,
   onActivateConnect,
   onDeactivateConnect,
+  onRefreshConnectStatus,
   onOpenPlanPage,
   loading = false,
   csrfToken = "",
@@ -58,9 +59,9 @@ export default function ExternalServicesCategory({
 
   const closeModal = () => setOpenModal(null);
 
-  const handleActivate = async (token) => {
+  const handleActivate = async (key) => {
     if (onActivateConnect) {
-      await onActivateConnect(token);
+      await onActivateConnect(key);
     }
   };
 
@@ -79,7 +80,7 @@ export default function ExternalServicesCategory({
         <ConnectStatusCard
           connected={connectStatus?.connected}
           plan={connectStatus?.plan}
-          tokenHint={connectStatus?.token_hint}
+          connectKeyHint={connectStatus?.connect_key_hint}
           services={services}
           onActivate={handleActivate}
           onDeactivate={onDeactivateConnect}
@@ -135,6 +136,7 @@ export default function ExternalServicesCategory({
       <EmailServiceModal
         open={openModal === "smtp"}
         onClose={closeModal}
+        onSaved={onRefreshConnectStatus}
         service={services?.smtp}
         connectStatus={connectStatus}
         csrfToken={csrfToken}
@@ -142,6 +144,7 @@ export default function ExternalServicesCategory({
       <DomainServiceModal
         open={openModal === "domain"}
         onClose={closeModal}
+        onSaved={onRefreshConnectStatus}
         service={services?.domain}
         connectStatus={connectStatus}
         csrfToken={csrfToken}
@@ -149,6 +152,7 @@ export default function ExternalServicesCategory({
       <BackupServiceModal
         open={openModal === "backup"}
         onClose={closeModal}
+        onSaved={onRefreshConnectStatus}
         service={services?.backup}
         repos={repos}
         connectStatus={connectStatus}
@@ -157,6 +161,7 @@ export default function ExternalServicesCategory({
       <TunnelServiceModal
         open={openModal === "tunnel"}
         onClose={closeModal}
+        onSaved={onRefreshConnectStatus}
         service={services?.tunnel}
         connectStatus={connectStatus}
         csrfToken={csrfToken}
@@ -164,6 +169,7 @@ export default function ExternalServicesCategory({
       <AIServiceModal
         open={openModal === "ai"}
         onClose={closeModal}
+        onSaved={onRefreshConnectStatus}
         service={services?.ai}
         connectStatus={connectStatus}
         aiSettings={aiSettings}

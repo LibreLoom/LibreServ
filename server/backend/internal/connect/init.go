@@ -6,18 +6,18 @@ import (
 )
 
 func NewClientFromEnv() Client {
-	token := os.Getenv("LIBRESERV_CONNECT_TOKEN")
+	key := os.Getenv("LIBRESERV_CONNECT_KEY")
 
 	if os.Getenv("LIBRESERV_CONNECT_FAKE") == "true" {
 		fake := NewFakeClient()
-		if token != "" {
-			fake.Activate(context.TODO(), token)
+		if key != "" {
+			fake.Activate(context.TODO(), key)
 		}
 		return fake
 	}
 
 	return NewRealClient(Config{
-		Token:   token,
-		BaseURL: os.Getenv("LIBRESERV_CONNECT_API_URL"),
+		ConnectKey: key,
+		BaseURL:    os.Getenv("LIBRESERV_CONNECT_API_URL"),
 	})
 }

@@ -658,6 +658,17 @@ function PasswordStrengthBar({ score }) {
 }
 PasswordStrengthBar.propTypes = { score: PropTypes.number.isRequired };
 
+/** A single password requirement chip: green check when met, muted X when missing. */
+function ReqChip({ ok, label }) {
+  return (
+    <span className={cn("inline-flex items-center gap-1 font-mono motion-safe:transition-colors motion-safe:duration-200", ok ? "text-success" : "text-primary/50")}>
+      {ok ? <Check className="w-3 h-3" /> : <X className="w-3 h-3" />}
+      {label}
+    </span>
+  );
+}
+ReqChip.propTypes = { ok: PropTypes.bool.isRequired, label: PropTypes.string.isRequired };
+
 /** @param {{ id: any, label: any, hint?: any, children: any }} _ */
 function FormField({ id, label, hint, children }) {
   return (
@@ -689,14 +700,20 @@ function AccountStep({ onSuccess, onError }) {
 
   const pw       = form.admin_password;
   const strength = strengthInfo(pw);
+  // Acceptable matches the backend policy exactly: 12+ chars, a letter, and a
+  // digit. Symbols strengthen the password but are NOT required — gating on
+  // them would reject valid passwords the backend accepts.
+  const meetsPolicy = !!(strength?.hasLength && strength?.hasLetter && strength?.hasDigit);
   const isValid  =
-    form.admin_username.trim() &&
+    !!(form.admin_username.trim() &&
     form.admin_email.trim() &&
     pw &&
-    (strength?.score ?? 0) >= 3;
+    meetsPolicy);
 
-  const handleChange = (e) =>
+  const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+    if (fieldError) setFieldError(null);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -806,12 +823,15 @@ function AccountStep({ onSuccess, onError }) {
                     <p className={cn("text-xs font-mono", STRENGTH_TEXT[strength.score])}>
                       {STRENGTH_LABEL[strength.score]}
                     </p>
-                    <div className="flex gap-3 text-xs text-primary/70">
-                      <span className={strength.hasLength  ? "text-primary/60" : ""}>12+ chars</span>
-                      <span className={strength.hasLetter  ? "text-primary/60" : ""}>letters</span>
-                      <span className={strength.hasDigit   ? "text-primary/60" : ""}>numbers</span>
-                      <span className={strength.hasSpecial ? "text-primary/60" : ""}>symbols</span>
-                    </div>
+                    <p className={cn("text-xs font-mono", meetsPolicy ? "text-success" : "text-primary/50")}>
+                      {meetsPolicy ? "✓ Acceptable" : "Not strong enough yet"}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                    <ReqChip ok={strength.hasLength}  label="12+ chars" />
+                    <ReqChip ok={strength.hasLetter}  label="letters" />
+                    <ReqChip ok={strength.hasDigit}   label="numbers" />
+                    <ReqChip ok={strength.hasSpecial} label="symbols" />
                   </div>
                 </div>
               )}
@@ -1113,11 +1133,11 @@ export default function SetupPage() {
     advanceStep(STEP.ACCOUNT, "", data);
   }, [advanceStep]);
 
-  const handleConnectActivate = useCallback(async (token) => {
-    await api("/api/connect/activate", { method: "PUT", body: JSON.stringify({ license_key: token }) });
+  const handleConnectActivate = useCallback(async (key) => {
+    await api("/api/connect/activate", { method: "PUT", body: JSON.stringify({ connect_key: key }) });
     const data = { ...(progressRef.current.stepData || {}), connect_activated: true };
     await advanceStep(STEP.MFA, "", data);
-  }, [advanceStep]);
+  }, []);
 
   const handleExternalServicesSkip = useCallback(async () => {
     const data = { ...(progressRef.current.stepData || {}), external_services_skipped: true };

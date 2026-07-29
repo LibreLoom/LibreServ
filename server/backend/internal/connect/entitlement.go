@@ -57,8 +57,8 @@ func (e *EntitlementChecker) SupportLevel() string {
 }
 
 func (e *EntitlementChecker) LicenseID() string {
-	if t := e.client.Token(); t != "" {
-		return fmt.Sprintf("connect-%s", tokenHint(t))
+	if t := e.client.ConnectKey(); t != "" {
+		return fmt.Sprintf("connect-%s", connectKeyHint(t))
 	}
 	return ""
 }
@@ -96,7 +96,7 @@ func (e *EntitlementChecker) Plan() *ConnectPlan {
 }
 
 func (e *EntitlementChecker) Token() string {
-	return e.client.Token()
+	return e.client.ConnectKey()
 }
 
 func (e *EntitlementChecker) Status() *ConnectStatus {

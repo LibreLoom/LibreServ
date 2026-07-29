@@ -12,7 +12,7 @@ import (
 )
 
 type Client interface {
-	Activate(ctx context.Context, token string) (*ConnectStatus, error)
+	Activate(ctx context.Context, key string) (*ConnectStatus, error)
 	Deactivate(ctx context.Context) error
 	Provision(ctx context.Context, service ServiceID) (*ProvisionedCredentials, error)
 	RegisterRoute(ctx context.Context, hostname string) error
@@ -20,20 +20,20 @@ type Client interface {
 	Status(ctx context.Context) (*ConnectStatus, error)
 	Usage(ctx context.Context) (*UsageSummary, error)
 	Info(ctx context.Context) (*ConnectInfo, error)
-	Token() string
+	ConnectKey() string
 }
 
 type Config struct {
-	Token      string
+	ConnectKey string
 	BaseURL    string
 	HTTPClient *http.Client
 }
 
 type RealClient struct {
-	token   string
-	baseURL string
-	client  *http.Client
-	mu      sync.RWMutex
+	connectKey string
+	baseURL    string
+	client     *http.Client
+	mu         sync.RWMutex
 }
 
 func NewRealClient(cfg Config) *RealClient {
@@ -44,21 +44,21 @@ func NewRealClient(cfg Config) *RealClient {
 		cfg.BaseURL = "https://connect.serv.libreloom.org"
 	}
 	return &RealClient{
-		token:   cfg.Token,
-		baseURL: strings.TrimRight(cfg.BaseURL, "/"),
-		client:  cfg.HTTPClient,
+		connectKey: cfg.ConnectKey,
+		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
+		client:     cfg.HTTPClient,
 	}
 }
 
-func (c *RealClient) Token() string {
+func (c *RealClient) ConnectKey() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.token
+	return c.connectKey
 }
 
 func (c *RealClient) doRequest(ctx context.Context, method, path string, body interface{}) (*http.Response, error) {
 	c.mu.RLock()
-	token := c.token
+	key := c.connectKey
 	c.mu.RUnlock()
 
 	url := c.baseURL + path
@@ -82,8 +82,8 @@ func (c *RealClient) doRequest(ctx context.Context, method, path string, body in
 		}
 	}
 
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 
 	resp, err := c.client.Do(req)
@@ -114,12 +114,12 @@ func (c *RealClient) parseResponse(resp *http.Response, target interface{}) erro
 	return nil
 }
 
-func (c *RealClient) Activate(ctx context.Context, token string) (*ConnectStatus, error) {
+func (c *RealClient) Activate(ctx context.Context, key string) (*ConnectStatus, error) {
 	c.mu.Lock()
-	c.token = token
+	c.connectKey = key
 	c.mu.Unlock()
 
-	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/activate", ActivationRequest{LicenseKey: token})
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/activate", ActivationRequest{ConnectKey: key})
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (c *RealClient) Deactivate(ctx context.Context) error {
 	}
 
 	c.mu.Lock()
-	c.token = ""
+	c.connectKey = ""
 	c.mu.Unlock()
 
 	return c.parseResponse(resp, nil)
@@ -227,11 +227,11 @@ func (c *RealClient) Info(ctx context.Context) (*ConnectInfo, error) {
 }
 
 type FakeClient struct {
-	mu        sync.RWMutex
-	token     string
-	connected bool
-	plan      *ConnectPlan
-	services  map[ServiceID]ServiceStatus
+	mu         sync.RWMutex
+	connectKey string
+	connected  bool
+	plan       *ConnectPlan
+	services   map[ServiceID]ServiceStatus
 }
 
 func NewFakeClient() *FakeClient {
@@ -245,24 +245,24 @@ func defaultServiceStates() map[ServiceID]ServiceStatus {
 	return DefaultServiceStates()
 }
 
-func (f *FakeClient) Token() string {
+func (f *FakeClient) ConnectKey() string {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
-	return f.token
+	return f.connectKey
 }
 
-func (f *FakeClient) Activate(ctx context.Context, token string) (*ConnectStatus, error) {
+func (f *FakeClient) Activate(ctx context.Context, key string) (*ConnectStatus, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.token = token
+	f.connectKey = key
 	f.connected = true
 
 	var plan *ConnectPlan
 	switch {
-	case strings.Contains(token, "one"):
+	case strings.Contains(key, "one"):
 		plan = &ConnectPlan{ID: PlanOne, Name: "Connect One"}
-	case strings.Contains(token, "lite"):
+	case strings.Contains(key, "lite"):
 		plan = &ConnectPlan{ID: PlanLite, Name: "Connect Lite"}
 	default:
 		plan = &ConnectPlan{ID: PlanFree, Name: "Connect Free"}
@@ -277,7 +277,7 @@ func (f *FakeClient) Activate(ctx context.Context, token string) (*ConnectStatus
 		}
 	}
 
-	slog.Info("fake connect activated", "token", tokenHint(token), "plan", plan.ID)
+	slog.Info("fake connect activated", "key", connectKeyHint(key), "plan", plan.ID)
 	return f.buildStatusLocked(), nil
 }
 
@@ -285,7 +285,7 @@ func (f *FakeClient) Deactivate(ctx context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	f.token = ""
+	f.connectKey = ""
 	f.connected = false
 	f.plan = nil
 	for id, svc := range f.services {
@@ -306,13 +306,13 @@ func (f *FakeClient) Provision(ctx context.Context, service ServiceID) (*Provisi
 		creds.SMTP = &SMTPCredentials{
 			Host:     "smtp.libreloom.org",
 			Port:     587,
-			Username: fmt.Sprintf("server-%s", f.token[:8]),
+			Username: fmt.Sprintf("server-%s", f.connectKey[:8]),
 			Password: "provisioned-smtp-password",
-			From:     fmt.Sprintf("server@%s.servers.libreloom.org", f.token[:8]),
+			From:     fmt.Sprintf("server@%s.servers.libreloom.org", f.connectKey[:8]),
 			UseTLS:   true,
 		}
 	case ServiceDomain:
-		sub := f.token[:8]
+		sub := f.connectKey[:8]
 		domain := sub + ".servers.libreloom.org"
 		creds.Domain = &DomainCredentials{
 			Domain:    domain,
@@ -322,23 +322,23 @@ func (f *FakeClient) Provision(ctx context.Context, service ServiceID) (*Provisi
 	case ServiceBackup:
 		creds.Backup = &BackupCredentials{
 			RepoType: "s3",
-			RepoPath: fmt.Sprintf("s3:https://s3.libreloom.org/libreserv-backup/%s", f.token[:8]),
+			RepoPath: fmt.Sprintf("s3:https://s3.libreloom.org/libreserv-backup/%s", f.connectKey[:8]),
 			Password: "restic-connect-password",
 			Env: map[string]string{
-				"AWS_ACCESS_KEY_ID":     f.token[:16],
+				"AWS_ACCESS_KEY_ID":     f.connectKey[:16],
 				"AWS_SECRET_ACCESS_KEY": "provisioned-secret-key",
 			},
 		}
 	case ServiceTunnel:
 		creds.Tunnel = &TunnelCredentials{
 			Provider:    "cloudflare",
-			TunnelToken: "tunnel-token-" + f.token[:8],
-			TunnelID:    "fake-tunnel-id-" + f.token[:8],
+			TunnelToken: "tunnel-token-" + f.connectKey[:8],
+			TunnelID:    "fake-tunnel-id-" + f.connectKey[:8],
 		}
 	case ServiceAI:
 		sub := ""
-		if len(f.token) >= 8 {
-			sub = f.token[:8]
+		if len(f.connectKey) >= 8 {
+			sub = f.connectKey[:8]
 		}
 		creds.AI = &AICredentials{
 			BaseURL: "https://inference.neuralwatt.dev/v1",
@@ -396,21 +396,21 @@ func (f *FakeClient) buildStatusLocked() *ConnectStatus {
 	}
 
 	var hint string
-	if len(f.token) > 4 {
-		hint = f.token[:4] + "..."
+	if len(f.connectKey) > 4 {
+		hint = f.connectKey[:4] + "..."
 	}
 
 	return &ConnectStatus{
-		Connected: f.connected,
-		Plan:      f.plan,
-		Services:  svcs,
-		TokenHint: hint,
+		Connected:      f.connected,
+		Plan:           f.plan,
+		Services:       svcs,
+		ConnectKeyHint: hint,
 	}
 }
 
-func tokenHint(token string) string {
-	if len(token) > 8 {
-		return token[:4] + "..." + token[len(token)-4:]
+func connectKeyHint(key string) string {
+	if len(key) > 8 {
+		return key[:4] + "..." + key[len(key)-4:]
 	}
-	return token
+	return key
 }

@@ -25,48 +25,48 @@ func NewDeviceHandler(db *sql.DB) *DeviceHandler {
 	return &DeviceHandler{db: db, billing: billing.NewService(db)}
 }
 
-// Activate registers a device using a license key.
-// The license key is purchased on the customer portal and entered on the device.
+// Activate registers a device using a Connect key.
+// The Connect key is purchased on the customer portal and entered on the device.
 func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		LicenseKey string `json:"license_key"`
+		ConnectKey string `json:"connect_key"`
 		DeviceName string `json:"device_name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LicenseKey == "" {
-		JSONError(w, http.StatusBadRequest, "license_key required")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ConnectKey == "" {
+		JSONError(w, http.StatusBadRequest, "connect_key required")
 		return
 	}
 
-	keyHash := hashToken(req.LicenseKey)
+	keyHash := hashToken(req.ConnectKey)
 
-	// Look up the license key
-	var licenseID, planID, status, accountID string
+	// Look up the Connect key
+	var connectKeyID, planID, status, accountID string
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, account_id, plan_id, status FROM license_keys WHERE key_hash = $1`,
-		keyHash).Scan(&licenseID, &accountID, &planID, &status)
+		`SELECT id, account_id, plan_id, status FROM connect_keys WHERE key_hash = $1`,
+		keyHash).Scan(&connectKeyID, &accountID, &planID, &status)
 	if err == sql.ErrNoRows {
-		JSONError(w, http.StatusUnauthorized, "invalid license key")
+		JSONError(w, http.StatusUnauthorized, "invalid Connect key")
 		return
 	}
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not validate license key")
+		JSONError(w, http.StatusInternalServerError, "could not validate Connect key")
 		return
 	}
 
 	if status == "revoked" {
-		JSONError(w, http.StatusForbidden, "this license key has been revoked")
+		JSONError(w, http.StatusForbidden, "this Connect key has been revoked")
 		return
 	}
 	if status == "active" {
 		// Already activated — return existing device info
 		var deviceID string
 		_ = h.db.QueryRowContext(r.Context(),
-			"SELECT id FROM devices WHERE license_key_id = $1", licenseID).Scan(&deviceID)
+			"SELECT id FROM devices WHERE connect_key_id = $1", connectKeyID).Scan(&deviceID)
 		if deviceID != "" {
 			// Update last seen
 			_, _ = h.db.ExecContext(r.Context(),
 				"UPDATE devices SET last_seen_at = $1, is_active = TRUE WHERE id = $2", time.Now(), deviceID)
-			status := h.buildStatus(r.Context(), deviceID, planID, req.LicenseKey[:8]+"...")
+			status := h.buildStatus(r.Context(), deviceID, planID, req.ConnectKey[:8]+"...")
 			JSON(w, http.StatusOK, status)
 			return
 		}
@@ -75,18 +75,18 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	// Create device — one device per account (enforced by DB unique constraint)
 	deviceID := security.GenerateID("dev")
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO devices (id, account_id, license_key_id, plan_id, activated_at, last_seen_at, is_active)
+		`INSERT INTO devices (id, account_id, connect_key_id, plan_id, activated_at, last_seen_at, is_active)
 		 VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-		deviceID, accountID, licenseID, planID, time.Now(), time.Now())
+		deviceID, accountID, connectKeyID, planID, time.Now(), time.Now())
 	if err != nil {
 		JSONError(w, http.StatusConflict, "This account already has an activated device. Deactivate it first to activate a new one.")
 		return
 	}
 
-	// Mark license key as active
+	// Mark Connect key as active
 	_, _ = h.db.ExecContext(r.Context(),
-		"UPDATE license_keys SET status = 'active', device_id = $1, activated_at = $2 WHERE id = $3",
-		deviceID, time.Now(), licenseID)
+		"UPDATE connect_keys SET status = 'active', device_id = $1, activated_at = $2 WHERE id = $3",
+		deviceID, time.Now(), connectKeyID)
 
 	// Create or update subscription
 	_, _ = h.db.ExecContext(r.Context(),
@@ -98,7 +98,7 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	// Ensure credit account exists
 	_ = h.billing.EnsureAccountCredits(deviceID)
 
-	keyHint := req.LicenseKey
+	keyHint := req.ConnectKey
 	if len(keyHint) > 8 {
 		keyHint = keyHint[:8] + "..."
 	}

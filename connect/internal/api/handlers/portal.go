@@ -57,16 +57,28 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	accountID := security.GenerateID("acct")
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO customer_accounts (id, email, password_hash, name) VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO customer_accounts (id, email, password_hash, name, plan_id) VALUES ($1, $2, $3, $4, 'free')`,
 		accountID, req.Email, hash, req.Name)
 	if err != nil {
 		JSONError(w, http.StatusConflict, "an account with this email already exists")
 		return
 	}
 
+	// Auto sign-in: create a session so the user doesn't have to sign in again
+	token, err := middleware.CreateCustomerSession(h.db, accountID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not create session")
+		return
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
-		"message": "account created. Please sign in.",
+		"message": "account created",
+		"token":   token,
 		"id":      accountID,
+		"email":   req.Email,
+		"name":    req.Name,
+		"plan_id": "free",
+		"has_2fa": false,
 	})
 }
 
@@ -89,10 +101,11 @@ func (h *PortalHandler) Login(w http.ResponseWriter, r *http.Request) {
 		TOTPSecret   sql.NullString
 		TOTPEnabled  bool
 		IsActive     bool
+		PlanID       string
 	}
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active FROM customer_accounts WHERE email = $1`,
-		req.Email).Scan(&account.ID, &account.PasswordHash, &account.Name, &account.TOTPSecret, &account.TOTPEnabled, &account.IsActive)
+		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active, plan_id FROM customer_accounts WHERE email = $1`,
+		req.Email).Scan(&account.ID, &account.PasswordHash, &account.Name, &account.TOTPSecret, &account.TOTPEnabled, &account.IsActive, &account.PlanID)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusUnauthorized, "invalid email or password")
 		return
@@ -141,6 +154,7 @@ func (h *PortalHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"id":      account.ID,
 		"email":   req.Email,
 		"name":    name,
+		"plan_id": account.PlanID,
 		"has_2fa": account.TOTPEnabled,
 	})
 }
@@ -245,17 +259,17 @@ func (h *PortalHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]string{"message": "2FA disabled"})
 }
 
-// GenerateLicenseKey creates the one license key for this account. In the
+// GenerateConnectKey creates the one Connect key for this account. In the
 // one-server-per-account model, each account gets exactly one key. If a key
 // already exists and is unused, it is returned. If the existing key is active
 // (device already activated), a 409 is returned.
-func (h *PortalHandler) GenerateLicenseKey(w http.ResponseWriter, r *http.Request) {
+func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	// Check if the account already has a key
 	var existingKey, existingID, existingPlanID, existingStatus string
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT key_prefix || '…', id, plan_id, status FROM license_keys WHERE account_id = $1`,
+		`SELECT key_prefix || '…', id, plan_id, status FROM connect_keys WHERE account_id = $1`,
 		accountID).Scan(&existingKey, &existingID, &existingPlanID, &existingStatus)
 
 	if err == nil {
@@ -267,7 +281,7 @@ func (h *PortalHandler) GenerateLicenseKey(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		// Key exists but unused (or revoked) — delete it and generate a fresh one
-		_, _ = h.db.ExecContext(r.Context(), "DELETE FROM license_keys WHERE id = $1", existingID)
+		_, _ = h.db.ExecContext(r.Context(), "DELETE FROM connect_keys WHERE id = $1", existingID)
 	}
 
 	// Get the account's current plan
@@ -278,43 +292,43 @@ func (h *PortalHandler) GenerateLicenseKey(w http.ResponseWriter, r *http.Reques
 		planID = "free"
 	}
 
-	// Generate a human-readable license key: XXXX-XXXX-XXXX-XXXX
-	key := security.GenerateLicenseKey()
+	// Generate a human-readable Connect key: XXXX-XXXX-XXXX-XXXX
+	key := security.GenerateConnectKey()
 	keyHash := hashToken(key)
 	keyPrefix := key[:8]
 
-	licenseID := security.GenerateID("lic")
+	connectKeyID := security.GenerateID("lic")
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO license_keys (id, key_hash, key_prefix, account_id, plan_id, status)
+		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, plan_id, status)
 		 VALUES ($1, $2, $3, $4, $5, 'unused')`,
-		licenseID, keyHash, keyPrefix, accountID, planID)
+		connectKeyID, keyHash, keyPrefix, accountID, planID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not generate license key")
+		JSONError(w, http.StatusInternalServerError, "could not generate Connect key")
 		return
 	}
 
 	JSON(w, http.StatusOK, map[string]any{
-		"license_key": key,
-		"key_id":      licenseID,
+		"connect_key": key,
+		"key_id":      connectKeyID,
 		"plan_id":     planID,
 		"plan_name":   catalog.PlanName(planID),
 		"message":     "Enter this key on your LibreServ device to activate Connect.",
 	})
 }
 
-// GetLicenseKeys returns all license keys for the authenticated account.
-func (h *PortalHandler) GetLicenseKeys(w http.ResponseWriter, r *http.Request) {
+// GetConnectKeys returns all Connect keys for the authenticated account.
+func (h *PortalHandler) GetConnectKeys(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	rows, err := h.db.QueryContext(r.Context(),
 		`SELECT lk.id, lk.key_prefix, lk.plan_id, lk.status, lk.created_at, lk.activated_at,
 		        d.id, d.is_active
-		 FROM license_keys lk
+		 FROM connect_keys lk
 		 LEFT JOIN devices d ON lk.device_id = d.id
 		 WHERE lk.account_id = $1
 		 ORDER BY lk.created_at DESC`, accountID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not retrieve license keys")
+		JSONError(w, http.StatusInternalServerError, "could not retrieve Connect keys")
 		return
 	}
 	defer rows.Close()
@@ -350,11 +364,11 @@ func (h *PortalHandler) GetLicenseKeys(w http.ResponseWriter, r *http.Request) {
 		keys = append(keys, entry)
 	}
 
-	JSON(w, http.StatusOK, map[string]any{"license_keys": keys})
+	JSON(w, http.StatusOK, map[string]any{"connect_keys": keys})
 }
 
-// RevokeLicenseKey revokes a license key.
-func (h *PortalHandler) RevokeLicenseKey(w http.ResponseWriter, r *http.Request) {
+// RevokeConnectKey revokes a Connect key.
+func (h *PortalHandler) RevokeConnectKey(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	var req struct {
@@ -366,14 +380,14 @@ func (h *PortalHandler) RevokeLicenseKey(w http.ResponseWriter, r *http.Request)
 	}
 
 	_, err := h.db.ExecContext(r.Context(),
-		"UPDATE license_keys SET status = 'revoked' WHERE id = $1 AND account_id = $2 AND status != 'revoked'",
+		"UPDATE connect_keys SET status = 'revoked' WHERE id = $1 AND account_id = $2 AND status != 'revoked'",
 		req.KeyID, accountID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not revoke license key")
+		JSONError(w, http.StatusInternalServerError, "could not revoke Connect key")
 		return
 	}
 
-	JSON(w, http.StatusOK, map[string]string{"message": "license key revoked"})
+	JSON(w, http.StatusOK, map[string]string{"message": "Connect key revoked"})
 }
 
 // GetDevices returns all devices linked to the authenticated account.
@@ -841,8 +855,8 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 	if !catalog.IsPaidPlan(req.PlanID) || !config.C.Stripe.Enabled {
 		// Free plan, or Stripe not configured — set the plan on the account
 		// directly. During onboarding there may be no device yet, so we update
-		// customer_accounts.plan_id (which GenerateLicenseKey reads to stamp
-		// the plan onto the license key) instead of calling Subscribe (which
+		// customer_accounts.plan_id (which GenerateConnectKey reads to stamp
+		// the plan onto the Connect key) instead of calling Subscribe (which
 		// requires a device and would re-decode the already-consumed body).
 		_, err := h.db.ExecContext(r.Context(),
 			"UPDATE customer_accounts SET plan_id = $1 WHERE id = $2",

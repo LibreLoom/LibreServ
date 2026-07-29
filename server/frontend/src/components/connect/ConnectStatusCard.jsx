@@ -15,7 +15,7 @@ const PLAN_BADGES = {
 export default function ConnectStatusCard({
   connected,
   plan = null,
-  tokenHint = null,
+  connectKeyHint = null,
   services,
   onActivate,
   onDeactivate,
@@ -24,7 +24,7 @@ export default function ConnectStatusCard({
   noPopIn = false,
 }) {
   const [showTokenInput, setShowTokenInput] = useState(false);
-  const [token, setToken] = useState("");
+  const [connectKey, setConnectKey] = useState("");
   const [error, setError] = useState(null);
 
   const planBadge = plan ? PLAN_BADGES[plan.id] : null;
@@ -59,7 +59,7 @@ export default function ConnectStatusCard({
       </Card>
 
       {showTokenInput && (
-        <ModalCard title="Enter Your Connect Token" onClose={() => setShowTokenInput(false)} size="md">
+        <ModalCard title="Enter Your Connect Key" onClose={() => setShowTokenInput(false)} size="md">
           {({close}) => (
           <div className="space-y-4">
             <p className="text-sm text-accent">
@@ -70,13 +70,13 @@ export default function ConnectStatusCard({
               >
                 connect.serv.libreloom.org
               </button>{" "}
-              to create an account and get your Connect token. Paste it here.
+              to create an account and get your Connect key. Paste it here.
             </p>
             <input
               type="text"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="Paste your Connect token here"
+              value={connectKey}
+              onChange={(e) => setConnectKey(e.target.value)}
+              placeholder="Paste your Connect key here"
               className="w-full px-4 py-3 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
             />
             {error && <Alert variant="error" message={error} />}
@@ -86,14 +86,14 @@ export default function ConnectStatusCard({
                   if (!onActivate) return;
                   setError(null);
                   try {
-                    await onActivate(token);
-                    setToken("");
+                    await onActivate(connectKey);
+                    setConnectKey("");
                     setShowTokenInput(false);
                   } catch (err) {
-                    setError(err.message || "Could not connect to LibreServ Connect. Please check your token and try again.");
+                    setError(err.message || "Could not connect to LibreServ Connect. Please check your Connect key and try again.");
                   }
                 }}
-                disabled={!token.trim() || loading}
+                disabled={!connectKey.trim() || loading}
                 loading={loading}
               >
                 {loading ? "Connecting..." : "Connect"}
@@ -127,8 +127,8 @@ export default function ConnectStatusCard({
           )}
         </div>
 
-        {tokenHint && (
-          <p className="text-xs text-accent/60 font-mono">Token: {tokenHint}</p>
+        {connectKeyHint && (
+          <p className="text-xs text-accent/60 font-mono">Key: {connectKeyHint}</p>
         )}
 
         <p className="text-sm text-accent">

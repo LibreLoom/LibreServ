@@ -5,11 +5,11 @@ export async function getConnectStatus() {
   return res.json();
 }
 
-export async function activateConnect(token, csrfToken) {
+export async function activateConnect(key, csrfToken) {
   const res = await api("/connect/activate", {
     method: "PUT",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-    body: JSON.stringify({ license_key: token }),
+    body: JSON.stringify({ connect_key: key }),
   });
   return res.json();
 }

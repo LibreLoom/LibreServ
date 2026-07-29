@@ -188,10 +188,10 @@ export default function SettingsPage() {
     scheduleSave();
   };
 
-  const handleActivateConnect = async (token) => {
+  const handleActivateConnect = async (key) => {
     setConnectLoading(true);
     try {
-      const result = await activateConnect(token, csrfToken);
+      const result = await activateConnect(key, csrfToken);
       setConnectStatus(result);
       return result;
     } catch (err) {
@@ -211,6 +211,15 @@ export default function SettingsPage() {
       console.error("Failed to deactivate Connect:", err);
     } finally {
       setConnectLoading(false);
+    }
+  };
+
+  const handleRefreshConnectStatus = async () => {
+    try {
+      const data = await getConnectStatus();
+      setConnectStatus(data);
+    } catch (err) {
+      console.error("Failed to refresh Connect status:", err);
     }
   };
 
@@ -301,6 +310,7 @@ export default function SettingsPage() {
             connectStatus={connectStatus}
             onActivateConnect={handleActivateConnect}
             onDeactivateConnect={handleDeactivateConnect}
+            onRefreshConnectStatus={handleRefreshConnectStatus}
             onOpenPlanPage={handleOpenPlanPage}
             connectLoading={connectLoading}
             csrfToken={csrfToken}
@@ -362,6 +372,7 @@ export default function SettingsPage() {
               connectStatus={connectStatus}
               onActivateConnect={handleActivateConnect}
               onDeactivateConnect={handleDeactivateConnect}
+              onRefreshConnectStatus={handleRefreshConnectStatus}
               onOpenPlanPage={handleOpenPlanPage}
               connectLoading={connectLoading}
               csrfToken={csrfToken}

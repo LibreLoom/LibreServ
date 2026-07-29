@@ -178,7 +178,7 @@ export default function Onboarding() {
   const [purchasingDomain, setPurchasingDomain] = useState(false);
   const [registeredDomain, setRegisteredDomain] = useState(saved.current?.registeredDomain || null);
 
-  const [licenseKey, setLicenseKey] = useState(null);
+  const [connectKey, setConnectKey] = useState(null);
   const [generatingKey, setGeneratingKey] = useState(false);
   const [copied, setCopied] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -203,19 +203,19 @@ export default function Onboarding() {
 
   const clearError = () => setError("");
 
-  // Auto-generate the license key when the user reaches the key step.
+  // Auto-generate the connect key when the user reaches the key step.
   // The key step is the last step (index 4). We generate once — the guard
   // prevents duplicate calls on re-renders.
-  const keyStep = 4; // renderLicenseKey index in stepComponents
+  const keyStep = 4; // renderConnectKey index in stepComponents
   useEffect(() => {
-    if (step !== keyStep || licenseKey || generatingKey) return;
+    if (step !== keyStep || connectKey || generatingKey) return;
     setGeneratingKey(true);
     clearError();
-    api.generateLicenseKey()
-      .then((res) => setLicenseKey(res.license_key))
-      .catch((err) => setError(err.message || "Could not generate your license key. Try again."))
+    api.generateConnectKey()
+      .then((res) => setConnectKey(res.connect_key))
+      .catch((err) => setError(err.message || "Could not generate your Connect key. Try again."))
       .finally(() => setGeneratingKey(false));
-  }, [step, licenseKey, generatingKey]);
+  }, [step, connectKey, generatingKey]);
 
   const handlePlanContinue = async () => {
     clearError();
@@ -261,10 +261,10 @@ export default function Onboarding() {
     setGeneratingKey(true);
     clearError();
     try {
-      const res = await api.generateLicenseKey();
-      setLicenseKey(res.license_key);
+      const res = await api.generateConnectKey();
+      setConnectKey(res.connect_key);
     } catch (err) {
-      setError(err.message || "Could not generate your license key. Try again.");
+      setError(err.message || "Could not generate your Connect key. Try again.");
     } finally {
       setGeneratingKey(false);
     }
@@ -658,34 +658,34 @@ export default function Onboarding() {
   );
 
 
-  const renderLicenseKey = () => (
+  const renderConnectKey = () => (
     <div className="flex flex-col items-center text-center py-4">
       <Key size={48} className="text-muted-foreground mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-        Your license key
+        Your Connect key
       </h1>
       <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
         Almost done! Copy this key and paste it back into the LibreServ setup
         page you came from.
       </p>
 
-      {generatingKey && !licenseKey ? (
+      {generatingKey && !connectKey ? (
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Generating your key…</p>
         </div>
-      ) : licenseKey ? (
+      ) : connectKey ? (
         <div className="w-full max-w-sm space-y-6">
           <div className="rounded-large-element bg-muted border border-border p-5">
             <div className="flex items-center gap-3">
               <Key className="w-5 h-5 text-muted-foreground shrink-0" />
               <code className="text-base font-mono flex-1 break-all select-all text-foreground">
-                {licenseKey}
+                {connectKey}
               </code>
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => handleCopy(licenseKey)}
+                onClick={() => handleCopy(connectKey)}
                 title="Copy to clipboard"
               >
                 {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
@@ -726,7 +726,7 @@ export default function Onboarding() {
     </div>
   );
 
-  const stepComponents = [renderWelcome, renderAuth, renderPlan, renderDomain, renderLicenseKey];
+  const stepComponents = [renderWelcome, renderAuth, renderPlan, renderDomain, renderConnectKey];
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">

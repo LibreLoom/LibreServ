@@ -14,13 +14,13 @@ const DeviceContextKey = "connect_device_id"
 
 type deviceContext struct{}
 
-// DeviceAuth authenticates devices using their license key as a bearer token.
+// DeviceAuth authenticates devices using their Connect key as a bearer token.
 func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := extractBearer(r)
 			if key == "" {
-				http.Error(w, `{"error":"missing license key"}`, http.StatusUnauthorized)
+				http.Error(w, `{"error":"missing Connect key"}`, http.StatusUnauthorized)
 				return
 			}
 
@@ -29,11 +29,11 @@ func DeviceAuth(db *sql.DB) func(http.Handler) http.Handler {
 			var isActive bool
 			err := db.QueryRowContext(r.Context(),
 				`SELECT d.id, d.is_active FROM devices d
-				 JOIN license_keys lk ON d.license_key_id = lk.id
-				 WHERE lk.key_hash = $1 AND lk.status = 'active'`, hash).
+				 JOIN connect_keys ck ON d.connect_key_id = ck.id
+				 WHERE ck.key_hash = $1 AND ck.status = 'active'`, hash).
 				Scan(&deviceID, &isActive)
 			if err == sql.ErrNoRows {
-				http.Error(w, `{"error":"invalid or inactive license key"}`, http.StatusUnauthorized)
+				http.Error(w, `{"error":"invalid or inactive Connect key"}`, http.StatusUnauthorized)
 				return
 			}
 			if err != nil {

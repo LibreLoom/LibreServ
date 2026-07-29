@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -76,7 +77,10 @@ func (h *BillingHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCheckoutCompleted records the subscription when checkout succeeds.
-// The client_reference_id is our device ID, set during checkout session creation.
+// The client_reference_id is set during checkout session creation — it can be
+// either a device ID (if a device exists) or an account ID (during onboarding,
+// before the device is activated). We detect which it is and update the plan
+// accordingly.
 func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
 	var session stripego.CheckoutSession
 	if err := json.Unmarshal(data, &session); err != nil {
@@ -84,8 +88,8 @@ func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.
 		return
 	}
 
-	deviceID := session.ClientReferenceID
-	if deviceID == "" {
+	refID := session.ClientReferenceID
+	if refID == "" {
 		JSON(w, http.StatusOK, map[string]string{"message": "no client reference, skipping"})
 		return
 	}
@@ -96,12 +100,45 @@ func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Otherwise it's a subscription checkout — determine plan from the subscription's price items
+	// Determine plan from the subscription's price items
 	planID := "free"
 	if session.Subscription != nil {
 		planID = priceToPlanFromSubscription(session.Subscription)
 	}
-	_, err := h.billing.DB().Exec(
+	if planID == "" {
+		planID = "free"
+	}
+
+	// Check whether refID is a device ID or an account ID
+	var deviceID string
+	var accountID string
+	err := h.billing.DB().QueryRow(
+		"SELECT id, account_id FROM devices WHERE id = $1", refID).Scan(&deviceID, &accountID)
+	if err == sql.ErrNoRows {
+		// Not a device — check if it's an account ID
+		err = h.billing.DB().QueryRow(
+			"SELECT id FROM customer_accounts WHERE id = $1", refID).Scan(&accountID)
+		if err != nil {
+			slog.Warn("checkout completed but client_reference_id not found", "ref", refID)
+			JSON(w, http.StatusOK, map[string]string{"message": "ref not found, skipping"})
+			return
+		}
+		// It's an account ID — update the account's plan directly
+		_, _ = h.billing.DB().Exec(
+			`UPDATE customer_accounts SET plan_id = $1, updated_at = $2 WHERE id = $3`,
+			planID, time.Now(), accountID)
+		slog.Info("checkout completed: updated account plan", "account", accountID, "plan", planID)
+		JSON(w, http.StatusOK, map[string]string{"message": "checkout completed"})
+		return
+	}
+	if err != nil {
+		slog.Error("failed to look up device from checkout", "error", err, "ref", refID)
+		JSONError(w, http.StatusInternalServerError, "could not record subscription")
+		return
+	}
+
+	// It's a device ID — record the subscription and update both device + account
+	_, err = h.billing.DB().Exec(
 		`INSERT INTO subscriptions (id, device_id, plan_id, status, started_at, stripe_subscription_id)
 		 VALUES ($1, $2, $3, 'active', $4, $5)
 		 ON CONFLICT (device_id) DO UPDATE SET

@@ -14,7 +14,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
-// activateDevice creates a license key and activates a device with it.
+// activateDevice creates a Connect key and activates a device with it.
 // Returns the device ID.
 func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 	t.Helper()
@@ -22,19 +22,19 @@ func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 		planID = "free"
 	}
 
-	// Create a license key
-	key := security.GenerateLicenseKey()
+	// Create a Connect key
+	key := security.GenerateConnectKey()
 	keyHash := hashToken(key)
-	licenseID := security.GenerateID("lic")
+	connectKeyID := security.GenerateID("lic")
 	_, err := db.Exec(
-		`INSERT INTO license_keys (id, key_hash, key_prefix, plan_id, status) VALUES ($1, $2, $3, $4, 'unused')`,
-		licenseID, keyHash, key[:8], planID)
+		`INSERT INTO connect_keys (id, key_hash, key_prefix, plan_id, status) VALUES ($1, $2, $3, $4, 'unused')`,
+		connectKeyID, keyHash, key[:8], planID)
 	if err != nil {
-		t.Fatalf("create license key: %v", err)
+		t.Fatalf("create Connect key: %v", err)
 	}
 
-	// Activate device with the license key
-	body, _ := json.Marshal(map[string]string{"license_key": key})
+	// Activate device with the Connect key
+	body, _ := json.Marshal(map[string]string{"connect_key": key})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/activate", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	NewDeviceHandler(db).Activate(w, req)
@@ -44,31 +44,31 @@ func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 
 	// Query to get the device ID
 	var deviceID string
-	err = db.QueryRow("SELECT id FROM devices WHERE license_key_id = $1", licenseID).Scan(&deviceID)
+	err = db.QueryRow("SELECT id FROM devices WHERE connect_key_id = $1", connectKeyID).Scan(&deviceID)
 	if err != nil {
 		t.Fatalf("find activated device: %v", err)
 	}
 	return deviceID
 }
 
-// activateDeviceWithKey activates a device with a specific license key and returns both.
+// activateDeviceWithKey activates a device with a specific Connect key and returns both.
 func activateDeviceWithKey(t *testing.T, db *sql.DB, planID string) (string, string) {
 	t.Helper()
 	if planID == "" {
 		planID = "free"
 	}
 
-	key := security.GenerateLicenseKey()
+	key := security.GenerateConnectKey()
 	keyHash := hashToken(key)
-	licenseID := security.GenerateID("lic")
+	connectKeyID := security.GenerateID("lic")
 	_, err := db.Exec(
-		`INSERT INTO license_keys (id, key_hash, key_prefix, plan_id, status) VALUES ($1, $2, $3, $4, 'unused')`,
-		licenseID, keyHash, key[:8], planID)
+		`INSERT INTO connect_keys (id, key_hash, key_prefix, plan_id, status) VALUES ($1, $2, $3, $4, 'unused')`,
+		connectKeyID, keyHash, key[:8], planID)
 	if err != nil {
-		t.Fatalf("create license key: %v", err)
+		t.Fatalf("create Connect key: %v", err)
 	}
 
-	body, _ := json.Marshal(map[string]string{"license_key": key})
+	body, _ := json.Marshal(map[string]string{"connect_key": key})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/activate", bytes.NewReader(body))
 	w := httptest.NewRecorder()
 	NewDeviceHandler(db).Activate(w, req)
@@ -77,7 +77,7 @@ func activateDeviceWithKey(t *testing.T, db *sql.DB, planID string) (string, str
 	}
 
 	var deviceID string
-	err = db.QueryRow("SELECT id FROM devices WHERE license_key_id = $1", licenseID).Scan(&deviceID)
+	err = db.QueryRow("SELECT id FROM devices WHERE connect_key_id = $1", connectKeyID).Scan(&deviceID)
 	if err != nil {
 		t.Fatalf("find activated device: %v", err)
 	}

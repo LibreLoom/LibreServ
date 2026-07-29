@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Globe, Mail, Shield, DatabaseBackup, ArrowRight, ArrowLeft, Key, ExternalLink } from "lucide-react";
+import { Globe, Mail, Shield, DatabaseBackup, LifeBuoy, Sparkles, ArrowRight, ArrowLeft, Key, ExternalLink } from "lucide-react";
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import Button from "../ui/Button";
@@ -11,6 +11,8 @@ const SERVICES = [
   { icon: Mail, label: "Email", desc: "Notifications and password resets" },
   { icon: Shield, label: "Remote access", desc: "Use LibreServ away from home" },
   { icon: DatabaseBackup, label: "Backup", desc: "Protect your data in the cloud" },
+  { icon: Sparkles, label: "AI support", desc: "A built-in assistant that answers questions and fixes things for you in real time" },
+  { icon: LifeBuoy, label: "Human support", desc: "Talk to a real person at LibreLoom when you're stuck" },
 ];
 
 /**
@@ -26,20 +28,20 @@ const SERVICES = [
  */
 export default function ExternalServicesStep({ onActivate, onSkip }) {
   const [mode, setMode] = useState(null); // null | "connect"
-  const [token, setToken] = useState("");
+  const [connectKey, setConnectKey] = useState("");
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState("");
   const [popupBlocked, setPopupBlocked] = useState(false);
 
   const handleActivate = async () => {
-    if (!token.trim()) {
-      setError("Please paste your Connect license key.");
+    if (!connectKey.trim()) {
+      setError("Please paste your Connect key.");
       return;
     }
     setActivating(true);
     setError("");
     try {
-      await onActivate(token.trim());
+      await onActivate(connectKey.trim());
     } catch (err) {
       setError(err.message || "Could not connect to LibreServ Connect. Check your key and try again.");
       setActivating(false);
@@ -98,7 +100,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
             <div className="flex-1 text-left">
               <div className="font-mono text-sm text-primary">Use LibreServ Connect</div>
               <div className="text-xs text-accent mt-0.5">
-                One signup handles all four services. Free plan available.
+                One signup handles all six services. Free plan available.
               </div>
             </div>
             <ArrowRight size={16} className="text-accent flex-shrink-0" />
@@ -128,16 +130,15 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
     );
   }
 
-  // Connect flow — focused on pasting the key, with popup-blocked fallback
   return (
     <div className="flex flex-col items-center text-center py-4" data-slot="external-services-connect">
       <Key size={48} className="text-accent mx-auto mb-4" />
       <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
-        Paste your license key
+        Paste your Connect key
       </h1>
       <p className="text-accent text-sm leading-relaxed max-w-md mb-6">
         We've opened the Connect setup in a new tab. Complete the signup there,
-        then copy the license key from the final step and paste it below.
+        then copy the Connect key from the final step and paste it below.
       </p>
 
       {popupBlocked && (
@@ -160,15 +161,15 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
       <div className="w-full max-w-sm space-y-3">
         <input
           type="text"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
+          value={connectKey}
+          onChange={(e) => setConnectKey(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
               handleActivate();
             }
           }}
-          placeholder="Paste your license key here..."
+          placeholder="Paste your Connect key here..."
           autoFocus
           disabled={activating}
           className={cn(
@@ -186,7 +187,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
           fullWidth
           onClick={handleActivate}
           loading={activating}
-          disabled={!token.trim()}
+          disabled={!connectKey.trim()}
         >
           <Key className="w-4 h-4 mr-2" />
           Activate Connect

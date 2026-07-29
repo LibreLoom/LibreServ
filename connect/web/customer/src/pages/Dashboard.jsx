@@ -20,8 +20,8 @@ export default function Dashboard() {
     queryFn: api.getDevices,
   });
   const { data: keysData } = useQuery({
-    queryKey: ["license-keys"],
-    queryFn: api.getLicenseKeys,
+    queryKey: ["connect-keys"],
+    queryFn: api.getConnectKeys,
   });
   const { data: consentData } = useQuery({
     queryKey: ["consent-requests"],
@@ -33,18 +33,18 @@ export default function Dashboard() {
   });
 
   const generateKeyMut = useMutation({
-    mutationFn: () => api.generateLicenseKey(),
+    mutationFn: () => api.generateConnectKey(),
     onSuccess: (data) => {
       setGeneratedKey(data);
-      queryClient.invalidateQueries({ queryKey: ["license-keys"] });
+      queryClient.invalidateQueries({ queryKey: ["connect-keys"] });
     },
   });
 
   const regenerateKeyMut = useMutation({
-    mutationFn: () => api.generateLicenseKey(),
+    mutationFn: () => api.generateConnectKey(),
     onSuccess: (data) => {
       setGeneratedKey(data);
-      queryClient.invalidateQueries({ queryKey: ["license-keys"] });
+      queryClient.invalidateQueries({ queryKey: ["connect-keys"] });
     },
   });
 
@@ -64,7 +64,7 @@ export default function Dashboard() {
   });
 
   const devices = devicesData?.devices || [];
-  const licenseKeys = keysData?.license_keys || [];
+  const connectKeys = keysData?.connect_keys || [];
   const consentRequests = consentData?.consent_requests || [];
   const plans = plansData?.plans || [];
   const hasDevice = devices.length > 0;
@@ -207,18 +207,18 @@ export default function Dashboard() {
       )}
 
       {/* No device state — generate a key */}
-      {!hasDevice && !generatedKey && licenseKeys.length === 0 && (
+      {!hasDevice && !generatedKey && connectKeys.length === 0 && (
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Get Started</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Generate a license key to connect your LibreServ device to Connect.
+              Generate a Connect key to connect your LibreServ device to Connect.
               Then enter the key on your device to activate.
             </p>
             <Button onClick={() => generateKeyMut.mutate()} loading={generateKeyMut.isPending}>
-              <Key className="h-4 w-4" /> Generate License Key
+              <Key className="h-4 w-4" /> Generate Connect Key
             </Button>
           </CardContent>
         </Card>
@@ -228,7 +228,7 @@ export default function Dashboard() {
       {generatedKey && (
         <Card className="mb-6 border-success/30">
           <CardHeader>
-            <CardTitle className="text-success">Your License Key</CardTitle>
+            <CardTitle className="text-success">Your Connect Key</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-3">
@@ -236,8 +236,8 @@ export default function Dashboard() {
               Save it now — you won't be able to see the full key again.
             </p>
             <div className="flex items-center gap-2 rounded-lg border border-border p-4">
-              <code className="font-mono text-lg flex-1 break-all">{generatedKey.license_key}</code>
-              <Button variant="outline" size="sm" onClick={() => copyKey(generatedKey.license_key)}>
+              <code className="font-mono text-lg flex-1 break-all">{generatedKey.connect_key}</code>
+              <Button variant="outline" size="sm" onClick={() => copyKey(generatedKey.connect_key)}>
                 {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? "Copied" : "Copy"}
               </Button>
@@ -249,12 +249,12 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* License key info */}
-      {licenseKeys.length > 0 && (
+      {/* Connect key info */}
+      {connectKeys.length > 0 && (
         <div className="mb-6">
-          <h3 className="font-mono text-lg mb-4">License Key</h3>
+          <h3 className="font-mono text-lg mb-4">Connect Key</h3>
           <div className="space-y-2">
-            {licenseKeys.map((lk) => (
+            {connectKeys.map((lk) => (
               <Card key={lk.id} className="flex items-center justify-between">
                 <div>
                   <p className="font-mono text-sm">{lk.key_prefix}</p>

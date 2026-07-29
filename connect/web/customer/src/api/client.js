@@ -47,13 +47,13 @@ export const api = {
     body: JSON.stringify({ code }),
   }),
 
-  // License keys
-  getLicenseKeys: () => request("/portal/license-keys"),
-  generateLicenseKey: () => request("/portal/license-keys", {
+  // Connect keys
+  getConnectKeys: () => request("/portal/connect-keys"),
+  generateConnectKey: () => request("/portal/connect-keys", {
     method: "POST",
     body: JSON.stringify({}),
   }),
-  revokeLicenseKey: (keyId) => request("/portal/license-keys/revoke", {
+  revokeConnectKey: (keyId) => request("/portal/connect-keys/revoke", {
     method: "POST",
     body: JSON.stringify({ key_id: keyId }),
   }),

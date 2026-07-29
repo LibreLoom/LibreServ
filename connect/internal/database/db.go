@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS customer_accounts (
 CREATE TABLE IF NOT EXISTS devices (
 	id TEXT PRIMARY KEY,
 	account_id TEXT NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
-	license_key_id TEXT,
+	connect_key_id TEXT,
 	plan_id TEXT NOT NULL DEFAULT 'free',
 	activated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_seen_at TIMESTAMP,
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS devices (
 	is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
-CREATE TABLE IF NOT EXISTS license_keys (
+CREATE TABLE IF NOT EXISTS connect_keys (
 	id TEXT PRIMARY KEY,
 	key_hash TEXT NOT NULL UNIQUE,
 	key_prefix TEXT NOT NULL,
@@ -324,10 +324,10 @@ ON CONFLICT (id) DO UPDATE SET
 	price_monthly_cents = EXCLUDED.price_monthly_cents,
 	limits_json = EXCLUDED.limits_json;
 
-CREATE INDEX IF NOT EXISTS idx_license_keys_hash ON license_keys(key_hash);
-CREATE INDEX IF NOT EXISTS idx_license_keys_account ON license_keys(account_id);
-CREATE INDEX IF NOT EXISTS idx_license_keys_status ON license_keys(status);
-CREATE INDEX IF NOT EXISTS idx_devices_license ON devices(license_key_id);
+CREATE INDEX IF NOT EXISTS idx_connect_keys_hash ON connect_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_connect_keys_account ON connect_keys(account_id);
+CREATE INDEX IF NOT EXISTS idx_connect_keys_status ON connect_keys(status);
+CREATE INDEX IF NOT EXISTS idx_devices_connect_key ON devices(connect_key_id);
 CREATE INDEX IF NOT EXISTS idx_customer_accounts_email ON customer_accounts(email);
 CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
 CREATE INDEX IF NOT EXISTS idx_devices_plan ON devices(plan_id);
@@ -346,7 +346,7 @@ CREATE INDEX IF NOT EXISTS idx_ai_models_provider ON ai_models(provider_id);
 CREATE INDEX IF NOT EXISTS idx_ai_models_role ON ai_models(role);
 CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_customer_sessions_account ON customer_sessions(account_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_license_keys_account_unique ON license_keys(account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_connect_keys_account_unique ON connect_keys(account_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_account_unique ON devices(account_id);
 CREATE INDEX IF NOT EXISTS idx_customer_accounts_plan ON customer_accounts(plan_id);
 		`,

@@ -62,10 +62,10 @@ type ServiceStatus struct {
 }
 
 type ConnectStatus struct {
-	Connected bool                        `json:"connected"`
-	Plan      *ConnectPlan                `json:"plan,omitempty"`
-	Services  map[ServiceID]ServiceStatus `json:"services"`
-	TokenHint string                      `json:"token_hint,omitempty"`
+	Connected      bool                        `json:"connected"`
+	Plan           *ConnectPlan                `json:"plan,omitempty"`
+	Services       map[ServiceID]ServiceStatus `json:"services"`
+	ConnectKeyHint string                      `json:"connect_key_hint,omitempty"`
 }
 
 type UsageSummary struct {
@@ -82,7 +82,7 @@ type ServiceToggleRequest struct {
 }
 
 type ActivationRequest struct {
-	LicenseKey string `json:"license_key"`
+	ConnectKey string `json:"connect_key"`
 }
 
 type AICredentials struct {

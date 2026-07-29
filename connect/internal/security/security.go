@@ -55,8 +55,8 @@ func RandomString(n int) string {
 	return RandomPassword(n)
 }
 
-// GenerateLicenseKey creates a human-readable license key in the format XXXX-XXXX-XXXX-XXXX.
-func GenerateLicenseKey() string {
+// GenerateConnectKey creates a human-readable Connect key in the format XXXX-XXXX-XXXX-XXXX.
+func GenerateConnectKey() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" // no I, O, 0, 1 to avoid confusion
 	b := make([]byte, 16)
 	max := big.NewInt(int64(len(chars)))
