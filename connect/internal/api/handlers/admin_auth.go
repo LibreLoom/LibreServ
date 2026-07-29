@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
@@ -201,4 +202,158 @@ func (h *AdminAuthHandler) SeedAdmin(w http.ResponseWriter, r *http.Request) {
 		"message": "admin account created. Please sign in.",
 		"id":      adminID,
 	})
+}
+
+// ChangePassword lets an admin update their own password.
+func (h *AdminAuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	adminID := middleware.GetAdminID(r.Context())
+
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.CurrentPassword == "" || req.NewPassword == "" {
+		JSONError(w, http.StatusBadRequest, "current password and new password are required")
+		return
+	}
+	if len(req.NewPassword) < 12 {
+		JSONError(w, http.StatusBadRequest, "new password must be at least 12 characters")
+		return
+	}
+
+	var hash string
+	err := h.db.QueryRowContext(r.Context(),
+		"SELECT password_hash FROM admin_accounts WHERE id = $1", adminID).Scan(&hash)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not verify password")
+		return
+	}
+
+	if err := auth.VerifyPassword(hash, req.CurrentPassword); err != nil {
+		JSONError(w, http.StatusUnauthorized, "current password is incorrect")
+		return
+	}
+
+	newHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not hash password")
+		return
+	}
+
+	_, err = h.db.ExecContext(r.Context(),
+		"UPDATE admin_accounts SET password_hash = $1, updated_at = $2 WHERE id = $3",
+		newHash, time.Now(), adminID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not update password")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{"message": "password updated"})
+}
+
+// ListAdmins returns all admin accounts (without password hashes).
+func (h *AdminAuthHandler) ListAdmins(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.QueryContext(r.Context(),
+		`SELECT id, email, name, totp_enabled, is_active, created_at
+		 FROM admin_accounts ORDER BY created_at DESC`)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not list admin accounts")
+		return
+	}
+	defer rows.Close()
+
+	var admins []map[string]any
+	for rows.Next() {
+		var id, email string
+		var name sql.NullString
+		var totpEnabled, isActive bool
+		var createdAt time.Time
+		if err := rows.Scan(&id, &email, &name, &totpEnabled, &isActive, &createdAt); err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not scan admin account")
+			return
+		}
+		admins = append(admins, map[string]any{
+			"id":         id,
+			"email":      email,
+			"name":       name.String,
+			"has_2fa":    totpEnabled,
+			"is_active":  isActive,
+			"created_at": createdAt,
+		})
+	}
+	if admins == nil {
+		admins = []map[string]any{}
+	}
+	JSON(w, http.StatusOK, map[string]any{"admins": admins})
+}
+
+// CreateAdmin creates a new admin account (authenticated, unlike SeedAdmin).
+func (h *AdminAuthHandler) CreateAdmin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Name     string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
+		JSONError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
+	if len(req.Password) < 12 {
+		JSONError(w, http.StatusBadRequest, "password must be at least 12 characters")
+		return
+	}
+
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not hash password")
+		return
+	}
+
+	adminID := security.GenerateID("admin")
+	_, err = h.db.ExecContext(r.Context(),
+		`INSERT INTO admin_accounts (id, email, password_hash, name) VALUES ($1, $2, $3, $4)`,
+		adminID, req.Email, hash, req.Name)
+	if err != nil {
+		JSONError(w, http.StatusConflict, "an admin with this email already exists")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"message": "admin account created",
+		"id":      adminID,
+		"email":   req.Email,
+	})
+}
+
+// DeleteAdmin deactivates an admin account (soft delete — preserves audit trail).
+func (h *AdminAuthHandler) DeleteAdmin(w http.ResponseWriter, r *http.Request) {
+	adminID := chi.URLParam(r, "adminID")
+	if adminID == "" {
+		JSONError(w, http.StatusBadRequest, "admin ID is required")
+		return
+	}
+
+	// Prevent self-deletion
+	currentID := middleware.GetAdminID(r.Context())
+	if adminID == currentID {
+		JSONError(w, http.StatusBadRequest, "you cannot delete your own account")
+		return
+	}
+
+	var count int
+	_ = h.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM admin_accounts WHERE is_active = TRUE").Scan(&count)
+	if count <= 1 {
+		JSONError(w, http.StatusBadRequest, "cannot delete the last active admin account")
+		return
+	}
+
+	_, err := h.db.ExecContext(r.Context(),
+		"UPDATE admin_accounts SET is_active = FALSE, updated_at = $1 WHERE id = $2",
+		time.Now(), adminID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not deactivate admin account")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]string{"message": "admin account deactivated"})
 }

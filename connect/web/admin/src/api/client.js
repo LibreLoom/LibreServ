@@ -42,6 +42,16 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ code }),
   }),
+  changePassword: (currentPassword, newPassword) => request("/admin/password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  }),
+  listAdmins: () => request("/admin/admins"),
+  createAdmin: (email, password, name) => request("/admin/admins", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name }),
+  }),
+  deleteAdmin: (id) => request(`/admin/admins/${id}`, { method: "DELETE" }),
 
   // Devices
   listDevices: () => request("/admin/devices"),

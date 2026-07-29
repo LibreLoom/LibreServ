@@ -36,6 +36,7 @@ export default function App() {
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/providers" element={<ProtectedRoute><Providers /></ProtectedRoute>} />
         <Route path="/tunnels" element={<ProtectedRoute><Tunnels /></ProtectedRoute>} />
+        <Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

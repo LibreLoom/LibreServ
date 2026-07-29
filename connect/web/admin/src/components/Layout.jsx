@@ -12,6 +12,7 @@ const navItems = [
   { to: "/plans", label: "Plans", icon: Package },
   { to: "/providers", label: "Providers", icon: Cloud },
   { to: "/tunnels", label: "Tunnels", icon: Network },
+  { to: "/security", label: "Security", icon: Shield },
 ];
 
 export function Layout({ children }) {

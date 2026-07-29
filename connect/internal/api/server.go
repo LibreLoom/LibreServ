@@ -156,6 +156,12 @@ func (s *Server) setupRoutes() {
 			r.Post("/2fa/setup", authHandler.Setup2FA)
 			r.Post("/2fa/verify", authHandler.Verify2FA)
 
+			// Security — password + admin management
+			r.Post("/password", authHandler.ChangePassword)
+			r.Get("/admins", authHandler.ListAdmins)
+			r.Post("/admins", authHandler.CreateAdmin)
+			r.Delete("/admins/{adminID}", authHandler.DeleteAdmin)
+
 			// Devices
 			r.Get("/devices", admin.ListDevices)
 			r.Get("/devices/{deviceID}", admin.GetDevice)
