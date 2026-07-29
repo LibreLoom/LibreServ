@@ -241,7 +241,7 @@ func (h *PortalHandler) sendVerificationEmailSync(email, token string) error {
 	}
 	from := config.C.SMTP.From
 	if from == "" {
-		from = "LibreServ Connect <noreply@libreloom.org>"
+		from = "LibreServ Connect <noreply@resend.libreloom.org>"
 	}
 	return h.resend.SendEmail(apiKey, from, email, "Verify your email — LibreServ Connect", htmlBody)
 }

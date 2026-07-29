@@ -27,7 +27,7 @@ smtp:
     port: 587
     username: ""
     password: ""
-    from: noreply@libreloom.org
+    from: "LibreServ Connect <noreply@resend.libreloom.org>"
     use_tls: true
 
 # Fallback DNS settings. The preferred way to configure DNS is through
