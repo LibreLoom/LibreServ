@@ -366,7 +366,7 @@ export default function Onboarding() {
         )}
         {!isLoginMode && (
           <div>
-            <Label htmlFor="onb-username">Choose a username</Label>
+            <Label htmlFor="onb-username">Pick a name for your account</Label>
             <Input
               id="onb-username"
               type="text"
@@ -376,9 +376,10 @@ export default function Onboarding() {
               autoComplete="off"
             />
             <p className="mt-1.5 text-xs text-muted-foreground">
-              This is the address your apps will use to send email — like a return address
-              on an envelope. Your emails will come from{" "}
+              When your apps send email (like password resets or notifications), the
+              "from" address will be{" "}
               <span className="font-mono">{username || "your-name"}@resend.libreloom.org</span>.
+              This is like the return address on a letter — it tells recipients who it came from.
               Use letters, numbers, and hyphens (3-30 characters).
             </p>
           </div>
