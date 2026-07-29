@@ -1,23 +1,23 @@
 import { useState, useRef, useEffect } from "react";
 import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
-
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
-import { Card, CardContent } from "../components/ui/card.jsx";
+
+import { Badge } from "../components/ui/badge.jsx";
 import { cn } from "../lib/utils.js";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
 import {
-  Globe, Key,
-  ChevronRight, ChevronLeft, Copy, Check, Loader2,
-  ArrowRight, ArrowLeft, Sparkles, User, Server,
-  CreditCard, Check as CheckIcon,
+  Globe, Shield, Key,
+  ChevronRight, ChevronLeft, Copy, Check, Loader2, Search,
+  ArrowRight, ArrowLeft, Sparkles, User,
   X
 } from "lucide-react";
-const STEP_LABELS = ["Welcome", "Account", "Device", "Plan", "Domain", "Key"];
+const STEP_LABELS = ["Welcome", "Account", "Plan", "Domain", "Key"];
 
 function ProgressBar({ step }) {
   return (
@@ -66,6 +66,75 @@ function ErrorBanner({ error, onDismiss }) {
   );
 }
 
+// PlanCard — individual plan option with animated height for the Selected indicator.
+function PlanCard({ plan, isCurrent, onClick }) {
+  const { outerRef, innerRef } = useAnimatedHeight();
+  const limits = plan.limits || {};
+  const price = plan.price_monthly / 100;
+  const isFree = plan.price_monthly === 0;
+
+  return (
+    <div
+      ref={outerRef}
+      className={cn(
+        "overflow-hidden transition-[height] ease-[cubic-bezier(0.05,0.7,0.1,1)]",
+        "rounded-large-element border-2 motion-safe:transition-all motion-safe:duration-200 cursor-pointer",
+        isCurrent
+          ? "border-foreground/40 bg-accent"
+          : "border-border hover:bg-accent hover:border-foreground/20"
+      )}
+      style={{ transitionDuration: "300ms" }}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
+    >
+      <div ref={innerRef} className="p-4">
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-sm text-card-foreground">{plan.name}</span>
+            {isFree && (
+              <span className="rounded-pill bg-foreground/10 px-2 py-0.5 text-xs text-foreground">
+                No card needed
+              </span>
+            )}
+          </div>
+          <span className="font-mono text-lg text-card-foreground">
+            {isFree ? "Free" : <>${price}<span className="text-xs text-muted-foreground font-sans">/mo</span></>}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground mb-2">{plan.description}</p>
+        <div className="flex flex-wrap gap-1.5">
+          {limits.backup_gb !== undefined && (
+            <Badge variant="outline">{limits.backup_gb} GB backup</Badge>
+          )}
+          {limits.tunnel_gb !== undefined && (
+            <Badge variant="outline">{limits.tunnel_gb} GB tunnel</Badge>
+          )}
+          {limits.smtp_monthly !== undefined && (
+            <Badge variant="outline">{limits.smtp_monthly} emails/mo</Badge>
+          )}
+          {(limits.ai_credit_cents || 0) > 0 && (
+            <Badge variant="outline">${(limits.ai_credit_cents / 100).toFixed(0)} AI credit</Badge>
+          )}
+        </div>
+        {isCurrent && (
+          <div className="flex items-center gap-1.5 mt-2 text-card-foreground animate-in fade-in slide-in-from-bottom-1 duration-200">
+            <Check className="w-3.5 h-3.5" />
+            <span className="text-xs font-mono">Selected</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+PlanCard.propTypes = {
+  plan: PropTypes.object.isRequired,
+  isCurrent: PropTypes.bool.isRequired,
+  onClick: PropTypes.func.isRequired,
+};
+
 
 const PROGRESS_KEY = "connect-onboarding-progress";
 
@@ -98,13 +167,8 @@ export default function Onboarding() {
   const [name, setName] = useState(saved.current?.name || "");
   const [isLoginMode, setIsLoginMode] = useState(false);
 
-  const [deviceName, setDeviceName] = useState(saved.current?.deviceName || "");
 
-  const [selectedPlan, setSelectedPlan] = useState(saved.current?.selectedPlan || "free");
-  const [plans, setPlans] = useState([]);
-  const [loadingPlans, setLoadingPlans] = useState(true);
-
-
+  const [selectedPlan, setSelectedPlan] = useState(saved.current?.selectedPlan || null);
 
   const [subdomainName, setSubdomainName] = useState(saved.current?.subdomainName || "");
   const [domainMode, setDomainMode] = useState(saved.current?.domainMode || "subdomain");
@@ -121,22 +185,28 @@ export default function Onboarding() {
 
   // Persist progress whenever relevant state changes
   useEffect(() => {
-    if (step === 0 && !email && !deviceName) return; // don't save empty state
-    saveProgress({ step, email, name, deviceName, selectedPlan, subdomainName, domainMode, registeredDomain });
-  }, [step, email, name, deviceName, selectedPlan, subdomainName, domainMode, registeredDomain]);
+    if (step === 0 && !email) return; // don't save empty state
+    saveProgress({ step, email, name, selectedPlan, subdomainName, domainMode, registeredDomain });
+  }, [step, email, name, selectedPlan, subdomainName, domainMode, registeredDomain]);
 
-  // Fetch plans on mount
-  useEffect(() => {
-    api.getPlans()
-      .then((res) => setPlans(res.plans || []))
-      .catch(() => {})
-      .finally(() => setLoadingPlans(false));
-  }, []);
+
+  const { data: plansData } = useQuery({
+    queryKey: ["plans"],
+    queryFn: () => api.getPlans(),
+  });
+  const plans = plansData?.plans || [];
+  const loadingPlans = !plansData;
+
+  const currentPlan = selectedPlan ? plans.find((p) => p.id === selectedPlan) : null;
+  // Plans are named "Connect Free" etc. — detect free by price, not name.
+  const isFreePlan = currentPlan ? currentPlan.price_monthly === 0 : false;
+
+  const clearError = () => setError("");
 
   // Auto-generate the license key when the user reaches the key step.
-  // The key step is the last step (index 5). We generate once — the guard
+  // The key step is the last step (index 4). We generate once — the guard
   // prevents duplicate calls on re-renders.
-  const keyStep = 5; // renderLicenseKey index in stepComponents
+  const keyStep = 4; // renderLicenseKey index in stepComponents
   useEffect(() => {
     if (step !== keyStep || licenseKey || generatingKey) return;
     setGeneratingKey(true);
@@ -147,7 +217,6 @@ export default function Onboarding() {
       .finally(() => setGeneratingKey(false));
   }, [step, licenseKey, generatingKey]);
 
-  const clearError = () => setError("");
   const handlePlanContinue = async () => {
     clearError();
     const plan = plans.find((p) => p.id === selectedPlan);
@@ -182,7 +251,7 @@ export default function Onboarding() {
         await api.register(email, password, name);
         await login(email, password);
       }
-      setStep(2);
+      setStep(1);
     } catch (err) {
       setError(err.message || "Could not sign in. Check your details and try again.");
     }
@@ -231,7 +300,7 @@ export default function Onboarding() {
     setPurchasingDomain(true);
     clearError();
     try {
-      await api.registerDomain(deviceName || "", domain);
+      await api.registerDomain("", domain);
       setRegisteredDomain(domain);
     } catch (err) {
       setError(err.message || "Could not register domain. Try again.");
@@ -338,36 +407,7 @@ export default function Onboarding() {
     </div>
   );
 
-  const renderDevice = () => (
-    <div className="flex flex-col items-center text-center py-4">
-      <Server size={48} className="text-muted-foreground mx-auto mb-4" />
-      <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-        Name your device
-      </h1>
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
-        Give your LibreServ server a name so you can find it in your dashboard later.
-      </p>
-      <form
-        onSubmit={(e) => { e.preventDefault(); if (deviceName.trim()) goNext(); }}
-        className="w-full max-w-sm space-y-4 text-left"
-      >
-        <div>
-          <Label htmlFor="onb-device">Device name</Label>
-          <Input
-            id="onb-device"
-            type="text"
-            value={deviceName}
-            onChange={(e) => setDeviceName(e.target.value)}
-            placeholder="e.g., Home Server"
-            autoFocus
-          />
-        </div>
-        <Button type="submit" className="w-full" size="lg" disabled={!deviceName.trim()}>
-          Continue <ChevronRight className="w-4 h-4 ml-1" />
-        </Button>
-      </form>
-    </div>
-  );
+
 
   const renderPlan = () => {
     if (loadingPlans) {
@@ -381,69 +421,201 @@ export default function Onboarding() {
 
     return (
       <div className="flex flex-col items-center text-center py-4">
-        <CreditCard size={48} className="text-muted-foreground mx-auto mb-4" />
+        <Shield size={48} className="text-muted-foreground mx-auto mb-4" />
         <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-          Choose your plan
+          Choose a plan
         </h1>
         <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
-          Start free and upgrade anytime. You can change your plan from the dashboard after setup.
+          Pick what fits your needs. You can change or cancel anytime.
         </p>
 
-        <div className="w-full max-w-md space-y-3 text-left">
-          {plans.map((p) => {
-            const isFree = p.price_monthly === 0;
-            const isSelected = selectedPlan === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setSelectedPlan(p.id)}
-                className={cn(
-                  "w-full rounded-large-element border-2 p-4 text-left transition-all motion-safe:duration-200",
-                  isSelected
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/40"
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-base">{p.name}</span>
-                      {isFree && (
-                        <span className="rounded-pill bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                          No card needed
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-0.5">{p.description}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-mono text-lg">
-                      {isFree ? "Free" : `$${(p.price_monthly / 100).toFixed(0)}`}
-                    </p>
-                    {!isFree && <p className="text-xs text-muted-foreground">per month</p>}
-                  </div>
-                </div>
-                {isSelected && (
-                  <div className="mt-2 flex items-center gap-1 text-sm text-primary">
-                    <CheckIcon className="w-4 h-4" /> Selected
-                  </div>
-                )}
-              </button>
-            );
-          })}
+        <div className="w-full max-w-sm space-y-2.5">
+          {plans.map((plan) => (
+            <PlanCard
+              key={plan.id}
+              plan={plan}
+              isCurrent={selectedPlan === plan.id}
+              onClick={() => setSelectedPlan(plan.id)}
+            />
+          ))}
+        </div>
 
-          <Button className="w-full" size="lg" loading={checkoutLoading} onClick={handlePlanContinue}>
-            {selectedPlan !== "free" && plans.find((p) => p.id === selectedPlan)?.price_monthly > 0
-              ? <>Continue to Payment <ChevronRight className="w-4 h-4 ml-1" /></>
-              : <>Continue <ChevronRight className="w-4 h-4 ml-1" /></>}
+        {selectedPlan && !isFreePlan && (
+          <div className="w-full max-w-sm mt-4 rounded-large-element border border-border bg-muted p-4 text-left animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <p className="text-xs text-muted-foreground">
+              You'll complete payment through Stripe on the next screen.
+            </p>
+          </div>
+        )}
+
+        <div className="w-full max-w-sm mt-6">
+          <Button size="lg" className="w-full" disabled={!selectedPlan} loading={checkoutLoading} onClick={handlePlanContinue}>
+            {isFreePlan ? "Continue" : "Continue to Payment"} <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
         </div>
       </div>
     );
   };
 
-  const renderDomain = () => renderFreeDomain();
+  const renderDomain = () => {
+    if (isFreePlan) return renderFreeDomain();
+    return renderPaidDomain();
+  };
+
+  const renderPaidDomain = () => (
+    <div className="flex flex-col items-center text-center py-4">
+      <Globe size={48} className="text-muted-foreground mx-auto mb-4" />
+      <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
+        Choose your domain
+      </h1>
+      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
+        Pick a free subdomain or buy a custom domain at cost through Cloudflare.
+      </p>
+
+      {/* Toggle */}
+      <div className="w-full max-w-sm flex bg-muted rounded-pill p-1 mb-6">
+        <button
+          type="button"
+          className={cn(
+            "flex-1 py-2 px-4 rounded-pill text-sm font-mono motion-safe:transition-colors",
+            domainMode === "subdomain"
+              ? "bg-card text-card-foreground shadow-sm"
+              : "text-muted-foreground hover:text-card-foreground"
+          )}
+          onClick={() => { setDomainMode("subdomain"); setDomainResults([]); setRegisteredDomain(null); setError(""); }}
+        >
+          Free subdomain
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "flex-1 py-2 px-4 rounded-pill text-sm font-mono motion-safe:transition-colors",
+            domainMode === "custom"
+              ? "bg-card text-card-foreground shadow-sm"
+              : "text-muted-foreground hover:text-card-foreground"
+          )}
+          onClick={() => { setDomainMode("custom"); setSubdomainName(""); setError(""); }}
+        >
+          Custom domain
+        </button>
+      </div>
+
+      {domainMode === "subdomain" && (
+        <form
+          onSubmit={(e) => { e.preventDefault(); if (subdomainName.trim()) goNext(); }}
+          className="w-full max-w-sm space-y-4 text-left"
+        >
+          <div>
+            <Label htmlFor="onb-paid-subdomain">Subdomain name</Label>
+            <Input
+              id="onb-paid-subdomain"
+              type="text"
+              value={subdomainName}
+              onChange={(e) => setSubdomainName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+              placeholder="your-name"
+              autoFocus
+            />
+            {subdomainName && (
+              <p className="mt-2 text-sm font-mono text-foreground bg-muted rounded-large-element px-3 py-2">
+                {subdomainName}.servers.libreloom.org
+              </p>
+            )}
+          </div>
+          <Button type="submit" className="w-full" size="lg" disabled={!subdomainName.trim()}>
+            Continue <ChevronRight className="w-4 h-4 ml-1" />
+          </Button>
+        </form>
+      )}
+
+      {domainMode === "custom" && (
+        <div className="w-full max-w-sm space-y-4 text-left">
+          {registeredDomain ? (
+            <div className="text-center space-y-4">
+              <div className="mx-auto w-14 h-14 rounded-full bg-success/20 flex items-center justify-center">
+                <Check className="w-7 h-7 text-success" />
+              </div>
+              <p className="font-mono text-xl text-card-foreground">{registeredDomain}</p>
+              <p className="text-sm text-muted-foreground">
+                Your domain is registered. We'll set up the DNS records automatically.
+              </p>
+              <Button size="lg" className="w-full" onClick={goNext}>
+                Continue <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div>
+                <Label htmlFor="onb-custom-domain">Search for a domain</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="onb-custom-domain"
+                    type="text"
+                    value={customDomainQuery}
+                    onChange={(e) => setCustomDomainQuery(e.target.value)}
+                    placeholder="my-site"
+                    onKeyDown={(e) => { if (e.key === "Enter") handleSearchDomain(); }}
+                  />
+                  <Button variant="outline" size="icon" onClick={handleSearchDomain} disabled={!customDomainQuery.trim()}>
+                    <Search className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {domainResults.length > 0 && (
+                <div className="space-y-2">
+                  {domainResults.map((result) => {
+                    const checked = result.available !== undefined;
+                    return (
+                      <div
+                        key={result.name}
+                        className={cn(
+                          "flex items-center justify-between rounded-large-element border p-3 gap-3",
+                          result.available ? "border-success/30 bg-success/5" : "border-border"
+                        )}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <span className="font-mono text-sm text-card-foreground">{result.name}</span>
+                          {result.price && (
+                            <span className="ml-2 text-xs text-muted-foreground">${result.price}/year</span>
+                          )}
+                        </div>
+                        {checked ? (
+                          result.available ? (
+                            <div className="flex items-center gap-2">
+                              <Badge variant="success">Available</Badge>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handlePurchaseDomain(result.name)}
+                                disabled={purchasingDomain}
+                              >
+                                {purchasingDomain ? <Loader2 className="w-3 h-3 animate-spin" /> : "Register"}
+                              </Button>
+                            </div>
+                          ) : (
+                            <Badge variant="outline">Taken</Badge>
+                          )
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleCheckDomain(result.name)}
+                            disabled={checkingDomain === result.name}
+                          >
+                            {checkingDomain === result.name ? <Loader2 className="w-3 h-3 animate-spin" /> : "Check"}
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
 
 
@@ -554,7 +726,7 @@ export default function Onboarding() {
     </div>
   );
 
-  const stepComponents = [renderWelcome, renderAuth, renderDevice, renderPlan, renderDomain, renderLicenseKey];
+  const stepComponents = [renderWelcome, renderAuth, renderPlan, renderDomain, renderLicenseKey];
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -575,7 +747,7 @@ export default function Onboarding() {
         </div>
       </div>
 
-      {step > 0 && step < 6 && (
+      {step > 0 && step < 5 && (
         <div className="px-4 pb-6 flex justify-center">
           <Button variant="outline" onClick={handleBack}>
             <ChevronLeft className="w-4 h-4 mr-1" /> Back
