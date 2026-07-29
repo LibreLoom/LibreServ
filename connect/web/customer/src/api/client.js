@@ -37,6 +37,11 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ email, password, totp_code: totpCode || "" }),
   }),
+  verifyEmail: (token) => request("/portal/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  }),
+  resendVerification: () => request("/portal/resend-verification", { method: "POST" }),
   setup2FA: () => request("/portal/2fa/setup", { method: "POST" }),
   verify2FA: (code) => request("/portal/2fa/verify", {
     method: "POST",

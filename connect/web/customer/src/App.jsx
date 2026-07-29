@@ -10,6 +10,7 @@ const Onboarding = lazy(() => import("./pages/Onboarding.jsx"));
 const Usage = lazy(() => import("./pages/Usage.jsx"));
 const Billing = lazy(() => import("./pages/Billing.jsx"));
 const Security = lazy(() => import("./pages/Security.jsx"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail.jsx"));
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
         <Route path="/usage" element={<ProtectedRoute><Usage /></ProtectedRoute>} />

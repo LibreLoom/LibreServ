@@ -33,6 +33,10 @@ export default function Security() {
     onError: (err) => setMessage(err.message),
   });
 
+  const resendMut = useMutation({
+    mutationFn: api.resendVerification,
+  });
+
   return (
     <Layout>
       <h2 className="font-mono text-2xl mb-6">Security</h2>
@@ -52,12 +56,41 @@ export default function Security() {
               <dd className="font-mono">{account?.name || "—"}</dd>
             </div>
             <div className="flex justify-between items-center">
-              <dt className="text-muted-foreground">Two-Factor Auth</dt>
-              <dd>{account?.has_2fa ? <Badge variant="success">Enabled</Badge> : <Badge variant="outline">Disabled</Badge>}</dd>
+              <dt className="text-muted-foreground">Email Verified</dt>
+              <dd>{account?.email_verified ? <Badge variant="success">Verified</Badge> : <Badge variant="warning">Pending</Badge>}</dd>
             </div>
           </dl>
         </CardContent>
       </Card>
+
+      {account && !account.email_verified && (
+        <Card className="mb-6 border-warning/30">
+          <CardHeader>
+            <CardTitle>Verify Your Email</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              We sent a verification link to {account.email}. Click the link in the email to
+              confirm your address. You need to verify your email before you can generate a
+              license key and connect your device.
+            </p>
+            <Button
+              onClick={() => resendMut.mutate()}
+              loading={resendMut.isPending}
+            >
+              Resend Verification Email
+            </Button>
+            {resendMut.isSuccess && (
+              <p className="mt-3 text-sm text-success animate-in fade-in duration-300">
+                Verification email sent. Check your inbox (and spam folder).
+              </p>
+            )}
+            {resendMut.isError && (
+              <p className="mt-3 text-sm text-error">{resendMut.error?.message}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {!account?.has_2fa && (
         <Card className="mb-6">

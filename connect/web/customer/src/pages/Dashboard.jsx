@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api/client.js";
@@ -6,11 +7,12 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.
 import { Button } from "../components/ui/button.jsx";
 import { StatusBadge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
-import { Check, X, Key, Copy, ArrowUpCircle, Shield, Zap } from "lucide-react";
+import { Check, X, Key, Copy, ArrowUpCircle, Shield, Zap, MailCheck } from "lucide-react";
 
 export default function Dashboard() {
   const { account } = useAuth();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [generatedKey, setGeneratedKey] = useState(null);
   const [copied, setCopied] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -83,6 +85,26 @@ export default function Dashboard() {
   return (
     <Layout>
       <h2 className="font-mono text-2xl mb-6">Dashboard</h2>
+
+      {/* Email verification banner */}
+      {account && !account.email_verified && (
+        <div className="mb-6 rounded-large-element bg-warning/20 border border-warning/30 p-4 flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <MailCheck className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm text-foreground font-medium">Verify your email address</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              We sent a verification link to {account.email}. You need to verify your email
+              before you can generate a license key and connect your device.
+            </p>
+            <button
+              onClick={() => navigate("/security")}
+              className="text-sm text-foreground underline mt-2 hover:text-foreground/80 motion-safe:transition-colors"
+            >
+              Resend verification email →
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Current plan card */}
       <Card className="mb-6">

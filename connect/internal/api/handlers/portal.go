@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -57,7 +58,7 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	accountID := security.GenerateID("acct")
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO customer_accounts (id, email, password_hash, name, plan_id) VALUES ($1, $2, $3, $4, 'free')`,
+		`INSERT INTO customer_accounts (id, email, password_hash, name, plan_id, email_verified) VALUES ($1, $2, $3, $4, 'free', FALSE)`,
 		accountID, req.Email, hash, req.Name)
 	if err != nil {
 		JSONError(w, http.StatusConflict, "an account with this email already exists")
@@ -71,15 +72,157 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Send verification email (best-effort — don't fail registration if email is down)
+	verificationToken, _ := h.createEmailVerificationToken(r.Context(), accountID)
+	if verificationToken != "" {
+		go h.sendVerificationEmail(req.Email, verificationToken)
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
-		"message": "account created",
-		"token":   token,
-		"id":      accountID,
-		"email":   req.Email,
-		"name":    req.Name,
-		"plan_id": "free",
-		"has_2fa": false,
+		"message":        "account created",
+		"token":          token,
+		"id":             accountID,
+		"email":          req.Email,
+		"name":           req.Name,
+		"plan_id":        "free",
+		"has_2fa":        false,
+		"email_verified": false,
 	})
+}
+
+// VerifyEmail confirms an account's email address using a verification token.
+func (h *PortalHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" {
+		JSONError(w, http.StatusBadRequest, "verification token required")
+		return
+	}
+
+	tokenHash := hashToken(req.Token)
+	var accountID string
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT account_id FROM email_verification_tokens
+		 WHERE token_hash = $1 AND expires_at > CURRENT_TIMESTAMP`,
+		tokenHash).Scan(&accountID)
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, "This verification link is invalid or has expired. Request a new one.")
+		return
+	}
+
+	_, err = h.db.ExecContext(r.Context(),
+		"UPDATE customer_accounts SET email_verified = TRUE WHERE id = $1", accountID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not verify email")
+		return
+	}
+
+	// Delete the used token
+	_, _ = h.db.ExecContext(r.Context(),
+		"DELETE FROM email_verification_tokens WHERE token_hash = $1", tokenHash)
+
+	JSON(w, http.StatusOK, map[string]any{
+		"message": "Your email has been verified. You can now use all Connect features.",
+	})
+}
+
+// ResendVerification sends a new verification email to the authenticated user.
+func (h *PortalHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+
+	var email string
+	err := h.db.QueryRowContext(r.Context(),
+		"SELECT email FROM customer_accounts WHERE id = $1", accountID).Scan(&email)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not find account")
+		return
+	}
+
+	// Check if already verified
+	var verified bool
+	_ = h.db.QueryRowContext(r.Context(),
+		"SELECT email_verified FROM customer_accounts WHERE id = $1", accountID).Scan(&verified)
+	if verified {
+		JSONError(w, http.StatusBadRequest, "Your email is already verified.")
+		return
+	}
+
+	token, err := h.createEmailVerificationToken(r.Context(), accountID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not generate verification email")
+		return
+	}
+
+	if err := h.sendVerificationEmailSync(email, token); err != nil {
+		slog.Error("failed to send verification email", "error", err, "account", accountID)
+		JSONError(w, http.StatusInternalServerError, "We couldn't send the verification email. Please try again.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"message": "Verification email sent. Check your inbox (and spam folder).",
+	})
+}
+
+// createEmailVerificationToken generates a verification token, stores its hash,
+// and returns the raw token to embed in a verification link.
+func (h *PortalHandler) createEmailVerificationToken(ctx context.Context, accountID string) (string, error) {
+	// Delete any existing tokens for this account
+	_, _ = h.db.ExecContext(ctx, "DELETE FROM email_verification_tokens WHERE account_id = $1", accountID)
+
+	token := security.GenerateToken("verify")
+	tokenHash := hashToken(token)
+	tokenID := security.GenerateID("evt")
+
+	_, err := h.db.ExecContext(ctx,
+		`INSERT INTO email_verification_tokens (id, account_id, token_hash) VALUES ($1, $2, $3)`,
+		tokenID, accountID, tokenHash)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// sendVerificationEmail sends the verification email asynchronously.
+func (h *PortalHandler) sendVerificationEmail(email, token string) {
+	if err := h.sendVerificationEmailSync(email, token); err != nil {
+		slog.Error("failed to send verification email", "error", err, "email", email)
+	}
+}
+
+// sendVerificationEmailSync builds and sends the verification email.
+func (h *PortalHandler) sendVerificationEmailSync(email, token string) error {
+	baseURL := config.C.Server.BaseURL
+	if baseURL == "" {
+		baseURL = "https://connect.serv.libreloom.org"
+	}
+	verifyURL := baseURL + "/verify-email?token=" + token
+
+	htmlBody := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<body style="font-family: sans-serif; max-width: 480px; margin: 0 auto; padding: 20px;">
+  <h2 style="color: #333;">Verify your email address</h2>
+  <p style="color: #555; line-height: 1.6;">
+    Welcome to LibreServ Connect! Click the button below to verify your email address.
+    This confirms that you own this email and unlocks all Connect features.
+  </p>
+  <p style="text-align: center; margin: 30px 0;">
+    <a href="%s" style="background: #000; color: #fff; padding: 12px 32px; border-radius: 9999px; text-decoration: none; font-family: monospace;">
+      Verify my email
+    </a>
+  </p>
+  <p style="color: #888; font-size: 13px;">
+    If the button doesn't work, copy and paste this link into your browser:<br>
+    <a href="%s" style="color: #666;">%s</a>
+  </p>
+  <p style="color: #888; font-size: 13px;">
+    This link expires in 24 hours. If you didn't create an account, you can safely ignore this email.
+  </p>
+</body>
+</html>`, verifyURL, verifyURL, verifyURL)
+
+	return providers.SendHTMLEmail(email, "Verify your email — LibreServ Connect", htmlBody)
 }
 
 // Login authenticates a customer with email/password (and TOTP if enabled).
@@ -95,17 +238,18 @@ func (h *PortalHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var account struct {
-		ID           string
-		PasswordHash string
-		Name         sql.NullString
-		TOTPSecret   sql.NullString
-		TOTPEnabled  bool
-		IsActive     bool
-		PlanID       string
+		ID            string
+		PasswordHash  string
+		Name          sql.NullString
+		TOTPSecret    sql.NullString
+		TOTPEnabled   bool
+		IsActive      bool
+		PlanID        string
+		EmailVerified bool
 	}
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active, plan_id FROM customer_accounts WHERE email = $1`,
-		req.Email).Scan(&account.ID, &account.PasswordHash, &account.Name, &account.TOTPSecret, &account.TOTPEnabled, &account.IsActive, &account.PlanID)
+		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active, plan_id, email_verified FROM customer_accounts WHERE email = $1`,
+		req.Email).Scan(&account.ID, &account.PasswordHash, &account.Name, &account.TOTPSecret, &account.TOTPEnabled, &account.IsActive, &account.PlanID, &account.EmailVerified)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusUnauthorized, "invalid email or password")
 		return
@@ -150,12 +294,13 @@ func (h *PortalHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]any{
-		"token":   token,
-		"id":      account.ID,
-		"email":   req.Email,
-		"name":    name,
-		"plan_id": account.PlanID,
-		"has_2fa": account.TOTPEnabled,
+		"token":          token,
+		"id":             account.ID,
+		"email":          req.Email,
+		"name":           name,
+		"plan_id":        account.PlanID,
+		"has_2fa":        account.TOTPEnabled,
+		"email_verified": account.EmailVerified,
 	})
 }
 
@@ -265,6 +410,14 @@ func (h *PortalHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 // (device already activated), a 409 is returned.
 func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
+	// Require verified email before issuing a device activation key
+	var emailVerified bool
+	_ = h.db.QueryRowContext(r.Context(),
+		"SELECT email_verified FROM customer_accounts WHERE id = $1", accountID).Scan(&emailVerified)
+	if !emailVerified {
+		JSONError(w, http.StatusForbidden, "Please verify your email address before generating a license key. Check your inbox for a verification link, or go to Settings → Security to resend it.")
+		return
+	}
 
 	// Check if the account already has a key
 	var existingKey, existingID, existingPlanID, existingStatus string

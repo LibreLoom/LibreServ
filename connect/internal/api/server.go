@@ -94,6 +94,7 @@ func (s *Server) setupRoutes() {
 		// Public routes
 		r.Post("/register", portal.Register)
 		r.Post("/login", portal.Login)
+		r.Post("/verify-email", portal.VerifyEmail)
 		r.Get("/plans", portal.GetPlans)
 
 		// Authenticated routes
@@ -106,6 +107,9 @@ func (s *Server) setupRoutes() {
 			r.Get("/connect-keys", portal.GetConnectKeys)
 			r.Post("/connect-keys", portal.GenerateConnectKey)
 			r.Post("/connect-keys/revoke", portal.RevokeConnectKey)
+
+			// Email verification
+			r.Post("/resend-verification", portal.ResendVerification)
 
 			// 2FA
 			r.Post("/2fa/setup", portal.Setup2FA)

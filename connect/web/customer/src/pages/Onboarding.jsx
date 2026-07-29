@@ -155,7 +155,7 @@ function clearProgress() {
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const saved = useRef(loadProgress());
   const [step, setStep] = useState(saved.current?.step || 0);
   const [direction, setDirection] = useState("right"); // "right" | "left"
@@ -248,8 +248,8 @@ export default function Onboarding() {
       if (isLoginMode) {
         await login(email, password);
       } else {
-        await api.register(email, password, name);
-        await login(email, password);
+        // Register now returns a token — auto sign-in (no separate login call)
+        await register(email, password, name);
       }
       setStep(1);
     } catch (err) {

@@ -351,4 +351,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_account_unique ON devices(account_
 CREATE INDEX IF NOT EXISTS idx_customer_accounts_plan ON customer_accounts(plan_id);
 		`,
 	},
+	{
+		name: "002_email_verification",
+		sql: `
+ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+	id TEXT PRIMARY KEY,
+	account_id TEXT NOT NULL REFERENCES customer_accounts(id) ON DELETE CASCADE,
+	token_hash TEXT NOT NULL UNIQUE,
+	expires_at TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL '24 hours'),
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_email_verif_account ON email_verification_tokens(account_id);
+		`,
+	},
 }

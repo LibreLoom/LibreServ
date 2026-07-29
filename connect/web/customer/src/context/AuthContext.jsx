@@ -17,7 +17,11 @@ export function AuthProvider({ children }) {
       }
       setToken(res.token);
       setIsAuthenticated(true);
-      setAccount({ id: res.id, email: res.email, name: res.name, has_2fa: res.has_2fa });
+      setAccount({
+        id: res.id, email: res.email, name: res.name,
+        plan_id: res.plan_id, has_2fa: res.has_2fa,
+        email_verified: res.email_verified,
+      });
       return res;
     } finally {
       setLoading(false);
@@ -25,7 +29,23 @@ export function AuthProvider({ children }) {
   }, []);
 
   const register = useCallback(async (email, password, name) => {
-    return api.register(email, password, name);
+    setLoading(true);
+    try {
+      const res = await api.register(email, password, name);
+      // Register now returns a token — auto sign-in
+      if (res.token) {
+        setToken(res.token);
+        setIsAuthenticated(true);
+        setAccount({
+          id: res.id, email: res.email, name: res.name,
+          plan_id: res.plan_id, has_2fa: res.has_2fa,
+          email_verified: res.email_verified,
+        });
+      }
+      return res;
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const logout = useCallback(() => {
