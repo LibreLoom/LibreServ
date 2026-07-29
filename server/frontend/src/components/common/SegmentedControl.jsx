@@ -23,11 +23,11 @@ export default function SegmentedControl({
     >
       <div
         data-slot="segmented-control-indicator"
-        className="absolute top-[3px] bottom-[3px] left-[3px] transition-transform ease-[var(--motion-easing-emphasized)]"
+        className="absolute top-[3px] bottom-[3px] left-[3px] transition-transform ease-[var(--motion-easing-spring)] will-change-transform"
         style={{
           width: `calc((100% - 6px) / ${options.length})`,
           transform: `translateX(${selectedIndex * 100}%)`,
-          transitionDuration: "var(--motion-duration-short4)",
+          transitionDuration: "var(--motion-duration-medium3)",
         }}
       >
         <div

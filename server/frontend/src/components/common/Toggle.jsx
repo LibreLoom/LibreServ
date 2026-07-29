@@ -88,17 +88,21 @@ export default function Toggle({
         aria-describedby={description ? descriptionId : undefined}
       >
         <span
-          key={checked ? "on" : "off"}
           data-slot="switch-thumb"
           className={cn(
-            "inline-flex items-center justify-center h-5 w-5 transform rounded-full bg-current",
-            "transition-all ease-[var(--motion-easing-emphasized)] animate-toggle-settle",
+            "inline-flex h-5 w-5 transform items-center justify-center rounded-full bg-current",
+            "transition-transform ease-[var(--motion-easing-spring)] will-change-transform",
             checked ? "translate-x-6" : "translate-x-1"
           )}
-          style={{ transitionDuration: "var(--motion-duration-short4)" }}
+          style={{ transitionDuration: "var(--motion-duration-medium3)" }}
         >
-          {IconOn && checked && <IconOn size={12} className="text-accent" />}
-          {IconOff && !checked && <IconOff size={12} className="text-accent" />}
+          <span
+            key={checked ? "on" : "off"}
+            className="flex h-full w-full items-center justify-center animate-toggle-settle"
+          >
+            {IconOn && checked && <IconOn size={12} className="text-accent" />}
+            {IconOff && !checked && <IconOff size={12} className="text-accent" />}
+          </span>
         </span>
       </button>
     </div>

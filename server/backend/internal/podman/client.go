@@ -3,6 +3,7 @@ package podman
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -198,27 +199,43 @@ func daemonReachable(binary string) error {
 }
 
 // EnsureSocketRunning starts the rootless Podman API socket via systemd if it
-// is not already present. This mirrors the CI runner's ensurePodmanSocket
-// pattern: check for the expected socket file, and if absent, run
-// `systemctl --user start podman.socket` (best-effort, ignores errors).
-// Returns true if the socket file exists after the attempt.
+// is not already accepting connections. Unlike a mere file-existence check
+// (which passes on a stale socket left behind after the unit stops), this
+// probes the socket with a real connection attempt — a stale socket file
+// exists but refuses connections, so we must detect that and restart.
 //
 // LibreServ's goal is that users never need a terminal. The Podman rootless
 // socket is a systemd user unit that is NOT enabled by default on most distros,
 // so on a fresh boot `podman compose` fails with "Cannot connect to the Docker
 // daemon". Auto-starting it removes that footgun.
+//
+// Returns true if the socket is accepting connections after the attempt.
 func EnsureSocketRunning() bool {
 	sp := rootlessSocketPath()
 	if sp == "" {
 		return false
 	}
-	if _, err := os.Stat(sp); err == nil {
-		return true // already present
+	if socketAlive(sp) {
+		return true // already accepting connections
 	}
+	// Remove a stale socket file so systemd can re-create it cleanly.
+	_ = os.Remove(sp)
 	// Best-effort start; ignore errors (may not be systemd, may be rootful, etc.)
 	_ = exec.Command("systemctl", "--user", "start", "podman.socket").Run()
-	_, err := os.Stat(sp)
-	return err == nil
+	return socketAlive(sp)
+}
+
+// socketAlive returns true if the unix socket at path sp exists AND is
+// currently accepting connections. A bare os.Stat is not enough: a stale
+// socket file left behind after the systemd unit stops will pass Stat but
+// refuse connections.
+func socketAlive(sp string) bool {
+	conn, err := net.DialTimeout("unix", sp, 2*time.Second)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // rootlessSocketPath returns the expected Podman rootless socket path for the

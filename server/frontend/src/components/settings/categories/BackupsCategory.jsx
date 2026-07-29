@@ -27,15 +27,11 @@ import CollapsibleSection from "../../common/CollapsibleSection";
 import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 import Pill from "../../common/Pill";
-import SegmentedControl from "../../common/SegmentedControl";
 import Button from "../../ui/Button";
 import SettingsCard from "../SettingsCard.jsx";
 import SettingsRow from "../SettingsRow.jsx";
 import ScheduleForm from "../../backups/ScheduleForm";
 import { formatBytes, formatRelativeTime } from "../../../lib/backups-utils";
-
-const DEFAULT_SCHEDULE_CRON = "0 3 * * *";
-const DEFAULT_RETENTION = 7;
 
 function backupAgeState(lastBackupAt) {
   if (!lastBackupAt) return "none";
@@ -56,7 +52,6 @@ export default function BackupsCategory() {
   const [loadError, setLoadError] = useState(null);
 
   const [backingUpAppId, setBackingUpAppId] = useState(null);
-  const [enablingAppId, setEnablingAppId] = useState(null);
   const [expandedAppId, setExpandedAppId] = useState(null);
   const [scheduleModalApp, setScheduleModalApp] = useState(null);
 
@@ -170,12 +165,7 @@ export default function BackupsCategory() {
     let tone;
     if (stats.totalApps === 0) return null;
     if (stats.protectedApps === 0) {
-      tone = "warning";
-      return {
-        tone,
-        icon: ShieldAlert,
-        text: "Nothing is backed up yet. Tap \"Back up\" next to an app below — it takes seconds and you can undo mistakes later.",
-      };
+      return null;
     }
     if (stats.scheduleCount === 0) {
       tone = "info";
@@ -219,33 +209,6 @@ export default function BackupsCategory() {
       showError("Backup failed", err.message);
     } finally {
       setBackingUpAppId(null);
-    }
-  }
-
-  async function handleEnableAutomatic(appId) {
-    setEnablingAppId(appId);
-    try {
-      const res = await request("/backups/schedules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          app_id: appId,
-          cron_expr: DEFAULT_SCHEDULE_CRON,
-          enabled: true,
-          stop_before_backup: false,
-          retention: DEFAULT_RETENTION,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to enable automatic backups");
-      }
-      showSuccess("Automatic backups on", "We'll back this app up every night at 3 AM and keep the 7 most recent copies.");
-      loadData();
-    } catch (err) {
-      showError("Couldn't turn on automatic backups", err.message);
-    } finally {
-      setEnablingAppId(null);
     }
   }
 
@@ -402,9 +365,9 @@ export default function BackupsCategory() {
                 ) : (
                   <ShieldAlert size={22} className="text-warning shrink-0" aria-hidden="true" />
                 )}
-                <p className="text-sm text-primary">
+                <p className="text-sm text-primary font-mono">
                   {stats.protectedApps === 0
-                    ? "None of your apps are backed up"
+                    ? "Nothing is backed up yet. Tap \"Back up\" next to an app below — it takes seconds and you can undo mistakes later."
                     : stats.protectedApps === stats.totalApps
                       ? `All ${stats.totalApps} app${stats.totalApps !== 1 ? "s" : ""} backed up`
                       : `${stats.protectedApps} of ${stats.totalApps} apps backed up`}
@@ -527,21 +490,19 @@ export default function BackupsCategory() {
                             </Button>
                           </div>
                         ) : (
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+                          <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
                               <CalendarClock size={14} className="text-accent shrink-0" aria-hidden="true" />
                               <p className="text-xs text-primary">Automatic backups are off for this app</p>
                             </div>
-                            <SegmentedControl
-                              value="off"
-                              onChange={(val) => {
-                                if (val === "on") handleEnableAutomatic(app.id);
-                              }}
-                              options={[
-                                { value: "off", label: "Off" },
-                                { value: "on", label: enablingAppId === app.id ? "Turning on…" : "Nightly" },
-                              ]}
-                            />
+                            <Button
+                              variant="outline"
+                              surface="secondary"
+                              size="sm"
+                              onClick={() => setScheduleModalApp(app)}
+                            >
+                              Enable
+                            </Button>
                           </div>
                         )}
 

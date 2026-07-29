@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api/client.js";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.jsx";
 import { Button } from "../components/ui/button.jsx";
-import { Badge, StatusBadge } from "../components/ui/badge.jsx";
+import { StatusBadge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
 import { Check, X, Key, Copy, ArrowUpCircle, Shield, Zap } from "lucide-react";
 
@@ -40,9 +40,12 @@ export default function Dashboard() {
     },
   });
 
-  const revokeMut = useMutation({
-    mutationFn: api.revokeLicenseKey,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["license-keys"] }),
+  const regenerateKeyMut = useMutation({
+    mutationFn: () => api.generateLicenseKey(),
+    onSuccess: (data) => {
+      setGeneratedKey(data);
+      queryClient.invalidateQueries({ queryKey: ["license-keys"] });
+    },
   });
 
   const consentMut = useMutation({
@@ -259,11 +262,15 @@ export default function Dashboard() {
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={lk.status} />
-                  {lk.status !== "revoked" && (
-                    <Button variant="ghost" size="sm" onClick={() => revokeMut.mutate(lk.id)} loading={revokeMut.isPending}>
-                      Revoke
-                    </Button>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => regenerateKeyMut.mutate()}
+                    loading={regenerateKeyMut.isPending}
+                  >
+                    <Key className="h-4 w-4" />
+                    Regenerate
+                  </Button>
                 </div>
               </Card>
             ))}

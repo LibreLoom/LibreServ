@@ -107,6 +107,7 @@
   --motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
   --motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0, 1);
   --motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --motion-duration-short1: 50ms;
   --motion-duration-short2: 100ms;
   --motion-duration-short3: 150ms;
@@ -257,13 +258,13 @@ body {
     will-change: transform, opacity;
 }
 
-/* Toggle thumb — subtle scale overshoot when it lands */
+/* Toggle thumb — springy scale squish when it lands */
 @keyframes toggle-thumb-settle {
     0% {
         transform: scale(1);
     }
-    40% {
-        transform: scale(1.12);
+    45% {
+        transform: scale(1.16);
     }
     100% {
         transform: scale(1);
@@ -271,16 +272,16 @@ body {
 }
 
 .animate-toggle-settle {
-    animation: toggle-thumb-settle 200ms var(--motion-easing-emphasized) both;
+    animation: toggle-thumb-settle 240ms var(--motion-easing-spring) both;
 }
 
-/* SegmentedControl indicator — scale pulse when it lands on a new position */
+/* SegmentedControl indicator — springy scale squish when it lands on a new position */
 @keyframes segmented-settle {
     0% {
         transform: scaleX(1) scaleY(1);
     }
-    50% {
-        transform: scaleX(1.03) scaleY(1.08);
+    45% {
+        transform: scaleX(1.05) scaleY(1.1);
     }
     100% {
         transform: scaleX(1) scaleY(1);
@@ -288,7 +289,7 @@ body {
 }
 
 .animate-segmented-settle {
-    animation: segmented-settle 200ms var(--motion-easing-emphasized) both;
+    animation: segmented-settle 240ms var(--motion-easing-spring) both;
 }
 
 /* Alert/Callout — slide down + fade in on mount */
@@ -721,6 +722,10 @@ body {
         animation: none !important;
         opacity: 1;
         transform: none;
+    }
+    [data-slot="switch-thumb"],
+    [data-slot="segmented-control-indicator"] {
+        transition: none !important;
     }
 }
 

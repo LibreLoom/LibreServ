@@ -2,9 +2,12 @@ package podman
 
 import (
 	"errors"
+	"net"
 	"strings"
 	"testing"
 )
+
+// TestComposeErrorCannotConnectDocker verifies the "Cannot connect to the
 // Docker daemon" branch produces a plain-language, actionable message — not
 // the old opaque "container runtime not running or not accessible".
 func TestComposeErrorCannotConnectDocker(t *testing.T) {
@@ -130,5 +133,36 @@ func TestHealthCheckNilClient(t *testing.T) {
 	var c *Client
 	if err := c.HealthCheck(); err == nil {
 		t.Fatalf("HealthCheck on nil client should return an error")
+	}
+}
+
+// TestSocketAliveNonexistent verifies socketAlive returns false for a path
+// that does not exist (no file at all).
+func TestSocketAliveNonexistent(t *testing.T) {
+	if socketAlive("/nonexistent/path/that/does/not/exist.sock") {
+		t.Fatalf("socketAlive should return false for a nonexistent path")
+	}
+}
+
+// TestSocketAliveRealListener verifies socketAlive returns true when a unix
+// socket is actually listening. We create a temporary listener, probe it, then
+// close it and confirm socketAlive flips back to false.
+func TestSocketAliveRealListener(t *testing.T) {
+	dir := t.TempDir()
+	sp := dir + "/test.sock"
+
+	ln, err := net.Listen("unix", sp)
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	defer ln.Close()
+
+	if !socketAlive(sp) {
+		t.Fatalf("socketAlive should return true for a listening socket")
+	}
+
+	ln.Close()
+	if socketAlive(sp) {
+		t.Fatalf("socketAlive should return false after listener closed (stale file)")
 	}
 }
