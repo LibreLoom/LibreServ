@@ -246,6 +246,8 @@ export default function Onboarding() {
   const [name, setName] = useState(saved.current?.name || "");
   const [username, setUsername] = useState(saved.current?.username || "");
   const [isLoginMode, setIsLoginMode] = useState(false);
+  const [authSubStep, setAuthSubStep] = useState(0); // 0 name, 1 username, 2 email, 3 password
+  const [authSubDir, setAuthSubDir] = useState("right");
 
   const [resendState, setResendState] = useState("idle"); // idle | sending | sent
   const [cooldown, setCooldown] = useState(0);
@@ -437,6 +439,14 @@ export default function Onboarding() {
   const goBack = () => navigate("/");
   const handleBack = step === 0 ? goBack : goPrev;
 
+  // Reset the account substep flow when leaving/re-entering the account step.
+  const prevStepRef = useRef(step);
+  useEffect(() => {
+    if (prevStepRef.current === step) return;
+    prevStepRef.current = step;
+    if (step === 1) { setAuthSubStep(0); setAuthSubDir("right"); }
+  }, [step]);
+
   // ===== Step Renderers =====
 
   const renderWelcome = () => (
@@ -469,91 +479,190 @@ export default function Onboarding() {
     </StepShell>
   );
 
+  // ===== Account substep flow (Typeform-style: one question per screen) =====
+
+  const authFields = isLoginMode
+    ? [
+        {
+          id: "onb-email",
+          question: "What's your email address?",
+          hint: "The one you signed up with.",
+          value: email,
+          setValue: setEmail,
+          type: "email",
+          placeholder: "you@example.com",
+          autoComplete: "username",
+          valid: email.trim().length > 0,
+        },
+        {
+          id: "onb-password",
+          question: "And your password?",
+          value: password,
+          setValue: setPassword,
+          type: "password",
+          placeholder: "Your password",
+          autoComplete: "current-password",
+          valid: password.length > 0,
+        },
+      ]
+    : [
+        {
+          id: "onb-name",
+          question: "First, what should we call you?",
+          hint: "This is just how we greet you in your dashboard.",
+          value: name,
+          setValue: setName,
+          type: "text",
+          placeholder: "Jane Doe",
+          autoComplete: "name",
+          valid: true, // optional
+        },
+        {
+          id: "onb-username",
+          question: "Pick a name for your account",
+          hint: (
+            <>
+              When your apps send email (like password resets or notifications), the
+              "from" address will be{" "}
+              <span className="font-mono text-card-foreground">{username || "your-name"}-u@resend.libreloom.org</span>.
+              This is like the return address on a letter — it tells recipients who it came
+              from. Use letters, numbers, and hyphens (3-30 characters).
+            </>
+          ),
+          value: username,
+          setValue: (v) => setUsername(v.toLowerCase().replace(/[^a-z0-9-]/g, "")),
+          type: "text",
+          placeholder: "jane-doe",
+          autoComplete: "off",
+          valid: /^[a-z0-9-]{3,30}$/.test(username),
+        },
+        {
+          id: "onb-email",
+          question: "What's your email address?",
+          hint: "This is how you sign in and how we reach you about your device. We send one verification email — that's it.",
+          value: email,
+          setValue: setEmail,
+          type: "email",
+          placeholder: "you@example.com",
+          autoComplete: "username",
+          valid: /^\S+@\S+\.\S+$/.test(email),
+        },
+        {
+          id: "onb-password",
+          question: "Choose a password",
+          hint: "Use at least 8 characters with a mix of letters, numbers, and symbols.",
+          value: password,
+          setValue: setPassword,
+          type: "password",
+          placeholder: "At least 8 characters",
+          autoComplete: "new-password",
+          valid: password.length >= 8,
+        },
+      ];
+
+  const currentAuthField = authFields[authSubStep] || authFields[0];
+  const isLastAuthSubStep = authSubStep === authFields.length - 1;
+
+  const goSubNext = () => {
+    setAuthSubDir("right");
+    setAuthSubStep((s) => Math.min(s + 1, authFields.length - 1));
+  };
+  const goSubPrev = () => {
+    setAuthSubDir("left");
+    setAuthSubStep((s) => Math.max(s - 1, 0));
+  };
+
+  const handleAuthSubSubmit = (e) => {
+    e.preventDefault();
+    if (!currentAuthField.valid) return;
+    if (isLastAuthSubStep) {
+      handleAuth(e);
+    } else {
+      goSubNext();
+    }
+  };
+
   const renderAuth = () => (
     <StepShell icon={User} title={isLoginMode ? "Welcome back" : "Create your account"}>
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
-        {isLoginMode
-          ? "Sign in to your LibreServ Connect account."
-          : "Your email is how you access your dashboard and manage your device."}
-      </p>
+      {/* Substep progress: "2 of 4" with segmented bar */}
+      <div className="w-full max-w-sm mx-auto mb-10">
+        <div className="flex items-center justify-between mb-2.5">
+          <span className="text-xs font-mono text-muted-foreground">
+            {authSubStep + 1} of {authFields.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => { setIsLoginMode(!isLoginMode); setError(""); setAuthSubStep(0); setAuthSubDir("left"); }}
+            className="text-xs text-muted-foreground hover:text-card-foreground underline underline-offset-4 motion-safe:transition-colors"
+          >
+            {isLoginMode ? "Need an account? Register" : "Already have an account? Sign in"}
+          </button>
+        </div>
+        <div className="flex gap-1.5">
+          {authFields.map((f, i) => (
+            <div key={f.id + i} className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full bg-foreground motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.05,0.7,0.1,1)]"
+                style={{ width: i < authSubStep ? "100%" : i === authSubStep ? "100%" : "0%", opacity: i <= authSubStep ? 1 : 0 }}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
 
-      <form onSubmit={handleAuth} className="w-full max-w-sm mx-auto space-y-5 text-left">
-        {!isLoginMode && (
-          <>
-            <Field label="Your name" htmlFor="onb-name">
-              <Input
-                id="onb-name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Jane Doe"
-                autoFocus
-              />
-            </Field>
-            <Field
-              label="Pick a name for your account"
-              htmlFor="onb-username"
-              hint={
-                <>
-                  When your apps send email (like password resets or notifications), the
-                  "from" address will be{" "}
-                  <span className="font-mono">{username || "your-name"}-u@resend.libreloom.org</span>.
-                  This is like the return address on a letter — it tells recipients who it came from.
-                  Use letters, numbers, and hyphens (3-30 characters).
-                </>
-              }
-            >
-              <Input
-                id="onb-username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-                placeholder="jane-doe"
-                autoComplete="off"
-              />
-            </Field>
-          </>
-        )}
-        <Field label="Email address" htmlFor="onb-email">
-          <Input
-            id="onb-email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            autoFocus={isLoginMode}
-            autoComplete="username"
-          />
-        </Field>
-        <Field
-          label="Password"
-          htmlFor="onb-password"
-          hint={!isLoginMode ? "Use at least 8 characters with a mix of letters, numbers, and symbols." : undefined}
+      {/* One question per screen — key remounts on substep change for slide animation */}
+      <form onSubmit={handleAuthSubSubmit} className="w-full max-w-sm mx-auto text-left">
+        <div
+          key={`${isLoginMode ? "login" : "register"}-${authSubStep}`}
+          className={cn(authSubDir === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")}
+          style={{ animationDuration: "300ms", animationFillMode: "both" }}
         >
+          <label
+            htmlFor={currentAuthField.id}
+            className="block font-mono text-xl text-card-foreground mb-5 leading-snug"
+          >
+            {currentAuthField.question}
+          </label>
           <Input
-            id="onb-password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            autoComplete={isLoginMode ? "current-password" : "new-password"}
+            id={currentAuthField.id}
+            type={currentAuthField.type}
+            value={currentAuthField.value}
+            onChange={(e) => currentAuthField.setValue(e.target.value)}
+            placeholder={currentAuthField.placeholder}
+            autoComplete={currentAuthField.autoComplete}
+            autoFocus
+            className="h-14 text-lg px-5"
           />
-        </Field>
+          {currentAuthField.hint && (
+            <p className="mt-4 text-xs text-muted-foreground leading-relaxed">
+              {currentAuthField.hint}
+            </p>
+          )}
 
-        <div className="pt-2">
-          <Button type="submit" className="w-full" size="lg" loading={authLoading}>
-            {isLoginMode ? "Sign in" : "Create account and sign in"}
-          </Button>
+          <div className="flex items-center gap-3 mt-8">
+            {authSubStep > 0 && (
+              <Button type="button" variant="outline" size="lg" onClick={goSubPrev} className="shrink-0">
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+            )}
+            <Button
+              type="submit"
+              size="lg"
+              className="flex-1"
+              disabled={!currentAuthField.valid}
+              loading={isLastAuthSubStep && authLoading}
+            >
+              {isLastAuthSubStep
+                ? isLoginMode ? "Sign in" : "Create account and sign in"
+                : "Continue"}
+              {!isLastAuthSubStep && <ChevronRight className="w-4 h-4 ml-1" />}
+            </Button>
+          </div>
+          <p className="mt-4 text-xs text-muted-foreground text-center">
+            press <kbd className="font-mono text-card-foreground bg-muted rounded-md px-1.5 py-0.5">Enter</kbd> to continue
+          </p>
         </div>
       </form>
-
-      <button
-        type="button"
-        onClick={() => { setIsLoginMode(!isLoginMode); setError(""); }}
-        className="text-sm text-muted-foreground hover:text-card-foreground mt-6 underline underline-offset-4 motion-safe:transition-colors"
-      >
-        {isLoginMode ? "Need an account? Register" : "Already have an account? Sign in"}
-      </button>
     </StepShell>
   );
 
