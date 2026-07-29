@@ -16,6 +16,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/smtp"
 )
 
 // Server holds all HTTP dependencies and routes.
@@ -27,20 +28,44 @@ type Server struct {
 	providers *providers.Service
 	adminFS   http.FileSystem
 	custFS    http.FileSystem
+	smtpSrv   *smtp.Server
 }
 
 // NewServer creates and wires the HTTP server.
 func NewServer(db *sql.DB) *Server {
+	provSvc := providers.NewService(db)
+	resend := providers.NewResendClient(nil)
+
 	s := &Server{
 		db:        db,
 		billing:   billing.NewService(db),
 		models:    models.NewService(db),
-		providers: providers.NewService(db),
+		providers: provSvc,
 	}
 	s.adminFS = openStaticFS(config.C.Web.AdminDir)
 	s.custFS = openStaticFS(config.C.Web.CustomerDir)
 	s.setupRoutes()
+
+	// Start the SMTP relay server (authenticates device connections, forwards to Resend)
+	s.smtpSrv = smtp.NewServer(db, resend, func() string {
+		prov, err := provSvc.FindEnabled("smtp")
+		if err != nil || prov == nil {
+			return ""
+		}
+		return prov.Credential("api_key", "")
+	})
+	if err := s.smtpSrv.Start(); err != nil {
+		slog.Warn("smtp relay failed to start", "error", err)
+	}
+
 	return s
+}
+
+// StopSMTP gracefully shuts down the SMTP relay server.
+func (s *Server) StopSMTP() {
+	if s.smtpSrv != nil {
+		s.smtpSrv.Stop()
+	}
 }
 
 // Router returns the chi mux for serving.

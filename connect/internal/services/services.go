@@ -138,7 +138,7 @@ func (s *ProvisioningService) generateCredentials(deviceID, service, clientIP st
 
 	switch service {
 	case "smtp":
-		return s.generateSMTP(sub)
+		return s.generateSMTP(deviceID)
 	case "domain":
 		return s.generateDomain(deviceID, sub, clientIP)
 	case "backup":
@@ -162,42 +162,48 @@ func (s *ProvisioningService) generateCredentials(deviceID, service, clientIP st
 	}
 }
 
-func (s *ProvisioningService) generateSMTP(sub string) (map[string]any, error) {
-	prov, err := s.providers.FindEnabled("smtp")
+// generateSMTP provisions SMTP credentials for the device's Connect SMTP relay.
+// Each account has a username and smtp_password stored in customer_accounts.
+// The device's local SMTP relay will use these credentials to authenticate
+// with Connect's SMTP server, which forwards to Resend.
+func (s *ProvisioningService) generateSMTP(deviceID string) (map[string]any, error) {
+	// Look up the account's username and smtp_password via the device
+	var username, smtpPassword string
+	err := s.db.QueryRow(
+		`SELECT ca.username, ca.smtp_password
+		 FROM customer_accounts ca
+		 JOIN devices d ON d.account_id = ca.id
+		 WHERE d.id = $1 AND ca.is_active = TRUE`,
+		deviceID).Scan(&username, &smtpPassword)
 	if err != nil {
-		return nil, fmt.Errorf("could not look up email provider: %w", err)
+		return nil, fmt.Errorf("could not find SMTP credentials for this device. Make sure your account has a username set.")
+	}
+	if username == "" || smtpPassword == "" {
+		return nil, fmt.Errorf("your account does not have SMTP credentials set up. Please contact support.")
 	}
 
-	// Prefer a configured Resend provider; fall back to legacy SMTP config.
-	if prov != nil && prov.Credential("api_key", "") != "" {
-		smtp, err := s.resend.CreateAPIKey(prov.Credential("api_key", ""), fmt.Sprintf("libreserv-%s", sub))
-		if err != nil {
-			return nil, fmt.Errorf("could not create email sending key: %w", err)
-		}
-		return map[string]any{
-			"smtp": map[string]any{
-				"host":     smtp.Host,
-				"port":     smtp.Port,
-				"username": smtp.Username,
-				"password": smtp.Password,
-				"from":     fmt.Sprintf("server@%s.servers.libreloom.org", sub),
-				"use_tls":  true,
-			},
-		}, nil
+	// Connect SMTP relay address — defaults to the server's public address
+	relayHost := config.C.Server.BaseURL
+	// Strip protocol and path to get just the host
+	relayHost = strings.TrimPrefix(relayHost, "https://")
+	relayHost = strings.TrimPrefix(relayHost, "http://")
+	relayHost = strings.Split(relayHost, "/")[0]
+	if relayHost == "" {
+		relayHost = "connect.serv.libreloom.org"
 	}
 
-	if config.C.SMTP.Host == "" {
-		return nil, fmt.Errorf("no email provider is configured. Add one in the admin portal under Service Providers.")
-	}
+	relayPort := 2525
+
+	fromAddr := fmt.Sprintf("%s@%s", username, "resend.libreloom.org")
 
 	return map[string]any{
 		"smtp": map[string]any{
-			"host":     config.C.SMTP.Host,
-			"port":     config.C.SMTP.Port,
-			"username": config.C.SMTP.Username,
-			"password": config.C.SMTP.Password,
-			"from":     config.C.SMTP.From,
-			"use_tls":  config.C.SMTP.UseTLS,
+			"host":     relayHost,
+			"port":     relayPort,
+			"username": username,
+			"password": smtpPassword,
+			"from":     fromAddr,
+			"use_tls":  false, // Connect SMTP relay uses plaintext (device connects over TLS tunnel)
 		},
 	}, nil
 }

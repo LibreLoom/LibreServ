@@ -165,6 +165,7 @@ export default function Onboarding() {
   const [email, setEmail] = useState(saved.current?.email || "");
   const [password, setPassword] = useState("");
   const [name, setName] = useState(saved.current?.name || "");
+  const [username, setUsername] = useState(saved.current?.username || "");
   const [isLoginMode, setIsLoginMode] = useState(false);
 
 
@@ -186,8 +187,8 @@ export default function Onboarding() {
   // Persist progress whenever relevant state changes
   useEffect(() => {
     if (step === 0 && !email) return; // don't save empty state
-    saveProgress({ step, email, name, selectedPlan, subdomainName, domainMode, registeredDomain });
-  }, [step, email, name, selectedPlan, subdomainName, domainMode, registeredDomain]);
+    saveProgress({ step, email, name, username, selectedPlan, subdomainName, domainMode, registeredDomain });
+  }, [step, email, name, username, selectedPlan, subdomainName, domainMode, registeredDomain]);
 
 
   const { data: plansData } = useQuery({
@@ -249,7 +250,7 @@ export default function Onboarding() {
         await login(email, password);
       } else {
         // Register now returns a token — auto sign-in (no separate login call)
-        await register(email, password, name);
+        await register(email, password, name, username);
       }
       setStep(1);
     } catch (err) {
@@ -361,6 +362,24 @@ export default function Onboarding() {
               onChange={(e) => setName(e.target.value)}
               placeholder="Jane Doe"
             />
+          </div>
+        )}
+        {!isLoginMode && (
+          <div>
+            <Label htmlFor="onb-username">Choose a username</Label>
+            <Input
+              id="onb-username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+              placeholder="jane-doe"
+              autoComplete="off"
+            />
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              This becomes your sending address:{" "}
+              <span className="font-mono">{username || "username"}@resend.libreloom.org</span>.
+              Letters, numbers, and hyphens only (3-30 characters).
+            </p>
           </div>
         )}
         <div>

@@ -52,12 +52,13 @@ type StripeConfig struct {
 }
 
 type SMTPConfig struct {
-	Host     string `mapstructure:"host" yaml:"host"`
-	Port     int    `mapstructure:"port" yaml:"port"`
-	Username string `mapstructure:"username" yaml:"username"`
-	Password string `mapstructure:"password" yaml:"password"`
-	From     string `mapstructure:"from" yaml:"from"`
-	UseTLS   bool   `mapstructure:"use_tls" yaml:"use_tls"`
+	Host      string `mapstructure:"host" yaml:"host"`
+	Port      int    `mapstructure:"port" yaml:"port"`
+	Username  string `mapstructure:"username" yaml:"username"`
+	Password  string `mapstructure:"password" yaml:"password"`
+	From      string `mapstructure:"from" yaml:"from"`
+	UseTLS    bool   `mapstructure:"use_tls" yaml:"use_tls"`
+	RelayAddr string `mapstructure:"relay_addr" yaml:"relay_addr"`
 }
 
 type DNSConfig struct {

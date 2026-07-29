@@ -28,18 +28,18 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const register = useCallback(async (email, password, name) => {
+  const register = useCallback(async (email, password, name, username) => {
     setLoading(true);
     try {
-      const res = await api.register(email, password, name);
+      const res = await api.register(email, password, name, username);
       // Register now returns a token — auto sign-in
       if (res.token) {
         setToken(res.token);
         setIsAuthenticated(true);
         setAccount({
           id: res.id, email: res.email, name: res.name,
-          plan_id: res.plan_id, has_2fa: res.has_2fa,
-          email_verified: res.email_verified,
+          username: res.username, plan_id: res.plan_id,
+          has_2fa: res.has_2fa, email_verified: res.email_verified,
         });
       }
       return res;

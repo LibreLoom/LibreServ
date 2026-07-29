@@ -23,26 +23,26 @@ import (
 
 // Manager handles the lifecycle of installed apps
 type Manager struct {
-	mu             sync.RWMutex
-	catalog        *Catalog
-	repoSet        *RepoSet
-	installer      *Installer
-	portManager    *PortManager
-	runtime        runtime.ContainerRuntime
-	db             *database.DB
-	backupService  *storage.BackupService
-	appsDataDir    string
-	logger         *slog.Logger
-	monitor        *monitoring.Monitor
-	metricsCache   *AppMetricsCache
-	caddyManager   *network.CaddyManager
-	backendMap     map[string][]string            // appID -> backend URLs (primary first)
-	backendByName  map[string]map[string][]string // appID -> name -> backends
-	scriptExecutor *ScriptExecutor
-	routeRegistrar    func(hostname string) error // called to register a public hostname with Connect
-	routeUnregistrar  func(hostname string) error // called to unregister a public hostname from Connect
-	updateMu       sync.Mutex
-	updating       map[string]bool
+	mu               sync.RWMutex
+	catalog          *Catalog
+	repoSet          *RepoSet
+	installer        *Installer
+	portManager      *PortManager
+	runtime          runtime.ContainerRuntime
+	db               *database.DB
+	backupService    *storage.BackupService
+	appsDataDir      string
+	logger           *slog.Logger
+	monitor          *monitoring.Monitor
+	metricsCache     *AppMetricsCache
+	caddyManager     *network.CaddyManager
+	backendMap       map[string][]string            // appID -> backend URLs (primary first)
+	backendByName    map[string]map[string][]string // appID -> name -> backends
+	scriptExecutor   *ScriptExecutor
+	routeRegistrar   func(hostname string) error // called to register a public hostname with Connect
+	routeUnregistrar func(hostname string) error // called to unregister a public hostname from Connect
+	updateMu         sync.Mutex
+	updating         map[string]bool
 }
 
 // NewManager creates a new app Manager
@@ -97,19 +97,22 @@ func NewManager(
 	// Build and inject server context for templates and scripts
 	cfg := config.Get()
 	serverCtx := NewServerContext(ServerContextConfig{
-		ServerPort:     cfg.Server.Port,
-		ServerMode:     cfg.Server.Mode,
-		ServerHost:     cfg.Server.Host,
-		DefaultDomain:  cfg.Network.Caddy.DefaultDomain,
-		CaddyMode:      cfg.Network.Caddy.Mode,
-		ACMEEmail:      cfg.Network.ACME.External.Email,
-		SMTPHost:       cfg.SMTP.Host,
-		SMTPPort:       cfg.SMTP.Port,
-		SMTPUsername:   cfg.SMTP.Username,
-		SMTPPassword:   cfg.SMTP.Password,
+		ServerPort:    cfg.Server.Port,
+		ServerMode:    cfg.Server.Mode,
+		ServerHost:    cfg.Server.Host,
+		DefaultDomain: cfg.Network.Caddy.DefaultDomain,
+		CaddyMode:     cfg.Network.Caddy.Mode,
+		ACMEEmail:     cfg.Network.ACME.External.Email,
+		// Apps send to the local SMTP relay (localhost:25), which forwards
+		// to the upstream (Connect SMTP or user-configured SMTP). The from
+		// address and TLS flag come from the config; auth is not needed locally.
+		SMTPHost:       "127.0.0.1",
+		SMTPPort:       25,
+		SMTPUsername:   "",
+		SMTPPassword:   "",
 		SMTPFrom:       cfg.SMTP.From,
-		SMTPUseTLS:     cfg.SMTP.UseTLS,
-		SMTPSkipVerify: cfg.SMTP.SkipVerify,
+		SMTPUseTLS:     false,
+		SMTPSkipVerify: false,
 		TunnelEnabled:  cfg.Network.Tunnel.Enabled,
 		TunnelProvider: cfg.Network.Tunnel.Provider,
 		TunnelToken:    cfg.Network.Tunnel.Token,

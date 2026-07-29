@@ -365,4 +365,12 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 CREATE INDEX IF NOT EXISTS idx_email_verif_account ON email_verification_tokens(account_id);
 		`,
 	},
+	{
+		name: "003_username_and_smtp",
+		sql: `
+ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS username TEXT;
+ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS smtp_password TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_accounts_username ON customer_accounts(username) WHERE username IS NOT NULL;
+		`,
+	},
 }

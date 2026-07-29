@@ -173,6 +173,23 @@ func (s *Sender) Send(to []string, subject, body string) error {
 	return smtp.SendMail(s.host, s.makeAuth(), s.from, to, []byte(msg))
 }
 
+// SendRaw sends a pre-built raw email message to the given recipients.
+// The from parameter overrides the sender's configured from address.
+// Used by the local SMTP relay to forward messages as-is.
+func (s *Sender) SendRaw(to []string, from, rawMsg string) error {
+	if len(to) == 0 {
+		return fmt.Errorf("missing recipients")
+	}
+	port := s.port()
+	if port == 465 || port == 2465 {
+		return s.sendImplicitTLSRaw(to, from, rawMsg)
+	}
+	if s.useTLS {
+		return s.sendSTARTTLSRaw(to, from, rawMsg)
+	}
+	return smtp.SendMail(s.host, s.makeAuth(), from, to, []byte(rawMsg))
+}
+
 func (s *Sender) port() int {
 	parts := strings.Split(s.host, ":")
 	if len(parts) != 2 {
@@ -205,6 +222,69 @@ func (s *Sender) sendSTARTTLS(to []string, msg string) error {
 		}
 	}
 	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte(msg)); err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+func (s *Sender) sendSTARTTLSRaw(to []string, from, msg string) error {
+	c, err := smtp.Dial(s.host)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	skipVerify := resolveSkipVerify(s.skipVerify)
+	if err := c.StartTLS(&tls.Config{ServerName: strings.Split(s.host, ":")[0], InsecureSkipVerify: skipVerify}); err != nil {
+		return err
+	}
+	if err := c.Auth(s.makeAuth()); err != nil {
+		return err
+	}
+	if err := c.Mail(from); err != nil {
+		return err
+	}
+	for _, r := range to {
+		if err := c.Rcpt(r); err != nil {
+			return err
+		}
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte(msg)); err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+func (s *Sender) sendImplicitTLSRaw(to []string, from, msg string) error {
+	skipVerify := resolveSkipVerify(s.skipVerify)
+	conn, err := tls.Dial("tcp", s.host, &tls.Config{InsecureSkipVerify: skipVerify})
+	if err != nil {
+		return err
+	}
+	client, err := smtp.NewClient(conn, strings.Split(s.host, ":")[0])
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	if err := client.Auth(s.makeAuth()); err != nil {
+		return err
+	}
+	if err := client.Mail(from); err != nil {
+		return err
+	}
+	for _, r := range to {
+		if err := client.Rcpt(r); err != nil {
+			return err
+		}
+	}
+	w, err := client.Data()
 	if err != nil {
 		return err
 	}

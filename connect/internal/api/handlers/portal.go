@@ -42,12 +42,27 @@ func NewPortalHandler(db *sql.DB) *PortalHandler {
 	}
 }
 
+// isValidUsername checks that a username contains only letters, numbers,
+// and hyphens, and is 3-30 characters long.
+func isValidUsername(s string) bool {
+	if len(s) < 3 || len(s) > 30 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
 // Register creates a new customer account.
 func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 		Name     string `json:"name"`
+		Username string `json:"username"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
 		JSONError(w, http.StatusBadRequest, "email and password required")
@@ -57,6 +72,16 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
+	// Normalize username: lowercase, strip spaces, validate format
+	req.Username = strings.ToLower(strings.TrimSpace(req.Username))
+	if req.Username == "" {
+		JSONError(w, http.StatusBadRequest, "Please choose a username. This becomes your sending address (username@resend.libreloom.org).")
+		return
+	}
+	if !isValidUsername(req.Username) {
+		JSONError(w, http.StatusBadRequest, "Username can only contain letters, numbers, and hyphens (3-30 characters).")
+		return
+	}
 
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -64,12 +89,20 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Generate a per-user SMTP password for the Connect SMTP relay
+	smtpPassword := security.RandomPassword(32)
+
 	accountID := security.GenerateID("acct")
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO customer_accounts (id, email, password_hash, name, plan_id, email_verified) VALUES ($1, $2, $3, $4, 'free', FALSE)`,
-		accountID, req.Email, hash, req.Name)
+		`INSERT INTO customer_accounts (id, email, password_hash, name, plan_id, email_verified, username, smtp_password)
+		 VALUES ($1, $2, $3, $4, 'free', FALSE, $5, $6)`,
+		accountID, req.Email, hash, req.Name, req.Username, smtpPassword)
 	if err != nil {
-		JSONError(w, http.StatusConflict, "an account with this email already exists")
+		if strings.Contains(err.Error(), "username") {
+			JSONError(w, http.StatusConflict, "That username is already taken. Please choose another.")
+		} else {
+			JSONError(w, http.StatusConflict, "an account with this email already exists")
+		}
 		return
 	}
 
@@ -92,6 +125,7 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 		"id":             accountID,
 		"email":          req.Email,
 		"name":           req.Name,
+		"username":       req.Username,
 		"plan_id":        "free",
 		"has_2fa":        false,
 		"email_verified": false,
@@ -267,10 +301,13 @@ func (h *PortalHandler) Login(w http.ResponseWriter, r *http.Request) {
 		IsActive      bool
 		PlanID        string
 		EmailVerified bool
+		Username      sql.NullString
 	}
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active, plan_id, email_verified FROM customer_accounts WHERE email = $1`,
-		req.Email).Scan(&account.ID, &account.PasswordHash, &account.Name, &account.TOTPSecret, &account.TOTPEnabled, &account.IsActive, &account.PlanID, &account.EmailVerified)
+		`SELECT id, password_hash, name, totp_secret, totp_enabled, is_active, plan_id, email_verified, username
+		 FROM customer_accounts WHERE email = $1`,
+		req.Email).Scan(&account.ID, &account.PasswordHash, &account.Name, &account.TOTPSecret,
+		&account.TOTPEnabled, &account.IsActive, &account.PlanID, &account.EmailVerified, &account.Username)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusUnauthorized, "invalid email or password")
 		return
@@ -313,12 +350,17 @@ func (h *PortalHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if account.Name.Valid {
 		name = account.Name.String
 	}
+	username := ""
+	if account.Username.Valid {
+		username = account.Username.String
+	}
 
 	JSON(w, http.StatusOK, map[string]any{
 		"token":          token,
 		"id":             account.ID,
 		"email":          req.Email,
 		"name":           name,
+		"username":       username,
 		"plan_id":        account.PlanID,
 		"has_2fa":        account.TOTPEnabled,
 		"email_verified": account.EmailVerified,

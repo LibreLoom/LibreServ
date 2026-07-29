@@ -29,9 +29,9 @@ async function request(path, options = {}) {
 
 export const api = {
   // Auth
-  register: (email, password, name) => request("/portal/register", {
+  register: (email, password, name, username) => request("/portal/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name }),
+    body: JSON.stringify({ email, password, name, username }),
   }),
   login: (email, password, totpCode) => request("/portal/login", {
     method: "POST",
