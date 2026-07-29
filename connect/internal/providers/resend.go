@@ -61,3 +61,31 @@ func (c *ResendClient) CreateAPIKey(apiKey, name string) (*ResendSMTP, error) {
 		Password: resp.Token,
 	}, nil
 }
+
+// resendSendResponse is the body returned by Resend when sending an email.
+type resendSendResponse struct {
+	ID string `json:"id"`
+}
+
+// SendEmail sends an HTML email through Resend's REST API.
+// The from address should be a verified domain in your Resend account.
+func (c *ResendClient) SendEmail(apiKey, from, to, subject, html string) error {
+	url := c.baseURL
+	if url == "" {
+		url = "https://api.resend.com/emails"
+	}
+	body := map[string]string{
+		"from":    from,
+		"to":      to,
+		"subject": subject,
+		"html":    html,
+	}
+	var resp resendSendResponse
+	_, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
+		"Authorization": "Bearer " + apiKey,
+	}, body, &resp)
+	if err != nil {
+		return fmt.Errorf("could not send email via Resend: %w", err)
+	}
+	return nil
+}

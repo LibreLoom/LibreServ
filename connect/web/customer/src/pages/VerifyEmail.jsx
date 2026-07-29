@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import { Button } from "../components/ui/button.jsx";
-import { Check, X, Loader2, MailCheck } from "lucide-react";
+import { X, Loader2, MailCheck } from "lucide-react";
 
 export default function VerifyEmail() {
   const navigate = useNavigate();

@@ -28,10 +28,18 @@ type PortalHandler struct {
 	db        *sql.DB
 	billing   *billing.Service
 	registrar *providers.RegistrarClient
+	providers *providers.Service
+	resend    *providers.ResendClient
 }
 
 func NewPortalHandler(db *sql.DB) *PortalHandler {
-	return &PortalHandler{db: db, billing: billing.NewService(db), registrar: providers.NewRegistrarClient(nil)}
+	return &PortalHandler{
+		db:        db,
+		billing:   billing.NewService(db),
+		registrar: providers.NewRegistrarClient(nil),
+		providers: providers.NewService(db),
+		resend:    providers.NewResendClient(nil),
+	}
 }
 
 // Register creates a new customer account.
@@ -222,7 +230,20 @@ func (h *PortalHandler) sendVerificationEmailSync(email, token string) error {
 </body>
 </html>`, verifyURL, verifyURL, verifyURL)
 
-	return providers.SendHTMLEmail(email, "Verify your email — LibreServ Connect", htmlBody)
+	// Send via Resend REST API (API key stored in service_providers table)
+	prov, err := h.providers.FindEnabled("smtp")
+	if err != nil || prov == nil {
+		return fmt.Errorf("no email provider configured. Add Resend in Settings → Service Providers.")
+	}
+	apiKey := prov.Credential("api_key", "")
+	if apiKey == "" {
+		return fmt.Errorf("Resend API key not configured")
+	}
+	from := config.C.SMTP.From
+	if from == "" {
+		from = "LibreServ Connect <noreply@libreloom.org>"
+	}
+	return h.resend.SendEmail(apiKey, from, email, "Verify your email — LibreServ Connect", htmlBody)
 }
 
 // Login authenticates a customer with email/password (and TOTP if enabled).
