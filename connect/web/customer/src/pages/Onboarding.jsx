@@ -191,6 +191,29 @@ export default function Onboarding() {
 
   const clearError = () => setError("");
 
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+
+  const handlePlanContinue = async () => {
+    if (isFreePlan) {
+      goNext();
+      return;
+    }
+    // Paid plan — redirect to Stripe checkout now
+    setCheckoutLoading(true);
+    try {
+      const res = await api.createCheckout(selectedPlan);
+      if (res.checkout_url && res.checkout_url !== "#") {
+        window.location.href = res.checkout_url;
+        return;
+      }
+      // No checkout URL (e.g. already subscribed) — continue to next step
+      goNext();
+    } catch (err) {
+      setError(err.message || "Could not start checkout. Please try again.");
+      setCheckoutLoading(false);
+    }
+  };
+
   const handleAuth = async (e) => {
     e.preventDefault();
     clearError();
@@ -413,14 +436,14 @@ export default function Onboarding() {
       {selectedPlan && !isFreePlan && (
         <div className="w-full max-w-sm mt-4 rounded-large-element border border-border bg-muted p-4 text-left animate-in fade-in slide-in-from-bottom-2 duration-300">
           <p className="text-xs text-muted-foreground">
-            Payment is handled securely by Stripe. You'll check out from your dashboard after setup.
+            You'll complete payment through Stripe on the next screen.
           </p>
         </div>
       )}
 
       <div className="w-full max-w-sm mt-6">
-        <Button size="lg" className="w-full" disabled={!selectedPlan} onClick={goNext}>
-          Continue <ChevronRight className="w-4 h-4 ml-1" />
+        <Button size="lg" className="w-full" disabled={!selectedPlan} loading={checkoutLoading} onClick={handlePlanContinue}>
+          {isFreePlan ? "Continue" : "Continue to Payment"} <ChevronRight className="w-4 h-4 ml-1" />
         </Button>
       </div>
     </div>
