@@ -6,13 +6,14 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.
 import { Button } from "../components/ui/button.jsx";
 import { Badge, StatusBadge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
-import { Check, X, Key, Copy, ArrowUpCircle, Shield } from "lucide-react";
+import { Check, X, Key, Copy, ArrowUpCircle, Shield, Zap } from "lucide-react";
 
 export default function Dashboard() {
   const { account } = useAuth();
   const queryClient = useQueryClient();
   const [generatedKey, setGeneratedKey] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   const { data: devicesData } = useQuery({
     queryKey: ["devices"],
@@ -52,6 +53,7 @@ export default function Dashboard() {
   const checkoutMut = useMutation({
     mutationFn: (planId) => api.createCheckout(planId),
     onSuccess: (data) => {
+      setShowUpgradeModal(false);
       if (data.checkout_url && data.checkout_url !== "#") {
         window.location.href = data.checkout_url;
       }
@@ -98,24 +100,78 @@ export default function Dashboard() {
               </p>
             </div>
             {upgradePlans.length > 0 && (
-              <div className="flex gap-2">
-                {upgradePlans.map((p) => (
-                  <Button
-                    key={p.id}
-                    variant="outline"
-                    size="sm"
-                    loading={checkoutMut.isPending}
-                    onClick={() => checkoutMut.mutate(p.id)}
-                  >
-                    <ArrowUpCircle className="h-4 w-4" />
-                    Upgrade to {p.name.replace("Connect ", "")}
-                  </Button>
-                ))}
-              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowUpgradeModal(true)}
+              >
+                <ArrowUpCircle className="h-4 w-4" />
+                Upgrade
+              </Button>
             )}
           </div>
         </CardContent>
       </Card>
+
+      {/* Upgrade modal */}
+      {showUpgradeModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200"
+          onClick={() => setShowUpgradeModal(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-large-element border border-border bg-card text-card-foreground shadow-[0_32px_80px_rgba(0,0,0,0.24)] p-6 motion-safe:animate-in motion-safe:zoom-in-95 motion-safe:duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-mono text-xl flex items-center gap-2">
+                <Zap className="h-5 w-5" />
+                Upgrade your plan
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowUpgradeModal(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-muted-foreground mb-4">
+              You're currently on {accountPlan?.name || "Connect Free"}. Choose a plan below to upgrade.
+            </p>
+
+            <div className="space-y-3">
+              {upgradePlans.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  disabled={checkoutMut.isPending}
+                  onClick={() => checkoutMut.mutate(p.id)}
+                  className="w-full rounded-large-element border-2 border-border p-4 text-left transition-all motion-safe:duration-200 hover:border-primary/40 disabled:opacity-50"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-mono text-base">{p.name}</p>
+                      <p className="text-sm text-muted-foreground mt-0.5">{p.description}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-mono text-lg">${(p.price_monthly / 100).toFixed(0)}</p>
+                      <p className="text-xs text-muted-foreground">per month</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {checkoutMut.isPending && (
+              <p className="text-sm text-muted-foreground mt-3 text-center">
+                Redirecting to payment…
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Consent requests — only show if there are any */}
       {consentRequests.length > 0 && (
