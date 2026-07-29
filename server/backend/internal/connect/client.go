@@ -269,10 +269,14 @@ func (f *FakeClient) Activate(ctx context.Context, key string) (*ConnectStatus, 
 	}
 	f.plan = plan
 
+	// Reset all services to disabled — the caller (Activate handler) will
+	// auto-provision each one, mirroring the real Connect API which returns
+	// services as disabled until credentials are provisioned. Services the
+	// user already set to BYO are preserved.
 	for id, svc := range f.services {
 		if svc.State != ServiceBYO {
 			newSvc := svc
-			newSvc.State = ServiceConnected
+			newSvc.State = ServiceDisabled
 			f.services[id] = newSvc
 		}
 	}
@@ -299,6 +303,16 @@ func (f *FakeClient) Deactivate(ctx context.Context) error {
 }
 
 func (f *FakeClient) Provision(ctx context.Context, service ServiceID) (*ProvisionedCredentials, error) {
+	f.mu.Lock()
+	// Mark the service as connected in the fake's internal state so that
+	// subsequent Status calls reflect the provisioned state, mirroring the
+	// real Connect API which marks services connected after provisioning.
+	if svc, ok := f.services[service]; ok && svc.State == ServiceDisabled {
+		svc.State = ServiceConnected
+		f.services[service] = svc
+	}
+	f.mu.Unlock()
+
 	creds := &ProvisionedCredentials{}
 
 	switch service {

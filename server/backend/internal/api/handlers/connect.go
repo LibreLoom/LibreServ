@@ -72,12 +72,93 @@ func (h *ConnectHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Auto-provision and enable all plan-available services so the user
+	// doesn't have to manually toggle each one after activation. Services
+	// already in BYO state are left alone — the user chose to bring their own.
+	h.autoProvisionServices(r.Context(), status)
+
 	if h.checker != nil {
 		h.checker.Refresh()
 	}
 
+	// Re-fetch the merged status so the response reflects the newly-enabled services.
+	if h.checker != nil {
+		status = h.checker.Status()
+	}
+
 	slog.Info("connect activated", "plan", status.Plan)
 	response.JSON(w, http.StatusOK, status)
+}
+
+// autoProvisionServices provisions credentials and applies them for every
+// service that is currently disabled. Services the user already configured
+// (BYO) or that are already connected are skipped. Provisioning failures are
+// logged but don't abort activation — the user can retry individual services
+// from Settings.
+func (h *ConnectHandler) autoProvisionServices(ctx context.Context, status *connect.ConnectStatus) {
+	if status == nil || status.Services == nil {
+		return
+	}
+
+	for svcID, svc := range status.Services {
+		// Skip services not in the disabled state — respect BYO and already-connected.
+		if svc.State != connect.ServiceDisabled {
+			continue
+		}
+		// Support is a plan feature, not a provisionable service.
+		if svcID == connect.ServiceSupport {
+			continue
+		}
+		// Backup on plans with zero quota would fail — skip quietly.
+		if svcID == connect.ServiceBackup && status.Plan != nil && !planAllowsBackup(status.Plan.ID) {
+			continue
+		}
+
+		creds, err := h.client.Provision(ctx, svcID)
+		if err != nil {
+			slog.Warn("auto-provision skipped (provision failed)", "service", svcID, "error", err)
+			continue
+		}
+		if err := h.applyCredentials(ctx, svcID, creds); err != nil {
+			slog.Warn("auto-provision skipped (apply failed)", "service", svcID, "error", err)
+			continue
+		}
+
+		// Persist the connected state so it survives a restart.
+		if h.settingsService != nil {
+			if err := h.settingsService.UpdateSettings(ctx, map[string]interface{}{
+				"connect_services": map[string]interface{}{string(svcID): string(connect.ServiceConnected)},
+			}); err != nil {
+				slog.Warn("auto-provision skipped (persist failed)", "service", svcID, "error", err)
+				continue
+			}
+		} else {
+			cfg := config.Get()
+			if cfg != nil {
+				if cfg.Connect.ServiceStates == nil {
+					cfg.Connect.ServiceStates = make(map[string]string)
+				}
+				cfg.Connect.ServiceStates[string(svcID)] = string(connect.ServiceConnected)
+			}
+		}
+
+		// Reflect the new state in the status we'll return to the caller.
+		updated := status.Services[svcID]
+		updated.State = connect.ServiceConnected
+		status.Services[svcID] = updated
+
+		slog.Info("auto-provisioned service", "service", svcID)
+	}
+}
+
+// planAllowsBackup returns true if the plan includes any backup storage.
+func planAllowsBackup(planID connect.PlanID) bool {
+	switch planID {
+	case connect.PlanFree:
+		return false
+	default:
+		return true
+	}
 }
 
 func (h *ConnectHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
