@@ -234,7 +234,7 @@ const RESEND_COOLDOWN = 45;
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { login, register, loading: authLoading, account } = useAuth();
+  const { login, register, loading: authLoading, account, markEmailVerified } = useAuth();
   const saved = useRef(loadProgress());
   const [step, setStep] = useState(saved.current?.step || 0);
   const [direction, setDirection] = useState("right"); // "right" | "left"
@@ -252,6 +252,28 @@ export default function Onboarding() {
   const [resendState, setResendState] = useState("idle"); // idle | sending | sent
   const [cooldown, setCooldown] = useState(0);
   const [emailVerified, setEmailVerified] = useState(false);
+  const [checkingVerification, setCheckingVerification] = useState(false);
+
+  // Poll verification status while on the verify step — the step is a hard
+  // blocker, so as soon as the user clicks the email link (in any tab), we
+  // detect it here and unlock.
+  useEffect(() => {
+    if (step !== 2 || emailVerified) return;
+    let cancelled = false;
+    const check = () => {
+      api.getVerificationStatus()
+        .then((res) => {
+          if (!cancelled && res.email_verified) {
+            setEmailVerified(true);
+            markEmailVerified();
+          }
+        })
+        .catch(() => {});
+    };
+    check();
+    const interval = setInterval(check, 4000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [step, emailVerified, markEmailVerified]);
 
   const [selectedPlan, setSelectedPlan] = useState(saved.current?.selectedPlan || null);
 
@@ -669,10 +691,13 @@ export default function Onboarding() {
   const renderVerifyEmail = () => {
     if (emailVerified) {
       return (
-        <StepShell icon={Check} title="Email verified">
-          <div className="mx-auto w-16 h-16 rounded-full bg-success/20 flex items-center justify-center mb-6 animate-step-icon">
+        <div className="flex flex-col items-center text-center">
+          <div className="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center mb-6 animate-step-icon">
             <Check className="w-8 h-8 text-success animate-check-pop" />
           </div>
+          <h1 className="font-mono text-[1.75rem] leading-snug font-normal text-card-foreground tracking-tight mb-3">
+            Email verified
+          </h1>
           <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
             <span className="font-mono text-card-foreground">{email}</span> is confirmed.
             You're all set — on to the next step.
@@ -680,24 +705,45 @@ export default function Onboarding() {
           <Button size="lg" className="w-full max-w-sm" onClick={goNext}>
             Continue <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
-        </StepShell>
+        </div>
       );
     }
 
+    const handleManualCheck = async () => {
+      setCheckingVerification(true);
+      clearError();
+      try {
+        const res = await api.getVerificationStatus();
+        if (res.email_verified) {
+          setEmailVerified(true);
+          markEmailVerified();
+        } else {
+          setError("We don't see the verification yet. Click the link in the email first, then try again — or resend it below.");
+        }
+      } catch {
+        setError("Couldn't check your verification status. Try again in a moment.");
+      } finally {
+        setCheckingVerification(false);
+      }
+    };
+
     return (
       <StepShell icon={MailOpen} title="Check your inbox">
-        <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
+        <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-4">
           We sent a verification link to{" "}
           <span className="font-mono text-card-foreground">{email}</span>.
-          Click it to confirm this address is really yours. It keeps your
-          password resets and device alerts safe.
+          Click it to confirm this address is really yours.
+        </p>
+        <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
+          You need to verify before continuing — this page updates by itself
+          the moment you click the link.
         </p>
 
         <div className="w-full max-w-sm mx-auto space-y-3 mb-8 text-left">
           {[
             <>Open the email from <span className="font-mono">LibreServ Connect</span></>,
             "Click the Verify my email button inside",
-            "Come back here and continue",
+            "Come back here — this page unlocks automatically",
           ].map((item, i) => (
             <div
               key={i}
@@ -713,8 +759,18 @@ export default function Onboarding() {
         </div>
 
         <div className="w-full max-w-sm mx-auto space-y-3">
-          <Button size="lg" className="w-full" onClick={goNext}>
-            I've clicked the link — continue <ChevronRight className="w-4 h-4 ml-1" />
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-1">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Waiting for verification…
+          </div>
+          <Button
+            size="md"
+            variant="outline"
+            className="w-full"
+            onClick={handleManualCheck}
+            loading={checkingVerification}
+          >
+            I've clicked the link — check again
           </Button>
           <Button
             size="md"
@@ -734,8 +790,8 @@ export default function Onboarding() {
             )}
           </Button>
           <p className="text-xs text-muted-foreground leading-relaxed pt-1">
-            Can't find it? Check your spam or junk folder. You can also continue
-            now and verify later — the link stays valid for a while.
+            Can't find it? Check your spam or junk folder. Verification is
+            required — you can't use your account until it's done.
           </p>
         </div>
       </StepShell>

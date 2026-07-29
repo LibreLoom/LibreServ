@@ -55,6 +55,31 @@ func GetCustomerDeviceID(ctx context.Context) string {
 	return id
 }
 
+// RequireVerifiedEmail blocks any account activity until the account's email
+// address is verified. Mount it after CustomerAuth on route groups that should
+// only be reachable by verified accounts; leave verification-management
+// endpoints (e.g. resend-verification) outside the gated group so unverified
+// users can still reach them.
+func RequireVerifiedEmail(db *sql.DB) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			accountID := GetCustomerDeviceID(r.Context())
+			var verified bool
+			err := db.QueryRowContext(r.Context(),
+				"SELECT email_verified FROM customer_accounts WHERE id = $1", accountID).Scan(&verified)
+			if err != nil {
+				http.Error(w, `{"error":"account lookup failed"}`, http.StatusInternalServerError)
+				return
+			}
+			if !verified {
+				http.Error(w, `{"error":"Please verify your email address first. Check your inbox for the verification link, or resend it."}`, http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // CreateCustomerSession creates a new customer session and returns the token.
 func CreateCustomerSession(db *sql.DB, accountID string) (string, error) {
 	token := accountID + "_" + security.RandomHex(32)

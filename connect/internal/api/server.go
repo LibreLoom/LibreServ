@@ -127,39 +127,48 @@ func (s *Server) setupRoutes() {
 			r.Use(middleware.SPAFallback(s.serveCustomerSPA))
 			r.Use(middleware.CustomerAuth(s.db))
 
-			// Devices
-			r.Get("/devices", portal.GetDevices)
-			r.Get("/connect-keys", portal.GetConnectKeys)
-			r.Post("/connect-keys", portal.GenerateConnectKey)
-			r.Post("/connect-keys/revoke", portal.RevokeConnectKey)
-
-			// Email verification
+			// Reachable without a verified email so unverified users can
+			// manage verification itself.
 			r.Post("/resend-verification", portal.ResendVerification)
+			r.Get("/verification-status", portal.GetVerificationStatus)
+			r.Get("/me", portal.GetMe)
 
-			// 2FA
-			r.Post("/2fa/setup", portal.Setup2FA)
-			r.Post("/2fa/verify", portal.Verify2FA)
-			r.Post("/2fa/disable", portal.Disable2FA)
+			// Everything below requires a verified email — no account
+			// activity is allowed until the address is confirmed.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireVerifiedEmail(s.db))
 
-			// Usage & billing
-			r.Get("/usage", portal.GetUsage)
-			r.Get("/billing", portal.GetBilling)
-			r.Post("/subscribe", portal.Subscribe)
-			r.Post("/cancel", portal.Cancel)
-			r.Post("/change-plan", portal.ChangePlan)
+				// Devices
+				r.Get("/devices", portal.GetDevices)
+				r.Get("/connect-keys", portal.GetConnectKeys)
+				r.Post("/connect-keys", portal.GenerateConnectKey)
+				r.Post("/connect-keys/revoke", portal.RevokeConnectKey)
 
-			r.Post("/checkout", portal.CreateCheckoutSession)
-			r.Post("/billing-portal", portal.BillingPortal)
+				// 2FA
+				r.Post("/2fa/setup", portal.Setup2FA)
+				r.Post("/2fa/verify", portal.Verify2FA)
+				r.Post("/2fa/disable", portal.Disable2FA)
 
-			// Domains
-			r.Post("/domains/search", portal.SearchDomains)
-			r.Post("/domains/check", portal.CheckDomain)
-			r.Post("/domains/register", portal.RegisterDomain)
-			r.Get("/domains", portal.ListDomains)
+				// Usage & billing
+				r.Get("/usage", portal.GetUsage)
+				r.Get("/billing", portal.GetBilling)
+				r.Post("/subscribe", portal.Subscribe)
+				r.Post("/cancel", portal.Cancel)
+				r.Post("/change-plan", portal.ChangePlan)
 
-			// Consent
-			r.Get("/consent", portal.GetConsentRequests)
-			r.Post("/consent/respond", portal.RespondConsent)
+				r.Post("/checkout", portal.CreateCheckoutSession)
+				r.Post("/billing-portal", portal.BillingPortal)
+
+				// Domains
+				r.Post("/domains/search", portal.SearchDomains)
+				r.Post("/domains/check", portal.CheckDomain)
+				r.Post("/domains/register", portal.RegisterDomain)
+				r.Get("/domains", portal.ListDomains)
+
+				// Consent
+				r.Get("/consent", portal.GetConsentRequests)
+				r.Post("/consent/respond", portal.RespondConsent)
+			})
 		})
 	})
 

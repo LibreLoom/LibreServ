@@ -42,6 +42,8 @@ export const api = {
     body: JSON.stringify({ token }),
   }),
   resendVerification: () => request("/portal/resend-verification", { method: "POST" }),
+  getVerificationStatus: () => request("/portal/verification-status"),
+  getMe: () => request("/portal/me"),
   setup2FA: () => request("/portal/2fa/setup", { method: "POST" }),
   verify2FA: (code) => request("/portal/2fa/verify", {
     method: "POST",

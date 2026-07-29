@@ -17,17 +17,24 @@ export default function Dashboard() {
   const [copied, setCopied] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
+  // Verified accounts only — every portal endpoint 403s until the email is
+  // verified, so don't fire queries we know will fail.
+  const verified = !!account?.email_verified;
+
   const { data: devicesData } = useQuery({
     queryKey: ["devices"],
     queryFn: api.getDevices,
+    enabled: verified,
   });
   const { data: keysData } = useQuery({
     queryKey: ["connect-keys"],
     queryFn: api.getConnectKeys,
+    enabled: verified,
   });
   const { data: consentData } = useQuery({
     queryKey: ["consent-requests"],
     queryFn: api.getConsentRequests,
+    enabled: verified,
   });
   const { data: plansData } = useQuery({
     queryKey: ["plans"],
@@ -86,26 +93,27 @@ export default function Dashboard() {
     <Layout>
       <h2 className="font-mono text-2xl mb-6">Dashboard</h2>
 
-      {/* Email verification banner */}
-      {account && !account.email_verified && (
-        <div className="mb-6 rounded-large-element bg-warning/20 border border-warning/30 p-4 flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
-          <MailCheck className="w-5 h-5 text-warning shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm text-foreground font-medium">Verify your email address</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              We sent a verification link to {account.email}. You need to verify your email
-              before you can generate a license key and connect your device.
+      {/* Unverified accounts are fully blocked from account activity */}
+      {!verified ? (
+        <Card>
+          <CardContent className="py-12 flex flex-col items-center text-center">
+            <div className="w-14 h-14 rounded-full bg-warning/20 flex items-center justify-center mb-6">
+              <MailCheck className="w-7 h-7 text-warning" />
+            </div>
+            <h3 className="font-mono text-xl mb-3">Verify your email to continue</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mb-8">
+              We sent a verification link to{" "}
+              <span className="font-mono text-foreground">{account?.email}</span>.
+              Until you click it, your dashboard, devices, license keys, and
+              billing are all locked.
             </p>
-            <button
-              onClick={() => navigate("/security")}
-              className="text-sm text-foreground underline mt-2 hover:text-foreground/80 motion-safe:transition-colors"
-            >
-              Resend verification email →
-            </button>
-          </div>
-        </div>
-      )}
-
+            <Button size="lg" onClick={() => navigate("/security")}>
+              Resend verification email
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+      <>
       {/* Current plan card */}
       <Card className="mb-6">
         <CardHeader>
@@ -318,6 +326,8 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+      )}
+      </>
       )}
     </Layout>
   );

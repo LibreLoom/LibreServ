@@ -1,11 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { X, Loader2, MailCheck } from "lucide-react";
 
 export default function VerifyEmail() {
   const navigate = useNavigate();
+  const { markEmailVerified } = useAuth();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
   const [status, setStatus] = useState("verifying"); // verifying | success | error
@@ -19,12 +21,12 @@ export default function VerifyEmail() {
     }
 
     api.verifyEmail(token)
-      .then(() => setStatus("success"))
+      .then(() => { markEmailVerified(); setStatus("success"); })
       .catch((err) => {
         setStatus("error");
         setError(err.message || "This verification link is invalid or has expired.");
       });
-  }, [token]);
+  }, [token, markEmailVerified]);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">

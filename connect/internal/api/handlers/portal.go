@@ -207,6 +207,54 @@ func (h *PortalHandler) ResendVerification(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// GetVerificationStatus reports whether the authenticated account's email is
+// verified. Deliberately NOT gated by RequireVerifiedEmail — the onboarding
+// flow polls it to detect when the user clicks the link in their inbox.
+func (h *PortalHandler) GetVerificationStatus(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+
+	var verified bool
+	err := h.db.QueryRowContext(r.Context(),
+		"SELECT email_verified FROM customer_accounts WHERE id = $1", accountID).Scan(&verified)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not find account")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{"email_verified": verified})
+}
+
+// GetMe returns the authenticated account's profile. Used by the portal SPA to
+// restore the session account after a page reload. Deliberately NOT gated by
+// RequireVerifiedEmail — unverified users must be able to load their own
+// profile to see the verification-blocked state.
+func (h *PortalHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+
+	var (
+		id, email, name, planID, username string
+		emailVerified, totpEnabled        bool
+	)
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT id, email, name, plan_id, COALESCE(username, ''), email_verified, totp_enabled
+		 FROM customer_accounts WHERE id = $1`, accountID).
+		Scan(&id, &email, &name, &planID, &username, &emailVerified, &totpEnabled)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not find account")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"id":             id,
+		"email":          email,
+		"name":           name,
+		"username":       username,
+		"plan_id":        planID,
+		"email_verified": emailVerified,
+		"has_2fa":        totpEnabled,
+	})
+}
+
 // createEmailVerificationToken generates a verification token, stores its hash,
 // and returns the raw token to embed in a verification link.
 func (h *PortalHandler) createEmailVerificationToken(ctx context.Context, accountID string) (string, error) {
