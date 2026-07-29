@@ -13,7 +13,7 @@ const FORMAT_OPTIONS = [
   { value: "anthropic", label: "Anthropic (Messages)" },
 ];
 
-export default function AIServiceModal({ open, onClose, service, connectStatus = null, aiSettings = null, csrfToken = "" }) {
+export default function AIServiceModal({ open, onClose, onSaved, service, connectStatus = null, aiSettings = null, csrfToken = "" }) {
   const rawSettings = aiSettings || {};
   const [useConnect, setUseConnect] = useState(service?.state === "connected");
   const [apiKey, setApiKey] = useState("");
@@ -69,6 +69,7 @@ export default function AIServiceModal({ open, onClose, service, connectStatus =
       }
       await updateAISettings(aiUpdates, csrfToken);
 
+      if (onSaved) await onSaved();
       close();
     } catch (e) {
       const msg = e?.message || "Something went wrong while saving. Please try again.";

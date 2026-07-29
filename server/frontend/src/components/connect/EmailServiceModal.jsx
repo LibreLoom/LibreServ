@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Mail, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
+import { updateNotifications } from "../../lib/notifications-api.js";
 
-export default function EmailServiceModal({ open, onClose, service, connectStatus = null, csrfToken = "" }) {
+export default function EmailServiceModal({ open, onClose, onSaved, service, connectStatus = null, csrfToken = "" }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const [form, setForm] = useState({
     host: "",
     port: "587",
@@ -19,6 +21,13 @@ export default function EmailServiceModal({ open, onClose, service, connectStatu
     from: "",
     useTls: true,
   });
+
+  useEffect(() => {
+    if (!open) return;
+    setUseConnect(service?.state === "connected");
+    setError(null);
+     
+  }, [open, service]);
 
   if (!open) return null;
 
@@ -151,20 +160,51 @@ export default function EmailServiceModal({ open, onClose, service, connectStatu
           </div>
         )}
 
+        {error && (
+          <div className="bg-error/10 text-error rounded-large-element p-3 text-sm font-mono">
+            {error}
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={close} disabled={saving}>
             Cancel
           </Button>
           <Button variant="primary" onClick={async () => {
             setSaving(true);
+            setError(null);
             try {
               if (useConnect) {
                 await updateConnectService("smtp", "connected", csrfToken);
               } else {
+                if (!form.host.trim()) {
+                  setError("Enter your SMTP host, or turn on LibreServ Connect instead.");
+                  setSaving(false);
+                  return;
+                }
+                const port = parseInt(form.port, 10);
+                if (Number.isNaN(port) || port < 1 || port > 65535) {
+                  setError("Enter a valid port number between 1 and 65535.");
+                  setSaving(false);
+                  return;
+                }
                 await updateConnectService("smtp", "byo", csrfToken);
+                await updateNotifications({
+                  smtp: {
+                    host: form.host.trim(),
+                    port,
+                    username: form.username.trim(),
+                    password: form.password,
+                    from: form.from.trim(),
+                    use_tls: form.useTls,
+                  },
+                }, csrfToken);
               }
+              if (onSaved) await onSaved();
               close();
             } catch (e) {
+              const msg = e?.message || "Something went wrong while saving. Please try again.";
+              setError(msg);
               console.error("Failed to save email service config:", e);
             } finally {
               setSaving(false);

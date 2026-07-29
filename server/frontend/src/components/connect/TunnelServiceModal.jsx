@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Waypoints, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
@@ -6,12 +6,20 @@ import Button from "../ui/Button.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 
-export default function TunnelServiceModal({ open, onClose, service, connectStatus = null, csrfToken = "" }) {
+export default function TunnelServiceModal({ open, onClose, onSaved, service, connectStatus = null, csrfToken = "" }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
   const [tunnelToken, setTunnelToken] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setUseConnect(service?.state === "connected");
+    setError(null);
+     
+  }, [open, service]);
 
   if (!open) return null;
 
@@ -93,16 +101,26 @@ export default function TunnelServiceModal({ open, onClose, service, connectStat
           </div>
         )}
 
+        {error && (
+          <div className="bg-error/10 text-error rounded-large-element p-3 text-sm font-mono">
+            {error}
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={close} disabled={saving}>
             Cancel
           </Button>
           <Button variant="primary" onClick={async () => {
             setSaving(true);
+            setError(null);
             try {
               await updateConnectService("tunnel", useConnect ? "connected" : "byo", csrfToken);
+              if (onSaved) await onSaved();
               close();
             } catch (e) {
+              const msg = e?.message || "Something went wrong while saving. Please try again.";
+              setError(msg);
               console.error("Failed to save tunnel config:", e);
             } finally {
               setSaving(false);

@@ -170,7 +170,7 @@ func (s *Service) TokenExpiry(token string) (time.Time, error) {
 // ValidatePassword enforces password policy.
 func (s *Service) ValidatePassword(pw string) error {
 	if len(pw) < 12 {
-		return errors.New("password must be at least 12 characters")
+		return errors.New("Password must be at least 12 characters.")
 	}
 	var hasLetter, hasDigit bool
 	for _, r := range pw {
@@ -182,7 +182,7 @@ func (s *Service) ValidatePassword(pw string) error {
 		}
 	}
 	if !hasLetter || !hasDigit {
-		return errors.New("password must include letters and numbers")
+		return errors.New("Password must include both letters and numbers.")
 	}
 	return nil
 }

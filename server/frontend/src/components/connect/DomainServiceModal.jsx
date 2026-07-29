@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Globe, Check, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
@@ -15,17 +15,25 @@ const DNS_PROVIDERS = [
   { value: "namecheap", label: "Namecheap" },
 ];
 
-export default function DomainServiceModal({ open, onClose, service, connectStatus = null, csrfToken = "" }) {
+export default function DomainServiceModal({ open, onClose, onSaved, service, connectStatus = null, csrfToken = "" }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
   const [form, setForm] = useState({
     domain: "",
     provider: "cloudflare",
     apiToken: "",
     email: "",
   });
+
+  useEffect(() => {
+    if (!open) return;
+    setUseConnect(service?.state === "connected");
+    setError(null);
+     
+  }, [open, service]);
 
   if (!open) return null;
 
@@ -132,16 +140,26 @@ export default function DomainServiceModal({ open, onClose, service, connectStat
           </div>
         )}
 
+        {error && (
+          <div className="bg-error/10 text-error rounded-large-element p-3 text-sm font-mono">
+            {error}
+          </div>
+        )}
+
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={close} disabled={saving}>
             Cancel
           </Button>
           <Button onClick={async () => {
             setSaving(true);
+            setError(null);
             try {
               await updateConnectService("domain", useConnect ? "connected" : "byo", csrfToken);
+              if (onSaved) await onSaved();
               close();
             } catch (e) {
+              const msg = e?.message || "Something went wrong while saving. Please try again.";
+              setError(msg);
               console.error("Failed to save domain config:", e);
             } finally {
               setSaving(false);

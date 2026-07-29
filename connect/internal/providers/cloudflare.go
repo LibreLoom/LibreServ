@@ -231,6 +231,7 @@ func (c *CloudflareClient) DeleteRecordByName(apiToken, zone, hostname string) e
 	}
 	return nil
 }
+
 // isFullHostname returns true if the name looks like a full hostname (contains a dot).
 func isFullHostname(name string) bool {
 	for _, c := range name {

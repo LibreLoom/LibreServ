@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -14,36 +14,58 @@ import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
 import {
   Globe, Shield, Key,
   ChevronRight, ChevronLeft, Copy, Check, Loader2, Search,
-  ArrowRight, ArrowLeft, Sparkles, User,
+  ArrowRight, Sparkles, User, MailOpen, RefreshCw,
   X
 } from "lucide-react";
-const STEP_LABELS = ["Welcome", "Account", "Plan", "Domain", "Key"];
+
+const STEPS = [
+  { id: "welcome", label: "Welcome" },
+  { id: "account", label: "Account" },
+  { id: "verify", label: "Verify email" },
+  { id: "plan", label: "Plan" },
+  { id: "domain", label: "Domain" },
+  { id: "key", label: "Key" },
+];
 
 function ProgressBar({ step }) {
   return (
-    <div className="flex items-center justify-center gap-1 pt-8 pb-6">
-      {STEP_LABELS.map((label, i) => (
-        <div key={label} className="flex items-center">
-          <div
-            className={cn(
-              "flex items-center justify-center w-8 h-8 rounded-full text-xs font-mono motion-safe:transition-colors",
-              i < step
-                ? "bg-foreground/15 text-foreground"
-                : i === step
-                ? "bg-foreground text-background ring-2 ring-ring"
-                : "bg-muted text-muted-foreground"
-            )}
-            title={label}
-          >
-            {i < step ? <Check className="w-4 h-4" /> : i + 1}
-          </div>
-          {i < STEP_LABELS.length - 1 && (
+    <div className="flex items-center justify-center pt-10 pb-8 px-4" role="list" aria-label="Setup progress">
+      {STEPS.map((s, i) => (
+        <div key={s.id} className="flex items-center" role="listitem">
+          <div className="flex flex-col items-center gap-2">
             <div
               className={cn(
-                "w-6 sm:w-10 h-0.5 mx-0.5 motion-safe:transition-colors",
-                i < step ? "bg-foreground/30" : "bg-muted"
+                "relative flex items-center justify-center w-9 h-9 rounded-full text-xs font-mono motion-safe:transition-all motion-safe:duration-300",
+                i < step
+                  ? "bg-foreground text-background"
+                  : i === step
+                  ? "bg-foreground text-background scale-110 shadow-[0_0_0_5px_var(--ring-soft)]"
+                  : "bg-muted text-muted-foreground"
               )}
-            />
+              aria-current={i === step ? "step" : undefined}
+            >
+              {i < step ? (
+                <Check className="w-4 h-4 animate-check-pop" />
+              ) : (
+                <span className={cn(i === step && "animate-fade-in")}>{i + 1}</span>
+              )}
+            </div>
+            <span
+              className={cn(
+                "hidden sm:block text-[11px] font-mono motion-safe:transition-colors motion-safe:duration-300",
+                i === step ? "text-foreground" : "text-muted-foreground"
+              )}
+            >
+              {s.label}
+            </span>
+          </div>
+          {i < STEPS.length - 1 && (
+            <div className="relative w-6 sm:w-12 h-0.5 mx-2 mb-0 sm:mb-6 bg-muted overflow-hidden rounded-full">
+              <div
+                className="absolute inset-y-0 left-0 bg-foreground motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-[cubic-bezier(0.05,0.7,0.1,1)]"
+                style={{ width: i < step ? "100%" : "0%" }}
+              />
+            </div>
           )}
         </div>
       ))}
@@ -51,20 +73,75 @@ function ProgressBar({ step }) {
   );
 }
 
+ProgressBar.propTypes = {
+  step: PropTypes.number.isRequired,
+};
+
 function ErrorBanner({ error, onDismiss }) {
   if (!error) return null;
   return (
-    <div className="rounded-large-element bg-error/10 border-2 border-error/30 p-3 flex items-start gap-2 mb-6">
+    <div className="rounded-large-element bg-error/10 border-2 border-error/30 p-4 flex items-start gap-3 mb-8 animate-fade-in-up">
       <X className="w-4 h-4 text-error mt-0.5 shrink-0" />
-      <p className="text-sm text-error flex-1">{error}</p>
+      <p className="text-sm text-error flex-1 leading-relaxed">{error}</p>
       {onDismiss && (
-        <button onClick={onDismiss} className="text-error/60 hover:text-error motion-safe:transition-colors">
+        <button onClick={onDismiss} className="text-error/60 hover:text-error motion-safe:transition-colors" aria-label="Dismiss error">
           <X className="w-4 h-4" />
         </button>
       )}
     </div>
   );
 }
+
+ErrorBanner.propTypes = {
+  error: PropTypes.string,
+  onDismiss: PropTypes.func,
+};
+
+function StepShell({ icon: Icon, title, children, wide = false }) {
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-6 animate-step-icon">
+        <Icon size={26} className="text-foreground" strokeWidth={1.75} />
+      </div>
+      <h1 className="font-mono text-[1.75rem] leading-snug font-normal text-card-foreground tracking-tight mb-3 text-balance">
+        {title}
+      </h1>
+      <div className={cn("w-full", wide ? "max-w-md" : "max-w-sm")}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+StepShell.propTypes = {
+  icon: PropTypes.elementType.isRequired,
+  title: PropTypes.string.isRequired,
+  children: PropTypes.node.isRequired,
+  wide: PropTypes.bool,
+};
+
+function Field({ label, htmlFor, hint, children }) {
+  return (
+    <div className="text-left">
+      <Label htmlFor={htmlFor} className="mb-2 block">{label}</Label>
+      {children}
+      {hint && (
+        <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+Field.propTypes = {
+  label: PropTypes.string.isRequired,
+  htmlFor: PropTypes.string.isRequired,
+  hint: PropTypes.node,
+  children: PropTypes.node.isRequired,
+};
+
+Field.defaultProps = {
+  hint: undefined,
+};
 
 // PlanCard — individual plan option with animated height for the Selected indicator.
 function PlanCard({ plan, isCurrent, onClick }) {
@@ -146,16 +223,18 @@ function loadProgress() {
 }
 
 function saveProgress(data) {
-  try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(data)); } catch {}
+  try { localStorage.setItem(PROGRESS_KEY, JSON.stringify(data)); } catch { /* storage unavailable */ }
 }
 
 function clearProgress() {
-  try { localStorage.removeItem(PROGRESS_KEY); } catch {}
+  try { localStorage.removeItem(PROGRESS_KEY); } catch { /* storage unavailable */ }
 }
+
+const RESEND_COOLDOWN = 45;
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const { login, register, loading: authLoading, account } = useAuth();
   const saved = useRef(loadProgress());
   const [step, setStep] = useState(saved.current?.step || 0);
   const [direction, setDirection] = useState("right"); // "right" | "left"
@@ -168,6 +247,9 @@ export default function Onboarding() {
   const [username, setUsername] = useState(saved.current?.username || "");
   const [isLoginMode, setIsLoginMode] = useState(false);
 
+  const [resendState, setResendState] = useState("idle"); // idle | sending | sent
+  const [cooldown, setCooldown] = useState(0);
+  const [emailVerified, setEmailVerified] = useState(false);
 
   const [selectedPlan, setSelectedPlan] = useState(saved.current?.selectedPlan || null);
 
@@ -204,10 +286,17 @@ export default function Onboarding() {
 
   const clearError = () => setError("");
 
+  // Resend cooldown ticker
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
   // Auto-generate the connect key when the user reaches the key step.
-  // The key step is the last step (index 4). We generate once — the guard
+  // The key step is the last step. We generate once — the guard
   // prevents duplicate calls on re-renders.
-  const keyStep = 4; // renderConnectKey index in stepComponents
+  const keyStep = STEPS.length - 1;
   useEffect(() => {
     if (step !== keyStep || connectKey || generatingKey) return;
     setGeneratingKey(true);
@@ -216,7 +305,7 @@ export default function Onboarding() {
       .then((res) => setConnectKey(res.connect_key))
       .catch((err) => setError(err.message || "Could not generate your Connect key. Try again."))
       .finally(() => setGeneratingKey(false));
-  }, [step, connectKey, generatingKey]);
+  }, [step, connectKey, generatingKey, keyStep]);
 
   const handlePlanContinue = async () => {
     clearError();
@@ -241,22 +330,49 @@ export default function Onboarding() {
     goNext();
   };
 
-
   const handleAuth = async (e) => {
     e.preventDefault();
     clearError();
     try {
       if (isLoginMode) {
-        await login(email, password);
+        const res = await login(email, password);
+        // Existing accounts that already verified skip the verify step.
+        if (res && res.email_verified) {
+          setStep(3); // plan step
+        } else {
+          goNext();
+        }
       } else {
-        // Register now returns a token — auto sign-in (no separate login call)
+        // Register returns a token — auto sign-in (no separate login call)
         await register(email, password, name, username);
+        goNext();
       }
-      setStep(1);
     } catch (err) {
       setError(err.message || "Could not sign in. Check your details and try again.");
     }
   };
+
+  const handleResend = useCallback(async () => {
+    if (cooldown > 0 || resendState === "sending") return;
+    clearError();
+    setResendState("sending");
+    try {
+      await api.resendVerification();
+      setResendState("sent");
+      setCooldown(RESEND_COOLDOWN);
+      setTimeout(() => setResendState("idle"), 3000);
+    } catch (err) {
+      setError(err.message || "We couldn't send the verification email. Try again in a moment.");
+      setResendState("idle");
+    }
+  }, [cooldown, resendState]);
+
+  // If the account object updates to verified while the user is on the
+  // verify step (e.g. they clicked the email link in another tab and then
+  // re-authenticated), reflect it.
+  useEffect(() => {
+    if (account?.email_verified) setEmailVerified(true);
+  }, [account]);
 
   const handleGenerateKey = async () => {
     setGeneratingKey(true);
@@ -324,80 +440,96 @@ export default function Onboarding() {
   // ===== Step Renderers =====
 
   const renderWelcome = () => (
-    <div className="flex flex-col items-center text-center py-4">
-      <Sparkles size={48} className="text-muted-foreground mx-auto mb-4" />
-      <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-        Set up LibreServ Connect
-      </h1>
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-8">
+    <StepShell icon={Sparkles} title="Set up LibreServ Connect">
+      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-10">
         Connect gives your LibreServ device a domain name, email, remote access,
         and cloud backup — all wired up in one signup.
       </p>
-      <Button size="lg" onClick={goNext}>
+      <div className="w-full max-w-sm mx-auto space-y-3 mb-10 text-left">
+        {[
+          "Create your account and verify your email",
+          "Pick a plan and a domain for your device",
+          "Get one key that links everything together",
+        ].map((item, i) => (
+          <div
+            key={item}
+            className="flex items-center gap-3 rounded-large-element bg-muted px-4 py-3 animate-fade-in-up"
+            style={{ animationDelay: `${120 + i * 90}ms` }}
+          >
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-foreground text-background text-xs font-mono shrink-0">
+              {i + 1}
+            </span>
+            <span className="text-sm text-card-foreground">{item}</span>
+          </div>
+        ))}
+      </div>
+      <Button size="lg" onClick={goNext} className="w-full max-w-sm">
         Get started <ArrowRight className="w-5 h-5 ml-1" />
       </Button>
-    </div>
+    </StepShell>
   );
 
   const renderAuth = () => (
-    <div className="flex flex-col items-center text-center py-4">
-      <User size={48} className="text-muted-foreground mx-auto mb-4" />
-      <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-        {isLoginMode ? "Welcome back" : "Create your account"}
-      </h1>
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
+    <StepShell icon={User} title={isLoginMode ? "Welcome back" : "Create your account"}>
+      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
         {isLoginMode
           ? "Sign in to your LibreServ Connect account."
           : "Your email is how you access your dashboard and manage your device."}
       </p>
 
-      <form onSubmit={handleAuth} className="w-full max-w-sm space-y-4 text-left">
+      <form onSubmit={handleAuth} className="w-full max-w-sm mx-auto space-y-5 text-left">
         {!isLoginMode && (
-          <div>
-            <Label htmlFor="onb-name">Your name</Label>
-            <Input
-              id="onb-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Jane Doe"
-            />
-          </div>
+          <>
+            <Field label="Your name" htmlFor="onb-name">
+              <Input
+                id="onb-name"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Jane Doe"
+                autoFocus
+              />
+            </Field>
+            <Field
+              label="Pick a name for your account"
+              htmlFor="onb-username"
+              hint={
+                <>
+                  When your apps send email (like password resets or notifications), the
+                  "from" address will be{" "}
+                  <span className="font-mono">{username || "your-name"}-u@resend.libreloom.org</span>.
+                  This is like the return address on a letter — it tells recipients who it came from.
+                  Use letters, numbers, and hyphens (3-30 characters).
+                </>
+              }
+            >
+              <Input
+                id="onb-username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                placeholder="jane-doe"
+                autoComplete="off"
+              />
+            </Field>
+          </>
         )}
-        {!isLoginMode && (
-          <div>
-            <Label htmlFor="onb-username">Pick a name for your account</Label>
-            <Input
-              id="onb-username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-              placeholder="jane-doe"
-              autoComplete="off"
-            />
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              When your apps send email (like password resets or notifications), the
-              "from" address will be{" "}
-              <span className="font-mono">{username || "your-name"}-u@resend.libreloom.org</span>.
-              This is like the return address on a letter — it tells recipients who it came from.
-              Use letters, numbers, and hyphens (3-30 characters).
-            </p>
-          </div>
-        )}
-        <div>
-          <Label htmlFor="onb-email">Email address</Label>
+        <Field label="Email address" htmlFor="onb-email">
           <Input
             id="onb-email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
-            autoFocus
+            autoFocus={isLoginMode}
             autoComplete="username"
           />
-        </div>
-        <div>
-          <Label htmlFor="onb-password">Password</Label>
+        </Field>
+        <Field
+          label="Password"
+          htmlFor="onb-password"
+          hint={!isLoginMode ? "Use at least 8 characters with a mix of letters, numbers, and symbols." : undefined}
+        >
           <Input
             id="onb-password"
             type="password"
@@ -406,34 +538,105 @@ export default function Onboarding() {
             placeholder="At least 8 characters"
             autoComplete={isLoginMode ? "current-password" : "new-password"}
           />
-          {!isLoginMode && (
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              Use at least 8 characters with a mix of letters, numbers, and symbols.
-            </p>
-          )}
-        </div>
+        </Field>
 
-        <Button type="submit" className="w-full" size="lg">
-          {isLoginMode ? "Sign in" : "Create account and sign in"}
-        </Button>
+        <div className="pt-2">
+          <Button type="submit" className="w-full" size="lg" loading={authLoading}>
+            {isLoginMode ? "Sign in" : "Create account and sign in"}
+          </Button>
+        </div>
       </form>
 
       <button
         type="button"
         onClick={() => { setIsLoginMode(!isLoginMode); setError(""); }}
-        className="text-sm text-muted-foreground hover:text-card-foreground mt-4 underline motion-safe:transition-colors"
+        className="text-sm text-muted-foreground hover:text-card-foreground mt-6 underline underline-offset-4 motion-safe:transition-colors"
       >
         {isLoginMode ? "Need an account? Register" : "Already have an account? Sign in"}
       </button>
-    </div>
+    </StepShell>
   );
 
+  const renderVerifyEmail = () => {
+    if (emailVerified) {
+      return (
+        <StepShell icon={Check} title="Email verified">
+          <div className="mx-auto w-16 h-16 rounded-full bg-success/20 flex items-center justify-center mb-6 animate-step-icon">
+            <Check className="w-8 h-8 text-success animate-check-pop" />
+          </div>
+          <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
+            <span className="font-mono text-card-foreground">{email}</span> is confirmed.
+            You're all set — on to the next step.
+          </p>
+          <Button size="lg" className="w-full max-w-sm" onClick={goNext}>
+            Continue <ChevronRight className="w-4 h-4 ml-1" />
+          </Button>
+        </StepShell>
+      );
+    }
 
+    return (
+      <StepShell icon={MailOpen} title="Check your inbox">
+        <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
+          We sent a verification link to{" "}
+          <span className="font-mono text-card-foreground">{email}</span>.
+          Click it to confirm this address is really yours. It keeps your
+          password resets and device alerts safe.
+        </p>
+
+        <div className="w-full max-w-sm mx-auto space-y-3 mb-8 text-left">
+          {[
+            <>Open the email from <span className="font-mono">LibreServ Connect</span></>,
+            "Click the Verify my email button inside",
+            "Come back here and continue",
+          ].map((item, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-3 rounded-large-element bg-muted px-4 py-3 animate-fade-in-up"
+              style={{ animationDelay: `${120 + i * 90}ms` }}
+            >
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-foreground text-background text-xs font-mono shrink-0">
+                {i + 1}
+              </span>
+              <span className="text-sm text-card-foreground">{item}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="w-full max-w-sm mx-auto space-y-3">
+          <Button size="lg" className="w-full" onClick={goNext}>
+            I've clicked the link — continue <ChevronRight className="w-4 h-4 ml-1" />
+          </Button>
+          <Button
+            size="md"
+            variant="outline"
+            className="w-full"
+            onClick={handleResend}
+            disabled={cooldown > 0 || resendState === "sending"}
+          >
+            {resendState === "sending" ? (
+              <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Sending…</>
+            ) : resendState === "sent" ? (
+              <><Check className="w-4 h-4 mr-1 text-success" /> Email sent</>
+            ) : cooldown > 0 ? (
+              <>Resend in {cooldown}s</>
+            ) : (
+              <><RefreshCw className="w-4 h-4 mr-1" /> Resend verification email</>
+            )}
+          </Button>
+          <p className="text-xs text-muted-foreground leading-relaxed pt-1">
+            Can't find it? Check your spam or junk folder. You can also continue
+            now and verify later — the link stays valid for a while.
+          </p>
+        </div>
+      </StepShell>
+    );
+  };
 
   const renderPlan = () => {
     if (loadingPlans) {
       return (
-        <div className="flex flex-col items-center text-center py-4">
+        <div className="flex flex-col items-center text-center py-8">
           <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mb-4" />
           <p className="text-muted-foreground text-sm">Loading plans…</p>
         </div>
@@ -441,40 +644,37 @@ export default function Onboarding() {
     }
 
     return (
-      <div className="flex flex-col items-center text-center py-4">
-        <Shield size={48} className="text-muted-foreground mx-auto mb-4" />
-        <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-          Choose a plan
-        </h1>
-        <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
+      <StepShell icon={Shield} title="Choose a plan">
+        <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
           Pick what fits your needs. You can change or cancel anytime.
         </p>
 
-        <div className="w-full max-w-sm space-y-2.5">
-          {plans.map((plan) => (
-            <PlanCard
-              key={plan.id}
-              plan={plan}
-              isCurrent={selectedPlan === plan.id}
-              onClick={() => setSelectedPlan(plan.id)}
-            />
+        <div className="w-full max-w-sm mx-auto space-y-3">
+          {plans.map((plan, i) => (
+            <div key={plan.id} className="animate-fade-in-up" style={{ animationDelay: `${i * 70}ms` }}>
+              <PlanCard
+                plan={plan}
+                isCurrent={selectedPlan === plan.id}
+                onClick={() => setSelectedPlan(plan.id)}
+              />
+            </div>
           ))}
         </div>
 
         {selectedPlan && !isFreePlan && (
-          <div className="w-full max-w-sm mt-4 rounded-large-element border border-border bg-muted p-4 text-left animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="w-full max-w-sm mx-auto mt-5 rounded-large-element border border-border bg-muted p-4 text-left animate-in fade-in slide-in-from-bottom-2 duration-300">
             <p className="text-xs text-muted-foreground">
               You'll complete payment through Stripe on the next screen.
             </p>
           </div>
         )}
 
-        <div className="w-full max-w-sm mt-6">
+        <div className="w-full max-w-sm mx-auto mt-8">
           <Button size="lg" className="w-full" disabled={!selectedPlan} loading={checkoutLoading} onClick={handlePlanContinue}>
             {isFreePlan ? "Continue" : "Continue to Payment"} <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
         </div>
-      </div>
+      </StepShell>
     );
   };
 
@@ -484,17 +684,13 @@ export default function Onboarding() {
   };
 
   const renderPaidDomain = () => (
-    <div className="flex flex-col items-center text-center py-4">
-      <Globe size={48} className="text-muted-foreground mx-auto mb-4" />
-      <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-        Choose your domain
-      </h1>
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
+    <StepShell icon={Globe} title="Choose your domain">
+      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
         Pick a free subdomain or buy a custom domain at cost through Cloudflare.
       </p>
 
       {/* Toggle */}
-      <div className="w-full max-w-sm flex bg-muted rounded-pill p-1 mb-6">
+      <div className="w-full max-w-sm mx-auto flex bg-muted rounded-pill p-1 mb-8">
         <button
           type="button"
           className={cn(
@@ -524,10 +720,9 @@ export default function Onboarding() {
       {domainMode === "subdomain" && (
         <form
           onSubmit={(e) => { e.preventDefault(); if (subdomainName.trim()) goNext(); }}
-          className="w-full max-w-sm space-y-4 text-left"
+          className="w-full max-w-sm mx-auto space-y-5 text-left"
         >
-          <div>
-            <Label htmlFor="onb-paid-subdomain">Subdomain name</Label>
+          <Field label="Subdomain name" htmlFor="onb-paid-subdomain">
             <Input
               id="onb-paid-subdomain"
               type="text"
@@ -537,11 +732,11 @@ export default function Onboarding() {
               autoFocus
             />
             {subdomainName && (
-              <p className="mt-2 text-sm font-mono text-foreground bg-muted rounded-large-element px-3 py-2">
+              <p className="mt-3 text-sm font-mono text-foreground bg-muted rounded-large-element px-4 py-2.5 animate-fade-in-up">
                 {subdomainName}.servers.libreloom.org
               </p>
             )}
-          </div>
+          </Field>
           <Button type="submit" className="w-full" size="lg" disabled={!subdomainName.trim()}>
             Continue <ChevronRight className="w-4 h-4 ml-1" />
           </Button>
@@ -549,14 +744,14 @@ export default function Onboarding() {
       )}
 
       {domainMode === "custom" && (
-        <div className="w-full max-w-sm space-y-4 text-left">
+        <div className="w-full max-w-sm mx-auto space-y-5 text-left">
           {registeredDomain ? (
-            <div className="text-center space-y-4">
+            <div className="text-center space-y-5">
               <div className="mx-auto w-14 h-14 rounded-full bg-success/20 flex items-center justify-center">
-                <Check className="w-7 h-7 text-success" />
+                <Check className="w-7 h-7 text-success animate-check-pop" />
               </div>
               <p className="font-mono text-xl text-card-foreground">{registeredDomain}</p>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground leading-relaxed">
                 Your domain is registered. We'll set up the DNS records automatically.
               </p>
               <Button size="lg" className="w-full" onClick={goNext}>
@@ -565,8 +760,7 @@ export default function Onboarding() {
             </div>
           ) : (
             <>
-              <div>
-                <Label htmlFor="onb-custom-domain">Search for a domain</Label>
+              <Field label="Search for a domain" htmlFor="onb-custom-domain">
                 <div className="flex gap-2">
                   <Input
                     id="onb-custom-domain"
@@ -580,17 +774,17 @@ export default function Onboarding() {
                     <Search className="w-4 h-4" />
                   </Button>
                 </div>
-              </div>
+              </Field>
 
               {domainResults.length > 0 && (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   {domainResults.map((result) => {
                     const checked = result.available !== undefined;
                     return (
                       <div
                         key={result.name}
                         className={cn(
-                          "flex items-center justify-between rounded-large-element border p-3 gap-3",
+                          "flex items-center justify-between rounded-large-element border p-3.5 gap-3 animate-fade-in-up",
                           result.available ? "border-success/30 bg-success/5" : "border-border"
                         )}
                       >
@@ -635,28 +829,23 @@ export default function Onboarding() {
           )}
         </div>
       )}
-    </div>
+    </StepShell>
   );
 
 
 
   const renderFreeDomain = () => (
-    <div className="flex flex-col items-center text-center py-4">
-      <Globe size={48} className="text-muted-foreground mx-auto mb-4" />
-      <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-        Pick your free domain
-      </h1>
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
+    <StepShell icon={Globe} title="Pick your free domain">
+      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
         Choose a name for your free subdomain. Your apps will live at{" "}
         <span className="font-mono">yourname.free.servers.libreloom.org</span>.
       </p>
 
       <form
         onSubmit={(e) => { e.preventDefault(); if (subdomainName.trim()) goNext(); }}
-        className="w-full max-w-sm space-y-4 text-left"
+        className="w-full max-w-sm mx-auto space-y-5 text-left"
       >
-        <div>
-          <Label htmlFor="onb-subdomain">Subdomain name</Label>
+        <Field label="Subdomain name" htmlFor="onb-subdomain">
           <Input
             id="onb-subdomain"
             type="text"
@@ -666,41 +855,37 @@ export default function Onboarding() {
             autoFocus
           />
           {subdomainName && (
-            <p className="mt-2 text-sm font-mono text-foreground bg-muted rounded-large-element px-3 py-2">
+            <p className="mt-3 text-sm font-mono text-foreground bg-muted rounded-large-element px-4 py-2.5 animate-fade-in-up">
               {subdomainName}.free.servers.libreloom.org
             </p>
           )}
-        </div>
+        </Field>
         <Button type="submit" className="w-full" size="lg" disabled={!subdomainName.trim()}>
           Continue <ChevronRight className="w-4 h-4 ml-1" />
         </Button>
       </form>
-    </div>
+    </StepShell>
   );
 
 
   const renderConnectKey = () => (
-    <div className="flex flex-col items-center text-center py-4">
-      <Key size={48} className="text-muted-foreground mx-auto mb-4" />
-      <h1 className="font-mono text-3xl font-normal text-card-foreground tracking-tight mb-3">
-        Your Connect key
-      </h1>
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
+    <StepShell icon={Key} title="Your Connect key">
+      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
         Almost done! Copy this key and paste it back into the LibreServ setup
         page you came from.
       </p>
 
       {generatingKey && !connectKey ? (
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-4 py-4">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           <p className="text-sm text-muted-foreground">Generating your key…</p>
         </div>
       ) : connectKey ? (
-        <div className="w-full max-w-sm space-y-6">
-          <div className="rounded-large-element bg-muted border border-border p-5">
+        <div className="w-full max-w-sm mx-auto space-y-8">
+          <div className="rounded-large-element bg-muted border border-border p-5 animate-fade-in-up">
             <div className="flex items-center gap-3">
               <Key className="w-5 h-5 text-muted-foreground shrink-0" />
-              <code className="text-base font-mono flex-1 break-all select-all text-foreground">
+              <code className="text-base font-mono flex-1 break-all select-all text-foreground text-left">
                 {connectKey}
               </code>
               <Button
@@ -709,23 +894,23 @@ export default function Onboarding() {
                 onClick={() => handleCopy(connectKey)}
                 title="Copy to clipboard"
               >
-                {copied ? <Check className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
+                {copied ? <Check className="w-4 h-4 text-success animate-check-pop" /> : <Copy className="w-4 h-4" />}
               </Button>
             </div>
           </div>
 
           <div className="text-left space-y-3">
             <h3 className="font-mono text-sm text-card-foreground">Next steps:</h3>
-            <ol className="space-y-2 text-sm text-muted-foreground">
-              <li className="flex gap-2">
+            <ol className="space-y-2.5 text-sm text-muted-foreground">
+              <li className="flex gap-2.5">
                 <span className="font-mono text-card-foreground">1.</span>
                 Copy the key above
               </li>
-              <li className="flex gap-2">
+              <li className="flex gap-2.5">
                 <span className="font-mono text-card-foreground">2.</span>
                 Return to the LibreServ setup page on your device
               </li>
-              <li className="flex gap-2">
+              <li className="flex gap-2.5">
                 <span className="font-mono text-card-foreground">3.</span>
                 Paste the key and click Activate
               </li>
@@ -737,39 +922,39 @@ export default function Onboarding() {
           </Button>
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-4 py-4">
           <p className="text-sm text-muted-foreground">Something went wrong. Try again.</p>
           <Button size="lg" variant="outline" onClick={handleGenerateKey}>
             Retry
           </Button>
         </div>
       )}
-    </div>
+    </StepShell>
   );
 
-  const stepComponents = [renderWelcome, renderAuth, renderPlan, renderDomain, renderConnectKey];
+  const stepComponents = [renderWelcome, renderAuth, renderVerifyEmail, renderPlan, renderDomain, renderConnectKey];
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <ProgressBar step={step} />
 
-      <div className="flex-1 flex items-center justify-center px-4 py-8">
+      <div className="flex-1 flex items-start sm:items-center justify-center px-4 pb-8">
         <div
           ref={outerRef}
           className="w-full max-w-xl rounded-large-element border border-border bg-card text-card-foreground shadow-[0_32px_80px_rgba(0,0,0,0.12)] overflow-hidden transition-[height] ease-[cubic-bezier(0.05,0.7,0.1,1)]"
           style={{ transitionDuration: "300ms" }}
         >
-          <div ref={innerRef} className="px-10 py-10">
+          <div ref={innerRef} className="px-6 sm:px-12 py-12">
             <ErrorBanner error={error} onDismiss={clearError} />
-            <div key={step} className={cn("mt-2", direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")} style={{ animationDuration: "300ms", animationFillMode: "both" }}>
+            <div key={step} className={cn(direction === "left" ? "slide-in-from-left-pop" : "slide-in-from-right-pop")} style={{ animationDuration: "300ms", animationFillMode: "both" }}>
               {stepComponents[step]?.()}
             </div>
           </div>
         </div>
       </div>
 
-      {step > 0 && step < 5 && (
-        <div className="px-4 pb-6 flex justify-center">
+      {step > 0 && step < STEPS.length && (
+        <div className="px-4 pb-8 flex justify-center">
           <Button variant="outline" onClick={handleBack}>
             <ChevronLeft className="w-4 h-4 mr-1" /> Back
           </Button>
