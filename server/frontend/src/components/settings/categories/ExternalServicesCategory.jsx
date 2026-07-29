@@ -1,4 +1,3 @@
-import { cn } from "@/lib/utils";
 import { useState } from "react";
 import {
   Mail,
@@ -6,14 +5,17 @@ import {
   Database,
   Waypoints,
   Sparkles,
+  Loader2,
 } from "lucide-react";
 import SettingsCard from "../SettingsCard.jsx";
+import Toggle from "../../common/Toggle.jsx";
 import ConnectStatusCard from "../../connect/ConnectStatusCard.jsx";
 import EmailServiceModal from "../../connect/EmailServiceModal.jsx";
 import DomainServiceModal from "../../connect/DomainServiceModal.jsx";
 import BackupServiceModal from "../../connect/BackupServiceModal.jsx";
 import TunnelServiceModal from "../../connect/TunnelServiceModal.jsx";
 import AIServiceModal from "../../connect/AIServiceModal.jsx";
+import { updateConnectService } from "../../../lib/connect-api.js";
 
 const SERVICE_META = [
   {
@@ -38,11 +40,6 @@ const SERVICE_META = [
   },
 ];
 
-const STATE_BADGES = {
-  connected: { label: "Connected", class: "bg-accent text-primary" },
-  byo: { label: "Bring Your Own", class: "bg-primary text-secondary border-2 border-accent/30" },
-  disabled: { label: "Off", class: "bg-primary text-secondary/50 border-2 border-secondary/10" },
-};
 
 export default function ExternalServicesCategory({
   connectStatus,
@@ -50,13 +47,27 @@ export default function ExternalServicesCategory({
   repos,
   onActivateConnect,
   onDeactivateConnect,
+  onRefreshConnectStatus,
   onOpenPlanPage,
   loading = false,
   csrfToken = "",
 }) {
   const [openModal, setOpenModal] = useState(null);
+  const [toggling, setToggling] = useState(null); // service id being toggled
 
   const closeModal = () => setOpenModal(null);
+
+  const handleToggle = async (serviceId, checked) => {
+    setToggling(serviceId);
+    try {
+      await updateConnectService(serviceId, checked ? "connected" : "disabled", csrfToken);
+      if (onRefreshConnectStatus) await onRefreshConnectStatus();
+    } catch (err) {
+      console.error("Failed to toggle service:", err);
+    } finally {
+      setToggling(null);
+    }
+  };
 
   const handleActivate = async (token) => {
     if (onActivateConnect) {
@@ -91,44 +102,64 @@ export default function ExternalServicesCategory({
 
       {SERVICE_META.map(({ id, Icon, title, desc }, i) => {
         const svc = services[id];
-        const badge = svc ? STATE_BADGES[svc.state] : STATE_BADGES.disabled;
+        const isConnected = svc?.state === "connected";
+        const isBYO = svc?.state === "byo";
+        const isUnavailable = svc?.state === "unavailable";
+        const isTogglingThis = toggling === id;
+        const connectReady = connectStatus?.connected;
 
         return (
-          <div
-            key={id}
-            role="button"
-            tabIndex={0}
-            onClick={() => setOpenModal(id)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenModal(id); } }}
-            className="cursor-pointer focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded-large-element"
-          >
-            <SettingsCard index={i} icon={Icon} title={title} padding={false}>
-              <div className="px-5 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0 pr-4">
-                    <p className="text-sm text-accent">{desc}</p>
-                    {svc?.details && Object.keys(svc.details).length > 0 && (
-                      <p className="text-xs text-accent/60 mt-1 font-mono truncate">
-                        {Object.entries(svc.details).map(([k, v]) => `${k}: ${v}`).join(", ")}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={cn("text-xs px-2.5 py-1 rounded-pill font-medium", badge.class)}>
-                      {badge.label}
+          <SettingsCard key={id} index={i} icon={Icon} title={title} padding={false}>
+            <div className="px-5 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div
+                  className="flex-1 min-w-0 cursor-pointer"
+                  onClick={() => setOpenModal(id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenModal(id); } }}
+                >
+                  <p className="text-sm text-accent">{desc}</p>
+                  {isBYO && (
+                    <p className="text-xs text-accent mt-1">
+                      Using your own provider — click to manage
+                    </p>
+                  )}
+                  {isConnected && svc?.details && Object.keys(svc.details).length > 0 && (
+                    <p className="text-xs text-accent/60 mt-1 font-mono truncate">
+                      {Object.entries(svc.details).map(([k, v]) => `${k}: ${v}`).join(", ")}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {isUnavailable ? (
+                    <span className="text-xs text-accent/50 px-2.5 py-1 rounded-pill font-medium">
+                      Not in your plan
                     </span>
-                    <svg
-                      width="16" height="16" viewBox="0 0 24 24"
-                      fill="none" stroke="currentColor" strokeWidth="2"
-                      className="text-accent"
-                    >
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
-                  </div>
+                  ) : isBYO ? (
+                    <span className="text-xs px-2.5 py-1 rounded-pill font-medium bg-primary text-secondary/50 border-2 border-secondary/10">
+                      BYO
+                    </span>
+                  ) : isTogglingThis ? (
+                    <Loader2 className="w-5 h-5 animate-spin text-accent" />
+                  ) : (
+                    <Toggle
+                      checked={isConnected}
+                      onChange={(checked) => handleToggle(id, checked)}
+                      disabled={!connectReady || isTogglingThis}
+                      surface="secondary"
+                      aria-label={title}
+                    />
+                  )}
                 </div>
               </div>
-            </SettingsCard>
-          </div>
+              {!connectReady && !isBYO && !isUnavailable && (
+                <p className="text-xs text-accent/50 mt-2">
+                  Connect to LibreServ Connect to enable this service.
+                </p>
+              )}
+            </div>
+          </SettingsCard>
         );
       })}
 

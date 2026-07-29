@@ -214,6 +214,15 @@ export default function SettingsPage() {
     }
   };
 
+  const handleRefreshConnectStatus = async () => {
+    try {
+      const data = await getConnectStatus();
+      setConnectStatus(data);
+    } catch (err) {
+      console.error("Failed to refresh Connect status:", err);
+    }
+  };
+
   const handleOpenPlanPage = () => {
     window.open("https://connect.serv.libreloom.org", "_blank");
   };
@@ -301,6 +310,7 @@ export default function SettingsPage() {
             connectStatus={connectStatus}
             onActivateConnect={handleActivateConnect}
             onDeactivateConnect={handleDeactivateConnect}
+            onRefreshConnectStatus={handleRefreshConnectStatus}
             onOpenPlanPage={handleOpenPlanPage}
             connectLoading={connectLoading}
             csrfToken={csrfToken}
@@ -362,6 +372,7 @@ export default function SettingsPage() {
               connectStatus={connectStatus}
               onActivateConnect={handleActivateConnect}
               onDeactivateConnect={handleDeactivateConnect}
+              onRefreshConnectStatus={handleRefreshConnectStatus}
               onOpenPlanPage={handleOpenPlanPage}
               connectLoading={connectLoading}
               csrfToken={csrfToken}
