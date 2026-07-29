@@ -179,6 +179,21 @@ export default function Onboarding() {
     if (step === 0 && !email && !deviceName) return; // don't save empty state
     saveProgress({ step, email, name, deviceName, selectedPlan, subdomainName, domainMode, registeredDomain });
   }, [step, email, name, deviceName, selectedPlan, subdomainName, domainMode, registeredDomain]);
+
+  // Auto-generate the license key when the user reaches the key step.
+  // The key step is the last step (index 5). We generate once — the guard
+  // prevents duplicate calls on re-renders.
+  const keyStep = 5; // renderLicenseKey index in stepComponents
+  useEffect(() => {
+    if (step !== keyStep || licenseKey || generatingKey) return;
+    if (!selectedPlan) return;
+    setGeneratingKey(true);
+    clearError();
+    api.generateLicenseKey(selectedPlan)
+      .then((res) => setLicenseKey(res.license_key))
+      .catch((err) => setError(err.message || "Could not generate your license key. Try again."))
+      .finally(() => setGeneratingKey(false));
+  }, [step, licenseKey, generatingKey, selectedPlan]);
   const { data: plansData } = useQuery({
     queryKey: ["plans"],
     queryFn: () => api.getPlans(),
@@ -654,19 +669,16 @@ export default function Onboarding() {
         Your license key
       </h1>
       <p className="text-muted-foreground text-sm leading-relaxed max-w-md mb-6">
-        This key links your LibreServ device to your account. Paste it into
-        your device's settings to activate Connect.
+        Almost done! Copy this key and paste it back into the LibreServ setup
+        page you came from.
       </p>
 
-      {!licenseKey ? (
-        <Button
-          size="lg"
-          loading={generatingKey}
-          onClick={handleGenerateKey}
-        >
-          Generate license key
-        </Button>
-      ) : (
+      {generatingKey && !licenseKey ? (
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Generating your key…</p>
+        </div>
+      ) : licenseKey ? (
         <div className="w-full max-w-sm space-y-6">
           <div className="rounded-large-element bg-muted border border-border p-5">
             <div className="flex items-center gap-3">
@@ -686,29 +698,32 @@ export default function Onboarding() {
           </div>
 
           <div className="text-left space-y-3">
-            <h3 className="font-mono text-sm text-card-foreground">How to use this key:</h3>
+            <h3 className="font-mono text-sm text-card-foreground">Next steps:</h3>
             <ol className="space-y-2 text-sm text-muted-foreground">
               <li className="flex gap-2">
                 <span className="font-mono text-card-foreground">1.</span>
-                Open your LibreServ device
+                Copy the key above
               </li>
               <li className="flex gap-2">
                 <span className="font-mono text-card-foreground">2.</span>
-                Go to Settings → Connect
+                Return to the LibreServ setup page on your device
               </li>
               <li className="flex gap-2">
                 <span className="font-mono text-card-foreground">3.</span>
-                Paste the license key and save
-              </li>
-              <li className="flex gap-2">
-                <span className="font-mono text-card-foreground">4.</span>
-                Your device appears in your dashboard
+                Paste the key and click Activate
               </li>
             </ol>
           </div>
 
           <Button size="lg" className="w-full" onClick={() => { clearProgress(); navigate("/"); }}>
-            Done — open my dashboard <ChevronRight className="w-4 h-4 ml-1" />
+            Done <ChevronRight className="w-4 h-4 ml-1" />
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-sm text-muted-foreground">Something went wrong. Try again.</p>
+          <Button size="lg" variant="outline" onClick={handleGenerateKey}>
+            Retry
           </Button>
         </div>
       )}
