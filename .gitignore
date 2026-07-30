@@ -119,3 +119,4 @@ connect/internal/api/customer/dist/assets/
 .omp
 connect/web/*/dist/
 connect/configs/connect-deploy.yaml
+connect/configs/connect.yaml
