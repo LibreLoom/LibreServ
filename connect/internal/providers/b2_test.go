@@ -17,11 +17,16 @@ func TestB2ProvisionBucket(t *testing.T) {
 			if auth := r.Header.Get("Authorization"); auth != "Basic YWNjMTIzOmtleTQ1Ng==" {
 				t.Fatalf("auth header=%s", auth)
 			}
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != "{}" {
+				t.Fatalf("authorize body=%q, want {}", body)
+			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"authorizationToken": "tok123",
-				"apiUrl":             "http://" + r.Host,
-				"downloadUrl":        "http://" + r.Host,
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"accountId":            "acc123",
+				"authorizationToken":   "tok123",
+				"apiUrl":               "http://" + r.Host,
+				"downloadUrl":          "http://" + r.Host,
 			})
 			return
 		}
@@ -34,6 +39,9 @@ func TestB2ProvisionBucket(t *testing.T) {
 			var req map[string]string
 			if err := json.Unmarshal(body, &req); err != nil {
 				t.Fatalf("decode bucket body: %v", err)
+			}
+			if req["accountId"] != "acc123" {
+				t.Fatalf("accountId=%s", req["accountId"])
 			}
 			if req["bucketName"] != "libreserv-backup-abc123" {
 				t.Fatalf("bucketName=%s", req["bucketName"])
@@ -57,6 +65,9 @@ func TestB2ProvisionBucket(t *testing.T) {
 			var req map[string]any
 			if err := json.Unmarshal(body, &req); err != nil {
 				t.Fatalf("decode key body: %v", err)
+			}
+			if req["accountId"] != "acc123" {
+				t.Fatalf("key accountId=%v", req["accountId"])
 			}
 			if req["keyName"] != "libreserv-backup-abc123-key" {
 				t.Fatalf("keyName=%v", req["keyName"])

@@ -33,6 +33,7 @@ func NewB2Client(httpClient *http.Client) *B2Client {
 
 // b2AuthResponse is the body returned by b2_authorize_account.
 type b2AuthResponse struct {
+	AccountID          string `json:"accountId"`
 	AuthorizationToken string `json:"authorizationToken"`
 	APIURL             string `json:"apiUrl"`
 	DownloadURL        string `json:"downloadUrl"`
@@ -49,8 +50,6 @@ type b2KeyResponse struct {
 	ApplicationKeyID string `json:"applicationKeyId"`
 	ApplicationKey   string `json:"applicationKey"`
 }
-
-// Authorize obtains a B2 authorization token and API URLs.
 func (c *B2Client) Authorize(accountID, applicationKey string) (*b2AuthResponse, error) {
 	auth := base64.StdEncoding.EncodeToString([]byte(accountID + ":" + applicationKey))
 	url := c.authorizeURL
@@ -66,8 +65,7 @@ func (c *B2Client) Authorize(accountID, applicationKey string) (*b2AuthResponse,
 	return &resp, nil
 }
 
-// CreateBucket creates a private bucket and returns its ID and name.
-func (c *B2Client) CreateBucket(apiURL, authToken, name, bucketType string) (*b2BucketResponse, error) {
+func (c *B2Client) CreateBucket(apiURL, authToken, accountID, name, bucketType string) (*b2BucketResponse, error) {
 	if bucketType == "" {
 		bucketType = "allPrivate"
 	}
@@ -76,8 +74,9 @@ func (c *B2Client) CreateBucket(apiURL, authToken, name, bucketType string) (*b2
 	if _, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
 	}, map[string]string{
-		"bucketName": name,
-		"bucketType": bucketType,
+		"accountId":   accountID,
+		"bucketName":  name,
+		"bucketType":  bucketType,
 	}, &resp); err != nil {
 		return nil, fmt.Errorf("could not create Backblaze B2 bucket: %w", err)
 	}
@@ -86,7 +85,7 @@ func (c *B2Client) CreateBucket(apiURL, authToken, name, bucketType string) (*b2
 }
 
 // CreateKey creates an application key limited to a bucket and capabilities.
-func (c *B2Client) CreateKey(apiURL, authToken, name, bucketID string, capabilities []string) (*b2KeyResponse, error) {
+func (c *B2Client) CreateKey(apiURL, authToken, accountID, name, bucketID string, capabilities []string) (*b2KeyResponse, error) {
 	if len(capabilities) == 0 {
 		capabilities = []string{"listBuckets", "listFiles", "readFiles", "writeFiles", "deleteFiles"}
 	}
@@ -95,6 +94,7 @@ func (c *B2Client) CreateKey(apiURL, authToken, name, bucketID string, capabilit
 	if _, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
 	}, map[string]any{
+		"accountId":    accountID,
 		"keyName":      name,
 		"bucketId":     bucketID,
 		"capabilities": capabilities,
@@ -104,19 +104,18 @@ func (c *B2Client) CreateKey(apiURL, authToken, name, bucketID string, capabilit
 	return &resp, nil
 }
 
-// ProvisionBucket authorizes, creates a private bucket, and creates a bucket-limited key.
 func (c *B2Client) ProvisionBucket(accountID, applicationKey, bucketName string) (*B2Credentials, error) {
 	auth, err := c.Authorize(accountID, applicationKey)
 	if err != nil {
 		return nil, err
 	}
 
-	bucket, err := c.CreateBucket(auth.APIURL, auth.AuthorizationToken, bucketName, "allPrivate")
+	bucket, err := c.CreateBucket(auth.APIURL, auth.AuthorizationToken, auth.AccountID, bucketName, "allPrivate")
 	if err != nil {
 		return nil, err
 	}
 
-	key, err := c.CreateKey(auth.APIURL, auth.AuthorizationToken, bucketName+"-key", bucket.BucketID, nil)
+	key, err := c.CreateKey(auth.APIURL, auth.AuthorizationToken, auth.AccountID, bucketName+"-key", bucket.BucketID, nil)
 	if err != nil {
 		return nil, err
 	}
