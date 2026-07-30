@@ -94,7 +94,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 	started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	ends_at TIMESTAMP,
 	stripe_subscription_id TEXT,
-	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(device_id)
 );
 
 CREATE TABLE IF NOT EXISTS service_credentials (
@@ -332,6 +333,7 @@ CREATE INDEX IF NOT EXISTS idx_customer_accounts_email ON customer_accounts(emai
 CREATE INDEX IF NOT EXISTS idx_devices_account ON devices(account_id);
 CREATE INDEX IF NOT EXISTS idx_devices_plan ON devices(plan_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_device ON subscriptions(device_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_device_unique ON subscriptions(device_id);
 CREATE INDEX IF NOT EXISTS idx_credentials_device ON service_credentials(device_id);
 CREATE INDEX IF NOT EXISTS idx_usage_device ON usage_events(device_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_usage_plan ON usage_events(plan_id);
