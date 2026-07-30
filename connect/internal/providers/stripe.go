@@ -34,6 +34,11 @@ func CreateCheckoutSession(ctx context.Context, priceID, deviceID, successURL, c
 		CancelURL:           stripego.String(cancelURL),
 		ClientReferenceID:   stripego.String(deviceID),
 		AllowPromotionCodes: stripego.Bool(true),
+		SubscriptionData: &stripego.CheckoutSessionSubscriptionDataParams{
+			Metadata: map[string]string{
+				"device_id": deviceID,
+			},
+		},
 	}
 	params.Context = ctx
 

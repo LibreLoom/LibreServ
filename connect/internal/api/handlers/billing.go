@@ -299,6 +299,13 @@ func (h *BillingHandler) handleSubscriptionCreated(w http.ResponseWriter, r *htt
 	}
 
 	deviceID := sub.Metadata["device_id"]
+	if deviceID == "" {
+		// No device_id in metadata — handleCheckoutCompleted will record
+		// this subscription using the checkout session's ClientReferenceID.
+		JSON(w, http.StatusOK, map[string]string{"message": "no device_id in metadata, skipping"})
+		return
+	}
+
 	planID := priceToPlanFromSubscription(&sub)
 
 	_, err := h.billing.DB().Exec(
@@ -384,11 +391,32 @@ func (h *BillingHandler) handleInvoicePaid(w http.ResponseWriter, r *http.Reques
 
 	deviceID := invoice.Metadata["device_id"]
 	if deviceID == "" {
-		// Try to look up device from subscription
+		// Try to look up device from subscription by stripe_subscription_id
 		_ = h.billing.DB().QueryRow(
 			"SELECT device_id FROM subscriptions WHERE stripe_subscription_id = $1",
-			invoice.Subscription,
+			invoice.Subscription.ID,
 		).Scan(&deviceID)
+	}
+
+	// Fallback: when the subscription row has a stale or missing stripe_subscription_id
+	// (e.g., after cancel→re-subscribe), look up via the invoice's customer email.
+	if deviceID == "" && invoice.CustomerEmail != "" {
+		var accountID string
+		if h.billing.DB().QueryRow(
+			"SELECT id FROM customer_accounts WHERE email = $1",
+			invoice.CustomerEmail).Scan(&accountID) == nil && accountID != "" {
+			_ = h.billing.DB().QueryRow(
+				"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1",
+				accountID).Scan(&deviceID)
+		}
+	}
+
+	// Update stale subscription row so future lookups by stripe_subscription_id work
+	if deviceID != "" && invoice.Subscription != nil && invoice.Subscription.ID != "" {
+		_, _ = h.billing.DB().Exec(
+			`UPDATE subscriptions SET stripe_subscription_id = $1, status = 'active'
+			 WHERE device_id = $2`,
+			invoice.Subscription.ID, deviceID)
 	}
 
 	if deviceID == "" {
