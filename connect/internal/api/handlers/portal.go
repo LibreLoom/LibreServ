@@ -1155,8 +1155,8 @@ func (h *PortalHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	successURL := config.C.Server.BaseURL + "/billing?status=success"
-	cancelURL := config.C.Server.BaseURL + "/plans?status=cancelled"
+	successURL := config.C.Server.BaseURL + "/onboarding?checkout=success"
+	cancelURL := config.C.Server.BaseURL + "/onboarding?checkout=cancelled"
 
 	checkoutURL, err := providers.CreateCheckoutSession(r.Context(), priceID, refID, successURL, cancelURL)
 	if err != nil {
@@ -1346,8 +1346,8 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	successURL := config.C.Server.BaseURL + "/billing?status=success"
-	cancelURL := config.C.Server.BaseURL + "/onboarding?status=cancelled"
+	successURL := config.C.Server.BaseURL + "/onboarding?domain=success"
+	cancelURL := config.C.Server.BaseURL + "/onboarding?domain=cancelled"
 
 	checkoutURL, err := providers.CreateDomainCheckoutSession(r.Context(), req.DeviceID, req.Domain, amountCents, successURL, cancelURL)
 	if err != nil {

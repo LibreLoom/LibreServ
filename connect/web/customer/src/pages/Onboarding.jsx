@@ -289,6 +289,34 @@ export default function Onboarding() {
   const [generatingKey, setGeneratingKey] = useState(false);
   const [copied, setCopied] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  // Detect Stripe checkout return (success or cancelled) on mount.
+  // After payment, Stripe redirects here — advance to domain step (4).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkoutStatus = params.get("checkout");
+    const domainStatus = params.get("domain");
+    if (checkoutStatus === "success") {
+      window.history.replaceState({}, "", "/onboarding");
+      const saved = loadProgress();
+      if (saved && saved.step >= 3) {
+        setStep(4);
+        setDirection("right");
+      }
+    } else if (checkoutStatus === "cancelled") {
+      window.history.replaceState({}, "", "/onboarding");
+      setError("Payment was cancelled. You can try again or choose the Free plan.");
+    } else if (domainStatus === "success") {
+      window.history.replaceState({}, "", "/onboarding");
+      const saved = loadProgress();
+      if (saved && saved.step >= 4) {
+        setStep(5);
+        setDirection("right");
+      }
+    } else if (domainStatus === "cancelled") {
+      window.history.replaceState({}, "", "/onboarding");
+      setError("Domain registration was cancelled. You can try again or skip to the next step.");
+    }
+  }, []);
 
   // Persist progress whenever relevant state changes
   useEffect(() => {
