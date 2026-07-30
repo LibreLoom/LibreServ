@@ -60,7 +60,7 @@ func (c *B2Client) Authorize(accountID, applicationKey string) (*b2AuthResponse,
 	var resp b2AuthResponse
 	if _, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": "Basic " + auth,
-	}, nil, &resp); err != nil {
+	}, map[string]string{}, &resp); err != nil {
 		return nil, fmt.Errorf("could not authorize with Backblaze B2: %w", err)
 	}
 	return &resp, nil
