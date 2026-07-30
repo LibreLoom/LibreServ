@@ -31,12 +31,35 @@ func (h *ProvisionHandler) Info(w http.ResponseWriter, r *http.Request) {
 			"name":          p.Name,
 			"description":   p.Description,
 			"price_monthly": p.PriceMonthlyCents,
-			"limits":        p.Limits,
 		})
 	}
 
+	planLimits := map[string]map[string]any{}
+	for _, p := range plans {
+		l := p.Limits
+		planLimits[p.ID] = map[string]any{
+			"max_emails_per_day": func() int {
+				if l.SMTPMonthly > 0 {
+					return l.SMTPMonthly
+				}
+				return 0
+			}(),
+			"tunnel_mbps":      0, // not tracked in catalog
+			"tunnel_gb_per_mo": 0, // not tracked in catalog
+			"backup_gb":        l.BackupGB,
+			"ai_messages_per_mo": func() int {
+				daily := l.AIMessagesPerDay
+				if daily > 0 {
+					return daily * 30
+				}
+				return 0
+			}(),
+		}
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
-		"plans": result,
+		"plans":       result,
+		"plan_limits": planLimits,
 	})
 }
 

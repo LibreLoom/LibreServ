@@ -42,6 +42,7 @@ const STATE_BADGES = {
   connected: { label: "Connected", class: "bg-accent text-primary" },
   byo: { label: "Bring Your Own", class: "bg-primary text-secondary border-2 border-accent/30" },
   disabled: { label: "Off", class: "bg-primary text-secondary/50 border-2 border-secondary/10" },
+  unavailable: { label: "Not in Plan", class: "bg-primary text-secondary/30 border-2 border-secondary/10" },
 };
 
 export default function ExternalServicesCategory({

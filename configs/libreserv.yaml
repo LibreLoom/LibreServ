@@ -1,0 +1,178 @@
+server:
+    host: 0.0.0.0
+    port: 8080
+    mode: production
+database:
+    path: ./dev/data/libreserv.db
+auth:
+    jwt_secret: CTw4FM45bCzO-dq1VgAFYGAxoS-AD1Cz0PrzIjnvvFs=
+    secret_file: ""
+    csrf_secret: 8N7T0dpFsOQ4vBZoIBmt0QWmEWb4fEV1WHGaC7ZpVBE=
+    cloud_encryption_key: s2bi_kRe7EWfajY37u5Tj_piMgztSUvZOOJnInJt-x0=
+    mfa:
+        totp_encryption_key: KLbGk_zebmszdl3s7EpLWMzMcLgJCbTABHs2XZue71k
+        webauthn:
+            rp_id: ""
+            rp_display_name: ""
+            origins: []
+            timeout: 60s
+apps:
+    data_path: ./dev/apps
+    catalog_path: ./apps
+    repos:
+        - url: https://gt.plainskill.net/LibreLoom/ServApps.git
+          branch: main
+          enabled: true
+          priority: 0
+          username: ""
+          password: ""
+    repo_pull_interval: 6h
+runtime:
+    method: auto
+    socket_path: ""
+    tcp:
+        host: ""
+        port: 0
+        use_tls: false
+        cert_path: ""
+    ssh:
+        host: ""
+        user: ""
+        key_path: ""
+    timeout: 30s
+    binary: podman
+logging:
+    level: info
+    path: ./dev/logs
+network:
+    caddy:
+        mode: enabled
+        admin_api: localhost:2019
+        config_path: ./dev/caddy/Caddyfile
+        certs_path: ./dev/caddy/certs
+        default_domain: 5bb7f417.servers.libreloom.org
+        email: ""
+        auto_https: true
+        reload:
+            retries: 5
+            backoff_min: 1s
+            backoff_max: 30s
+            jitter_fraction: 0.1
+            attempt_timeout: 10s
+        logging:
+            output: stdout
+            file: ""
+            format: console
+            level: ""
+    mdns:
+        enabled: true
+    acme:
+        external:
+            enabled: false
+            use_podman: false
+            container_image: ""
+            data_path: ""
+            dns_provider: ""
+            dns_env: {}
+            email: ""
+            staging: false
+            ca_dir_url: ""
+            key_type: ""
+            certs_path: ""
+    dns:
+        provider: ""
+        api_token: ""
+    upnp:
+        enabled: false
+        timeout: 0
+    tunnel:
+        provider: ""
+        token: ""
+        enabled: false
+    bluetooth:
+        enabled: false
+cors:
+    allowed_origins: []
+license:
+    entitlement_file: ""
+    public_key_file: ""
+smtp:
+    host: localhost
+    port: 2525
+    username: ""
+    password: ""
+    from: noreply@example.com
+    use_tls: false
+    skip_verify: true
+notify:
+    enabled: false
+    support_recipients: []
+    support_subject: ""
+    support_body: ""
+    welcome_subject: ""
+    welcome_body: ""
+updates:
+    base_url: https://gt.plainskill.net/api/v1
+    owner: libreloom
+    repo: libreserv
+support:
+    server_url: https://support.serv.libreloom.org
+    device_token: ""
+    device_id: ""
+    inference_base_url: https://inference.neuralwatt.dev/v1
+    billing_mode: token
+    plans:
+        - id: free
+          name: Free
+          price_monthly: 0
+          credit_cap_usd: 0
+          human_escalation: false
+          self_healing: false
+          self_healing_default: false
+    agent:
+        main_model: ""
+        review_model: ""
+        summary_model: ""
+        review_enabled: true
+        system_prompt: ""
+        max_turns: 10
+        turn_timeout: 5m0s
+        data_dirs:
+            - /var/lib/libreserv
+            - /etc/libreserv
+        system_plan_id: basic
+        sandbox:
+            mode: auto
+            workdirs:
+                - /var/lib/libreserv
+                - /var/log/libreserv
+            network: true
+    pricing:
+        route/deepseek-v4-pro:
+            input_per_1m: 0.49
+            output_per_1m: 0.74
+            cache_per_1m: 0.003
+        route/kimi-k2:
+            input_per_1m: 0
+            output_per_1m: 0
+            cache_per_1m: 0
+        route/mimo-v2:
+            input_per_1m: 0
+            output_per_1m: 0
+            cache_per_1m: 0
+    byok_enabled: false
+    user_api_key: nw-sk-5bb7f417-1dWt7x2GK8rU1ODw98ZiLqbT
+    user_base_url: https://inference.neuralwatt.dev/v1
+    user_api_format: openai
+    self_healing: false
+connect:
+    enabled: false
+    token: ""
+    api_url: http://localhost:8081
+    service_states:
+        ai: disabled
+        backup: disabled
+        domain: disabled
+        smtp: disabled
+        support: disabled
+        tunnel: disabled

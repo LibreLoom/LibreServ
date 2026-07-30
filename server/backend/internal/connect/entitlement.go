@@ -24,6 +24,10 @@ func (e *EntitlementChecker) Refresh() {
 
 	status, err := e.client.Status(context.TODO())
 	if err != nil {
+		// Clear stale status — the Connect server is unreachable or
+		// the device is no longer active. Either way, we can't trust
+		// the cached state.
+		e.status = &ConnectStatus{Connected: false, Services: defaultServiceStates()}
 		return
 	}
 	e.status = status
@@ -121,7 +125,14 @@ func (e *EntitlementChecker) Status() *ConnectStatus {
 			}
 			switch state {
 			case ServiceConnected:
-				// Leave the server-provided state untouched.
+				// If the server says the service is unavailable (plan doesn't
+				// include it), respect the server. Otherwise, the device's
+				// local state wins — it knows it provisioned successfully.
+				if status.Services[svcID].State != ServiceUnavailable {
+					updated := status.Services[svcID]
+					updated.State = ServiceConnected
+					status.Services[svcID] = updated
+				}
 			case ServiceBYO, ServiceDisabled:
 				status.Services[svcID] = ServiceStatus{State: state, Label: status.Services[svcID].Label}
 			}

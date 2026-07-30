@@ -232,6 +232,8 @@ type FakeClient struct {
 	connected  bool
 	plan       *ConnectPlan
 	services   map[ServiceID]ServiceStatus
+	// errorStatus, if set, is returned by Status() instead of the normal response.
+	errorStatus error
 }
 
 func NewFakeClient() *FakeClient {
@@ -375,6 +377,9 @@ func (f *FakeClient) UnregisterRoute(ctx context.Context, hostname string) error
 func (f *FakeClient) Status(ctx context.Context) (*ConnectStatus, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
+	if f.errorStatus != nil {
+		return nil, f.errorStatus
+	}
 	return f.buildStatusLocked(), nil
 }
 

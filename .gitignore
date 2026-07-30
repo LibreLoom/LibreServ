@@ -118,3 +118,4 @@ connect/internal/api/customer/dist/assets/
 # OpenMP / omp artifacts
 .omp
 connect/web/*/dist/
+connect/configs/connect-deploy.yaml

@@ -76,18 +76,40 @@ func AIConfigured(client connect.Client, checker *connect.EntitlementChecker) bo
 
 // NewAIProvider returns a provider for the active AI source:
 //  1. BYOK if enabled and an API key is configured.
-//  2. LibreServ Connect's provisioned AI credentials if the AI service is connected.
-//  3. nil otherwise.
+//  2. Persisted Connect credentials if the AI service is connected
+//     and were applied by applyCredentials.
+//  3. Live Provision fallback — safe and idempotent per the Connect
+//     server (same credentials are returned on repeated calls).
+//  4. nil otherwise.
 func NewAIProvider(ctx context.Context, client connect.Client, checker *connect.EntitlementChecker) *Provider {
 	cfg := config.Get()
 	if cfg == nil {
 		return nil
 	}
+
+	// 1. BYOK path — highest priority when user has explicitly opted in.
 	if cfg.Support.BYOKEnabled && cfg.Support.UserAPIKey != "" {
 		return newBYOKProvider(cfg)
 	}
 
+	// 2. Persisted Connect credentials — set by applyCredentials during
+	//    activation, so no live network call is needed.
 	status, ok := latestConnectStatus(client, checker)
+	if ok {
+		if svc, found := status.Services[connect.ServiceAI]; found && svc.State == connect.ServiceConnected {
+			if cfg.Support.InferenceBaseURL != "" && cfg.Support.UserAPIKey != "" {
+				p := NewProvider(cfg.Support.InferenceBaseURL, cfg.Support.UserAPIKey)
+				if cfg.Support.UserAPIFormat != "" {
+					p.APIFormat = cfg.Support.UserAPIFormat
+				} else {
+					p.APIFormat = "openai"
+				}
+				return p
+			}
+		}
+	}
+
+	// 3. Live Provision fallback.
 	if !ok {
 		return nil
 	}

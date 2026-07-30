@@ -193,6 +193,31 @@ export default function SettingsPage() {
     try {
       const result = await activateConnect(key, csrfToken);
       setConnectStatus(result);
+
+      // Poll for provisioning completion — the backend provisions
+      // services in the background after returning the activation
+      // response. Services start as "disabled" and flip to "connected"
+      // as provisioning completes.
+      const pollStatus = async () => {
+        const deadline = Date.now() + 60000; // 60s timeout
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 3000));
+          try {
+            const status = await getConnectStatus();
+            setConnectStatus(status);
+            // Check if all services are no longer "disabled"
+            const services = status?.services || {};
+            const stillProvisioning = Object.values(services).some(
+              s => s.state === "disabled"
+            );
+            if (!stillProvisioning) break;
+          } catch {
+            // Ignore poll errors — keep trying until deadline
+          }
+        }
+      };
+      pollStatus(); // Fire and forget — don't block the UI
+
       return result;
     } catch (err) {
       console.error("Failed to activate Connect:", err);

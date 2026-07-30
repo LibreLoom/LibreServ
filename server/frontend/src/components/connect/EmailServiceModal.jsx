@@ -38,7 +38,9 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
       ? "Connected"
       : service?.state === "byo"
         ? "Bring Your Own"
-        : "Disabled";
+        : service?.state === "unavailable"
+          ? "Not in Plan"
+          : "Disabled";
 
   return (
     <ModalCard title="Email / SMTP" onClose={onClose} size="md" data-slot="email-service-modal">

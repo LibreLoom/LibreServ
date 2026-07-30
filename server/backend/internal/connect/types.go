@@ -5,9 +5,10 @@ import "time"
 type ServiceState string
 
 const (
-	ServiceDisabled  ServiceState = "disabled"
-	ServiceConnected ServiceState = "connected"
-	ServiceBYO       ServiceState = "byo"
+	ServiceDisabled    ServiceState = "disabled"
+	ServiceConnected   ServiceState = "connected"
+	ServiceBYO         ServiceState = "byo"
+	ServiceUnavailable ServiceState = "unavailable"
 )
 
 type PlanID string

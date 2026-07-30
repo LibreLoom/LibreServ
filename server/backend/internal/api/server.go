@@ -274,12 +274,22 @@ func NewServer(cfg ServerConfig) *Server {
 
 // Start starts the HTTP server
 func (s *Server) Start() error {
+	var readTimeout, writeTimeout, idleTimeout time.Duration
+	if s.devMode {
+		readTimeout = 30 * time.Second
+		writeTimeout = 120 * time.Second
+		idleTimeout = 120 * time.Second
+	} else {
+		readTimeout = 15 * time.Second
+		writeTimeout = 15 * time.Second
+		idleTimeout = 60 * time.Second
+	}
 	s.httpServer = &http.Server{
 		Addr:           s.addr,
 		Handler:        s.router,
-		ReadTimeout:    15 * time.Second,
-		WriteTimeout:   15 * time.Second,
-		IdleTimeout:    60 * time.Second,
+		ReadTimeout:    readTimeout,
+		WriteTimeout:   writeTimeout,
+		IdleTimeout:    idleTimeout,
 		MaxHeaderBytes: 1 << 20,
 	}
 

@@ -124,6 +124,7 @@ type SupportConfig struct {
 type ConnectConfig struct {
 	Enabled       bool              `mapstructure:"enabled" yaml:"enabled"`
 	Token         string            `mapstructure:"token" yaml:"token"`
+	APIURL        string            `mapstructure:"api_url" yaml:"api_url"`
 	ServiceStates map[string]string `mapstructure:"service_states" yaml:"service_states"`
 }
 
@@ -394,6 +395,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("support.agent.sandbox.workdirs", []string{"/var/lib/libreserv", "/var/log/libreserv"})
 	v.SetDefault("support.agent.sandbox.network", true)
 
+	v.SetDefault("connect.api_url", "https://connect.serv.libreloom.org")
 	v.SetDefault("support.pricing.route/mimo-v2.5-pro.input_per_1m", 0.45)
 	v.SetDefault("support.pricing.route/mimo-v2.5-pro.output_per_1m", 1.00)
 	v.SetDefault("support.pricing.route/mimo-v2.5-pro.cache_per_1m", 0.10)

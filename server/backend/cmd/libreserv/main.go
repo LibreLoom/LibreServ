@@ -433,7 +433,7 @@ func main() {
 	server := api.NewServer(api.ServerConfig{
 		Host:             cfg.Server.Host,
 		Port:             cfg.Server.Port,
-		DevMode:          cfg.Server.Mode == "development",
+		DevMode:          cfg.Server.Mode == "development" || os.Getenv("LIBRESERV_INSECURE_DEV") == "true",
 		DB:               db,
 		AppManager:       appManager,
 		AuthService:      authService,

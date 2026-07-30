@@ -258,6 +258,11 @@ func (s *Service) CheckQuota(deviceID, serviceType string, requested float64) (r
 		metric = "emails"
 		limit = float64(plan.Limits.SMTPMonthly)
 	case "ai":
+		// AI is credit-based for paid plans (AICreditCents > 0) with no message cap.
+		// Only free tier enforces a daily message limit.
+		if plan.Limits.AICreditCents > 0 {
+			return 0, true, nil // credit-based plan — no quota gate
+		}
 		metric = "messages"
 		limit = float64(plan.Limits.AIMessagesPerDay)
 		// AI is per-day for free tier

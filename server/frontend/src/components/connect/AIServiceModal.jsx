@@ -50,7 +50,9 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
       ? "Connected"
       : service?.state === "byo"
         ? "Bring Your Own"
-        : "Disabled";
+        : service?.state === "unavailable"
+          ? "Not in Plan"
+          : "Disabled";
 
   async function handleSave(close) {
     setSaving(true);

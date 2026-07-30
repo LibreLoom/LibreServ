@@ -233,7 +233,8 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.authService.ValidatePassword(req.AdminPassword); err != nil {
-		JSONError(w, http.StatusBadRequest, err.Error())
+		msg := err.Error()
+		JSONError(w, http.StatusBadRequest, msg)
 		return
 	}
 

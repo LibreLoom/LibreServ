@@ -30,7 +30,9 @@ export default function TunnelServiceModal({ open, onClose, onSaved, service, co
       ? "Connected"
       : service?.state === "byo"
         ? "Bring Your Own"
-        : "Disabled";
+        : service?.state === "unavailable"
+          ? "Not in Plan"
+          : "Disabled";
 
   return (
     <ModalCard title="Tunnel" onClose={onClose} size="md" data-slot="tunnel-service-modal">

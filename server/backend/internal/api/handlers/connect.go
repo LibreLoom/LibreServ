@@ -72,22 +72,36 @@ func (h *ConnectHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-provision and enable all plan-available services so the user
-	// doesn't have to manually toggle each one after activation. Services
-	// already in BYO state are left alone — the user chose to bring their own.
-	h.autoProvisionServices(r.Context(), status)
+	// Persist the Connect key to config so it survives restart.
+	cfg := config.Get()
+	if cfg != nil {
+		cfg.Connect.Token = req.ConnectKey
+		cfg.Connect.Enabled = true
+		if err := config.SaveConfig(""); err != nil {
+			slog.Warn("failed to persist connect key to config", "error", err)
+		}
+	}
 
 	if h.checker != nil {
 		h.checker.Refresh()
 	}
 
-	// Re-fetch the merged status so the response reflects the newly-enabled services.
+	// Re-fetch the merged status so the response reflects the current state.
 	if h.checker != nil {
 		status = h.checker.Status()
 	}
 
 	slog.Info("connect activated", "plan", status.Plan)
 	response.JSON(w, http.StatusOK, status)
+
+	// Auto-provision services in the background so the response returns
+	// immediately. The frontend polls /connect/status to see services
+	// flip to "connected" as provisioning completes.
+	provisionCtx, provisionCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	go func() {
+		defer provisionCancel()
+		h.autoProvisionServices(provisionCtx, status)
+	}()
 }
 
 // autoProvisionServices provisions credentials and applies them for every
@@ -101,7 +115,8 @@ func (h *ConnectHandler) autoProvisionServices(ctx context.Context, status *conn
 	}
 
 	for svcID, svc := range status.Services {
-		// Skip services not in the disabled state — respect BYO and already-connected.
+		// Skip services not in the disabled state — this also covers
+		// connected, byo, unavailable, and other non-disabled states.
 		if svc.State != connect.ServiceDisabled {
 			continue
 		}
@@ -142,12 +157,11 @@ func (h *ConnectHandler) autoProvisionServices(ctx context.Context, status *conn
 			}
 		}
 
-		// Reflect the new state in the status we'll return to the caller.
-		updated := status.Services[svcID]
-		updated.State = connect.ServiceConnected
-		status.Services[svcID] = updated
-
 		slog.Info("auto-provisioned service", "service", svcID)
+	}
+	// Notify the checker so subsequent polls reflect the newly-connected services.
+	if h.checker != nil {
+		h.checker.Refresh()
 	}
 }
 
@@ -166,6 +180,39 @@ func (h *ConnectHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 		slog.Error("connect deactivation failed", "error", err)
 		response.JSONError(w, http.StatusBadGateway, "Could not disconnect from LibreServ Connect. Please try again.")
 		return
+	}
+
+	// Clear all Connect service states from settings so they revert to
+	// the default (disabled) after disconnect.
+	if h.settingsService != nil {
+		services := connect.DefaultServiceStates()
+		svcMap := make(map[string]interface{})
+		for svcID := range services {
+			svcMap[string(svcID)] = string(connect.ServiceDisabled)
+		}
+		if err := h.settingsService.UpdateSettings(r.Context(), map[string]interface{}{
+			"connect_services": svcMap,
+		}); err != nil {
+			slog.Warn("failed to clear connect service states on deactivate", "error", err)
+		}
+	}
+
+	// Stop the tunnel if it was Connect-managed. Stop is a no-op if
+	// nothing was running.
+	if h.tunnelService != nil {
+		if err := h.tunnelService.Stop(); err != nil {
+			slog.Warn("failed to stop tunnel on deactivate", "error", err)
+		}
+	}
+
+	// Clear the persisted Connect key so restart doesn't re-activate.
+	cfg := config.Get()
+	if cfg != nil {
+		cfg.Connect.Token = ""
+		cfg.Connect.Enabled = false
+		if err := config.SaveConfig(""); err != nil {
+			slog.Warn("failed to clear connect key from config", "error", err)
+		}
 	}
 
 	if h.checker != nil {
@@ -388,8 +435,18 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 		return nil
 
 	case connect.ServiceAI:
-		// Tunnel and AI credentials are applied by their respective services.
-		return nil
+		if creds.AI == nil {
+			return fmt.Errorf("Connect did not send any AI assistant credentials.")
+		}
+		return h.settingsService.UpdateSettings(ctx, map[string]interface{}{
+			"ai_support": map[string]interface{}{
+				"inference_base_url": creds.AI.BaseURL,
+				"user_api_key":       creds.AI.APIKey,
+				"user_base_url":      creds.AI.BaseURL,
+				"user_api_format":    creds.AI.Format,
+				"byok_enabled":       false,
+			},
+		})
 	}
 
 	return nil

@@ -117,6 +117,11 @@ func (h *DeviceHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = h.db.ExecContext(r.Context(),
 		"UPDATE subscriptions SET status = 'cancelled' WHERE device_id = $1", deviceID)
+	// Revoke all service credentials so stale "connected" states don't persist
+	// across re-activation (buildStatus queries is_active = TRUE).
+	_, _ = h.db.ExecContext(r.Context(),
+		"UPDATE service_credentials SET is_active = FALSE, revoked_at = $1 WHERE device_id = $2",
+		time.Now(), deviceID)
 	JSON(w, http.StatusOK, map[string]string{"message": "deactivated"})
 }
 
@@ -144,12 +149,24 @@ func (h *DeviceHandler) Usage(w http.ResponseWriter, r *http.Request) {
 
 	balance, _ := h.billing.GetBalance(deviceID)
 
+	// Compute credit cap from the plan's monthly price.
+	var creditCapUSD float64
+	if plan := catalog.PlanByID(summary.PlanID); plan != nil {
+		creditCapUSD = float64(plan.PriceMonthlyCents) / 100.0
+	}
+	remainingUSD := creditCapUSD - summary.TotalCostUSD
+	if remainingUSD < 0 {
+		remainingUSD = 0
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
 		"device_id":            summary.DeviceID,
 		"plan_id":              summary.PlanID,
 		"current_cycle_start":  summary.CycleStart,
 		"current_cycle_end":    summary.CycleEnd,
 		"total_cost_usd":       summary.TotalCostUSD,
+		"credit_cap_usd":       creditCapUSD,
+		"remaining_usd":        remainingUSD,
 		"provider_cost_usd":    summary.ProviderCostUSD,
 		"credits_used":         summary.CreditsUsed,
 		"credit_balance_cents": balance,
@@ -163,13 +180,31 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHi
 		deviceID)
 	defer rows.Close()
 
-	services := map[string]map[string]string{
-		"smtp":    {"state": "disabled", "label": "Email / SMTP"},
-		"domain":  {"state": "disabled", "label": "Domain & DNS"},
-		"backup":  {"state": "disabled", "label": "Cloud Backup Storage"},
-		"tunnel":  {"state": "disabled", "label": "Tunnel"},
-		"ai":      {"state": "disabled", "label": "AI Assistant"},
-		"support": {"state": "disabled", "label": "Human Support"},
+	services := map[string]map[string]any{
+		"smtp": {
+			"state": "disabled",
+			"label": "Email / SMTP",
+		},
+		"domain": {
+			"state": "disabled",
+			"label": "Domain & DNS",
+		},
+		"backup": {
+			"state": "disabled",
+			"label": "Cloud Backup Storage",
+		},
+		"tunnel": {
+			"state": "disabled",
+			"label": "Tunnel",
+		},
+		"ai": {
+			"state": "disabled",
+			"label": "AI Assistant",
+		},
+		"support": {
+			"state": "disabled",
+			"label": "Human Support",
+		},
 	}
 
 	for rows.Next() {
@@ -189,12 +224,12 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHi
 
 	return map[string]any{
 		"connected": true,
-		"plan": map[string]string{
+		"plan": map[string]any{
 			"id":   planID,
 			"name": catalog.PlanName(planID),
 		},
-		"services": services,
-		"key_hint": keyHint,
+		"services":         services,
+		"connect_key_hint": keyHint,
 	}
 }
 

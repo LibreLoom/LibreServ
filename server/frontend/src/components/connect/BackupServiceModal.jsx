@@ -3,7 +3,7 @@ import { Database, Check, Plus, Trash2, AlertTriangle } from "lucide-react";
 import ModalCard from "../cards/ModalCard.jsx";
 import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
-import { getConnectWarning, isServiceAvailableOnPlan } from "./connect-utils.js";
+import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 
 export default function BackupServiceModal({ open, onClose, onSaved, service, repos, connectStatus = null, csrfToken = "" }) {
@@ -24,14 +24,16 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
   if (!open) return null;
 
   const connectWarning = getConnectWarning("backup", connectStatus);
-  const backupOnPlan = isServiceAvailableOnPlan("backup", connectStatus?.plan?.id);
+  const backupOnPlan = service?.state !== "unavailable";
 
   const stateLabel =
     service?.state === "connected"
       ? "Connected"
       : service?.state === "byo"
         ? "Bring Your Own"
-        : "Disabled";
+        : service?.state === "unavailable"
+          ? "Not in Plan"
+          : "Disabled";
 
   return (
     <ModalCard title="Cloud Backup Storage" onClose={onClose} size="lg" data-slot="backup-service-modal">
