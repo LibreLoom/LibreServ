@@ -180,3 +180,17 @@ func CreateDomainRenewalSubscription(ctx context.Context, customerID, priceID, d
 	}
 	return sub.ID, nil
 }
+
+// GetSubscription retrieves a full subscription by ID from the Stripe API,
+// including its line items. Used by the webhook handler when the webhook
+// event contains an unexpanded subscription reference.
+func GetSubscription(ctx context.Context, subscriptionID string) (*stripego.Subscription, error) {
+	params := &stripego.SubscriptionParams{}
+	params.AddExpand("items.data.price")
+	params.Context = ctx
+	sub, err := subscription.Get(subscriptionID, params)
+	if err != nil {
+		return nil, fmt.Errorf("retrieve subscription: %w", err)
+	}
+	return sub, nil
+}

@@ -101,10 +101,21 @@ func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Determine plan from the subscription's price items
+	// Determine plan from the subscription's price items. The webhook event
+	// may contain an unexpanded subscription (just the ID, no items), so we
+	// retrieve the full subscription from the Stripe API when needed.
 	planID := "free"
-	if session.Subscription != nil {
+	if session.Subscription != nil && session.Subscription.ID != "" {
 		planID = priceToPlanFromSubscription(session.Subscription)
+		if planID == "" {
+			// Items not populated in the webhook event — fetch the full subscription.
+			fullSub, err := providers.GetSubscription(r.Context(), session.Subscription.ID)
+			if err != nil {
+				slog.Warn("could not retrieve subscription for plan lookup", "sub", session.Subscription.ID, "error", err)
+			} else {
+				planID = priceToPlanFromSubscription(fullSub)
+			}
+		}
 	}
 	if planID == "" {
 		planID = "free"
@@ -424,7 +435,7 @@ func priceToPlan(_ int64) string {
 
 // priceToPlanFromSubscription extracts the plan ID from a subscription's price items.
 func priceToPlanFromSubscription(sub *stripego.Subscription) string {
-	if sub == nil || len(sub.Items.Data) == 0 {
+	if sub == nil || sub.Items == nil || len(sub.Items.Data) == 0 {
 		return ""
 	}
 	for _, item := range sub.Items.Data {
