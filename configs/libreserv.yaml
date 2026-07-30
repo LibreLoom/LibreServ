@@ -168,7 +168,7 @@ support:
 connect:
     enabled: false
     token: ""
-    api_url: http://localhost:8081
+    api_url: https://connect.serv.libreloom.org
     service_states:
         ai: disabled
         backup: disabled
