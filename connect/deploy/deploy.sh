@@ -166,7 +166,7 @@ main() {
     # latest connect-v* tag; --head deploys whatever is checked out.
     local ref=""
     cd "$REPO_ROOT"
-    git fetch --tags
+    git fetch --tags --force
 
     if [ "${1:-}" = "--head" ]; then
         ref="HEAD"
