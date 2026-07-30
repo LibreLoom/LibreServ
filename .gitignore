@@ -83,6 +83,13 @@ tmp/
 server/backend/libreserv
 *.pid
 
+# SQLite runtime sidecars (main *.db already ignored above)
+*.db-shm
+*.db-wal
+
+# Local build scratch
+.build-tmp/
+
 # @trafficcone's gosh darned stuffs :)
 server/backend/backend.pid
 server/frontend/frontend.pid
@@ -102,6 +109,8 @@ support/support-server/server
 .ci.conf
 ci-results/
 test-results/
+e2e-tests/test-results/
+e2e-tests/*.png
 .cache/
 .opencode/
 opencode.jsonc
