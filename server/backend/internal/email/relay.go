@@ -19,9 +19,10 @@ import (
 // SMTP server). This lets apps use a simple localhost SMTP without
 // needing credentials, while the relay handles authentication upstream.
 type Relay struct {
-	listener net.Listener
-	wg       sync.WaitGroup
-	upstream upstreamConfig
+	listener   net.Listener
+	wg         sync.WaitGroup
+	upstream   upstreamConfig
+	listenPort int // port this relay bound to (25 or 2525); used to detect self-forwarding
 }
 
 type upstreamConfig struct {
@@ -64,6 +65,7 @@ func (r *Relay) Start() error {
 		}
 	}
 	r.listener = ln
+	fmt.Sscanf(addr, "127.0.0.1:%d", &r.listenPort)
 	slog.Info("SMTP relay listening", "addr", addr)
 
 	r.wg.Add(1)
@@ -77,6 +79,21 @@ func (r *Relay) Stop() {
 		r.listener.Close()
 	}
 	r.wg.Wait()
+}
+
+// isSelfForward reports whether the upstream SMTP server is this relay's own
+// listener. Forwarding to itself would recurse without bound — each hop
+// re-wraps the error as "550 could not send email: …" — until the process is
+// killed. We refuse up front and tell the user where to fix it.
+func (r *Relay) isSelfForward() bool {
+	if r.listenPort == 0 || r.upstream.port != r.listenPort {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(r.upstream.host)) {
+	case "localhost", "127.0.0.1", "::1", "ip6-localhost":
+		return true
+	}
+	return false
 }
 
 func (r *Relay) acceptLoop() {
@@ -198,6 +215,17 @@ func (s *relaySession) handleData() {
 		}
 		body.WriteString(line)
 		body.WriteString("\r\n")
+	}
+
+	// Refuse to forward to our own listener: that would recurse without bound
+	// (each hop re-wraps the error as "550 could not send email: …").
+	if s.relay.isSelfForward() {
+		slog.Error("SMTP relay refusing to forward to itself (outgoing server points at this device)",
+			"upstream", s.relay.upstream.host, "port", s.relay.upstream.port)
+		s.sendLine("550 Email is set up to send back to this device instead of to your email provider, which would loop forever. Fix this in Settings → Email — use your email provider or LibreServ Connect as the outgoing server.")
+		s.from = ""
+		s.rcpts = nil
+		return
 	}
 
 	// Forward to upstream using the existing Sender
