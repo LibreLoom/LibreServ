@@ -748,11 +748,13 @@ func (h *PortalHandler) planDomain(planID string) string {
 	return plan.Limits.Domain
 }
 
-// activeCustomDomain returns the device's active (non-cancelled/expired)
-// custom domain, or (nil, false) if none is serving.
+// activeCustomDomain returns the device's currently-serving custom domain
+// (status 'active'), or (nil, false) if none is serving. Domains in grace or
+// cancelled have been switched away from and no longer route — so they do not
+// count as the current domain.
 func (h *PortalHandler) activeCustomDomain(deviceID string) (*string, bool) {
 	var domain string
-	err := h.db.QueryRow(`SELECT domain FROM custom_domains WHERE device_id = $1 AND status IN ('active','grace','payment_failed')`, deviceID).Scan(&domain)
+	err := h.db.QueryRow(`SELECT domain FROM custom_domains WHERE device_id = $1 AND status = 'active'`, deviceID).Scan(&domain)
 	if err != nil || domain == "" {
 		return nil, false
 	}
