@@ -25,7 +25,44 @@ func (s *Sender) makeAuth() smtp.Auth {
 	if s.username == "" {
 		return nil // no credentials configured → no AUTH (local/no-auth SMTP relays)
 	}
-	return smtp.PlainAuth("", s.username, s.password, strings.Split(s.host, ":")[0])
+	return authFor(s.username, s.password, strings.Split(s.host, ":")[0], s.useTLS)
+}
+
+// plainAuth is an smtp.Auth that sends AUTH PLAIN over the wire without
+// requiring TLS. Go's stdlib smtp.PlainAuth refuses to send credentials
+// unless the connection is TLS or to localhost — a guard that breaks the
+// Connect SMTP relay, which is a trusted service the user has explicitly
+// opted into as plaintext (use_tls=false). This type performs the same
+// AUTH PLAIN handshake but skips the TLS gate. Use ONLY when use_tls is
+// false (caller's explicit choice); TLS-protected auth still uses
+// smtp.PlainAuth so the stdlib guard stays intact for encrypted paths.
+type plainAuth struct {
+	username, password, identity string
+}
+
+func (a *plainAuth) Start(server *smtp.ServerInfo) (string, []byte, error) {
+	resp := []byte(a.identity + "\x00" + a.username + "\x00" + a.password)
+	return "PLAIN", resp, nil
+}
+
+func (a *plainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+	if more {
+		return nil, fmt.Errorf("unexpected server challenge")
+	}
+	return nil, nil
+}
+
+// authFor returns the appropriate smtp.Auth for the connection type:
+// smtp.PlainAuth for TLS (keeps the stdlib TLS guard), plainAuth for
+// plaintext (the user opted in via use_tls=false).
+func authFor(username, password, host string, useTLS bool) smtp.Auth {
+	if username == "" {
+		return nil
+	}
+	if useTLS {
+		return smtp.PlainAuth("", username, password, host)
+	}
+	return &plainAuth{username: username, password: password}
 }
 
 // NewSender builds a sender from global config; returns nil if SMTP is not configured.
@@ -99,7 +136,7 @@ func TestSMTP(cfg config.SMTPConfig) error {
 	}
 	defer c.Close()
 	if cfg.Username != "" {
-		auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+		auth := authFor(cfg.Username, cfg.Password, cfg.Host, false)
 		if err := c.Auth(auth); err != nil {
 			return err
 		}
@@ -170,7 +207,7 @@ func (s *Sender) Send(to []string, subject, body string) error {
 	if s.useTLS {
 		return s.sendSTARTTLS(to, msg)
 	}
-	return smtp.SendMail(s.host, s.makeAuth(), s.from, to, []byte(msg))
+	return s.sendPlaintext(s.from, to, msg)
 }
 
 // SendRaw sends a pre-built raw email message to the given recipients.
@@ -187,7 +224,7 @@ func (s *Sender) SendRaw(to []string, from, rawMsg string) error {
 	if s.useTLS {
 		return s.sendSTARTTLSRaw(to, from, rawMsg)
 	}
-	return smtp.SendMail(s.host, s.makeAuth(), from, to, []byte(rawMsg))
+	return s.sendPlaintext(from, to, rawMsg)
 }
 
 func (s *Sender) port() int {
@@ -214,6 +251,38 @@ func (s *Sender) sendSTARTTLS(to []string, msg string) error {
 		return err
 	}
 	if err := c.Mail(s.from); err != nil {
+		return err
+	}
+	for _, r := range to {
+		if err := c.Rcpt(r); err != nil {
+			return err
+		}
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write([]byte(msg)); err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+// sendPlaintext dials, authenticates with plainAuth (no TLS guard), and
+// sends the message. Used when use_tls=false (e.g. Connect relay).
+func (s *Sender) sendPlaintext(from string, to []string, msg string) error {
+	c, err := smtp.Dial(s.host)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	auth := s.makeAuth()
+	if auth != nil {
+		if err := c.Auth(auth); err != nil {
+			return err
+		}
+	}
+	if err := c.Mail(from); err != nil {
 		return err
 	}
 	for _, r := range to {
