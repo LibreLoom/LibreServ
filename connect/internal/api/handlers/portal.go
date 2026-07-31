@@ -712,6 +712,7 @@ func (h *PortalHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 			"subdomain":         subdomain,
 			"custom_domain":     customDomain,
 			"has_custom_domain": hasCustom,
+			"plan_domain":       h.planDomain(d.PlanID),
 		})
 	}
 
@@ -735,6 +736,16 @@ func (h *PortalHandler) deviceSubdomain(deviceID string) string {
 		sub = sub[len(sub)-8:]
 	}
 	return strings.Replace(plan.Limits.Domain, "*", sub, 1)
+}
+
+// planDomain returns the plan's subdomain wildcard pattern, e.g.
+// "*.free.servers.libreloom.org" (free) or "*.servers.libreloom.org" (paid).
+func (h *PortalHandler) planDomain(planID string) string {
+	plan := catalog.PlanByID(planID)
+	if plan == nil {
+		plan = catalog.PlanByID("free")
+	}
+	return plan.Limits.Domain
 }
 
 // activeCustomDomain returns the device's active (non-cancelled/expired)

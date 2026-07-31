@@ -91,9 +91,9 @@ export default function Domains() {
       </div>
 
       <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-2xl">
-        This is the address people use to reach your server. Every device gets a{" "}
-        <span className="font-mono">*.servers.libreloom.org</span> subdomain with your
-        plan — you can keep it, or use a custom domain (like{" "}
+        This is the address people use to reach your server. Your plan includes a{" "}
+        <span className="font-mono">{activeDevices[0]?.plan_domain || "subdomain"}</span>{" "}
+        subdomain — you can keep it, or use a custom domain (like{" "}
         <span className="font-mono">myserver.com</span>) instead.
       </p>
 
