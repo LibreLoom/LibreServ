@@ -6,6 +6,7 @@ const Login = lazy(() => import("./pages/Login.jsx"));
 const Register = lazy(() => import("./pages/Register.jsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.jsx"));
 const Plans = lazy(() => import("./pages/Plans.jsx"));
+const Domains = lazy(() => import("./pages/Domains.jsx"));
 const Onboarding = lazy(() => import("./pages/Onboarding.jsx"));
 const Usage = lazy(() => import("./pages/Usage.jsx"));
 const Billing = lazy(() => import("./pages/Billing.jsx"));
@@ -34,11 +35,12 @@ export default function App() {
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
-        <Route path="/usage" element={<ProtectedRoute><Usage /></ProtectedRoute>} />
-        <Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
-        <Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />
+		<Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+		<Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
+		<Route path="/domains" element={<ProtectedRoute><Domains /></ProtectedRoute>} />
+		<Route path="/usage" element={<ProtectedRoute><Usage /></ProtectedRoute>} />
+		<Route path="/billing" element={<ProtectedRoute><Billing /></ProtectedRoute>} />
+		<Route path="/security" element={<ProtectedRoute><Security /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

@@ -4,14 +4,18 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/scheduler"
 )
 
 // Version info injected via ldflags at build time.
@@ -31,7 +35,7 @@ func main() {
 			fmt.Sscanf(p, "%d", &port)
 		}
 		client := &http.Client{Timeout: 3 * time.Second}
-		resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
+		resp, err := client.Get("http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/healthz")
 		if err != nil {
 			os.Exit(1)
 		}
@@ -76,12 +80,23 @@ func main() {
 
 	srv := api.NewServer(db)
 
+	// Start the domain sync scheduler.
+	schedulerInterval := 6 * time.Hour
+	if d, err := time.ParseDuration(config.C.Scheduler.DomainSyncInterval); err == nil && d > 0 {
+		schedulerInterval = d
+	}
+	registrarClient := providers.NewRegistrarClient(nil)
+	billingSvc := billing.NewService(db)
+	sched := scheduler.New(db, registrarClient, billingSvc, schedulerInterval)
+	defer sched.Stop()
+	sched.Start()
+
 	addr := config.C.Server.Address
 	port := config.C.Server.Port
 	if port == 0 {
 		port = 8080
 	}
-	bind := fmt.Sprintf("%s:%d", addr, port)
+	bind := net.JoinHostPort(addr, strconv.Itoa(port))
 
 	slog.Info("connect server starting", "address", bind, "version", version, "commit", gitCommit, "built", buildTime)
 	if err := http.ListenAndServe(bind, srv.Router()); err != nil {

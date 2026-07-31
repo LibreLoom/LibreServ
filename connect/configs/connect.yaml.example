@@ -42,3 +42,6 @@ tunnel:
 web:
   customer_dir: "web/customer/dist"
   admin_dir: "web/admin/dist"
+
+scheduler:
+  domain_sync_interval: "6h"  # how often to sync custom domains with Cloudflare Registrar

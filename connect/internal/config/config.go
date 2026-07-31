@@ -23,6 +23,11 @@ type Config struct {
 	Backup    BackupConfig    `mapstructure:"backup" yaml:"backup"`
 	Tunnel    TunnelConfig    `mapstructure:"tunnel" yaml:"tunnel"`
 	Web       WebConfig       `mapstructure:"web" yaml:"web"`
+	Scheduler SchedulerConfig `mapstructure:"scheduler" yaml:"scheduler"`
+}
+
+type SchedulerConfig struct {
+	DomainSyncInterval string `mapstructure:"domain_sync_interval" yaml:"domain_sync_interval"`
 }
 
 type ServerConfig struct {
@@ -59,6 +64,9 @@ type SMTPConfig struct {
 	From      string `mapstructure:"from" yaml:"from"`
 	UseTLS    bool   `mapstructure:"use_tls" yaml:"use_tls"`
 	RelayAddr string `mapstructure:"relay_addr" yaml:"relay_addr"`
+	// RelayPublicHost is the hostname devices are told to connect to for the
+	// SMTP relay (must be a DNS-only record, not Cloudflare-proxied).
+	RelayPublicHost string `mapstructure:"relay_public_host" yaml:"relay_public_host"`
 }
 
 type DNSConfig struct {
@@ -124,4 +132,5 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("auth.session_ttl_hours", 168)
 	v.SetDefault("web.customer_dir", "web/customer/dist")
 	v.SetDefault("web.admin_dir", "web/admin/dist")
+	v.SetDefault("scheduler.domain_sync_interval", "6h")
 }

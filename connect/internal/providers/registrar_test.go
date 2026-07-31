@@ -222,3 +222,151 @@ func TestRegistrarMissingCredentials(t *testing.T) {
 		t.Fatal("expected error for missing account ID")
 	}
 }
+
+func TestRegistrarGetDomain(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"result": map[string]any{
+				"name":       "smith-family.net",
+				"expires_at": "2026-08-15T10:00:00Z",
+				"auto_renew": true,
+				"locked":     true,
+				"status":     "active",
+			},
+			"success": true,
+			"errors":  []any{},
+		})
+	}))
+	defer ts.Close()
+
+	client := NewRegistrarClient(ts.Client())
+	client.baseURL = ts.URL
+
+	info, err := client.GetDomain("acct-123", "cf-token", "smith-family.net")
+	if err != nil {
+		t.Fatalf("get domain: %v", err)
+	}
+	if info.Name != "smith-family.net" {
+		t.Fatalf("name = %q", info.Name)
+	}
+	if !info.AutoRenew {
+		t.Fatal("expected auto_renew=true")
+	}
+	if !info.Locked {
+		t.Fatal("expected locked=true")
+	}
+	if info.Status != "active" {
+		t.Fatalf("status = %q", info.Status)
+	}
+	if info.ExpiresAt.IsZero() {
+		t.Fatal("expected non-zero expires_at")
+	}
+	if info.ExpiresAt.Year() != 2026 {
+		t.Fatalf("expires_at year = %d", info.ExpiresAt.Year())
+	}
+}
+
+func TestRegistrarListDomains(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"result": []any{
+				map[string]any{
+					"name":       "smith-family.net",
+					"expires_at": "2026-08-15T10:00:00Z",
+					"auto_renew": true,
+					"locked":     false,
+					"status":     "active",
+				},
+				map[string]any{
+					"name":       "other.com",
+					"expires_at": "2027-01-20T00:00:00Z",
+					"auto_renew": false,
+					"locked":     true,
+					"status":     "active",
+				},
+			},
+			"success": true,
+			"errors":  []any{},
+		})
+	}))
+	defer ts.Close()
+
+	client := NewRegistrarClient(ts.Client())
+	client.baseURL = ts.URL
+
+	domains, err := client.ListDomains("acct-123", "cf-token")
+	if err != nil {
+		t.Fatalf("list domains: %v", err)
+	}
+	if len(domains) != 2 {
+		t.Fatalf("expected 2 domains, got %d", len(domains))
+	}
+	if domains[0].Name != "smith-family.net" {
+		t.Fatalf("first domain = %q", domains[0].Name)
+	}
+	if domains[1].Name != "other.com" {
+		t.Fatalf("second domain = %q", domains[1].Name)
+	}
+	if domains[1].AutoRenew {
+		t.Fatal("expected second domain auto_renew=false")
+	}
+}
+
+func TestRegistrarUpdateDomainAutoRenew(t *testing.T) {
+	var requestBody map[string]any
+	var requestMethod string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestMethod = r.Method
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &requestBody)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"errors":  []any{},
+		})
+	}))
+	defer ts.Close()
+
+	client := NewRegistrarClient(ts.Client())
+	client.baseURL = ts.URL
+
+	if err := client.UpdateDomainAutoRenew("acct-123", "cf-token", "smith-family.net", false); err != nil {
+		t.Fatalf("update auto-renew: %v", err)
+	}
+	if requestMethod != http.MethodPut {
+		t.Fatalf("expected PUT, got %s", requestMethod)
+	}
+	if requestBody["auto_renew"] != false {
+		t.Fatalf("expected auto_renew=false in body, got %v", requestBody["auto_renew"])
+	}
+}
+
+func TestRegistrarGetDomainMissingCredentials(t *testing.T) {
+	client := NewRegistrarClient(nil)
+	_, err := client.GetDomain("", "token", "test.com")
+	if err == nil {
+		t.Fatal("expected error for missing account ID")
+	}
+	_, err = client.GetDomain("acct", "", "test.com")
+	if err == nil {
+		t.Fatal("expected error for missing API token")
+	}
+	_, err = client.ListDomains("", "token")
+	if err == nil {
+		t.Fatal("expected error for missing account ID in ListDomains")
+	}
+	err = client.UpdateDomainAutoRenew("", "token", "test.com", true)
+	if err == nil {
+		t.Fatal("expected error for missing account ID in UpdateDomainAutoRenew")
+	}
+}

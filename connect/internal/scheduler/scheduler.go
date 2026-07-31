@@ -70,13 +70,13 @@ func (s *Scheduler) SyncDomains() error {
 
 // domainRow holds the fields the scheduler needs for each custom domain.
 type domainRow struct {
-	ID                string
-	DeviceID          string
-	Domain            string
-	Status            string
-	ExpiresAt         sql.NullTime
-	AutoRenew         bool
-	RenewalCostCents  sql.NullInt64
+	ID               string
+	DeviceID         string
+	Domain           string
+	Status           string
+	ExpiresAt        sql.NullTime
+	AutoRenew        bool
+	RenewalCostCents sql.NullInt64
 }
 
 func (s *Scheduler) syncDomains() error {
@@ -149,13 +149,12 @@ func (s *Scheduler) syncSingleDomain(ctx context.Context, d domainRow, apiToken,
 	case "active":
 		// If auto_renew is true on CF and expiry moved to the future, CF renewed it.
 		if info.AutoRenew && d.ExpiresAt.Valid && d.ExpiresAt.Time.After(now) {
-			// Check if we previously recorded an expiry in the past (i.e. it was renewed).
-			s.handleAutoRenewal(ctx, d, info, apiToken, cfAccountID)
+			s.handleAutoRenewal(ctx, d, apiToken, cfAccountID)
 		}
 
 	case "payment_failed":
 		// Retry: try to deduct credit again.
-		s.retryPaymentFailed(ctx, d, info, apiToken, cfAccountID)
+		s.retryPaymentFailed(ctx, d, apiToken, cfAccountID)
 	}
 }
 
@@ -179,7 +178,7 @@ func (s *Scheduler) refreshRenewalCost(ctx context.Context, domain, apiToken, cf
 // handleAutoRenewal deducts the renewal cost from the device's account credit
 // when Cloudflare has auto-renewed the domain. CF charges its own payment method;
 // LibreServ recovers the cost by charging the user's credit at the exact at-cost price.
-func (s *Scheduler) handleAutoRenewal(ctx context.Context, d domainRow, info *providers.DomainInfo, apiToken, cfAccountID string) {
+func (s *Scheduler) handleAutoRenewal(ctx context.Context, d domainRow, apiToken, cfAccountID string) {
 	renewalCost := int64(0)
 	if d.RenewalCostCents.Valid {
 		renewalCost = d.RenewalCostCents.Int64
@@ -206,7 +205,7 @@ func (s *Scheduler) handleAutoRenewal(ctx context.Context, d domainRow, info *pr
 
 // retryPaymentFailed attempts to deduct credit again for a payment_failed domain.
 // If it succeeds, re-enables CF auto-renew and sets status='active'.
-func (s *Scheduler) retryPaymentFailed(ctx context.Context, d domainRow, info *providers.DomainInfo, apiToken, cfAccountID string) {
+func (s *Scheduler) retryPaymentFailed(ctx context.Context, d domainRow, apiToken, cfAccountID string) {
 	renewalCost := int64(0)
 	if d.RenewalCostCents.Valid {
 		renewalCost = d.RenewalCostCents.Int64
@@ -252,14 +251,27 @@ func (s *Scheduler) revokeExpiredDomain(ctx context.Context, d domainRow) {
 		"domain", d.Domain, "device", d.DeviceID)
 }
 
-// parseDomainCostToCents converts a price string like "11.20" to cents (1120).
-func parseDomainCostToCents(cost string) (int64, error) {
-	f, err := strconv.ParseFloat(cost, 64)
+// detectOrphans lists all domains in Cloudflare and logs any that are not in
+// our custom_domains table with an active/grace status. Orphans are not
+// auto-deleted (there is no CF API for domain deletion) — this is for
+// operational visibility only.
+func (s *Scheduler) detectOrphans(ctx context.Context, apiToken, cfAccountID string) {
+	cfDomains, err := s.registrar.ListDomains(cfAccountID, apiToken)
 	if err != nil {
-		return 0, err
+		slog.Debug("scheduler: could not list CF domains for orphan check", "error", err)
+		return
 	}
-	return int64(f * 100), nil
-}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT domain FROM custom_domains WHERE status IN ('active', 'grace')`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	known := make(map[string]bool)
+	for rows.Next() {
+		var d string
 		_ = rows.Scan(&d)
 		known[d] = true
 	}
@@ -270,15 +282,6 @@ func parseDomainCostToCents(cost string) (int64, error) {
 				"domain", cf.Name, "cf_status", cf.Status, "auto_renew", cf.AutoRenew)
 		}
 	}
-}
-
-// disableAutoRenewSafe looks up tunnel credentials and disables auto-renew.
-func (s *Scheduler) disableAutoRenewSafe(ctx context.Context, domain string) {
-	apiToken, cfAccountID, err := s.lookUpTunnelCredentials(ctx)
-	if err != nil {
-		return
-	}
-	_ = s.registrar.UpdateDomainAutoRenew(cfAccountID, apiToken, domain, false)
 }
 
 // lookUpTunnelCredentials queries the service_providers table for the enabled
@@ -306,15 +309,9 @@ func (s *Scheduler) lookUpTunnelCredentials(ctx context.Context) (apiToken, acco
 
 // parseDomainCostToCents converts a price string like "11.20" to cents (1120).
 func parseDomainCostToCents(cost string) (int64, error) {
-	var f float64
-	_, err := fmtSscanf(cost, &f)
+	f, err := strconv.ParseFloat(cost, 64)
 	if err != nil {
 		return 0, err
 	}
 	return int64(f * 100), nil
-}
-
-// fmtSscanf wraps fmt.Sscanf to keep imports minimal in this file.
-func fmtSscanf(s string, v *float64) (int, error) {
-	return sscanfImpl(s, v)
 }

@@ -130,3 +130,4 @@ connect/internal/api/customer/dist/assets/
 connect/web/*/dist/
 connect/configs/connect-deploy.yaml
 connect/configs/connect.yaml
+.empryo

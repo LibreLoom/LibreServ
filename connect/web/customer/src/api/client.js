@@ -112,4 +112,11 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ device_id: deviceId, domain }),
   }),
+  getDomains: () => request("/portal/domains"),
+  getDomainDetails: (domain) => request(`/portal/domains/${encodeURIComponent(domain)}`),
+  cancelDomain: (domain) => request(`/portal/domains/${encodeURIComponent(domain)}/cancel`, { method: "POST" }),
+  changeDomain: (deviceId, domain) => request("/portal/domains/change", {
+    method: "POST",
+    body: JSON.stringify({ device_id: deviceId, new_domain: domain }),
+  }),
 };

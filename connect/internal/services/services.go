@@ -177,14 +177,13 @@ func (s *ProvisioningService) generateSMTP(deviceID string) (map[string]any, err
 		return nil, fmt.Errorf("your account does not have SMTP credentials set up. Please contact support.")
 	}
 
-	// Connect SMTP relay address — defaults to the server's public address
-	relayHost := config.C.Server.BaseURL
-	// Strip protocol and path to get just the host
-	relayHost = strings.TrimPrefix(relayHost, "https://")
-	relayHost = strings.TrimPrefix(relayHost, "http://")
-	relayHost = strings.Split(relayHost, "/")[0]
+	// Public hostname of the Connect SMTP relay. MUST be a DNS-only (grey-cloud)
+	// record — connect.serv.libreloom.org is Cloudflare-proxied, and the free
+	// proxy does not forward raw TCP on port 2525, so devices could never reach
+	// the relay through it (SMTP provisioning failed validation).
+	relayHost := config.C.SMTP.RelayPublicHost
 	if relayHost == "" {
-		relayHost = "connect.serv.libreloom.org"
+		relayHost = "smtp.serv.libreloom.org"
 	}
 
 	relayPort := 2525

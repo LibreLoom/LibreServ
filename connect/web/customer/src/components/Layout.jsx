@@ -6,11 +6,12 @@ import { Button } from "./ui/button.jsx";
 import { Input } from "./ui/input.jsx";
 import { Label } from "./ui/label.jsx";
 import { Separator } from "./ui/separator.jsx";
-import { LayoutDashboard, CreditCard, ChartBar, Package, Shield, LogOut, Sun, Moon, Plus } from "lucide-react";
+import { LayoutDashboard, CreditCard, ChartBar, Package, Shield, LogOut, Sun, Moon, Plus, Globe } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/plans", label: "Plans", icon: Package },
+  { to: "/domains", label: "Domains", icon: Globe },
   { to: "/usage", label: "Usage", icon: ChartBar },
   { to: "/billing", label: "Billing", icon: CreditCard },
   { to: "/security", label: "Security", icon: Shield },

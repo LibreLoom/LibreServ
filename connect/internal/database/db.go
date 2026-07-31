@@ -375,4 +375,11 @@ ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS smtp_password TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_accounts_username ON customer_accounts(username) WHERE username IS NOT NULL;
 		`,
 	},
+	{
+		name: "004_domain_renewal",
+		sql: `
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS renewal_cost_cents INTEGER;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS grace_until TIMESTAMP;
+		`,
+	},
 }

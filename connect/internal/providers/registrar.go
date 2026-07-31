@@ -23,6 +23,9 @@ func NewRegistrarClient(httpClient *http.Client) *RegistrarClient {
 	return &RegistrarClient{httpClient: httpClient}
 }
 
+// SetBaseURL overrides the API base URL (for testing).
+func (c *RegistrarClient) SetBaseURL(url string) { c.baseURL = url }
+
 // DomainResult holds availability and pricing for a domain.
 type DomainResult struct {
 	Name             string `json:"name"`

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
@@ -178,7 +179,7 @@ func (h *DeviceHandler) Usage(w http.ResponseWriter, r *http.Request) {
 
 func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHint string) map[string]any {
 	rows, _ := h.db.QueryContext(ctx,
-		"SELECT service_type, is_active FROM service_credentials WHERE device_id = $1 AND is_active = TRUE",
+		"SELECT service_type, is_active, credentials_json FROM service_credentials WHERE device_id = $1 AND is_active = TRUE",
 		deviceID)
 	defer rows.Close()
 
@@ -209,14 +210,29 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHi
 		},
 	}
 
+	// Track domain credentials JSON so we can populate subdomain details later.
+	var domainCredsJSON string
+
 	for rows.Next() {
 		var svc string
 		var active bool
-		_ = rows.Scan(&svc, &active)
+		var credsJSON string
+		_ = rows.Scan(&svc, &active, &credsJSON)
 		if active {
 			if s, ok := services[svc]; ok {
 				s["state"] = "connected"
 			}
+			if svc == "domain" {
+				domainCredsJSON = credsJSON
+			}
+		}
+	}
+
+	// Populate domain service details: custom domain takes precedence, then subdomain.
+	if services["domain"]["state"] == "connected" {
+		details := h.buildDomainDetails(ctx, deviceID, domainCredsJSON)
+		if details != nil {
+			services["domain"]["details"] = details
 		}
 	}
 
@@ -233,6 +249,50 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHi
 		"services":         services,
 		"connect_key_hint": keyHint,
 	}
+}
+
+// buildDomainDetails populates the details map for the domain service.
+// If the device has an active custom domain, returns custom domain metadata
+// (name, status, expiry, auto_renew). Otherwise, reads the subdomain name
+// from the service credentials JSON.
+func (h *DeviceHandler) buildDomainDetails(ctx context.Context, deviceID, credsJSON string) map[string]string {
+	// Check for an active or grace custom domain.
+	var domain, status string
+	var autoRenew bool
+	var expiresAt sql.NullTime
+	err := h.db.QueryRowContext(ctx,
+		`SELECT domain, status, auto_renew, expires_at
+		 FROM custom_domains WHERE device_id = $1 AND status IN ('active', 'grace')
+		 ORDER BY purchased_at DESC LIMIT 1`,
+		deviceID).Scan(&domain, &status, &autoRenew, &expiresAt)
+	if err == nil && domain != "" {
+		details := map[string]string{
+			"type":       "custom",
+			"domain":     domain,
+			"status":     status,
+			"auto_renew": strconv.FormatBool(autoRenew),
+		}
+		if expiresAt.Valid {
+			details["expires_at"] = expiresAt.Time.Format(time.RFC3339)
+		}
+		return details
+	}
+
+	// No custom domain — extract subdomain from credentials JSON.
+	if credsJSON == "" {
+		return nil
+	}
+	var creds map[string]any
+	if json.Unmarshal([]byte(credsJSON), &creds) != nil {
+		return nil
+	}
+	if subdomain, ok := creds["domain"].(string); ok && subdomain != "" {
+		return map[string]string{
+			"type":   "subdomain",
+			"domain": subdomain,
+		}
+	}
+	return nil
 }
 
 func hashToken(token string) string {
