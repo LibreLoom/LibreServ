@@ -7,6 +7,7 @@ import {
   Copy,
   Check,
   ArrowRight,
+  Mail,
 } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../hooks/useAuth";
@@ -348,6 +349,33 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
   const copyLabelRef = useRef(null);
   useSmoothResize(copyLabelRef);
 
+  // Send a fresh email-OTP code. Used both on mount (auto-send the first
+  // code when the verify form appears) and from the "Send new code" button
+  // so the user can re-request without leaving the step.
+  const sendEmailCode = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await request("/auth/mfa/email/setup", { method: "POST" });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Couldn't send the email code.");
+      }
+      addToast({ type: "success", message: "Code sent to your email." });
+      setStep("verify");
+    } catch (err) {
+      if (err.name === "AuthError") {
+        onSessionExpired?.();
+        setError("Your session expired. Please log in again.");
+        return;
+      }
+      setError(err.message || "Couldn't send the email code.");
+    } finally {
+      setBusy(false);
+    }
+  }, [request, addToast, onSessionExpired]);
+
+
   // Start TOTP/email enrollment automatically. WebAuthn waits for the name form.
   //
   // Aborts a stale in-flight setup request on re-invocation. React StrictMode
@@ -361,26 +389,20 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
     let cancelled = false;
     async function begin() {
       if (type === "passkey" || type === "security_key") return;
+      if (type === "email") {
+        // sendEmailCode fires POST /auth/mfa/email/setup (auto first send).
+        if (!cancelled) sendEmailCode();
+        return;
+      }
       setBusy(true);
       setError(null);
       try {
-        if (type === "totp") {
-          const res = await request("/auth/mfa/totp/setup", { method: "POST", signal: controller.signal });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || "Couldn't start setup.");
-          if (cancelled) return;
-          setTotp(data);
-          setStep("verify");
-        } else if (type === "email") {
-          const res = await request("/auth/mfa/email/setup", { method: "POST", signal: controller.signal });
-          if (!res.ok) {
-            const d = await res.json().catch(() => ({}));
-            throw new Error(d.error || "Couldn't send the email code.");
-          }
-          if (cancelled) return;
-          addToast({ type: "success", message: "Code sent to your email." });
-          setStep("verify");
-        }
+        const res = await request("/auth/mfa/totp/setup", { method: "POST", signal: controller.signal });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Couldn't start setup.");
+        if (cancelled) return;
+        setTotp(data);
+        setStep("verify");
       } catch (err) {
         if (controller.signal.aborted) return; // stale request, ignore
         if (err.name === "AuthError") {
@@ -398,8 +420,8 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
       cancelled = true;
       controller.abort();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- onSessionExpired is a stable callback from the parent
-  }, [type, request, addToast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type, sendEmailCode]);
 
   async function verifyCode() {
     if (!code) return;
@@ -646,6 +668,19 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
               </>
             )}
           </Button>
+          {type === "email" && (
+            <Button
+              type="button"
+              variant="outline"
+              surface="secondary"
+              fullWidth
+              loading={busy}
+              onClick={sendEmailCode}
+              className="py-2 text-sm"
+            >
+              <Mail className="w-4 h-4" /> Send a new code
+            </Button>
+          )}
         </form>
       )}
 
