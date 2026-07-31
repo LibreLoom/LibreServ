@@ -23,10 +23,10 @@ func TestB2ProvisionBucket(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"accountId":            "acc123",
-				"authorizationToken":   "tok123",
-				"apiUrl":               "http://" + r.Host,
-				"downloadUrl":          "http://" + r.Host,
+				"accountId":          "acc123",
+				"authorizationToken": "tok123",
+				"apiUrl":             "http://" + r.Host,
+				"downloadUrl":        "http://" + r.Host,
 			})
 			return
 		}

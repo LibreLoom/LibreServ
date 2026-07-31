@@ -269,6 +269,9 @@ func (s *Service) CheckQuota(deviceID, serviceType string, requested float64) (r
 		if planID == "free" {
 			cycleStart = now.AddDate(0, 0, -1)
 		}
+	case "tunnel":
+		metric = "gb"
+		limit = float64(plan.Limits.TunnelGBPerMo)
 	default:
 		return 0, true, nil // no quota for unknown services
 	}

@@ -50,6 +50,7 @@ type b2KeyResponse struct {
 	ApplicationKeyID string `json:"applicationKeyId"`
 	ApplicationKey   string `json:"applicationKey"`
 }
+
 func (c *B2Client) Authorize(accountID, applicationKey string) (*b2AuthResponse, error) {
 	auth := base64.StdEncoding.EncodeToString([]byte(accountID + ":" + applicationKey))
 	url := c.authorizeURL
@@ -74,9 +75,9 @@ func (c *B2Client) CreateBucket(apiURL, authToken, accountID, name, bucketType s
 	if _, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{
 		"Authorization": authToken,
 	}, map[string]string{
-		"accountId":   accountID,
-		"bucketName":  name,
-		"bucketType":  bucketType,
+		"accountId":  accountID,
+		"bucketName": name,
+		"bucketType": bucketType,
 	}, &resp); err != nil {
 		return nil, fmt.Errorf("could not create Backblaze B2 bucket: %w", err)
 	}

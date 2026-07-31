@@ -1,6 +1,6 @@
 # LibreServ Connect — Full Plan
 
-Status: draft, 2026-07-10  
+Status: draft, 2026-07-10. Realignment pass completed 2026-07-31: dead code deleted, local credit/plan system removed (Connect enforces all limits service-side), settings pipeline fixed, email architecture unified. Tunnel relay fleet (Phase 4 below) remains unbuilt — it is a product roadmap item, not part of the realignment.  
 Scope: cloud control plane, subscription management, and SaaS services for LibreServ devices.
 
 ---
@@ -222,10 +222,10 @@ POST /portal/change-plan
 ### Phase 1 — Foundation (week 1–2)
 
 - [ ] Rewrite `connect/internal/database/db.go` migration `001` with new schema.
-- [ ] Update plan seed to `free`, `lite`, `one` with new limits.
-- [ ] Remove old `payg` references and obsolete code paths.
+- [x] Update plan seed to `free`, `lite`, `one` with new limits.
+- [x] Remove old `payg` references and obsolete code paths.
 - [ ] Implement account-credit table and transactions.
-- [ ] Update config example with new sections (`models`, `tunnel, stripe`).
+- [x] Update config example with new sections (`tunnel`, `stripe`); models are DB-configured.
 
 ### Phase 2 — Billing & usage (week 2–3)
 
@@ -246,7 +246,7 @@ POST /portal/change-plan
 - [ ] Define relay region abstraction (Hetzner + Akamai).
 - [ ] Build relay provisioning/orchestration (manual or API-driven).
 - [ ] Implement premium vs. non-premium routing logic.
-- [ ] Enforce tunnel quotas and overage/fallback behavior.
+- [x] Enforce tunnel quotas (overage/fallback behavior pending relay fleet implementation).
 
 ### Phase 5 — Web UIs (week 5–6)
 

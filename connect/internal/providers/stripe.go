@@ -6,7 +6,6 @@ import (
 
 	stripego "github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/checkout/session"
-	"github.com/stripe/stripe-go/v76/price"
 	"github.com/stripe/stripe-go/v76/subscription"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
@@ -130,60 +129,6 @@ func UpdateSubscriptionPrice(ctx context.Context, subscriptionID, newPriceID str
 		return fmt.Errorf("update subscription price: %w", err)
 	}
 	return nil
-}
-
-// CreateDomainRenewalPrice creates a dynamic Stripe price for annual domain
-// renewal at the current Cloudflare at-cost rate. Prices are created per-domain
-// because renewal costs vary by TLD and can change over time.
-// Returns the price ID to use for the renewal subscription.
-func CreateDomainRenewalPrice(ctx context.Context, domainName string, renewalCostCents int64) (priceID string, err error) {
-	priceParams := &stripego.PriceParams{
-		Currency: stripego.String("usd"),
-		ProductData: &stripego.PriceProductDataParams{
-			Name: stripego.String(fmt.Sprintf("Domain renewal: %s (annual)", domainName)),
-		},
-		UnitAmount: stripego.Int64(renewalCostCents),
-		Recurring: &stripego.PriceRecurringParams{
-			Interval: stripego.String("year"),
-		},
-		Metadata: map[string]string{
-			"type":   "domain_renewal",
-			"domain": domainName,
-		},
-	}
-	priceParams.Context = ctx
-
-	newPrice, err := price.New(priceParams)
-	if err != nil {
-		return "", fmt.Errorf("create renewal price: %w", err)
-	}
-	return newPrice.ID, nil
-}
-
-// CreateDomainRenewalSubscription creates an annual subscription for domain
-// renewal using a dynamically-created price. The subscription is attached to
-// the customer from the initial checkout. Returns the subscription ID.
-// The subscription will auto-charge each year on the anniversary.
-func CreateDomainRenewalSubscription(ctx context.Context, customerID, priceID, domainName string) (subscriptionID string, err error) {
-	params := &stripego.SubscriptionParams{
-		Customer: stripego.String(customerID),
-		Items: []*stripego.SubscriptionItemsParams{
-			{
-				Price: stripego.String(priceID),
-			},
-		},
-		Metadata: map[string]string{
-			"type":   "domain_renewal",
-			"domain": domainName,
-		},
-	}
-	params.Context = ctx
-
-	sub, err := subscription.New(params)
-	if err != nil {
-		return "", fmt.Errorf("create renewal subscription: %w", err)
-	}
-	return sub.ID, nil
 }
 
 // GetSubscription retrieves a full subscription by ID from the Stripe API,

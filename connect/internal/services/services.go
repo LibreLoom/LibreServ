@@ -10,6 +10,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/models"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/smtp"
@@ -23,6 +24,7 @@ type ProvisioningService struct {
 	resend    *providers.ResendClient
 	dns       *providers.CloudflareClient
 	tunnel    *providers.TunnelClient
+	models    *models.Service
 }
 
 // NewProvisioningService creates a provisioning service with default upstream clients.
@@ -34,6 +36,7 @@ func NewProvisioningService(db *sql.DB) *ProvisioningService {
 		resend:    providers.NewResendClient(nil),
 		dns:       providers.NewCloudflareClient(nil),
 		tunnel:    providers.NewTunnelClient(nil),
+		models:    models.NewService(db),
 	}
 }
 
@@ -46,6 +49,7 @@ func NewProvisioningServiceWithClients(db *sql.DB, prov *providers.Service, b2 *
 		resend:    resend,
 		dns:       dns,
 		tunnel:    tunnel,
+		models:    models.NewService(db),
 	}
 }
 
@@ -147,17 +151,7 @@ func (s *ProvisioningService) generateCredentials(deviceID, service, clientIP st
 	case "tunnel":
 		return s.generateTunnel(deviceID, sub)
 	case "ai":
-		baseURL := config.C.Inference.BaseURL
-		if baseURL == "" {
-			baseURL = "https://inference.neuralwatt.dev/v1"
-		}
-		return map[string]any{
-			"ai": map[string]any{
-				"base_url": baseURL,
-				"api_key":  fmt.Sprintf("nw-sk-%s-%s", sub, security.RandomPassword(24)),
-				"format":   "openai",
-			},
-		}, nil
+		return s.generateAI(deviceID, sub)
 	default:
 		return nil, nil
 	}
@@ -376,6 +370,51 @@ func (s *ProvisioningService) generateTunnel(deviceID, sub string) (map[string]a
 
 // deviceHostname returns the full hostname for a device based on its plan.
 // e.g. "abc12345.free.servers.libreloom.org" for free plan.
+// generateAI provisions AI credentials using the models service to resolve
+// the provider and model for the device's plan tier. Falls back to
+// config inference base URL if no models are configured.
+func (s *ProvisioningService) generateAI(deviceID, sub string) (map[string]any, error) {
+	var planID string
+	_ = s.db.QueryRow("SELECT plan_id FROM devices WHERE id = $1", deviceID).Scan(&planID)
+
+	baseURL := ""
+	apiFormat := "openai"
+
+	if s.models != nil {
+		model, err := s.models.ResolveModelForDevice("agent", planID)
+		if err == nil && model != nil {
+			provider, err := s.models.ResolveProvider(model)
+			if err == nil && provider != nil && provider.BaseURL != "" {
+				baseURL = provider.BaseURL
+				if provider.APIKey != "" {
+					return map[string]any{
+						"ai": map[string]any{
+							"base_url": baseURL,
+							"api_key":  provider.APIKey,
+							"format":   apiFormat,
+						},
+					}, nil
+				}
+			}
+		}
+	}
+
+	// Fallback: use config or hardcoded default
+	if baseURL == "" {
+		baseURL = config.C.Inference.BaseURL
+		if baseURL == "" {
+			baseURL = "https://inference.neuralwatt.dev/v1"
+		}
+	}
+
+	return map[string]any{
+		"ai": map[string]any{
+			"base_url": baseURL,
+			"api_key":  fmt.Sprintf("nw-sk-%s-%s", sub, security.RandomPassword(24)),
+			"format":   apiFormat,
+		},
+	}, nil
+}
 func (s *ProvisioningService) deviceHostname(deviceID, sub string) string {
 	var planID string
 	if err := s.db.QueryRow("SELECT plan_id FROM devices WHERE id = $1", deviceID).Scan(&planID); err != nil {

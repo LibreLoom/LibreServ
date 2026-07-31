@@ -163,7 +163,10 @@ func (s *Server) setupRoutes() {
 				r.Post("/domains/search", portal.SearchDomains)
 				r.Post("/domains/check", portal.CheckDomain)
 				r.Post("/domains/register", portal.RegisterDomain)
+				r.Post("/domains/change", portal.ChangeDomain)
 				r.Get("/domains", portal.ListDomains)
+				r.Get("/domains/{domain}", portal.GetDomainDetails)
+				r.Post("/domains/{domain}/cancel", portal.CancelDomain)
 
 				// Consent
 				r.Get("/consent", portal.GetConsentRequests)

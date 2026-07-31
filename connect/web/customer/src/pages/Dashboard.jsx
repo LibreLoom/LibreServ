@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.
 import { Button } from "../components/ui/button.jsx";
 import { StatusBadge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
-import { Check, X, Key, Copy, ArrowUpCircle, Shield, Zap, MailCheck } from "lucide-react";
+import { Check, X, Key, Copy, ArrowUpCircle, Shield, Zap, MailCheck, Loader2 } from "lucide-react";
 
 export default function Dashboard() {
   const { account } = useAuth();
@@ -21,25 +21,29 @@ export default function Dashboard() {
   // verified, so don't fire queries we know will fail.
   const verified = !!account?.email_verified;
 
-  const { data: devicesData } = useQuery({
+  const { data: devicesData, isLoading: devicesLoading } = useQuery({
     queryKey: ["devices"],
     queryFn: api.getDevices,
     enabled: verified,
   });
-  const { data: keysData } = useQuery({
+  const { data: keysData, isLoading: keysLoading } = useQuery({
     queryKey: ["connect-keys"],
     queryFn: api.getConnectKeys,
     enabled: verified,
   });
-  const { data: consentData } = useQuery({
+  const { data: consentData, isLoading: consentLoading } = useQuery({
     queryKey: ["consent-requests"],
     queryFn: api.getConsentRequests,
     enabled: verified,
   });
-  const { data: plansData } = useQuery({
+  const { data: plansData, isLoading: plansLoading } = useQuery({
     queryKey: ["plans"],
     queryFn: api.getPlans,
   });
+
+  // Don't render dashboard content until all queries resolve — otherwise the
+  // page flashes empty lists / zero values before the data arrives.
+  const dashboardLoading = verified && (devicesLoading || keysLoading || consentLoading || plansLoading);
 
   const generateKeyMut = useMutation({
     mutationFn: () => api.generateConnectKey(),
@@ -112,6 +116,11 @@ export default function Dashboard() {
             </Button>
           </CardContent>
         </Card>
+      ) : dashboardLoading ? (
+        <div className="flex flex-col items-center justify-center py-24">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mb-4" />
+          <p className="font-mono text-sm text-muted-foreground">Loading your dashboard…</p>
+        </div>
       ) : (
       <>
       {/* Current plan card */}

@@ -174,6 +174,11 @@ func TestRegistrarRegisterDomain(t *testing.T) {
 				"result": map[string]any{
 					"domain_name": "smith-family.net",
 					"state":       "succeeded",
+					"context": map[string]any{
+						"registration": map[string]any{
+							"expires_at": "2026-08-15T10:00:00Z",
+						},
+					},
 				},
 				"success": true,
 				"errors":  []any{},
@@ -187,7 +192,7 @@ func TestRegistrarRegisterDomain(t *testing.T) {
 	client := NewRegistrarClient(ts.Client())
 	client.baseURL = ts.URL
 
-	err := client.RegisterDomain("acct-123", "cf-token", "smith-family.net")
+	_, err := client.RegisterDomain("acct-123", "cf-token", "smith-family.net")
 	if err != nil {
 		t.Fatalf("register domain: %v", err)
 	}
@@ -196,6 +201,9 @@ func TestRegistrarRegisterDomain(t *testing.T) {
 	}
 	if requestBody["domain_name"] != "smith-family.net" {
 		t.Fatalf("domain_name = %v", requestBody["domain_name"])
+	}
+	if requestBody["auto_renew"] != true {
+		t.Fatalf("expected auto_renew=true in request body, got %v", requestBody["auto_renew"])
 	}
 }
 
@@ -209,7 +217,7 @@ func TestRegistrarMissingCredentials(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing API token")
 	}
-	err = client.RegisterDomain("", "token", "test.com")
+	_, err = client.RegisterDomain("", "token", "test.com")
 	if err == nil {
 		t.Fatal("expected error for missing account ID")
 	}

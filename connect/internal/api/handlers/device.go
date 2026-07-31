@@ -117,11 +117,13 @@ func (h *DeviceHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = h.db.ExecContext(r.Context(),
 		"UPDATE subscriptions SET status = 'cancelled' WHERE device_id = $1", deviceID)
-	// Revoke all service credentials so stale "connected" states don't persist
-	// across re-activation (buildStatus queries is_active = TRUE).
+	// Revoke all service credentials so stale "connected" states do not persist.
 	_, _ = h.db.ExecContext(r.Context(),
 		"UPDATE service_credentials SET is_active = FALSE, revoked_at = $1 WHERE device_id = $2",
 		time.Now(), deviceID)
+	// Revoke the Connect key so it cannot be reused to re-activate.
+	_, _ = h.db.ExecContext(r.Context(),
+		"UPDATE connect_keys SET status = 'revoked' WHERE device_id = $1", deviceID)
 	JSON(w, http.StatusOK, map[string]string{"message": "deactivated"})
 }
 

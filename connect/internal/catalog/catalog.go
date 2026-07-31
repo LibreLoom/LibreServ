@@ -19,6 +19,7 @@ type Limits struct {
 	AIMessagesPerDay int    `json:"ai_messages_per_day"`
 	Domain           string `json:"domain"`
 	HumanSupport     bool   `json:"human_support"`
+	TunnelGBPerMo    int    `json:"tunnel_gb_per_mo"`
 }
 
 // Overage rates — what the customer pays beyond included allowance.
@@ -52,6 +53,7 @@ var plans = []Plan{
 			AIMessagesPerDay: 50,
 			Domain:           "*.free.servers.libreloom.org",
 			HumanSupport:     false,
+			TunnelGBPerMo:    0,
 		},
 	},
 	{
@@ -66,6 +68,7 @@ var plans = []Plan{
 			AIMessagesPerDay: 0,
 			Domain:           "*.servers.libreloom.org",
 			HumanSupport:     true,
+			TunnelGBPerMo:    50,
 		},
 	},
 	{
@@ -80,6 +83,7 @@ var plans = []Plan{
 			AIMessagesPerDay: 0,
 			Domain:           "*.servers.libreloom.org",
 			HumanSupport:     true,
+			TunnelGBPerMo:    200,
 		},
 	},
 }

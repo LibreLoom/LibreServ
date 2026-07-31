@@ -13,14 +13,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
-
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/services"
 )
 
 // PortalHandler handles customer-facing self-service API.
@@ -991,6 +993,14 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.db.ExecContext(r.Context(),
 		"UPDATE devices SET plan_id = $1 WHERE id = $2", req.PlanID, deviceID)
 
+	// If downgrading to Free, put any active custom domain into grace.
+	if req.PlanID == "free" {
+		h.handleDomainGraceOnDowngrade(r.Context(), deviceID)
+	} else {
+		// Upgrade or lateral move — re-provision subdomain only if no custom domain.
+		h.reprovisionSubdomainIfNoCustomDomain(r.Context(), deviceID)
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
 		"message":   "plan changed",
 		"plan_id":   req.PlanID,
@@ -1320,16 +1330,32 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse the registration cost to cents (used in both dev-mode and Stripe paths)
+	amountCents, err := parseDomainCostToCents(domainInfo.RegistrationCost)
+	if err != nil || amountCents <= 0 {
+		JSONError(w, http.StatusInternalServerError, "could not determine domain registration cost")
+		return
+	}
+
 	// If Stripe is not enabled, register directly (dev mode)
 	if !config.C.Stripe.Enabled {
-		if err := h.registrar.RegisterDomain(cfAccountID, apiToken, req.Domain); err != nil {
+		expiresAt, err := h.registrar.RegisterDomain(cfAccountID, apiToken, req.Domain)
+		if err != nil {
 			JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not register domain: %s", err.Error()))
 			return
 		}
+		if expiresAt.IsZero() {
+			expiresAt = time.Now().AddDate(1, 0, 0)
+		}
+		var renewalCostCents int64
+		if rc, parseErr := parseDomainCostToCents(domainInfo.RenewalCost); parseErr == nil {
+			renewalCostCents = rc
+		}
 		domainID := security.GenerateID("dom")
 		_, _ = h.db.ExecContext(r.Context(),
-			`INSERT INTO custom_domains (id, device_id, domain, registered_via, auto_renew, status) VALUES ($1, $2, $3, $4, $5, $6)`,
-			domainID, req.DeviceID, req.Domain, "cloudflare", true, "active")
+			`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
+			 VALUES ($1, $2, $3, 'cloudflare', $4, $5, TRUE, 'active', $6)`,
+			domainID, req.DeviceID, req.Domain, int(amountCents), int(renewalCostCents), expiresAt)
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.Domain,
 			"status": "registered",
@@ -1339,15 +1365,8 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create a Stripe checkout session for the domain registration (at-cost, one-time payment)
-	// Parse the registration cost to cents
-	amountCents, err := parseDomainCostToCents(domainInfo.RegistrationCost)
-	if err != nil || amountCents <= 0 {
-		JSONError(w, http.StatusInternalServerError, "could not determine domain registration cost")
-		return
-	}
-
-	successURL := config.C.Server.BaseURL + "/onboarding?domain=success"
-	cancelURL := config.C.Server.BaseURL + "/onboarding?domain=cancelled"
+	successURL := config.C.Server.BaseURL + "/domains?domain=success"
+	cancelURL := config.C.Server.BaseURL + "/domains?domain=cancelled"
 
 	checkoutURL, err := providers.CreateDomainCheckoutSession(r.Context(), req.DeviceID, req.Domain, amountCents, successURL, cancelURL)
 	if err != nil {
@@ -1424,4 +1443,384 @@ func parseDomainCostToCents(cost string) (int64, error) {
 		return 0, fmt.Errorf("invalid cost %q: %w", cost, err)
 	}
 	return int64(amount * 100), nil
+}
+
+// GetDomainDetails returns full status for a specific custom domain.
+// Fetches live data from Cloudflare Registrar (expires_at, auto_renew, status)
+// and the current at-cost renewal price via CheckDomain.
+func (h *PortalHandler) GetDomainDetails(w http.ResponseWriter, r *http.Request) {
+	domainName := chi.URLParam(r, "domain")
+	if domainName == "" {
+		JSONError(w, http.StatusBadRequest, "domain is required")
+		return
+	}
+
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+
+	// Verify the domain belongs to the authenticated account.
+	var deviceID, status string
+	var autoRenew bool
+	var purchasedAt time.Time
+	var expiresAt sql.NullTime
+	var registrationCostCents, renewalCostCents sql.NullInt64
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT cd.device_id, cd.status, cd.auto_renew, cd.purchased_at, cd.expires_at,
+		        cd.registration_cost_cents, cd.renewal_cost_cents
+		 FROM custom_domains cd
+		 JOIN devices d ON cd.device_id = d.id
+		 WHERE cd.domain = $1 AND d.account_id = $2`,
+		domainName, accountID,
+	).Scan(&deviceID, &status, &autoRenew, &purchasedAt, &expiresAt, &registrationCostCents, &renewalCostCents)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "domain not found")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not look up domain")
+		return
+	}
+
+	// Fetch live data from Cloudflare Registrar.
+	apiToken, cfAccountID, credErr := h.lookUpTunnelCredentials(r)
+	liveExpiry := expiresAt
+	liveAutoRenew := autoRenew
+	liveStatus := status
+	if credErr == nil {
+		if info, err := h.registrar.GetDomain(cfAccountID, apiToken, domainName); err == nil && info != nil {
+			if !info.ExpiresAt.IsZero() {
+				liveExpiry = sql.NullTime{Time: info.ExpiresAt, Valid: true}
+			}
+			liveAutoRenew = info.AutoRenew
+			liveStatus = info.Status
+		}
+	}
+
+	// Get the current renewal price (what the user pays at next renewal).
+	renewalPriceCents := int64(0)
+	if renewalCostCents.Valid {
+		renewalPriceCents = renewalCostCents.Int64
+	}
+	if credErr == nil {
+		if di, err := h.registrar.CheckDomain(cfAccountID, apiToken, domainName); err == nil && di != nil {
+			if rc, parseErr := parseDomainCostToCents(di.RenewalCost); parseErr == nil && rc > 0 {
+				renewalPriceCents = rc
+			}
+		}
+	}
+
+	// Check DNS configuration status.
+	dnsConfigured := false
+	var credsJSON string
+	_ = h.db.QueryRowContext(r.Context(),
+		`SELECT credentials_json FROM service_credentials
+		 WHERE device_id = $1 AND service_type = 'domain' AND is_active = TRUE`,
+		deviceID).Scan(&credsJSON)
+	if credsJSON != "" {
+		var creds map[string]any
+		if json.Unmarshal([]byte(credsJSON), &creds) == nil {
+			if v, ok := creds["dns_managed"].(bool); ok {
+				dnsConfigured = v
+			}
+		}
+	}
+
+	// Compute days until expiry.
+	daysUntilExpiry := 0
+	if liveExpiry.Valid {
+		daysUntilExpiry = int(liveExpiry.Time.Sub(time.Now()).Hours() / 24)
+	}
+
+	regCost := int64(0)
+	if registrationCostCents.Valid {
+		regCost = registrationCostCents.Int64
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"domain":                  domainName,
+		"status":                  liveStatus,
+		"auto_renew":              liveAutoRenew,
+		"expires_at":              liveExpiry,
+		"days_until_expiry":       daysUntilExpiry,
+		"renewal_price_cents":     renewalPriceCents,
+		"renewal_price_display":   fmt.Sprintf("$%.2f/year", float64(renewalPriceCents)/100),
+		"registration_cost_cents": regCost,
+		"purchased_at":            purchasedAt,
+		"dns_configured":          dnsConfigured,
+		"device_id":               deviceID,
+	})
+}
+
+// CancelDomain cancels a custom domain — disables CF auto-renew and sets status='cancelled'.
+// The domain keeps routing until expiry (grace). DNS is cleaned up by the scheduler after expiry.
+func (h *PortalHandler) CancelDomain(w http.ResponseWriter, r *http.Request) {
+	domainName := chi.URLParam(r, "domain")
+	if domainName == "" {
+		JSONError(w, http.StatusBadRequest, "domain is required")
+		return
+	}
+
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+
+	// Verify the domain belongs to the authenticated account.
+	var deviceID, status string
+	var expiresAt sql.NullTime
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT cd.device_id, cd.status, cd.expires_at
+		 FROM custom_domains cd
+		 JOIN devices d ON cd.device_id = d.id
+		 WHERE cd.domain = $1 AND d.account_id = $2`,
+		domainName, accountID,
+	).Scan(&deviceID, &status, &expiresAt)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "domain not found")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not look up domain")
+		return
+	}
+	if status == "cancelled" || status == "expired" {
+		JSONError(w, http.StatusConflict, "this domain is already cancelled or expired")
+		return
+	}
+
+	// Disable CF auto-renew so the domain expires naturally.
+	apiToken, cfAccountID, credErr := h.lookUpTunnelCredentials(r)
+	if credErr != nil {
+		JSONError(w, http.StatusBadGateway, "Cloudflare provider is not configured")
+		return
+	}
+	if err := h.registrar.UpdateDomainAutoRenew(cfAccountID, apiToken, domainName, false); err != nil {
+		slog.Warn("failed to disable CF auto-renew on cancel", "error", err, "domain", domainName)
+	}
+
+	// Update custom_domains status.
+	_, _ = h.db.ExecContext(r.Context(),
+		`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE WHERE domain = $1`,
+		domainName)
+
+	// Deactivate the domain service credential — the device will fall back to subdomain.
+	_, _ = h.db.ExecContext(r.Context(),
+		`UPDATE service_credentials SET is_active = FALSE, revoked_at = $1
+		 WHERE device_id = $2 AND service_type = 'domain'`,
+		time.Now(), deviceID)
+
+	// Re-provision the subdomain fallback so the device gets a working hostname.
+	provSvc := services.NewProvisioningService(h.db)
+	if _, err := provSvc.Provision(deviceID, "domain", ""); err != nil {
+		slog.Warn("failed to re-provision subdomain after domain cancel", "error", err, "device", deviceID)
+	}
+
+	expiryStr := "unknown"
+	if expiresAt.Valid {
+		expiryStr = expiresAt.Time.Format(time.RFC3339)
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"message":    "domain cancelled — it will stop working on the expiry date",
+		"domain":     domainName,
+		"status":     "cancelled",
+		"expires_at": expiryStr,
+	})
+}
+
+// ChangeDomain initiates a domain change: purchases a new domain via the existing
+// Stripe checkout flow. The old domain is cancelled automatically when the new
+// domain's registration succeeds (in handleDomainPurchase).
+func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID  string `json:"device_id"`
+		NewDomain string `json:"new_domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceID == "" || req.NewDomain == "" {
+		JSONError(w, http.StatusBadRequest, "device_id and new_domain are required")
+		return
+	}
+
+	// Verify the device belongs to the authenticated account.
+	var accountID string
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT account_id FROM devices WHERE id = $1`, req.DeviceID,
+	).Scan(&accountID)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not verify device")
+		return
+	}
+	deviceOwner := middleware.GetCustomerDeviceID(r.Context())
+	if deviceOwner != accountID {
+		JSONError(w, http.StatusForbidden, "you can only change domains for your own devices")
+		return
+	}
+
+	// Check domain availability and get the at-cost price.
+	apiToken, cfAccountID, err := h.lookUpTunnelCredentials(r)
+	if err != nil {
+		JSONError(w, http.StatusBadGateway, "Cloudflare provider is not configured. Please set it up from the Admin panel.")
+		return
+	}
+	domainInfo, err := h.registrar.CheckDomain(cfAccountID, apiToken, req.NewDomain)
+	if err != nil {
+		JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not check domain availability: %s", err.Error()))
+		return
+	}
+	if !domainInfo.Registrable {
+		JSONError(w, http.StatusConflict, "This domain is not available for registration.")
+		return
+	}
+
+	amountCents, err := parseDomainCostToCents(domainInfo.RegistrationCost)
+	if err != nil || amountCents <= 0 {
+		JSONError(w, http.StatusInternalServerError, "could not determine domain registration cost")
+		return
+	}
+
+	// If Stripe is not enabled, register directly (dev mode).
+	if !config.C.Stripe.Enabled {
+		expiresAt, err := h.registrar.RegisterDomain(cfAccountID, apiToken, req.NewDomain)
+		if err != nil {
+			JSONError(w, http.StatusBadGateway, fmt.Sprintf("could not register domain: %s", err.Error()))
+			return
+		}
+		if expiresAt.IsZero() {
+			expiresAt = time.Now().AddDate(1, 0, 0)
+		}
+		var renewalCostCents int64
+		if rc, parseErr := parseDomainCostToCents(domainInfo.RenewalCost); parseErr == nil {
+			renewalCostCents = rc
+		}
+
+		// Cancel the old domain if one exists.
+		h.cancelExistingDomain(r.Context(), req.DeviceID, apiToken, cfAccountID)
+
+		domainID := security.GenerateID("dom")
+		_, _ = h.db.ExecContext(r.Context(),
+			`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
+			 VALUES ($1, $2, $3, 'cloudflare', $4, $5, TRUE, 'active', $6)`,
+			domainID, req.DeviceID, req.NewDomain, int(amountCents), int(renewalCostCents), expiresAt)
+		JSON(w, http.StatusOK, map[string]any{
+			"domain": req.NewDomain,
+			"status": "registered",
+			"id":     domainID,
+		})
+		return
+	}
+
+	successURL := config.C.Server.BaseURL + "/domains?domain=success"
+	cancelURL := config.C.Server.BaseURL + "/domains?domain=cancelled"
+
+	checkoutURL, err := providers.CreateDomainCheckoutSession(r.Context(), req.DeviceID, req.NewDomain, amountCents, successURL, cancelURL)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not create checkout session for domain")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"checkout_url":  checkoutURL,
+		"domain":        req.NewDomain,
+		"price_cents":   amountCents,
+		"price_display": fmt.Sprintf("$%.2f", float64(amountCents)/100),
+	})
+}
+
+// cancelExistingDomain cancels the device's current custom domain (if any)
+// by disabling CF auto-renew and setting status='cancelled'. Used during
+// domain change to clean up the old domain before activating the new one.
+func (h *PortalHandler) cancelExistingDomain(ctx context.Context, deviceID, apiToken, cfAccountID string) {
+	var oldDomain string
+	err := h.db.QueryRowContext(ctx,
+		`SELECT domain FROM custom_domains WHERE device_id = $1 AND status IN ('active', 'grace')`,
+		deviceID).Scan(&oldDomain)
+	if err != nil || oldDomain == "" {
+		return
+	}
+	if err := h.registrar.UpdateDomainAutoRenew(cfAccountID, apiToken, oldDomain, false); err != nil {
+		slog.Warn("failed to disable auto-renew on old domain", "error", err, "domain", oldDomain)
+	}
+	_, _ = h.db.ExecContext(ctx,
+		`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE WHERE domain = $1`,
+		oldDomain)
+	slog.Info("cancelled old domain for device", "domain", oldDomain, "device", deviceID)
+}
+
+// handleDomainGraceOnDowngrade puts a device's active custom domain into grace
+// status when the device is downgraded to Free. The domain keeps routing until
+// expiry; CF auto-renew is disabled so the domain expires naturally. The
+// scheduler revokes DNS and re-provisions the subdomain after expiry.
+func (h *PortalHandler) handleDomainGraceOnDowngrade(ctx context.Context, deviceID string) {
+	var domain string
+	var expiresAt sql.NullTime
+	err := h.db.QueryRowContext(ctx,
+		`SELECT domain, expires_at FROM custom_domains WHERE device_id = $1 AND status = 'active'`,
+		deviceID).Scan(&domain, &expiresAt)
+	if err != nil || domain == "" {
+		return // no active custom domain — nothing to grace
+	}
+
+	apiToken, cfAccountID, credErr := h.lookUpTunnelCredentialsFromContext(ctx)
+	if credErr == nil {
+		if err := h.registrar.UpdateDomainAutoRenew(cfAccountID, apiToken, domain, false); err != nil {
+			slog.Warn("failed to disable CF auto-renew on downgrade", "error", err, "domain", domain)
+		}
+	}
+
+	// Set status='grace' and record grace_until as the domain's expiry.
+	if expiresAt.Valid {
+		_, _ = h.db.ExecContext(ctx,
+			`UPDATE custom_domains SET status = 'grace', auto_renew = FALSE, grace_until = $1 WHERE domain = $2`,
+			expiresAt.Time, domain)
+	} else {
+		_, _ = h.db.ExecContext(ctx,
+			`UPDATE custom_domains SET status = 'grace', auto_renew = FALSE WHERE domain = $1`,
+			domain)
+	}
+	slog.Info("custom domain entered grace on downgrade", "domain", domain, "device", deviceID)
+}
+
+// reprovisionSubdomainIfNoCustomDomain re-provisions the subdomain for a device
+// after a plan change, but only if the device has NO active custom domain — a
+// custom domain overrides the subdomain pattern. Called on upgrade or lateral
+// plan change.
+func (h *PortalHandler) reprovisionSubdomainIfNoCustomDomain(ctx context.Context, deviceID string) {
+	var count int
+	_ = h.db.QueryRowContext(ctx,
+		`SELECT 1 FROM custom_domains WHERE device_id = $1 AND status IN ('active', 'grace')`,
+		deviceID).Scan(&count)
+	if count > 0 {
+		return // custom domain exists — skip subdomain re-provision
+	}
+
+	provSvc := services.NewProvisioningService(h.db)
+	// Revoke the old subdomain credentials, then re-provision with the new plan's pattern.
+	if err := provSvc.Revoke(deviceID, "domain"); err != nil {
+		slog.Warn("failed to revoke subdomain on plan change", "error", err, "device", deviceID)
+	}
+	if _, err := provSvc.Provision(deviceID, "domain", ""); err != nil {
+		slog.Warn("failed to re-provision subdomain on plan change", "error", err, "device", deviceID)
+	}
+}
+
+// lookUpTunnelCredentialsFromContext is a context-friendly variant of lookUpTunnelCredentials.
+func (h *PortalHandler) lookUpTunnelCredentialsFromContext(ctx context.Context) (apiToken, accountID string, err error) {
+	var credentialsJSON, settingsJSON sql.NullString
+	err = h.db.QueryRowContext(ctx,
+		`SELECT credentials_json, settings_json FROM service_providers WHERE service = 'tunnel' AND enabled = TRUE LIMIT 1`,
+	).Scan(&credentialsJSON, &settingsJSON)
+	if err != nil {
+		return "", "", fmt.Errorf("no tunnel provider configured")
+	}
+	var creds map[string]any
+	json.Unmarshal([]byte(credentialsJSON.String), &creds)
+	if t, ok := creds["api_token"].(string); ok {
+		apiToken = t
+	}
+	var settings map[string]any
+	json.Unmarshal([]byte(settingsJSON.String), &settings)
+	if a, ok := settings["account_id"].(string); ok {
+		accountID = a
+	}
+	return apiToken, accountID, nil
 }

@@ -1,63 +1,44 @@
+# LibreServ Connect Server Configuration
+#
+# Copy to connect.yaml and adjust values.
+# Environment variables (CONNECT_<SECTION>_<KEY>) override these values.
+#
+# Note: AI models and service providers (tunnel, DNS, SMTP, backup) are
+# configured at runtime via the admin API and stored in the database.
+# The config sections below are for bootstrap/defaults only.
+
 server:
-    address: ""
-    port: 8080
-    base_url: ""
+  address: ""           # bind address (empty = all interfaces)
+  port: 8080
+  base_url: ""          # public URL (e.g. https://connect.example.com)
 
 database:
-    url: "postgres://localhost:5432/libreserv_connect?sslmode=disable"
+  url: "postgres://localhost:5432/libreserv_connect?sslmode=disable"
 
 auth:
-    device_token_secret: CHANGE_ME
-    admin_token_secret: CHANGE_ME
-    customer_token_secret: CHANGE_ME
-    session_ttl_hours: 168
+  admin_token_secret: "CHANGE_ME"    # admin JWT signing secret
+  customer_token_secret: "CHANGE_ME"  # customer portal JWT signing secret
+  session_ttl_hours: 168              # 7 days
 
 stripe:
-    enabled: false
-    secret_key: ""
-    webhook_secret: ""
-    price_free: ""
-    price_lite: ""
-    price_one: ""
+  enabled: false
+  secret_key: ""
+  webhook_secret: ""
+  price_free: ""
+  price_lite: ""
+  price_one: ""
 
-# Fallback email settings. The preferred way to configure email is through
-# the admin UI at Settings → Service Providers (service: smtp).
 smtp:
-    host: smtp.libreloom.org
-    port: 587
-    username: ""
-    password: ""
-    from: "LibreServ Connect <noreply@resend.libreloom.org>"
-    use_tls: true
+  from: "noreply@connect.example.com"
+  relay_addr: ":2525"    # local SMTP relay listen address
 
-# Fallback DNS settings. The preferred way to configure DNS is through
-# the admin UI at Settings → Service Providers (service: dns).
-dns:
-    provider: cloudflare
-    api_token: ""
-    zone: libreloom.org
-    nameservers: []
-
-inference:
-    provider: neuralwatt
-    base_url: https://inference.neuralwatt.dev/v1
-    api_key: ""
-    enabled: false
-
-# Fallback backup settings. The preferred way to configure backups is through
-# the admin UI at Settings → Service Providers (service: backup).
-backup:
-    provider: r2
-    endpoint: ""
-    access_key: ""
-    secret_key: ""
-    bucket_prefix: libreserv-backup
-
+# Tunnel provider bootstrap (runtime config is in the service_providers DB table).
+# Set these to pre-seed the Cloudflare tunnel provider on first boot.
 tunnel:
-    provider: cloudflare
-    api_token: ""
-    account_id: ""
+  provider: "cloudflare"
+  api_token: ""
+  account_id: ""
 
 web:
-    customer_dir: web/customer/dist
-    admin_dir: web/admin/dist
+  customer_dir: "web/customer/dist"
+  admin_dir: "web/admin/dist"

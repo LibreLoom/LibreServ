@@ -45,7 +45,7 @@ func (h *ProvisionHandler) Info(w http.ResponseWriter, r *http.Request) {
 				return 0
 			}(),
 			"tunnel_mbps":      0, // not tracked in catalog
-			"tunnel_gb_per_mo": 0, // not tracked in catalog
+			"tunnel_gb_per_mo": l.TunnelGBPerMo,
 			"backup_gb":        l.BackupGB,
 			"ai_messages_per_mo": func() int {
 				daily := l.AIMessagesPerDay
