@@ -1141,6 +1141,21 @@ export default function SetupPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ connect_key: key }),
     });
+    // Auto-provisioning runs in the background on the server, and the MFA
+    // step reads /auth/mfa/availability once on mount. Wait briefly for the
+    // email service to come online before advancing — otherwise the email
+    // option can be hidden even though it becomes ready a second later.
+    // Bounded so a provisioning failure never blocks the wizard.
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      try {
+        const res = await request("/connect/status");
+        const status = await res.json();
+        const smtpState = status?.services?.smtp?.state;
+        if (smtpState && smtpState !== "disabled") break;
+      } catch { /* keep polling until the deadline */ }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     const data = { ...(progressRef.current.stepData || {}), connect_activated: true };
     await advanceStep(STEP.MFA, "", data);
   }, [advanceStep, request]);
