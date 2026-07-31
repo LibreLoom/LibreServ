@@ -73,7 +73,13 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create device — one device per account (enforced by DB unique constraint)
+	// If a previous device exists for this account (left inactive by a key
+	// regeneration), remove it so the unique constraint on account_id doesn't
+	// block the new device. The old key was already revoked by regeneration.
+	_, _ = h.db.ExecContext(r.Context(),
+		"DELETE FROM devices WHERE account_id = $1 AND is_active = FALSE", accountID)
+
+	// Create device — one active device per account (enforced by DB unique constraint)
 	deviceID := security.GenerateID("dev")
 	_, err = h.db.ExecContext(r.Context(),
 		`INSERT INTO devices (id, account_id, connect_key_id, plan_id, activated_at, last_seen_at, is_active)
