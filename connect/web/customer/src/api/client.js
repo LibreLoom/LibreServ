@@ -67,6 +67,10 @@ export const api = {
 
   // Devices
   getDevices: () => request("/portal/devices"),
+  useSubdomain: (deviceId) => request("/portal/devices/use-subdomain", {
+    method: "POST",
+    body: JSON.stringify({ device_id: deviceId }),
+  }),
   linkDevice: (token) => request("/portal/devices/link", {
     method: "POST",
     body: JSON.stringify({ token }),

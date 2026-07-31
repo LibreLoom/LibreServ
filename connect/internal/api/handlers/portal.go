@@ -691,17 +691,61 @@ func (h *PortalHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 			IsActive    bool
 		}
 		_ = rows.Scan(&d.ID, &d.PlanID, &d.ActivatedAt, &d.LastSeenAt, &d.IsActive)
+
+		// Domain info for the generic domain page: the plan's subdomain and,
+		// if a custom domain is active, which one is currently serving.
+		subdomain := h.deviceSubdomain(d.ID)
+		customDomain, hasCustom := h.activeCustomDomain(d.ID)
+		current := subdomain
+		if hasCustom {
+			current = *customDomain
+		}
+
 		devices = append(devices, map[string]any{
-			"id":           d.ID,
-			"plan_id":      d.PlanID,
-			"plan_name":    catalog.PlanName(d.PlanID),
-			"activated_at": d.ActivatedAt.Format(time.RFC3339),
-			"last_seen_at": nullTime(d.LastSeenAt),
-			"is_active":    d.IsActive,
+			"id":                d.ID,
+			"plan_id":           d.PlanID,
+			"plan_name":         catalog.PlanName(d.PlanID),
+			"activated_at":      d.ActivatedAt.Format(time.RFC3339),
+			"last_seen_at":      nullTime(d.LastSeenAt),
+			"is_active":         d.IsActive,
+			"current_domain":    current,
+			"subdomain":         subdomain,
+			"custom_domain":     customDomain,
+			"has_custom_domain": hasCustom,
 		})
 	}
 
 	JSON(w, http.StatusOK, map[string]any{"devices": devices})
+}
+
+// deviceSubdomain computes the device's plan-derived base hostname, e.g.
+// "abcd1234.free.servers.libreloom.org" (free) or
+// "abcd1234.servers.libreloom.org" (paid).
+func (h *PortalHandler) deviceSubdomain(deviceID string) string {
+	var planID string
+	if err := h.db.QueryRow(`SELECT plan_id FROM devices WHERE id = $1`, deviceID).Scan(&planID); err != nil {
+		return ""
+	}
+	plan := catalog.PlanByID(planID)
+	if plan == nil {
+		plan = catalog.PlanByID("free")
+	}
+	sub := deviceID
+	if len(sub) >= 8 {
+		sub = sub[len(sub)-8:]
+	}
+	return strings.Replace(plan.Limits.Domain, "*", sub, 1)
+}
+
+// activeCustomDomain returns the device's active (non-cancelled/expired)
+// custom domain, or (nil, false) if none is serving.
+func (h *PortalHandler) activeCustomDomain(deviceID string) (*string, bool) {
+	var domain string
+	err := h.db.QueryRow(`SELECT domain FROM custom_domains WHERE device_id = $1 AND status IN ('active','grace','payment_failed')`, deviceID).Scan(&domain)
+	if err != nil || domain == "" {
+		return nil, false
+	}
+	return &domain, true
 }
 
 // GetPlans returns the public plan catalog.
@@ -1633,6 +1677,58 @@ func (h *PortalHandler) CancelDomain(w http.ResponseWriter, r *http.Request) {
 		"domain":     domainName,
 		"status":     "cancelled",
 		"expires_at": expiryStr,
+	})
+}
+
+// UseSubdomain switches a device back to its plan-provided subdomain,
+// dropping any active custom domain (it enters grace and stops on expiry) and
+// re-provisioning the subdomain via the domain service.
+// POST /portal/devices/use-subdomain  {device_id}
+func (h *PortalHandler) UseSubdomain(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+	var req struct {
+		DeviceID string `json:"device_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceID == "" {
+		JSONError(w, http.StatusBadRequest, "device_id is required")
+		return
+	}
+
+	// Verify the device belongs to the authenticated account.
+	var owner string
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT account_id FROM devices WHERE id = $1`, req.DeviceID,
+	).Scan(&owner)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not verify device")
+		return
+	}
+	if owner != accountID {
+		JSONError(w, http.StatusForbidden, "you can only manage domains for your own devices")
+		return
+	}
+
+	// Put any active custom domain into grace so it stops renewing/overriding.
+	h.handleDomainGraceOnDowngrade(r.Context(), req.DeviceID)
+
+	// Re-provision the plan subdomain (this also drops the active domain
+	// service credential so the device serves the subdomain again).
+	provSvc := services.NewProvisioningService(h.db)
+	if err := provSvc.Revoke(req.DeviceID, "domain"); err != nil {
+		slog.Warn("failed to revoke domain on switch-to-subdomain", "error", err, "device", req.DeviceID)
+	}
+	if _, err := provSvc.Provision(req.DeviceID, "domain", ""); err != nil {
+		slog.Warn("failed to provision subdomain", "error", err, "device", req.DeviceID)
+	}
+
+	subdomain := h.deviceSubdomain(req.DeviceID)
+	JSON(w, http.StatusOK, map[string]any{
+		"message":   "Switched to your plan's subdomain.",
+		"subdomain": subdomain,
 	})
 }
 

@@ -4,34 +4,46 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api/client.js";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.jsx";
 import { Button } from "../components/ui/button.jsx";
-import { Badge, StatusBadge } from "../components/ui/badge.jsx";
+import { Badge } from "../components/ui/badge.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Layout } from "../components/Layout.jsx";
-import { Globe, Search, Loader2, Check, AlertCircle, RefreshCw } from "lucide-react";
+import { Globe, Search, Loader2, Check, RefreshCw, Star, Link as LinkIcon } from "lucide-react";
 import { cn } from "../lib/utils.js";
 
+/**
+ * Domains — generic domain page.
+ *
+ * Shows the domain each of your devices is currently served from and lets you
+ * switch it: get a custom domain, or fall back to the plan-provided subdomain
+ * (e.g. abcd1234.servers.libreloom.org, or *.free.servers.libreloom.org on the
+ * free plan). A custom domain overrides the subdomain — switching back to the
+ * subdomain drops the custom domain (it stops renewing and expires naturally).
+ */
 export default function Domains() {
   const { account } = useAuth();
   const queryClient = useQueryClient();
   const [searchModal, setSearchModal] = useState(null); // null | { deviceId, mode: "get" | "change" }
-  const [cancelConfirm, setCancelConfirm] = useState(null); // null | domain name
+  const [switchConfirm, setSwitchConfirm] = useState(null); // null | deviceId
+  const [error, setError] = useState("");
 
   const verified = !!account?.email_verified;
 
-  const { data: domainsData, isLoading } = useQuery({
-    queryKey: ["domains"],
-    queryFn: api.getDomains,
+  const { data: devicesData, isLoading } = useQuery({
+    queryKey: ["devices"],
+    queryFn: api.getDevices,
     enabled: verified,
   });
 
-  const domains = domainsData?.domains || [];
+  const devices = devicesData?.devices || [];
 
-  const cancelMut = useMutation({
-    mutationFn: api.cancelDomain,
+  const useSubdomainMut = useMutation({
+    mutationFn: api.useSubdomain,
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
       queryClient.invalidateQueries({ queryKey: ["domains"] });
-      setCancelConfirm(null);
+      setSwitchConfirm(null);
     },
+    onError: (err) => setError(err.message || "Could not switch to your subdomain."),
   });
 
   if (!verified) {
@@ -53,53 +65,67 @@ export default function Domains() {
         <h2 className="font-mono text-2xl mb-6">Domains</h2>
         <div className="flex items-center gap-3 py-12">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-          <p className="font-mono text-sm text-muted-foreground">Loading domains…</p>
+          <p className="font-mono text-sm text-muted-foreground">Loading your domains…</p>
         </div>
       </Layout>
     );
   }
 
+  const activeDevices = devices.filter((d) => d.is_active);
+
   return (
     <Layout>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="font-mono text-2xl">Domains</h2>
+        <h2 className="font-mono text-2xl">Domain</h2>
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => queryClient.invalidateQueries({ queryKey: ["domains"] })}
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ["devices"] });
+            queryClient.invalidateQueries({ queryKey: ["domains"] });
+          }}
         >
           <RefreshCw className="w-4 h-4" />
           Refresh
         </Button>
       </div>
 
+      <p className="text-sm text-muted-foreground leading-relaxed mb-6 max-w-2xl">
+        This is the address people use to reach your server. Every device gets a{" "}
+        <span className="font-mono">*.servers.libreloom.org</span> subdomain with your
+        plan — you can keep it, or use a custom domain (like{" "}
+        <span className="font-mono">myserver.com</span>) instead.
+      </p>
+
+      {error && (
+        <div className="rounded-large-element bg-error/20 border border-error/30 px-4 py-3 mb-6">
+          <p className="text-sm text-error">{error}</p>
+        </div>
+      )}
+
       <div className="space-y-6">
-        {domains.length === 0 ? (
+        {activeDevices.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
               <div className="mx-auto w-14 h-14 rounded-full bg-accent flex items-center justify-center mb-6">
                 <Globe className="w-7 h-7 text-muted-foreground" />
               </div>
-              <h3 className="font-mono text-xl mb-3">No custom domains yet</h3>
+              <h3 className="font-mono text-xl mb-3">No active device</h3>
               <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto mb-8">
-                Your device uses a free subdomain by default. Get a custom domain
-                (like <span className="font-mono">myserver.com</span>) to make it
-                easier to reach.
+                Connect a device first to choose its domain.
               </p>
-              <Button size="lg" onClick={() => setSearchModal({ mode: "get" })}>
-                Get a custom domain
-              </Button>
             </CardContent>
           </Card>
         ) : (
-          domains.map((d) => (
-            <DomainCard
-              key={d.id || d.domain}
-              domain={d}
-              cancelConfirm={cancelConfirm}
-              setCancelConfirm={setCancelConfirm}
-              cancelMut={cancelMut}
-              onSearch={() => setSearchModal({ mode: "change", deviceId: d.device_id })}
+          activeDevices.map((device) => (
+            <DeviceDomainCard
+              key={device.id}
+              device={device}
+              switchConfirm={switchConfirm}
+              setSwitchConfirm={setSwitchConfirm}
+              useSubdomainMut={useSubdomainMut}
+              onGetCustom={() => setSearchModal({ deviceId: device.id, mode: "get" })}
+              onGetNewCustom={() => setSearchModal({ deviceId: device.id, mode: "change" })}
             />
           ))
         )}
@@ -116,113 +142,114 @@ export default function Domains() {
   );
 }
 
-function DomainCard({ domain, cancelConfirm, setCancelConfirm, cancelMut, onSearch }) {
-  const { domain: name, status, auto_renew, expires_at, device_id } = domain;
-  const isExpiringSoon = expires_at && new Date(expires_at) && (new Date(expires_at) - new Date()) / 86400000 < 30;
+function DeviceDomainCard({ device, switchConfirm, setSwitchConfirm, useSubdomainMut, onGetCustom, onGetNewCustom }) {
+  const {
+    plan_name,
+    current_domain,
+    subdomain,
+    custom_domain,
+    has_custom_domain,
+  } = device;
+
+  const isCustom = !!has_custom_domain;
 
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-pill bg-accent flex items-center justify-center">
-            <Globe className="w-5 h-5 text-muted-foreground" />
+          <div className={cn("w-10 h-10 rounded-pill flex items-center justify-center", isCustom ? "bg-primary text-secondary" : "bg-accent")}>
+            {isCustom ? <Star className="w-5 h-5" /> : <LinkIcon className="w-5 h-5" />}
           </div>
           <div>
-            <CardTitle className="font-mono text-base">{name}</CardTitle>
+            <CardTitle className="font-mono text-base">{current_domain}</CardTitle>
             <div className="flex items-center gap-2 mt-1">
-              <StatusBadge status={status} />
-              {auto_renew ? (
-                <Badge variant="info">Auto-renew</Badge>
-              ) : status === "active" ? (
-                <Badge variant="warning">Manual renew</Badge>
-              ) : null}
+              <Badge variant={isCustom ? "success" : "info"}>
+                {isCustom ? "Custom domain" : "Plan subdomain"}
+              </Badge>
+              <span className="text-xs text-muted-foreground">{device.plan_name}</span>
             </div>
           </div>
         </div>
       </CardHeader>
+
       <CardContent>
-        {expires_at && (
-          <div className="flex items-center gap-2 mb-3 text-sm">
-            {isExpiringSoon && status !== "cancelled" && status !== "expired" && (
-              <AlertCircle className="w-4 h-4 text-warning" />
-            )}
-            <span className="text-muted-foreground">
-              {status === "cancelled" || status === "expired"
-                ? "Stops working on:"
-                : auto_renew
-                ? "Renews on:"
-                : "Expires on:"}
-            </span>
-            <span className="font-mono">
-              {new Date(expires_at).toLocaleDateString(undefined, {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
-            </span>
-          </div>
+        {isCustom ? (
+          <p className="text-sm text-muted-foreground mb-4">
+            Your custom domain <span className="font-mono">{current_domain}</span> routes
+            to this device. Your plan's default subdomain{" "}
+            <span className="font-mono">{subdomain}</span> is on standby until you drop the
+            custom domain.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground mb-4">
+            This device is served from your plan's subdomain{" "}
+            <span className="font-mono">{subdomain}</span>. You can put a custom domain in
+            front of it at any time.
+          </p>
         )}
 
-        {status === "payment_failed" && (
-          <div className="rounded-large-element bg-error/20 border border-error/30 px-4 py-3 mb-4">
-            <p className="text-sm text-error">
-              We could not charge your account credit for the last renewal.
-              Top up your credit balance in Billing to restore this domain.
-            </p>
-          </div>
-        )}
+        <div className="grid gap-3 sm:grid-cols-2">
+          {isCustom ? (
+            <div className="rounded-large-element border border-border p-4">
+              <div className="flex items-center gap-2 text-sm font-medium mb-1">
+                <LinkIcon className="w-4 h-4 text-muted-foreground" />
+                Use my plan's subdomain
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Free with every plan. The custom domain above stops renewing and
+                expires on its current renewal date.
+              </p>
+              {switchConfirm === device.id ? (
+                <div className="flex gap-2">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    loading={useSubdomainMut.isPending}
+                    onClick={() => useSubdomainMut.mutate(device.id)}
+                  >
+                    Yes, switch
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setSwitchConfirm(null)}>
+                    Keep custom
+                  </Button>
+                </div>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => setSwitchConfirm(device.id)}>
+                  Switch to subdomain
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-large-element border border-border p-4">
+              <div className="flex items-center gap-2 text-sm font-medium mb-1">
+                <Star className="w-4 h-4 text-muted-foreground" />
+                Use a custom domain
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Put your own branded domain in front. You pay exactly what we pay — no
+                markup on the registration price.
+              </p>
+              <Button variant="outline" size="sm" onClick={onGetCustom}>
+                Get a custom domain
+              </Button>
+            </div>
+          )}
 
-        {status === "grace" && (
-          <div className="rounded-large-element bg-warning/20 border border-warning/30 px-4 py-3 mb-4">
-            <p className="text-sm text-warning">
-              This domain is in grace period. It will stop working on the expiry
-              date above. The domain will not auto-renew.
-            </p>
-          </div>
-        )}
-
-        {(status === "active" || status === "grace" || status === "payment_failed") && (
-          <div className="flex items-center gap-3 mt-4">
-            {cancelConfirm === name ? (
-              <>
-                <span className="text-sm text-muted-foreground">Are you sure?</span>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  loading={cancelMut.isPending}
-                  onClick={() => cancelMut.mutate(name)}
-                >
-                  Yes, cancel
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setCancelConfirm(null)}>
-                  Keep it
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="outline" size="sm" onClick={onSearch}>
-                  Change domain
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground"
-                  onClick={() => setCancelConfirm(name)}
-                >
-                  Cancel domain
-                </Button>
-              </>
-            )}
-          </div>
-        )}
-
-        {(status === "cancelled" || status === "expired") && (
-          <div className="mt-4">
-            <Button variant="outline" size="sm" onClick={onSearch}>
-              Get a new domain
-            </Button>
-          </div>
-        )}
+          {isCustom && (
+            <div className="rounded-large-element border border-border p-4">
+              <div className="flex items-center gap-2 text-sm font-medium mb-1">
+                <Star className="w-4 h-4 text-muted-foreground" />
+                Use a different custom domain
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Replace this domain with a new one. The current one is cancelled.
+              </p>
+              <Button variant="outline" size="sm" onClick={onGetNewCustom}>
+                Change custom domain
+              </Button>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
@@ -289,11 +316,11 @@ function DomainSearchModal({ mode, deviceId, onClose }) {
       >
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-pill bg-accent flex items-center justify-center">
-            <Globe className="w-5 h-5 text-muted-foreground" />
+            <Star className="w-5 h-5 text-muted-foreground" />
           </div>
           <div>
             <h3 className="font-mono text-lg">
-              {mode === "change" ? "Change your domain" : "Get a custom domain"}
+              {mode === "change" ? "Change your custom domain" : "Get a custom domain"}
             </h3>
             <p className="text-sm text-muted-foreground">
               You pay exactly what we pay — no markup on the registration price.
