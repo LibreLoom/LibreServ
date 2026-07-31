@@ -517,10 +517,12 @@ func (h *PortalHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]string{"message": "2FA disabled"})
 }
 
-// GenerateConnectKey creates the one Connect key for this account. In the
-// one-server-per-account model, each account gets exactly one key. If a key
-// already exists and is unused, it is returned. If the existing key is active
-// (device already activated), a 409 is returned.
+// GenerateConnectKey creates or regenerates the one Connect key for this account.
+// If an unused/revoked key exists, it is replaced. If the key is active
+// (device already activated), the old key is revoked, the device is
+// deactivated, and all service credentials are revoked — then a fresh key
+// is generated so the user can activate a different device. This is the
+// "Regenerate" action in the portal; the old key stops working immediately.
 func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 	// Require verified email before issuing a device activation key
@@ -539,14 +541,24 @@ func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Reques
 		accountID).Scan(&existingKey, &existingID, &existingPlanID, &existingStatus)
 
 	if err == nil {
-		// Key already exists — if unused, we could return the prefix but the
-		// full key is not recoverable (only the hash is stored). For unused
-		// keys we re-generate a new one and replace it.
+		// Key already exists. For unused/revoked keys, delete and regenerate.
+		// For active keys (device already activated), revoke the key and
+		// deactivate the device so the user can activate a new device —
+		// this is the "Regenerate" path. All service credentials are
+		// revoked so stale connected states don't persist on the old device.
 		if existingStatus == "active" {
-			JSONError(w, http.StatusConflict, "Your device is already activated. To get a new key, deactivate first.")
-			return
+			var deviceID string
+			_ = h.db.QueryRowContext(r.Context(),
+				"SELECT id FROM devices WHERE connect_key_id = $1 AND is_active = TRUE", existingID,
+			).Scan(&deviceID)
+			if deviceID != "" {
+				_, _ = h.db.ExecContext(r.Context(), "UPDATE devices SET is_active = FALSE WHERE id = $1", deviceID)
+				_, _ = h.db.ExecContext(r.Context(), "UPDATE subscriptions SET status = 'cancelled' WHERE device_id = $1", deviceID)
+				_, _ = h.db.ExecContext(r.Context(),
+					"UPDATE service_credentials SET is_active = FALSE, revoked_at = $1 WHERE device_id = $2",
+					time.Now(), deviceID)
+			}
 		}
-		// Key exists but unused (or revoked) — delete it and generate a fresh one
 		_, _ = h.db.ExecContext(r.Context(), "DELETE FROM connect_keys WHERE id = $1", existingID)
 	}
 

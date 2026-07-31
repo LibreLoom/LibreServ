@@ -58,6 +58,10 @@ export default function Dashboard() {
     onSuccess: (data) => {
       setGeneratedKey(data);
       queryClient.invalidateQueries({ queryKey: ["connect-keys"] });
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+    },
+    onError: (err) => {
+      alert(err.message || "Could not regenerate your Connect key. Please try again.");
     },
   });
 
