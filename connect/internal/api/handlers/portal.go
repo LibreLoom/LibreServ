@@ -1412,9 +1412,9 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure the authenticated device owns the device being registered.
+	// Ensure the authenticated account owns the device being registered.
 	deviceOwner := middleware.GetCustomerDeviceID(r.Context())
-	if deviceOwner != req.DeviceID {
+	if deviceOwner != accountID {
 		JSONError(w, http.StatusForbidden, "you can only register domains for your own devices")
 		return
 	}
