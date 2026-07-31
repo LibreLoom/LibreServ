@@ -53,6 +53,12 @@ func TestBuildMessage(t *testing.T) {
 	if !strings.HasSuffix(msg, "Body") {
 		t.Fatalf("expected body at end of message: %q", msg)
 	}
+	// RFC 5322: the header block must be separated from the body by a blank
+	// line (CRLF CRLF). Regress the bug where the body was appended without
+	// the blank line, making the raw MIME headers render as the email body.
+	if !strings.Contains(msg, "Content-Type: text/plain; charset=\"utf-8\"\r\n\r\nBody") {
+		t.Fatalf("expected blank line between headers and body: %q", msg)
+	}
 }
 
 func TestRenderHTMLEmailDoesNotEscapeHTML(t *testing.T) {

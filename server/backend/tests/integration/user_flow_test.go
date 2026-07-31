@@ -66,7 +66,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	notifier := security.NewEmailNotifier()
 	secSvc := security.NewService(db, logger, notifier)
 
-	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil, nil)
+	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil)
 	authH := handlers.NewAuthHandler(authSvc, secSvc, db)
 	usersH := handlers.NewUsersHandler(authSvc)
 	mfaH := handlers.NewMFAHandler(authSvc, nil)

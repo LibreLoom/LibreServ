@@ -420,9 +420,12 @@ func buildMessage(from string, to []string, subject, body string) string {
 		"Subject: " + subject,
 		"MIME-Version: 1.0",
 		"Content-Type: text/plain; charset=\"utf-8\"",
-		"",
 	}
-	return strings.Join(headers, "\r\n") + body
+	// RFC 5322 requires a blank line (CRLF CRLF) separating the header block
+	// from the body. Without it, the first body line is parsed as a header
+	// continuation and recipients see the raw MIME source instead of the
+	// rendered message.
+	return strings.Join(headers, "\r\n") + "\r\n\r\n" + body
 }
 
 // RenderTemplate renders a text template with the provided data.
