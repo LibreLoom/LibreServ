@@ -1300,6 +1300,12 @@ func (h *PortalHandler) SearchDomains(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if config.C.Purchase.MockDomain {
+		q := strings.ToLower(strings.TrimSpace(req.Query))
+		JSON(w, http.StatusOK, map[string]any{"domains": mockDomainResults(q)})
+		return
+	}
+
 	apiToken, accountID, err := h.lookUpTunnelCredentials(r)
 	if err != nil {
 		JSONError(w, http.StatusBadGateway, "Cloudflare tunnel provider is not configured. Please set it up from the Admin panel.")
@@ -1317,6 +1323,28 @@ func (h *PortalHandler) SearchDomains(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// mockDomainResults returns a deterministic set of "available" domain
+// suggestions for mock mode, so the search/check/register flow can be walked
+// without a real registrar.
+func mockDomainResults(base string) []map[string]any {
+	base = strings.ReplaceAll(base, " ", "")
+	if base == "" {
+		base = "mySite"
+	}
+	suffixes := []string{"", ".app", ".io", ".net", ".dev"}
+	results := make([]map[string]any, 0, len(suffixes))
+	for _, sfx := range suffixes {
+		name := base + sfx + ".example.com"
+		results = append(results, map[string]any{
+			"name":              name,
+			"registrable":       true,
+			"available":         true,
+			"registration_cost": "11.20",
+		})
+	}
+	return results
+}
+
 // CheckDomain checks real-time availability and pricing for a specific domain.
 func (h *PortalHandler) CheckDomain(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -1324,6 +1352,17 @@ func (h *PortalHandler) CheckDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Domain == "" {
 		JSONError(w, http.StatusBadRequest, "domain is required")
+		return
+	}
+
+	if config.C.Purchase.MockDomain {
+		JSON(w, http.StatusOK, map[string]any{
+			"domain":            req.Domain,
+			"registrable":       true,
+			"available":         true,
+			"registration_cost": "11.20",
+			"renewal_cost":      "11.20",
+		})
 		return
 	}
 
@@ -1377,6 +1416,18 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	deviceOwner := middleware.GetCustomerDeviceID(r.Context())
 	if deviceOwner != req.DeviceID {
 		JSONError(w, http.StatusForbidden, "you can only register domains for your own devices")
+		return
+	}
+
+	// Mock mode: insert an active custom domain directly, no Stripe payment and
+	// no real Cloudflare registration, so the whole purchase flow can be walked.
+	if config.C.Purchase.MockDomain {
+		h.registerDomainInDB(req.DeviceID, req.Domain, 1120, 1120)
+		JSON(w, http.StatusOK, map[string]any{
+			"domain": req.Domain,
+			"status": "registered",
+			"mock":   true,
+		})
 		return
 	}
 
@@ -1775,6 +1826,17 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Mock mode: replace any existing registered domain and activate the new one.
+	if config.C.Purchase.MockDomain {
+		h.registerDomainInDB(req.DeviceID, req.NewDomain, 1120, 1120)
+		JSON(w, http.StatusOK, map[string]any{
+			"domain": req.NewDomain,
+			"status": "registered",
+			"mock":   true,
+		})
+		return
+	}
+
 	// Check domain availability and get the at-cost price.
 	apiToken, cfAccountID, err := h.lookUpTunnelCredentials(r)
 	if err != nil {
@@ -1843,6 +1905,33 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 		"price_cents":   amountCents,
 		"price_display": fmt.Sprintf("$%.2f", float64(amountCents)/100),
 	})
+}
+
+// registerDomainInDB records a custom domain as active for a device, cancelling
+// any prior active custom domain. Used only in mock purchase mode (no Stripe /
+// no Cloudflare registration), so the purchase flow can be walked without a
+// real registrar or payment.
+func (h *PortalHandler) registerDomainInDB(deviceID, domain string, registrationCents, renewalCents int64) {
+	// Cancel any existing active/grace custom domain for this device.
+	_, _ = h.db.Exec(
+		`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE
+		 WHERE device_id = $1 AND status IN ('active','grace','payment_failed')`,
+		deviceID)
+
+	domainID := security.GenerateID("dom")
+	expiresAt := time.Now().AddDate(1, 0, 0)
+	_, err := h.db.Exec(
+		`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
+		 VALUES ($1, $2, $3, 'cloudflare', $4, $5, TRUE, 'active', $6)
+		 ON CONFLICT (domain) DO UPDATE SET
+		   device_id = EXCLUDED.device_id,
+		   status = 'active',
+		   auto_renew = TRUE,
+		   expires_at = EXCLUDED.expires_at`,
+		domainID, deviceID, domain, int(registrationCents), int(renewalCents), expiresAt)
+	if err != nil {
+		slog.Error("mock domain insert failed", "error", err, "domain", domain)
+	}
 }
 
 // cancelExistingDomain cancels the device's current custom domain (if any)

@@ -24,6 +24,14 @@ type Config struct {
 	Tunnel    TunnelConfig    `mapstructure:"tunnel" yaml:"tunnel"`
 	Web       WebConfig       `mapstructure:"web" yaml:"web"`
 	Scheduler SchedulerConfig `mapstructure:"scheduler" yaml:"scheduler"`
+	Purchase  PurchaseConfig  `mapstructure:"purchase" yaml:"purchase"`
+}
+
+// PurchaseConfig controls domain purchase behavior.
+// Mock bypasses Stripe and Cloudflare Registrar so the full purchase flow can
+// be walked end-to-end without real payment or registration (test/dev only).
+type PurchaseConfig struct {
+	MockDomain bool `mapstructure:"mock_domain" yaml:"mock_domain"`
 }
 
 type SchedulerConfig struct {
@@ -133,4 +141,5 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("web.customer_dir", "web/customer/dist")
 	v.SetDefault("web.admin_dir", "web/admin/dist")
 	v.SetDefault("scheduler.domain_sync_interval", "6h")
+	v.SetDefault("purchase.mock_domain", false)
 }
