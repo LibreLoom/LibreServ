@@ -76,7 +76,7 @@ export default function Toggle({
         type="button"
         data-slot="switch"
         onClick={() => {
-          haptic("tap");
+          haptic("light");
           onChange(!checked);
         }}
         disabled={disabled}

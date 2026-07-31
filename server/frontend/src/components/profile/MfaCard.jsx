@@ -24,6 +24,7 @@ import {
   plainWebAuthnError,
 } from "../../utils/webauthn";
 import { TYPE_META, ORDER, inputClass } from "./mfa-shared";
+import { copyToClipboard } from "../../utils/clipboard";
 
 /**
  * @param {{ onMethodEnabled?: () => void, onComplete?: () => void, embedded?: boolean } | undefined} [props]
@@ -130,14 +131,15 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
 
   async function copyCodes() {
     if (!showRecoveryCodes) return;
-    try {
-      await navigator.clipboard.writeText(showRecoveryCodes.join("\n"));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      addToast({ type: "success", message: "Recovery codes copied." });
-    } catch {
-      addToast({ type: "error", message: "Couldn't copy — copy them manually." });
-    }
+    await copyToClipboard(showRecoveryCodes.join("\n"), {
+      suppressHaptic: true,
+      onSuccess: () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        addToast({ type: "success", message: "Recovery codes copied." });
+      },
+      onError: () => addToast({ type: "error", message: "Couldn't copy — copy them manually." }),
+    });
   }
 
   function onEnrolled() {
@@ -485,14 +487,15 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
 
   async function copySecret() {
     if (!totp?.secret) return;
-    try {
-      await navigator.clipboard.writeText(totp.secret);
-      setSecretCopied(true);
-      addToast({ type: "success", message: "Manual key copied." });
-      setTimeout(() => setSecretCopied(false), 2000);
-    } catch {
-      addToast({ type: "error", message: "Couldn't copy — copy it manually." });
-    }
+    await copyToClipboard(totp.secret, {
+      suppressHaptic: true,
+      onSuccess: () => {
+        setSecretCopied(true);
+        setTimeout(() => setSecretCopied(false), 2000);
+        addToast({ type: "success", message: "Manual key copied." });
+      },
+      onError: () => addToast({ type: "error", message: "Couldn't copy — copy it manually." }),
+    });
   }
 
   const isWebAuthn = type === "passkey" || type === "security_key";
@@ -761,14 +764,15 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
 
   async function copyCodes() {
     if (!codes) return;
-    try {
-      await navigator.clipboard.writeText(codes.join("\n"));
-      setCopied(true);
-      addToast({ type: "success", message: "Backup codes copied." });
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      addToast({ type: "error", message: "Couldn't copy — copy them manually." });
-    }
+    await copyToClipboard(codes.join("\n"), {
+      suppressHaptic: true,
+      onSuccess: () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        addToast({ type: "success", message: "Backup codes copied." });
+      },
+      onError: () => addToast({ type: "error", message: "Couldn't copy — copy them manually." }),
+    });
   }
 
   function chooseMethod(type) {

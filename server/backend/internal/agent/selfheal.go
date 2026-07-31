@@ -11,36 +11,35 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
 )
 
 // SelfHealingMonitor watches for unhealthy containers and dispatches
 // an agent to diagnose and fix them automatically.
 type SelfHealingMonitor struct {
-	db            *database.DB
-	runtimeClient *podman.Client
-	provider      *Provider
-	convStore     *conversation.Store
-	creditSvc     *subscription.CreditService
-	checker       *subscription.Checker
-	interval      time.Duration
-	stopCh        chan struct{}
+	db             *database.DB
+	runtimeClient  *podman.Client
+	provider       *Provider
+	convStore      *conversation.Store
+	interval       time.Duration
+	stopCh         chan struct{}
+	connectClient  connect.Client
+	connectChecker *connect.EntitlementChecker
 }
 
 // NewSelfHealingMonitor creates a new monitor.
-func NewSelfHealingMonitor(runtimeClient *podman.Client, db *database.DB, connectClient connect.Client) *SelfHealingMonitor {
+func NewSelfHealingMonitor(runtimeClient *podman.Client, db *database.DB, connectClient connect.Client, connectChecker *connect.EntitlementChecker) *SelfHealingMonitor {
 	m := &SelfHealingMonitor{
-		db:            db,
-		runtimeClient: runtimeClient,
-		interval:      5 * time.Minute,
-		stopCh:        make(chan struct{}),
+		db:             db,
+		runtimeClient:  runtimeClient,
+		interval:       5 * time.Minute,
+		stopCh:         make(chan struct{}),
+		connectClient:  connectClient,
+		connectChecker: connectChecker,
 	}
 	if db != nil {
-		m.creditSvc = subscription.NewCreditService(db)
-		m.checker = subscription.NewChecker(db)
 		m.convStore = conversation.NewStore(db)
 	}
-	m.provider = NewAIProvider(context.Background(), connectClient, nil)
+	m.provider = NewAIProvider(context.Background(), connectClient, connectChecker)
 	return m
 }
 
@@ -49,14 +48,6 @@ func (m *SelfHealingMonitor) Start() {
 	cfg := config.Get()
 	if cfg == nil || !cfg.Support.SelfHealing {
 		return
-	}
-
-	if m.checker != nil && cfg.Support.Agent.SystemPlanID != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := m.checker.SetPlan(ctx, "system", cfg.Support.Agent.SystemPlanID, ""); err != nil {
-			slog.Error("self-healing: failed to seed system subscription", "error", err)
-		}
 	}
 
 	slog.Info("self-healing monitor started", "interval", m.interval)
@@ -90,7 +81,7 @@ func (m *SelfHealingMonitor) checkAndHeal() {
 	if cfg == nil || !cfg.Support.SelfHealing {
 		return
 	}
-	if cfg.Support.DeviceToken == "" && !(cfg.Support.BYOKEnabled && cfg.Support.UserAPIKey != "") {
+	if !AIConfigured(m.connectClient, m.connectChecker) {
 		return
 	}
 
@@ -151,16 +142,6 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 		return
 	}
 
-	plan := m.checker.PlanForUser(ctx, "system")
-	if plan.CreditCapUSD == 0 {
-		systemPlanID := cfg.Support.Agent.SystemPlanID
-		if systemPlanID != "" {
-			if p := subscription.PlanByID(systemPlanID); p != nil {
-				plan = p
-			}
-		}
-	}
-
 	// Use the standard pi-style tool set. The bash tool runs through the
 	// configured OS sandbox like the user-facing agent.
 	sb := NewSandbox(cfg.Support.Agent.Sandbox)
@@ -196,7 +177,7 @@ func (m *SelfHealingMonitor) healContainer(ctx context.Context, containerID stri
 		DataDirs:           cfg.Support.Agent.DataDirs,
 	}
 
-	loop := NewLoop(agentInst, registry, reviewModel, m.creditSvc, plan, loopConfig, cfg.Support.BillingMode, "system", convID)
+	loop := NewLoop(agentInst, registry, reviewModel, loopConfig, "system", convID)
 
 	// Give the reviewer session context if a summary model is configured.
 	if summaryModelID := cfg.Support.Agent.SummaryModel; summaryModelID != "" {

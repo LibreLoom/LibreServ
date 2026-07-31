@@ -28,15 +28,7 @@ type User struct {
 type AuthConfig struct {
 	AuthService *auth.Service
 	DevMode     bool
-	License     LicenseChecker
 	CSRFSecret  string
-}
-
-type LicenseChecker interface {
-	Valid() bool
-	Reason() string
-	SupportLevel() string
-	LicenseID() string
 }
 
 // IsDevTokenEnabled always returns false - dev tokens are disabled for security

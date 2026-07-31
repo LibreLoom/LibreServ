@@ -40,7 +40,7 @@ func TestSettingsGet(t *testing.T) {
 	}
 	config.SetTestConfig(cfg)
 
-	handler := NewSettingsHandler(nil, nil, nil)
+	handler := NewSettingsHandler(nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
 	rec := httptest.NewRecorder()
 
@@ -103,7 +103,7 @@ func TestSettingsGetNoProxy(t *testing.T) {
 	}
 	config.SetTestConfig(cfg)
 
-	handler := NewSettingsHandler(nil, nil, nil)
+	handler := NewSettingsHandler(nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil)
 	rec := httptest.NewRecorder()
 
@@ -144,7 +144,7 @@ func TestSettingsUpdateLogLevelWithDB(t *testing.T) {
 		t.Fatalf("failed to load test config: %v", err)
 	}
 
-	handler := NewSettingsHandler(nil, nil, nil)
+	handler := NewSettingsHandler(nil, nil)
 	body := `{"logging":{"level":"debug"}}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -163,7 +163,7 @@ func TestSettingsUpdateInvalidLevel(t *testing.T) {
 	}
 	config.SetTestConfig(cfg)
 
-	handler := NewSettingsHandler(nil, nil, nil)
+	handler := NewSettingsHandler(nil, nil)
 	body := `{"logging":{"level":"verbose"}}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -182,7 +182,7 @@ func TestSettingsUpdateInvalidBody(t *testing.T) {
 	}
 	config.SetTestConfig(cfg)
 
-	handler := NewSettingsHandler(nil, nil, nil)
+	handler := NewSettingsHandler(nil, nil)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader("not json"))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -233,7 +233,7 @@ func TestSettingsUpdateProxy(t *testing.T) {
 	}
 
 	svc := settings.NewService(db)
-	handler := NewSettingsHandler(svc, nil, nil)
+	handler := NewSettingsHandler(svc, nil)
 	body := `{"default_domain":"new.example.com","ssl_email":"admin@example.com","auto_https":true}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/proxy", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -302,7 +302,7 @@ func TestSettingsAISupportRoundTrip(t *testing.T) {
 	defer config.SetTestConfig(nil)
 
 	svc := settings.NewService(db)
-	handler := NewSettingsHandler(svc, nil, nil)
+	handler := NewSettingsHandler(svc, nil)
 
 	adminUser := &middleware.User{ID: "admin-user", Username: "admin", Role: "admin"}
 	adminCtx := func(r *http.Request) *http.Request {
@@ -393,7 +393,7 @@ func TestSettingsGetProxy(t *testing.T) {
 	}
 	config.SetTestConfig(cfg)
 
-	handler := NewSettingsHandler(nil, nil, nil)
+	handler := NewSettingsHandler(nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings/proxy", nil)
 	rec := httptest.NewRecorder()
 

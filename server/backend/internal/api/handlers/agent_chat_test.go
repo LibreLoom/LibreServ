@@ -144,7 +144,7 @@ func TestAgentChatHandler_SendMessage_ConflictOnDuplicate(t *testing.T) {
 
 	h.mu.Lock()
 	fakeAgent := agent.NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	fakeLoop := agent.NewLoop(fakeAgent, nil, nil, nil, nil, agent.LoopConfig{MaxTurns: 1}, "token", "user-b", "conv-dup")
+	fakeLoop := agent.NewLoop(fakeAgent, nil, nil, agent.LoopConfig{MaxTurns: 1}, "user-b", "conv-dup")
 	h.activeLoops["conv-dup"] = &agentLoopEntry{loop: fakeLoop, cancel: func() {}}
 	h.mu.Unlock()
 
@@ -200,7 +200,7 @@ func TestAgentChatHandler_StopConversation(t *testing.T) {
 
 	h.mu.Lock()
 	fakeAgent2 := agent.NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	fakeLoop := agent.NewLoop(fakeAgent2, nil, nil, nil, nil, agent.LoopConfig{MaxTurns: 1}, "token", "user-d", "conv-stop")
+	fakeLoop := agent.NewLoop(fakeAgent2, nil, nil, agent.LoopConfig{MaxTurns: 1}, "user-d", "conv-stop")
 	h.activeLoops["conv-stop"] = &agentLoopEntry{loop: fakeLoop, cancel: func() {}}
 	h.mu.Unlock()
 

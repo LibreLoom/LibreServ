@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback, useRef } from "react";
 import PropTypes from "prop-types";
+import { haptic } from "../utils/haptics";
 
 const ToastContext = createContext(null);
 
@@ -61,6 +62,11 @@ export function ToastProvider({ children, maxToasts = 5 }) {
       const id = ++toastIdCounter;
       const toastDuration = duration ?? DEFAULT_DURATIONS[type] ?? 3000;
 
+      // Outcome haptics: success/error get their matching pattern so every
+      // async result across the app gets feedback from one place.
+      if (type === "success") haptic("success");
+      else if (type === "error") haptic("error");
+      else haptic("light");
       const toast = {
         id,
         type,

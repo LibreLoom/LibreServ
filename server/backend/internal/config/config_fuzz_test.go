@@ -147,7 +147,6 @@ func FuzzRuntimeConfigUnmarshal(f *testing.F) {
 	f.Add([]byte(`
 method: socket
 socket_path: /var/run/docker.sock
-timeout: 30s
 `))
 	f.Add([]byte(`
 method: tcp
@@ -156,13 +155,6 @@ tcp:
   port: 2376
   use_tls: true
   cert_path: /certs/client.crt
-`))
-	f.Add([]byte(`
-method: ssh
-ssh:
-  host: docker.example.com
-  user: admin
-  key_path: /home/admin/.ssh/id_rsa
 `))
 	f.Add([]byte(`
 method: auto
@@ -174,9 +166,7 @@ method: auto
 
 		_ = runtime.Method
 		_ = runtime.SocketPath
-		_ = runtime.Timeout
 		_ = runtime.TCP.Host
-		_ = runtime.SSH.User
 	})
 }
 

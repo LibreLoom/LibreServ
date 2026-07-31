@@ -27,7 +27,7 @@ func TestRelayIsSelfForward(t *testing.T) {
 				upstream:   upstreamConfig{host: c.host, port: c.port},
 				listenPort: c.listenPort,
 			}
-			if got := r.isSelfForward(); got != c.want {
+			if got := r.isSelfForward(r.upstream); got != c.want {
 				t.Fatalf("isSelfForward() = %v, want %v", got, c.want)
 			}
 		})

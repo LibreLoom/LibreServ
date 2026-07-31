@@ -26,11 +26,13 @@ type Relay struct {
 }
 
 type upstreamConfig struct {
-	host     string
-	port     int
-	username string
-	password string
-	from     string
+	host       string
+	port       int
+	username   string
+	password   string
+	from       string
+	useTLS     bool
+	skipVerify bool
 }
 
 // NewRelay creates a local SMTP relay. It reads the upstream config from
@@ -38,18 +40,25 @@ type upstreamConfig struct {
 // If SMTP is not configured, the relay still runs but will reject mail
 // with a helpful error.
 func NewRelay() *Relay {
+	return &Relay{}
+}
+
+// readUpstream reads the current SMTP config live. Called per-transaction
+// so Settings changes propagate without restart.
+func (r *Relay) readUpstream() upstreamConfig {
 	cfg := config.Get()
-	r := &Relay{}
-	if cfg != nil && cfg.SMTP.Host != "" {
-		r.upstream = upstreamConfig{
-			host:     cfg.SMTP.Host,
-			port:     cfg.SMTP.Port,
-			username: cfg.SMTP.Username,
-			password: cfg.SMTP.Password,
-			from:     cfg.SMTP.From,
-		}
+	if cfg == nil || cfg.SMTP.Host == "" {
+		return upstreamConfig{}
 	}
-	return r
+	return upstreamConfig{
+		host:       cfg.SMTP.Host,
+		port:       cfg.SMTP.Port,
+		username:   cfg.SMTP.Username,
+		password:   cfg.SMTP.Password,
+		from:       cfg.SMTP.From,
+		useTLS:     cfg.SMTP.UseTLS,
+		skipVerify: cfg.SMTP.SkipVerify,
+	}
 }
 
 // Start begins listening on localhost:25.
@@ -85,11 +94,11 @@ func (r *Relay) Stop() {
 // listener. Forwarding to itself would recurse without bound — each hop
 // re-wraps the error as "550 could not send email: …" — until the process is
 // killed. We refuse up front and tell the user where to fix it.
-func (r *Relay) isSelfForward() bool {
-	if r.listenPort == 0 || r.upstream.port != r.listenPort {
+func (r *Relay) isSelfForward(upstream upstreamConfig) bool {
+	if r.listenPort == 0 || upstream.port != r.listenPort {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(r.upstream.host)) {
+	switch strings.ToLower(strings.TrimSpace(upstream.host)) {
 	case "localhost", "127.0.0.1", "::1", "ip6-localhost":
 		return true
 	}
@@ -193,7 +202,8 @@ func (s *relaySession) handleData() {
 		s.sendLine("503 need RCPT TO first")
 		return
 	}
-	if s.relay.upstream.host == "" {
+	upstream := s.relay.readUpstream()
+	if upstream.host == "" {
 		s.sendLine("421 email sending is not configured on this device. Connect to LibreServ Connect or configure SMTP in Settings.")
 		return
 	}
@@ -219,9 +229,9 @@ func (s *relaySession) handleData() {
 
 	// Refuse to forward to our own listener: that would recurse without bound
 	// (each hop re-wraps the error as "550 could not send email: …").
-	if s.relay.isSelfForward() {
+	if s.relay.isSelfForward(upstream) {
 		slog.Error("SMTP relay refusing to forward to itself (outgoing server points at this device)",
-			"upstream", s.relay.upstream.host, "port", s.relay.upstream.port)
+			"upstream", upstream.host, "port", upstream.port)
 		s.sendLine("550 Email is set up to send back to this device instead of to your email provider, which would loop forever. Fix this in Settings → Email — use your email provider or LibreServ Connect as the outgoing server.")
 		s.from = ""
 		s.rcpts = nil
@@ -230,11 +240,13 @@ func (s *relaySession) handleData() {
 
 	// Forward to upstream using the existing Sender
 	cfg := config.SMTPConfig{
-		Host:     s.relay.upstream.host,
-		Port:     s.relay.upstream.port,
-		Username: s.relay.upstream.username,
-		Password: s.relay.upstream.password,
-		From:     s.relay.upstream.from,
+		Host:       upstream.host,
+		Port:       upstream.port,
+		Username:   upstream.username,
+		Password:   upstream.password,
+		From:       upstream.from,
+		UseTLS:     upstream.useTLS,
+		SkipVerify: upstream.skipVerify,
 	}
 	sender, err := NewSenderWithConfig(cfg)
 	if err != nil {
@@ -245,7 +257,7 @@ func (s *relaySession) handleData() {
 	// Use the original From header if present, otherwise the configured from
 	from := s.from
 	if from == "" {
-		from = s.relay.upstream.from
+		from = upstream.from
 	}
 
 	if err := sender.SendRaw(s.rcpts, from, body.String()); err != nil {

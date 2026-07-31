@@ -76,7 +76,6 @@ func (h *ConnectHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
 	if cfg != nil {
 		cfg.Connect.Token = req.ConnectKey
-		cfg.Connect.Enabled = true
 		if err := config.SaveConfig(""); err != nil {
 			slog.Warn("failed to persist connect key to config", "error", err)
 		}
@@ -209,7 +208,6 @@ func (h *ConnectHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Get()
 	if cfg != nil {
 		cfg.Connect.Token = ""
-		cfg.Connect.Enabled = false
 		if err := config.SaveConfig(""); err != nil {
 			slog.Warn("failed to clear connect key from config", "error", err)
 		}

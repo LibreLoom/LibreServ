@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import Card from "../cards/Card";
 import Button from "../ui/Button";
 import { Eye, EyeOff, Copy, Check, Key, Link, Lock, ChevronDown } from "lucide-react";
+import { copyToClipboard as clipboardCopy } from "../../utils/clipboard";
 
 const GROUP_LABELS = {
   credentials: { label: "Credentials", icon: Lock },
@@ -66,13 +67,12 @@ export function ExposedInfoCard({ info }) {
   };
 
   const copyToClipboard = async (key, value) => {
-    try {
-      await navigator.clipboard.writeText(String(value));
-      setCopied((prev) => ({ ...prev, [key]: true }));
-      setTimeout(() => setCopied((prev) => ({ ...prev, [key]: false })), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
+    await clipboardCopy(String(value), {
+      onSuccess: () => {
+        setCopied((prev) => ({ ...prev, [key]: true }));
+        setTimeout(() => setCopied((prev) => ({ ...prev, [key]: false })), 2000);
+      },
+    });
   };
 
   const renderValue = (field, key) => {

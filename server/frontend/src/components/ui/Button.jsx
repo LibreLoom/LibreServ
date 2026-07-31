@@ -154,9 +154,10 @@ export default function Button({
   const cvaProps = { variant, size, surface, fullWidth, smoothResize };
   const buttonClass = cn(buttonVariants(cvaProps), className);
 
-  // Haptic feedback on every press — caution/destructive actions get a heavier buzz.
+  // Haptic feedback on every press — destructive actions get a harsh buzz,
+  // significant actions (accent submit) get a heavy tap, standard taps get medium.
   const handleClick = (event) => {
-    haptic(variant === "danger" || variant === "accent" ? "error" : "tap");
+    haptic(variant === "danger" ? "error" : variant === "accent" ? "heavy" : "medium");
     onClick?.(event);
   };
 

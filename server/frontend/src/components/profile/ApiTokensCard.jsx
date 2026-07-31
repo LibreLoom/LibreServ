@@ -4,6 +4,7 @@ import Card from "../cards/Card";
 import Button from "../ui/Button";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
+import { copyWithFeedback } from "../../utils/clipboard";
 
 function formatDate(iso) {
   if (!iso) return "never";
@@ -97,11 +98,9 @@ export default function ApiTokensCard() {
     }
   }
 
-  function handleCopy() {
+  async function handleCopy() {
     if (!newToken?.token) return;
-    navigator.clipboard.writeText(newToken.token);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    await copyWithFeedback(newToken.token, setCopied);
   }
 
   return (

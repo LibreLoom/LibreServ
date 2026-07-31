@@ -12,7 +12,7 @@ import (
 
 func TestNewLoop(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 	if loop == nil {
 		t.Fatal("NewLoop returned nil")
 	}
@@ -32,7 +32,7 @@ func TestNewLoop(t *testing.T) {
 
 func TestNewLoopDefaults(t *testing.T) {
 	agent := NewAgent("test", "test-model", "circle", "#4ECDC4", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{}, "user1", "conv1")
 	if loop.config.MaxTurns != 10 {
 		t.Errorf("default MaxTurns = %d, want 10", loop.config.MaxTurns)
 	}
@@ -43,7 +43,7 @@ func TestNewLoopDefaults(t *testing.T) {
 
 func TestLoadHistory(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 	history := []Message{
 		{Role: RoleUser, Content: "hello"},
 		{Role: RoleAssistant, Content: "hi there"},
@@ -60,7 +60,7 @@ func TestLoadHistory(t *testing.T) {
 
 func TestHandlePermissionResponse(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 
 	permCh := make(chan bool, 1)
 	loop.pendingPermMu.Lock()
@@ -81,13 +81,13 @@ func TestHandlePermissionResponse(t *testing.T) {
 
 func TestHandlePermissionResponseNonexistent(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 	loop.HandlePermissionResponse("nonexistent", true)
 }
 
 func TestStop(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 	loop.Stop()
 
 	select {
@@ -99,14 +99,14 @@ func TestStop(t *testing.T) {
 
 func TestStopIdempotent(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 	loop.Stop()
 	loop.Stop()
 }
 
 func TestLoopEventsChannel(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 	events := loop.Events()
 	if events == nil {
 		t.Fatal("Events() returned nil channel")
@@ -115,7 +115,7 @@ func TestLoopEventsChannel(t *testing.T) {
 
 func TestRunNoProvider(t *testing.T) {
 	agent := NewAgent("agent-1", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5, TurnTimeout: time.Second}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5, TurnTimeout: time.Second}, "user1", "conv1")
 
 	done := make(chan struct{})
 	go func() {
@@ -145,10 +145,10 @@ func TestRunNoProvider(t *testing.T) {
 
 func TestIsDataDir(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{
+	loop := NewLoop(agent, nil, nil, LoopConfig{
 		MaxTurns: 5,
 		DataDirs: []string{"/var/lib/libreserv", "/etc/libreserv"},
-	}, "token", "user1", "conv1")
+	}, "user1", "conv1")
 
 	tests := []struct {
 		path     string
@@ -174,7 +174,7 @@ func TestIsDataDir(t *testing.T) {
 
 func TestBuildContextSummary(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 	loop.messages = []Message{
 		{Role: RoleUser, Content: "my app is broken"},
 		{Role: RoleAssistant, Content: "Let me check that for you."},
@@ -190,7 +190,7 @@ func TestBuildContextSummary(t *testing.T) {
 
 func TestBuildContextSummaryEmpty(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxTurns: 5}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxTurns: 5}, "user1", "conv1")
 	summary := loop.buildContextSummary()
 	if summary != "No prior conversation." {
 		t.Errorf("empty summary = %q, want %q", summary, "No prior conversation.")
@@ -199,7 +199,7 @@ func TestBuildContextSummaryEmpty(t *testing.T) {
 
 func TestSummarizeOldMessagesNoProvider(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxContextMessages: 4}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxContextMessages: 4}, "user1", "conv1")
 
 	msgs := []Message{
 		{Role: RoleUser, Content: "a"},
@@ -219,7 +219,7 @@ func TestSummarizeOldMessagesNoProvider(t *testing.T) {
 
 func TestSummarizeOldMessagesBelowThreshold(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{MaxContextMessages: 20}, "token", "user1", "conv1")
+	loop := NewLoop(agent, nil, nil, LoopConfig{MaxContextMessages: 20}, "user1", "conv1")
 	msgs := []Message{
 		{Role: RoleUser, Content: "hello"},
 		{Role: RoleAssistant, Content: "hi"},
@@ -266,10 +266,10 @@ func TestEventTypesExist(t *testing.T) {
 
 func TestPermissionModeAuto(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{
+	loop := NewLoop(agent, nil, nil, LoopConfig{
 		MaxTurns:       5,
 		PermissionMode: "auto",
-	}, "token", "user1", "conv1")
+	}, "user1", "conv1")
 
 	// Auto mode means there is no human to confirm actions. Permission requests
 	// must NOT auto-approve — they return false immediately so the caller records
@@ -289,10 +289,10 @@ func TestPermissionModeAuto(t *testing.T) {
 func TestExecuteWithReview_AutoModeDenialRecordsFeedback(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
 	reviewModel := NewReviewModel(nil, "review-model") // nil provider
-	loop := NewLoop(agent, nil, reviewModel, nil, nil, LoopConfig{
+	loop := NewLoop(agent, nil, reviewModel, LoopConfig{
 		MaxTurns:       5,
 		PermissionMode: "auto",
-	}, "token", "user1", "conv1")
+	}, "user1", "conv1")
 
 	// Drain events so emit() never blocks.
 	go func() {
@@ -365,11 +365,11 @@ func TestExecuteWithReview_UserDataBlockedWhenUnattended(t *testing.T) {
 	// nil reviewModel: if the data-dir check did not short-circuit, the loop
 	// would dereference it and panic — so reaching the assertion proves review
 	// was skipped.
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{
+	loop := NewLoop(agent, nil, nil, LoopConfig{
 		MaxTurns:       5,
 		PermissionMode: "auto",
 		DataDirs:       []string{"/var/lib/libreserv"},
-	}, "token", "user1", "conv1")
+	}, "user1", "conv1")
 	go func() {
 		for range loop.Events() {
 		}
@@ -399,12 +399,12 @@ func TestExecuteWithReview_UserDataBlockedWhenUnattended(t *testing.T) {
 // only after the user approves.
 func TestExecuteWithReview_UserDataEscalatesAndApproves(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, nil, nil, nil, LoopConfig{
+	loop := NewLoop(agent, nil, nil, LoopConfig{
 		MaxTurns:    5,
 		TurnTimeout: 30 * time.Second,
 		DataDirs:    []string{"/var/lib/libreserv"},
 		// standard mode (not "auto") so a human can confirm.
-	}, "token", "user1", "conv1")
+	}, "user1", "conv1")
 
 	tool := writeToolWithDataDir(t, "/var/lib/libreserv/notes.txt", true)
 	tc := AgentToolCall{ID: "tc-esc", Name: "write", Arguments: json.RawMessage(`{"path":"/var/lib/libreserv/notes.txt","content":"x"}`)}
@@ -435,11 +435,11 @@ func TestExecuteWithReview_UserDataEscalatesAndApproves(t *testing.T) {
 // (here: nil, which in auto mode fails safe to deny).
 func TestExecuteWithReview_SafeWriteGoesToReview(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "help", nil)
-	loop := NewLoop(agent, nil, NewReviewModel(nil, "rm"), nil, nil, LoopConfig{
+	loop := NewLoop(agent, nil, NewReviewModel(nil, "rm"), LoopConfig{
 		MaxTurns:       5,
 		PermissionMode: "auto",
 		DataDirs:       []string{"/var/lib/libreserv"},
-	}, "token", "user1", "conv1")
+	}, "user1", "conv1")
 	go func() {
 		for range loop.Events() {
 		}

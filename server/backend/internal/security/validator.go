@@ -81,8 +81,8 @@ func ValidateConfig() *ValidationResult {
 		})
 		result.Passed = false
 	}
-
 	validateDevModeSettings(cfg, result)
+
 	validateCORS(cfg, result)
 	validateSecrets(cfg, result)
 	validateNetworkBindings(cfg, result)

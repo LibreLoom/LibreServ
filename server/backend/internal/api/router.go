@@ -39,7 +39,12 @@ func (s *Server) setupRoutes() {
 		inviteBase = "https://" + d
 	}
 	inviteHandler := handlers.NewInviteHandler(s.authService, inviteSender(s.emailSender, inviteBase))
-	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService, s.caddyManager)
+	// Keep references so SetEmailSender can rewire these when SMTP settings
+	// change at runtime (Connect provisioning writes smtp.* during activation).
+	s.mfaHandler = mfaHandler
+	s.inviteHandler = inviteHandler
+	s.inviteBase = inviteBase
+	settingsHandler := handlers.NewSettingsHandler(s.settingsService, s.securityService)
 	csrfSecret := config.Get().Auth.CSRFSecret
 	csrfHandler := handlers.NewCSRFHandler(csrfSecret)
 	networkProbeHandler := handlers.NewNetworkProbeHandler()
@@ -69,29 +74,22 @@ func (s *Server) setupRoutes() {
 	// Initialize network handler if Caddy is available
 	var networkHandler *handlers.NetworkHandlers
 	if s.caddyManager != nil {
-		upnpService := s.appManager.GetUPnPService()
-		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager, upnpService).WithACME(acmeHandler)
+		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager).WithACME(acmeHandler)
 	}
 
 	// Initialize DNS provider manager
 	s.dnsProviderMgr = network.NewDNSProviderManager(s.db)
 
 	// Initialize setup handler with all required dependencies
-	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.runtimeClient, s.licenseService, s.dnsProviderMgr, s.acmeManager, s.caddyManager, s.settingsService)
+	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.runtimeClient, s.dnsProviderMgr, s.acmeManager, s.caddyManager, s.settingsService)
 
 	// Initialize support and system handlers
-	supportHandler := handlers.NewSupportHandler(s.supportService, s.licenseService)
-	supportDiagHandler := handlers.NewSupportDiagnosticsHandler(s.authService, s.runtimeClient)
-	supportSessionValidator := handlers.NewSupportSessionValidationHandler(s.supportService)
-	supportFileHandler := handlers.NewSupportFileHandler(s.supportService)
-	supportCommandHandler := handlers.NewSupportCommandHandler(s.supportService)
-	licenseHandler := handlers.NewLicenseHandler(s.licenseService)
 	systemHandler := handlers.NewSystemHandler(s.sysChecker)
 	systemHandler.SetAuditLogger(s)
 	auditHandler := handlers.NewAuditHandler(s.audit)
 	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService, s.authService)
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
-	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager.GetUPnPService(), s.appManager, s.caddyManager)
+	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
 
 	// Initialize Connect handler
@@ -107,7 +105,6 @@ func (s *Server) setupRoutes() {
 	authConfig := &middleware.AuthConfig{
 		AuthService: s.authService,
 		DevMode:     s.devMode,
-		License:     s.licenseService,
 		CSRFSecret:  csrfSecret,
 	}
 	// Setup guard ensures initial setup is complete before allowing access
@@ -326,12 +323,6 @@ func (s *Server) setupRoutes() {
 				r.Post("/preview", settingsHandler.PreviewTemplate)
 			})
 
-			// License management (admin only)
-			r.Route("/license", func(r chi.Router) {
-				r.Use(middleware.RequireRole("admin"))
-				r.Get("/status", licenseHandler.Status)
-			})
-
 			// App-specific health and metrics (under /apps routes)
 			r.Route("/apps/{appID}/health", func(r chi.Router) {
 				r.Get("/", monitoringHandler.GetAppHealth)
@@ -393,7 +384,6 @@ func (s *Server) setupRoutes() {
 					r.Post("/test-backend", networkHandler.TestBackend)
 					r.Post("/domain/disconnect", networkHandler.DisconnectDomain)
 					r.Get("/port-forwarding-status", networkHandler.GetPortForwardingStatus)
-					r.Get("/upnp/status", networkHandler.GetUPnPStatus)
 				})
 			}
 
@@ -441,42 +431,10 @@ func (s *Server) setupRoutes() {
 				r.Delete("/{userID}", usersHandler.DeleteUser)
 			})
 
-			// Support sessions - remote support access management (admin only)
-			r.Route("/support/sessions", func(r chi.Router) {
-				r.Use(middleware.RequireRole("admin"))
-				r.Use(middleware.RateLimit([]middleware.RateRule{
-					{Prefix: "/api/v1/support/sessions", Limit: 20, Window: time.Minute, ByUser: true},
-				}))
-				r.Get("/", supportHandler.ListSessions)
-				r.Post("/", supportHandler.CreateSession)
-				r.Get("/{sessionID}", supportHandler.GetSession)
-				r.Post("/{sessionID}/revoke", supportHandler.RevokeSession)
-			})
-
-			// Support diagnostics - system diagnostics collection (admin only)
-			r.Route("/support/diagnostics", func(r chi.Router) {
-				r.Use(middleware.RequireRole("admin"))
-				r.Use(middleware.RateLimit([]middleware.RateRule{
-					{Prefix: "/api/v1/support/diagnostics", Limit: 10, Window: time.Minute, ByUser: true},
-				}))
-				r.Get("/", supportDiagHandler.Get)
-			})
-
-			// Support session validation - file and command execution (admin only)
-			r.Route("/support/session", func(r chi.Router) {
-				r.Use(middleware.RequireRole("admin"))
-				r.Use(middleware.RateLimit([]middleware.RateRule{
-					{Prefix: "/api/v1/support/session", Limit: 15, Window: time.Minute, ByUser: true},
-				}))
-				r.Post("/validate", supportSessionValidator.Validate)
-				r.Post("/files/read", supportFileHandler.Read)
-				r.Post("/files/write", supportFileHandler.Write)
-				r.Post("/command", supportCommandHandler.Run)
-			})
-
 			// AI agent chat support (enabled in dev mode, or via LIBRESERV_AGENT_SUPPORT_ENABLED)
 			if s.devMode || os.Getenv("LIBRESERV_INSECURE_DEV") == "true" || os.Getenv("LIBRESERV_AGENT_SUPPORT_ENABLED") == "true" {
 				r.Route("/support/agent", func(r chi.Router) {
+					r.Use(middleware.RequireRole("admin"))
 					r.Use(middleware.RateLimit([]middleware.RateRule{
 						{Prefix: "/api/v1/support/agent", Limit: 30, Window: time.Minute, ByUser: true},
 					}))
@@ -498,10 +456,8 @@ func (s *Server) setupRoutes() {
 					// Audit trail
 					r.Get("/conversations/{conversationID}/tool-calls", agentChatHandler.ListToolCalls)
 
-					// Models and subscription
+					// Models
 					r.Get("/models", agentChatHandler.GetModels)
-					r.Get("/subscription", agentChatHandler.GetSubscription)
-					r.Put("/subscription", agentChatHandler.UpdateSubscription)
 				})
 			}
 
@@ -550,6 +506,7 @@ func (s *Server) setupRoutes() {
 
 			// Connect — LibreServ Connect integration
 			r.Route("/connect", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
 				r.Get("/status", connectHandler.Status)
 				r.Put("/activate", connectHandler.Activate)
 				r.Post("/deactivate", connectHandler.Deactivate)

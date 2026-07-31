@@ -55,7 +55,7 @@ func newTestSetupHandler(t *testing.T) testSetupDeps {
 		t.Fatalf("ensure setup state: %v", err)
 	}
 	return testSetupDeps{
-		handler:  NewSetupHandler(svc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil, nil),
+		handler:  NewSetupHandler(svc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil),
 		authSvc:  svc,
 		setupSvc: setupSvc,
 		ctx:      context.Background(),
@@ -189,7 +189,7 @@ func TestPreflightResolvesRelativeDiskSpacePathFromConfigLocation(t *testing.T) 
 		t.Fatalf("ensure setup state: %v", err)
 	}
 
-	handler := NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil, nil)
+	handler := NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/setup/preflight", nil)
 	handler.Preflight(rec, req.WithContext(context.Background()))

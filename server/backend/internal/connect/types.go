@@ -31,7 +31,6 @@ const (
 	ServiceDomain  ServiceID = "domain"
 	ServiceBackup  ServiceID = "backup"
 	ServiceTunnel  ServiceID = "tunnel"
-	ServiceACME    ServiceID = "acme"
 	ServiceAI      ServiceID = "ai"
 	ServiceSupport ServiceID = "support"
 )

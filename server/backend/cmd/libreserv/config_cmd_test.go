@@ -49,7 +49,7 @@ func TestDbBackedKeysHaveTypes(t *testing.T) {
 		if typ == "" {
 			t.Errorf("dbBackedKeys[%q] has empty type", key)
 		}
-		validTypes := map[string]bool{"string": true, "int": true, "bool": true, "json": true}
+		validTypes := map[string]bool{"string": true, "int": true, "bool": true, "json": true, "csv": true}
 		if !validTypes[typ] {
 			t.Errorf("dbBackedKeys[%q] has unknown type %q", key, typ)
 		}

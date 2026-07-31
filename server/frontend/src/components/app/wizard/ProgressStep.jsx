@@ -4,6 +4,7 @@ import TypewriterLoader from "../../../components/ui/TypewriterLoader";
 import Button from "../../../components/ui/Button";
 import { useAuth } from "../../../hooks/useAuth";
 import { cn } from "@/lib/utils";
+import { copyWithFeedback } from "../../../utils/clipboard";
 
 const ALL_INSTALL_PHASES = [
   { id: "preparing", label: "Preparing installation" },
@@ -283,13 +284,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
   const handleCopyStream = async () => {
     const text = streamLines.join("");
     if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setStreamCopied(true);
-      setTimeout(() => setStreamCopied(false), 2000);
-    } catch {
-      // Clipboard failed
-    }
+    await copyWithFeedback(text, setStreamCopied);
   };
 
   if (error) {
@@ -297,13 +292,8 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
     const errorHint = getErrorHint(error);
 
     const handleCopyError = async () => {
-      try {
-        await navigator.clipboard.writeText(error);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      } catch (err) {
-        console.error("Failed to copy error:", err);
-      }
+      if (!error) return;
+      await copyWithFeedback(error, setCopied);
     };
 
     return (

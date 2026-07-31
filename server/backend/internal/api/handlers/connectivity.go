@@ -9,20 +9,17 @@ import (
 
 type ConnectivityHandler struct {
 	ipMonitor    *network.DDNSService
-	upnpService  *network.UPnPService
 	appManager   *apps.Manager
 	caddyManager *network.CaddyManager
 }
 
 func NewConnectivityHandler(
 	ipMonitor *network.DDNSService,
-	upnpService *network.UPnPService,
 	appManager *apps.Manager,
 	caddyManager *network.CaddyManager,
 ) *ConnectivityHandler {
 	return &ConnectivityHandler{
 		ipMonitor:    ipMonitor,
-		upnpService:  upnpService,
 		appManager:   appManager,
 		caddyManager: caddyManager,
 	}
@@ -34,7 +31,6 @@ type ConnectivityResponse struct {
 	PublicIP     string             `json:"public_ip"`
 	LocalIP      string             `json:"local_ip"`
 	Domain       DomainStatus       `json:"domain"`
-	UPnP         UPnPStatusSimple   `json:"upnp"`
 	DDNS         DDNSStatusSimple   `json:"ddns"`
 	Tunnel       TunnelStatusSimple `json:"tunnel"`
 	Suggestions  []string           `json:"suggestions"`
@@ -44,12 +40,6 @@ type DomainStatus struct {
 	Configured bool   `json:"configured"`
 	Domain     string `json:"domain,omitempty"`
 	HTTPS      bool   `json:"https"`
-}
-
-type UPnPStatusSimple struct {
-	Available  bool   `json:"available"`
-	Enabled    bool   `json:"enabled"`
-	ExternalIP string `json:"external_ip,omitempty"`
 }
 
 type DDNSStatusSimple struct {
@@ -90,15 +80,6 @@ func (h *ConnectivityHandler) GetStatus(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	if h.upnpService != nil {
-		upnpStatus := h.upnpService.GetStatus()
-		resp.UPnP = UPnPStatusSimple{
-			Available:  upnpStatus.Available,
-			Enabled:    upnpStatus.Enabled,
-			ExternalIP: upnpStatus.ExternalIP,
-		}
-	}
-
 	if h.caddyManager != nil {
 		cfg := h.caddyManager.Config()
 		resp.Domain = DomainStatus{
@@ -125,14 +106,8 @@ func (h *ConnectivityHandler) deriveRemoteAccess(resp ConnectivityResponse) stri
 
 	switch resp.NATType {
 	case "open":
-		if resp.UPnP.Enabled {
-			return "degraded"
-		}
 		return "local_only"
 	case "full_cone", "restricted", "port_restricted":
-		if resp.UPnP.Enabled {
-			return "degraded"
-		}
 		return "local_only"
 	case "symmetric", "cgnat", "blocked":
 		return "blocked"
@@ -155,8 +130,6 @@ func (h *ConnectivityHandler) generateSuggestions(resp ConnectivityResponse) []s
 
 	if resp.NATType == "cgnat" || resp.NATType == "symmetric" || resp.NATType == "blocked" {
 		suggestions = append(suggestions, "Your network requires a tunnel for remote access")
-	} else if !resp.UPnP.Enabled && resp.UPnP.Available {
-		suggestions = append(suggestions, "Enable UPnP for automatic port forwarding")
 	}
 
 	if resp.DDNS.Running && resp.DDNS.CurrentIP != "" {

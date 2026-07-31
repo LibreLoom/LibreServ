@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,7 +25,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobqueue"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/jobs"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/license"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/logger"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
@@ -37,7 +37,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
 )
 
@@ -115,9 +114,7 @@ func main() {
 		slog.Warn("failed to load settings from database", "error", err)
 	}
 
-	lic, err := license.Load(cfg.License.EntitlementFile, cfg.License.PublicKeyFile)
 	if err != nil {
-		slog.Warn("license load failed", "error", err)
 	}
 
 	runtimeClient, err := podman.NewClient(cfg.Runtime)
@@ -322,6 +319,24 @@ func main() {
 		go appManager.PropagateServerContext(context.Background(), changedKeys)
 	})
 
+	// CaddyManager: propagate caddy settings changes live
+	if caddyManager != nil {
+		settingsService.OnChange(func(changedKeys []string) {
+			for _, k := range changedKeys {
+				if strings.HasPrefix(k, "network.caddy.") {
+					cfg := config.Get()
+					if err := caddyManager.UpdateDefaults(cfg.Network.Caddy.DefaultDomain, cfg.Network.Caddy.Email, cfg.Network.Caddy.AutoHTTPS); err != nil {
+						slog.Warn("OnChange: failed to update Caddy defaults", "error", err)
+					}
+					if err := caddyManager.SetMode(cfg.Network.Caddy.Mode); err != nil {
+						slog.Warn("OnChange: failed to update Caddy mode", "error", err)
+					}
+					break
+				}
+			}
+		})
+	}
+
 	authService := auth.NewService(db, cfg.Auth.JWTSecret, slog.Default())
 
 	setupService := setup.NewService(db)
@@ -331,7 +346,6 @@ func main() {
 			slog.Info("Setup code. Enter this code in the web setup to continue from another device.", "code", state.Nonce)
 		}
 	}
-	supportService := support.NewService(db, lic)
 	auditService := audit.NewService(db)
 
 	emailSender, _ := email.NewSender()
@@ -443,8 +457,6 @@ func main() {
 		CaddyManager:     caddyManager,
 		ACMEManager:      acmeManager,
 		SetupService:     setupService,
-		SupportService:   supportService,
-		LicenseService:   lic,
 		SysChecker:       sysChecker,
 		AuditService:     auditService,
 		SettingsService:  settingsService,
@@ -454,6 +466,26 @@ func main() {
 		OIDCHandler:      oidcHandler,
 		OIDCAdminHandler: oidcAdminHandler,
 	}).WithJobQueue(jobQueue)
+
+	// Rebuild the email sender when SMTP settings change at runtime (Connect
+	// provisioning writes smtp.* during activation; admin edits in Settings).
+	// Without this, email MFA + invites + notifications stay stuck at their
+	// startup state until a restart.
+	settingsService.OnChange(func(changedKeys []string) {
+		for _, k := range changedKeys {
+			if strings.HasPrefix(k, "smtp.") {
+				sender, _ := email.NewSender()
+				var es api.EmailSender
+				if sender != nil {
+					es = mfaOTPSender{sender}
+				}
+				server.SetEmailSender(es)
+				notifyService.SetSender(sender)
+				slog.Info("email sender reconfigured from settings", "configured", sender != nil)
+				break
+			}
+		}
+	})
 
 	bluetooth.SetRouter(server.Router())
 	bleSvc := bluetooth.NewService("", slog.Default())

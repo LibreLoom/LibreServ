@@ -106,6 +106,9 @@ func Init(cfg config.LoggingConfig) {
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "logger: failed to open log file:", err)
 			} else {
+				if logFile != nil {
+					logFile.Close()
+				}
 				logFile = f
 				fileHandler := slog.NewJSONHandler(io.MultiWriter(f), fileOpts)
 				handlers = append(handlers, fileHandler)

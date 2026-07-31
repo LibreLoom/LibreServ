@@ -14,7 +14,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 )
@@ -22,7 +21,6 @@ import (
 type SettingsHandler struct {
 	settingsService *settings.Service
 	securityService *security.Service
-	caddyManager    *network.CaddyManager
 	listModels      func(ctx context.Context) ([]agent.ModelInfo, error)
 
 	testNotificationMu        sync.Mutex
@@ -30,11 +28,10 @@ type SettingsHandler struct {
 	testNotificationRateLimit time.Duration
 }
 
-func NewSettingsHandler(settingsService *settings.Service, securityService *security.Service, caddyManager *network.CaddyManager) *SettingsHandler {
+func NewSettingsHandler(settingsService *settings.Service, securityService *security.Service) *SettingsHandler {
 	h := &SettingsHandler{
 		settingsService:           settingsService,
 		securityService:           securityService,
-		caddyManager:              caddyManager,
 		testNotificationLastTime:  make(map[string]time.Time),
 		testNotificationRateLimit: time.Minute,
 	}
@@ -410,21 +407,6 @@ func (h *SettingsHandler) UpdateProxy(w http.ResponseWriter, r *http.Request) {
 		slog.Error("Failed to update proxy settings", "error", err)
 		JSONError(w, http.StatusBadRequest, "Those proxy settings aren't valid. Please check them and try again.")
 		return
-	}
-
-	// Propagate changes to CaddyManager if available
-	if h.caddyManager != nil {
-		if mode, ok := updates["mode"].(string); ok && mode != "" {
-			if err := h.caddyManager.SetMode(mode); err != nil {
-				slog.Warn("Failed to update Caddy mode", "error", err)
-			}
-		}
-		defaultDomain, _ := updates["default_domain"].(string)
-		sslEmail, _ := updates["ssl_email"].(string)
-		autoHTTPS, _ := updates["auto_https"].(bool)
-		if err := h.caddyManager.UpdateDefaults(defaultDomain, sslEmail, autoHTTPS); err != nil {
-			slog.Warn("Failed to update Caddy defaults", "error", err)
-		}
 	}
 
 	result, _ := h.settingsService.GetSettings(r.Context())

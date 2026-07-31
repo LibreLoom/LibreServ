@@ -103,7 +103,7 @@ export default function Dropdown({
   }, [isOpen, updatePosition]);
 
   const handleSelect = (optionValue) => {
-    haptic("tap");
+    haptic("selection");
     onChange(optionValue);
     close();
     buttonRef.current?.focus();

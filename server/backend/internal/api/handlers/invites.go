@@ -24,6 +24,10 @@ func NewInviteHandler(authService *auth.Service, sendInvite func(email, token st
 	return &InviteHandler{authService: authService, sendInvite: sendInvite}
 }
 
+// SetSender wires the invite-email sender after construction (e.g. when SMTP
+// settings change at runtime via Connect provisioning or Settings).
+func (h *InviteHandler) SetSender(send func(email, token string) error) { h.sendInvite = send }
+
 // CreateInvite handles POST /api/v1/users/invites (admin) {email, role}.
 // Returns 201 + emails the invitee a one-time link. 400 if SMTP isn't configured.
 func (h *InviteHandler) CreateInvite(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import PropTypes from "prop-types";
 import { Terminal, Copy, Check } from "lucide-react";
+import { copyWithFeedback } from "../../utils/clipboard";
 
 /**
  * @param {{ content: any, title?: any, maxHeight?: string }} _
@@ -15,15 +16,9 @@ export default function ReadOnlyTerminal({ content, title, maxHeight = "300px" }
     }
   }, [content]);
 
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard not available
-    }
-  }
+  const handleCopy = async () => {
+    await copyWithFeedback(content, setCopied);
+  };
 
   return (
     <div data-slot="agent-read-only-terminal" className="rounded-large-element overflow-hidden border border-primary/10">

@@ -3,6 +3,7 @@ import { Key, Copy, Download, Eye, EyeOff, AlertTriangle, Loader2 } from "lucide
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
 import api from "../../lib/api.js";
+import { copyWithFeedback } from "../../utils/clipboard";
 
 export default function RecoveryKeyCard({ repo, repoId = "" }) {
   const [revealed, setRevealed] = useState(false);
@@ -30,10 +31,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
   const handleCopy = () => {
     const key = recoveryKey || repo?.password;
     if (!key) return;
-    navigator.clipboard.writeText(key).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+    copyWithFeedback(key, setCopied);
   };
 
   const handleDownload = () => {

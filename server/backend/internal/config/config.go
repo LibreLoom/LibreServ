@@ -34,7 +34,6 @@ type Config struct {
 	Logging  LoggingConfig  `mapstructure:"logging" yaml:"logging"`
 	Network  NetworkConfig  `mapstructure:"network" yaml:"network"`
 	CORS     CORSConfig     `mapstructure:"cors" yaml:"cors"`
-	License  LicenseConfig  `mapstructure:"license" yaml:"license"`
 	SMTP     SMTPConfig     `mapstructure:"smtp" yaml:"smtp"`
 	Notify   Notifications  `mapstructure:"notify" yaml:"notify"`
 	Updates  UpdatesConfig  `mapstructure:"updates" yaml:"updates"`
@@ -45,7 +44,6 @@ type Config struct {
 // AuthConfig holds auth-related settings.
 type AuthConfig struct {
 	JWTSecret          string        `mapstructure:"jwt_secret" yaml:"jwt_secret"`
-	SecretFile         string        `mapstructure:"secret_file" yaml:"secret_file"`
 	CSRFSecret         string        `mapstructure:"csrf_secret" yaml:"csrf_secret"`
 	CloudEncryptionKey string        `mapstructure:"cloud_encryption_key" yaml:"cloud_encryption_key"`
 	MFA                AuthMFAConfig `mapstructure:"mfa" yaml:"mfa"`
@@ -106,11 +104,7 @@ type UpdatesConfig struct {
 
 // SupportConfig defines AI support agent settings.
 type SupportConfig struct {
-	ServerURL        string                  `mapstructure:"server_url" yaml:"server_url"`
-	DeviceToken      string                  `mapstructure:"device_token" yaml:"device_token"`
-	DeviceID         string                  `mapstructure:"device_id" yaml:"device_id"`
 	InferenceBaseURL string                  `mapstructure:"inference_base_url" yaml:"inference_base_url"`
-	BillingMode      string                  `mapstructure:"billing_mode" yaml:"billing_mode"`
 	Plans            []SupportPlan           `mapstructure:"plans" yaml:"plans"`
 	Agent            AgentConfig             `mapstructure:"agent" yaml:"agent"`
 	Pricing          map[string]ModelPricing `mapstructure:"pricing" yaml:"pricing"`
@@ -122,7 +116,6 @@ type SupportConfig struct {
 }
 
 type ConnectConfig struct {
-	Enabled       bool              `mapstructure:"enabled" yaml:"enabled"`
 	Token         string            `mapstructure:"token" yaml:"token"`
 	APIURL        string            `mapstructure:"api_url" yaml:"api_url"`
 	ServiceStates map[string]string `mapstructure:"service_states" yaml:"service_states"`
@@ -180,12 +173,10 @@ type SandboxConfig struct {
 
 // RuntimeConfig defines container runtime connection settings.
 type RuntimeConfig struct {
-	Method     string        `mapstructure:"method" yaml:"method"`
-	SocketPath string        `mapstructure:"socket_path" yaml:"socket_path"`
-	TCP        TCPConfig     `mapstructure:"tcp" yaml:"tcp"`
-	SSH        SSHConfig     `mapstructure:"ssh" yaml:"ssh"`
-	Timeout    time.Duration `mapstructure:"timeout" yaml:"timeout"`
-	Binary     string        `mapstructure:"binary" yaml:"binary"`
+	Method     string    `mapstructure:"method" yaml:"method"`
+	SocketPath string    `mapstructure:"socket_path" yaml:"socket_path"`
+	TCP        TCPConfig `mapstructure:"tcp" yaml:"tcp"`
+	Binary     string    `mapstructure:"binary" yaml:"binary"`
 }
 
 // TCPConfig defines TCP container runtime connection settings.
@@ -194,13 +185,6 @@ type TCPConfig struct {
 	Port     int    `mapstructure:"port" yaml:"port"`
 	UseTLS   bool   `mapstructure:"use_tls" yaml:"use_tls"`
 	CertPath string `mapstructure:"cert_path" yaml:"cert_path"`
-}
-
-// SSHConfig defines SSH container runtime connection settings.
-type SSHConfig struct {
-	Host    string `mapstructure:"host" yaml:"host"`
-	User    string `mapstructure:"user" yaml:"user"`
-	KeyPath string `mapstructure:"key_path" yaml:"key_path"`
 }
 
 // LoggingConfig defines logging settings.
@@ -212,12 +196,6 @@ type LoggingConfig struct {
 // CORSConfig defines CORS settings.
 type CORSConfig struct {
 	AllowedOrigins []string `mapstructure:"allowed_origins" yaml:"allowed_origins"`
-}
-
-// LicenseConfig defines license validation settings.
-type LicenseConfig struct {
-	EntitlementFile string `mapstructure:"entitlement_file" yaml:"entitlement_file"`
-	PublicKeyFile   string `mapstructure:"public_key_file" yaml:"public_key_file"`
 }
 
 // SMTPConfig holds outbound email settings.
@@ -241,13 +219,11 @@ type Notifications struct {
 	WelcomeBody       string   `mapstructure:"welcome_body" yaml:"welcome_body"`
 }
 
-// NetworkConfig holds reverse proxy settings (Caddy), mDNS, and UPnP.
+// NetworkConfig holds reverse proxy settings (Caddy), mDNS, and tunnel.
 type NetworkConfig struct {
 	Caddy     CaddyConfig     `mapstructure:"caddy" yaml:"caddy"`
 	MDNS      MDNSConfig      `mapstructure:"mdns" yaml:"mdns"`
 	ACME      ACMEConfig      `mapstructure:"acme" yaml:"acme"`
-	DNS       DNSConfig       `mapstructure:"dns" yaml:"dns"`
-	UPnP      UPnPConfig      `mapstructure:"upnp" yaml:"upnp"`
 	Tunnel    TunnelConfig    `mapstructure:"tunnel" yaml:"tunnel"`
 	Bluetooth BluetoothConfig `mapstructure:"bluetooth" yaml:"bluetooth"`
 }
@@ -255,12 +231,6 @@ type NetworkConfig struct {
 // MDNSConfig holds mDNS advertisement settings.
 type MDNSConfig struct {
 	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
-}
-
-// UPnPConfig holds UPnP port forwarding settings.
-type UPnPConfig struct {
-	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
-	Timeout int  `mapstructure:"timeout" yaml:"timeout"`
 }
 
 // TunnelConfig holds tunnel service settings.
@@ -273,12 +243,6 @@ type TunnelConfig struct {
 // BluetoothConfig holds BLE peripheral settings for the companion app.
 type BluetoothConfig struct {
 	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
-}
-
-// DNSConfig holds DNS provider settings for domain record management.
-type DNSConfig struct {
-	Provider string `mapstructure:"provider" yaml:"provider"`
-	APIToken string `mapstructure:"api_token" yaml:"api_token"`
 }
 
 // ACMEConfig defines ACME-related settings.
@@ -354,7 +318,6 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("updates.owner", "libreloom")
 	v.SetDefault("updates.repo", "libreserv")
 	v.SetDefault("runtime.method", "auto")
-	v.SetDefault("runtime.timeout", "30s")
 	v.SetDefault("runtime.binary", "podman")
 	v.SetDefault("logging.level", "info")
 	v.SetDefault("logging.path", "/var/log/libreserv/libreserv.log")
@@ -374,12 +337,8 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("network.mdns.enabled", true)
 	v.SetDefault("network.bluetooth.enabled", false)
 
-	v.SetDefault("support.server_url", "https://support.serv.libreloom.org")
-	v.SetDefault("support.device_token", "")
-	v.SetDefault("support.device_id", "")
 	v.SetDefault("support.inference_base_url", "https://api.routing.run/v1")
 
-	v.SetDefault("support.billing_mode", "token")
 	v.SetDefault("support.agent.max_turns", 10)
 	v.SetDefault("support.agent.turn_timeout", "5m")
 	v.SetDefault("support.agent.review_enabled", true)

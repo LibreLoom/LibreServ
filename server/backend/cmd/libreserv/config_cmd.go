@@ -51,13 +51,13 @@ var dbBackedKeys = map[string]string{
 	"smtp.use_tls":                 "bool",
 	"smtp.skip_verify":             "bool",
 	"notify.enabled":               "bool",
-	"notify.support_recipients":    "json",
+	"notify.support_recipients":    "csv",
 	"notify.support_subject":       "string",
 	"notify.support_body":          "string",
 	"notify.welcome_subject":       "string",
 	"notify.welcome_body":          "string",
 	"server.mode":                  "string",
-	"cors.allowed_origins":         "json",
+	"cors.allowed_origins":         "csv",
 	"network.caddy.mode":           "string",
 	"network.caddy.default_domain": "string",
 	"network.caddy.email":          "string",
@@ -237,8 +237,6 @@ func resolveConfigValue(key string, cfg *config.Config) string {
 			return cfg.Runtime.Method
 		case "socket_path":
 			return cfg.Runtime.SocketPath
-		case "timeout":
-			return cfg.Runtime.Timeout.String()
 		}
 	case "logging":
 		switch parts[1] {

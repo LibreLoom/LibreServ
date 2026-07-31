@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from "react";
 import { CheckCircle, XCircle, ChevronDown, Copy, Check, Loader2 } from "lucide-react";
 import { useScriptStream } from "../../hooks/useScriptStream";
 import { getFriendlyMessages } from "../../utils/outputPatterns";
+import { copyWithFeedback } from "../../utils/clipboard";
 
 function getFullOutput(lines) {
   return lines
@@ -53,13 +54,7 @@ export function ProgressFeedback({
 
   const handleCopy = async () => {
     const output = getFullOutput(lines);
-    try {
-      await navigator.clipboard.writeText(output);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard write failed silently
-    }
+    await copyWithFeedback(output, setCopied);
   };
 
   const friendlyMessages = getFriendlyMessages(lines, patternMap);

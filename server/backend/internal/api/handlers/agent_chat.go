@@ -20,15 +20,12 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/connect"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
 )
 
 // AgentChatHandler handles all agent conversation API endpoints.
 type AgentChatHandler struct {
 	db                *database.DB
 	authService       *auth.Service
-	creditService     *subscription.CreditService
-	checker           *subscription.Checker
 	conversationStore *conversation.Store
 	toolCallStore     *conversation.ToolCallStore
 	connectClient     connect.Client
@@ -55,8 +52,6 @@ func NewAgentChatHandler(db *database.DB, authService *auth.Service, connectClie
 	if db != nil {
 		h.conversationStore = conversation.NewStore(db)
 		h.toolCallStore = conversation.NewToolCallStore(db)
-		h.creditService = subscription.NewCreditService(db)
-		h.checker = subscription.NewChecker(db)
 	}
 	return h
 }
@@ -187,8 +182,6 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	plan := h.checker.PlanForUser(r.Context(), userID)
-
 	convID := conversation.GenerateID()
 	now := time.Now()
 	conv := &conversation.Conversation{
@@ -197,7 +190,7 @@ func (h *AgentChatHandler) CreateConversation(w http.ResponseWriter, r *http.Req
 		Status:         "active",
 		TriggerType:    req.TriggerType,
 		TriggerAppID:   req.TriggerAppID,
-		PlanID:         plan.ID,
+		PlanID:         "",
 		PermissionMode: req.PermissionMode,
 		Model:          model,
 		CreatedAt:      now,
@@ -315,7 +308,6 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	registry := tools.StandardRegistry(sb)
 
 	// Get plan and build loop config.
-	plan := h.checker.PlanForUser(r.Context(), userID)
 
 	dataDirs := cfg.Support.Agent.DataDirs
 	if len(dataDirs) == 0 {
@@ -339,7 +331,7 @@ func (h *AgentChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		loopConfig.TurnTimeout = 5 * time.Minute
 	}
 
-	loop := agent.NewLoop(ag, registry, reviewModel, h.creditService, plan, loopConfig, cfg.Support.BillingMode, userID, convID)
+	loop := agent.NewLoop(ag, registry, reviewModel, loopConfig, userID, convID)
 
 	// Optional: a dedicated model that summarizes the session so the review
 	// model can judge tool calls with real context. Unset = transcript fallback.
@@ -735,65 +727,6 @@ func (h *AgentChatHandler) GetModels(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"models": models,
 		"count":  len(models),
-	})
-}
-
-// GetSubscription returns the user's subscription and usage.
-func (h *AgentChatHandler) GetSubscription(w http.ResponseWriter, r *http.Request) {
-	userID, ok := getUserID(r)
-	if !ok {
-		response.Unauthorized(w, "not authenticated")
-		return
-	}
-	sub, err := h.checker.Subscription(r.Context(), userID)
-	if err != nil {
-		slog.Error("failed to get subscription", "user_id", userID, "error", err)
-		response.JSONError(w, http.StatusInternalServerError, "Could not load your subscription details.")
-		return
-	}
-	plan := h.checker.PlanForUser(r.Context(), userID)
-	usageSummary, _ := h.creditService.Usage(r.Context(), userID, plan)
-	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"subscription": sub,
-		"plan":         plan,
-		"usage":        usageSummary,
-	})
-}
-
-// UpdateSubscription changes the user's plan.
-func (h *AgentChatHandler) UpdateSubscription(w http.ResponseWriter, r *http.Request) {
-	userID, ok := getUserID(r)
-	if !ok {
-		response.Unauthorized(w, "not authenticated")
-		return
-	}
-	var req struct {
-		PlanID string `json:"plan_id"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		response.JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
-		return
-	}
-	if req.PlanID == "" {
-		response.JSONError(w, http.StatusBadRequest, "Please select a plan.")
-		return
-	}
-	if subscription.PlanByID(req.PlanID) == nil {
-		response.JSONError(w, http.StatusBadRequest, "That plan is not available. Please choose from the options shown.")
-		return
-	}
-	if err := h.checker.SetPlan(r.Context(), userID, req.PlanID, ""); err != nil {
-		slog.Error("failed to update subscription", "user_id", userID, "plan_id", req.PlanID, "error", err)
-		response.JSONError(w, http.StatusInternalServerError, "Could not update your plan. Please try again later.")
-		return
-	}
-	sub, _ := h.checker.Subscription(r.Context(), userID)
-	plan := h.checker.PlanForUser(r.Context(), userID)
-	usageSummary, _ := h.creditService.Usage(r.Context(), userID, plan)
-	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"subscription": sub,
-		"plan":         plan,
-		"usage":        usageSummary,
 	})
 }
 

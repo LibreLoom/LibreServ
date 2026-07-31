@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/agent/tools"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/subscription"
 )
 
 // MessageRole classifies a message in the agent conversation.
@@ -54,10 +52,7 @@ type Loop struct {
 	registry    *tools.Registry
 	reviewModel *ReviewModel
 	summarizer  *SessionSummarizer
-	credits     *subscription.CreditService
-	plan        *subscription.Plan
 	config      LoopConfig
-	billingMode string
 	messages    []Message
 	turnCount   int
 	totalCost   float64
@@ -82,7 +77,7 @@ type Loop struct {
 }
 
 // NewLoop creates a new agent loop.
-func NewLoop(agent *Agent, registry *tools.Registry, reviewModel *ReviewModel, credits *subscription.CreditService, plan *subscription.Plan, config LoopConfig, billingMode, userID, convID string) *Loop {
+func NewLoop(agent *Agent, registry *tools.Registry, reviewModel *ReviewModel, config LoopConfig, userID, convID string) *Loop {
 	if config.MaxTurns <= 0 {
 		config.MaxTurns = 10
 	}
@@ -93,10 +88,7 @@ func NewLoop(agent *Agent, registry *tools.Registry, reviewModel *ReviewModel, c
 		agent:         agent,
 		registry:      registry,
 		reviewModel:   reviewModel,
-		credits:       credits,
-		plan:          plan,
 		config:        config,
-		billingMode:   billingMode,
 		userID:        userID,
 		convID:        convID,
 		events:        make(chan Event, 256),
@@ -209,7 +201,6 @@ func (l *Loop) Run(ctx context.Context, userMessage string) {
 		// Track usage.
 		if usage != nil {
 			l.totalCost += usage.CostUSD
-			_ = l.deductCredits(ctx, l.agent.Model, usage)
 			l.emitUsageUpdate(usage)
 		}
 
@@ -612,7 +603,6 @@ func (l *Loop) summarizeOldMessages(ctx context.Context, msgs []Message) ([]Mess
 
 	if summaryUsage != nil {
 		l.totalCost += summaryUsage.CostUSD
-		_ = l.deductCredits(ctx, l.agent.Model, summaryUsage)
 	}
 
 	summaryMsg := Message{
@@ -624,34 +614,6 @@ func (l *Loop) summarizeOldMessages(ctx context.Context, msgs []Message) ([]Mess
 	result = append(result, summaryMsg)
 	result = append(result, recentMsgs...)
 	return result, nil
-}
-
-// --- Credit / Usage ---
-
-func (l *Loop) deductCredits(ctx context.Context, model string, usage *UsageInfo) error {
-	if l.credits == nil || l.plan == nil || l.plan.CreditCapUSD <= 0 || usage == nil {
-		return nil
-	}
-	if l.billingMode == "request" {
-		pricing := l.pricingForModel(model)
-		costPerRequest := (pricing.InputPer1M + pricing.OutputPer1M) / 2
-		if costPerRequest == 0 {
-			costPerRequest = 0.01
-		}
-		return l.credits.CheckAndDeductRequest(ctx, l.userID, l.convID, model, costPerRequest, l.plan)
-	}
-	return l.credits.CheckAndDeduct(ctx, l.userID, l.convID, model, usage.InputTokens, usage.OutputTokens, usage.CacheTokens, usage.CostUSD, l.plan)
-}
-
-func (l *Loop) pricingForModel(model string) config.ModelPricing {
-	cfg := config.Get()
-	if cfg == nil {
-		return config.ModelPricing{}
-	}
-	if p, ok := cfg.Support.Pricing[model]; ok {
-		return p
-	}
-	return config.ModelPricing{}
 }
 
 // --- Event Helpers ---
@@ -697,20 +659,17 @@ func (l *Loop) emitDone(reason string) {
 }
 
 func (l *Loop) emitUsageUpdate(usage *UsageInfo) {
-	if l.credits == nil || l.plan == nil || usage == nil {
+	if usage == nil {
 		return
 	}
-	usageSummary, _ := l.credits.Usage(context.Background(), l.userID, l.plan)
-	if usageSummary != nil {
-		l.emit(Event{Type: EventUsageUpdate, Data: UsageUpdateData{
-			TurnCostUSD:  usage.CostUSD,
-			TotalCostUSD: l.totalCost,
-			InputTokens:  usage.InputTokens,
-			OutputTokens: usage.OutputTokens,
-			CacheTokens:  usage.CacheTokens,
-			RemainingUSD: usageSummary.RemainingUSD,
-		}})
-	}
+	l.emit(Event{Type: EventUsageUpdate, Data: UsageUpdateData{
+		TurnCostUSD:  usage.CostUSD,
+		TotalCostUSD: l.totalCost,
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		CacheTokens:  usage.CacheTokens,
+		RemainingUSD: 0,
+	}})
 }
 
 func truncate(s string, maxLen int) string {

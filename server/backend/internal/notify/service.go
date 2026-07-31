@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 )
 
@@ -25,6 +26,10 @@ func NewService(authSvc *auth.Service, emailSender *email.Sender) *Service {
 		logger: slog.Default().With("component", "notify"),
 	}
 }
+
+// SetSender swaps the email sender at runtime (SMTP settings changed, e.g.
+// after Connect provisioning). nil disables email notifications.
+func (s *Service) SetSender(emailSender *email.Sender) { s.email = emailSender }
 
 // NotifySpecific sends a notification to specific recipients (not just admins)
 // This is useful for targeted notifications without admin lookup overhead
@@ -63,6 +68,10 @@ func (s *Service) AdminNotify(ctx context.Context, subject, body string) error {
 func (s *Service) AdminNotifyWithData(ctx context.Context, subject, body string, data map[string]interface{}) error {
 	if s.email == nil {
 		s.logger.Debug("Email sender not configured, skipping admin notification")
+		return nil
+	}
+	if cfg := config.Get(); cfg != nil && !cfg.Notify.Enabled {
+		s.logger.Debug("Notifications disabled, skipping admin notification")
 		return nil
 	}
 

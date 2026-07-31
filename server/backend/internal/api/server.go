@@ -33,7 +33,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/setup"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/support"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
 )
 
@@ -52,6 +51,19 @@ func mfaEmailSender(s EmailSender) func(email, code string) error {
 		return nil
 	}
 	return func(email, code string) error { return s.SendOTP(email, code) }
+}
+
+// SetEmailSender rewires the email-OTP and invite senders at runtime — e.g.
+// after Connect provisioning writes smtp.* settings, so email MFA and invites
+// become available without a restart. nil disables both again.
+func (s *Server) SetEmailSender(sender EmailSender) {
+	s.emailSender = sender
+	if s.mfaHandler != nil {
+		s.mfaHandler.SetEmailSender(mfaEmailSender(sender))
+	}
+	if s.inviteHandler != nil {
+		s.inviteHandler.SetSender(inviteSender(sender, s.inviteBase))
+	}
 }
 
 // inviteSender adapts a server.EmailSender to the func(email, token) error
@@ -84,8 +96,6 @@ type Server struct {
 	runtimeClient   *podman.Client
 	caddyManager    *network.CaddyManager
 	setupService    *setup.Service
-	supportService  *support.Service
-	licenseService  middleware.LicenseChecker
 	sysChecker      *system.UpdateChecker
 	audit           *audit.Service
 	securityService *security.Service
@@ -99,7 +109,10 @@ type Server struct {
 	selfHealMonitor  *agent.SelfHealingMonitor
 	connectClient    connect.Client
 	connectChecker   *connect.EntitlementChecker
-	emailSender      EmailSender           // sends MFA email-OTP codes; nil disables email MFA
+	emailSender      EmailSender          // sends MFA email-OTP codes; nil disables email MFA
+	mfaHandler       *handlers.MFAHandler // rewired by SetEmailSender when SMTP settings change
+	inviteHandler    *handlers.InviteHandler
+	inviteBase       string
 	oidcHandler      http.Handler          // OIDC provider endpoints (discovery, authorize, token, userinfo)
 	oidcAdminHandler *handlers.OIDCHandler // admin API for managing OIDC clients per app
 }
@@ -118,8 +131,6 @@ type ServerConfig struct {
 	CaddyManager     *network.CaddyManager
 	ACMEManager      *network.ACMEManager
 	SetupService     *setup.Service
-	SupportService   *support.Service
-	LicenseService   middleware.LicenseChecker
 	SysChecker       *system.UpdateChecker
 	AuditService     *audit.Service
 	SettingsService  *settings.Service
@@ -199,8 +210,6 @@ func NewServer(cfg ServerConfig) *Server {
 		caddyManager:     cfg.CaddyManager,
 		acmeManager:      cfg.ACMEManager,
 		setupService:     cfg.SetupService,
-		supportService:   cfg.SupportService,
-		licenseService:   cfg.LicenseService,
 		sysChecker:       cfg.SysChecker,
 		audit:            cfg.AuditService,
 		securityService:  securityService,
@@ -251,7 +260,7 @@ func NewServer(cfg ServerConfig) *Server {
 	server.tunnelService = network.NewTunnelService(tunnelCfg, filepath.Join(config.Get().Apps.DataPath, "bin"))
 
 	// Initialize self-healing monitor
-	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.RuntimeClient, cfg.DB, server.connectClient)
+	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.RuntimeClient, cfg.DB, server.connectClient, server.connectChecker)
 
 	// Setup routes
 	server.setupRoutes()

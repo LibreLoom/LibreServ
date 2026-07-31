@@ -45,7 +45,7 @@ export default function SegmentedControl({
               onDisabledClick(optValue);
               return;
             }
-            haptic("tap");
+            haptic("selection");
             onChange(optValue);
           }}
           className={cn(

@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Card from "./Card";
 import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
+import { haptic } from "../../utils/haptics";
 
 /**
  * @typedef {object} ModalCardProps
@@ -48,6 +49,7 @@ export default function ModalCard({
 
   const handleClose = useCallback(() => {
     if (isClosingRef.current) return;
+    haptic("light");
     isClosingRef.current = true;
     setIsClosing(true);
     setTimeout(() => {

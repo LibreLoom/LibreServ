@@ -116,7 +116,7 @@ func NewManager(
 		TunnelEnabled:  cfg.Network.Tunnel.Enabled,
 		TunnelProvider: cfg.Network.Tunnel.Provider,
 		TunnelToken:    cfg.Network.Tunnel.Token,
-		DNSProvider:    cfg.Network.DNS.Provider,
+		DNSProvider:    "",
 	})
 	m.installer.SetServerContext(serverCtx)
 	m.scriptExecutor.SetServerContext(serverCtx)
@@ -273,11 +273,6 @@ func (m *Manager) TriggerRepoPull(ctx context.Context) {
 			m.logger.Warn("freshness repo pull failed", "error", err)
 		}
 	}
-}
-
-// GetUPnPService returns the UPnP service (stub for future implementation)
-func (m *Manager) GetUPnPService() *network.UPnPService {
-	return nil
 }
 
 // GetPortManager returns the port manager
@@ -1826,17 +1821,17 @@ func (m *Manager) PropagateServerContext(ctx context.Context, changedKeys []stri
 		DefaultDomain:  cfg.Network.Caddy.DefaultDomain,
 		CaddyMode:      cfg.Network.Caddy.Mode,
 		ACMEEmail:      cfg.Network.ACME.External.Email,
-		SMTPHost:       cfg.SMTP.Host,
-		SMTPPort:       cfg.SMTP.Port,
-		SMTPUsername:   cfg.SMTP.Username,
-		SMTPPassword:   cfg.SMTP.Password,
+		SMTPHost:       "127.0.0.1",
+		SMTPPort:       25,
+		SMTPUsername:   "",
+		SMTPPassword:   "",
 		SMTPFrom:       cfg.SMTP.From,
-		SMTPUseTLS:     cfg.SMTP.UseTLS,
-		SMTPSkipVerify: cfg.SMTP.SkipVerify,
+		SMTPUseTLS:     false,
+		SMTPSkipVerify: false,
 		TunnelEnabled:  cfg.Network.Tunnel.Enabled,
 		TunnelProvider: cfg.Network.Tunnel.Provider,
 		TunnelToken:    cfg.Network.Tunnel.Token,
-		DNSProvider:    cfg.Network.DNS.Provider,
+		DNSProvider:    "",
 	})
 	m.installer.SetServerContext(newCtx)
 	m.scriptExecutor.SetServerContext(newCtx)

@@ -146,8 +146,6 @@ func (r *Repository) SeedFromConfig() error {
 		"updates.owner":                cfg.Updates.Owner,
 		"updates.repo":                 cfg.Updates.Repo,
 		"support.inference_base_url":   cfg.Support.InferenceBaseURL,
-		"support.device_token":         cfg.Support.DeviceToken,
-		"support.device_id":            cfg.Support.DeviceID,
 		"support.byok_enabled":         strconv.FormatBool(cfg.Support.BYOKEnabled),
 		"support.user_base_url":        cfg.Support.UserBaseURL,
 		"support.user_api_key":         cfg.Support.UserAPIKey,
@@ -159,12 +157,11 @@ func (r *Repository) SeedFromConfig() error {
 		"support.agent.review_model":   cfg.Support.Agent.ReviewModel,
 		"support.agent.system_prompt":  cfg.Support.Agent.SystemPrompt,
 		"support.self_healing":         strconv.FormatBool(cfg.Support.SelfHealing),
-		"support.billing_mode":         cfg.Support.BillingMode,
 	}
 
 	for key, value := range settings {
 		existing, _ := r.Get(key)
-		if existing == "" && value != "" {
+		if existing == "" {
 			if err := r.Set(key, value, typeFor(key)); err != nil {
 				return err
 			}
@@ -186,7 +183,7 @@ func (r *Repository) SeedFromConfig() error {
 		recipientsCSV := stringSliceToCSV(notifyRecipients)
 		existing, _ := r.Get("notify.support_recipients")
 		if existing == "" {
-			if err := r.Set("notify.support_recipients", recipientsCSV, "json"); err != nil {
+			if err := r.Set("notify.support_recipients", recipientsCSV, "csv"); err != nil {
 				return err
 			}
 		}
@@ -303,12 +300,6 @@ func (r *Repository) LoadIntoConfig() error {
 	if v, ok := changes["support.inference_base_url"]; ok {
 		cfg.Support.InferenceBaseURL = v
 	}
-	if v, ok := changes["support.device_token"]; ok {
-		cfg.Support.DeviceToken = v
-	}
-	if v, ok := changes["support.device_id"]; ok {
-		cfg.Support.DeviceID = v
-	}
 	if v, ok := changes["support.byok_enabled"]; ok {
 		cfg.Support.BYOKEnabled, _ = strconv.ParseBool(v)
 	}
@@ -345,11 +336,6 @@ func (r *Repository) LoadIntoConfig() error {
 	}
 	if v, ok := changes["support.self_healing"]; ok {
 		cfg.Support.SelfHealing, _ = strconv.ParseBool(v)
-	}
-	if v, ok := changes["support.billing_mode"]; ok {
-		if v == "token" || v == "request" {
-			cfg.Support.BillingMode = v
-		}
 	}
 
 	// Load any locally-stored Connect service states (e.g. BYOK overrides).
@@ -599,7 +585,7 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 			addMutation("notify.support_recipients",
 				func() { cfg.Notify.SupportRecipients = recipients },
 				func(tx *sql.Tx) error {
-					return s.repo.SetTx(tx, "notify.support_recipients", stringSliceToCSV(recipients), "json")
+					return s.repo.SetTx(tx, "notify.support_recipients", stringSliceToCSV(recipients), "csv")
 				},
 			)
 		}
@@ -708,18 +694,6 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.inference_base_url", baseURL, "string") },
 			)
 		}
-		if deviceToken, ok := ai["device_token"].(string); ok && deviceToken != "" {
-			addMutation("support.device_token",
-				func() { cfg.Support.DeviceToken = deviceToken },
-				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_token", deviceToken, "string") },
-			)
-		}
-		if deviceID, ok := ai["device_id"].(string); ok {
-			addMutation("support.device_id",
-				func() { cfg.Support.DeviceID = deviceID },
-				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.device_id", deviceID, "string") },
-			)
-		}
 		if byokEnabled, ok := toBool(ai["byok_enabled"]); ok {
 			addMutation("support.byok_enabled",
 				func() { cfg.Support.BYOKEnabled = byokEnabled },
@@ -796,14 +770,6 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 				func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.agent.system_prompt", systemPrompt, "string") },
 			)
 		}
-		if billingMode, ok := ai["billing_mode"].(string); ok {
-			if billingMode == "token" || billingMode == "request" {
-				addMutation("support.billing_mode",
-					func() { cfg.Support.BillingMode = billingMode },
-					func(tx *sql.Tx) error { return s.repo.SetTx(tx, "support.billing_mode", billingMode, "string") },
-				)
-			}
-		}
 	}
 
 	if connectServicesRaw, ok := updates["connect_services"]; ok {
@@ -828,7 +794,7 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 	}
 
 	if len(mutations) == 0 {
-		return nil
+		return fmt.Errorf("no valid settings sections found. Valid sections: logging, smtp, notify, proxy, updates, ai_support, connect_services")
 	}
 
 	var changedKeys []string
@@ -859,7 +825,7 @@ func (s *Service) UpdateSettings(ctx context.Context, updates map[string]interfa
 	// Reload settings from database to ensure GetSettings returns current values
 	if err := s.repo.LoadIntoConfig(); err != nil {
 		// Log error but don't fail - config was already updated in memory
-		return fmt.Errorf("failed to reload settings from database: %w", err)
+		slog.Error("failed to reload settings after commit (change is persisted)", "error", err)
 	}
 
 	if _, ok := updates["logging"]; ok {
@@ -881,7 +847,7 @@ func typeFor(key string) string {
 		"support.byok_enabled", "support.agent.review_enabled", "support.self_healing":
 		return "bool"
 	case "notify.support_recipients", "cors.allowed_origins":
-		return "json"
+		return "csv"
 	case "updates.base_url", "updates.owner", "updates.repo":
 		return "string"
 	default:

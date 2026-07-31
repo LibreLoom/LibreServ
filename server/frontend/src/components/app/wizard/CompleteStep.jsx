@@ -1,6 +1,6 @@
-import { memo } from "react";
+import { memo, useState } from "react";
 import { CheckCircle, ExternalLink, ArrowLeft, Copy, Check } from "lucide-react";
-import { useState } from "react";
+import { copyWithFeedback } from "../../../utils/clipboard";
 import Button from "../../ui/Button";
 
 function CompleteStep({ app, instance, onDone }) {
@@ -14,10 +14,8 @@ function CompleteStep({ app, instance, onDone }) {
   const appUrl = instance?.url || instance?.backends?.[0]?.url || "";
   const generatedPassword = instance?.config?.admin_password || instance?.config?._generated_password;
 
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async (text) => {
+    await copyWithFeedback(text, setCopied);
   };
 
   return (

@@ -114,7 +114,7 @@ export default function CriticalIssues() {
   }, [isOpen, updatePosition]);
 
   const handleToggle = () => {
-    haptic("tap");
+    haptic("light");
     if (isOpen) {
       close();
     } else {

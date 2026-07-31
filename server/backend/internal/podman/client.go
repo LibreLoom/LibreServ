@@ -37,8 +37,6 @@ func NewClient(cfg config.RuntimeConfig) (*Client, error) {
 		c, err = connectViaSocket(cfg.SocketPath)
 	case "tcp":
 		c, err = connectViaTCP(cfg.TCP)
-	case "ssh":
-		c, err = connectViaSSH(cfg.SSH)
 	default:
 		return nil, fmt.Errorf("unknown runtime connection method: %s", cfg.Method)
 	}
@@ -126,19 +124,6 @@ func connectViaTCP(cfg config.TCPConfig) (*Client, error) {
 	cli, err := client.New(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect via TCP: %w", err)
-	}
-	return &Client{cli: cli, ctx: context.Background()}, nil
-}
-
-func connectViaSSH(cfg config.SSHConfig) (*Client, error) {
-	host := fmt.Sprintf("ssh://%s@%s", cfg.User, cfg.Host)
-	// SSH auth usually handled by system ssh-agent or ~/.ssh/id_rsa if not explicit
-
-	cli, err := client.New(
-		client.WithHost(host),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 	return &Client{cli: cli, ctx: context.Background()}, nil
 }

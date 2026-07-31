@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CheckCircle, XCircle, ChevronDown, ChevronUp, Clock, Copy, Check } from "lucide-react";
+import { copyWithFeedback } from "../../../utils/clipboard";
 import { cn } from "@/lib/utils";
 import ModalCard from "../../cards/ModalCard";
 import Button from "../../ui/Button";
@@ -60,14 +61,7 @@ export function ActionResultModal({ result, onClose }) {
 
   const handleCopy = async () => {
     if (!output) return;
-
-    try {
-      await navigator.clipboard.writeText(output);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
+    await copyWithFeedback(output, setCopied);
   };
 
   return (

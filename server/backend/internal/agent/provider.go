@@ -19,7 +19,6 @@ import (
 type Provider struct {
 	BaseURL    string
 	APIKey     string
-	DeviceID   string
 	APIFormat  string // "openai" or "anthropic"
 	HTTPClient *http.Client
 }
@@ -228,26 +227,14 @@ type ModelsResponse struct {
 }
 
 func (p *Provider) setAuthHeaders(req *http.Request) {
-	if p.DeviceID != "" {
-		req.Header.Set("Authorization", "Bearer "+p.APIKey)
-		req.Header.Set("X-Client-Role", "device")
-		req.Header.Set("X-Device-ID", p.DeviceID)
-	} else {
-		req.Header.Set("Authorization", "Bearer "+p.APIKey)
-	}
+	req.Header.Set("Authorization", "Bearer "+p.APIKey)
 }
 
 func (p *Provider) chatCompletionsURL() string {
-	if p.DeviceID != "" {
-		return p.BaseURL + "/api/v1/inference/chat/completions"
-	}
 	return p.BaseURL + "/chat/completions"
 }
 
 func (p *Provider) modelsURL() string {
-	if p.DeviceID != "" {
-		return p.BaseURL + "/api/v1/inference/models"
-	}
 	return p.BaseURL + "/models"
 }
 

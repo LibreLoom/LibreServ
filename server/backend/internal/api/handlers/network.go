@@ -16,17 +16,15 @@ import (
 type NetworkHandlers struct {
 	caddyManager *network.CaddyManager
 	appManager   *apps.Manager
-	upnpService  *network.UPnPService
 	checkLimiter *middleware.LeakyBucket
 	acmeHandler  *ACMEHandler
 }
 
 // NewNetworkHandlers creates new network handlers
-func NewNetworkHandlers(caddyManager *network.CaddyManager, appManager *apps.Manager, upnpService *network.UPnPService) *NetworkHandlers {
+func NewNetworkHandlers(caddyManager *network.CaddyManager, appManager *apps.Manager) *NetworkHandlers {
 	return &NetworkHandlers{
 		caddyManager: caddyManager,
 		appManager:   appManager,
-		upnpService:  upnpService,
 		checkLimiter: middleware.NewLeakyBucket(10, 30), // allow light bursts for typeahead checks
 		acmeHandler:  nil,
 	}
@@ -374,7 +372,6 @@ type PortForwardingStatus struct {
 // GET /api/v1/network/port-forwarding-status
 func (h *NetworkHandlers) GetPortForwardingStatus(w http.ResponseWriter, r *http.Request) {
 	ip := detectExternalIP()
-	upnpStatus := h.GetUPnPStatusResponse()
 
 	status := PortForwardingStatus{
 		ExternalIP:    ip,
@@ -383,44 +380,8 @@ func (h *NetworkHandlers) GetPortForwardingStatus(w http.ResponseWriter, r *http
 		Suggestions:   []string{},
 	}
 
-	if upnpStatus.Available && upnpStatus.ExternalIP != "" {
-		status.ExternalIP = upnpStatus.ExternalIP
-		status.Suggestions = append(status.Suggestions, "UPnP is enabled and active")
-	} else {
-		status.Suggestions = append(status.Suggestions, "Forward ports 80 and 443 from your router to this device's IP")
-		if h.upnpService != nil {
-			status.Suggestions = append(status.Suggestions, "Enable UPnP in Settings → Network for automatic port forwarding")
-		}
-	}
+	status.Suggestions = append(status.Suggestions, "Forward ports 80 and 443 from your router to this device's IP")
 
-	JSON(w, http.StatusOK, status)
-}
-
-// GetUPnPStatusResponse returns the UPnP status for use in other handlers
-func (h *NetworkHandlers) GetUPnPStatusResponse() network.UPnPStatus {
-	if h.upnpService == nil {
-		return network.UPnPStatus{
-			Available: false,
-			Enabled:   false,
-			Error:     "UPnP service not initialized",
-		}
-	}
-	return h.upnpService.GetStatus()
-}
-
-// GetUPnPStatus returns the current UPnP status
-// GET /api/v1/network/upnp/status
-func (h *NetworkHandlers) GetUPnPStatus(w http.ResponseWriter, r *http.Request) {
-	if h.upnpService == nil {
-		JSON(w, http.StatusOK, network.UPnPStatus{
-			Available: false,
-			Enabled:   false,
-			Error:     "UPnP service not initialized",
-		})
-		return
-	}
-
-	status := h.upnpService.GetStatus()
 	JSON(w, http.StatusOK, status)
 }
 

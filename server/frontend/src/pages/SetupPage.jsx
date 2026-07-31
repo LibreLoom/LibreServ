@@ -992,7 +992,7 @@ export default function SetupPage() {
     (typeof window !== "undefined" ? localStorage.getItem(SETUP_TOKEN_KEY) : "") || ""
   );
   const { saveProgress, flushProgress } = useSetupProgress();
-  const { refreshAuth } = useAuth();
+  const { refreshAuth, request } = useAuth();
   const progressRef = useRef(/** @type {{ step?: string, subStep?: string, stepData?: Record<string, any> }} */ ({}));
   const savingRef = useRef(false);
 
@@ -1134,10 +1134,16 @@ export default function SetupPage() {
   }, [advanceStep]);
 
   const handleConnectActivate = useCallback(async (key) => {
-    await api("/connect/activate", { method: "PUT", body: JSON.stringify({ connect_key: key }) });
+    // /connect/activate is CSRF-protected (router.go CSRF group). The bare
+    // api() helper doesn't inject X-CSRF-Token; useAuth().request does.
+    await request("/connect/activate", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ connect_key: key }),
+    });
     const data = { ...(progressRef.current.stepData || {}), connect_activated: true };
     await advanceStep(STEP.MFA, "", data);
-  }, []);
+  }, [advanceStep, request]);
 
   const handleExternalServicesSkip = useCallback(async () => {
     const data = { ...(progressRef.current.stepData || {}), external_services_skipped: true };

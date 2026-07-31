@@ -44,7 +44,6 @@ type SetupHandler struct {
 	setupService    *setup.Service
 	runtime         *podman.Client
 	mailer          func() (*email.Sender, error)
-	license         middleware.LicenseChecker
 	dnsProviderMgr  *network.DNSProviderManager
 	acmeManager     *network.ACMEManager
 	caddyManager    *network.CaddyManager
@@ -56,7 +55,6 @@ func NewSetupHandler(
 	authService *auth.Service,
 	setupService *setup.Service,
 	runtimeClient *podman.Client,
-	license middleware.LicenseChecker,
 	dnsProviderMgr *network.DNSProviderManager,
 	acmeManager *network.ACMEManager,
 	caddyManager *network.CaddyManager,
@@ -67,7 +65,6 @@ func NewSetupHandler(
 		setupService:    setupService,
 		runtime:         runtimeClient,
 		mailer:          email.NewSender,
-		license:         license,
 		dnsProviderMgr:  dnsProviderMgr,
 		acmeManager:     acmeManager,
 		caddyManager:    caddyManager,
@@ -131,7 +128,6 @@ func (h *SetupHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	userStatus, _ := h.authService.GetSetupStatus(r.Context())
 	state = h.reconcileSetupState(r.Context(), state, userStatus)
 	state.Nonce = ""
-	licenseStatus := LicenseSnapshot(h.license)
 
 	progress := map[string]interface{}{
 		"current_step":     state.CurrentStep,
@@ -142,7 +138,6 @@ func (h *SetupHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"setup_state":   state,
 		"user_status":   userStatus,
-		"license":       licenseStatus,
 		"progress":      progress,
 		"code_required": !isLocalIP(r),
 	})
@@ -290,7 +285,6 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusCreated, map[string]interface{}{
 		"message": "setup complete",
 		"user":    tokens.User.Sanitize(),
-		"license": LicenseSnapshot(h.license),
 		"tokens":  tokens.Tokens,
 	})
 }
@@ -443,7 +437,6 @@ func (h *SetupHandler) Preflight(w http.ResponseWriter, r *http.Request) {
 		"checks":  results,
 		"healthy": allHealthy,
 		"time":    time.Now().UTC(),
-		"license": LicenseSnapshot(h.license),
 	})
 }
 
