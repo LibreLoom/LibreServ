@@ -141,6 +141,8 @@ func (s *Server) setupRoutes() {
 				// Devices
 				r.Get("/devices", portal.GetDevices)
 				r.Post("/devices/use-subdomain", portal.UseSubdomain)
+				r.Post("/devices/check-subdomain", portal.CheckSubdomain)
+				r.Post("/devices/set-subdomain", portal.SetSubdomain)
 				r.Get("/connect-keys", portal.GetConnectKeys)
 				r.Post("/connect-keys", portal.GenerateConnectKey)
 				r.Post("/connect-keys/revoke", portal.RevokeConnectKey)

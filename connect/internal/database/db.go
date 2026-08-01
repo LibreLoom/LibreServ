@@ -62,7 +62,9 @@ CREATE TABLE IF NOT EXISTS devices (
 	activated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	last_seen_at TIMESTAMP,
 	metadata_json TEXT DEFAULT '{}',
-	is_active BOOLEAN NOT NULL DEFAULT TRUE
+	is_active BOOLEAN NOT NULL DEFAULT TRUE,
+	subdomain TEXT,
+	UNIQUE(subdomain)
 );
 
 CREATE TABLE IF NOT EXISTS connect_keys (
@@ -380,6 +382,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_accounts_username ON customer_acc
 		sql: `
 ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS renewal_cost_cents INTEGER;
 ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS grace_until TIMESTAMP;
+		`,
+	},
+	{
+		name: "005_device_subdomain",
+		sql: `
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS subdomain TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_subdomain_unique ON devices(subdomain);
 		`,
 	},
 }

@@ -136,10 +136,7 @@ func (s *ProvisioningService) ListActive(deviceID string) ([]string, error) {
 }
 
 func (s *ProvisioningService) generateCredentials(deviceID, service, clientIP string) (map[string]any, error) {
-	sub := deviceID
-	if len(deviceID) >= 8 {
-		sub = deviceID[len(deviceID)-8:]
-	}
+	sub := s.deviceSubdomainPrefix(deviceID)
 
 	switch service {
 	case "smtp":
@@ -155,6 +152,21 @@ func (s *ProvisioningService) generateCredentials(deviceID, service, clientIP st
 	default:
 		return nil, nil
 	}
+}
+
+// deviceSubdomainPrefix returns the device's subdomain prefix — either the
+// user-chosen one stored in devices.subdomain, or the last 8 chars of the
+// device ID (the historical default).
+func (s *ProvisioningService) deviceSubdomainPrefix(deviceID string) string {
+	var stored string
+	if err := s.db.QueryRow(`SELECT subdomain FROM devices WHERE id = $1`, deviceID).Scan(&stored); err == nil && stored != "" {
+		return stored
+	}
+	sub := deviceID
+	if len(sub) >= 8 {
+		sub = sub[len(sub)-8:]
+	}
+	return sub
 }
 
 // generateSMTP provisions SMTP credentials for the device's Connect SMTP relay.
@@ -475,10 +487,7 @@ func (s *ProvisioningService) RegisterRoute(deviceID, hostname string) error {
 	}
 
 	// Add the base hostname first (if known), then all app routes
-	var sub string
-	if len(deviceID) >= 8 {
-		sub = deviceID[len(deviceID)-8:]
-	}
+	sub := s.deviceSubdomainPrefix(deviceID)
 	baseHostname := s.deviceHostname(deviceID, sub)
 
 	var ingressRoutes []providers.IngressRoute
@@ -549,10 +558,7 @@ func (s *ProvisioningService) UnregisterRoute(deviceID, hostname string) error {
 
 			routes, _ := s.listRouteHostnames(deviceID)
 
-			var sub string
-			if len(deviceID) >= 8 {
-				sub = deviceID[len(deviceID)-8:]
-			}
+			sub := s.deviceSubdomainPrefix(deviceID)
 			baseHostname := s.deviceHostname(deviceID, sub)
 
 			var ingressRoutes []providers.IngressRoute

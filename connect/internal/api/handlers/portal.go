@@ -694,7 +694,7 @@ func (h *PortalHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 
 		// Domain info for the generic domain page: the plan's subdomain and,
 		// if a custom domain is active, which one is currently serving.
-		subdomain := h.deviceSubdomain(d.ID)
+		subRaw, subdomain := h.deviceSubdomain(d.ID)
 		customDomain, hasCustom := h.activeCustomDomain(d.ID)
 		current := subdomain
 		if hasCustom {
@@ -709,7 +709,8 @@ func (h *PortalHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 			"last_seen_at":      nullTime(d.LastSeenAt),
 			"is_active":         d.IsActive,
 			"current_domain":    current,
-			"subdomain":         subdomain,
+			"subdomain_raw":     subRaw,
+			"subdomain_host":    subdomain,
 			"custom_domain":     customDomain,
 			"has_custom_domain": hasCustom,
 			"plan_domain":       h.planDomain(d.PlanID),
@@ -719,10 +720,37 @@ func (h *PortalHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"devices": devices})
 }
 
-// deviceSubdomain computes the device's plan-derived base hostname, e.g.
-// "abcd1234.free.servers.libreloom.org" (free) or
-// "abcd1234.servers.libreloom.org" (paid).
-func (h *PortalHandler) deviceSubdomain(deviceID string) string {
+// deviceSubdomain returns the device's subdomain prefix — either the
+// user-chosen one stored in devices.subdomain, or the last 8 characters
+// of the device ID (the historical default).
+func (h *PortalHandler) deviceSubdomain(deviceID string) (string, string) {
+	var raw string
+	err := h.db.QueryRow(`SELECT subdomain FROM devices WHERE id = $1`, deviceID).Scan(&raw)
+	if err == nil && raw != "" {
+		// Stored subdomain — return both the raw prefix and the full hostname.
+		full := h.subdomainHostname(raw, deviceID)
+		return raw, full
+	}
+	// Fallback: derive from device ID (last 8 chars).
+	sub := deviceID
+	if len(sub) >= 8 {
+		sub = sub[len(sub)-8:]
+	}
+	full := h.subdomainHostname(sub, deviceID)
+	return sub, full
+}
+
+// subdomainHostname builds the full hostname for a given subdomain prefix.
+func (h *PortalHandler) subdomainHostname(sub, deviceID string) string {
+	planDomain := h.planDomainFromDevice(deviceID)
+	if planDomain == "" {
+		return sub
+	}
+	return strings.Replace(planDomain, "*", sub, 1)
+}
+
+// planDomainFromDevice returns the plan's wildcard subdomain pattern for a device.
+func (h *PortalHandler) planDomainFromDevice(deviceID string) string {
 	var planID string
 	if err := h.db.QueryRow(`SELECT plan_id FROM devices WHERE id = $1`, deviceID).Scan(&planID); err != nil {
 		return ""
@@ -731,11 +759,7 @@ func (h *PortalHandler) deviceSubdomain(deviceID string) string {
 	if plan == nil {
 		plan = catalog.PlanByID("free")
 	}
-	sub := deviceID
-	if len(sub) >= 8 {
-		sub = sub[len(sub)-8:]
-	}
-	return strings.Replace(plan.Limits.Domain, "*", sub, 1)
+	return plan.Limits.Domain
 }
 
 // planDomain returns the plan's subdomain wildcard pattern, e.g.
@@ -1789,11 +1813,130 @@ func (h *PortalHandler) UseSubdomain(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("failed to provision subdomain", "error", err, "device", req.DeviceID)
 	}
 
-	subdomain := h.deviceSubdomain(req.DeviceID)
+	subRaw, subdomain := h.deviceSubdomain(req.DeviceID)
 	JSON(w, http.StatusOK, map[string]any{
 		"message":   "Switched to your plan's subdomain.",
 		"subdomain": subdomain,
+		"sub_raw":   subRaw,
 	})
+}
+
+// CheckSubdomain checks whether a subdomain prefix is available for use.
+// Validates format (lowercase alphanumerics + dashes) and checks it isn't
+// already claimed by another device.
+// POST /portal/devices/check-subdomain  {subdomain: "myalias"}
+func (h *PortalHandler) CheckSubdomain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Subdomain string `json:"subdomain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Subdomain == "" {
+		JSONError(w, http.StatusBadRequest, "subdomain is required")
+		return
+	}
+
+	sub := normalizeSubdomain(req.Subdomain)
+	if sub == "" {
+		JSONError(w, http.StatusBadRequest, "Subdomains can only contain letters, numbers, and dashes (3-63 characters).")
+		return
+	}
+
+	var taken int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = $1`, sub).Scan(&taken)
+	JSON(w, http.StatusOK, map[string]any{
+		"subdomain": sub,
+		"available": taken == 0,
+	})
+}
+
+// SetSubdomain sets (or changes) a device's subdomain prefix. The new
+// subdomain must be unique and the byte must belong to the caller. Re-provisions
+// the domain service so DNS reflects the new hostname.
+// POST /portal/devices/set-subdomain  {device_id, subdomain}
+func (h *PortalHandler) SetSubdomain(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+	var req struct {
+		DeviceID  string `json:"device_id"`
+		Subdomain string `json:"subdomain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceID == "" || req.Subdomain == "" {
+		JSONError(w, http.StatusBadRequest, "device_id and subdomain are required")
+		return
+	}
+
+	sub := normalizeSubdomain(req.Subdomain)
+	if sub == "" {
+		JSONError(w, http.StatusBadRequest, "Subdomains can only contain letters, numbers, and dashes (3-63 characters).")
+		return
+	}
+
+	// Verify the device belongs to the authenticated account.
+	var owner string
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT account_id FROM devices WHERE id = $1`, req.DeviceID,
+	).Scan(&owner)
+	if err == sql.ErrNoRows {
+		JSONError(w, http.StatusNotFound, "device not found")
+		return
+	}
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not verify device")
+		return
+	}
+	if owner != accountID {
+		JSONError(w, http.StatusForbidden, "you can only manage domains for your own devices")
+		return
+	}
+
+	// Uniqueness check (prevent duplicate subdomains).
+	var takenID string
+	err = h.db.QueryRow(`SELECT id FROM devices WHERE subdomain = $1 AND id != $2`, sub, req.DeviceID).Scan(&takenID)
+	if err != sql.ErrNoRows {
+		JSONError(w, http.StatusConflict, "That subdomain is already taken. Try another one.")
+		return
+	}
+
+	// If a custom domain is currently active, the subdomain is not being served
+	// yet; that's fine — set it and it takes effect when they switch back.
+	if _, err := h.db.Exec(`UPDATE devices SET subdomain = $1 WHERE id = $2`, sub, req.DeviceID); err != nil {
+		slog.Error("failed to set subdomain", "error", err, "device", req.DeviceID)
+		JSONError(w, http.StatusInternalServerError, "could not set subdomain")
+		return
+	}
+
+	// Re-provision the domain service so DNS reflects the new hostname.
+	provSvc := services.NewProvisioningService(h.db)
+	if err := provSvc.Revoke(req.DeviceID, "domain"); err != nil {
+		slog.Warn("failed to revoke domain on subdomain set", "error", err, "device", req.DeviceID)
+	}
+	if _, err := provSvc.Provision(req.DeviceID, "domain", ""); err != nil {
+		slog.Warn("failed to provision subdomain", "error", err, "device", req.DeviceID)
+	}
+
+	full := h.subdomainHostname(sub, req.DeviceID)
+	JSON(w, http.StatusOK, map[string]any{
+		"message":        "Subdomain updated.",
+		"subdomain_raw":  sub,
+		"subdomain_host": full,
+	})
+}
+
+// normalizeSubdomain validates and normalizes a subdomain prefix.
+// Returns "" if invalid.
+func normalizeSubdomain(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if len(s) < 3 || len(s) > 63 {
+		return ""
+	}
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return ""
+		}
+	}
+	// Leading/trailing dashes are invalid for hostnames.
+	if strings.HasPrefix(s, "-") || strings.HasSuffix(s, "-") {
+		return ""
+	}
+	return s
 }
 
 // ChangeDomain initiates a domain change: purchases a new domain via the existing

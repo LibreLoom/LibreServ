@@ -71,6 +71,14 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ device_id: deviceId }),
   }),
+  checkSubdomain: (subdomain) => request("/portal/devices/check-subdomain", {
+    method: "POST",
+    body: JSON.stringify({ subdomain }),
+  }),
+  setSubdomain: (deviceId, subdomain) => request("/portal/devices/set-subdomain", {
+    method: "POST",
+    body: JSON.stringify({ device_id: deviceId, subdomain }),
+  }),
   linkDevice: (token) => request("/portal/devices/link", {
     method: "POST",
     body: JSON.stringify({ token }),
