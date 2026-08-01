@@ -65,6 +65,7 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Name     string `json:"name"`
 		Username string `json:"username"`
+		Source   string `json:"source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" || req.Password == "" {
 		JSONError(w, http.StatusBadRequest, "email and password required")
@@ -118,7 +119,7 @@ func (h *PortalHandler) Register(w http.ResponseWriter, r *http.Request) {
 	// Send verification email (best-effort — don't fail registration if email is down)
 	verificationToken, _ := h.createEmailVerificationToken(r.Context(), accountID)
 	if verificationToken != "" {
-		go h.sendVerificationEmail(req.Email, verificationToken)
+		go h.sendVerificationEmail(req.Email, verificationToken, req.Source)
 	}
 
 	JSON(w, http.StatusOK, map[string]any{
@@ -173,6 +174,11 @@ func (h *PortalHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 // ResendVerification sends a new verification email to the authenticated user.
 func (h *PortalHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Source string `json:"source"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	var email string
@@ -198,7 +204,7 @@ func (h *PortalHandler) ResendVerification(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.sendVerificationEmailSync(email, token); err != nil {
+	if err := h.sendVerificationEmailSync(email, token, req.Source); err != nil {
 		slog.Error("failed to send verification email", "error", err, "account", accountID)
 		JSONError(w, http.StatusInternalServerError, "We couldn't send the verification email. Please try again.")
 		return
@@ -277,19 +283,22 @@ func (h *PortalHandler) createEmailVerificationToken(ctx context.Context, accoun
 }
 
 // sendVerificationEmail sends the verification email asynchronously.
-func (h *PortalHandler) sendVerificationEmail(email, token string) {
-	if err := h.sendVerificationEmailSync(email, token); err != nil {
+func (h *PortalHandler) sendVerificationEmail(email, token, source string) {
+	if err := h.sendVerificationEmailSync(email, token, source); err != nil {
 		slog.Error("failed to send verification email", "error", err, "email", email)
 	}
 }
 
 // sendVerificationEmailSync builds and sends the verification email.
-func (h *PortalHandler) sendVerificationEmailSync(email, token string) error {
+func (h *PortalHandler) sendVerificationEmailSync(email, token, source string) error {
 	baseURL := config.C.Server.BaseURL
 	if baseURL == "" {
 		baseURL = "https://connect.serv.libreloom.org"
 	}
 	verifyURL := baseURL + "/verify-email?token=" + token
+	if source == "onboarding" {
+		verifyURL += "&from=onboarding"
+	}
 
 	htmlBody := fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -1501,7 +1510,48 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 		DeviceID string `json:"device_id"`
 		Domain   string `json:"domain"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.DeviceID == "" || req.Domain == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Domain == "" {
+		JSONError(w, http.StatusBadRequest, "domain is required")
+		return
+	}
+
+	// Mock mode: register the domain directly, no Stripe payment and no real
+	// Cloudflare registration, so the whole purchase flow can be walked. Works
+	// with or without a device_id — during onboarding there is no device yet,
+	// so we create a placeholder device for the account.
+	if config.C.Purchase.MockDomain {
+		deviceID := req.DeviceID
+		if deviceID == "" {
+			// Look up the account's first device, or create a placeholder.
+			accountID := middleware.GetCustomerDeviceID(r.Context())
+			err := h.db.QueryRowContext(r.Context(),
+				`SELECT id FROM devices WHERE account_id = $1 ORDER BY created_at LIMIT 1`,
+				accountID).Scan(&deviceID)
+			if err != nil {
+				// No device yet — create a placeholder so the domain can be linked.
+				deviceID = security.GenerateID("dev")
+				_, err = h.db.ExecContext(r.Context(),
+					`INSERT INTO devices (id, account_id, plan_id, subdomain, is_active, created_at)
+					 VALUES ($1, $2, 'free', $3, FALSE, NOW())`,
+					deviceID, accountID, deviceID)
+				if err != nil {
+					slog.Error("mock: failed to create placeholder device", "error", err)
+					JSONError(w, http.StatusInternalServerError, "could not register domain")
+					return
+				}
+			}
+		}
+		h.registerDomainInDB(deviceID, req.Domain, 1120, 1120)
+		JSON(w, http.StatusOK, map[string]any{
+			"domain": req.Domain,
+			"status": "registered",
+			"mock":   true,
+		})
+		return
+	}
+
+	// Real mode requires a device_id to link the domain to.
+	if req.DeviceID == "" {
 		JSONError(w, http.StatusBadRequest, "device_id and domain are required")
 		return
 	}
@@ -1528,18 +1578,6 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	deviceOwner := middleware.GetCustomerDeviceID(r.Context())
 	if deviceOwner != accountID {
 		JSONError(w, http.StatusForbidden, "you can only register domains for your own devices")
-		return
-	}
-
-	// Mock mode: insert an active custom domain directly, no Stripe payment and
-	// no real Cloudflare registration, so the whole purchase flow can be walked.
-	if config.C.Purchase.MockDomain {
-		h.registerDomainInDB(req.DeviceID, req.Domain, 1120, 1120)
-		JSON(w, http.StatusOK, map[string]any{
-			"domain": req.Domain,
-			"status": "registered",
-			"mock":   true,
-		})
 		return
 	}
 
