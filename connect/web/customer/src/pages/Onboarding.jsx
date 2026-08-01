@@ -315,9 +315,9 @@ SubdomainPicker.defaultProps = {
 function CustomDomainSection({
   customDomainQuery, setCustomDomainQuery,
   domainResults,
-  checkingDomain, purchasingDomain,
+  purchasingDomain,
   registeredDomain,
-  handleSearchDomain, handleCheckDomain, handlePurchaseDomain,
+  handleSearchDomain, handlePurchaseDomain,
   onContinue,
 }) {
   if (registeredDomain) {
@@ -363,15 +363,10 @@ function CustomDomainSection({
         <div className="space-y-2">
           {domainResults
             .filter((r) => r.available !== false)
-            .map((result) => {
-            const checked = result.available !== undefined;
-            return (
+            .map((result) => (
               <div
                 key={result.name}
-                className={cn(
-                  "flex items-center justify-between rounded-large-element border px-4 py-3 gap-3",
-                  result.available ? "border-success/30 bg-success/5" : "border-border"
-                )}
+                className="flex items-center justify-between rounded-large-element border border-success/30 bg-success/5 px-4 py-3 gap-3"
               >
                 <div className="flex-1 min-w-0">
                   <span className="font-mono text-sm text-card-foreground">{result.name}</span>
@@ -379,35 +374,19 @@ function CustomDomainSection({
                     <span className="ml-2 text-xs text-muted-foreground">${result.price}/year</span>
                   )}
                 </div>
-                {checked ? (
-                  result.available ? (
-                    <div className="flex items-center gap-2">
-                      <Badge variant="success">Available</Badge>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handlePurchaseDomain(result.name)}
-                        disabled={purchasingDomain}
-                      >
-                        {purchasingDomain ? <Loader2 className="w-3 h-3 animate-spin" /> : "Register"}
-                      </Button>
-                    </div>
-                  ) : (
-                    <Badge variant="outline">Taken</Badge>
-                  )
-                ) : (
+                <div className="flex items-center gap-2">
+                  <Badge variant="success">Available</Badge>
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => handleCheckDomain(result.name)}
-                    disabled={checkingDomain === result.name}
+                    onClick={() => handlePurchaseDomain(result.name)}
+                    disabled={purchasingDomain}
                   >
-                    {checkingDomain === result.name ? <Loader2 className="w-3 h-3 animate-spin" /> : "Check"}
+                    {purchasingDomain ? <Loader2 className="w-3 h-3 animate-spin" /> : "Register"}
                   </Button>
-                )}
-            </div>
-          );
-        })}
+                </div>
+              </div>
+            ))}
         </div>
       )}
     </div>
@@ -418,17 +397,14 @@ CustomDomainSection.propTypes = {
   customDomainQuery: PropTypes.string.isRequired,
   setCustomDomainQuery: PropTypes.func.isRequired,
   domainResults: PropTypes.array.isRequired,
-  checkingDomain: PropTypes.string,
   purchasingDomain: PropTypes.bool.isRequired,
   registeredDomain: PropTypes.string,
   handleSearchDomain: PropTypes.func.isRequired,
-  handleCheckDomain: PropTypes.func.isRequired,
   handlePurchaseDomain: PropTypes.func.isRequired,
   onContinue: PropTypes.func.isRequired,
 };
 
 CustomDomainSection.defaultProps = {
-  checkingDomain: null,
   registeredDomain: null,
 };
 
@@ -502,7 +478,6 @@ export default function Onboarding() {
   const [customDomainOpen, setCustomDomainOpen] = useState(false);
   const [customDomainQuery, setCustomDomainQuery] = useState("");
   const [domainResults, setDomainResults] = useState([]);
-  const [checkingDomain, setCheckingDomain] = useState(null);
   const [purchasingDomain, setPurchasingDomain] = useState(false);
   const [registeredDomain, setRegisteredDomain] = useState(saved.current?.registeredDomain || null);
 
@@ -665,24 +640,14 @@ export default function Onboarding() {
     clearError();
     try {
       const res = await api.searchDomains(customDomainQuery);
-      setDomainResults(res.domains || res.results || []);
+      const domains = (res.domains || res.results || []).map((d) => ({
+        name: d.name,
+        available: d.registrable,
+        price: d.registration_cost ? parseFloat(d.registration_cost).toFixed(2) : null,
+      }));
+      setDomainResults(domains);
     } catch (err) {
       setError(err.message || "Could not search domains.");
-    }
-  };
-
-  const handleCheckDomain = async (domain) => {
-    setCheckingDomain(domain);
-    clearError();
-    try {
-      const res = await api.checkDomain(domain);
-      setDomainResults((prev) =>
-        prev.map((d) => (d.name === domain ? { ...d, available: res.available } : d))
-      );
-    } catch (err) {
-      setError(err.message || "Could not check availability.");
-    } finally {
-      setCheckingDomain(null);
     }
   };
 
@@ -1125,18 +1090,16 @@ export default function Onboarding() {
             className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 motion-safe:transition-colors"
             onClick={() => setCustomDomainOpen(true)}
           >
-            Or use your own domain instead
+            Or get a custom domain instead
           </button>
         ) : (
           <CustomDomainSection
             customDomainQuery={customDomainQuery}
             setCustomDomainQuery={setCustomDomainQuery}
             domainResults={domainResults}
-            checkingDomain={checkingDomain}
             purchasingDomain={purchasingDomain}
             registeredDomain={registeredDomain}
             handleSearchDomain={handleSearchDomain}
-            handleCheckDomain={handleCheckDomain}
             handlePurchaseDomain={handlePurchaseDomain}
             onContinue={goNext}
           />
