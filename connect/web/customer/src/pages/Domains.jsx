@@ -9,7 +9,7 @@ import { Input } from "../components/ui/input.jsx";
 import { Layout } from "../components/Layout.jsx";
 import {
   Globe, Link as LinkIcon, Star, Search, Loader2, Check, X,
-  RefreshCw, ArrowRight, AlertCircle, Sparkles, Shield,
+  RefreshCw, ArrowRight, AlertCircle, Shield,
 } from "lucide-react";
 import { cn } from "../lib/utils.js";
 
@@ -213,8 +213,8 @@ function SubdomainEditor({ device, baseRaw, planDomain }) {
   const [checking, setChecking] = useState(false);
   const debounceRef = useRef(null);
 
-  // planDomain may look like "*.servers.libreloom.org" — build a friendly
-  // suffix to show next to the editable prefix.
+  // planDomain looks like "*.free.servers.libreloom.org" — the part after
+  // the wildcard is the fixed suffix shown next to the editable prefix.
   const suffix = (planDomain || "").replace("*", "");
 
   const invalid = !/^[a-z0-9-]{3,63}$/.test(value) ||
@@ -222,7 +222,7 @@ function SubdomainEditor({ device, baseRaw, planDomain }) {
 
   // Debounced live availability check (dedupe).
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    clearTimeout(debounceRef.current);
     if (!value || invalid || value === baseRaw) {
       setAvailable(null);
       setChecking(false);
@@ -253,15 +253,21 @@ function SubdomainEditor({ device, baseRaw, planDomain }) {
     },
   });
 
-  let statusIcon = null;
-  let statusText = "";
-  if (checking) { statusIcon = <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />; statusText = "Checking…"; }
-  else if (invalid && value) { statusIcon = <X className="w-4 h-4 text-error" />; statusText = "Letters, numbers, dashes only (3-63 chars)."; }
-  else if (value === baseRaw) { statusIcon = <Shield className="w-4 h-4 text-success" />; statusText = "This is your current subdomain."; }
-  else if (available === true) { statusIcon = <Check className="w-4 h-4 text-success" />; statusText = "Available!"; }
-  else if (available === false) { statusIcon = <AlertCircle className="w-4 h-4 text-error" />; statusText = "Already taken — try another."; }
+  // Status line for the current edit state.
+  let status = null;
+  if (checking) {
+    status = { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: "Checking availability…", tone: "text-muted-foreground" };
+  } else if (invalid && value) {
+    status = { icon: <X className="w-4 h-4" />, text: "Letters, numbers, and dashes only (3–63 chars, no leading/trailing dash).", tone: "text-error" };
+  } else if (value === baseRaw) {
+    status = { icon: <Shield className="w-4 h-4" />, text: "This is your current subdomain.", tone: "text-success" };
+  } else if (available === true) {
+    status = { icon: <Check className="w-4 h-4" />, text: "This one is available.", tone: "text-success" };
+  } else if (available === false) {
+    status = { icon: <AlertCircle className="w-4 h-4" />, text: "Already taken — try another.", tone: "text-error" };
+  }
 
-  const fullPreview = value && !invalid ? `${value}${suffix}` : "";
+  const fullHost = value && !invalid ? `${value}${suffix}` : "";
 
   return (
     <div className="rounded-large-element border border-border p-5">
@@ -269,41 +275,56 @@ function SubdomainEditor({ device, baseRaw, planDomain }) {
         <LinkIcon className="w-4 h-4 text-muted-foreground" />
         Your subdomain
       </div>
-      <p className="text-xs text-muted-foreground mb-4">
-        Pick a name for your address. It must be unique across all devices.
+      <p className="text-xs text-muted-foreground mb-5">
+        The default address for this device. Must be unique across all devices.
       </p>
 
-      <div className="flex items-stretch gap-2 rounded-pill border border-border bg-background px-3 py-1.5 focus-within:ring-2 focus-within:ring-ring">
+      {/* Editable prefix + fixed suffix */}
+      <label htmlFor="subdomain-input" className="block text-xs font-mono text-muted-foreground mb-1.5">
+        Choose a name
+      </label>
+      <div className="flex items-center rounded-large-element border border-border bg-background focus-within:ring-2 focus-within:ring-ring overflow-hidden">
         <input
+          id="subdomain-input"
           value={value}
           onChange={(e) => setValue(e.target.value.toLowerCase())}
           placeholder="myalias"
-          className="flex-1 bg-transparent outline-none font-mono text-sm py-1"
+          className="flex-1 bg-transparent outline-none font-mono text-sm px-4 py-3 min-w-0"
           spellCheck={false}
+          autoComplete="off"
         />
-        <span className="flex items-center font-mono text-xs text-muted-foreground truncate max-w-[40%]">
+        <span className="font-mono text-sm text-muted-foreground pr-4 whitespace-nowrap shrink-0">
           {suffix}
         </span>
+      </div>
+
+      {/* Live full hostname preview */}
+      {fullHost && (
+        <div className="mt-2.5 flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+          <ArrowRight className="w-3.5 h-3.5" />
+          <span className="text-foreground">{fullHost}</span>
+        </div>
+      )}
+
+      {/* Status */}
+      {status && (
+        <p className={cn("mt-2.5 flex items-center gap-1.5 text-xs", status.tone)}>
+          {status.icon} {status.text}
+        </p>
+      )}
+
+      {/* Action */}
+      <div className="mt-4">
         <Button
-          size="sm"
-          variant="default"
+          size="md"
+          className="w-full"
           loading={saveMut.isPending}
           onClick={() => saveMut.mutate()}
           disabled={!canSave}
         >
-          Set
+          Save subdomain
         </Button>
       </div>
-
-      {fullPreview && (
-        <p className="mt-2 font-mono text-xs text-muted-foreground">→ {fullPreview}</p>
-      )}
-
-      {statusIcon && (
-        <p className={cn("mt-2 flex items-center gap-1.5 text-xs", available === true ? "text-success" : available === false ? "text-error" : "text-muted-foreground")}>
-          {statusIcon} {statusText}
-        </p>
-      )}
     </div>
   );
 }
@@ -349,7 +370,7 @@ function CustomDomainCard({ mode, onCustomDomain, onSwitchSub, switchingSub }) {
         Bring your own branded domain. You pay exactly what we pay for it.
       </p>
       <div className="mt-auto">
-        <Button variant="primary" size="sm" onClick={onCustomDomain}>
+        <Button size="sm" onClick={onCustomDomain}>
           Get a custom domain <ArrowRight className="w-4 h-4" />
         </Button>
       </div>
@@ -494,7 +515,6 @@ function CustomDomainModal({ deviceId, onClose }) {
                         result.available ? (
                           <Button
                             size="sm"
-                            variant="primary"
                             onClick={() => handlePurchase(result.name)}
                             loading={purchasing}
                             disabled={purchasing}
