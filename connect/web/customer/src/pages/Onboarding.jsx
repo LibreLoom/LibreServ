@@ -359,9 +359,11 @@ function CustomDomainSection({
         </div>
       </Field>
 
-      {domainResults.length > 0 && (
+      {domainResults.filter((r) => r.available !== false).length > 0 && (
         <div className="space-y-2">
-          {domainResults.map((result) => {
+          {domainResults
+            .filter((r) => r.available !== false)
+            .map((result) => {
             const checked = result.available !== undefined;
             return (
               <div
@@ -403,9 +405,9 @@ function CustomDomainSection({
                     {checkingDomain === result.name ? <Loader2 className="w-3 h-3 animate-spin" /> : "Check"}
                   </Button>
                 )}
-              </div>
-            );
-          })}
+            </div>
+          );
+        })}
         </div>
       )}
     </div>
