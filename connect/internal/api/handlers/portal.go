@@ -1349,23 +1349,39 @@ func (h *PortalHandler) SearchDomains(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// mockDomainResults returns a deterministic set of "available" domain
-// suggestions for mock mode, so the search/check/register flow can be walked
-// without a real registrar.
+// mockDomainResults returns realistic-looking domain suggestions for mock
+// mode, so the search/check/register flow can be walked without a real
+// registrar. Names look like what a registrar would return (query + common
+// TLDs). No `available` field is set — the Check step populates that and the
+// price, exercising the same UI states as the real flow.
 func mockDomainResults(base string) []map[string]any {
-	base = strings.ReplaceAll(base, " ", "")
+	base = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(base), " ", ""))
 	if base == "" {
-		base = "mySite"
+		base = "mysite"
 	}
-	suffixes := []string{"", ".app", ".io", ".net", ".dev"}
-	results := make([]map[string]any, 0, len(suffixes))
-	for _, sfx := range suffixes {
-		name := base + sfx + ".example.com"
+
+	type candidate struct{ name, price string }
+	var cands []candidate
+	if strings.Contains(base, ".") {
+		// Query already looks like a full domain — echo it back plus one variant.
+		cands = []candidate{
+			{base, "11.20"},
+		}
+	} else {
+		cands = []candidate{
+			{base + ".com", "11.20"},
+			{base + ".net", "11.86"},
+			{base + ".io", "32.00"},
+			{base + ".dev", "12.50"},
+			{base + ".app", "14.00"},
+		}
+	}
+
+	results := make([]map[string]any, 0, len(cands))
+	for _, c := range cands {
 		results = append(results, map[string]any{
-			"name":              name,
-			"registrable":       true,
-			"available":         true,
-			"registration_cost": "11.20",
+			"name":              c.name,
+			"registration_cost": c.price,
 		})
 	}
 	return results
