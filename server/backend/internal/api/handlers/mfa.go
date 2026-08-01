@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
@@ -19,6 +21,8 @@ type MFAHandler struct {
 	authService *auth.Service
 	// sendEmailOTP sends a one-time code to the user's email; nil disables email.
 	sendEmailOTP func(email, code string) error
+	// emailRateLimit tracks per-user email-OTP sends to prevent runaway loops.
+	emailRateLimit sync.Map // userID → []time.Time
 }
 
 // NewMFAHandler creates an MFAHandler. sendEmailOTP may be nil (email methods
@@ -29,6 +33,28 @@ func NewMFAHandler(authService *auth.Service, sendEmailOTP func(email, code stri
 
 // SetEmailSender wires the email-OTP sender after construction.
 func (h *MFAHandler) SetEmailSender(send func(email, code string) error) { h.sendEmailOTP = send }
+
+// emailRateLimitOK checks whether the user can send another email-OTP code.
+// Allows at most 3 sends per 60-second window per user.
+func (h *MFAHandler) emailRateLimitOK(userID string) bool {
+	now := time.Now()
+	cutoff := now.Add(-60 * time.Second)
+	var recent []time.Time
+	if v, ok := h.emailRateLimit.Load(userID); ok {
+		for _, t := range v.([]time.Time) {
+			if t.After(cutoff) {
+				recent = append(recent, t)
+			}
+		}
+	}
+	if len(recent) >= 3 {
+		h.emailRateLimit.Store(userID, recent)
+		return false
+	}
+	recent = append(recent, now)
+	h.emailRateLimit.Store(userID, recent)
+	return true
+}
 
 // ----- enrollment (session-authed + CSRF) -----
 
@@ -136,6 +162,10 @@ func (h *MFAHandler) SetupEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.sendEmailOTP == nil {
 		JSONError(w, http.StatusServiceUnavailable, "Email sign-in codes aren't configured on this device.")
+		return
+	}
+	if !h.emailRateLimitOK(userID) {
+		JSONError(w, http.StatusTooManyRequests, "Too many codes sent. Wait a minute and try again.")
 		return
 	}
 	var req struct {

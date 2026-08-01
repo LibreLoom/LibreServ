@@ -384,14 +384,23 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
   // fire POST /auth/mfa/totp/setup and race on the pending-TOTP row, producing a
   // flaky 500 ("We couldn't set up your authenticator app"). Aborting the first
   // request before the second starts keeps a single setup call in flight.
+  //
+  // For email MFA, sendEmailCode must NOT be a dependency — if it is, any
+  // identity change in request/addToast re-fires the effect and spams
+  // POST /auth/mfa/email/setup in a loop (burning the email quota). Instead we
+  // use a ref to track whether the first send already happened.
+  const emailSentRef = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
     async function begin() {
       if (type === "passkey" || type === "security_key") return;
       if (type === "email") {
-        // sendEmailCode fires POST /auth/mfa/email/setup (auto first send).
-        if (!cancelled) sendEmailCode();
+        // Only auto-send once — the ref survives re-renders.
+        if (!cancelled && !emailSentRef.current) {
+          emailSentRef.current = true;
+          sendEmailCode();
+        }
         return;
       }
       setBusy(true);
@@ -421,7 +430,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
       controller.abort();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [type, sendEmailCode]);
+  }, [type]);
 
   async function verifyCode() {
     if (!code) return;

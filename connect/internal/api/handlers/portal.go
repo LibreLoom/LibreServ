@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +33,8 @@ type PortalHandler struct {
 	registrar *providers.RegistrarClient
 	providers *providers.Service
 	resend    *providers.ResendClient
+	// emailRateLimit tracks per-account email sends to prevent runaway loops.
+	emailRateLimit sync.Map // accountID → []time.Time
 }
 
 func NewPortalHandler(db *sql.DB) *PortalHandler {
@@ -42,6 +45,28 @@ func NewPortalHandler(db *sql.DB) *PortalHandler {
 		providers: providers.NewService(db),
 		resend:    providers.NewResendClient(nil),
 	}
+}
+
+// emailRateLimitOK checks whether the account can send another email.
+// Allows at most 3 sends per 60-second window per account.
+func (h *PortalHandler) emailRateLimitOK(accountID string) bool {
+	now := time.Now()
+	cutoff := now.Add(-60 * time.Second)
+	var recent []time.Time
+	if v, ok := h.emailRateLimit.Load(accountID); ok {
+		for _, t := range v.([]time.Time) {
+			if t.After(cutoff) {
+				recent = append(recent, t)
+			}
+		}
+	}
+	if len(recent) >= 3 {
+		h.emailRateLimit.Store(accountID, recent)
+		return false
+	}
+	recent = append(recent, now)
+	h.emailRateLimit.Store(accountID, recent)
+	return true
 }
 
 // isValidUsername checks that a username contains only letters, numbers,
@@ -195,6 +220,12 @@ func (h *PortalHandler) ResendVerification(w http.ResponseWriter, r *http.Reques
 		"SELECT email_verified FROM customer_accounts WHERE id = $1", accountID).Scan(&verified)
 	if verified {
 		JSONError(w, http.StatusBadRequest, "Your email is already verified.")
+		return
+	}
+
+	// Rate limit: max 3 verification emails per minute per account.
+	if !h.emailRateLimitOK(accountID) {
+		JSONError(w, http.StatusTooManyRequests, "Too many verification emails sent. Wait a minute and try again.")
 		return
 	}
 
