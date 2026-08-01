@@ -32,11 +32,41 @@ func NewB2Client(httpClient *http.Client) *B2Client {
 }
 
 // b2AuthResponse is the body returned by b2_authorize_account.
+// Recent (v4) responses nest the storage API fields under apiInfo.storageApi;
+// older responses keep apiUrl/downloadUrl/s3ApiUrl at the top level.
 type b2AuthResponse struct {
-	AccountID          string `json:"accountId"`
-	AuthorizationToken string `json:"authorizationToken"`
-	APIURL             string `json:"apiUrl"`
-	DownloadURL        string `json:"downloadUrl"`
+	AccountID          string    `json:"accountId"`
+	AuthorizationToken string    `json:"authorizationToken"`
+	APIURL             string    `json:"apiUrl"`
+	DownloadURL        string    `json:"downloadUrl"`
+	S3APIURL           string    `json:"s3ApiUrl"`
+	APIInfo            b2APIInfo `json:"apiInfo"`
+}
+
+// b2APIInfo is the v4 response container for per-API information.
+type b2APIInfo struct {
+	StorageAPI b2StorageAPI `json:"storageApi"`
+}
+
+// b2StorageAPI carries the storage API endpoints in the v4 response shape.
+type b2StorageAPI struct {
+	APIURL      string `json:"apiUrl"`
+	DownloadURL string `json:"downloadUrl"`
+	S3APIURL    string `json:"s3ApiUrl"`
+}
+
+// normalize promotes the v4 nested shape into the flat fields so callers can
+// rely on APIURL/S3APIURL regardless of the response version.
+func (r *b2AuthResponse) normalize() {
+	if r.APIURL == "" {
+		r.APIURL = r.APIInfo.StorageAPI.APIURL
+	}
+	if r.S3APIURL == "" {
+		r.S3APIURL = r.APIInfo.StorageAPI.S3APIURL
+	}
+	if r.DownloadURL == "" {
+		r.DownloadURL = r.APIInfo.StorageAPI.DownloadURL
+	}
 }
 
 // b2BucketResponse is the body returned by b2_create_bucket.
@@ -63,6 +93,7 @@ func (c *B2Client) Authorize(accountID, applicationKey string) (*b2AuthResponse,
 	}, map[string]string{}, &resp); err != nil {
 		return nil, fmt.Errorf("could not authorize with Backblaze B2: %w", err)
 	}
+	resp.normalize()
 	return &resp, nil
 }
 
@@ -111,6 +142,13 @@ func (c *B2Client) ProvisionBucket(accountID, applicationKey, bucketName string)
 		return nil, err
 	}
 
+	// Resolve the S3 endpoint before creating anything on the account, so a
+	// malformed response fails without leaving a half-provisioned bucket/key.
+	endpoint, err := s3EndpointFor(auth)
+	if err != nil {
+		return nil, fmt.Errorf("could not determine B2 S3 endpoint: %w", err)
+	}
+
 	bucket, err := c.CreateBucket(auth.APIURL, auth.AuthorizationToken, auth.AccountID, bucketName, "allPrivate")
 	if err != nil {
 		return nil, err
@@ -122,7 +160,7 @@ func (c *B2Client) ProvisionBucket(accountID, applicationKey, bucketName string)
 	}
 
 	return &B2Credentials{
-		Endpoint:   b2S3Endpoint(auth.APIURL),
+		Endpoint:   endpoint,
 		KeyID:      key.ApplicationKeyID,
 		Key:        key.ApplicationKey,
 		BucketName: bucket.BucketName,
@@ -131,16 +169,29 @@ func (c *B2Client) ProvisionBucket(accountID, applicationKey, bucketName string)
 
 var b2RegionRegex = regexp.MustCompile(`^[0-9]{3}$`)
 
-// b2S3Endpoint derives the S3-compatible endpoint from a B2 API URL.
-// A B2 API URL looks like https://apiNNN.backblazeb2.com; the matching S3 endpoint is
-// s3.NNN.backblazeb2.com.
-func b2S3Endpoint(apiURL string) string {
+// s3EndpointFor picks the S3-compatible endpoint for a bucket. The authoritative
+// s3ApiUrl returned by b2_authorize_account wins when present; otherwise the
+// legacy apiNNN derivation is used as a fallback.
+func s3EndpointFor(auth *b2AuthResponse) (string, error) {
+	if ep := strings.TrimSuffix(auth.S3APIURL, "/"); ep != "" {
+		return ep, nil
+	}
+	return b2S3Endpoint(auth.APIURL)
+}
+
+// b2S3Endpoint derives a legacy S3-compatible endpoint from a B2 API URL of the
+// form https://apiNNN.backblazeb2.com, mapping the datacenter number onto the
+// us-west region (e.g. api001 → s3.us-west-001.backblazeb2.com, matching
+// Backblaze's own authorize response example). It is only a fallback for
+// responses that omit s3ApiUrl. It returns an error instead of guessing a
+// hostname when the URL has an unexpected shape.
+func b2S3Endpoint(apiURL string) (string, error) {
 	apiURL = strings.TrimPrefix(strings.TrimPrefix(apiURL, "https://"), "http://")
 	apiURL = strings.TrimSuffix(apiURL, "/")
 	region := strings.TrimPrefix(apiURL, "api")
 	region = strings.TrimSuffix(region, ".backblazeb2.com")
 	if region == "" || region == apiURL || !b2RegionRegex.MatchString(region) {
-		return "s3.backblazeb2.com"
+		return "", fmt.Errorf("cannot derive S3 endpoint from B2 API URL %q (authorize response had no s3ApiUrl)", apiURL)
 	}
-	return "s3." + region + ".backblazeb2.com"
+	return "s3.us-west-" + region + ".backblazeb2.com", nil
 }

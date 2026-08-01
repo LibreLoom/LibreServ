@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/common/ErrorDisplay";
@@ -30,7 +30,10 @@ const DEBOUNCE_MS = 500;
 export default function SettingsPage() {
   const { me: user, csrfToken } = useAuth();
   const isAdmin = user?.role === "admin";
-  const allowedCategoryIds = visibleCategories(isAdmin).map((c) => c.id);
+  const allowedCategoryIds = useMemo(
+    () => visibleCategories(isAdmin).map((c) => c.id),
+    [isAdmin]
+  );
   const {
     theme,
     setTheme,
@@ -104,6 +107,21 @@ export default function SettingsPage() {
   useEffect(() => {
     window.history.replaceState(null, "", `#${activeCategory}`);
   }, [activeCategory]);
+
+  // Deep links like /settings#external_services only change the URL hash —
+  // listen for it so in-page anchor links actually switch the active category
+  // instead of silently leaving the user on the current one.
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (allowedCategoryIds.includes(hash)) {
+        setActiveCategory(hash);
+        setShowMobileContent(true);
+      }
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [allowedCategoryIds]);
 
   const handleTestNotification = async () => {
     return sendTestNotification(csrfToken);

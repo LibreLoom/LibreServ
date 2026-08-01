@@ -28,10 +28,10 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const register = useCallback(async (email, password, name, username) => {
+  const register = useCallback(async (email, password, name, username, source) => {
     setLoading(true);
     try {
-      const res = await api.register(email, password, name, username);
+      const res = await api.register(email, password, name, username, source);
       // Register now returns a token — auto sign-in
       if (res.token) {
         setToken(res.token);

@@ -29,9 +29,9 @@ async function request(path, options = {}) {
 
 export const api = {
   // Auth
-  register: (email, password, name, username) => request("/portal/register", {
+  register: (email, password, name, username, source) => request("/portal/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name, username }),
+    body: JSON.stringify({ email, password, name, username, source: source || "" }),
   }),
   login: (email, password, totpCode) => request("/portal/login", {
     method: "POST",
@@ -41,7 +41,10 @@ export const api = {
     method: "POST",
     body: JSON.stringify({ token }),
   }),
-  resendVerification: () => request("/portal/resend-verification", { method: "POST" }),
+  resendVerification: (source) => request("/portal/resend-verification", {
+    method: "POST",
+    body: JSON.stringify({ source: source || "" }),
+  }),
   getVerificationStatus: () => request("/portal/verification-status"),
   getMe: () => request("/portal/me"),
   setup2FA: () => request("/portal/2fa/setup", { method: "POST" }),

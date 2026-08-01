@@ -10,6 +10,8 @@ export default function VerifyEmail() {
   const { markEmailVerified } = useAuth();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
+  const from = searchParams.get("from");
+  const fromOnboarding = from === "onboarding";
   const [status, setStatus] = useState("verifying"); // verifying | success | error
   const [error, setError] = useState("");
 
@@ -46,11 +48,12 @@ export default function VerifyEmail() {
             </div>
             <h1 className="font-mono text-2xl text-foreground">Email verified!</h1>
             <p className="text-muted-foreground text-sm leading-relaxed max-w-sm">
-              Your email address has been confirmed. You can now generate a license key
-              and connect your LibreServ device.
+              {fromOnboarding
+                ? "Your email address has been confirmed. Head back to finish setting up your server — you'll pick a plan and a domain next."
+                : "Your email address has been confirmed. You can now generate a license key and connect your LibreServ device."}
             </p>
-            <Button size="lg" className="mt-2" onClick={() => navigate("/")}>
-              Go to Dashboard
+            <Button size="lg" className="mt-2" onClick={() => navigate(fromOnboarding ? "/onboarding" : "/")}>
+              {fromOnboarding ? "Back to setup" : "Go to Dashboard"}
             </Button>
           </div>
         )}
