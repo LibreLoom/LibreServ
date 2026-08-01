@@ -1,12 +1,9 @@
-import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "./ui/button.jsx";
-import { Input } from "./ui/input.jsx";
-import { Label } from "./ui/label.jsx";
 import { Separator } from "./ui/separator.jsx";
-import { LayoutDashboard, CreditCard, ChartBar, Package, Shield, LogOut, Sun, Moon, Plus, Globe } from "lucide-react";
+import { LayoutDashboard, CreditCard, ChartBar, Package, Shield, LogOut, Sun, Moon, Globe } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -21,8 +18,6 @@ export function Layout({ children }) {
   const { logout, account } = useAuth();
   const { toggle } = useTheme();
   const navigate = useNavigate();
-  const [showLinkForm, setShowLinkForm] = useState(false);
-  const [linkToken, setLinkToken] = useState("");
 
   const handleLogout = () => {
     logout();

@@ -5,94 +5,137 @@ import { Button } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
+import { Loader2, AlertCircle, Check } from "lucide-react";
 
+/**
+ * Plans — choose or change your Connect plan. Prices are monthly; overage
+ * beyond included allowances is charged at our actual cost, no markup.
+ */
 export default function Plans() {
-  const { device, refreshDevice } = useAuth();
+  const { account, device, refreshDevice } = useAuth();
   const queryClient = useQueryClient();
-  const { data } = useQuery({ queryKey: ["plans"], queryFn: api.getPlans });
+  const { data, isLoading, error: loadError } = useQuery({ queryKey: ["plans"], queryFn: api.getPlans });
+
+  const goCheckout = async (planId, fn) => {
+    const res = await fn(planId);
+    if (res.checkout_url && res.checkout_url !== "#") {
+      window.location.href = res.checkout_url;
+    }
+    return res;
+  };
 
   const subscribeMut = useMutation({
-    mutationFn: async (planId) => {
-      const res = await api.createCheckout(planId);
-      // Polar returns a checkout URL — redirect the user there
-      if (res.checkout_url && res.checkout_url !== "#") {
-        window.location.href = res.checkout_url;
-      }
-      // Free plan or dev mode — no redirect needed
-      return res;
-    },
+    mutationFn: (planId) => goCheckout(planId, api.createCheckout),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["plans"] }); refreshDevice(); },
   });
   const changePlanMut = useMutation({
-    mutationFn: async (planId) => {
-      const res = await api.changePlan(planId);
-      // If changing to a paid plan from free, Polar checkout URL is returned
-      if (res.checkout_url && res.checkout_url !== "#") {
-        window.location.href = res.checkout_url;
-      }
-      return res;
-    },
+    mutationFn: (planId) => goCheckout(planId, api.changePlan),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["plans"] }); refreshDevice(); },
   });
 
-  const currentPlanId = device?.plan_id;
+  const currentPlanId = device?.plan_id || account?.plan_id;
+  const busy = subscribeMut.isPending || changePlanMut.isPending;
+  const actionError = subscribeMut.error?.message || changePlanMut.error?.message;
 
   return (
     <Layout>
-      <h2 className="font-mono text-2xl mb-2">Plans</h2>
-      <p className="text-muted-foreground mb-8">
-        Choose the plan that fits your needs. You can change or cancel at any time.
-        Overage is charged at our actual cost — no hidden markups.
-      </p>
+      <div className="max-w-4xl mx-auto">
+        <h1 className="font-mono text-xl mb-1.5">Plans</h1>
+        <p className="text-sm text-muted-foreground mb-8 max-w-[60ch]">
+          Change or cancel anytime. Usage beyond included allowances is billed
+          at our actual cost — never marked up.
+        </p>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {(data?.plans || []).map((plan) => {
-          const isCurrent = plan.id === currentPlanId;
-          const limits = plan.limits || {};
-          return (
-            <Card key={plan.id} className={isCurrent ? "ring-2 ring-ring" : ""}>
-              <CardHeader>
-                <CardTitle>{plan.name}</CardTitle>
-                <p className="text-sm text-muted-foreground">{plan.description}</p>
-              </CardHeader>
-              <CardContent>
-                <p className="font-mono text-3xl mb-4">
-                  ${plan.price_monthly / 100}
-                  <span className="text-sm text-muted-foreground font-sans">/month</span>
-                </p>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>Backup: {limits.backup_gb || 0} GB</li>
-                  <li>AI credit: ${((limits.ai_credit_cents || 0) / 100).toFixed(2)}/month</li>
-                  <li>Tunnel: {limits.tunnel_gb || 0} GB</li>
-                  <li>Email: {limits.smtp_monthly || 0}/month</li>
-                  <li>Human support: {limits.human_support ? "Included" : "Not included"}</li>
-                </ul>
-              </CardContent>
-              <CardFooter>
-                {isCurrent ? (
-                  <Button variant="outline" className="w-full" disabled>Current Plan</Button>
-                ) : currentPlanId ? (
-                  <Button
-                    className="w-full"
-                    loading={changePlanMut.isPending}
-                    onClick={() => changePlanMut.mutate(plan.id)}
-                  >
-                    Switch to {plan.name}
-                  </Button>
-                ) : (
-                  <Button
-                    className="w-full"
-                    loading={subscribeMut.isPending}
-                    onClick={() => subscribeMut.mutate(plan.id)}
-                  >
-                    Subscribe
-                  </Button>
-                )}
-              </CardFooter>
-            </Card>
-          );
-        })}
+        {loadError && (
+          <p className="flex items-center gap-1.5 text-sm text-error mb-6">
+            <AlertCircle className="w-4 h-4" /> Couldn't load plans. {loadError.message}
+          </p>
+        )}
+
+        {isLoading ? (
+          <div className="grid gap-4 md:grid-cols-3 animate-pulse">
+            {[0, 1, 2].map((i) => <div key={i} className="h-72 rounded-large-element bg-accent" />)}
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-3">
+            {(data?.plans || []).map((plan) => (
+              <PlanCard
+                key={plan.id}
+                plan={plan}
+                isCurrent={plan.id === currentPlanId}
+                busy={busy}
+                onSelect={() => (currentPlanId ? changePlanMut.mutate(plan.id) : subscribeMut.mutate(plan.id))}
+              />
+            ))}
+          </div>
+        )}
+
+        {actionError && (
+          <p className="flex items-center gap-1.5 text-sm text-error mt-4">
+            <AlertCircle className="w-4 h-4" /> {actionError}
+          </p>
+        )}
       </div>
     </Layout>
+  );
+}
+
+function PlanCard({ plan, isCurrent, busy, onSelect }) {
+  const limits = plan.limits || {};
+  const freeAI = limits.ai_messages_per_day > 0;
+
+  return (
+    <Card className={isCurrent ? "ring-2 ring-ring" : ""}>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">{plan.name}</CardTitle>
+          {isCurrent && <Badge variant="info">Current</Badge>}
+        </div>
+        <p className="text-sm text-muted-foreground">{plan.description}</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="font-mono text-3xl leading-none">
+          ${(plan.price_monthly / 100).toFixed(0)}
+          <span className="text-sm text-muted-foreground font-sans">/mo</span>
+        </p>
+        <dl className="space-y-1.5 text-sm">
+          <PlanLimit label="Backup storage" value={limits.backup_gb > 0 ? `${limits.backup_gb} GB` : "—"} />
+          <PlanLimit
+            label="AI assistant"
+            value={
+              freeAI
+                ? `${limits.ai_messages_per_day} msgs/day`
+                : limits.ai_credit_cents > 0
+                  ? `$${(limits.ai_credit_cents / 100).toFixed(2)} credit/mo`
+                  : "—"
+            }
+          />
+          <PlanLimit label="Email" value={limits.smtp_monthly > 0 ? `${limits.smtp_monthly}/month` : "—"} />
+          <PlanLimit label="Tunnel bandwidth" value={limits.tunnel_gb_per_mo > 0 ? `${limits.tunnel_gb_per_mo} GB/mo` : "—"} />
+          <PlanLimit
+            label="Human support"
+            value={limits.human_support ? <Check className="w-4 h-4 text-success" /> : "—"}
+          />
+        </dl>
+      </CardContent>
+      <CardFooter>
+        {isCurrent ? (
+          <Button variant="outline" className="w-full" disabled>Current plan</Button>
+        ) : (
+          <Button className="w-full" loading={busy} onClick={onSelect}>
+            Switch to {plan.name}
+          </Button>
+        )}
+      </CardFooter>
+    </Card>
+  );
+}
+
+function PlanLimit({ label, value }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="font-mono text-foreground text-right">{value}</dd>
+    </div>
   );
 }

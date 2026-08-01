@@ -15,13 +15,14 @@ export default function Register() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     try {
-      await register(email, password, name);
+      await register(email, password, name, username);
       navigate("/login");
     } catch (err) {
       setError(err.message || "Could not create account.");
@@ -56,6 +57,22 @@ export default function Register() {
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Your name"
               />
+            </div>
+            <div>
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                placeholder="your-name"
+                autoComplete="off"
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                When your apps send email, the from address will be{" "}
+                <span className="font-mono text-foreground">{username || "your-name"}-u@resend.libreloom.org</span>.
+                Letters, numbers, and hyphens (3-30 characters).
+              </p>
             </div>
             <div>
               <Label htmlFor="email">Email</Label>
