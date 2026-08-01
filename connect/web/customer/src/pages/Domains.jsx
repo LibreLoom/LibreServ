@@ -95,7 +95,7 @@ export default function Domains() {
 // charge away from lapsing. Never let these pass silently.
 function DomainWarnings({ domains }) {
   return (
-    <section>
+    <section className="space-y-3">
       <Divider label="Needs attention" />
       <ul className="space-y-3">
         {domains.map((d) => (
