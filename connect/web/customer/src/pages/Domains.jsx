@@ -2,31 +2,27 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api/client.js";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card.jsx";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Layout } from "../components/Layout.jsx";
 import {
-  Globe, Link as LinkIcon, Star, Search, Loader2, Check, X,
-  RefreshCw, ArrowRight, AlertCircle, Shield,
+  Globe, Link as LinkIcon, Search, Loader2, Check, X,
+  RefreshCw, ArrowRight, AlertCircle, Shield, ChevronDown,
 } from "lucide-react";
 import { cn } from "../lib/utils.js";
 
 /**
- * Domains — your device's reachable address.
+ * Domain — the address people use to reach this server.
  *
- * Every device is served from a plan-provided subdomain (e.g.
- * myalias.servers.libreloom.org, or *.free.servers.libreloom.org on free).
- * You can choose your own subdomain, or put a custom domain (myserver.com) in
- * front of it. A custom domain overrides the subdomain while it's active.
+ * Every device is served from a plan-provided subdomain which you can rename
+ * here, or front with a custom domain you register through us (at cost).
+ * A custom domain overrides the subdomain while it's active.
  */
 export default function Domains() {
   const { account } = useAuth();
   const queryClient = useQueryClient();
-  const [customModal, setCustomModal] = useState(null); // null | { deviceId }
-  const [error, setError] = useState("");
-
   const verified = !!account?.email_verified;
 
   const { data: devicesData, isLoading } = useQuery({
@@ -37,97 +33,69 @@ export default function Domains() {
 
   const devices = (devicesData?.devices || []).filter((d) => d.is_active);
 
-  useEffect(() => {
-    if (error) setError("");
-  }, [error]);
-
-  if (!verified) {
-    return (
-      <Layout>
-        <div className="max-w-3xl mx-auto">
-          <h2 className="font-mono text-2xl mb-6">Domain</h2>
-          <Card><CardContent className="py-12 text-center">
-            <p className="text-sm text-muted-foreground">Verify your email to manage domains.</p>
-          </CardContent></Card>
-        </div>
-      </Layout>
-    );
-  }
-
-  if (isLoading) {
-    return (
-      <Layout>
-        <div className="max-w-3xl mx-auto">
-          <h2 className="font-mono text-2xl mb-6">Domain</h2>
-          <div className="flex items-center gap-3 py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            <p className="font-mono text-sm text-muted-foreground">Loading…</p>
-          </div>
-        </div>
-      </Layout>
-    );
-  }
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["devices"] });
+    queryClient.invalidateQueries({ queryKey: ["domains"] });
+  };
 
   return (
     <Layout>
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="font-mono text-2xl">Domain</h2>
-          <Button variant="ghost" size="sm" onClick={() => {
-            queryClient.invalidateQueries({ queryKey: ["devices"] });
-            queryClient.invalidateQueries({ queryKey: ["domains"] });
-          }}>
-            <RefreshCw className="w-4 h-4" /> Refresh
+      <div className="max-w-2xl mx-auto">
+        <div className="flex items-center justify-between mb-1.5">
+          <h1 className="font-mono text-xl">Domain</h1>
+          <Button variant="ghost" size="icon" onClick={refresh} aria-label="Refresh">
+            <RefreshCw className="w-4 h-4" />
           </Button>
         </div>
-        <p className="text-sm text-muted-foreground leading-relaxed mb-8">
-          The address people use to reach your server. Pick a hostname below, or
-          bring your own domain — you're in control.
+        <p className="text-sm text-muted-foreground mb-8 max-w-[60ch]">
+          The address people reach this server on. Rename the built-in subdomain
+          or bring your own domain — switch between them anytime.
         </p>
 
-        {error && (
-          <div className="rounded-large-element bg-error/20 border border-error/30 px-4 py-3 mb-6">
-            <p className="text-sm text-error">{error}</p>
+        {!verified ? (
+          <Card><CardContent className="py-12 text-center">
+            <p className="text-sm text-muted-foreground">Verify your email to manage domains.</p>
+          </CardContent></Card>
+        ) : isLoading ? (
+          <DomainSkeleton />
+        ) : devices.length === 0 ? (
+          <Card><CardContent className="py-12 text-center">
+            <Globe className="w-7 h-7 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="font-mono text-base mb-2">No device connected yet</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+              Connect a device to choose its address.
+            </p>
+          </CardContent></Card>
+        ) : (
+          <div className="space-y-10">
+            {devices.map((device) => (
+              <AddressControl key={device.id} device={device} />
+            ))}
           </div>
         )}
-
-        <div className="space-y-8">
-          {devices.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <div className="mx-auto w-14 h-14 rounded-full bg-accent flex items-center justify-center mb-6">
-                  <Globe className="w-7 h-7 text-muted-foreground" />
-                </div>
-                <h3 className="font-mono text-xl mb-3">No active device</h3>
-                <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                  Connect a device first to manage its domain.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            devices.map((device) => (
-              <DeviceDomain
-                key={device.id}
-                device={device}
-                onCustomDomain={() => setCustomModal({ deviceId: device.id })}
-              />
-            ))
-          )}
-        </div>
       </div>
-
-      {customModal && (
-        <CustomDomainModal
-          deviceId={customModal.deviceId}
-          onClose={() => setCustomModal(null)}
-        />
-      )}
     </Layout>
   );
 }
 
-// ─── One device's domain control ────────────────────────────────────────────
-function DeviceDomain({ device, onCustomDomain }) {
+function DomainSkeleton() {
+  return (
+    <div className="space-y-10 animate-pulse">
+      <div className="space-y-3">
+        <div className="h-3 w-20 rounded bg-accent" />
+        <div className="h-8 w-72 rounded bg-accent" />
+      </div>
+      <div className="space-y-3">
+        <div className="h-3 w-28 rounded bg-accent" />
+        <div className="h-10 w-full rounded-pill bg-accent" />
+        <div className="h-10 w-40 rounded-pill bg-accent" />
+      </div>
+    </div>
+  );
+}
+
+// ─── The whole address control for one device ───────────────────────────────
+function AddressControl({ device }) {
   const queryClient = useQueryClient();
   const {
     current_domain, subdomain_raw, subdomain_host,
@@ -135,92 +103,76 @@ function DeviceDomain({ device, onCustomDomain }) {
   } = device;
 
   const hasCustom = !!has_custom_domain;
-
-  // The subdomain the device falls back to when no custom domain is active.
-  // subdomain_raw is the user-chosen or device-derived prefix; subdomain_host
-  // is the full hostname. Fall back gracefully if old shape.
   const subRaw = subdomain_raw || (subdomain_host || "").split(".")[0] || "";
-  const subFull = subdomain_host || subdomain_raw || "";
+  const subFull = subdomain_host || subdomain_raw || current_domain || "";
+  const suffix = (plan_domain || "").replace("*", "");
 
   const switchSubMut = useMutation({
     mutationFn: api.useSubdomain,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices"] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["devices"] }),
   });
 
   return (
-    <Card className="relative overflow-hidden">
-      <div className={cn("absolute inset-x-0 top-0 h-1", hasCustom ? "bg-success/60" : "bg-info/60")} />
-
-      <CardHeader className="flex-row items-start justify-between space-y-0">
-        <div className="flex items-center gap-3">
-          <div className={cn("w-11 h-11 rounded-pill flex items-center justify-center", hasCustom ? "bg-success/20 text-success" : "bg-info/20 text-info")}>
-            {hasCustom ? <Shield className="w-5 h-5" /> : <LinkIcon className="w-5 h-5" />}
-          </div>
-          <div>
-            <CardTitle className="font-mono text-lg">{current_domain}</CardTitle>
-            <div className="flex items-center gap-2 mt-1.5">
-              <Badge variant={hasCustom ? "success" : "info"}>
-                {hasCustom ? "Custom domain" : "Plan subdomain"}
-              </Badge>
-              <span className="text-xs text-muted-foreground">{plan_name}</span>
-            </div>
-          </div>
+    <div className="space-y-8">
+      {/* Current address — the answer to "what is my domain?" */}
+      <section>
+        <p className="text-xs text-muted-foreground mb-2">Current address</p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Globe className="w-5 h-5 text-muted-foreground shrink-0" />
+          <span className="font-mono text-2xl leading-none tracking-tight break-all">
+            {current_domain}
+          </span>
+          <Badge variant={hasCustom ? "success" : "info"}>
+            {hasCustom ? "Custom domain" : "Subdomain"}
+          </Badge>
         </div>
-      </CardHeader>
+        <p className="text-xs text-muted-foreground mt-2">{plan_name} plan</p>
+      </section>
 
-      <CardContent className="space-y-6">
-        {/* What's serving */}
-        {hasCustom ? (
-          <p className="text-sm text-muted-foreground">
-            <span className="font-mono text-foreground">{current_domain}</span> is what
-            people reach you on. Your subdomain{" "}
-            <span className="font-mono text-foreground">{subFull || subRaw}</span>{" "}
-            takes over if you drop it.
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            People reach this device at{" "}
-            <span className="font-mono text-foreground">{subFull || current_domain}</span>.
-          </p>
-        )}
+      <Divider label={hasCustom ? "Your custom domain" : "Your subdomain"} />
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <SubdomainEditor
-            device={device}
-            baseRaw={subRaw}
-            planDomain={plan_domain}
-          />
+      {hasCustom ? (
+        <CustomActive
+          device={device}
+          subFull={subFull}
+          onSwitchSub={() => switchSubMut.mutate(device.id)}
+          switchingSub={switchSubMut.isPending}
+        />
+      ) : (
+        <SubdomainEditor
+          device={device}
+          baseRaw={subRaw}
+          suffix={suffix}
+        />
+      )}
 
-          <CustomDomainCard
-            mode={hasCustom ? "has-custom" : "none"}
-            onCustomDomain={onCustomDomain}
-            onSwitchSub={() => switchSubMut.mutate(device.id)}
-            switchingSub={switchSubMut.isPending}
-          />
-        </div>
-      </CardContent>
-    </Card>
+      <CustomDomainSection device={device} hasCustom={hasCustom} />
+    </div>
   );
 }
 
-// ─── Subdomain picker ───────────────────────────────────────────────────────
-function SubdomainEditor({ device, baseRaw, planDomain }) {
+function Divider({ label }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground shrink-0">
+        {label}
+      </span>
+      <div className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
+// ─── Rename the subdomain ───────────────────────────────────────────────────
+function SubdomainEditor({ device, baseRaw, suffix }) {
   const queryClient = useQueryClient();
   const [value, setValue] = useState(baseRaw || "");
   const [available, setAvailable] = useState(null); // null | true | false
   const [checking, setChecking] = useState(false);
   const debounceRef = useRef(null);
 
-  // planDomain looks like "*.free.servers.libreloom.org" — the part after
-  // the wildcard is the fixed suffix shown next to the editable prefix.
-  const suffix = (planDomain || "").replace("*", "");
-
   const invalid = !/^[a-z0-9-]{3,63}$/.test(value) ||
     value.startsWith("-") || value.endsWith("-");
 
-  // Debounced live availability check (dedupe).
   useEffect(() => {
     clearTimeout(debounceRef.current);
     if (!value || invalid || value === baseRaw) {
@@ -248,138 +200,90 @@ function SubdomainEditor({ device, baseRaw, planDomain }) {
 
   const saveMut = useMutation({
     mutationFn: () => api.setSubdomain(device.id, value),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["devices"] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["devices"] }),
   });
 
-  // Status line for the current edit state.
   let status = null;
   if (checking) {
-    status = { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: "Checking availability…", tone: "text-muted-foreground" };
+    status = { icon: <Loader2 className="w-3.5 h-3.5 animate-spin" />, text: "Checking availability…", tone: "text-muted-foreground" };
   } else if (invalid && value) {
-    status = { icon: <X className="w-4 h-4" />, text: "Letters, numbers, and dashes only (3–63 chars, no leading/trailing dash).", tone: "text-error" };
+    status = { icon: <X className="w-3.5 h-3.5" />, text: "Letters, numbers, dashes only (3–63 chars, no leading/trailing dash).", tone: "text-error" };
   } else if (value === baseRaw) {
-    status = { icon: <Shield className="w-4 h-4" />, text: "This is your current subdomain.", tone: "text-success" };
+    status = { icon: <Shield className="w-3.5 h-3.5" />, text: "This is your current name.", tone: "text-success" };
   } else if (available === true) {
-    status = { icon: <Check className="w-4 h-4" />, text: "This one is available.", tone: "text-success" };
+    status = { icon: <Check className="w-3.5 h-3.5" />, text: "Available.", tone: "text-success" };
   } else if (available === false) {
-    status = { icon: <AlertCircle className="w-4 h-4" />, text: "Already taken — try another.", tone: "text-error" };
+    status = { icon: <AlertCircle className="w-3.5 h-3.5" />, text: "Already taken — try another.", tone: "text-error" };
   }
 
-  const fullHost = value && !invalid ? `${value}${suffix}` : "";
-
   return (
-    <div className="rounded-large-element border border-border p-5">
-      <div className="flex items-center gap-2 text-sm font-medium mb-1">
-        <LinkIcon className="w-4 h-4 text-muted-foreground" />
-        Your subdomain
-      </div>
-      <p className="text-xs text-muted-foreground mb-5">
-        The default address for this device. Must be unique across all devices.
+    <section className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        Rename the built-in address. It must be unique across all devices.
       </p>
 
-      {/* Editable prefix + fixed suffix */}
-      <label htmlFor="subdomain-input" className="block text-xs font-mono text-muted-foreground mb-1.5">
-        Choose a name
-      </label>
-      <div className="flex items-center rounded-large-element border border-border bg-background focus-within:ring-2 focus-within:ring-ring overflow-hidden">
-        <input
-          id="subdomain-input"
+      <div className="flex items-center gap-0">
+        <Input
+          id="subdomain-name"
           value={value}
           onChange={(e) => setValue(e.target.value.toLowerCase())}
           placeholder="myalias"
-          className="flex-1 bg-transparent outline-none font-mono text-sm px-4 py-3 min-w-0"
           spellCheck={false}
           autoComplete="off"
+          aria-invalid={invalid || available === false || undefined}
+          className="rounded-r-none border-r-0 max-w-[55%]"
         />
-        <span className="font-mono text-sm text-muted-foreground pr-4 whitespace-nowrap shrink-0">
+        <span
+          className="flex h-10 items-center rounded-r-pill border border-l-0 border-input bg-accent/40 px-3 font-mono text-sm text-muted-foreground whitespace-nowrap"
+          aria-hidden="true"
+        >
           {suffix}
         </span>
       </div>
 
-      {/* Live full hostname preview */}
-      {fullHost && (
-        <div className="mt-2.5 flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-          <ArrowRight className="w-3.5 h-3.5" />
-          <span className="text-foreground">{fullHost}</span>
-        </div>
-      )}
-
-      {/* Status */}
       {status && (
-        <p className={cn("mt-2.5 flex items-center gap-1.5 text-xs", status.tone)}>
+        <p className={cn("flex items-center gap-1.5 text-xs", status.tone)}>
           {status.icon} {status.text}
         </p>
       )}
 
-      {/* Action */}
-      <div className="mt-4">
-        <Button
-          size="md"
-          className="w-full"
-          loading={saveMut.isPending}
-          onClick={() => saveMut.mutate()}
-          disabled={!canSave}
-        >
-          Save subdomain
-        </Button>
-      </div>
-    </div>
+      <Button
+        size="md"
+        loading={saveMut.isPending}
+        onClick={() => saveMut.mutate()}
+        disabled={!canSave}
+      >
+        Save name
+      </Button>
+    </section>
   );
 }
 
-// ─── Custom domain card ─────────────────────────────────────────────────────
-function CustomDomainCard({ mode, onCustomDomain, onSwitchSub, switchingSub }) {
-  if (mode === "has-custom") {
-    return (
-      <div className="rounded-large-element border border-border p-5 flex flex-col">
-        <div className="flex items-center gap-2 text-sm font-medium mb-1">
-          <Globe className="w-4 h-4 text-muted-foreground" />
-          Custom domain
-        </div>
-        <p className="text-xs text-muted-foreground mb-4">
-          You have a custom domain set. You can change it or go back to your
-          subdomain at any time.
-        </p>
-        <div className="mt-auto flex flex-col gap-2">
-          <Button variant="outline" size="sm" onClick={onCustomDomain}>
-            Change custom domain
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onSwitchSub}
-            loading={switchingSub}
-            className="justify-center text-muted-foreground"
-          >
-            Switch to my subdomain
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
+// ─── Active custom domain: summary + actions ────────────────────────────────
+function CustomActive({ subFull, onSwitchSub, switchingSub }) {
   return (
-    <div className="rounded-large-element border border-border p-5 flex flex-col">
-      <div className="flex items-center gap-2 text-sm font-medium mb-1">
-        <Globe className="w-4 h-4 text-muted-foreground" />
-        Custom domain
-      </div>
-      <p className="text-xs text-muted-foreground mb-4">
-        Bring your own branded domain. You pay exactly what we pay for it.
+    <section className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        This device is fronted by the custom domain above. It takes over from
+        your subdomain (<span className="font-mono">{subFull}</span>), which resumes
+        if you switch back.
       </p>
-      <div className="mt-auto">
-        <Button size="sm" onClick={onCustomDomain}>
-          Get a custom domain <ArrowRight className="w-4 h-4" />
-        </Button>
-      </div>
-    </div>
+      <Button
+        variant="ghost"
+        size="md"
+        onClick={onSwitchSub}
+        loading={switchingSub}
+        className="text-muted-foreground"
+      >
+        Switch back to subdomain
+      </Button>
+    </section>
   );
 }
 
-// ─── Custom domain search/register modal ────────────────────────────────────
-function CustomDomainModal({ deviceId, onClose }) {
+// ─── Custom domain: inline search / register / change ───────────────────────
+function CustomDomainSection({ device, hasCustom }) {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [checking, setChecking] = useState(null);
@@ -387,7 +291,11 @@ function CustomDomainModal({ deviceId, onClose }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const handleSearch = async () => {
+  // Always show the section when there's no custom domain (it's the only
+  // alternative). When a custom domain is active, collapse it behind a toggle.
+  const visible = !hasCustom || open;
+
+  const search = async () => {
     if (!query.trim()) return;
     setError("");
     setSuccess("");
@@ -399,13 +307,13 @@ function CustomDomainModal({ deviceId, onClose }) {
     }
   };
 
-  const handleCheck = async (domain) => {
-    setChecking(domain);
+  const check = async (name) => {
+    setChecking(name);
     setError("");
     try {
-      const res = await api.checkDomain(domain);
+      const res = await api.checkDomain(name);
       setResults((prev) =>
-        prev.map((d) => d.name === domain ? { ...d, available: res.available || res.registrable, price: res.registration_cost } : d)
+        prev.map((d) => d.name === name ? { ...d, available: res.available || res.registrable, price: res.registration_cost } : d)
       );
     } catch (err) {
       setError(err.message || "Could not check availability.");
@@ -414,18 +322,17 @@ function CustomDomainModal({ deviceId, onClose }) {
     }
   };
 
-  const handlePurchase = async (domain) => {
+  const purchase = async (name) => {
     setPurchasing(true);
     setError("");
     try {
-      const res = await api.registerDomain(deviceId || "", domain);
+      const res = await api.registerDomain(device.id, name);
       if (res.checkout_url) {
-        // Navigate to the payment provider once the checkout session is ready.
-        // eslint-disable-next-line react-hooks/immutability -- intentional full-page redirect to Stripe checkout
+        // eslint-disable-next-line react-hooks/immutability -- intentional full-page redirect to checkout
         window.location.href = res.checkout_url;
       } else {
-        setSuccess(`${domain} registered successfully!`);
-        setTimeout(() => onClose(), 1800);
+        setSuccess(`${name} registered.`);
+        setResults([]);
       }
     } catch (err) {
       setError(err.message || "Could not register domain.");
@@ -435,121 +342,98 @@ function CustomDomainModal({ deviceId, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-fade-in" onClick={onClose}>
-      <div
-        className="w-full max-w-xl rounded-large-element border border-border bg-card text-card-foreground shadow-[0_24px_64px_rgba(0,0,0,0.35)] p-7"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-5">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-pill bg-accent flex items-center justify-center">
-              <Globe className="w-5 h-5 text-muted-foreground" />
-            </div>
-            <div>
-              <h3 className="font-mono text-lg">Custom domain</h3>
-              <p className="text-sm text-muted-foreground">
-                You pay exactly what we pay — no markup on registration.
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" aria-label="Close">
-            <X className="w-5 h-5" />
+    <>
+      <Divider label="Custom domain" />
+      <section className="space-y-3">
+        {!visible ? (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ChevronDown className="w-4 h-4" />
+            Change to a different custom domain
           </button>
-        </div>
-
-        {success ? (
-          <div className="text-center py-10">
-            <div className="mx-auto w-14 h-14 rounded-full bg-success/20 flex items-center justify-center mb-4">
-              <Check className="w-7 h-7 text-success" />
-            </div>
-            <p className="font-mono text-sm">{success}</p>
-          </div>
         ) : (
           <>
-            <div className="flex gap-2 mb-4">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  placeholder="Search a domain…"
-                  className="pl-9"
-                  autoFocus
-                />
-              </div>
-              <Button variant="outline" onClick={handleSearch} disabled={!query.trim()}>
-                <Search className="w-4 h-4" /> Search
+            <p className="text-sm text-muted-foreground">
+              Register a domain through us and it routes here. You pay exactly
+              what we pay at the registrar — no markup.
+            </p>
+
+            <div className="flex gap-2">
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && search()}
+                placeholder="Search a name…"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <Button variant="outline" size="md" onClick={search} disabled={!query.trim()}>
+                <Search className="w-4 h-4" />
               </Button>
             </div>
 
-            {error && <p className="text-sm text-error mb-4">{error}</p>}
+            {error && (
+              <p className="flex items-center gap-1.5 text-xs text-error">
+                <AlertCircle className="w-3.5 h-3.5" /> {error}
+              </p>
+            )}
+            {success && (
+              <p className="flex items-center gap-1.5 text-xs text-success">
+                <Check className="w-3.5 h-3.5" /> {success}
+              </p>
+            )}
 
-            {results.length > 0 ? (
-              <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-                {results.map((result) => {
-                  const isChecked = result.available !== undefined;
+            {results.length > 0 && (
+              <ul className="divide-y divide-border rounded-large-element border border-border overflow-hidden">
+                {results.map((r) => {
+                  const isChecked = r.available !== undefined;
                   return (
-                    <div
-                      key={result.name}
-                      className={cn(
-                        "flex items-center justify-between rounded-large-element border p-4 gap-3 transition-colors",
-                        result.available ? "border-success/30 bg-success/5" : "border-border"
-                      )}
+                    <li
+                      key={r.name}
+                      className="flex items-center justify-between gap-3 px-4 py-3"
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="font-mono text-sm text-foreground">{result.name}</div>
-                        {!isChecked && (
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            Click Check to see availability &amp; price.
-                          </div>
-                        )}
-                        {isChecked && result.available && (
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            ${result.price || "—"}/year · register
+                      <div className="min-w-0">
+                        <div className="font-mono text-sm truncate">{r.name}</div>
+                        {isChecked && r.available && (
+                          <div className="text-xs text-muted-foreground">
+                            ${r.price || "—"}/year
                           </div>
                         )}
                       </div>
                       {isChecked ? (
-                        result.available ? (
+                        r.available ? (
                           <Button
                             size="sm"
-                            onClick={() => handlePurchase(result.name)}
+                            onClick={() => purchase(r.name)}
                             loading={purchasing}
                             disabled={purchasing}
                           >
-                            {purchasing ? "Registering…" : "Register"}
+                            Register
                           </Button>
                         ) : (
                           <Badge variant="outline">Taken</Badge>
                         )
                       ) : (
-                        <Button size="sm" variant="outline" onClick={() => handleCheck(result.name)} disabled={checking === result.name}>
-                          {checking === result.name ? <Loader2 className="w-3 h-3 animate-spin" /> : "Check"}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => check(r.name)}
+                          disabled={checking === r.name}
+                        >
+                          {checking === r.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Check"}
                         </Button>
                       )}
-                    </div>
+                    </li>
                   );
                 })}
-              </div>
-            ) : (
-              <div className="text-center text-sm text-muted-foreground py-8">
-                Search for a domain to get started.
-              </div>
+              </ul>
             )}
-
-            <div className="flex justify-between items-center mt-6">
-              <p className="text-xs text-muted-foreground">
-                Registration via Cloudflare Registrar at cost.
-              </p>
-              <Button variant="ghost" size="sm" onClick={onClose}>
-                Close
-              </Button>
-            </div>
           </>
         )}
-      </div>
-    </div>
+      </section>
+    </>
   );
 }
