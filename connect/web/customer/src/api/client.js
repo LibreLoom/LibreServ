@@ -91,6 +91,7 @@ export const api = {
     body: JSON.stringify({ plan_id: planId, device_id: deviceId || "" }),
   }),
   cancel: () => request("/portal/cancel", { method: "POST" }),
+  resumeSubscription: () => request("/portal/resume", { method: "POST" }),
   changePlan: (planId, deviceId) => request("/portal/change-plan", {
     method: "POST",
     body: JSON.stringify({ plan_id: planId, device_id: deviceId || "" }),

@@ -391,4 +391,10 @@ ALTER TABLE devices ADD COLUMN IF NOT EXISTS subdomain TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_subdomain_unique ON devices(subdomain);
 		`,
 	},
+	{
+		name: "006_cancel_at_period_end",
+		sql: `
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
+		`,
+	},
 }

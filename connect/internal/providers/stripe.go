@@ -97,6 +97,21 @@ func CancelSubscription(ctx context.Context, subscriptionID string) error {
 	return nil
 }
 
+// SetCancelAtPeriodEnd marks a Stripe subscription to cancel at the end of the
+// current billing period (true) or resumes it (false). The subscription stays
+// active until the period ends; Stripe fires customer.subscription.deleted then.
+func SetCancelAtPeriodEnd(ctx context.Context, subscriptionID string, cancelAtPeriodEnd bool) error {
+	params := &stripego.SubscriptionParams{}
+	params.Context = ctx
+	params.CancelAtPeriodEnd = stripego.Bool(cancelAtPeriodEnd)
+
+	_, err := subscription.Update(subscriptionID, params)
+	if err != nil {
+		return fmt.Errorf("set cancel_at_period_end: %w", err)
+	}
+	return nil
+}
+
 // UpdateSubscriptionPrice changes the price on an active subscription.
 // Stripe prorates automatically.
 func UpdateSubscriptionPrice(ctx context.Context, subscriptionID, newPriceID string) error {

@@ -925,7 +925,31 @@ func (h *PortalHandler) GetBilling(w http.ResponseWriter, r *http.Request) {
 		"credit_balance_cents": balance,
 		"invoices":             invoices,
 		"transactions":         transactions,
+		"subscription":         h.activeSubscriptionInfo(r.Context(), deviceID),
 	})
+}
+
+// activeSubscriptionInfo returns the device's active subscription state for the
+// billing page: plan, whether it's scheduled to cancel at period end, and when.
+func (h *PortalHandler) activeSubscriptionInfo(ctx context.Context, deviceID string) map[string]any {
+	var planID, status string
+	var cancelAtPeriodEnd bool
+	err := h.db.QueryRowContext(ctx,
+		`SELECT plan_id, status, cancel_at_period_end FROM subscriptions WHERE device_id = $1 AND status = 'active'`,
+		deviceID).Scan(&planID, &status, &cancelAtPeriodEnd)
+	if err != nil {
+		return map[string]any{"status": "none"}
+	}
+	info := map[string]any{
+		"plan_id":              planID,
+		"plan_name":            catalog.PlanName(planID),
+		"status":               status,
+		"cancel_at_period_end": cancelAtPeriodEnd,
+	}
+	if cancelAtPeriodEnd {
+		info["period_end"] = billingCycleEnd().Format(time.RFC3339)
+	}
+	return info
 }
 
 // Subscribe creates a subscription for a device.
@@ -977,7 +1001,10 @@ func (h *PortalHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 
 // Cancel cancels the device's subscription.
 // If Stripe is enabled, cancels the subscription on Stripe's side (immediate).
-// The webhook will confirm the cancellation, but we update our DB immediately for UX.
+// Cancel schedules the subscription to end at the close of the current billing
+// cycle (cancel_at_period_end on Stripe). The device keeps paid features until
+// then; Stripe fires customer.subscription.deleted at period end and the
+// webhook performs the downgrade to Free.
 func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
@@ -989,32 +1016,75 @@ func (h *PortalHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If Stripe is enabled, cancel the subscription on Stripe's side
+	// On Stripe: mark the subscription to cancel at period end (not immediately).
 	if config.C.Stripe.Enabled {
 		var stripeSubID string
 		_ = h.db.QueryRowContext(r.Context(),
 			"SELECT stripe_subscription_id FROM subscriptions WHERE device_id = $1 AND status = 'active'",
 			deviceID).Scan(&stripeSubID)
 		if stripeSubID != "" {
-			if err := providers.CancelSubscription(r.Context(), stripeSubID); err != nil {
-				JSONError(w, http.StatusInternalServerError, "could not cancel subscription with Stripe")
+			if err := providers.SetCancelAtPeriodEnd(r.Context(), stripeSubID, true); err != nil {
+				JSONError(w, http.StatusInternalServerError, "could not schedule cancellation with Stripe")
 				return
 			}
 		}
 	}
 
+	// Flag locally — the subscription stays active until the cycle closes.
 	_, err = h.db.ExecContext(r.Context(),
-		"UPDATE subscriptions SET status = 'cancelled', ends_at = $1 WHERE device_id = $2 AND status = 'active'",
-		time.Now(), deviceID)
+		"UPDATE subscriptions SET cancel_at_period_end = TRUE WHERE device_id = $1 AND status = 'active'",
+		deviceID)
 	if err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not cancel subscription")
+		JSONError(w, http.StatusInternalServerError, "could not schedule cancellation")
 		return
 	}
 
-	_, _ = h.db.ExecContext(r.Context(),
-		"UPDATE devices SET plan_id = 'free' WHERE id = $1", deviceID)
+	cycleEnd := billingCycleEnd()
+	JSON(w, http.StatusOK, map[string]any{
+		"message":    "Your subscription will end at the close of the current billing cycle.",
+		"period_end": cycleEnd.Format(time.RFC3339),
+	})
+}
 
-	JSON(w, http.StatusOK, map[string]string{"message": "subscription cancelled"})
+// ResumeSubscription clears a scheduled cancellation (cancel_at_period_end),
+// keeping the subscription active. Idempotent.
+func (h *PortalHandler) ResumeSubscription(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+
+	var deviceID string
+	err := h.db.QueryRowContext(r.Context(),
+		"SELECT id FROM devices WHERE account_id = $1 AND is_active = TRUE LIMIT 1", accountID).Scan(&deviceID)
+	if err != nil {
+		JSONError(w, http.StatusBadRequest, "no device linked to your account")
+		return
+	}
+
+	if config.C.Stripe.Enabled {
+		var stripeSubID string
+		_ = h.db.QueryRowContext(r.Context(),
+			"SELECT stripe_subscription_id FROM subscriptions WHERE device_id = $1 AND status = 'active'",
+			deviceID).Scan(&stripeSubID)
+		if stripeSubID != "" {
+			if err := providers.SetCancelAtPeriodEnd(r.Context(), stripeSubID, false); err != nil {
+				JSONError(w, http.StatusInternalServerError, "could not resume subscription with Stripe")
+				return
+			}
+		}
+	}
+
+	_, _ = h.db.ExecContext(r.Context(),
+		"UPDATE subscriptions SET cancel_at_period_end = FALSE WHERE device_id = $1 AND status = 'active'",
+		deviceID)
+
+	JSON(w, http.StatusOK, map[string]string{"message": "subscription resumed"})
+}
+
+// billingCycleEnd returns the end of the current calendar billing cycle
+// (last instant of the month), matching GetUsageSummary's cycle computation.
+func billingCycleEnd() time.Time {
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	return start.AddDate(0, 1, -1)
 }
 
 // ChangePlan changes the device's subscription plan.

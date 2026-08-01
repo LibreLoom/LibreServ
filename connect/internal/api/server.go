@@ -157,6 +157,7 @@ func (s *Server) setupRoutes() {
 				r.Get("/billing", portal.GetBilling)
 				r.Post("/subscribe", portal.Subscribe)
 				r.Post("/cancel", portal.Cancel)
+				r.Post("/resume", portal.ResumeSubscription)
 				r.Post("/change-plan", portal.ChangePlan)
 
 				r.Post("/checkout", portal.CreateCheckoutSession)

@@ -24,7 +24,13 @@ export default function Billing() {
       setCancelError("");
       queryClient.invalidateQueries({ queryKey: ["billing"] });
     },
-    onError: (err) => setCancelError(err.message || "Could not cancel your subscription."),
+    onError: (err) => setCancelError(err.message || "Could not schedule your cancellation."),
+  });
+
+  const resumeMut = useMutation({
+    mutationFn: api.resumeSubscription,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["billing"] }),
+    onError: (err) => setCancelError(err.message || "Could not resume your subscription."),
   });
 
   const portalMut = useMutation({
@@ -126,50 +132,98 @@ export default function Billing() {
             {/* Cancel */}
             <section>
               <SectionHeader label="Subscription" />
-              <Card className="border-destructive/30">
-                <CardContent className="py-4">
-                  {!confirmCancel ? (
-                    <div className="flex items-center justify-between gap-4">
-                      <p className="text-sm text-muted-foreground">
-                        Cancelling downgrades your device to Free immediately.
-                      </p>
-                      <Button variant="destructive" size="sm" onClick={() => setConfirmCancel(true)}>
-                        Cancel subscription
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-sm text-muted-foreground">
-                        Cancel your subscription now? Your device moves to the Free
-                        plan right away. You can re-subscribe anytime.
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          loading={cancelMut.isPending}
-                          onClick={() => cancelMut.mutate()}
-                        >
-                          Yes, cancel it
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setConfirmCancel(false)}>
-                          Keep my plan
-                        </Button>
-                      </div>
-                      {cancelError && (
-                        <p className="flex items-center gap-1.5 text-xs text-error">
-                          <AlertCircle className="w-3.5 h-3.5" /> {cancelError}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              <SubscriptionCard
+                subscription={billing?.subscription}
+                confirmCancel={confirmCancel}
+                setConfirmCancel={setConfirmCancel}
+                cancelMut={cancelMut}
+                resumeMut={resumeMut}
+                cancelError={cancelError}
+              />
             </section>
           </div>
         )}
       </div>
     </Layout>
+  );
+}
+
+function SubscriptionCard({ subscription, confirmCancel, setConfirmCancel, cancelMut, resumeMut, cancelError }) {
+  const pending = !!subscription?.cancel_at_period_end;
+  const periodEnd = subscription?.period_end ? new Date(subscription.period_end).toLocaleDateString() : null;
+  const isPaid = subscription && subscription.plan_id && subscription.plan_id !== "free";
+
+  if (pending) {
+    return (
+      <Card className="border-warning/30">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">
+                {subscription.plan_name} ends {periodEnd ? `on ${periodEnd}` : "at the end of the billing cycle"}.
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                You keep your paid features until then, when your device moves to Free.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => resumeMut.mutate()} loading={resumeMut.isPending}>
+              Keep subscription
+            </Button>
+          </div>
+          {cancelError && (
+            <p className="flex items-center gap-1.5 text-xs text-error mt-3">
+              <AlertCircle className="w-3.5 h-3.5" /> {cancelError}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!isPaid) return null;
+
+  return (
+    <Card className="border-destructive/30">
+      <CardContent className="py-4">
+        {!confirmCancel ? (
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">
+              Cancelling downgrades your device to Free at the end of the billing cycle.
+              You keep your paid features until then.
+            </p>
+            <Button variant="destructive" size="sm" onClick={() => setConfirmCancel(true)}>
+              Cancel subscription
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Schedule cancellation for the end of this billing cycle? Your device
+              stays on {subscription.plan_name} until then, then moves to Free.
+              You can change your mind anytime before the cycle ends.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                loading={cancelMut.isPending}
+                onClick={() => cancelMut.mutate()}
+              >
+                Yes, cancel at cycle end
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setConfirmCancel(false)}>
+                Keep my plan
+              </Button>
+            </div>
+            {cancelError && (
+              <p className="flex items-center gap-1.5 text-xs text-error">
+                <AlertCircle className="w-3.5 h-3.5" /> {cancelError}
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
