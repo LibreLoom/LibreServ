@@ -212,6 +212,223 @@ PlanCard.propTypes = {
   onClick: PropTypes.func.isRequired,
 };
 
+// ─── SubdomainPicker — free subdomain with live preview + availability ─────
+function SubdomainPicker({ subdomainName, setSubdomainName, subAvailability, setSubAvailability, checkingSub, suffix, onContinue }) {
+  const debounceRef = useRef(null);
+  const fullAddress = subdomainName ? `${subdomainName}.${suffix}` : "";
+
+  const handleChange = (e) => {
+    const v = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    setSubdomainName(v);
+    setSubAvailability(null);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!v || v.length < 3) return;
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await api.checkSubdomain(v);
+        setSubAvailability(res.available);
+      } catch {
+        setSubAvailability(null);
+      }
+    }, 400);
+  };
+
+  const valid = subdomainName.trim().length >= 3 && subAvailability !== false;
+
+  return (
+    <form onSubmit={(e) => { e.preventDefault(); if (valid) onContinue(); }} className="space-y-4 text-left">
+      <Field label="Subdomain name" htmlFor="onb-subdomain">
+        <div className="relative">
+          <Input
+            id="onb-subdomain"
+            type="text"
+            value={subdomainName}
+            onChange={handleChange}
+            placeholder="your-name"
+            autoFocus
+            className="pr-24"
+            aria-describedby="subdomain-preview subdomain-status"
+          />
+          {subdomainName && (
+            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground pointer-events-none select-none">
+              .{suffix.slice(0, 4)}…
+            </span>
+          )}
+        </div>
+
+        {/* Live preview */}
+        {fullAddress && (
+          <div
+            id="subdomain-preview"
+            className={cn(
+              "mt-3 rounded-large-element px-4 py-2.5 font-mono text-sm motion-safe:transition-colors",
+              subAvailability === true
+                ? "bg-success/10 text-success"
+                : subAvailability === false
+                ? "bg-error/10 text-error"
+                : "bg-muted text-foreground"
+            )}
+          >
+            {fullAddress}
+          </div>
+        )}
+
+        {/* Availability status */}
+        {subdomainName && subdomainName.length >= 3 && (
+          <p id="subdomain-status" className={cn(
+            "mt-2 text-xs font-mono motion-safe:transition-colors",
+            subAvailability === true ? "text-success" : subAvailability === false ? "text-error" : "text-muted-foreground"
+          )}>
+            {checkingSub
+              ? "Checking availability…"
+              : subAvailability === true
+              ? "Available"
+              : subAvailability === false
+              ? "Already taken — try another"
+              : ""}
+          </p>
+        )}
+      </Field>
+
+      <Button type="submit" className="w-full" size="lg" disabled={!valid}>
+        Continue <ChevronRight className="w-4 h-4 ml-1" />
+      </Button>
+    </form>
+  );
+}
+
+SubdomainPicker.propTypes = {
+  subdomainName: PropTypes.string.isRequired,
+  setSubdomainName: PropTypes.func.isRequired,
+  subAvailability: PropTypes.bool,
+  setSubAvailability: PropTypes.func.isRequired,
+  checkingSub: PropTypes.bool.isRequired,
+  suffix: PropTypes.string.isRequired,
+  onContinue: PropTypes.func.isRequired,
+};
+
+SubdomainPicker.defaultProps = {
+  subAvailability: null,
+};
+
+// ─── CustomDomainSection — progressive disclosure for BYO domain ────────────
+function CustomDomainSection({
+  customDomainQuery, setCustomDomainQuery,
+  domainResults,
+  checkingDomain, purchasingDomain,
+  registeredDomain,
+  handleSearchDomain, handleCheckDomain, handlePurchaseDomain,
+  onContinue,
+}) {
+  if (registeredDomain) {
+    return (
+      <div className="text-center space-y-5 animate-fade-in-up">
+        <div className="mx-auto w-14 h-14 rounded-full bg-success/20 flex items-center justify-center">
+          <Check className="w-7 h-7 text-success animate-check-pop" />
+        </div>
+        <p className="font-mono text-xl text-card-foreground">{registeredDomain}</p>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Your domain is registered. We'll set up the DNS records automatically.
+        </p>
+        <Button size="lg" className="w-full" onClick={onContinue}>
+          Continue <ChevronRight className="w-4 h-4 ml-1" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 text-left animate-fade-in-up">
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Already own a domain? Register a new one at cost through Cloudflare.
+      </p>
+
+      <Field label="Search for a domain" htmlFor="onb-custom-domain">
+        <div className="flex gap-2">
+          <Input
+            id="onb-custom-domain"
+            type="text"
+            value={customDomainQuery}
+            onChange={(e) => setCustomDomainQuery(e.target.value)}
+            placeholder="my-site"
+            onKeyDown={(e) => { if (e.key === "Enter") handleSearchDomain(); }}
+          />
+          <Button variant="outline" size="icon" onClick={handleSearchDomain} disabled={!customDomainQuery.trim()}>
+            <Search className="w-4 h-4" />
+          </Button>
+        </div>
+      </Field>
+
+      {domainResults.length > 0 && (
+        <div className="space-y-2">
+          {domainResults.map((result) => {
+            const checked = result.available !== undefined;
+            return (
+              <div
+                key={result.name}
+                className={cn(
+                  "flex items-center justify-between rounded-large-element border px-4 py-3 gap-3",
+                  result.available ? "border-success/30 bg-success/5" : "border-border"
+                )}
+              >
+                <div className="flex-1 min-w-0">
+                  <span className="font-mono text-sm text-card-foreground">{result.name}</span>
+                  {result.price && (
+                    <span className="ml-2 text-xs text-muted-foreground">${result.price}/year</span>
+                  )}
+                </div>
+                {checked ? (
+                  result.available ? (
+                    <div className="flex items-center gap-2">
+                      <Badge variant="success">Available</Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handlePurchaseDomain(result.name)}
+                        disabled={purchasingDomain}
+                      >
+                        {purchasingDomain ? <Loader2 className="w-3 h-3 animate-spin" /> : "Register"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Badge variant="outline">Taken</Badge>
+                  )
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleCheckDomain(result.name)}
+                    disabled={checkingDomain === result.name}
+                  >
+                    {checkingDomain === result.name ? <Loader2 className="w-3 h-3 animate-spin" /> : "Check"}
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+CustomDomainSection.propTypes = {
+  customDomainQuery: PropTypes.string.isRequired,
+  setCustomDomainQuery: PropTypes.func.isRequired,
+  domainResults: PropTypes.array.isRequired,
+  checkingDomain: PropTypes.string,
+  purchasingDomain: PropTypes.bool.isRequired,
+  registeredDomain: PropTypes.string,
+  handleSearchDomain: PropTypes.func.isRequired,
+  handleCheckDomain: PropTypes.func.isRequired,
+  handlePurchaseDomain: PropTypes.func.isRequired,
+  onContinue: PropTypes.func.isRequired,
+};
+
+CustomDomainSection.defaultProps = {
+  checkingDomain: null,
+  registeredDomain: null,
+};
 
 const PROGRESS_KEY = "connect-onboarding-progress";
 
@@ -278,7 +495,9 @@ export default function Onboarding() {
   const [selectedPlan, setSelectedPlan] = useState(saved.current?.selectedPlan || null);
 
   const [subdomainName, setSubdomainName] = useState(saved.current?.subdomainName || "");
-  const [domainMode, setDomainMode] = useState(saved.current?.domainMode || "subdomain");
+  const [subAvailability, setSubAvailability] = useState(null); // null | true | false
+  const [checkingSub, setCheckingSub] = useState(false);
+  const [customDomainOpen, setCustomDomainOpen] = useState(false);
   const [customDomainQuery, setCustomDomainQuery] = useState("");
   const [domainResults, setDomainResults] = useState([]);
   const [checkingDomain, setCheckingDomain] = useState(null);
@@ -321,8 +540,8 @@ export default function Onboarding() {
   // Persist progress whenever relevant state changes
   useEffect(() => {
     if (step === 0 && !email) return; // don't save empty state
-    saveProgress({ step, email, name, username, selectedPlan, subdomainName, domainMode, registeredDomain });
-  }, [step, email, name, username, selectedPlan, subdomainName, domainMode, registeredDomain]);
+    saveProgress({ step, email, name, username, selectedPlan, subdomainName, registeredDomain });
+  }, [step, email, name, username, selectedPlan, subdomainName, registeredDomain]);
 
 
   const { data: plansData } = useQuery({
@@ -396,7 +615,7 @@ export default function Onboarding() {
         }
       } else {
         // Register returns a token — auto sign-in (no separate login call)
-        await register(email, password, name, username);
+        await register(email, password, name, username, "onboarding");
         goNext();
       }
     } catch (err) {
@@ -409,7 +628,7 @@ export default function Onboarding() {
     clearError();
     setResendState("sending");
     try {
-      await api.resendVerification();
+      await api.resendVerification("onboarding");
       setResendState("sent");
       setCooldown(RESEND_COOLDOWN);
       setTimeout(() => setResendState("idle"), 3000);
@@ -878,150 +1097,60 @@ export default function Onboarding() {
 
   const renderPaidDomain = () => (
     <StepShell icon={Globe} title="Choose your domain">
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
-        Pick a free subdomain or buy a custom domain at cost through Cloudflare.
+      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-2">
+        This is the address people use to reach your apps.
+        Pick a free subdomain now — you can always change it later from your dashboard.
       </p>
 
-      {/* Toggle */}
-      <div className="w-full max-w-sm mx-auto flex bg-muted rounded-pill p-1 mb-8">
-        <button
-          type="button"
-          className={cn(
-            "flex-1 py-2 px-4 rounded-pill text-sm font-mono motion-safe:transition-colors",
-            domainMode === "subdomain"
-              ? "bg-card text-card-foreground shadow-sm"
-              : "text-muted-foreground hover:text-card-foreground"
-          )}
-          onClick={() => { setDomainMode("subdomain"); setDomainResults([]); setRegisteredDomain(null); setError(""); }}
-        >
-          Free subdomain
-        </button>
-        <button
-          type="button"
-          className={cn(
-            "flex-1 py-2 px-4 rounded-pill text-sm font-mono motion-safe:transition-colors",
-            domainMode === "custom"
-              ? "bg-card text-card-foreground shadow-sm"
-              : "text-muted-foreground hover:text-card-foreground"
-          )}
-          onClick={() => { setDomainMode("custom"); setSubdomainName(""); setError(""); }}
-        >
-          Custom domain
-        </button>
+      {/* Free subdomain — the default, always visible */}
+      <div className="w-full max-w-sm mx-auto">
+        <SubdomainPicker
+          subdomainName={subdomainName}
+          setSubdomainName={setSubdomainName}
+          subAvailability={subAvailability}
+          setSubAvailability={setSubAvailability}
+          checkingSub={checkingSub}
+          suffix="servers.libreloom.org"
+          onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
+        />
       </div>
 
-      {domainMode === "subdomain" && (
-        <form
-          onSubmit={(e) => { e.preventDefault(); if (subdomainName.trim()) goNext(); }}
-          className="w-full max-w-sm mx-auto space-y-5 text-left"
+      {/* Custom domain — progressive disclosure */}
+      <div className="w-full max-w-sm mx-auto mt-8">
+        {!customDomainOpen ? (
+          <button
+            type="button"
+            className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4 motion-safe:transition-colors"
+            onClick={() => setCustomDomainOpen(true)}
+          >
+            Or use your own domain instead
+          </button>
+        ) : (
+          <CustomDomainSection
+            customDomainQuery={customDomainQuery}
+            setCustomDomainQuery={setCustomDomainQuery}
+            domainResults={domainResults}
+            checkingDomain={checkingDomain}
+            purchasingDomain={purchasingDomain}
+            registeredDomain={registeredDomain}
+            handleSearchDomain={handleSearchDomain}
+            handleCheckDomain={handleCheckDomain}
+            handlePurchaseDomain={handlePurchaseDomain}
+            onContinue={goNext}
+          />
+        )}
+      </div>
+
+      {/* Skip */}
+      <div className="w-full max-w-sm mx-auto mt-6">
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 motion-safe:transition-colors"
+          onClick={goNext}
         >
-          <Field label="Subdomain name" htmlFor="onb-paid-subdomain">
-            <Input
-              id="onb-paid-subdomain"
-              type="text"
-              value={subdomainName}
-              onChange={(e) => setSubdomainName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-              placeholder="your-name"
-              autoFocus
-            />
-            {subdomainName && (
-              <p className="mt-3 text-sm font-mono text-foreground bg-muted rounded-large-element px-4 py-2.5 animate-fade-in-up">
-                {subdomainName}.servers.libreloom.org
-              </p>
-            )}
-          </Field>
-          <Button type="submit" className="w-full" size="lg" disabled={!subdomainName.trim()}>
-            Continue <ChevronRight className="w-4 h-4 ml-1" />
-          </Button>
-        </form>
-      )}
-
-      {domainMode === "custom" && (
-        <div className="w-full max-w-sm mx-auto space-y-5 text-left">
-          {registeredDomain ? (
-            <div className="text-center space-y-5">
-              <div className="mx-auto w-14 h-14 rounded-full bg-success/20 flex items-center justify-center">
-                <Check className="w-7 h-7 text-success animate-check-pop" />
-              </div>
-              <p className="font-mono text-xl text-card-foreground">{registeredDomain}</p>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Your domain is registered. We'll set up the DNS records automatically.
-              </p>
-              <Button size="lg" className="w-full" onClick={goNext}>
-                Continue <ChevronRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-          ) : (
-            <>
-              <Field label="Search for a domain" htmlFor="onb-custom-domain">
-                <div className="flex gap-2">
-                  <Input
-                    id="onb-custom-domain"
-                    type="text"
-                    value={customDomainQuery}
-                    onChange={(e) => setCustomDomainQuery(e.target.value)}
-                    placeholder="my-site"
-                    onKeyDown={(e) => { if (e.key === "Enter") handleSearchDomain(); }}
-                  />
-                  <Button variant="outline" size="icon" onClick={handleSearchDomain} disabled={!customDomainQuery.trim()}>
-                    <Search className="w-4 h-4" />
-                  </Button>
-                </div>
-              </Field>
-
-              {domainResults.length > 0 && (
-                <div className="space-y-2.5">
-                  {domainResults.map((result) => {
-                    const checked = result.available !== undefined;
-                    return (
-                      <div
-                        key={result.name}
-                        className={cn(
-                          "flex items-center justify-between rounded-large-element border p-3.5 gap-3 animate-fade-in-up",
-                          result.available ? "border-success/30 bg-success/5" : "border-border"
-                        )}
-                      >
-                        <div className="flex-1 min-w-0">
-                          <span className="font-mono text-sm text-card-foreground">{result.name}</span>
-                          {result.price && (
-                            <span className="ml-2 text-xs text-muted-foreground">${result.price}/year</span>
-                          )}
-                        </div>
-                        {checked ? (
-                          result.available ? (
-                            <div className="flex items-center gap-2">
-                              <Badge variant="success">Available</Badge>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handlePurchaseDomain(result.name)}
-                                disabled={purchasingDomain}
-                              >
-                                {purchasingDomain ? <Loader2 className="w-3 h-3 animate-spin" /> : "Register"}
-                              </Button>
-                            </div>
-                          ) : (
-                            <Badge variant="outline">Taken</Badge>
-                          )
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleCheckDomain(result.name)}
-                            disabled={checkingDomain === result.name}
-                          >
-                            {checkingDomain === result.name ? <Loader2 className="w-3 h-3 animate-spin" /> : "Check"}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+          Skip for now — set up later
+        </button>
+      </div>
     </StepShell>
   );
 
@@ -1029,34 +1158,22 @@ export default function Onboarding() {
 
   const renderFreeDomain = () => (
     <StepShell icon={Globe} title="Pick your free domain">
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
-        Choose a name for your free subdomain. Your apps will live at{" "}
-        <span className="font-mono">yourname.free.servers.libreloom.org</span>.
+      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-2">
+        This is the address people use to reach your apps.
+        You can always change it later from your dashboard.
       </p>
 
-      <form
-        onSubmit={(e) => { e.preventDefault(); if (subdomainName.trim()) goNext(); }}
-        className="w-full max-w-sm mx-auto space-y-5 text-left"
-      >
-        <Field label="Subdomain name" htmlFor="onb-subdomain">
-          <Input
-            id="onb-subdomain"
-            type="text"
-            value={subdomainName}
-            onChange={(e) => setSubdomainName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-            placeholder="your-name"
-            autoFocus
-          />
-          {subdomainName && (
-            <p className="mt-3 text-sm font-mono text-foreground bg-muted rounded-large-element px-4 py-2.5 animate-fade-in-up">
-              {subdomainName}.free.servers.libreloom.org
-            </p>
-          )}
-        </Field>
-        <Button type="submit" className="w-full" size="lg" disabled={!subdomainName.trim()}>
-          Continue <ChevronRight className="w-4 h-4 ml-1" />
-        </Button>
-      </form>
+      <div className="w-full max-w-sm mx-auto">
+        <SubdomainPicker
+          subdomainName={subdomainName}
+          setSubdomainName={setSubdomainName}
+          subAvailability={subAvailability}
+          setSubAvailability={setSubAvailability}
+          checkingSub={checkingSub}
+          suffix="free.servers.libreloom.org"
+          onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
+        />
+      </div>
     </StepShell>
   );
 
