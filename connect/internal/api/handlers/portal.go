@@ -1617,7 +1617,7 @@ func (h *PortalHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT cd.id, cd.domain, cd.registered_via, cd.auto_renew, cd.status, cd.purchased_at, cd.expires_at, d.id, d.plan_id
+		`SELECT cd.id, cd.domain, cd.registered_via, cd.auto_renew, cd.status, cd.purchased_at, cd.expires_at, cd.grace_until, d.id, d.plan_id
 		 FROM custom_domains cd
 		 JOIN devices d ON cd.device_id = d.id
 		 WHERE d.account_id = $1`,
@@ -1637,6 +1637,7 @@ func (h *PortalHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 		Status        string
 		PurchasedAt   time.Time
 		ExpiresAt     sql.NullTime
+		GraceUntil    sql.NullTime
 		DeviceID      string
 		PlanID        string
 	}
@@ -1644,7 +1645,7 @@ func (h *PortalHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 	var domains []map[string]any
 	for rows.Next() {
 		var dr domainRow
-		if err := rows.Scan(&dr.ID, &dr.Domain, &dr.RegisteredVia, &dr.AutoRenew, &dr.Status, &dr.PurchasedAt, &dr.ExpiresAt, &dr.DeviceID, &dr.PlanID); err != nil {
+		if err := rows.Scan(&dr.ID, &dr.Domain, &dr.RegisteredVia, &dr.AutoRenew, &dr.Status, &dr.PurchasedAt, &dr.ExpiresAt, &dr.GraceUntil, &dr.DeviceID, &dr.PlanID); err != nil {
 			JSONError(w, http.StatusInternalServerError, "could not parse domain row")
 			return
 		}
@@ -1656,6 +1657,7 @@ func (h *PortalHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 			"status":         dr.Status,
 			"purchased_at":   dr.PurchasedAt,
 			"expires_at":     dr.ExpiresAt,
+			"grace_until":    dr.GraceUntil,
 			"device_id":      dr.DeviceID,
 			"plan_id":        dr.PlanID,
 		})

@@ -14,8 +14,16 @@ import { AlertCircle, ExternalLink, Loader2 } from "lucide-react";
 export default function Billing() {
   const queryClient = useQueryClient();
   const { data: billing, isLoading, error } = useQuery({ queryKey: ["billing"], queryFn: api.getBilling });
+  const { data: domainsData } = useQuery({ queryKey: ["domains"], queryFn: api.getDomains });
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelError, setCancelError] = useState("");
+
+  const balance = billing?.credit_balance_cents || 0;
+  const invoices = billing?.invoices || [];
+  const transactions = billing?.transactions || [];
+  // An active custom domain will stop renewing and go to grace when the plan
+  // ends — the cancel confirmation must say so, not leave the user surprised.
+  const activeCustomDomain = (domainsData?.domains || []).find((d) => d.status === "active");
 
   const cancelMut = useMutation({
     mutationFn: api.cancel,
@@ -41,10 +49,6 @@ export default function Billing() {
       }
     },
   });
-
-  const balance = billing?.credit_balance_cents || 0;
-  const invoices = billing?.invoices || [];
-  const transactions = billing?.transactions || [];
 
   return (
     <Layout>
@@ -134,6 +138,7 @@ export default function Billing() {
               <SectionHeader label="Subscription" />
               <SubscriptionCard
                 subscription={billing?.subscription}
+                activeCustomDomain={activeCustomDomain}
                 confirmCancel={confirmCancel}
                 setConfirmCancel={setConfirmCancel}
                 cancelMut={cancelMut}
@@ -148,7 +153,7 @@ export default function Billing() {
   );
 }
 
-function SubscriptionCard({ subscription, confirmCancel, setConfirmCancel, cancelMut, resumeMut, cancelError }) {
+function SubscriptionCard({ subscription, activeCustomDomain, confirmCancel, setConfirmCancel, cancelMut, resumeMut, cancelError }) {
   const pending = !!subscription?.cancel_at_period_end;
   const periodEnd = subscription?.period_end ? new Date(subscription.period_end).toLocaleDateString() : null;
   const isPaid = subscription && subscription.plan_id && subscription.plan_id !== "free";
@@ -202,6 +207,16 @@ function SubscriptionCard({ subscription, confirmCancel, setConfirmCancel, cance
               stays on {subscription.plan_name} until then, then moves to Free.
               You can change your mind anytime before the cycle ends.
             </p>
+            {activeCustomDomain && (
+              <div className="flex items-start gap-2 rounded-large-element border border-warning/40 bg-warning/10 px-3 py-2.5">
+                <AlertCircle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                <p className="text-sm text-warning">
+                  Your custom domain <span className="font-mono">{activeCustomDomain.domain}</span>{" "}
+                  will stop renewing too and stop working when it expires
+                  {activeCustomDomain.expires_at ? ` (${new Date(activeCustomDomain.expires_at).toLocaleDateString()})` : ""}.
+                </p>
+              </div>
+            )}
             <div className="flex gap-2">
               <Button
                 variant="destructive"

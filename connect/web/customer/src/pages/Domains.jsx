@@ -30,8 +30,18 @@ export default function Domains() {
     queryFn: api.getDevices,
     enabled: verified,
   });
+  const { data: domainsData } = useQuery({
+    queryKey: ["domains"],
+    queryFn: api.getDomains,
+    enabled: verified,
+  });
 
   const devices = (devicesData?.devices || []).filter((d) => d.is_active);
+  const ownedDomains = domainsData?.domains || [];
+  // Domains the user owns that aren't the current serving domain — retiring,
+  // grace, or payment-failed ones need a visible warning, never silence.
+  const warningDomains = ownedDomains.filter((d) =>
+    d.status === "grace" || d.status === "payment_failed");
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["devices"] });
@@ -71,10 +81,57 @@ export default function Domains() {
             {devices.map((device) => (
               <AddressControl key={device.id} device={device} />
             ))}
+            {warningDomains.length > 0 && <DomainWarnings domains={warningDomains} />}
           </div>
         )}
       </div>
     </Layout>
+  );
+}
+
+// ─── Warnings for owned domains that are retiring or failing ───────────────
+// A custom domain in grace stops working on its expiry date (it stopped
+// renewing when the plan changed); a payment_failed domain is one failed
+// charge away from lapsing. Never let these pass silently.
+function DomainWarnings({ domains }) {
+  return (
+    <section>
+      <Divider label="Needs attention" />
+      <ul className="space-y-3">
+        {domains.map((d) => (
+          <DomainWarningCard key={d.id} domain={d} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function DomainWarningCard({ domain: d }) {
+  const stop = d.grace_until || d.expires_at;
+  const stopDate = stop ? new Date(stop).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }) : null;
+  const isPaymentFailed = d.status === "payment_failed";
+
+  return (
+    <Card className={isPaymentFailed ? "border-error/40" : "border-warning/40"}>
+      <CardContent className="py-4 flex items-start gap-3">
+        <AlertCircle className={isPaymentFailed ? "w-5 h-5 text-error shrink-0 mt-0.5" : "w-5 h-5 text-warning shrink-0 mt-0.5"} />
+        <div className="min-w-0">
+          <p className="font-mono text-sm">{d.domain}</p>
+          {isPaymentFailed ? (
+            <p className="text-sm text-error mt-1">
+              The last renewal charge failed. Top up your credit in Billing or this
+              domain will stop working{stopDate ? ` on ${stopDate}` : ""}.
+            </p>
+          ) : (
+            <p className="text-sm text-warning mt-1">
+              This domain will stop working{stopDate ? ` on ${stopDate}` : ""} — it
+              stopped renewing when your plan changed. Reactivate a paid plan to
+              keep it, or it releases when it expires.
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
