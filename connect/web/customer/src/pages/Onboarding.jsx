@@ -340,7 +340,7 @@ function CustomDomainSection({
   return (
     <div className="space-y-4 text-left animate-fade-in-up">
       <p className="text-xs text-muted-foreground leading-relaxed">
-        Already own a domain? Register a new one at cost through Cloudflare.
+        Get a custom domain — registered at cost through Cloudflare, no markup.
       </p>
 
       <Field label="Search for a domain" htmlFor="onb-custom-domain">
