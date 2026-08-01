@@ -1522,17 +1522,18 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	if config.C.Purchase.MockDomain {
 		deviceID := req.DeviceID
 		if deviceID == "" {
-			// Look up the account's first device, or create a placeholder.
+			// Look up the account's existing device. The devices table has a UNIQUE
+			// constraint on account_id, so there's at most one.
 			accountID := middleware.GetCustomerDeviceID(r.Context())
 			err := h.db.QueryRowContext(r.Context(),
-				`SELECT id FROM devices WHERE account_id = $1 ORDER BY created_at LIMIT 1`,
+				`SELECT id FROM devices WHERE account_id = $1 LIMIT 1`,
 				accountID).Scan(&deviceID)
 			if err != nil {
 				// No device yet — create a placeholder so the domain can be linked.
 				deviceID = security.GenerateID("dev")
 				_, err = h.db.ExecContext(r.Context(),
-					`INSERT INTO devices (id, account_id, plan_id, subdomain, is_active, created_at)
-					 VALUES ($1, $2, 'free', $3, FALSE, NOW())`,
+					`INSERT INTO devices (id, account_id, plan_id, subdomain, is_active)
+					 VALUES ($1, $2, 'free', $3, FALSE)`,
 					deviceID, accountID, deviceID)
 				if err != nil {
 					slog.Error("mock: failed to create placeholder device", "error", err)
