@@ -141,9 +141,10 @@ type PlanInfo struct {
 }
 
 type PlanLimits struct {
-	MaxEmailsPerDay int `json:"max_emails_per_day"`
-	TunnelMbps      int `json:"tunnel_mbps"`
-	TunnelGBPerMo   int `json:"tunnel_gb_per_mo"`
-	BackupGB        int `json:"backup_gb"`
-	AIMessagesPerMo int `json:"ai_messages_per_mo"`
+	MaxEmailsPerDay int    `json:"max_emails_per_day"`
+	TunnelMbps      int    `json:"tunnel_mbps"`
+	TunnelGBPerMo   int    `json:"tunnel_gb_per_mo"`
+	BackupGB        int    `json:"backup_gb"`
+	AIMessagesPerMo int    `json:"ai_messages_per_mo"`
+	Domain          string `json:"domain,omitempty"`
 }

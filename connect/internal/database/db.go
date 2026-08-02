@@ -397,4 +397,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_subdomain_unique ON devices(subdom
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
 		`,
 	},
+	{
+		name: "007_domain_account_id",
+		sql: `
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES customer_accounts(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_custom_domains_account ON custom_domains(account_id);
+		`,
+	},
 }

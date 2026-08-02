@@ -41,13 +41,14 @@ function backupAgeState(lastBackupAt) {
   return "stale";
 }
 
-export default function BackupsCategory() {
+export default function BackupsCategory({ connectStatus = null }) {
   const { request } = useAuth();
   const { addToast } = useToast();
 
   const [backups, setBackups] = useState([]);
   const [apps, setApps] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [repos, setRepos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
@@ -77,10 +78,11 @@ export default function BackupsCategory() {
     setLoading(true);
     setLoadError(null);
     try {
-      const [backupsRes, appsRes, schedulesRes] = await Promise.all([
+      const [backupsRes, appsRes, schedulesRes, reposRes] = await Promise.all([
         request("/backups"),
         request("/apps"),
         request("/backups/schedules"),
+        request("/backups/repos"),
       ]);
 
       if (!backupsRes.ok) {
@@ -99,9 +101,11 @@ export default function BackupsCategory() {
       const backupsData = await backupsRes.json();
       const appsData = await appsRes.json();
       const schedulesData = await schedulesRes.json();
+      const reposData = reposRes.ok ? await reposRes.json() : { repos: [] };
       setBackups(backupsData.backups || []);
       setApps(appsData.apps || []);
       setSchedules(schedulesData.schedules || []);
+      setRepos(reposData.repos || []);
     } catch (err) {
       console.error("Failed to load data:", err);
       setLoadError(err.message);
@@ -635,7 +639,10 @@ export default function BackupsCategory() {
         </SettingsCard>
       )}
 
-      {!loading && !loadError && (
+      {/* Hide "Set up in External Services" CTA once any backup destination is
+          configured: local-only repos via /backups/repos, or Cloud Backup
+          managed by Connect. Both mean there is already off-site storage. */}
+      {!loading && !loadError && repos.length === 0 && !["connected", "byo"].includes(connectStatus?.services?.backup?.state) && (
         <SettingsCard icon={CloudOff} title="Keep a copy somewhere else" padding={false} index={3}>
           <SettingsRow
             label="Off-site backup storage"

@@ -383,34 +383,16 @@ func (f *FakeClient) Status(ctx context.Context) (*ConnectStatus, error) {
 	return f.buildStatusLocked(), nil
 }
 
-func (f *FakeClient) Usage(ctx context.Context) (*UsageSummary, error) {
-	return &UsageSummary{
-		CurrentCycleStart: time.Now().AddDate(0, 0, -15),
-		CurrentCycleEnd:   time.Now().AddDate(0, 0, 15),
-		TotalCostUSD:      0.45,
-		CreditCapUSD:      10.00,
-		RemainingUSD:      9.55,
-	}, nil
-}
-
-func (f *FakeClient) Info(ctx context.Context) (*ConnectInfo, error) {
-	return &ConnectInfo{
-		Plans: []PlanInfo{
-			{ID: PlanFree, Name: "Connect Free", Description: "Get started with basic services. No credit card required.", PriceMonthly: 0},
-			{ID: PlanLite, Name: "Connect Lite", Description: "Essential services for a fixed monthly price.", PriceMonthly: 600},
-			{ID: PlanOne, Name: "Connect One", Description: "All services, unlimited. Fixed monthly price.", PriceMonthly: 2500},
-		},
-		PlanLimits: map[PlanID]PlanLimits{
-			PlanFree: {MaxEmailsPerDay: 30, TunnelMbps: 1, TunnelGBPerMo: 1, BackupGB: 0, AIMessagesPerMo: 50},
-			PlanLite: {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 50, BackupGB: 100, AIMessagesPerMo: 0},
-			PlanOne:  {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 200, BackupGB: 1024, AIMessagesPerMo: 0},
-		},
-	}, nil
-}
-
 func (f *FakeClient) buildStatusLocked() *ConnectStatus {
 	svcs := make(map[ServiceID]ServiceStatus, len(f.services))
 	for id, svc := range f.services {
+		// Populate domain details so the UI knows the actual served subdomain.
+		if id == ServiceDomain && svc.State == ServiceConnected && f.connectKey != "" {
+			svc.Details = map[string]string{
+				"type":   "subdomain",
+				"domain": f.connectKey[:min(8, len(f.connectKey))] + ".servers.libreloom.org",
+			}
+		}
 		svcs[id] = svc
 	}
 
@@ -425,6 +407,33 @@ func (f *FakeClient) buildStatusLocked() *ConnectStatus {
 		Services:       svcs,
 		ConnectKeyHint: hint,
 	}
+}
+
+func (f *FakeClient) Usage(ctx context.Context) (*UsageSummary, error) {
+	return &UsageSummary{
+		CurrentCycleStart: time.Now().AddDate(0, 0, -15),
+		CurrentCycleEnd:   time.Now().AddDate(0, 0, 15),
+		TotalCostUSD:      0.45,
+		CreditCapUSD:      10.00,
+		RemainingUSD:      9.55,
+	}, nil
+}
+
+func (f *FakeClient) Info(ctx context.Context) (*ConnectInfo, error) {
+	plans := []PlanInfo{
+		{ID: PlanFree, Name: "Connect Free", Description: "Get started with basic services. No credit card required.", PriceMonthly: 0},
+		{ID: PlanLite, Name: "Connect Lite", Description: "Essential services for a fixed monthly price.", PriceMonthly: 600},
+		{ID: PlanOne, Name: "Connect One", Description: "All services, unlimited. Fixed monthly price.", PriceMonthly: 2500},
+	}
+	limits := map[PlanID]PlanLimits{
+		PlanFree: {MaxEmailsPerDay: 30, TunnelMbps: 1, TunnelGBPerMo: 1, BackupGB: 0, AIMessagesPerMo: 50, Domain: "*.free.servers.libreloom.org"},
+		PlanLite: {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 50, BackupGB: 100, AIMessagesPerMo: 0, Domain: "*.servers.libreloom.org"},
+		PlanOne:  {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 200, BackupGB: 1024, AIMessagesPerMo: 0, Domain: "*.servers.libreloom.org"},
+	}
+	return &ConnectInfo{
+		Plans:      plans,
+		PlanLimits: limits,
+	}, nil
 }
 
 func connectKeyHint(key string) string {

@@ -20,6 +20,7 @@ type Limits struct {
 	Domain           string `json:"domain"`
 	HumanSupport     bool   `json:"human_support"`
 	TunnelGBPerMo    int    `json:"tunnel_gb_per_mo"`
+	TunnelMbps       int    `json:"tunnel_mbps"`
 }
 
 // Overage rates — what the customer pays beyond included allowance.
@@ -54,6 +55,7 @@ var plans = []Plan{
 			Domain:           "*.free.servers.libreloom.org",
 			HumanSupport:     false,
 			TunnelGBPerMo:    0,
+			TunnelMbps:       1,
 		},
 	},
 	{
@@ -69,6 +71,7 @@ var plans = []Plan{
 			Domain:           "*.servers.libreloom.org",
 			HumanSupport:     true,
 			TunnelGBPerMo:    50,
+			TunnelMbps:       100,
 		},
 	},
 	{
@@ -84,6 +87,7 @@ var plans = []Plan{
 			Domain:           "*.servers.libreloom.org",
 			HumanSupport:     true,
 			TunnelGBPerMo:    200,
+			TunnelMbps:       100,
 		},
 	},
 }

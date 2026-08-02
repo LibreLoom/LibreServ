@@ -71,7 +71,7 @@ func (s *Scheduler) SyncDomains() error {
 // domainRow holds the fields the scheduler needs for each custom domain.
 type domainRow struct {
 	ID               string
-	DeviceID         string
+	DeviceID         sql.NullString
 	Domain           string
 	Status           string
 	ExpiresAt        sql.NullTime
@@ -89,7 +89,7 @@ func (s *Scheduler) syncDomains() error {
 	}
 
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, device_id, domain, status, expires_at, auto_renew, renewal_cost_cents
+		`SELECT id, device_id, account_id, domain, status, expires_at, auto_renew, renewal_cost_cents
 		 FROM custom_domains WHERE status IN ('active', 'grace', 'payment_failed')`)
 	if err != nil {
 		return err
@@ -99,7 +99,8 @@ func (s *Scheduler) syncDomains() error {
 	var domains []domainRow
 	for rows.Next() {
 		var dr domainRow
-		if err := rows.Scan(&dr.ID, &dr.DeviceID, &dr.Domain, &dr.Status, &dr.ExpiresAt, &dr.AutoRenew, &dr.RenewalCostCents); err != nil {
+		var accountID sql.NullString
+		if err := rows.Scan(&dr.ID, &dr.DeviceID, &accountID, &dr.Domain, &dr.Status, &dr.ExpiresAt, &dr.AutoRenew, &dr.RenewalCostCents); err != nil {
 			slog.Warn("failed to scan domain row", "error", err)
 			continue
 		}
@@ -178,7 +179,12 @@ func (s *Scheduler) refreshRenewalCost(ctx context.Context, domain, apiToken, cf
 // handleAutoRenewal deducts the renewal cost from the device's account credit
 // when Cloudflare has auto-renewed the domain. CF charges its own payment method;
 // LibreServ recovers the cost by charging the user's credit at the exact at-cost price.
+// If no device is linked, the domain is skipped (no credit to deduct from).
 func (s *Scheduler) handleAutoRenewal(ctx context.Context, d domainRow, apiToken, cfAccountID string) {
+	if !d.DeviceID.Valid {
+		slog.Warn("scheduler: domain has no device linked, cannot auto-renewal", "domain", d.Domain)
+		return
+	}
 	renewalCost := int64(0)
 	if d.RenewalCostCents.Valid {
 		renewalCost = d.RenewalCostCents.Int64
@@ -188,10 +194,10 @@ func (s *Scheduler) handleAutoRenewal(ctx context.Context, d domainRow, apiToken
 		return
 	}
 
-	if err := s.billing.DeductCredit(d.DeviceID, int(renewalCost), "domain_renewal", d.Domain); err != nil {
+	if err := s.billing.DeductCredit(d.DeviceID.String, int(renewalCost), "domain_renewal", d.Domain); err != nil {
 		// Insufficient credit — disable CF auto-renew and mark payment_failed.
 		slog.Warn("scheduler: insufficient credit for domain renewal, marking payment_failed",
-			"domain", d.Domain, "device", d.DeviceID, "cost_cents", renewalCost, "error", err)
+			"domain", d.Domain, "device", d.DeviceID.String, "cost_cents", renewalCost, "error", err)
 		_ = s.registrar.UpdateDomainAutoRenew(cfAccountID, apiToken, d.Domain, false)
 		_, _ = s.db.ExecContext(ctx,
 			`UPDATE custom_domains SET status = 'payment_failed', auto_renew = FALSE WHERE id = $1`,
@@ -200,12 +206,15 @@ func (s *Scheduler) handleAutoRenewal(ctx context.Context, d domainRow, apiToken
 	}
 
 	slog.Info("scheduler: domain renewed, credit deducted",
-		"domain", d.Domain, "device", d.DeviceID, "cost_cents", renewalCost)
+		"domain", d.Domain, "device", d.DeviceID.String, "cost_cents", renewalCost)
 }
 
 // retryPaymentFailed attempts to deduct credit again for a payment_failed domain.
 // If it succeeds, re-enables CF auto-renew and sets status='active'.
 func (s *Scheduler) retryPaymentFailed(ctx context.Context, d domainRow, apiToken, cfAccountID string) {
+	if !d.DeviceID.Valid {
+		return // no device linked — nothing to retry
+	}
 	renewalCost := int64(0)
 	if d.RenewalCostCents.Valid {
 		renewalCost = d.RenewalCostCents.Int64
@@ -214,7 +223,7 @@ func (s *Scheduler) retryPaymentFailed(ctx context.Context, d domainRow, apiToke
 		return
 	}
 
-	if err := s.billing.DeductCredit(d.DeviceID, int(renewalCost), "domain_renewal", d.Domain); err != nil {
+	if err := s.billing.DeductCredit(d.DeviceID.String, int(renewalCost), "domain_renewal", d.Domain); err != nil {
 		slog.Debug("scheduler: payment_failed domain still has insufficient credit",
 			"domain", d.Domain, "error", err)
 		return
@@ -226,7 +235,7 @@ func (s *Scheduler) retryPaymentFailed(ctx context.Context, d domainRow, apiToke
 		`UPDATE custom_domains SET status = 'active', auto_renew = TRUE WHERE id = $1`,
 		d.ID)
 	slog.Info("scheduler: payment_failed domain recovered, credit deducted",
-		"domain", d.Domain, "device", d.DeviceID, "cost_cents", renewalCost)
+		"domain", d.Domain, "device", d.DeviceID.String, "cost_cents", renewalCost)
 }
 
 // revokeExpiredDomain handles a grace domain that has reached expiry: sets
@@ -236,19 +245,20 @@ func (s *Scheduler) revokeExpiredDomain(ctx context.Context, d domainRow) {
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE custom_domains SET status = 'expired' WHERE id = $1`, d.ID)
 
-	_, _ = s.db.ExecContext(ctx,
-		`UPDATE service_credentials SET is_active = FALSE, revoked_at = $1
-		 WHERE device_id = $2 AND service_type = 'domain'`,
-		time.Now(), d.DeviceID)
-
-	// Re-provision the subdomain fallback.
-	provSvc := services.NewProvisioningService(s.db)
-	if _, err := provSvc.Provision(d.DeviceID, "domain", ""); err != nil {
-		slog.Warn("scheduler: failed to re-provision subdomain after expiry",
-			"error", err, "device", d.DeviceID)
+	if d.DeviceID.Valid {
+		_, _ = s.db.ExecContext(ctx,
+			`UPDATE service_credentials SET is_active = FALSE, revoked_at = $1
+			 WHERE device_id = $2 AND service_type = 'domain'`,
+			time.Now(), d.DeviceID.String)
+		// Re-provision the subdomain fallback.
+		provSvc := services.NewProvisioningService(s.db)
+		if _, err := provSvc.Provision(d.DeviceID.String, "domain", ""); err != nil {
+			slog.Warn("scheduler: failed to re-provision subdomain after expiry",
+				"error", err, "device", d.DeviceID.String)
+		}
 	}
 	slog.Info("scheduler: expired grace domain revoked, subdomain re-provisioned",
-		"domain", d.Domain, "device", d.DeviceID)
+		"domain", d.Domain, "device", d.DeviceID.String)
 }
 
 // detectOrphans lists all domains in Cloudflare and logs any that are not in

@@ -14,11 +14,11 @@ import {
 import { cn } from "../lib/utils.js";
 
 /**
- * Domain — the address people use to reach this server.
+ * Domain — the address people reach this server on.
  *
- * Every device is served from a plan-provided subdomain which you can rename
- * here, or front with a custom domain you register through us (at cost).
- * A custom domain overrides the subdomain while it's active.
+ * You can register custom domains through us (at cost) and assign them to a
+ * device later. If you have a device connected, you can also rename its
+ * built-in subdomain or switch between the subdomain and a custom domain.
  */
 export default function Domains() {
   const { account } = useAuth();
@@ -68,24 +68,76 @@ export default function Domains() {
           </CardContent></Card>
         ) : isLoading ? (
           <DomainSkeleton />
-        ) : devices.length === 0 ? (
-          <Card><CardContent className="py-12 text-center">
-            <Globe className="w-7 h-7 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="font-mono text-base mb-2">No device connected yet</h3>
-            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-              Connect a device to choose its address.
-            </p>
-          </CardContent></Card>
         ) : (
           <div className="space-y-10">
-            {devices.map((device) => (
-              <AddressControl key={device.id} device={device} />
-            ))}
+            {devices.length > 0 ? (
+              devices.map((device) => (
+                <AddressControl key={device.id} device={device} />
+              ))
+            ) : (
+              <Card><CardContent className="py-12 text-center">
+                <Globe className="w-7 h-7 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="font-mono text-base mb-2">No device connected yet</h3>
+                <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                  Register a domain now and assign it to a device later.
+                </p>
+              </CardContent></Card>
+            )}
+
+            {/* Always show the owned domain list and custom domain registration */}
+            <DomainList domains={ownedDomains} />
+            <CustomDomainRegistration />
+
             {warningDomains.length > 0 && <DomainWarnings domains={warningDomains} />}
           </div>
         )}
       </div>
     </Layout>
+  );
+}
+
+// ─── Owned domain list ─────────────────────────────────────────────────────
+function DomainList({ domains }) {
+  const active = domains.filter((d) => d.status === "active");
+  const other = domains.filter((d) => d.status !== "active" && d.status !== "grace" && d.status !== "payment_failed");
+
+  if (domains.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <Divider label="Your domains" />
+      <ul className="divide-y divide-border rounded-large-element border border-border overflow-hidden">
+        {active.map((d) => (
+          <DomainRow key={d.id} domain={d} />
+        ))}
+        {other.map((d) => (
+          <DomainRow key={d.id} domain={d} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function DomainRow({ domain: d }) {
+  return (
+    <li className="flex items-center justify-between gap-3 px-4 py-3">
+      <div className="min-w-0">
+        <div className="font-mono text-sm truncate">{d.domain}</div>
+        {d.device_id && (
+          <div className="text-xs text-muted-foreground mt-0.5">
+            Assigned to device
+          </div>
+        )}
+        {!d.device_id && (
+          <div className="text-xs text-muted-foreground mt-0.5">
+            Not assigned to a device yet
+          </div>
+        )}
+      </div>
+      <Badge variant={d.status === "active" ? "success" : "outline"}>
+        {d.status}
+      </Badge>
+    </li>
   );
 }
 
@@ -492,5 +544,143 @@ function CustomDomainSection({ device, hasCustom }) {
         )}
       </section>
     </>
+  );
+}
+
+// ─── Standalone custom domain registration (no device needed) ───────────────
+function CustomDomainRegistration() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [checking, setChecking] = useState(null);
+  const [purchasing, setPurchasing] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const search = async () => {
+    if (!query.trim()) return;
+    setError("");
+    setSuccess("");
+    try {
+      const res = await api.searchDomains(query);
+      setResults(res.domains || res.results || []);
+    } catch (err) {
+      setError(err.message || "Could not search domains.");
+    }
+  };
+
+  const check = async (name) => {
+    setChecking(name);
+    setError("");
+    try {
+      const res = await api.checkDomain(name);
+      setResults((prev) =>
+        prev.map((d) => d.name === name ? { ...d, available: res.available || res.registrable, price: res.registration_cost } : d)
+      );
+    } catch (err) {
+      setError(err.message || "Could not check availability.");
+    } finally {
+      setChecking(null);
+    }
+  };
+
+  const purchase = async (name) => {
+    setPurchasing(true);
+    setError("");
+    try {
+      // Register without a device_id — the domain is owned at the account level.
+      const res = await api.registerDomain("", name);
+      if (res.checkout_url) {
+        window.location.href = res.checkout_url;
+      } else {
+        setSuccess(`${name} registered.`);
+        setResults([]);
+      }
+    } catch (err) {
+      setError(err.message || "Could not register domain.");
+    } finally {
+      setPurchasing(false);
+    }
+  };
+
+  return (
+    <section className="space-y-3">
+      <Divider label="Register a domain" />
+      <p className="text-sm text-muted-foreground">
+        Own a domain before you connect a device. Register one now, and assign it
+        to your device once it's set up. You pay exactly what we pay at the
+        registrar — no markup.
+      </p>
+
+      <div className="flex gap-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search()}
+          placeholder="Search a name…"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Button variant="outline" size="md" onClick={search} disabled={!query.trim()}>
+          <Search className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {error && (
+        <p className="flex items-center gap-1.5 text-xs text-error">
+          <AlertCircle className="w-3.5 h-3.5" /> {error}
+        </p>
+      )}
+      {success && (
+        <p className="flex items-center gap-1.5 text-xs text-success">
+          <Check className="w-3.5 h-3.5" /> {success}
+        </p>
+      )}
+
+      {results.length > 0 && (
+        <ul className="divide-y divide-border rounded-large-element border border-border overflow-hidden">
+          {results.map((r) => {
+            const isChecked = r.available !== undefined;
+            return (
+              <li
+                key={r.name}
+                className="flex items-center justify-between gap-3 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="font-mono text-sm truncate">{r.name}</div>
+                  {isChecked && r.available && (
+                    <div className="text-xs text-muted-foreground">
+                      ${r.price || "—"}/year
+                    </div>
+                  )}
+                </div>
+                {isChecked ? (
+                  r.available ? (
+                    <Button
+                      size="sm"
+                      onClick={() => purchase(r.name)}
+                      loading={purchasing}
+                      disabled={purchasing}
+                    >
+                      Register
+                    </Button>
+                  ) : (
+                    <Badge variant="outline">Taken</Badge>
+                  )
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => check(r.name)}
+                    disabled={checking === r.name}
+                  >
+                    {checking === r.name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Check"}
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

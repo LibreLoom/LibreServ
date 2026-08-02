@@ -177,9 +177,21 @@ func (h *BillingHandler) handleCheckoutCompleted(w http.ResponseWriter, r *http.
 func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Request, session *stripego.CheckoutSession) {
 	domainName := session.Metadata["domain"]
 	deviceID := session.Metadata["device_id"]
-	if domainName == "" || deviceID == "" {
+	accountID := session.Metadata["account_id"]
+	if domainName == "" {
 		slog.Error("domain purchase missing metadata", "metadata", session.Metadata)
 		JSONError(w, http.StatusBadRequest, "missing domain metadata")
+		return
+	}
+
+	// If no account_id in metadata, derive it from the device.
+	if accountID == "" && deviceID != "" {
+		_ = h.billing.DB().QueryRow(
+			"SELECT account_id FROM devices WHERE id = $1", deviceID).Scan(&accountID)
+	}
+	if accountID == "" {
+		slog.Error("domain purchase: no account_id", "device", deviceID)
+		JSONError(w, http.StatusBadRequest, "missing account information")
 		return
 	}
 
@@ -225,63 +237,62 @@ func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Req
 	}
 
 	// If the device already has a custom domain, cancel the old one before activating the new one.
-	h.cancelOldDomain(deviceID, apiToken, cfAccountID)
+	if deviceID != "" {
+		h.cancelOldDomain(deviceID, apiToken, cfAccountID)
 
-	// Create DNS CNAME to route the custom domain to the device's tunnel.
-	// The zone is the registrable domain (e.g. "example.com"); we create a
-	// CNAME at the apex or www depending on what the user purchased.
-	tunnelID := h.findDeviceTunnelID(deviceID)
-	dnsConfigured := false
-	if tunnelID != "" {
-		// Extract the zone (last two labels for standard TLDs)
-		zone := extractZone(domainName)
-		cnameTarget := fmt.Sprintf("%s.cfargotunnel.com", tunnelID)
-		dnsClient := providers.NewCloudflareClient(nil)
-		dnsConfigured, _ = dnsClient.CreateCNAME(apiToken, zone, domainName, cnameTarget)
-		if !dnsConfigured {
-			slog.Warn("failed to create CNAME for custom domain", "domain", domainName, "tunnel", tunnelID)
+		// Create DNS CNAME to route the custom domain to the device's tunnel.
+		tunnelID := h.findDeviceTunnelID(deviceID)
+		dnsConfigured := false
+		if tunnelID != "" {
+			zone := extractZone(domainName)
+			cnameTarget := fmt.Sprintf("%s.cfargotunnel.com", tunnelID)
+			dnsClient := providers.NewCloudflareClient(nil)
+			dnsConfigured, _ = dnsClient.CreateCNAME(apiToken, zone, domainName, cnameTarget)
+			if !dnsConfigured {
+				slog.Warn("failed to create CNAME for custom domain", "domain", domainName, "tunnel", tunnelID)
+			}
+		} else {
+			slog.Warn("device has no tunnel, cannot route custom domain", "device", deviceID, "domain", domainName)
 		}
-	} else {
-		slog.Warn("device has no tunnel, cannot route custom domain", "device", deviceID, "domain", domainName)
-	}
 
-	// Push domain credentials to the device so Caddy serves the custom domain.
-	// This is done by writing to the service_credentials table — the device
-	// picks up the credentials on next check-in.
-	domainCreds := map[string]any{
-		"domain":      domainName,
-		"provider":    "connect",
-		"auto_https":  true,
-		"dns_managed": dnsConfigured,
+		// Push domain credentials to the device so Caddy serves the custom domain.
+		domainCreds := map[string]any{
+			"domain":      domainName,
+			"provider":    "connect",
+			"auto_https":  true,
+			"dns_managed": dnsConfigured,
+		}
+		credsJSON, _ := json.Marshal(domainCreds)
+		_, _ = h.billing.DB().Exec(
+			`INSERT INTO service_credentials (id, device_id, service_type, credentials_json, is_active)
+			 VALUES ($1, $2, 'domain', $3, TRUE)
+			 ON CONFLICT (device_id, service_type) DO UPDATE SET
+			   credentials_json = excluded.credentials_json,
+			   provisioned_at = CURRENT_TIMESTAMP,
+			   is_active = TRUE`,
+			security.GenerateID("cred"), deviceID, string(credsJSON))
 	}
-	credsJSON, _ := json.Marshal(domainCreds)
-	_, _ = h.billing.DB().Exec(
-		`INSERT INTO service_credentials (id, device_id, service_type, credentials_json, is_active)
-		 VALUES ($1, $2, 'domain', $3, TRUE)
-		 ON CONFLICT (device_id, service_type) DO UPDATE SET
-		   credentials_json = excluded.credentials_json,
-		   provisioned_at = CURRENT_TIMESTAMP,
-		   is_active = TRUE`,
-		security.GenerateID("cred"), deviceID, string(credsJSON))
 
 	// Record the domain purchase in custom_domains with expiry and renewal cost.
 	// Cloudflare auto-renews (charged to the CF account); LibreServ recovers the
 	// cost by deducting from the device's account credit on each renewal (scheduler).
 	amountCents := session.AmountTotal
 	_, err = h.billing.DB().Exec(
-		`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
-		 VALUES ($1, $2, $3, 'cloudflare', $4, $5, TRUE, 'active', $6)
+		`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
+		 VALUES ($1, $2, $3, $4, 'cloudflare', $5, $6, TRUE, 'active', $7)
 		 ON CONFLICT (domain) DO UPDATE SET
+		   device_id = EXCLUDED.device_id,
+		   account_id = EXCLUDED.account_id,
 		   status = 'active',
 		   expires_at = EXCLUDED.expires_at,
 		   renewal_cost_cents = EXCLUDED.renewal_cost_cents,
 		   auto_renew = TRUE`,
-		security.GenerateID("dom"), deviceID, domainName, int(amountCents), int(renewalCostCents), expiresAt)
+		security.GenerateID("dom"), deviceID, accountID, domainName, int(amountCents), int(renewalCostCents), expiresAt)
 	if err != nil {
 		slog.Error("failed to record domain purchase", "error", err, "domain", domainName)
 	}
 
-	slog.Info("domain registered after payment", "domain", domainName, "device", deviceID, "cost_cents", amountCents, "renewal_cents", renewalCostCents, "dns_configured", dnsConfigured, "expires_at", expiresAt)
+	slog.Info("domain registered after payment", "domain", domainName, "device", deviceID, "account", accountID, "cost_cents", amountCents, "renewal_cents", renewalCostCents, "expires_at", expiresAt)
 	JSON(w, http.StatusOK, map[string]string{"message": "domain registered"})
 }
 

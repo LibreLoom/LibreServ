@@ -49,9 +49,9 @@ func CreateCheckoutSession(ctx context.Context, priceID, deviceID, successURL, c
 }
 
 // CreateDomainCheckoutSession creates a Stripe Checkout session for a one-time
-// domain registration payment. The domain name and device ID are stored in
-// metadata so the webhook handler can register the domain after payment succeeds.
-func CreateDomainCheckoutSession(ctx context.Context, deviceID, domainName string, amountCents int64, successURL, cancelURL string) (sessionURL string, err error) {
+// domain registration payment. The domain name, device ID, and account ID are
+// stored in metadata so the webhook handler can register the domain after payment succeeds.
+func CreateDomainCheckoutSession(ctx context.Context, deviceID, accountID, domainName string, amountCents int64, successURL, cancelURL string) (sessionURL string, err error) {
 	params := &stripego.CheckoutSessionParams{
 		Mode: stripego.String(string(stripego.CheckoutSessionModePayment)),
 		LineItems: []*stripego.CheckoutSessionLineItemParams{
@@ -73,6 +73,7 @@ func CreateDomainCheckoutSession(ctx context.Context, deviceID, domainName strin
 			"type":         "domain_registration",
 			"domain":       domainName,
 			"device_id":    deviceID,
+			"account_id":   accountID,
 			"amount_cents": fmt.Sprintf("%d", amountCents),
 		},
 	}

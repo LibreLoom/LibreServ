@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { api } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "../components/ui/button.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon, MailOpen } from "lucide-react";
 
 export default function Register() {
   const { register, loading } = useAuth();
@@ -17,17 +18,90 @@ export default function Register() {
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
+  const [showVerify, setShowVerify] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState("");
+  const [resendState, setResendState] = useState("idle"); // idle | sending | sent
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     try {
-      await register(email, password, name, username);
-      navigate("/login");
+      const res = await register(email, password, name, username);
+      setRegisteredEmail(res.email || email);
+      setShowVerify(true);
     } catch (err) {
       setError(err.message || "Could not create account.");
     }
   };
+
+  const handleResend = async () => {
+    if (resendState === "sending") return;
+    setError("");
+    setResendState("sending");
+    try {
+      await api.resendVerification("");
+      setResendState("sent");
+      setTimeout(() => setResendState("idle"), 3000);
+    } catch (err) {
+      setError(err.message || "We couldn't send the verification email. Try again in a moment.");
+      setResendState("idle");
+    }
+  };
+
+  // After signup the account is locked until the email is confirmed, so swap
+  // the form for a "check your inbox" screen. The "I've verified" button just
+  // links back to the signup page — verification itself happens via the email
+  // link, which lands on /verify-email.
+  if (showVerify) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <button
+          onClick={toggle}
+          className="absolute top-4 right-4 rounded-pill p-2 text-muted-foreground hover:bg-accent transition-colors"
+        >
+          <Sun className="h-5 w-5 dark:hidden" />
+          <Moon className="h-5 w-5 hidden dark:block" />
+        </button>
+
+        <Card className="w-full max-w-md animate-pop-in">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+              <MailOpen className="h-6 w-6 text-foreground" strokeWidth={1.75} />
+            </div>
+            <CardTitle className="text-3xl">Verify your email</CardTitle>
+            <CardDescription className="text-sm leading-relaxed">
+              We sent a verification link to{" "}
+              <span className="font-mono text-foreground">{registeredEmail}</span>. Click the
+              link in the email to confirm your address — your account stays locked until you do.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {error && <p className="text-sm text-destructive">{error}</p>}
+            <Button className="w-full" size="lg" onClick={() => navigate("/register")}>
+              I've verified
+            </Button>
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resendState !== "idle"}
+                className="text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground motion-safe:transition-colors"
+              >
+                {resendState === "sending"
+                  ? "Sending…"
+                  : resendState === "sent"
+                  ? "Email resent — check your inbox"
+                  : "Didn't get the email? Resend it"}
+              </button>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Check your spam or junk folder too — it sometimes lands there.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">

@@ -21,6 +21,7 @@ import {
   getConnectStatus,
   activateConnect,
   deactivateConnect,
+  getConnectInfo,
 } from "../lib/connect-api.js";
 import { ArrowLeft } from "lucide-react";
 import NotificationsCategory from "../components/settings/categories/NotificationsCategory";
@@ -53,6 +54,7 @@ export default function SettingsPage() {
   const [securitySettings, setSecuritySettings] = useState(null);
   const [notificationsSettings, setNotificationsSettings] = useState(null);
   const [connectStatus, setConnectStatus] = useState(null);
+  const [connectInfo, setConnectInfo] = useState(null);
   const [connectLoading, setConnectLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState(() => {
@@ -76,16 +78,18 @@ export default function SettingsPage() {
     if (!isAdmin) return;
     try {
       setError(null);
-      const [settingsData, securityData, notificationsData, connectData] = await Promise.all([
+      const [settingsData, securityData, notificationsData, connectData, connectInfoData] = await Promise.all([
         getSettings(),
         getSecuritySettings(),
         getNotifications(),
         getConnectStatus().catch(() => null),
+        getConnectInfo().catch(() => null),
       ]);
       setSettings(settingsData);
       setSecuritySettings(securityData);
       setNotificationsSettings(notificationsData);
       setConnectStatus(connectData);
+      setConnectInfo(connectInfoData);
       if (securityData && typeof securityData.use_12_hour_time === "boolean") {
         setUse12HourTime(securityData.use_12_hour_time);
       }
@@ -211,6 +215,10 @@ export default function SettingsPage() {
     try {
       const result = await activateConnect(key, csrfToken);
       setConnectStatus(result);
+      // Refresh plan catalog so any limit changes since the page loaded are reflected.
+      getConnectInfo()
+        .then((info) => setConnectInfo(info))
+        .catch(() => null);
 
       // Poll for provisioning completion — the backend provisions
       // services in the background after returning the activation
@@ -259,8 +267,12 @@ export default function SettingsPage() {
 
   const handleRefreshConnectStatus = async () => {
     try {
-      const data = await getConnectStatus();
+      const [data, info] = await Promise.all([
+        getConnectStatus(),
+        getConnectInfo().catch(() => null),
+      ]);
       setConnectStatus(data);
+      if (info) setConnectInfo(info);
     } catch (err) {
       console.error("Failed to refresh Connect status:", err);
     }
@@ -351,6 +363,7 @@ export default function SettingsPage() {
             onRetrySave={handleRetrySave}
             onSavedComplete={handleSavedComplete}
             connectStatus={connectStatus}
+            connectInfo={connectInfo}
             onActivateConnect={handleActivateConnect}
             onDeactivateConnect={handleDeactivateConnect}
             onRefreshConnectStatus={handleRefreshConnectStatus}
@@ -413,6 +426,7 @@ export default function SettingsPage() {
               onRetrySave={handleRetrySave}
               onSavedComplete={handleSavedComplete}
               connectStatus={connectStatus}
+              connectInfo={connectInfo}
               onActivateConnect={handleActivateConnect}
               onDeactivateConnect={handleDeactivateConnect}
               onRefreshConnectStatus={handleRefreshConnectStatus}

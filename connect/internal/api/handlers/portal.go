@@ -1536,7 +1536,10 @@ func (h *PortalHandler) CheckDomain(w http.ResponseWriter, r *http.Request) {
 // RegisterDomain creates a Stripe checkout session for purchasing a domain.
 // The domain is registered via Cloudflare Registrar after payment succeeds (webhook).
 // This charges the user at-cost via Stripe — no markup on the registration price.
+// In mock mode, domains can be registered without a device — the domain is owned
+// at the account level and can be assigned to a device later.
 func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
 	var req struct {
 		DeviceID string `json:"device_id"`
 		Domain   string `json:"domain"`
@@ -1548,32 +1551,19 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 
 	// Mock mode: register the domain directly, no Stripe payment and no real
 	// Cloudflare registration, so the whole purchase flow can be walked. Works
-	// with or without a device_id — during onboarding there is no device yet,
-	// so we create a placeholder device for the account.
+	// with or without a device_id — the domain is owned at the account level.
 	if config.C.Purchase.MockDomain {
 		deviceID := req.DeviceID
 		if deviceID == "" {
-			// Look up the account's existing device. The devices table has a UNIQUE
-			// constraint on account_id, so there's at most one.
-			accountID := middleware.GetCustomerDeviceID(r.Context())
+			// Look up the account's existing device.
 			err := h.db.QueryRowContext(r.Context(),
 				`SELECT id FROM devices WHERE account_id = $1 LIMIT 1`,
 				accountID).Scan(&deviceID)
 			if err != nil {
-				// No device yet — create a placeholder so the domain can be linked.
-				deviceID = security.GenerateID("dev")
-				_, err = h.db.ExecContext(r.Context(),
-					`INSERT INTO devices (id, account_id, plan_id, subdomain, is_active)
-					 VALUES ($1, $2, 'free', $3, FALSE)`,
-					deviceID, accountID, deviceID)
-				if err != nil {
-					slog.Error("mock: failed to create placeholder device", "error", err)
-					JSONError(w, http.StatusInternalServerError, "could not register domain")
-					return
-				}
+				deviceID = "" // no device — domain is account-level only
 			}
 		}
-		h.registerDomainInDB(deviceID, req.Domain, 1120, 1120)
+		h.registerDomainInDB(deviceID, accountID, req.Domain, 1120, 1120)
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.Domain,
 			"status": "registered",
@@ -1589,10 +1579,10 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify the device belongs to the authenticated account.
-	var accountID string
+	var devAccountID string
 	err := h.db.QueryRowContext(r.Context(),
 		`SELECT account_id FROM devices WHERE id = $1`, req.DeviceID,
-	).Scan(&accountID)
+	).Scan(&devAccountID)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusNotFound, "device not found")
 		return
@@ -1601,14 +1591,11 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "could not verify device")
 		return
 	}
-	if accountID == "" {
+	if devAccountID == "" {
 		JSONError(w, http.StatusBadRequest, "device is not linked to an account")
 		return
 	}
-
-	// Ensure the authenticated account owns the device being registered.
-	deviceOwner := middleware.GetCustomerDeviceID(r.Context())
-	if deviceOwner != accountID {
+	if devAccountID != accountID {
 		JSONError(w, http.StatusForbidden, "you can only register domains for your own devices")
 		return
 	}
@@ -1653,9 +1640,9 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 		}
 		domainID := security.GenerateID("dom")
 		_, _ = h.db.ExecContext(r.Context(),
-			`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
-			 VALUES ($1, $2, $3, 'cloudflare', $4, $5, TRUE, 'active', $6)`,
-			domainID, req.DeviceID, req.Domain, int(amountCents), int(renewalCostCents), expiresAt)
+			`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
+			 VALUES ($1, $2, $3, $4, 'cloudflare', $5, $6, TRUE, 'active', $7)`,
+			domainID, req.DeviceID, accountID, req.Domain, int(amountCents), int(renewalCostCents), expiresAt)
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.Domain,
 			"status": "registered",
@@ -1668,7 +1655,7 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	successURL := config.C.Server.BaseURL + "/domains?domain=success"
 	cancelURL := config.C.Server.BaseURL + "/domains?domain=cancelled"
 
-	checkoutURL, err := providers.CreateDomainCheckoutSession(r.Context(), req.DeviceID, req.Domain, amountCents, successURL, cancelURL)
+	checkoutURL, err := providers.CreateDomainCheckoutSession(r.Context(), req.DeviceID, accountID, req.Domain, amountCents, successURL, cancelURL)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not create checkout session for domain")
 		return
@@ -1682,15 +1669,16 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ListDomains returns custom domains for the authenticated account's devices.
+// ListDomains returns custom domains for the authenticated account.
+// Domains are owned at the account level, optionally linked to a device.
 func (h *PortalHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	rows, err := h.db.QueryContext(r.Context(),
-		`SELECT cd.id, cd.domain, cd.registered_via, cd.auto_renew, cd.status, cd.purchased_at, cd.expires_at, cd.grace_until, d.id, d.plan_id
+		`SELECT cd.id, cd.domain, cd.registered_via, cd.auto_renew, cd.status, cd.purchased_at, cd.expires_at, cd.grace_until, cd.device_id, d.plan_id
 		 FROM custom_domains cd
-		 JOIN devices d ON cd.device_id = d.id
-		 WHERE d.account_id = $1`,
+		 LEFT JOIN devices d ON cd.device_id = d.id
+		 WHERE cd.account_id = $1`,
 		accountID,
 	)
 	if err != nil {
@@ -1708,8 +1696,8 @@ func (h *PortalHandler) ListDomains(w http.ResponseWriter, r *http.Request) {
 		PurchasedAt   time.Time
 		ExpiresAt     sql.NullTime
 		GraceUntil    sql.NullTime
-		DeviceID      string
-		PlanID        string
+		DeviceID      sql.NullString
+		PlanID        sql.NullString
 	}
 
 	var domains []map[string]any
@@ -1760,7 +1748,8 @@ func (h *PortalHandler) GetDomainDetails(w http.ResponseWriter, r *http.Request)
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	// Verify the domain belongs to the authenticated account.
-	var deviceID, status string
+	var deviceID sql.NullString
+	var status string
 	var autoRenew bool
 	var purchasedAt time.Time
 	var expiresAt sql.NullTime
@@ -1769,8 +1758,7 @@ func (h *PortalHandler) GetDomainDetails(w http.ResponseWriter, r *http.Request)
 		`SELECT cd.device_id, cd.status, cd.auto_renew, cd.purchased_at, cd.expires_at,
 		        cd.registration_cost_cents, cd.renewal_cost_cents
 		 FROM custom_domains cd
-		 JOIN devices d ON cd.device_id = d.id
-		 WHERE cd.domain = $1 AND d.account_id = $2`,
+		 WHERE cd.domain = $1 AND cd.account_id = $2`,
 		domainName, accountID,
 	).Scan(&deviceID, &status, &autoRenew, &purchasedAt, &expiresAt, &registrationCostCents, &renewalCostCents)
 	if err == sql.ErrNoRows {
@@ -1812,16 +1800,18 @@ func (h *PortalHandler) GetDomainDetails(w http.ResponseWriter, r *http.Request)
 
 	// Check DNS configuration status.
 	dnsConfigured := false
-	var credsJSON string
-	_ = h.db.QueryRowContext(r.Context(),
-		`SELECT credentials_json FROM service_credentials
-		 WHERE device_id = $1 AND service_type = 'domain' AND is_active = TRUE`,
-		deviceID).Scan(&credsJSON)
-	if credsJSON != "" {
-		var creds map[string]any
-		if json.Unmarshal([]byte(credsJSON), &creds) == nil {
-			if v, ok := creds["dns_managed"].(bool); ok {
-				dnsConfigured = v
+	if deviceID.Valid {
+		var credsJSON string
+		_ = h.db.QueryRowContext(r.Context(),
+			`SELECT credentials_json FROM service_credentials
+			 WHERE device_id = $1 AND service_type = 'domain' AND is_active = TRUE`,
+			deviceID.String).Scan(&credsJSON)
+		if credsJSON != "" {
+			var creds map[string]any
+			if json.Unmarshal([]byte(credsJSON), &creds) == nil {
+				if v, ok := creds["dns_managed"].(bool); ok {
+					dnsConfigured = v
+				}
 			}
 		}
 	}
@@ -1837,6 +1827,11 @@ func (h *PortalHandler) GetDomainDetails(w http.ResponseWriter, r *http.Request)
 		regCost = registrationCostCents.Int64
 	}
 
+	devID := ""
+	if deviceID.Valid {
+		devID = deviceID.String
+	}
+
 	JSON(w, http.StatusOK, map[string]any{
 		"domain":                  domainName,
 		"status":                  liveStatus,
@@ -1848,7 +1843,7 @@ func (h *PortalHandler) GetDomainDetails(w http.ResponseWriter, r *http.Request)
 		"registration_cost_cents": regCost,
 		"purchased_at":            purchasedAt,
 		"dns_configured":          dnsConfigured,
-		"device_id":               deviceID,
+		"device_id":               devID,
 	})
 }
 
@@ -1864,13 +1859,13 @@ func (h *PortalHandler) CancelDomain(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 
 	// Verify the domain belongs to the authenticated account.
-	var deviceID, status string
+	var deviceID sql.NullString
+	var status string
 	var expiresAt sql.NullTime
 	err := h.db.QueryRowContext(r.Context(),
 		`SELECT cd.device_id, cd.status, cd.expires_at
 		 FROM custom_domains cd
-		 JOIN devices d ON cd.device_id = d.id
-		 WHERE cd.domain = $1 AND d.account_id = $2`,
+		 WHERE cd.domain = $1 AND cd.account_id = $2`,
 		domainName, accountID,
 	).Scan(&deviceID, &status, &expiresAt)
 	if err == sql.ErrNoRows {
@@ -1901,16 +1896,18 @@ func (h *PortalHandler) CancelDomain(w http.ResponseWriter, r *http.Request) {
 		`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE WHERE domain = $1`,
 		domainName)
 
-	// Deactivate the domain service credential — the device will fall back to subdomain.
-	_, _ = h.db.ExecContext(r.Context(),
-		`UPDATE service_credentials SET is_active = FALSE, revoked_at = $1
-		 WHERE device_id = $2 AND service_type = 'domain'`,
-		time.Now(), deviceID)
+	// Deactivate the domain service credential if a device is linked.
+	if deviceID.Valid {
+		_, _ = h.db.ExecContext(r.Context(),
+			`UPDATE service_credentials SET is_active = FALSE, revoked_at = $1
+			 WHERE device_id = $2 AND service_type = 'domain'`,
+			time.Now(), deviceID.String)
 
-	// Re-provision the subdomain fallback so the device gets a working hostname.
-	provSvc := services.NewProvisioningService(h.db)
-	if _, err := provSvc.Provision(deviceID, "domain", ""); err != nil {
-		slog.Warn("failed to re-provision subdomain after domain cancel", "error", err, "device", deviceID)
+		// Re-provision the subdomain fallback so the device gets a working hostname.
+		provSvc := services.NewProvisioningService(h.db)
+		if _, err := provSvc.Provision(deviceID.String, "domain", ""); err != nil {
+			slog.Warn("failed to re-provision subdomain after domain cancel", "error", err, "device", deviceID.String)
+		}
 	}
 
 	expiryStr := "unknown"
@@ -2101,6 +2098,7 @@ func normalizeSubdomain(s string) string {
 // Stripe checkout flow. The old domain is cancelled automatically when the new
 // domain's registration succeeds (in handleDomainPurchase).
 func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
+	accountID := middleware.GetCustomerDeviceID(r.Context())
 	var req struct {
 		DeviceID  string `json:"device_id"`
 		NewDomain string `json:"new_domain"`
@@ -2111,10 +2109,10 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify the device belongs to the authenticated account.
-	var accountID string
+	var devAccountID string
 	err := h.db.QueryRowContext(r.Context(),
 		`SELECT account_id FROM devices WHERE id = $1`, req.DeviceID,
-	).Scan(&accountID)
+	).Scan(&devAccountID)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusNotFound, "device not found")
 		return
@@ -2123,15 +2121,14 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "could not verify device")
 		return
 	}
-	deviceOwner := middleware.GetCustomerDeviceID(r.Context())
-	if deviceOwner != accountID {
+	if devAccountID != accountID {
 		JSONError(w, http.StatusForbidden, "you can only change domains for your own devices")
 		return
 	}
 
 	// Mock mode: replace any existing registered domain and activate the new one.
 	if config.C.Purchase.MockDomain {
-		h.registerDomainInDB(req.DeviceID, req.NewDomain, 1120, 1120)
+		h.registerDomainInDB(req.DeviceID, accountID, req.NewDomain, 1120, 1120)
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.NewDomain,
 			"status": "registered",
@@ -2182,9 +2179,9 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 
 		domainID := security.GenerateID("dom")
 		_, _ = h.db.ExecContext(r.Context(),
-			`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
-			 VALUES ($1, $2, $3, 'cloudflare', $4, $5, TRUE, 'active', $6)`,
-			domainID, req.DeviceID, req.NewDomain, int(amountCents), int(renewalCostCents), expiresAt)
+			`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
+			 VALUES ($1, $2, $3, $4, 'cloudflare', $5, $6, TRUE, 'active', $7)`,
+			domainID, req.DeviceID, accountID, req.NewDomain, int(amountCents), int(renewalCostCents), expiresAt)
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.NewDomain,
 			"status": "registered",
@@ -2196,7 +2193,7 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 	successURL := config.C.Server.BaseURL + "/domains?domain=success"
 	cancelURL := config.C.Server.BaseURL + "/domains?domain=cancelled"
 
-	checkoutURL, err := providers.CreateDomainCheckoutSession(r.Context(), req.DeviceID, req.NewDomain, amountCents, successURL, cancelURL)
+	checkoutURL, err := providers.CreateDomainCheckoutSession(r.Context(), req.DeviceID, accountID, req.NewDomain, amountCents, successURL, cancelURL)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not create checkout session for domain")
 		return
@@ -2210,28 +2207,32 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// registerDomainInDB records a custom domain as active for a device, cancelling
+// registerDomainInDB records a custom domain as active for a device/account, cancelling
 // any prior active custom domain. Used only in mock purchase mode (no Stripe /
 // no Cloudflare registration), so the purchase flow can be walked without a
-// real registrar or payment.
-func (h *PortalHandler) registerDomainInDB(deviceID, domain string, registrationCents, renewalCents int64) {
+// real registrar or payment. If deviceID is empty, the domain is owned at the
+// account level and can be assigned to a device later.
+func (h *PortalHandler) registerDomainInDB(deviceID, accountID, domain string, registrationCents, renewalCents int64) {
 	// Cancel any existing active/grace custom domain for this device.
-	_, _ = h.db.Exec(
-		`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE
-		 WHERE device_id = $1 AND status IN ('active','grace','payment_failed')`,
-		deviceID)
+	if deviceID != "" {
+		_, _ = h.db.Exec(
+			`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE
+			 WHERE device_id = $1 AND status IN ('active','grace','payment_failed')`,
+			deviceID)
+	}
 
 	domainID := security.GenerateID("dom")
 	expiresAt := time.Now().AddDate(1, 0, 0)
 	_, err := h.db.Exec(
-		`INSERT INTO custom_domains (id, device_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
-		 VALUES ($1, $2, $3, 'cloudflare', $4, $5, TRUE, 'active', $6)
+		`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
+		 VALUES ($1, $2, $3, $4, 'cloudflare', $5, $6, TRUE, 'active', $7)
 		 ON CONFLICT (domain) DO UPDATE SET
 		   device_id = EXCLUDED.device_id,
+		   account_id = EXCLUDED.account_id,
 		   status = 'active',
 		   auto_renew = TRUE,
 		   expires_at = EXCLUDED.expires_at`,
-		domainID, deviceID, domain, int(registrationCents), int(renewalCents), expiresAt)
+		domainID, deviceID, accountID, domain, int(registrationCents), int(renewalCents), expiresAt)
 	if err != nil {
 		slog.Error("mock domain insert failed", "error", err, "domain", domain)
 	}

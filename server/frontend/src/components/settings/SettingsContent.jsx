@@ -58,6 +58,7 @@ export default function SettingsContent({
   onRetrySave,
   onSavedComplete,
   connectStatus,
+  connectInfo,
   onActivateConnect,
   onDeactivateConnect,
   onRefreshConnectStatus,
@@ -94,7 +95,7 @@ export default function SettingsContent({
           isCustomTheme,
         };
       case "backups":
-        return {};
+        return { connectStatus };
       case "security":
         return {
           settings: securitySettings,
@@ -111,6 +112,7 @@ export default function SettingsContent({
       case "external_services":
         return {
           connectStatus,
+          connectInfo,
           onActivateConnect,
           onDeactivateConnect,
           onRefreshConnectStatus,

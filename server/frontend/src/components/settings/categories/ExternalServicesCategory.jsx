@@ -15,25 +15,135 @@ import BackupServiceModal from "../../connect/BackupServiceModal.jsx";
 import TunnelServiceModal from "../../connect/TunnelServiceModal.jsx";
 import AIServiceModal from "../../connect/AIServiceModal.jsx";
 
+function formatGB(value) {
+  if (value === 0) return null;
+  if (value >= 1024) return `${(value / 1024).toLocaleString()} TB`;
+  return `${value} GB`;
+}
+
+function formatBandwidth(mbps) {
+  if (mbps === 0) return null;
+  if (mbps >= 100) return "Full speed";
+  return `${mbps} Mbps`;
+}
+
+function formatEmailPerMo(value) {
+  if (value === 0) return null;
+  return `${value.toLocaleString()} emails/mo`;
+}
+
+function formatAIMessages(value) {
+  if (value === 0) return null;
+  return `${value.toLocaleString()} messages/day`;
+}
+
+function formatTunnel(limits) {
+  const speed = formatBandwidth(limits?.tunnel_mbps);
+  const data = formatGB(limits?.tunnel_gb_per_mo);
+  if (!speed && !data) return null;
+  if (speed && data) return `${speed} · ${data}/mo`;
+  return speed || `${data}/mo`;
+}
+
+function domainStatusLabel(status) {
+  if (status === "active") return "Active";
+  if (status === "grace") return "Grace period";
+  if (status === "cancelled") return "Cancelled";
+  return status ? status.charAt(0).toUpperCase() + status.slice(1) : null;
+}
+
+function formatExpiry(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+// Returns either a single short label for the "Included" pill, or null if
+// the service isn't included on the current plan. For domain we prefer the
+// server's actual configured domain (possibly a custom one with renewal
+// info) over the plan wildcard. The wildcard is the final fallback.
+function formatServiceLimit(serviceId, planLimits, svc) {
+  if (!planLimits) return "—";
+
+  switch (serviceId) {
+    case "smtp":
+      return formatEmailPerMo(planLimits.max_emails_per_day) || "Not in plan";
+    case "domain": {
+      const actualDomain = svc?.details?.domain || null;
+      if (actualDomain) return actualDomain;
+      return planLimits.domain || "Not in plan";
+    }
+    case "backup":
+      return formatGB(planLimits.backup_gb) || "Not in plan";
+    case "tunnel":
+      return formatTunnel(planLimits) || "Not in plan";
+    case "ai":
+      return formatAIMessages(planLimits.ai_messages_per_mo) || "Pay per use";
+    default:
+      return null;
+  }
+}
+
+// Renders a second line under the "Included" pill for services whose details
+// carry actionable renewal / expiry information.
+function ServiceDetailLine({ serviceId, svc }) {
+  const details = svc?.details || {};
+  if (!details || Object.keys(details).length === 0) return null;
+
+  if (serviceId === "domain") {
+    if (details.type !== "custom") return null;
+    const status = domainStatusLabel(details.status);
+    const expiry = formatExpiry(details.expires_at);
+    const autoRenew = details.auto_renew === "true";
+    const parts = [];
+    if (status) parts.push(status);
+    if (expiry) parts.push(`renews ${expiry}`);
+    if (autoRenew) parts.push("auto-renew on");
+    if (parts.length === 0) return null;
+    return (
+      <p className="text-xs text-accent mt-1 font-mono truncate">
+        {parts.join(" · ")}
+      </p>
+    );
+  }
+
+  return null;
+}
+
 const SERVICE_META = [
   {
-    id: "smtp", Icon: Mail, title: "Email / SMTP",
+    id: "smtp",
+    Icon: Mail,
+    title: "Email / SMTP",
     desc: "Sends notifications, password resets, and alerts.",
   },
   {
-    id: "domain", Icon: Globe, title: "Domain & DNS",
+    id: "domain",
+    Icon: Globe,
+    title: "Domain & DNS",
     desc: "Reach your apps at a domain name instead of an IP address.",
   },
   {
-    id: "backup", Icon: Database, title: "Cloud Backup Storage",
+    id: "backup",
+    Icon: Database,
+    title: "Cloud Backup Storage",
     desc: "Where your backups are stored. Multiple destinations allowed.",
   },
   {
-    id: "tunnel", Icon: Waypoints, title: "Tunnel",
+    id: "tunnel",
+    Icon: Waypoints,
+    title: "Tunnel",
     desc: "Access your server behind a firewall or CGNAT.",
   },
   {
-    id: "ai", Icon: Sparkles, title: "AI Assistant",
+    id: "ai",
+    Icon: Sparkles,
+    title: "AI Assistant",
     desc: "AI help managing your server.",
   },
 ];
@@ -47,6 +157,7 @@ const STATE_BADGES = {
 
 export default function ExternalServicesCategory({
   connectStatus,
+  connectInfo = null,
   settings,
   repos,
   onActivateConnect,
@@ -68,6 +179,9 @@ export default function ExternalServicesCategory({
 
   const services = connectStatus?.services || {};
   const aiSettings = settings?.ai_support || {};
+  const activePlanId = connectStatus?.plan?.id;
+  const planLimits = connectInfo?.plan_limits?.[activePlanId] || null;
+  const isConnected = !!connectStatus?.connected;
 
   return (
     <div className="space-y-4" data-slot="external-services-category">
@@ -94,6 +208,7 @@ export default function ExternalServicesCategory({
       {SERVICE_META.map(({ id, Icon, title, desc }, i) => {
         const svc = services[id];
         const badge = svc ? STATE_BADGES[svc.state] : STATE_BADGES.disabled;
+        const limitLabel = isConnected ? formatServiceLimit(id, planLimits) : null;
 
         return (
           <div
@@ -106,10 +221,27 @@ export default function ExternalServicesCategory({
           >
             <SettingsCard index={i} icon={Icon} title={title} padding={false}>
               <div className="px-5 py-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0 pr-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
                     <p className="text-sm text-accent">{desc}</p>
-                    {svc?.details && Object.keys(svc.details).length > 0 && (
+                    {limitLabel && (
+                      <div className="mt-2">
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono",
+                            "bg-primary text-secondary border-2 border-secondary/10"
+                          )}
+                          title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
+                        >
+                          <span className="font-normal text-accent">Included:</span>
+                          <span className={limitLabel === "Not in plan" ? "text-secondary/60" : "text-secondary"}>
+                            {limitLabel}
+                          </span>
+                        </span>
+                      </div>
+                    )}
+                    <ServiceDetailLine serviceId={id} svc={svc} />
+                    {svc?.details && id !== "domain" && Object.keys(svc.details).length > 0 && (
                       <p className="text-xs text-accent/60 mt-1 font-mono truncate">
                         {Object.entries(svc.details).map(([k, v]) => `${k}: ${v}`).join(", ")}
                       </p>
