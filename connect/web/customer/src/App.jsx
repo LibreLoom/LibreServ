@@ -28,12 +28,19 @@ function Loading() {
 }
 
 export default function App() {
+  const { isAuthenticated } = useAuth();
   return (
     <Suspense fallback={<Loading />}>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/onboarding" element={<Onboarding />} />
-        <Route path="/register" element={<Register />} />
+        {/* Already-signed-in users have no business on the signup form —
+            the "username taken" errors were them bumping into their own
+            account. Send them to the dashboard instead. */}
+        <Route
+          path="/register"
+          element={isAuthenticated ? <Navigate to="/" replace /> : <Register />}
+        />
         <Route path="/verify-email" element={<VerifyEmail />} />
 		<Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
 		<Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
