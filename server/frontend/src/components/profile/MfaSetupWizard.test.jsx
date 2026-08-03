@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 
 const {
   mockRequest,
@@ -9,6 +9,7 @@ const {
   mockError,
   mockAuthError,
   mockRefresh,
+  mockMe,
 } = vi.hoisted(() => ({
   mockRequest: vi.fn(),
   mockAddToast: vi.fn(),
@@ -17,10 +18,11 @@ const {
   mockError: { value: null },
   mockAuthError: { value: false },
   mockRefresh: vi.fn(),
+  mockMe: { value: { email: "max@plaiskill.net" } },
 }));
 
 vi.mock("../../hooks/useAuth", () => ({
-  useAuth: () => ({ request: mockRequest }),
+  useAuth: () => ({ request: mockRequest, me: mockMe.value, refreshAuth: mockRefresh }),
 }));
 vi.mock("../../context/ToastContext", () => ({
   useToast: () => ({ addToast: mockAddToast }),
@@ -51,6 +53,7 @@ describe("MfaSetupWizard", () => {
     mockLoading.value = true;
     mockError.value = null;
     mockAuthError.value = false;
+    mockMe.value = { email: "max@plaiskill.net" };
   });
 
   it("waits for availability before showing any method option", () => {
@@ -190,5 +193,46 @@ describe("MfaSetupWizard", () => {
     const loginButton = screen.getByRole("button", { name: /Log in again/i });
     fireEvent.click(loginButton);
     expect(onSessionExpired).toHaveBeenCalled();
+  });
+
+  it("shows the pill with the code's email and lets the user change it mid-step", async () => {
+    mockLoading.value = false;
+    mockAvailability.value = {
+      totp: true,
+      email: true,
+      passkey: true,
+      security_key: true,
+    };
+
+    mockRequest.mockResolvedValueOnce(json({})); // POST /auth/mfa/email/setup (auto-send)
+
+    render(<MfaSetupWizard onComplete={vi.fn()} smtpConfigured />);
+    fireEvent.click(await screen.findByTitle("Add Email code"));
+
+    // Pill shows where the code went.
+    expect(await screen.findByText(/Code sent to max@plaiskill.net/i)).toBeInTheDocument();
+
+    // Change → modal → new address → save.
+    fireEvent.click(screen.getByRole("button", { name: /Change email address/i }));
+    const emailInput = within(screen.getByRole("dialog")).getByRole("textbox");
+    fireEvent.change(emailInput, { target: { value: "new@example.com" } });
+    mockRequest.mockResolvedValueOnce(json({ email: "new@example.com" })); // PUT /auth/profile
+    mockRefresh.mockImplementation(() => {
+      mockMe.value = { email: "new@example.com" }; // what /auth/me would return
+    });
+    mockRequest.mockResolvedValueOnce(json({})); // POST /auth/mfa/email/setup (re-send)
+    fireEvent.click(screen.getByRole("button", { name: /Save & send new code/i }));
+
+    await waitFor(() =>
+      expect(mockRequest).toHaveBeenCalledWith(
+        "/auth/profile",
+        expect.objectContaining({ method: "PUT" }),
+      ),
+    );
+    expect(mockRefresh).toHaveBeenCalled();
+    expect(mockAddToast).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Code sent to new@example.com." }),
+    );
+    expect(screen.queryByText(/Change your email/i)).toBeNull(); // modal closed
   });
 });

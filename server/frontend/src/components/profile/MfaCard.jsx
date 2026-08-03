@@ -8,15 +8,18 @@ import {
   Check,
   ArrowRight,
   Mail,
+  Pencil,
 } from "lucide-react";
 import PropTypes from "prop-types";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
 import useMfaAvailability from "../../hooks/useMfaAvailability";
 import Card from "../cards/Card";
+import ModalCard from "../cards/ModalCard";
 import Button from "../ui/Button";
 import Alert from "../common/Alert";
 import OtpInput from "../ui/OtpInput";
+import FormInput from "../common/forms/FormInput";
 import CollapsibleSection from "../common/CollapsibleSection";
 import { useSmoothResize } from "../../hooks/useSmoothResize";
 import {
@@ -336,7 +339,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
 
 // --- Enrollment flow per method type (shared by MfaCard + setup wizard) ---
 export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = undefined }) {
-  const { me, request } = useAuth();
+  const { me, request, refreshAuth } = useAuth();
   const { addToast } = useToast();
   const [step, setStep] = useState("setup"); // setup | verify | done
   const [busy, setBusy] = useState(false);
@@ -345,14 +348,50 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
   const [totp, setTotp] = useState(/** @type {{secret?:string, otpauth_uri?:string, qr_image?:string}|null} */ (null));
   const [webauthnName, setWebauthnName] = useState("");
   const [secretCopied, setSecretCopied] = useState(false);
+  const [changeEmailOpen, setChangeEmailOpen] = useState(false);
+  const [newEmail, setNewEmail] = useState(me?.email || "");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [emailError, setEmailError] = useState(null);
   const codeInputId = useId();
   const copyLabelRef = useRef(null);
   useSmoothResize(copyLabelRef);
 
+  // Change the account email from the code-entry step, then re-send the code
+  // so it lands in the NEW inbox (the old code went to the old address).
+  async function handleChangeEmail(e) {
+    e.preventDefault();
+    if (!newEmail || emailSaving) return;
+    setEmailSaving(true);
+    setEmailError(null);
+    try {
+      await request("/auth/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: newEmail }),
+      });
+      addToast({ type: "success", message: "Email updated" });
+      setChangeEmailOpen(false);
+      await refreshAuth?.(); // pill re-renders with the new address
+      sendEmailCode(newEmail); // fresh code to the new address (newEmail ≠ stale me)
+    } catch (err) {
+      if (err.name === "AuthError") {
+        onSessionExpired?.();
+        setEmailError("Your session expired. Please log in again.");
+        return;
+      }
+      const status = err.cause?.status;
+      if (status === 409) setEmailError("That email is already in use by another account.");
+      else if (status === 400) setEmailError(err.message || "Please enter a valid email.");
+      else setEmailError(err.message || "Couldn't update your email. Try again.");
+    } finally {
+      setEmailSaving(false);
+    }
+  }
+
   // Send a fresh email-OTP code. Used both on mount (auto-send the first
   // code when the verify form appears) and from the "Send new code" button
   // so the user can re-request without leaving the step.
-  const sendEmailCode = useCallback(async () => {
+  const sendEmailCode = useCallback(async (toastEmail = "") => {
     setBusy(true);
     setError(null);
     try {
@@ -361,7 +400,9 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || "Couldn't send the email code.");
       }
-      addToast({ type: "success", message: `Code sent to ${me?.email || "your email"}.` });
+      // toastEmail overrides the closure's me?.email: right after a profile
+      // update the component hasn't re-rendered yet, so me would be stale.
+      addToast({ type: "success", message: `Code sent to ${toastEmail || me?.email || "your email"}.` });
       setStep("verify");
     } catch (err) {
       if (err.name === "AuthError") {
@@ -650,9 +691,66 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
           className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75"
         >
           {type === "email" && me?.email && (
-            <p className="flex items-center gap-1.5 w-fit rounded-pill bg-primary text-secondary text-xs px-3 py-1.5 border border-accent/40">
-              <Mail size={12} className="text-accent" /> Code sent to {me.email}
-            </p>
+            <>
+              {/* One continuous pill: the dark email chip layered over a wider
+                  accent chip, whose "Change" segment opens the email modal. */}
+              <div className="inline-flex items-center rounded-pill bg-accent text-primary border border-accent/40">
+                <span className="flex items-center gap-1.5 bg-primary text-secondary rounded-pill py-1.5 pl-3 pr-3">
+                  <Mail size={12} className="text-accent shrink-0" /> Code sent to {me.email}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChangeEmailOpen(true)}
+                  disabled={busy}
+                  className="flex items-center gap-1 py-1.5 pl-3 pr-3 rounded-r-pill text-primary hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
+                  aria-label={`Change email address (currently ${me.email})`}
+                >
+                  <Pencil size={12} /> Change
+                </button>
+              </div>
+              {changeEmailOpen && (
+                <ModalCard title="Change your email" onClose={() => setChangeEmailOpen(false)}>
+                  <form onSubmit={handleChangeEmail} className="space-y-4">
+                    <p className="text-sm text-primary/70">
+                      Your sign-in codes are sent to this address. Update it and we'll
+                      send a new code to the new address.
+                    </p>
+                    <FormInput
+                      label="Email"
+                      name="mfa-new-email"
+                      type="email"
+                      icon="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      surface="secondary"
+                      required
+                    />
+                    {emailError && <Alert variant="error" message={emailError} />}
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        surface="secondary"
+                        fullWidth
+                        onClick={() => setChangeEmailOpen(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        variant="accent"
+                        surface="secondary"
+                        fullWidth
+                        loading={emailSaving}
+                        disabled={!newEmail}
+                      >
+                        Save &amp; send new code
+                      </Button>
+                    </div>
+                  </form>
+                </ModalCard>
+              )}
+            </>
           )}
           <label htmlFor={codeInputId} className="sr-only">
             {type === "email" ? "Code from your email" : "6-digit code from your app"}
