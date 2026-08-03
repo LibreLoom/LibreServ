@@ -23,9 +23,17 @@ export default function Usage() {
   const { account } = useAuth();
   const { data: usage, isLoading, error } = useQuery({ queryKey: ["usage"], queryFn: api.getUsage });
   const { data: plansData } = useQuery({ queryKey: ["plans"], queryFn: api.getPlans });
+  const { data: devicesData } = useQuery({
+    queryKey: ["devices"],
+    queryFn: api.getDevices,
+  });
 
   const plans = plansData?.plans || [];
   const plan = plans.find((p) => p.id === (usage?.plan_id || account?.plan_id || "free"));
+  const devices = (devicesData?.devices || []).filter((d) => d.is_active);
+  // The device serving this account, for showing its real address on the
+  // Domain & DNS row instead of the plan's wildcard.
+  const currentDomain = devices[0]?.current_domain || "";
 
   const byService = usage?.by_service || {};
   const entries = Object.entries(byService);
@@ -75,7 +83,7 @@ export default function Usage() {
               ) : (
                 <ul className="space-y-3">
                   {entries.map(([key, svc]) => (
-                    <ServiceRow key={key} svcKey={key} svc={svc} plan={plan} />
+                    <ServiceRow key={key} svcKey={key} svc={svc} plan={plan} currentDomain={currentDomain} />
                   ))}
                 </ul>
               )}
@@ -107,7 +115,7 @@ function Stat({ label, value }) {
   );
 }
 
-function ServiceRow({ svcKey, svc, plan }) {
+function ServiceRow({ svcKey, svc, plan, currentDomain }) {
   const cfg = serviceConfig[svcKey];
   if (!cfg) return null;
   const Icon = cfg.icon;
@@ -115,6 +123,15 @@ function ServiceRow({ svcKey, svc, plan }) {
   const used = svc.value || 0;
   const percentage = pct(used, limit);
   const over = limit && used > limit ? used - limit : 0;
+
+  const value =
+    limit
+      ? `${used.toLocaleString()} / ${limit.toLocaleString()} ${cfg.unit}`
+      : svcKey === "domain"
+        ? (currentDomain || "Included")
+        : used > 0
+          ? `${used.toLocaleString()} ${cfg.unit}`
+          : "Included";
 
   return (
     <Card>
@@ -124,8 +141,8 @@ function ServiceRow({ svcKey, svc, plan }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline justify-between gap-3">
               <p className="font-mono text-sm">{cfg.label}</p>
-              <p className="font-mono text-xs text-muted-foreground shrink-0">
-                {limit ? `${used.toLocaleString()} / ${limit.toLocaleString()} ${cfg.unit}` : used > 0 ? `${used.toLocaleString()} ${cfg.unit}` : "Included"}
+              <p className="font-mono text-xs text-foreground shrink-0">
+                {value}
               </p>
             </div>
             {percentage !== null && (

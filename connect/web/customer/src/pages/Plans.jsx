@@ -12,9 +12,15 @@ import { Loader2, AlertCircle, Check } from "lucide-react";
  * beyond included allowances is charged at our actual cost, no markup.
  */
 export default function Plans() {
-  const { account, device, refreshDevice } = useAuth();
+  const { account } = useAuth();
   const queryClient = useQueryClient();
   const { data, isLoading, error: loadError } = useQuery({ queryKey: ["plans"], queryFn: api.getPlans });
+  const { data: devicesData } = useQuery({ queryKey: ["devices"], queryFn: api.getDevices });
+
+  const devices = (devicesData?.devices || []).filter((d) => d.is_active);
+  // The device currently serving this account, for showing its real address
+  // on the current plan card instead of the plan's wildcard.
+  const currentDomain = devices[0]?.current_domain || "";
 
   const goCheckout = async (planId, fn) => {
     const res = await fn(planId);
@@ -26,14 +32,14 @@ export default function Plans() {
 
   const subscribeMut = useMutation({
     mutationFn: (planId) => goCheckout(planId, api.createCheckout),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["plans"] }); refreshDevice(); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["plans"] }); queryClient.invalidateQueries({ queryKey: ["devices"] }); },
   });
   const changePlanMut = useMutation({
     mutationFn: (planId) => goCheckout(planId, api.changePlan),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["plans"] }); refreshDevice(); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["plans"] }); queryClient.invalidateQueries({ queryKey: ["devices"] }); },
   });
 
-  const currentPlanId = device?.plan_id || account?.plan_id;
+  const currentPlanId = account?.plan_id || devices[0]?.plan_id;
   const busy = subscribeMut.isPending || changePlanMut.isPending;
   const actionError = subscribeMut.error?.message || changePlanMut.error?.message;
 
@@ -64,6 +70,7 @@ export default function Plans() {
                 plan={plan}
                 isCurrent={plan.id === currentPlanId}
                 busy={busy}
+                currentDomain={currentDomain}
                 onSelect={() => (currentPlanId ? changePlanMut.mutate(plan.id) : subscribeMut.mutate(plan.id))}
               />
             ))}
@@ -80,9 +87,13 @@ export default function Plans() {
   );
 }
 
-function PlanCard({ plan, isCurrent, busy, onSelect }) {
+function PlanCard({ plan, isCurrent, busy, onSelect, currentDomain }) {
   const limits = plan.limits || {};
   const freeAI = limits.ai_messages_per_day > 0;
+
+  const domainValue = isCurrent && currentDomain
+    ? <span className="text-secondary-foreground">{currentDomain}</span>
+    : plan.limits?.domain ? plan.limits.domain.replace("*", "you") : "—";
 
   return (
     <Card className={isCurrent ? "ring-2 ring-ring" : ""}>
@@ -112,6 +123,7 @@ function PlanCard({ plan, isCurrent, busy, onSelect }) {
           />
           <PlanLimit label="Email" value={limits.smtp_monthly > 0 ? `${limits.smtp_monthly}/month` : "—"} />
           <PlanLimit label="Tunnel bandwidth" value={limits.tunnel_gb_per_mo > 0 ? `${limits.tunnel_gb_per_mo} GB/mo` : "—"} />
+          <PlanLimit label="Domain & DNS" value={domainValue} />
           <PlanLimit
             label="Human support"
             value={limits.human_support ? <Check className="w-4 h-4 text-success" /> : "—"}
