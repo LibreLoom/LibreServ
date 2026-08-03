@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/mail"
 	"net/textproto"
 	"strings"
 	"sync"
@@ -320,8 +321,8 @@ func (sess *session) handleData() {
 	}
 	sess.sendLine("354 start mail input")
 
-	// Read until \r\n.\r\n
-	var body strings.Builder
+	// Read until \r\n.\r\n. Lines land in sess.data (reset at the start of
+	// the transaction via handleMailFrom → reset, so that's the raw message).
 	for {
 		line, err := sess.tp.ReadLine()
 		if err != nil {
@@ -334,8 +335,8 @@ func (sess *session) handleData() {
 		if strings.HasPrefix(line, "..") {
 			line = line[1:]
 		}
-		body.WriteString(line)
-		body.WriteString("\r\n")
+		sess.data.WriteString(line)
+		sess.data.WriteString("\r\n")
 	}
 
 	// Forward each recipient via Resend
@@ -346,12 +347,13 @@ func (sess *session) handleData() {
 	}
 
 	fromAddr := SendingAddress(sess.username)
-	html := body.String()
+	raw := sess.data.String()
+	subject, htmlBody, textBody := splitMessage(raw)
 
 	sent := 0
 	var lastErr error
 	for _, rcpt := range sess.rcpts {
-		err := sess.s.resend.SendEmail(apiKey, fromAddr, rcpt, extractSubject(html), html)
+		err := sess.s.resend.SendEmail(apiKey, fromAddr, rcpt, subject, htmlBody, textBody)
 		if err != nil {
 			lastErr = err
 			slog.Error("smtp relay: failed to forward email", "from", fromAddr, "to", rcpt, "error", err)
@@ -369,6 +371,35 @@ func (sess *session) handleData() {
 	sess.reset()
 }
 
+// splitMessage splits a raw RFC 5322 message into subject, html body, and text
+// body. The device (server/backend/internal/email) sends a single-part message,
+// so multipart/mixed is left unparsed and falls through to the plain-text path.
+// ponytail: single-part only from our devices; if multipart support is ever
+// needed, parse the MIME tree here instead of routing on Content-Type.
+func splitMessage(raw string) (subject, htmlBody, textBody string) {
+	subject = "(no subject)"
+
+	msg, err := mail.ReadMessage(strings.NewReader(raw))
+	if err != nil {
+		// Not a valid message — send the raw payload as text so nothing is lost.
+		return subject, "", raw
+	}
+
+	if s := msg.Header.Get("Subject"); s != "" {
+		subject = s
+	}
+
+	body, err := io.ReadAll(msg.Body)
+	if err != nil {
+		return subject, "", raw
+	}
+
+	if strings.HasPrefix(strings.ToLower(msg.Header.Get("Content-Type")), "text/html") {
+		return subject, string(body), ""
+	}
+	return subject, "", string(body)
+}
+
 // extractAddr pulls the email address out of <...> in an SMTP command.
 func extractAddr(line string) string {
 	start := strings.Index(line, "<")
@@ -377,14 +408,4 @@ func extractAddr(line string) string {
 		return ""
 	}
 	return line[start+1 : end]
-}
-
-// extractSubject tries to find the Subject header in the raw email.
-func extractSubject(raw string) string {
-	for _, line := range strings.Split(raw, "\r\n") {
-		if strings.HasPrefix(strings.ToLower(line), "subject:") {
-			return strings.TrimSpace(line[8:])
-		}
-	}
-	return "(no subject)"
 }

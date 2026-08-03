@@ -28,6 +28,14 @@ func NewResendClient(httpClient *http.Client) *ResendClient {
 	return &ResendClient{httpClient: httpClient}
 }
 
+// NewResendClientWithBaseURL creates a Resend client pointed at a custom base URL.
+// Tests use this to route requests to an httptest mock instead of api.resend.com.
+func NewResendClientWithBaseURL(httpClient *http.Client, baseURL string) *ResendClient {
+	c := NewResendClient(httpClient)
+	c.baseURL = baseURL
+	return c
+}
+
 // resendAPIKeyResponse is the body returned by Resend when creating an API key.
 type resendAPIKeyResponse struct {
 	ID    string `json:"id"`
@@ -67,9 +75,10 @@ type resendSendResponse struct {
 	ID string `json:"id"`
 }
 
-// SendEmail sends an HTML email through Resend's REST API.
-// The from address should be a verified domain in your Resend account.
-func (c *ResendClient) SendEmail(apiKey, from, to, subject, html string) error {
+// SendEmail sends an email through Resend's REST API. Pass htmlBody or
+// textBody (or both); empty ones are omitted from the request. The from
+// address should be a verified domain in your Resend account.
+func (c *ResendClient) SendEmail(apiKey, from, to, subject, htmlBody, textBody string) error {
 	url := c.baseURL
 	if url == "" {
 		url = "https://api.resend.com/emails"
@@ -78,7 +87,12 @@ func (c *ResendClient) SendEmail(apiKey, from, to, subject, html string) error {
 		"from":    from,
 		"to":      to,
 		"subject": subject,
-		"html":    html,
+	}
+	if htmlBody != "" {
+		body["html"] = htmlBody
+	}
+	if textBody != "" {
+		body["text"] = textBody
 	}
 	var resp resendSendResponse
 	_, err := doJSON(c.httpClient, http.MethodPost, url, map[string]string{

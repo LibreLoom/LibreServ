@@ -367,7 +367,7 @@ func (h *PortalHandler) sendVerificationEmailSync(email, token, source string) e
 	if from == "" {
 		from = "LibreServ Connect <noreply@resend.libreloom.org>"
 	}
-	return h.resend.SendEmail(apiKey, from, email, "Verify your email — LibreServ Connect", htmlBody)
+	return h.resend.SendEmail(apiKey, from, email, "Verify your email — LibreServ Connect", htmlBody, "")
 }
 
 // Login authenticates a customer with email/password (and TOTP if enabled).
