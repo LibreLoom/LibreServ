@@ -79,6 +79,9 @@ func TestMFAEnforcementAndLoginFlow(t *testing.T) {
 	if mfaReq.MFAToken == "" || len(mfaReq.Methods) != 1 {
 		t.Fatalf("MFARequiredError: bad mfa_token/methods: %+v", mfaReq)
 	}
+	if mfaReq.Email == "" {
+		t.Fatalf("MFARequiredError: expected the account email for the login UI, got %q", mfaReq.Email)
+	}
 
 	// The mfa_token validates + resolves to the user.
 	mfaUser, err := svc.ValidateMFAToken(ctx, mfaReq.MFAToken)

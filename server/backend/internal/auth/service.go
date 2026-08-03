@@ -131,7 +131,7 @@ func (s *Service) Login(ctx context.Context, req *LoginRequest) (*LoginResponse,
 		if err != nil {
 			return nil, fmt.Errorf("failed to list mfa methods: %w", err)
 		}
-		return nil, &MFARequiredError{MFAToken: mfaToken, Methods: methods}
+		return nil, &MFARequiredError{MFAToken: mfaToken, Methods: methods, Email: user.Email}
 	}
 
 	// Generate tokens

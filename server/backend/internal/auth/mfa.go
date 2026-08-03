@@ -77,21 +77,15 @@ type MFAMethodPublic struct {
 	Label string `json:"label"`
 }
 
-// MFARequiredResponse is the body returned by Login when the user has MFA.
-// mfa_token is short-lived and scoped to /auth/mfa/* — it is NOT a session.
-type MFARequiredResponse struct {
-	Status   string            `json:"status"` // "mfa_required"
-	MFAToken string            `json:"mfa_token"`
-	Methods  []MFAMethodPublic `json:"methods"`
-}
-
 // MFARequiredError is returned by Login when the password is valid but the
 // user has ≥1 enabled MFA method — a session must NOT be issued until an MFA
 // verify/recover succeeds. The handler unwraps it (errors.As) to build the
-// mfa_required response. It wraps the sentinel ErrMFARequired.
+// mfa_required response. It wraps the sentinel ErrMFARequired. Email is the
+// account's email address, so the login UI can show where email OTPs go.
 type MFARequiredError struct {
 	MFAToken string
 	Methods  []MFAMethodPublic
+	Email    string
 }
 
 func (e *MFARequiredError) Error() string { return "mfa required" }

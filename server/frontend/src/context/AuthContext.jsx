@@ -77,6 +77,7 @@ export function AuthProvider({ children, queryClient }) {
         status: "mfa_required",
         mfaToken: data.mfa_token,
         methods: Array.isArray(data.methods) ? data.methods : [],
+        email: data.email,
       };
     }
     // Success — session cookie is set; hydrate session state.

@@ -95,6 +95,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			"status":    "mfa_required",
 			"mfa_token": mfaReq.MFAToken,
 			"methods":   mfaReq.Methods,
+			"email":     mfaReq.Email,
 		})
 		return
 	}

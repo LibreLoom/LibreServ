@@ -246,6 +246,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
           <MfaChallenge
             mfaToken={mfa.mfaToken}
             methods={mfa.methods}
+            email={mfa.email}
             onSuccess={completeLogin}
             onBack={() => {
               setMfa(null);

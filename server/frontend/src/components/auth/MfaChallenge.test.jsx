@@ -37,8 +37,8 @@ const METHODS = [
   { type: "passkey", label: "Passkey" },
 ];
 
-function renderChallenge(methods = METHODS) {
-  return render(<MfaChallenge mfaToken={TOKEN} methods={methods} onSuccess={mockOnSuccess} onBack={() => {}} />);
+function renderChallenge(methods = METHODS, email = "alice@example.com") {
+  return render(<MfaChallenge mfaToken={TOKEN} methods={methods} email={email} onSuccess={mockOnSuccess} onBack={() => {}} />);
 }
 
 function fakeCredential() {
@@ -93,9 +93,13 @@ describe("MfaChallenge", () => {
   });
 
   it("verifies an email code (the default method) with the email type", async () => {
+    mockChallenge.mockResolvedValueOnce({ options: { sent: true } });
     mockVerify.mockResolvedValueOnce(undefined);
     renderChallenge();
     fireEvent.click(screen.getByText("Email code"));
+    // Picking email sends a fresh OTP and shows where it went.
+    await waitFor(() => expect(mockChallenge).toHaveBeenCalledWith(TOKEN, "email"));
+    expect(screen.getByText(/Code sent to alice@example.com/i)).toBeInTheDocument();
     const input = await screen.findByLabelText(/Email code/i);
     fireEvent.change(input, { target: { value: "999111" } });
     fireEvent.click(screen.getByText("Verify"));

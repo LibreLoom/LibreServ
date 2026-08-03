@@ -336,7 +336,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
 
 // --- Enrollment flow per method type (shared by MfaCard + setup wizard) ---
 export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = undefined }) {
-  const { request } = useAuth();
+  const { me, request } = useAuth();
   const { addToast } = useToast();
   const [step, setStep] = useState("setup"); // setup | verify | done
   const [busy, setBusy] = useState(false);
@@ -361,7 +361,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || "Couldn't send the email code.");
       }
-      addToast({ type: "success", message: "Code sent to your email." });
+      addToast({ type: "success", message: `Code sent to ${me?.email || "your email"}.` });
       setStep("verify");
     } catch (err) {
       if (err.name === "AuthError") {
@@ -373,7 +373,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
     } finally {
       setBusy(false);
     }
-  }, [request, addToast, onSessionExpired]);
+  }, [request, addToast, onSessionExpired, me?.email]);
 
 
   // Start TOTP/email enrollment automatically. WebAuthn waits for the name form.
@@ -649,6 +649,11 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
           }}
           className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-75"
         >
+          {type === "email" && me?.email && (
+            <p className="flex items-center gap-1.5 w-fit rounded-pill bg-primary text-secondary text-xs px-3 py-1.5 border border-accent/40">
+              <Mail size={12} className="text-accent" /> Code sent to {me.email}
+            </p>
+          )}
           <label htmlFor={codeInputId} className="sr-only">
             {type === "email" ? "Code from your email" : "6-digit code from your app"}
           </label>

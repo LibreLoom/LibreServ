@@ -23,13 +23,27 @@ const METHOD_META = {
   security_key: { icon: Usb, label: "Security key" },
 };
 
-export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
+export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBack }) {
   const { mfaChallenge, mfaVerify, mfaRecover } = useAuth();
   const { addToast } = useToast();
   const [selected, setSelected] = useState(null); // method type, or "recovery"
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Email OTP: ask the backend to send a fresh code when the user picks the
+  // email method (the code entry screen then expects that code).
+  async function startEmail() {
+    setLoading(true);
+    setError(null);
+    try {
+      await mfaChallenge(mfaToken, "email");
+    } catch {
+      setError("We couldn't send the code to your email. Try another method.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function verifyCode(type) {
     if (!code) return;
@@ -138,7 +152,8 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
                     setSelected(m.type);
                     setCode("");
                     setError(null);
-                    if (isWebAuthn) verifyWebAuthn(m.type);
+                    if (m.type === "email") startEmail();
+                    else if (isWebAuthn) verifyWebAuthn(m.type);
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element border-2 border-primary/30 hover:border-accent hover:ring-2 hover:ring-accent motion-safe:transition-all text-primary"
                 >
@@ -234,6 +249,7 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
       setCode={setCode}
       maxLength={6}
       autoFocus
+      email={selected === "email" ? email : undefined}
     />
   );
 }
@@ -251,9 +267,10 @@ export default function MfaChallenge({ mfaToken, methods, onSuccess, onBack }) {
  *   placeholder?: string,
  *   maxLength?: number,
  *   autoFocus?: boolean,
+ *   email?: string,
  * } | undefined} [props]
  */
-function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, maxLength, autoFocus } = {}) {
+function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, maxLength, autoFocus, email } = {}) {
   const inputId = useId();
   const isOtp = typeof maxLength === "number";
   return (
@@ -273,6 +290,11 @@ function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, s
         <ArrowLeft size={12} /> Choose another method
       </button>
       <label htmlFor={inputId} className="text-sm block">{title}</label>
+      {email && (
+        <p className="flex items-center gap-1.5 w-fit rounded-pill bg-primary text-secondary text-xs px-3 py-1.5 border border-accent/40">
+          <Mail size={12} className="text-accent" /> Code sent to {email}
+        </p>
+      )}
       {isOtp ? (
         <OtpInput
           id={inputId}
@@ -308,6 +330,7 @@ MfaChallenge.propTypes = {
   methods: PropTypes.arrayOf(
     PropTypes.shape({ type: PropTypes.string, label: PropTypes.string }),
   ).isRequired,
+  email: PropTypes.string,
   onSuccess: PropTypes.func.isRequired,
   onBack: PropTypes.func,
 };
@@ -323,4 +346,5 @@ EntryShell.propTypes = {
   setCode: PropTypes.func,
   placeholder: PropTypes.string,
   maxLength: PropTypes.number,
+  email: PropTypes.string,
 };
