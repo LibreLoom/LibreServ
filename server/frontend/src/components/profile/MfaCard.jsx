@@ -692,20 +692,21 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
         >
           {type === "email" && me?.email && (
             <>
-              {/* One continuous pill: the dark email chip layered over a wider
-                  accent chip, whose "Change" segment opens the email modal. */}
-              <div className="inline-flex items-center rounded-pill bg-accent text-primary border border-accent/40">
-                <span className="flex items-center gap-1.5 bg-primary text-secondary rounded-pill py-1.5 pl-3 pr-3">
+              {/* Layered pill: the dark email chip sits on a slightly wider
+                  accent chip whose Change segment opens the email modal.
+                  Compact sizing matches the v1 pill (text-xs, py-1.5). */}
+              <div className="inline-flex items-center rounded-pill bg-accent text-primary text-xs border border-accent/40">
+                <span className="flex items-center gap-1.5 bg-primary text-secondary rounded-pill py-1.5 pl-3 pr-2.5">
                   <Mail size={12} className="text-accent shrink-0" /> Code sent to {me.email}
                 </span>
                 <button
                   type="button"
                   onClick={() => setChangeEmailOpen(true)}
                   disabled={busy}
-                  className="flex items-center gap-1 py-1.5 pl-3 pr-3 rounded-r-pill text-primary hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1 text-xs py-1.5 pl-2.5 pr-3 rounded-r-pill text-primary hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
                   aria-label={`Change email address (currently ${me.email})`}
                 >
-                  <Pencil size={12} /> Change
+                  <Pencil size={11} /> Change
                 </button>
               </div>
               {changeEmailOpen && (
