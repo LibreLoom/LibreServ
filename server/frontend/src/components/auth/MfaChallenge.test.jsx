@@ -120,7 +120,7 @@ describe("MfaChallenge", () => {
     await waitFor(() => expect(mockOnSuccess).toHaveBeenCalled());
   });
 
-  it("shows an error on bad code without completing login (no softlock — user retries)", async () => {
+  it("toasts an error on bad code without completing login (no softlock — user retries)", async () => {
     const err = Object.assign(new Error("bad code"), { cause: { status: 401 } });
     mockVerify.mockRejectedValueOnce(err);
     renderChallenge();
@@ -129,7 +129,10 @@ describe("MfaChallenge", () => {
     fireEvent.change(input, { target: { value: "000000" } });
     fireEvent.click(screen.getByText("Verify"));
     await waitFor(() =>
-      expect(screen.getByText(/That code didn't work/i)).toBeInTheDocument(),
+      expect(mockAddToast).toHaveBeenCalledWith({
+        type: "error",
+        message: "That code didn't work. Try again.",
+      }),
     );
     expect(mockOnSuccess).not.toHaveBeenCalled();
   });

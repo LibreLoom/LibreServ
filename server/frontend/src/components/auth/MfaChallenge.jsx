@@ -6,21 +6,41 @@ import {
   Usb,
   ShieldCheck,
   ArrowLeft,
+  ChevronRight,
   LifeBuoy,
 } from "lucide-react";
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
-import Alert from "../common/Alert";
 import OtpInput from "../ui/OtpInput";
+import IconCircle from "../ui/IconCircle";
+import StepTransition from "../common/StepTransition";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
 import { bufToB64url, prepareRequestOptions } from "../../utils/webauthn";
 
+const MFA_STEPS = ["selection", "entry", "webauthn", "recovery"];
+
 const METHOD_META = {
-  totp: { icon: KeyRound, label: "Authenticator app" },
-  email: { icon: Mail, label: "Email code" },
-  passkey: { icon: Fingerprint, label: "Passkey" },
-  security_key: { icon: Usb, label: "Security key" },
+  totp: {
+    icon: KeyRound,
+    label: "Authenticator app",
+    hint: "Enter the 6-digit code from your app.",
+  },
+  email: {
+    icon: Mail,
+    label: "Email code",
+    hint: "We'll send a code to your email.",
+  },
+  passkey: {
+    icon: Fingerprint,
+    label: "Passkey",
+    hint: "Use a saved passkey on this device.",
+  },
+  security_key: {
+    icon: Usb,
+    label: "Security key",
+    hint: "Plug in your security key.",
+  },
 };
 
 export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBack }) {
@@ -29,17 +49,15 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   const [selected, setSelected] = useState(null); // method type, or "recovery"
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
 
   // Email OTP: ask the backend to send a fresh code when the user picks the
   // email method (the code entry screen then expects that code).
   async function startEmail() {
     setLoading(true);
-    setError(null);
     try {
       await mfaChallenge(mfaToken, "email");
     } catch {
-      setError("We couldn't send the code to your email. Try another method.");
+      addToast({ type: "error", message: "We couldn't send the code to your email. Try another method." });
     } finally {
       setLoading(false);
     }
@@ -48,18 +66,17 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   async function verifyCode(type) {
     if (!code) return;
     setLoading(true);
-    setError(null);
     try {
       await mfaVerify(mfaToken, type, { code });
       addToast({ type: "success", message: "Signed in." });
       onSuccess();
     } catch (err) {
       if (err?.cause?.status === 401) {
-        setError("That code didn't work. Try again.");
+        addToast({ type: "error", message: "That code didn't work. Try again." });
       } else if (!navigator.onLine) {
-        setError("You're offline. Check your connection and try again.");
+        addToast({ type: "error", message: "You're offline. Check your connection and try again." });
       } else {
-        setError("Something went wrong. Try again.");
+        addToast({ type: "error", message: "Something went wrong. Try again." });
       }
     } finally {
       setLoading(false);
@@ -70,7 +87,6 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   // and submit it. The backend (agent-692b7a0a) issues the challenge.
   async function verifyWebAuthn(type) {
     setLoading(true);
-    setError(null);
     try {
       const challengeRes = await mfaChallenge(mfaToken, type);
       const options = challengeRes?.options;
@@ -96,11 +112,11 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
       onSuccess();
     } catch (err) {
       if (err?.name === "NotAllowedError" || err?.name === "AbortError") {
-        setError("That was cancelled or we couldn't find your device. Try again or choose another method.");
+        addToast({ type: "error", message: "That was cancelled or we couldn't find your device. Try again or choose another method." });
       } else if (!navigator.onLine) {
-        setError("You're offline. Check your connection and try again.");
+        addToast({ type: "error", message: "You're offline. Check your connection and try again." });
       } else {
-        setError("We couldn't verify that device. Try another method.");
+        addToast({ type: "error", message: "We couldn't verify that device. Try another method." });
       }
     } finally {
       setLoading(false);
@@ -110,18 +126,17 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   async function recover() {
     if (!code) return;
     setLoading(true);
-    setError(null);
     try {
       await mfaRecover(mfaToken, code.trim());
       addToast({ type: "success", message: "Signed in." });
       onSuccess();
     } catch (err) {
       if (err?.cause?.status === 401) {
-        setError("That recovery code didn't work.");
+        addToast({ type: "error", message: "That recovery code didn't work." });
       } else if (!navigator.onLine) {
-        setError("You're offline. Check your connection and try again.");
+        addToast({ type: "error", message: "You're offline. Check your connection and try again." });
       } else {
-        setError("Something went wrong. Try again.");
+        addToast({ type: "error", message: "Something went wrong. Try again." });
       }
     } finally {
       setLoading(false);
@@ -131,11 +146,16 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   // --- Selection screen ---
   if (!selected) {
     return (
-      <div data-slot="auth-mfa-selection" className="space-y-4">
-        <div className="flex items-center gap-2 text-primary">
-          <ShieldCheck size={18} className="text-accent" />
-          <p className="text-sm">Verify it's you — pick a way to continue.</p>
+      <StepTransition step="selection" order={MFA_STEPS}>
+        <div data-slot="auth-mfa-selection" className="space-y-4">
+        <div className="flex items-center gap-3">
+          <IconCircle icon={ShieldCheck} size="sm" variant="accent" />
+          <div>
+            <h2 className="font-mono text-lg text-primary">Two-step verification</h2>
+            <p className="text-xs text-accent">Pick how you'd like to confirm it's you.</p>
+          </div>
         </div>
+
         <ul className="space-y-2">
           {methods.map((m) => {
             const meta = METHOD_META[m.type] || {
@@ -151,42 +171,52 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
                   onClick={() => {
                     setSelected(m.type);
                     setCode("");
-                    setError(null);
                     if (m.type === "email") startEmail();
                     else if (isWebAuthn) verifyWebAuthn(m.type);
                   }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element border-2 border-primary/30 hover:border-accent hover:ring-2 hover:ring-accent motion-safe:transition-all text-primary"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10 hover:border-accent motion-safe:transition-all text-left group"
                 >
                   <Icon size={18} className="text-accent shrink-0" />
-                  <span className="text-sm">{meta.label}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm">{meta.label}</span>
+                    {meta.hint && (
+                      <span className="block text-xs text-accent mt-0.5">{meta.hint}</span>
+                    )}
+                  </span>
+                  <ChevronRight
+                    size={16}
+                    className="text-accent shrink-0 group-hover:translate-x-0.5 motion-safe:transition-transform"
+                  />
                 </button>
               </li>
             );
           })}
         </ul>
-        <button
-          type="button"
-          onClick={() => {
-            setSelected("recovery");
-            setCode("");
-            setError(null);
-          }}
-          className="w-full flex items-center justify-center gap-2 text-xs text-accent hover:text-primary motion-safe:transition-colors"
-        >
-          <LifeBuoy size={14} />
-          Use a recovery code instead
-        </button>
-        {onBack && (
+
+        <div className="flex items-center justify-between gap-3">
           <button
             type="button"
-            onClick={onBack}
-            className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary"
+            onClick={() => {
+              setSelected("recovery");
+              setCode("");
+            }}
+            className="flex items-center gap-2 text-xs text-accent hover:text-primary motion-safe:transition-colors"
           >
-            <ArrowLeft size={12} /> Back to password
+            <LifeBuoy size={14} />
+            Use a recovery code instead
           </button>
-        )}
-        {error && <Alert variant="error" message={error} />}
-      </div>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
+            >
+              <ArrowLeft size={12} /> Back to password
+            </button>
+          )}
+        </div>
+        </div>
+      </StepTransition>
     );
   }
 
@@ -195,18 +225,20 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   // so they use the plain text input (EntryShell with no maxLength).
   if (selected === "recovery") {
     return (
-      <EntryShell
-        title="Recovery code"
-        onBack={() => setSelected(null)}
-        onSubmit={recover}
-        loading={loading}
-        disabled={!code}
-        error={error}
-        code={code}
-        setCode={setCode}
-        placeholder="Enter a recovery code"
-        autoFocus
-      />
+      <StepTransition step="recovery" order={MFA_STEPS}>
+        <EntryShell
+          title="Recovery code"
+          hint="Enter one of your recovery codes."
+          onBack={() => setSelected(null)}
+          onSubmit={recover}
+          loading={loading}
+          disabled={!code}
+          code={code}
+          setCode={setCode}
+          placeholder="Enter a recovery code"
+          autoFocus
+        />
+      </StepTransition>
     );
   }
 
@@ -215,53 +247,69 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   const isWebAuthn = selected === "passkey" || selected === "security_key";
   if (isWebAuthn) {
     // WebAuthn flows directly from selection (no code field); show a retry.
+    const Icon = meta.icon || Fingerprint;
     return (
-      <div data-slot="auth-mfa-webauthn" className="space-y-3 text-primary">
-        <p className="text-sm">Waiting for your {meta.label.toLowerCase()}…</p>
-        {error && <Alert variant="error" message={error} />}
-        <button
-          type="button"
-          onClick={() => verifyWebAuthn(selected)}
-          disabled={loading}
-          className="text-xs text-accent hover:text-primary"
-        >
-          {loading ? "Checking…" : "Try again"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setSelected(null)}
-          className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary"
-        >
-          <ArrowLeft size={12} /> Choose another method
-        </button>
-      </div>
+      <StepTransition step="webauthn" order={MFA_STEPS}>
+        <div data-slot="auth-mfa-webauthn" className="space-y-4 text-primary">
+        <div className="flex items-center gap-3">
+          <IconCircle icon={Icon} size="sm" variant="accent" />
+          <div>
+            <h2 className="font-mono text-lg">{meta.label}</h2>
+            <p className="text-xs text-accent">Waiting for your {meta.label.toLowerCase()}…</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 pt-1">
+          <button
+            type="button"
+            onClick={() => verifyWebAuthn(selected)}
+            disabled={loading}
+            className="text-xs text-accent hover:text-primary motion-safe:transition-colors"
+          >
+            {loading ? "Checking…" : "Try again"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(null)}
+            className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
+          >
+            <ArrowLeft size={12} /> Choose another method
+          </button>
+        </div>
+        </div>
+      </StepTransition>
     );
   }
+  const entryHint =
+    selected === "email"
+      ? "Check your email for the code we just sent."
+      : METHOD_META[selected]?.hint || "Enter the code to continue.";
   return (
-    <EntryShell
-      title={meta.label}
-      onBack={() => setSelected(null)}
-      onSubmit={() => verifyCode(selected)}
-      loading={loading}
-      disabled={!code}
-      error={error}
-      code={code}
-      setCode={setCode}
-      maxLength={6}
-      autoFocus
-      email={selected === "email" ? email : undefined}
-    />
+    <StepTransition step="entry" order={MFA_STEPS}>
+      <EntryShell
+        title={meta.label}
+        hint={entryHint}
+        onBack={() => setSelected(null)}
+        onSubmit={() => verifyCode(selected)}
+        loading={loading}
+        disabled={!code}
+        code={code}
+        setCode={setCode}
+        maxLength={6}
+        autoFocus
+        email={selected === "email" ? email : undefined}
+      />
+    </StepTransition>
   );
 }
 
 /**
  * @param {{
  *   title?: string,
+ *   hint?: string,
  *   onBack?: () => void,
  *   onSubmit?: () => void,
  *   loading?: boolean,
  *   disabled?: boolean,
- *   error?: string,
  *   code?: string,
  *   setCode?: (v: string) => void,
  *   placeholder?: string,
@@ -270,31 +318,38 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
  *   email?: string,
  * } | undefined} [props]
  */
-function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, setCode, placeholder, maxLength, autoFocus, email } = {}) {
+function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, setCode, placeholder, maxLength, autoFocus, email } = {}) {
   const inputId = useId();
   const isOtp = typeof maxLength === "number";
   return (
     <form
       data-slot="auth-mfa-entry"
+      aria-busy={loading}
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
       }}
-      className="space-y-3 text-primary"
+      className="space-y-4 text-primary"
     >
       <button
         type="button"
         onClick={onBack}
-        className="flex items-center gap-1 text-xs text-primary/70 hover:text-primary"
+        className="flex items-center gap-1 text-xs text-accent hover:text-primary motion-safe:transition-colors"
       >
         <ArrowLeft size={12} /> Choose another method
       </button>
-      <label htmlFor={inputId} className="text-sm block">{title}</label>
+
+      <div>
+        <label htmlFor={inputId} className="block font-mono text-lg text-primary">{title}</label>
+        {hint && <p className="text-xs text-accent mt-0.5">{hint}</p>}
+      </div>
+
       {email && (
         <p className="flex items-center gap-1.5 w-fit rounded-pill bg-primary text-secondary text-xs px-3 py-1.5 border border-accent/40">
           <Mail size={12} className="text-accent" /> Code sent to {email}
         </p>
       )}
+
       {isOtp ? (
         <OtpInput
           id={inputId}
@@ -317,7 +372,7 @@ function EntryShell({ title, onBack, onSubmit, loading, disabled, error, code, s
           autoFocus={autoFocus}
         />
       )}
-      {error && <Alert variant="error" message={error} />}
+
       <Button type="submit" disabled={loading || disabled} fullWidth>
         {loading ? "Verifying…" : "Verify"}
       </Button>
@@ -337,11 +392,11 @@ MfaChallenge.propTypes = {
 
 EntryShell.propTypes = {
   title: PropTypes.string,
+  hint: PropTypes.string,
   onBack: PropTypes.func,
   onSubmit: PropTypes.func,
   loading: PropTypes.bool,
   disabled: PropTypes.bool,
-  error: PropTypes.string,
   code: PropTypes.string,
   setCode: PropTypes.func,
   placeholder: PropTypes.string,

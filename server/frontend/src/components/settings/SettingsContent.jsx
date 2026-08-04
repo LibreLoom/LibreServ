@@ -42,8 +42,7 @@ export default function SettingsContent({
   notificationsSettings,
   onNotificationsSettingsChange,
   onTestNotification,
-  updateSettings,
-  onUpdateSettingsChange,
+  onUpdateSourceSave,
   colors,
   setColors,
   darkColors,
@@ -77,8 +76,6 @@ export default function SettingsContent({
           settings,
           use12HourTime,
           on12HourTimeChange,
-          updateSettings,
-          onUpdateSettingsChange,
         };
       case "appearance":
         return {
@@ -123,7 +120,7 @@ export default function SettingsContent({
           csrfToken,
         };
       case "about":
-        return { settings };
+        return { settings, onUpdateSourceSave };
       default:
         return { settings };
     }

@@ -244,6 +244,10 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHi
 
 	if !catalog.HasHumanSupport(planID) {
 		services["support"]["state"] = "unavailable"
+	} else {
+		// Human support is always available on plans that include it — it
+		// doesn't need provisioning like the other services.
+		services["support"]["state"] = "connected"
 	}
 
 	return map[string]any{
@@ -284,7 +288,8 @@ func (h *DeviceHandler) buildDomainDetails(ctx context.Context, deviceID, credsJ
 		return details
 	}
 
-	// No custom domain — extract subdomain from credentials JSON.
+	// No custom domain — extract subdomain from credentials JSON. The
+	// credentials are stored as {"domain": {"domain": "<sub>.zone", ...}}.
 	if credsJSON == "" {
 		return nil
 	}
@@ -292,10 +297,12 @@ func (h *DeviceHandler) buildDomainDetails(ctx context.Context, deviceID, credsJ
 	if json.Unmarshal([]byte(credsJSON), &creds) != nil {
 		return nil
 	}
-	if subdomain, ok := creds["domain"].(string); ok && subdomain != "" {
-		return map[string]string{
-			"type":   "subdomain",
-			"domain": subdomain,
+	if svc, ok := creds["domain"].(map[string]any); ok {
+		if subdomain, ok := svc["domain"].(string); ok && subdomain != "" {
+			return map[string]string{
+				"type":   "subdomain",
+				"domain": subdomain,
+			}
 		}
 	}
 	return nil

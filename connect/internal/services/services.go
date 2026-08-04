@@ -220,6 +220,12 @@ func (s *ProvisioningService) generateBackup(sub string) (map[string]any, error)
 		return nil, fmt.Errorf("could not look up backup provider: %w", err)
 	}
 
+	// Endpoints from providers include their scheme; strip it so the restic
+	// repo path stays a well-formed s3:https://host/... URL.
+	trimScheme := func(u string) string {
+		return strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
+	}
+
 	// Prefer a configured Backblaze B2 provider; fall back to legacy S3 config.
 	if prov != nil && prov.Credential("account_id", "") != "" && prov.Credential("application_key", "") != "" {
 		bucketPrefix := prov.Setting("bucket_prefix", "libreserv-backup")
@@ -231,7 +237,7 @@ func (s *ProvisioningService) generateBackup(sub string) (map[string]any, error)
 		return map[string]any{
 			"backup": map[string]any{
 				"repo_type": "s3",
-				"repo_path": fmt.Sprintf("s3:https://%s/%s", creds.Endpoint, creds.BucketName),
+				"repo_path": fmt.Sprintf("s3:https://%s/%s", trimScheme(creds.Endpoint), creds.BucketName),
 				"password":  security.RandomPassword(32),
 				"env": map[string]string{
 					"AWS_ACCESS_KEY_ID":     creds.KeyID,
@@ -249,7 +255,7 @@ func (s *ProvisioningService) generateBackup(sub string) (map[string]any, error)
 		"backup": map[string]any{
 			"repo_type": "s3",
 			"repo_path": fmt.Sprintf("s3:https://%s/%s/%s",
-				config.C.Backup.Endpoint, config.C.Backup.BucketPrefix, sub),
+				trimScheme(config.C.Backup.Endpoint), config.C.Backup.BucketPrefix, sub),
 			"password": security.RandomPassword(32),
 			"env": map[string]string{
 				"AWS_ACCESS_KEY_ID":     sub + security.RandomString(8),

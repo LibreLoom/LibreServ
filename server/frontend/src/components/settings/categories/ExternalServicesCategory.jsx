@@ -6,6 +6,7 @@ import {
   Database,
   Waypoints,
   Sparkles,
+  LifeBuoy,
 } from "lucide-react";
 import SettingsCard from "../SettingsCard.jsx";
 import ConnectStatusCard from "../../connect/ConnectStatusCard.jsx";
@@ -74,8 +75,10 @@ function formatServiceLimit(serviceId, planLimits, svc) {
     case "smtp":
       return formatEmailPerMo(planLimits.max_emails_per_day) || "Not in plan";
     case "domain": {
-      const actualDomain = svc?.details?.domain || null;
-      if (actualDomain) return actualDomain;
+      // Custom domains replace the plan wildcard in the pill; a provisioned
+      // subdomain is shown separately as the device's actual name.
+      const isCustom = svc?.details?.type === "custom";
+      if (isCustom) return svc.details.domain;
       return planLimits.domain || "Not in plan";
     }
     case "backup":
@@ -96,6 +99,13 @@ function ServiceDetailLine({ serviceId, svc }) {
   if (!details || Object.keys(details).length === 0) return null;
 
   if (serviceId === "domain") {
+    if (details.type === "subdomain" && details.domain) {
+      return (
+        <p className="text-xs text-accent mt-1 font-mono truncate">
+          Your domain: {details.domain}
+        </p>
+      );
+    }
     if (details.type !== "custom") return null;
     const status = domainStatusLabel(details.status);
     const expiry = formatExpiry(details.expires_at);
@@ -146,6 +156,13 @@ const SERVICE_META = [
     title: "AI Assistant",
     desc: "AI help managing your server.",
   },
+  {
+    id: "support",
+    Icon: LifeBuoy,
+    title: "Human Support",
+    desc: "A real person to talk to if something goes wrong.",
+    informational: true,
+  },
 ];
 
 const STATE_BADGES = {
@@ -182,6 +199,9 @@ export default function ExternalServicesCategory({
   const activePlanId = connectStatus?.plan?.id;
   const planLimits = connectInfo?.plan_limits?.[activePlanId] || null;
   const isConnected = !!connectStatus?.connected;
+  // Modal content comes from connectStatus; until it has loaded, show the
+  // modal shell with a skeleton body instead of a half-empty form.
+  const modalLoading = loading || !connectStatus;
 
   return (
     <div className="space-y-4" data-slot="external-services-category">
@@ -205,7 +225,7 @@ export default function ExternalServicesCategory({
         />
       </div>
 
-      {SERVICE_META.map(({ id, Icon, title, desc }, i) => {
+      {SERVICE_META.map(({ id, Icon, title, desc, informational }, i) => {
         const svc = services[id];
         const badge = svc ? STATE_BADGES[svc.state] : STATE_BADGES.disabled;
         const limitLabel = isConnected ? formatServiceLimit(id, planLimits) : null;
@@ -213,11 +233,18 @@ export default function ExternalServicesCategory({
         return (
           <div
             key={id}
-            role="button"
-            tabIndex={0}
-            onClick={() => setOpenModal(id)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenModal(id); } }}
-            className="cursor-pointer focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2 rounded-large-element"
+            role={informational ? undefined : "button"}
+            tabIndex={informational ? undefined : 0}
+            onClick={informational ? undefined : () => setOpenModal(id)}
+            onKeyDown={
+              informational
+                ? undefined
+                : (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenModal(id); } }
+            }
+            className={cn(
+              "rounded-large-element",
+              !informational && "cursor-pointer focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2"
+            )}
           >
             <SettingsCard index={i} icon={Icon} title={title} padding={false}>
               <div className="px-5 py-4">
@@ -251,13 +278,16 @@ export default function ExternalServicesCategory({
                     <span className={cn("text-xs px-2.5 py-1 rounded-pill font-medium", badge.class)}>
                       {badge.label}
                     </span>
-                    <svg
-                      width="16" height="16" viewBox="0 0 24 24"
-                      fill="none" stroke="currentColor" strokeWidth="2"
-                      className="text-accent"
-                    >
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
+                    {!informational && (
+                      <svg
+                        width="16" height="16" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" strokeWidth="2"
+                        className="text-accent"
+                        aria-hidden="true"
+                      >
+                        <path d="m9 18 6-6-6-6" />
+                      </svg>
+                    )}
                   </div>
                 </div>
               </div>
@@ -272,6 +302,7 @@ export default function ExternalServicesCategory({
         onSaved={onRefreshConnectStatus}
         service={services?.smtp}
         connectStatus={connectStatus}
+        loading={modalLoading}
         csrfToken={csrfToken}
       />
       <DomainServiceModal
@@ -280,6 +311,7 @@ export default function ExternalServicesCategory({
         onSaved={onRefreshConnectStatus}
         service={services?.domain}
         connectStatus={connectStatus}
+        loading={modalLoading}
         csrfToken={csrfToken}
       />
       <BackupServiceModal
@@ -289,6 +321,7 @@ export default function ExternalServicesCategory({
         service={services?.backup}
         repos={repos}
         connectStatus={connectStatus}
+        loading={modalLoading}
         csrfToken={csrfToken}
       />
       <TunnelServiceModal
@@ -297,6 +330,7 @@ export default function ExternalServicesCategory({
         onSaved={onRefreshConnectStatus}
         service={services?.tunnel}
         connectStatus={connectStatus}
+        loading={modalLoading}
         csrfToken={csrfToken}
       />
       <AIServiceModal
@@ -306,6 +340,7 @@ export default function ExternalServicesCategory({
         service={services?.ai}
         connectStatus={connectStatus}
         aiSettings={aiSettings}
+        loading={modalLoading}
         csrfToken={csrfToken}
       />
 

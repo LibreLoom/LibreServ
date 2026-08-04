@@ -935,6 +935,7 @@ ErrorStep.propTypes = { message: PropTypes.string };
 
 // ─── STEP: MFA ──────────────────────────────────────────────────────────────────
 function MfaStep({ onComplete, onSessionExpired }) {
+  const [mfaPhase, setMfaPhase] = useState("choose");
   return (
     <SetupShell>
       <SetupCard className="" header={<StepDots current={STEP.MFA} />}>
@@ -948,14 +949,17 @@ function MfaStep({ onComplete, onSessionExpired }) {
               Enable MFA
             </h2>
           </div>
-          <p className="text-primary/50 text-sm leading-relaxed">
-            Two-factor authentication asks for a second check at sign-in — not just your password. As an admin, your account is at higher risk, so you need at least one method before you can finish setup.
-          </p>
+          {mfaPhase === "choose" && (
+            <p className="text-primary/50 text-sm leading-relaxed">
+              Two-factor authentication asks for a second check at sign-in — not just your password. As an admin, your account is at higher risk, so you need at least one method before you can finish setup.
+            </p>
+          )}
         </div>
 
         <MfaSetupWizard
           onComplete={onComplete}
           onSessionExpired={onSessionExpired}
+          onPhaseChange={setMfaPhase}
         />
       </SetupCard>
     </SetupShell>

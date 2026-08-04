@@ -122,16 +122,9 @@ export default function CriticalIssues() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <span
-        className="text-xs text-accent font-mono animate-pulse"
-        aria-live="polite"
-      >
-        Checking…
-      </span>
-    );
-  }
+  // Render nothing while the health check runs — a "Checking…" label swaps to
+  // the result pill and causes a layout shift in the header.
+  if (isLoading) return null;
 
   // Silently ignore errors — non-critical for the dashboard
   if (error || !data) return null;

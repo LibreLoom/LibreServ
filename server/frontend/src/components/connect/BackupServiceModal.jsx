@@ -5,26 +5,37 @@ import Toggle from "../common/Toggle.jsx";
 import Button from "../ui/Button.jsx";
 import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
+import RecoveryKeyCard from "./RecoveryKeyCard.jsx";
+import api from "../../lib/api.js";
 
-export default function BackupServiceModal({ open, onClose, onSaved, service, repos, connectStatus = null, csrfToken = "" }) {
+export default function BackupServiceModal({ open, onClose, onSaved, service, repos, connectStatus = null, csrfToken = "", loading = false }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
   const [showAddRepo, setShowAddRepo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  // Fresh repo list fetched on open (the repos prop can be stale right after
+  // enabling Connect storage, since BackupsCategory only reloads on mount).
+  const [freshRepos, setFreshRepos] = useState([]);
 
   useEffect(() => {
     if (!open) return;
     setUseConnect(service?.state === "connected");
     setError(null);
-     
-  }, [open, service]);
+    api("/backups/repos")
+      .then((res) => res.json())
+      .then((data) => setFreshRepos(data.repositories || []))
+      .catch(() => setFreshRepos(repos || []));
+  }, [open, service, repos]);
 
   if (!open) return null;
 
   const connectWarning = getConnectWarning("backup", connectStatus);
   const backupOnPlan = service?.state !== "unavailable";
+  // The Connect-provisioned repo is the default one (no app assignment).
+  const connectRepo = freshRepos.find((r) => !r.app_id) || null;
+  const customRepos = freshRepos.filter((r) => r.app_id);
 
   const stateLabel =
     service?.state === "connected"
@@ -36,7 +47,7 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
           : "Disabled";
 
   return (
-    <ModalCard title="Cloud Backup Storage" onClose={onClose} size="lg" data-slot="backup-service-modal">
+    <ModalCard title="Cloud Backup Storage" onClose={onClose} size="lg" loading={loading} data-slot="backup-service-modal">
       {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">
@@ -119,20 +130,24 @@ export default function BackupServiceModal({ open, onClose, onSaved, service, re
                   Connect
                 </span>
               </div>
-              <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
-                <p className="text-sm text-secondary font-medium">
-                  Backup Recovery Key
-                </p>
-                <p className="text-xs text-accent">
-                  Your recovery key will appear here once Connect storage is provisioned.
-                  Without this key, you cannot restore your backups on a new server.
-                </p>
-              </div>
+              {connectRepo ? (
+                <RecoveryKeyCard repo={connectRepo} repoId={connectRepo.id} />
+              ) : (
+                <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 space-y-2">
+                  <p className="text-sm text-secondary font-medium">
+                    Backup Recovery Key
+                  </p>
+                  <p className="text-xs text-accent">
+                    Your recovery key will appear here once Connect storage is provisioned.
+                    Without this key, you cannot restore your backups on a new server.
+                  </p>
+                </div>
+              )}
             </>
           )}
 
-          {repos && repos.length > 0 ? (
-            repos.map((repo, i) => (
+          {customRepos.length > 0 ? (
+            customRepos.map((repo, i) => (
               <div
                 key={repo.id || i}
                 className="flex items-center gap-3 p-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10"

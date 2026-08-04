@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Key, Copy, Download, Eye, EyeOff, AlertTriangle, Loader2 } from "lucide-react";
+import { Key, Copy, Check, Download, Eye, EyeOff, AlertTriangle, Loader2 } from "lucide-react";
 import Card from "../cards/Card.jsx";
 import Button from "../ui/Button.jsx";
 import api from "../../lib/api.js";
@@ -110,7 +110,7 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
               onClick={handleCopy}
               title={copied ? "Copied!" : "Copy to clipboard"}
             >
-              <Copy size={16} />
+              {copied ? <Check size={16} /> : <Copy size={16} />}
             </Button>
             <Button
               variant="ghost"
@@ -121,9 +121,6 @@ export default function RecoveryKeyCard({ repo, repoId = "" }) {
               <Download size={16} />
             </Button>
           </div>
-          {copied && (
-            <p className="text-xs text-accent">Copied to clipboard.</p>
-          )}
         </div>
 
         <div className="bg-primary text-secondary border-2 border-warning/20 rounded-large-element p-4 flex items-start gap-3">

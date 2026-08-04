@@ -6,12 +6,16 @@ import { useAuth } from "../hooks/useAuth";
 import { useToast } from "../context/ToastContext";
 import { login as loginQuips } from "../assets/greetings";
 import api from "../lib/api";
+import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
+import StepTransition from "../components/common/StepTransition";
 import Button from "../components/ui/Button";
 import FormInput from "../components/common/forms/FormInput";
 import Alert from "../components/common/Alert";
 import MfaChallenge from "../components/auth/MfaChallenge";
 import { useSettingsStatus } from "../hooks/useSettingsStatus";
+
+const LOGIN_STEPS = ["form", "mfa"];
 
 function getLoginQuip() {
   const hoursSinceEpoch = Math.floor(Date.now() / 43200000);
@@ -233,16 +237,23 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
         id="main-content"
         tabIndex={-1}
       >
-      <div className={cn(embedded ? "w-full" : "relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8")}>
-        <span className="text-primary font-mono text-2xl block text-center">
-          LibreServ
-        </span>
-        <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
-        <span className="text-primary font-mono text-xl font-normal block text-center">
-          Hey there! Log in to continue.
-        </span>
-        <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
-        {mfa ? (
+      <div className={cn(embedded ? "w-full" : "w-full max-w-lg ring-2 ring-accent rounded-large-element")}>
+        <Card surface="secondary" padding={false}>
+          <div className="p-8">
+            <span className="text-primary font-mono text-2xl block text-center">
+              LibreServ
+            </span>
+            <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
+            <StepTransition step={mfa ? "mfa" : "form"} order={LOGIN_STEPS}>
+              {!mfa && (
+                <>
+                  <span className="text-primary font-mono text-xl font-normal block text-center">
+                    Hey there! Log in to continue.
+                  </span>
+                  <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
+                </>
+              )}
+              {mfa ? (
           <MfaChallenge
             mfaToken={mfa.mfaToken}
             methods={mfa.methods}
@@ -309,7 +320,10 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             {errorStatus && calculateErrorHTML()}
           </div>
         </form>
-        )}
+              )}
+            </StepTransition>
+          </div>
+        </Card>
       </div>
       {!embedded && (
         <ForgotPasswordModal isOpen={showResetModal} onClose={() => setShowResetModal(false)} />

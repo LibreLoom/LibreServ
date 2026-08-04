@@ -3,14 +3,13 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
-import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info, ExternalLink, GitBranch } from "lucide-react";
+import { Download, CheckCircle, AlertCircle, Loader2, RefreshCw, Info, ExternalLink } from "lucide-react";
 import SettingsCard from "../SettingsCard";
-import SettingsRow from "../SettingsRow";
 import Button from "../../ui/Button";
 import ConfirmModal from "../../cards/ConfirmModal";
 import ModalCard from "../../cards/ModalCard";
 
-export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateSettingsChange }) {
+export default function SystemUpdatesCard({ index = 0 }) {
   const { request } = useAuth();
   const { addToast } = useToast();
   const [updateInfo, setUpdateInfo] = useState(null);
@@ -208,48 +207,6 @@ export default function SystemUpdatesCard({ index = 0, updateSettings, onUpdateS
               </div>
             </div>
           )}
-
-          <div className="mt-4 pt-4 border-t border-primary/10">
-            <div className="text-xs font-medium text-accent uppercase tracking-wider mb-3">
-              <GitBranch size={12} className="inline mr-1.5" />
-              Update Source
-            </div>
-            <SettingsRow label="API Base URL" stack>
-              <input
-                type="text"
-                value={updateSettings?.base_url || ""}
-                onChange={(e) => onUpdateSettingsChange?.({ base_url: e.target.value })}
-                onBlur={(e) => {
-                  const val = e.target.value.trim();
-                  if (val !== "" && !val.startsWith("http://") && !val.startsWith("https://")) {
-                    onUpdateSettingsChange?.({ base_url: updateSettings?.base_url || "" });
-                  } else if (val !== e.target.value) {
-                    onUpdateSettingsChange?.({ base_url: val });
-                  }
-                }}
-                placeholder="https://gt.plainskill.net/api/v1"
-                className="w-full md:w-64 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
-              />
-            </SettingsRow>
-            <SettingsRow label="Owner" stack>
-              <input
-                type="text"
-                value={updateSettings?.owner || ""}
-                onChange={(e) => onUpdateSettingsChange?.({ owner: e.target.value })}
-                placeholder="libreloom"
-                className="w-full md:w-40 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
-              />
-            </SettingsRow>
-            <SettingsRow label="Repo" stack hideDivider>
-              <input
-                type="text"
-                value={updateSettings?.repo || ""}
-                onChange={(e) => onUpdateSettingsChange?.({ repo: e.target.value })}
-                placeholder="libreserv"
-                className="w-full md:w-40 px-3 py-1.5 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline"
-              />
-            </SettingsRow>
-          </div>
         </div>
       </SettingsCard>
 

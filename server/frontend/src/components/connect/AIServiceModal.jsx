@@ -13,7 +13,7 @@ const FORMAT_OPTIONS = [
   { value: "anthropic", label: "Anthropic (Messages)" },
 ];
 
-export default function AIServiceModal({ open, onClose, onSaved, service, connectStatus = null, aiSettings = null, csrfToken = "" }) {
+export default function AIServiceModal({ open, onClose, onSaved, service, connectStatus = null, aiSettings = null, csrfToken = "", loading = false }) {
   const rawSettings = aiSettings || {};
   const [useConnect, setUseConnect] = useState(service?.state === "connected");
   const [apiKey, setApiKey] = useState("");
@@ -83,7 +83,7 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
   }
 
   return (
-    <ModalCard title="AI Assistant" onClose={onClose} size="md" data-slot="ai-service-modal">
+    <ModalCard title="AI Assistant" onClose={onClose} size="md" loading={loading} data-slot="ai-service-modal">
       {({ close }) => (
         <div className="p-5 space-y-5">
           <div className="flex items-start gap-3 pb-4 border-b border-primary/10">

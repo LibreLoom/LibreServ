@@ -17,6 +17,7 @@ import { haptic } from "../../utils/haptics";
  * @property {import('react').ReactNode | function({ close: () => void }): import('react').ReactNode} [footer]
  * @property {string} [className]
  * @property {import('react').RefObject} [initialFocusRef]
+ * @property {boolean} [loading] Show a skeleton body until content is ready.
  */
 
 /** @param {ModalCardProps} props */
@@ -30,6 +31,7 @@ export default function ModalCard({
   footer,
   className = "",
   initialFocusRef,
+  loading = false,
 }) {
   const [isClosing, setIsClosing] = useState(false);
   const titleId = useId();
@@ -57,7 +59,11 @@ export default function ModalCard({
     }, 300);
   }, []);
 
-  const content = typeof children === "function" ? children({ close: handleClose }) : children;
+  const content = loading
+    ? null
+    : typeof children === "function"
+      ? children({ close: handleClose })
+      : children;
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
@@ -136,6 +142,7 @@ export default function ModalCard({
         data-slot="dialog-content"
         role="dialog"
         aria-modal="true"
+        aria-busy={loading || undefined}
         aria-labelledby={titleId}
         className={cn(
           "w-full overflow-hidden rounded-large-element",
@@ -176,7 +183,20 @@ export default function ModalCard({
             </h2>
           )}
 
-          {content}
+          {loading ? (
+            <div className="p-5 space-y-4" aria-hidden="true">
+              <div className="h-4 w-3/4 rounded-pill bg-accent/30 animate-pulse" />
+              <div className="h-4 w-full rounded-pill bg-accent/30 animate-pulse" />
+              <div className="h-4 w-2/3 rounded-pill bg-accent/30 animate-pulse" />
+              <div className="h-10 w-full rounded-pill bg-accent/30 animate-pulse" />
+              <div className="flex gap-3 pt-2">
+                <div className="h-10 flex-1 rounded-pill bg-accent/30 animate-pulse" />
+                <div className="h-10 flex-1 rounded-pill bg-accent/30 animate-pulse" />
+              </div>
+            </div>
+          ) : (
+            content
+          )}
 
           {footer && (
             <div className="mt-4">

@@ -7,7 +7,7 @@ import { getConnectWarning } from "./connect-utils.js";
 import { updateConnectService } from "../../lib/connect-api.js";
 import { updateNotifications } from "../../lib/notifications-api.js";
 
-export default function EmailServiceModal({ open, onClose, onSaved, service, connectStatus = null, csrfToken = "" }) {
+export default function EmailServiceModal({ open, onClose, onSaved, service, connectStatus = null, csrfToken = "", loading = false }) {
   const [useConnect, setUseConnect] = useState(
     service?.state === "connected"
   );
@@ -43,7 +43,7 @@ export default function EmailServiceModal({ open, onClose, onSaved, service, con
           : "Disabled";
 
   return (
-    <ModalCard title="Email / SMTP" onClose={onClose} size="md" data-slot="email-service-modal">
+    <ModalCard title="Email / SMTP" onClose={onClose} size="md" loading={loading} data-slot="email-service-modal">
       {({close}) => (
       <div className="p-5 space-y-5">
         <div className="flex items-start gap-3 pb-4 border-b border-primary/10">

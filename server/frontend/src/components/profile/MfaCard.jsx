@@ -782,17 +782,16 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
             )}
           </Button>
           {type === "email" && (
-            <Button
-              type="button"
-              variant="outline"
-              surface="secondary"
-              fullWidth
-              loading={busy}
-              onClick={sendEmailCode}
-              className="py-2 text-sm"
-            >
-              <Mail className="w-4 h-4" /> Send a new code
-            </Button>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => sendEmailCode()}
+                disabled={busy}
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline underline-offset-2 py-1 motion-safe:transition-colors disabled:opacity-50"
+              >
+                <Mail size={12} /> Send a new code
+              </button>
+            </div>
           )}
         </form>
       )}
@@ -836,7 +835,7 @@ EnrollFlow.propTypes = {
 //   3. Setup — enroll + verify the chosen method; on success, onComplete fires
 //      (which finalizes setup and redirects to the dashboard).
 // MfaCard itself stays a single-screen component for My Account / MfaBlocker.
-export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExpired }) {
+export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExpired, onPhaseChange }) {
   const { request } = useAuth();
   const { addToast } = useToast();
   const {
@@ -866,6 +865,12 @@ export function MfaSetupWizard({ onComplete, smtpConfigured = true, onSessionExp
         return !!availability[t];
       });
   const [phase, setPhase] = useState("choose"); // choose | backup | setup
+
+  // Let a parent (e.g. SetupPage) know which wizard step is showing so it can
+  // scope its own copy to step 1 only.
+  useEffect(() => {
+    onPhaseChange?.(phase);
+  }, [phase, onPhaseChange]);
   const [selectedType, setSelectedType] = useState(null);
   const [backupAcknowledged, setBackupAcknowledged] = useState(false);
   const [codes, setCodes] = useState(/** @type {string[] | null} */ (null));
@@ -1116,8 +1121,10 @@ MfaSetupWizard.propTypes = {
   onComplete: PropTypes.func.isRequired,
   smtpConfigured: PropTypes.bool,
   onSessionExpired: PropTypes.func,
+  onPhaseChange: PropTypes.func,
 };
 MfaSetupWizard.defaultProps = {
   smtpConfigured: true,
   onSessionExpired: undefined,
+  onPhaseChange: undefined,
 };

@@ -8,6 +8,7 @@ import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
 import { visibleCategories } from "../components/settings/settingsCategories";
 import { getSettings, updateSettings } from "../lib/settings-api.js";
+import { useToast } from "../context/ToastContext";
 import {
   getSecuritySettings,
   updateSecuritySettings,
@@ -30,6 +31,7 @@ const DEBOUNCE_MS = 500;
 
 export default function SettingsPage() {
   const { me: user, csrfToken } = useAuth();
+  const { addToast } = useToast();
   const isAdmin = user?.role === "admin";
   const allowedCategoryIds = useMemo(
     () => visibleCategories(isAdmin).map((c) => c.id),
@@ -199,16 +201,13 @@ export default function SettingsPage() {
     scheduleSave();
   };
 
-  const handleUpdateSettingsChange = (partial) => {
-    setSettings((prev) => {
-      if (!prev) return prev;
-      const newUpdates = { ...prev?.updates, ...partial };
-      pendingSettingsRef.current = { updates: newUpdates };
-      return { ...prev, updates: newUpdates };
-    });
-    setSaveStatus("unsaved");
-    scheduleSave();
-  };
+  const handleUpdateSourceSave = useCallback(async (updates) => {
+    await updateSettings({ updates }, csrfToken);
+    setSettings((prev) =>
+      prev ? { ...prev, updates: { ...prev.updates, ...updates } } : prev
+    );
+    addToast({ type: "success", message: "Update source saved" });
+  }, [csrfToken, addToast]);
 
   const handleActivateConnect = async (key) => {
     setConnectLoading(true);
@@ -347,8 +346,6 @@ export default function SettingsPage() {
             notificationsSettings={notificationsSettings}
             onNotificationsSettingsChange={handleNotificationsSettingsChange}
             onTestNotification={handleTestNotification}
-            updateSettings={settings?.updates}
-            onUpdateSettingsChange={handleUpdateSettingsChange}
             colors={colors}
             setColors={setColors}
             darkColors={darkColors}
@@ -369,6 +366,7 @@ export default function SettingsPage() {
             onRefreshConnectStatus={handleRefreshConnectStatus}
             onOpenPlanPage={handleOpenPlanPage}
             connectLoading={connectLoading}
+            onUpdateSourceSave={handleUpdateSourceSave}
             csrfToken={csrfToken}
           />
         </div>
@@ -410,8 +408,6 @@ export default function SettingsPage() {
               notificationsSettings={notificationsSettings}
               onNotificationsSettingsChange={handleNotificationsSettingsChange}
               onTestNotification={handleTestNotification}
-              updateSettings={settings?.updates}
-              onUpdateSettingsChange={handleUpdateSettingsChange}
               colors={colors}
               setColors={setColors}
               darkColors={darkColors}
@@ -432,6 +428,7 @@ export default function SettingsPage() {
               onRefreshConnectStatus={handleRefreshConnectStatus}
               onOpenPlanPage={handleOpenPlanPage}
               connectLoading={connectLoading}
+              onUpdateSourceSave={handleUpdateSourceSave}
               csrfToken={csrfToken}
             />
           </div>
