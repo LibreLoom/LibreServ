@@ -171,7 +171,13 @@ export function AuthProvider({ children, queryClient }) {
 
   const logout = useCallback(async () => {
     try {
-      await api("/auth/logout", { method: "POST" });
+      // /auth/logout is CSRF-protected — without the token the server rejects
+      // it and the session cookie survives, silently re-authenticating the
+      // user on the next load.
+      await api("/auth/logout", {
+        method: "POST",
+        headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
+      });
     } catch {
       // Continue with cleanup even if logout request fails
     } finally {
@@ -179,7 +185,7 @@ export function AuthProvider({ children, queryClient }) {
       setCsrfToken(null);
       queryClient?.invalidateQueries({ queryKey: ["user"] });
     }
-  }, [queryClient]);
+  }, [queryClient, csrfToken]);
 
   const request = useCallback(
     async (path, options = {}) => {
