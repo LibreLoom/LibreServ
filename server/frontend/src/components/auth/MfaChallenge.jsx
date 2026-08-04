@@ -375,8 +375,8 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
       </div>
 
       {email && (
-        <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-pill bg-accent text-primary text-xs border border-accent/40 p-1">
-          <span className="flex items-center gap-1.5 whitespace-nowrap bg-primary text-secondary rounded-pill py-1.5 pl-2.5 pr-2.5">
+        <div className="inline-flex max-w-full flex-wrap items-center rounded-pill bg-accent text-primary text-xs border border-accent/40">
+          <span className="flex items-center gap-1.5 whitespace-nowrap bg-primary text-secondary rounded-pill py-1.5 pl-3 pr-2.5">
             <Mail size={12} className="text-accent shrink-0" /> Code sent to {email}
           </span>
           <button
@@ -384,7 +384,7 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
             type="button"
             onClick={onResend}
             disabled={resendCooldown > 0 || loading}
-            className="flex items-center gap-1 whitespace-nowrap text-xs py-1.5 pl-2.5 pr-2.5 rounded-pill text-primary enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
+            className="flex items-center gap-1 whitespace-nowrap text-xs py-1.5 pl-2.5 pr-3 rounded-r-pill text-primary enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
           >
             <RotateCw size={11} className="shrink-0" /> {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend"}
           </button>
