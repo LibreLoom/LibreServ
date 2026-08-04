@@ -106,7 +106,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
         padding={false}
         index={index}
       >
-        <div className="px-5 pt-5 pb-2">
+        <div className="px-5 py-5">
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
               <div className="text-sm text-primary/70 mb-1">Current Version</div>
