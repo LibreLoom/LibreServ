@@ -146,8 +146,8 @@ function PlanCard({ plan, isCurrent, busy, onSelect, currentDomain }) {
 function PlanLimit({ label, value }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="font-mono text-foreground text-right">{value}</dd>
+      <dt className="text-muted-foreground shrink-0">{label}</dt>
+      <dd className="font-mono text-foreground text-right break-all min-w-0">{value}</dd>
     </div>
   );
 }
