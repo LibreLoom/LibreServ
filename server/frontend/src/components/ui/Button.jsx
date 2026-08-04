@@ -118,7 +118,7 @@ const buttonVariants = cva(
       size: "md",
       surface: "secondary",
       fullWidth: false,
-      smoothResize: false,
+      smoothResize: true,
     },
   }
 );
@@ -129,7 +129,12 @@ const buttonVariants = cva(
  *   disabled?: boolean, type?: "button" | "reset" | "submit", className?: string,
  *   smoothResize?: boolean, fullWidth?: boolean, surface?: "primary"|"secondary",
  *   active?: boolean, asChild?: boolean, [key: string]: any
- * }} props
+ * }}
+ *
+ * smoothResize defaults to true — every button animates width changes with M3
+ * easing. Pass smoothResize={false} to opt out. It auto-disables when the
+ * button's width is layout-determined (fullWidth prop, or a w-full/flex-1/
+ * arbitrary-width className) since a pinned px width would fight the layout.
  */
 export default function Button({
   children,
@@ -138,7 +143,7 @@ export default function Button({
   loading = false,
   disabled = false,
   type = "button",
-  smoothResize = false,
+  smoothResize = true,
   fullWidth = false,
   surface = "secondary",
   active = false,
@@ -149,9 +154,14 @@ export default function Button({
 }) {
   const ref = useRef(null);
 
-  useSmoothResize(ref, { x: smoothResize && !fullWidth });
+  // Width is layout-determined (flex/grid stretch or explicit w-*) — a pinned
+  // px width from useSmoothResize would override the layout, so skip it.
+  const stretchy = /(^|\s)(w-full|flex-1|basis-|grow|w-\[[^\]]+\])(\s|$)/.test(className);
+  const resizeX = smoothResize && !fullWidth && !stretchy;
 
-  const cvaProps = { variant, size, surface, fullWidth, smoothResize };
+  useSmoothResize(ref, { x: resizeX });
+
+  const cvaProps = { variant, size, surface, fullWidth, smoothResize: resizeX };
   const buttonClass = cn(buttonVariants(cvaProps), className);
 
   // Haptic feedback on every press — destructive actions get a harsh buzz,
