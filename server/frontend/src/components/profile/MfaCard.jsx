@@ -703,7 +703,7 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
                   type="button"
                   onClick={() => setChangeEmailOpen(true)}
                   disabled={busy}
-                  className="flex items-center gap-1 text-xs py-1.5 pl-2.5 pr-3 rounded-r-pill text-primary hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1 text-xs py-1.5 pl-2.5 pr-3 rounded-r-pill text-primary enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
                   aria-label={`Change email address (currently ${me.email})`}
                 >
                   <Pencil size={11} /> Change

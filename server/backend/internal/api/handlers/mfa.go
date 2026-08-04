@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,11 @@ type MFAHandler struct {
 	sendEmailOTP func(email, code string) error
 	// emailRateLimit tracks per-user email-OTP sends to prevent runaway loops.
 	emailRateLimit sync.Map // userID → []time.Time
+	// verifyRateLimit tracks MFA code attempts per mfa_token so a 6-digit code
+	// can't be brute-forced within the token's lifetime.
+	verifyRateLimit sync.Map // mfaToken → []time.Time
+	// recoverRateLimit tracks recovery-code attempts per mfa_token.
+	recoverRateLimit sync.Map // mfaToken → []time.Time
 }
 
 // NewMFAHandler creates an MFAHandler. sendEmailOTP may be nil (email methods
@@ -34,11 +40,48 @@ func NewMFAHandler(authService *auth.Service, sendEmailOTP func(email, code stri
 // SetEmailSender wires the email-OTP sender after construction.
 func (h *MFAHandler) SetEmailSender(send func(email, code string) error) { h.sendEmailOTP = send }
 
-// emailRateLimitOK checks whether the user can send another email-OTP code.
-// Allows at most 3 sends per 60-second window per user.
-func (h *MFAHandler) emailRateLimitOK(userID string) bool {
+const (
+	// emailOTPLimit caps email-OTP sends per user per minute.
+	emailOTPLimit = 3
+	// emailOTPInterval is the minimum gap between email-OTP sends — the resend
+	// cooldown, mirrored by the frontend (RESEND_COOLDOWN_S).
+	emailOTPInterval = 30 * time.Second
+	// mfaVerifyAttempts caps verify attempts per mfa_token per minute.
+	mfaVerifyAttempts = 10
+	// mfaRecoverAttempts caps recovery-code attempts per mfa_token per minute.
+	mfaRecoverAttempts = 5
+	// mfaAttemptWindow is the sliding window for the verify/recover budgets.
+	mfaAttemptWindow = time.Minute
+)
+
+// attemptLimitOK enforces a per-key attempt budget over a sliding window.
+// It records the attempt and reports whether the key still has budget left.
+func attemptLimitOK(m *sync.Map, key string, limit int, window time.Duration) bool {
 	now := time.Now()
-	cutoff := now.Add(-60 * time.Second)
+	cutoff := now.Add(-window)
+	var recent []time.Time
+	if v, ok := m.Load(key); ok {
+		for _, t := range v.([]time.Time) {
+			if t.After(cutoff) {
+				recent = append(recent, t)
+			}
+		}
+	}
+	if len(recent) >= limit {
+		m.Store(key, recent)
+		return false
+	}
+	m.Store(key, append(recent, now))
+	return true
+}
+
+// emailSendAllowed reports whether the user may send another email-OTP code.
+// It enforces both the per-minute budget and the minimum gap between sends
+// (the resend cooldown). When not allowed it returns how long to wait before
+// retrying.
+func (h *MFAHandler) emailSendAllowed(userID string) (bool, time.Duration) {
+	now := time.Now()
+	cutoff := now.Add(-time.Minute)
 	var recent []time.Time
 	if v, ok := h.emailRateLimit.Load(userID); ok {
 		for _, t := range v.([]time.Time) {
@@ -47,13 +90,25 @@ func (h *MFAHandler) emailRateLimitOK(userID string) bool {
 			}
 		}
 	}
-	if len(recent) >= 3 {
+	if len(recent) >= emailOTPLimit {
 		h.emailRateLimit.Store(userID, recent)
-		return false
+		// The oldest send drops out of the window first, freeing a slot.
+		return false, time.Minute - now.Sub(recent[0])
 	}
-	recent = append(recent, now)
-	h.emailRateLimit.Store(userID, recent)
-	return true
+	if n := len(recent); n > 0 {
+		if wait := emailOTPInterval - now.Sub(recent[n-1]); wait > 0 {
+			return false, wait
+		}
+	}
+	h.emailRateLimit.Store(userID, append(recent, now))
+	return true, 0
+}
+
+// emailRateLimitOK checks whether the user can send another email-OTP code
+// (enrollment path — only the budget matters, not the resend cooldown).
+func (h *MFAHandler) emailRateLimitOK(userID string) bool {
+	ok, _ := h.emailSendAllowed(userID)
+	return ok
 }
 
 // ----- enrollment (session-authed + CSRF) -----
@@ -277,6 +332,20 @@ func (h *MFAHandler) Challenge(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Your sign-in session expired. Please log in again.")
 		return
 	}
+	// Email codes are the abuse vector — cap sends per user (budget + resend
+	// cooldown) regardless of IP.
+	if req.Type == "email" {
+		allowed, retryAfter := h.emailSendAllowed(user.ID)
+		if !allowed {
+			secs := int(retryAfter / time.Second)
+			if secs < 1 {
+				secs = 1
+			}
+			w.Header().Set("Retry-After", strconv.Itoa(secs))
+			JSONError(w, http.StatusTooManyRequests, "You've asked for too many email codes. Wait a moment and try again.")
+			return
+		}
+	}
 	options, err := h.authService.BeginMFAChallenge(r.Context(), user.ID, req.Type, h.sendEmailOTP)
 	if err != nil {
 		JSONError(w, http.StatusBadRequest, "We couldn't start that sign-in method. Please try another.")
@@ -306,6 +375,13 @@ func (h *MFAHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Your sign-in session expired. Please log in again.")
 		return
 	}
+	// A 6-digit code can be guessed — cap attempts per token so a bad actor
+	// can't brute-force it during the token's lifetime.
+	if !attemptLimitOK(&h.verifyRateLimit, req.MFAToken, mfaVerifyAttempts, mfaAttemptWindow) {
+		w.Header().Set("Retry-After", "60")
+		JSONError(w, http.StatusTooManyRequests, "Too many attempts. Wait a minute and try again.")
+		return
+	}
 	tokens, err := h.authService.VerifyMFA(r.Context(), user.ID, user.Username, user.Role, req.Type, req.Payload, h.sendEmailOTP)
 	if err != nil {
 		JSONError(w, http.StatusUnauthorized, "That didn't work. Double-check the code and try again.")
@@ -332,6 +408,11 @@ func (h *MFAHandler) Recover(w http.ResponseWriter, r *http.Request) {
 	user, err := h.authService.ValidateMFAToken(r.Context(), req.MFAToken)
 	if err != nil {
 		JSONError(w, http.StatusUnauthorized, "Your sign-in session expired. Please log in again.")
+		return
+	}
+	if !attemptLimitOK(&h.recoverRateLimit, req.MFAToken, mfaRecoverAttempts, mfaAttemptWindow) {
+		w.Header().Set("Retry-After", "60")
+		JSONError(w, http.StatusTooManyRequests, "Too many attempts. Wait a minute and try again.")
 		return
 	}
 	if err := h.authService.VerifyRecoveryCode(r.Context(), user.ID, strings.TrimSpace(req.RecoveryCode)); err != nil {

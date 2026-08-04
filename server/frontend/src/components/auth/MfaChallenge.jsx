@@ -1,4 +1,4 @@
-import { useState, useId } from "react";
+import { useState, useId, useEffect, useRef } from "react";
 import {
   KeyRound,
   Mail,
@@ -8,17 +8,23 @@ import {
   ArrowLeft,
   ChevronRight,
   LifeBuoy,
+  RotateCw,
 } from "lucide-react";
 import PropTypes from "prop-types";
 import Button from "../ui/Button";
 import OtpInput from "../ui/OtpInput";
 import IconCircle from "../ui/IconCircle";
 import StepTransition from "../common/StepTransition";
+import { useSmoothResize } from "../../hooks/useSmoothResize";
 import { useAuth } from "../../hooks/useAuth";
 import { useToast } from "../../context/ToastContext";
 import { bufToB64url, prepareRequestOptions } from "../../utils/webauthn";
 
 const MFA_STEPS = ["selection", "entry", "webauthn", "recovery"];
+
+// RESEND_COOLDOWN_S matches the backend's email-OTP send budget (3/min per
+// user) — resends wait this long before another code can be requested.
+const RESEND_COOLDOWN_S = 30;
 
 const METHOD_META = {
   totp: {
@@ -49,6 +55,19 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
   const [selected, setSelected] = useState(null); // method type, or "recovery"
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Tick down the email resend cooldown once a second.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(t);
+  }, [resendCooldown]);
+
+  const handleResend = () => {
+    setResendCooldown(RESEND_COOLDOWN_S);
+    startEmail();
+  };
 
   // Email OTP: ask the backend to send a fresh code when the user picks the
   // email method (the code entry screen then expects that code).
@@ -171,8 +190,10 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
                   onClick={() => {
                     setSelected(m.type);
                     setCode("");
-                    if (m.type === "email") startEmail();
-                    else if (isWebAuthn) verifyWebAuthn(m.type);
+                    if (m.type === "email") {
+                      setResendCooldown(RESEND_COOLDOWN_S);
+                      startEmail();
+                    } else if (isWebAuthn) verifyWebAuthn(m.type);
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-large-element bg-primary text-secondary border-2 border-secondary/10 hover:border-accent motion-safe:transition-all text-left group"
                 >
@@ -297,6 +318,8 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
         maxLength={6}
         autoFocus
         email={selected === "email" ? email : undefined}
+        resendCooldown={resendCooldown}
+        onResend={handleResend}
       />
     </StepTransition>
   );
@@ -316,11 +339,17 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
  *   maxLength?: number,
  *   autoFocus?: boolean,
  *   email?: string,
+ *   resendCooldown?: number,
+ *   onResend?: () => void,
  * } | undefined} [props]
  */
-function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, setCode, placeholder, maxLength, autoFocus, email } = {}) {
+function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, setCode, placeholder, maxLength, autoFocus, email, resendCooldown = 0, onResend } = {}) {
   const inputId = useId();
   const isOtp = typeof maxLength === "number";
+  const emailPillRef = useRef(null);
+  // The email pill's width changes as the resend countdown ticks — animate the
+  // x-resize with the same M3 easing used across the design system.
+  useSmoothResize(emailPillRef);
   return (
     <form
       data-slot="auth-mfa-entry"
@@ -345,9 +374,19 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
       </div>
 
       {email && (
-        <p className="flex items-center gap-1.5 w-fit rounded-pill bg-primary text-secondary text-xs px-3 py-1.5 border border-accent/40">
-          <Mail size={12} className="text-accent" /> Code sent to {email}
-        </p>
+        <div ref={emailPillRef} className="inline-flex items-center rounded-pill bg-accent text-primary text-xs border border-accent/40">
+          <span className="flex items-center gap-1.5 bg-primary text-secondary rounded-pill py-1.5 pl-3 pr-2.5">
+            <Mail size={12} className="text-accent shrink-0" /> Code sent to {email}
+          </span>
+          <button
+            type="button"
+            onClick={onResend}
+            disabled={resendCooldown > 0 || loading}
+            className="flex items-center gap-1 text-xs py-1.5 pl-2.5 pr-3 rounded-r-pill text-primary enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
+          >
+            <RotateCw size={11} /> {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend"}
+          </button>
+        </div>
       )}
 
       {isOtp ? (
@@ -402,4 +441,6 @@ EntryShell.propTypes = {
   placeholder: PropTypes.string,
   maxLength: PropTypes.number,
   email: PropTypes.string,
+  resendCooldown: PropTypes.number,
+  onResend: PropTypes.func,
 };

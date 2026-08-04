@@ -219,7 +219,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
     try {
       const result = await login(username, password);
       if (result.status === "mfa_required") {
-        setMfa({ mfaToken: result.mfaToken, methods: result.methods });
+        setMfa({ mfaToken: result.mfaToken, methods: result.methods, email: result.email });
         setLoading(false);
       } else {
         completeLogin();

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 
 const {
   mockVerify,
@@ -71,6 +71,10 @@ describe("MfaChallenge", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("lists the user's enabled methods to pick from", () => {
     renderChallenge();
     expect(screen.getByText("Authenticator app")).toBeInTheDocument();
@@ -135,6 +139,31 @@ describe("MfaChallenge", () => {
       }),
     );
     expect(mockOnSuccess).not.toHaveBeenCalled();
+  });
+
+  it("resends the email code after the cooldown elapses", async () => {
+    vi.useFakeTimers();
+    mockChallenge.mockResolvedValue({ options: { sent: true } });
+    renderChallenge();
+    fireEvent.click(screen.getByText("Email code"));
+    expect(mockChallenge).toHaveBeenCalledTimes(1);
+    // Let startEmail's promise resolve so loading clears before the cooldown.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Resend is locked while the cooldown runs.
+    const resend = screen.getByRole("button", { name: /resend/i });
+    expect(resend).toBeDisabled();
+    expect(resend).toHaveTextContent(/resend \(\d+s\)/i);
+
+    // Past the 30s cooldown it becomes clickable and sends another code.
+    act(() => {
+      vi.advanceTimersByTime(31000);
+    });
+    expect(screen.getByRole("button", { name: /resend/i })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /resend/i }));
+    expect(mockChallenge).toHaveBeenCalledTimes(2);
   });
 
   it("drives a passkey via WebAuthn (challenge → navigator.credentials.get → verify)", async () => {
