@@ -692,22 +692,22 @@ export function EnrollFlow({ type, onCancel, onEnrolled, onSessionExpired = unde
         >
           {type === "email" && me?.email && (
             <>
-              {/* Layered pill: the dark email chip sits on a slightly wider
-                  accent chip whose Change segment opens the email modal.
-                  Compact sizing matches the v1 pill (text-xs, py-1.5). */}
-              <div className="inline-flex max-w-full items-center rounded-pill bg-accent text-primary text-xs border border-accent/40">
-                <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap bg-primary text-secondary rounded-pill py-1.5 pl-3 pr-2.5">
-                  <Mail size={12} className="text-accent shrink-0" />
-                  <span className="truncate">Code sent to {me.email}</span>
+              {/* Layered pill: the dark email chip and the accent Change
+                  segment each size to their own content; the wrap container
+                  keeps them on one line unless there is no space left, then the
+                  whole pill expands to two lines. */}
+              <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-pill bg-accent text-primary text-xs border border-accent/40 p-1">
+                <span className="flex items-center gap-1.5 whitespace-nowrap bg-primary text-secondary rounded-pill py-1.5 pl-2.5 pr-2.5">
+                  <Mail size={12} className="text-accent shrink-0" /> Code sent to {me.email}
                 </span>
                 <button
                   type="button"
                   onClick={() => setChangeEmailOpen(true)}
                   disabled={busy}
-                  className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs py-1.5 pl-2.5 pr-3 rounded-r-pill text-primary enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
+                  className="flex items-center gap-1 whitespace-nowrap text-xs py-1.5 pl-2.5 pr-2.5 rounded-pill text-primary enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
                   aria-label={`Change email address (currently ${me.email})`}
                 >
-                  <Pencil size={11} /> Change
+                  <Pencil size={11} className="shrink-0" /> Change
                 </button>
               </div>
               {changeEmailOpen && (

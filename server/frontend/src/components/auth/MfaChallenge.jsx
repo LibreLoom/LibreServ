@@ -346,10 +346,11 @@ export default function MfaChallenge({ mfaToken, methods, email, onSuccess, onBa
 function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, setCode, placeholder, maxLength, autoFocus, email, resendCooldown = 0, onResend } = {}) {
   const inputId = useId();
   const isOtp = typeof maxLength === "number";
-  const emailPillRef = useRef(null);
-  // The email pill's width changes as the resend countdown ticks — animate the
-  // x-resize with the same M3 easing used across the design system.
-  useSmoothResize(emailPillRef);
+  const resendRef = useRef(null);
+  // The resend segment's width changes as the countdown ticks — animate that
+  // x-resize with the M3 easing used across the design system. (It lives on the
+  // button, not the pill, so the pill itself stays flexible/wrappable.)
+  useSmoothResize(resendRef);
   return (
     <form
       data-slot="auth-mfa-entry"
@@ -374,18 +375,18 @@ function EntryShell({ title, hint, onBack, onSubmit, loading, disabled, code, se
       </div>
 
       {email && (
-        <div ref={emailPillRef} className="inline-flex max-w-full items-center rounded-pill bg-accent text-primary text-xs border border-accent/40">
-          <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap bg-primary text-secondary rounded-pill py-1.5 pl-3 pr-2.5">
-            <Mail size={12} className="text-accent shrink-0" />
-            <span className="truncate">Code sent to {email}</span>
+        <div className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-pill bg-accent text-primary text-xs border border-accent/40 p-1">
+          <span className="flex items-center gap-1.5 whitespace-nowrap bg-primary text-secondary rounded-pill py-1.5 pl-2.5 pr-2.5">
+            <Mail size={12} className="text-accent shrink-0" /> Code sent to {email}
           </span>
           <button
+            ref={resendRef}
             type="button"
             onClick={onResend}
             disabled={resendCooldown > 0 || loading}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs py-1.5 pl-2.5 pr-3 rounded-r-pill text-primary enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
+            className="flex items-center gap-1 whitespace-nowrap text-xs py-1.5 pl-2.5 pr-2.5 rounded-pill text-primary enabled:hover:underline underline-offset-2 motion-safe:transition-colors disabled:opacity-50"
           >
-            <RotateCw size={11} /> {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend"}
+            <RotateCw size={11} className="shrink-0" /> {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : "Resend"}
           </button>
         </div>
       )}
