@@ -67,6 +67,13 @@ func newTestEnv(t *testing.T) *testEnv {
 	secSvc := security.NewService(db, logger, notifier)
 
 	setupH := handlers.NewSetupHandler(authSvc, setupSvc, (*podman.Client)(nil), nil, nil, nil, nil)
+	// Keep integration tests offline: point the HIBP breach check at a stub
+	// that never matches, so CompleteSetup doesn't depend on the real API.
+	hibpStub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(""))
+	}))
+	t.Cleanup(hibpStub.Close)
+	handlers.SetHIBPRangeURL(hibpStub.URL + "/range/")
 	authH := handlers.NewAuthHandler(authSvc, secSvc, db)
 	usersH := handlers.NewUsersHandler(authSvc)
 	mfaH := handlers.NewMFAHandler(authSvc, nil)

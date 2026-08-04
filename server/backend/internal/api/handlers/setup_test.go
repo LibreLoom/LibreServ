@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,13 @@ type testSetupDeps struct {
 
 func newTestSetupHandler(t *testing.T) testSetupDeps {
 	t.Helper()
+	// Point the HIBP breach check at a local stub so handler tests stay
+	// hermetic and offline (no match => setup proceeds).
+	hibpStub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(""))
+	}))
+	t.Cleanup(hibpStub.Close)
+	hibpRangeURL = hibpStub.URL + "/range/"
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	db, err := database.Open(dbPath)
@@ -443,5 +451,58 @@ func TestFrontendStepContractKeptInSync(t *testing.T) {
 		if !setup.ValidateStepData(map[string]interface{}{key: true}) {
 			t.Errorf("frontend writes step_data key %q, but backend rejects it — add it to allowedStepDataKeys in internal/setup/steps.go", key)
 		}
+	}
+}
+
+func TestCheckBreachedPassword(t *testing.T) {
+	// Stub range API keyed on the 5-char SHA-1 prefix.
+	var stub *httptest.Server
+	stub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		prefix := strings.TrimPrefix(r.URL.Path, "/range/")
+		if len(prefix) != 5 {
+			t.Errorf("expected 5-char prefix, got %q", prefix)
+		}
+		switch prefix {
+		case "CBFDA": // sha1("password123") upper prefix
+			_, _ = w.Write([]byte("C6008F9CAB4083784CBD1874F76618D2A97:3829\n"))
+		default:
+			_, _ = w.Write([]byte("A1B2C3D4E5F60718293A4B5C6D7E8F90ABCDE1:1\n"))
+		}
+	}))
+	defer stub.Close()
+	old := hibpRangeURL
+	hibpRangeURL = stub.URL + "/range/"
+	defer func() { hibpRangeURL = old }()
+
+	// Breached password -> true
+	breached, err := checkBreachedPassword("password123")
+	if err != nil {
+		t.Fatalf("breached check err: %v", err)
+	}
+	if !breached {
+		t.Fatal("expected breached=true for password123")
+	}
+
+	// Clean password -> false
+	breached, err = checkBreachedPassword("Tr0ub4dor&3-Good!")
+	if err != nil {
+		t.Fatalf("clean check err: %v", err)
+	}
+	if breached {
+		t.Fatal("expected breached=false for unique password")
+	}
+}
+
+func TestCheckBreachedPasswordFailsOpen(t *testing.T) {
+	old := hibpRangeURL
+	hibpRangeURL = "http://127.0.0.1:1/range/" // nothing listens here
+	defer func() { hibpRangeURL = old }()
+
+	breached, err := checkBreachedPassword("whatever123")
+	if err == nil {
+		t.Fatal("expected an error for unreachable range API")
+	}
+	if breached {
+		t.Fatal("unreachable API must not report breached")
 	}
 }
