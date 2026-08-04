@@ -236,12 +236,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Block passwords that appear in known data breaches (Have I Been Pwned).
-	// Fail open when the HIBP API is unreachable so setup is never blocked by
-	// an outage on our side or theirs.
-	if breached, err := checkBreachedPassword(req.AdminPassword); err != nil {
-		slog.Warn("HIBP breach check skipped: ", "error", err)
-	} else if breached {
-		JSONError(w, http.StatusBadRequest, "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password.")
+	if rejectBreachedPassword(w, req.AdminPassword) {
 		return
 	}
 
@@ -959,6 +954,22 @@ func checkBreachedPassword(pw string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// rejectBreachedPassword writes a plain-language 400 and returns true when pw
+// appears in known data breaches. It fails open on any HIBP API/network error
+// (logs, no rejection) so password changes are never blocked by an outage.
+func rejectBreachedPassword(w http.ResponseWriter, pw string) bool {
+	breached, err := checkBreachedPassword(pw)
+	if err != nil {
+		slog.Warn("HIBP breach check skipped: ", "error", err)
+		return false
+	}
+	if breached {
+		JSONError(w, http.StatusBadRequest, "That password has appeared in known data breaches, so it isn't safe to use. Please choose a different password.")
+		return true
+	}
+	return false
 }
 
 // isLocalIP returns true when the request originates from the local machine.

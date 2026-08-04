@@ -53,6 +53,11 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject passwords that appear in known data breaches (Have I Been Pwned).
+	if rejectBreachedPassword(w, req.NewPassword) {
+		return
+	}
+
 	err := h.authService.ChangePassword(r.Context(), userID, req.OldPassword, req.NewPassword)
 	if err != nil {
 		if err == auth.ErrInvalidCredentials {

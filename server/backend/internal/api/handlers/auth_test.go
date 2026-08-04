@@ -20,6 +20,13 @@ import (
 
 func newTestAuthHandler(t *testing.T) (*AuthHandler, context.Context) {
 	t.Helper()
+	// Point the HIBP breach check at a local stub so handler tests stay
+	// hermetic and offline (no match => password accepted).
+	hibpStub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(""))
+	}))
+	t.Cleanup(hibpStub.Close)
+	hibpRangeURL = hibpStub.URL + "/range/"
 	origCfg := config.Get()
 	config.SetTestConfig(&config.Config{Auth: config.AuthConfig{}})
 	t.Cleanup(func() { config.SetTestConfig(origCfg) })

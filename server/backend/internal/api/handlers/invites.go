@@ -97,6 +97,10 @@ func (h *InviteHandler) RedeemInvite(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Please choose a username and set a password.")
 		return
 	}
+	// Reject passwords that appear in known data breaches (Have I Been Pwned).
+	if rejectBreachedPassword(w, req.Password) {
+		return
+	}
 	user, tokens, err := h.authService.RedeemInvite(r.Context(), token, strings.TrimSpace(req.Username), req.Password)
 	if err != nil {
 		switch {

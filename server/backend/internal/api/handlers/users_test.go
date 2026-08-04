@@ -17,6 +17,13 @@ import (
 
 func newTestUsersHandler(t *testing.T) (*UsersHandler, context.Context) {
 	t.Helper()
+	// Point the HIBP breach check at a local stub so handler tests stay
+	// hermetic and offline (no match => password accepted).
+	hibpStub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(""))
+	}))
+	t.Cleanup(hibpStub.Close)
+	hibpRangeURL = hibpStub.URL + "/range/"
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
 	db, err := database.Open(dbPath)
@@ -152,4 +159,32 @@ func withChiURLParam(r *http.Request, key, value string) *http.Request {
 	routeCtx := chi.NewRouteContext()
 	routeCtx.URLParams.Add(key, value)
 	return r.WithContext(context.WithValue(r.Context(), chi.RouteCtxKey, routeCtx))
+}
+
+func TestCreateUserRejectsBreachedPassword(t *testing.T) {
+	h, ctx := newTestUsersHandler(t)
+
+	// Point HIBP at a stub that reports password123 as breached.
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("C6008F9CAB4083784CBD1874F76618D2A97:3829\n")) // sha1("password123") suffix
+	}))
+	defer stub.Close()
+	old := hibpRangeURL
+	hibpRangeURL = stub.URL + "/range/"
+	defer func() { hibpRangeURL = old }()
+
+	body := `{"username":"user1","password":"password123","role":"user","email":"user1@test.com"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/users", bytes.NewBufferString(body))
+	h.CreateUser(rec, req.WithContext(ctx))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("create with breached password: status %d, want 400", rec.Code)
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error body: %v", err)
+	}
+	if msg, _ := payload["error"].(string); msg == "" {
+		t.Fatal("expected a plain-language error message")
+	}
 }

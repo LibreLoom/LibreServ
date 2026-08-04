@@ -296,6 +296,13 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Reject passwords that appear in known data breaches (Have I Been Pwned).
+	// Checked before the token is consumed so the user can pick another
+	// password and reuse the same reset link.
+	if rejectBreachedPassword(w, req.NewPassword) {
+		return
+	}
+
 	if err := h.passwordResetService.ResetPassword(r.Context(), req.Token, req.NewPassword); err != nil {
 		slog.Error("Password reset failed", "error", err)
 		JSONError(w, http.StatusBadRequest, "We couldn't reset that password. Check that the link is correct and hasn't expired.")

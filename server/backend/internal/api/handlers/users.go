@@ -72,6 +72,11 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject passwords that appear in known data breaches (Have I Been Pwned).
+	if rejectBreachedPassword(w, req.Password) {
+		return
+	}
+
 	// Sanitize input
 	req.Username = validation.TrimAndSanitize(req.Username)
 	req.Email = validation.TrimAndSanitize(req.Email)
@@ -254,6 +259,11 @@ func (h *UsersHandler) SetUserPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.authService.ValidatePassword(req.NewPassword); err != nil {
 		JSONError(w, http.StatusBadRequest, "That password doesn't meet the requirements. Use at least 12 characters with letters and numbers.")
+		return
+	}
+
+	// Reject passwords that appear in known data breaches (Have I Been Pwned).
+	if rejectBreachedPassword(w, req.NewPassword) {
 		return
 	}
 
