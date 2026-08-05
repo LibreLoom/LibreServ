@@ -191,3 +191,45 @@ func TestPlanWebNeverTunnelForLargeUploads(t *testing.T) {
 		t.Fatalf("large_uploads app routed through cloudflared: %s", p.Path)
 	}
 }
+
+// TestPlanLargeUploadsCGNAT verifies defect-6 fix: a large-uploads web app
+// on CGNAT with a dedicated IP goes to the relay, not LAN-only.
+func TestPlanLargeUploadsCGNAT(t *testing.T) {
+	eng := webEngine()
+
+	// CGNAT + dedicated IP + large uploads → relay (cloudflared is barred).
+	rep := rb().cgnat().dedIP().build()
+	p := eng.Plan(webReq().largeUploads().build(), rep, nil)
+	if p.Path != PathRelay {
+		t.Fatalf("path = %s, want frp (large-uploads web on CGNAT with dedicated IP)", p.Path)
+	}
+
+	// CGNAT + large uploads + NO dedicated IP → LAN-only + upsell.
+	p2 := eng.Plan(webReq().largeUploads().build(), rb().cgnat().build(), nil)
+	if p2.Path != PathLANOnly || !p2.AddonNeeded {
+		t.Fatalf("path = %s addon=%v, want lan_only addon=true", p2.Path, p2.AddonNeeded)
+	}
+}
+
+// TestPlanWebPerStackHysteresis verifies defect-7 fix: v4 failing 3x does not
+// kill a healthy v6 direct path.
+func TestPlanWebPerStackHysteresis(t *testing.T) {
+	eng := webEngine()
+	req := webReq().build()
+
+	// v6 verified open, v4 degraded: still direct (v6 carries it).
+	rep := rb().v6Open().tunnel().build()
+	st := map[Path]PathState{
+		PathDirectV4: {ConsecutiveFailures: 5},
+	}
+	p := eng.Plan(req, rep, st)
+	if p.Path != PathDirectV4 {
+		t.Fatalf("path = %s, want direct (v6 healthy despite v4 degraded)", p.Path)
+	}
+	if !p.CoverageV6 {
+		t.Error("coverage_v6 should be true (v6 verified)")
+	}
+	if p.CoverageV4 {
+		t.Error("coverage_v4 should be false (v4 degraded)")
+	}
+}
