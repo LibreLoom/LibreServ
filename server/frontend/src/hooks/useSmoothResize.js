@@ -26,12 +26,17 @@ export function useSmoothResize(ref, options = {}) {
   const prevW = useRef(null);
   const prevH = useRef(null);
   const init = useRef(false);
+  // True when the element's width is controlled by its layout context
+  // (grid/flex stretch, e.g. a Button inside a grid-cols-2 cell) rather than
+  // its content. Pinning a px width would collapse it, so x is skipped.
+  const layoutControlled = useRef(false);
 
   useLayoutEffect(() => {
     if ((!animateX && !animateY) || !ref.current) return;
 
     const el = ref.current;
 
+    const renderedW = el.offsetWidth; // width as laid out right now
     const savedW = el.style.width;
     const savedH = el.style.height;
 
@@ -45,21 +50,26 @@ export function useSmoothResize(ref, options = {}) {
 
     if (!init.current) {
       init.current = true;
+      // First measurement is on a fresh element (no inline width yet), so a
+      // rendered width wider than the natural max-content width means the
+      // layout is stretching it — grid cells, flex-grow, etc. Leave width to
+      // the layout and don't animate x on this element.
+      layoutControlled.current = animateX && renderedW !== nextW;
       prevW.current = nextW;
       prevH.current = nextH;
-      if (animateX) el.style.width = `${nextW}px`;
+      if (animateX && !layoutControlled.current) el.style.width = `${nextW}px`;
       if (animateY) el.style.height = `${nextH}px`;
       return;
     }
 
-    const wChanged = animateX && prevW.current !== nextW;
+    const wChanged = animateX && !layoutControlled.current && prevW.current !== nextW;
     const hChanged = animateY && prevH.current !== nextH;
 
     if (!wChanged && !hChanged) return;
 
     // Set to previous values without transition
     el.style.transition = "none";
-    if (animateX) el.style.width = `${prevW.current}px`;
+    if (animateX && !layoutControlled.current) el.style.width = `${prevW.current}px`;
     if (animateY) el.style.height = `${prevH.current}px`;
     // Force reflow so the browser registers the starting value
     void el.offsetWidth;
@@ -69,7 +79,7 @@ export function useSmoothResize(ref, options = {}) {
     if (wChanged) props.push("width");
     if (hChanged) props.push("height");
     el.style.transition = `${props.join(", ")} 250ms var(--motion-easing-emphasized-decelerate)`;
-    if (animateX) el.style.width = `${nextW}px`;
+    if (animateX && !layoutControlled.current) el.style.width = `${nextW}px`;
     if (animateY) el.style.height = `${nextH}px`;
     prevW.current = nextW;
     prevH.current = nextH;
