@@ -237,7 +237,7 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
         id="main-content"
         tabIndex={-1}
       >
-      <div className={cn(embedded ? "w-full" : "w-full max-w-lg ring-2 ring-accent rounded-large-element")}>
+      <div className={cn(embedded ? "w-full" : "w-full max-w-lg rounded-large-element")}>
         <Card surface="secondary" padding={false}>
           <div className="p-8">
             <span className="text-primary font-mono text-2xl block text-center">
