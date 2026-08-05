@@ -93,6 +93,7 @@ func (s *Server) setupRoutes() {
 	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
 	reportHandler := handlers.NewReportHandler(s.reportService)
+	mappingHandler := handlers.NewMappingHandler(s.upnpClient)
 	plansHandler := handlers.NewPlansHandler(s.reportService, s.appManager, s.pathStateStore)
 
 	// Initialize Connect handler
@@ -518,6 +519,18 @@ func (s *Server) setupRoutes() {
 			r.Route("/network/plans", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", plansHandler.GetPlans)
+			})
+
+			// Manual UPnP port mappings + config export (admin only, Advanced).
+			r.Route("/network/mappings", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/status", mappingHandler.GetStatus)
+				r.Post("/", mappingHandler.CreateMapping)
+				r.Delete("/", mappingHandler.DeleteMapping)
+			})
+			r.Route("/network/export", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Post("/config", mappingHandler.ExportConfig)
 			})
 
 			// BYO domain (admin only) — extracted from the setup wizard so it's

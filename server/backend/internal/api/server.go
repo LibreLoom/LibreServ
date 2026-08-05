@@ -107,6 +107,7 @@ type Server struct {
 	tunnelService   *network.TunnelService
 	reportService   *network.ReportService
 	pathStateStore  *network.PathStateStore
+	upnpClient      *network.UPnPClient
 	// agentChat removed — field was unused
 	selfHealMonitor  *agent.SelfHealingMonitor
 	connectClient    connect.Client
