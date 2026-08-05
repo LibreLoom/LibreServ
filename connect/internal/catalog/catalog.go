@@ -20,7 +20,6 @@ type Limits struct {
 	Domain           string `json:"domain"`
 	HumanSupport     bool   `json:"human_support"`
 	TunnelGBPerMo    int    `json:"tunnel_gb_per_mo"`
-	TunnelMbps       int    `json:"tunnel_mbps"`
 }
 
 // Overage rates — what the customer pays beyond included allowance.
@@ -54,8 +53,7 @@ var plans = []Plan{
 			AIMessagesPerDay: 50,
 			Domain:           "*.free.servers.libreloom.org",
 			HumanSupport:     false,
-			TunnelGBPerMo:    0,
-			TunnelMbps:       1,
+			TunnelGBPerMo:    0, // 0 = unlimited — Cloudflare Tunnel has no data cap
 		},
 	},
 	{
@@ -70,8 +68,7 @@ var plans = []Plan{
 			AIMessagesPerDay: 0,
 			Domain:           "*.servers.libreloom.org",
 			HumanSupport:     true,
-			TunnelGBPerMo:    50,
-			TunnelMbps:       100,
+			TunnelGBPerMo:    0, // 0 = unlimited — Cloudflare Tunnel has no data cap
 		},
 	},
 	{
@@ -86,8 +83,7 @@ var plans = []Plan{
 			AIMessagesPerDay: 0,
 			Domain:           "*.servers.libreloom.org",
 			HumanSupport:     true,
-			TunnelGBPerMo:    200,
-			TunnelMbps:       100,
+			TunnelGBPerMo:    0, // 0 = unlimited — Cloudflare Tunnel has no data cap
 		},
 	},
 }

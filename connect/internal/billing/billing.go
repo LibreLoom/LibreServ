@@ -272,6 +272,11 @@ func (s *Service) CheckQuota(deviceID, serviceType string, requested float64) (r
 	case "tunnel":
 		metric = "gb"
 		limit = float64(plan.Limits.TunnelGBPerMo)
+		// 0 = unlimited: Cloudflare Tunnel carries unlimited data, so the
+		// quota gate is only meaningful if a per-GB cap is ever configured.
+		if limit <= 0 {
+			return 0, true, nil
+		}
 	default:
 		return 0, true, nil // no quota for unknown services
 	}

@@ -122,7 +122,7 @@ function PlanCard({ plan, isCurrent, busy, onSelect, currentDomain }) {
             }
           />
           <PlanLimit label="Email" value={limits.smtp_monthly > 0 ? `${limits.smtp_monthly}/month` : "—"} />
-          <PlanLimit label="Tunnel bandwidth" value={limits.tunnel_gb_per_mo > 0 ? `${limits.tunnel_gb_per_mo} GB/mo` : "—"} />
+          <PlanLimit label="Tunnel bandwidth" value={limits.tunnel_gb_per_mo > 0 ? `${limits.tunnel_gb_per_mo} GB/mo` : "Unlimited"} />
           <PlanLimit label="Domain & DNS" value={domainValue} />
           <PlanLimit
             label="Human support"

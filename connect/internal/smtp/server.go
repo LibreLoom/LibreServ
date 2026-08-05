@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 )
@@ -363,12 +365,36 @@ func (sess *session) handleData() {
 	}
 
 	if sent > 0 {
+		// Meter usage for billing/quota: one email per delivered recipient.
+		// The relay is the single chokepoint for all device email, so this
+		// is the authoritative count.
+		if err := sess.s.recordUsage(sess.username, sent); err != nil {
+			slog.Warn("smtp relay: failed to record usage", "error", err)
+		}
 		sess.sendLine("250 OK: queued for delivery")
 	} else {
 		sess.sendLine("550 could not send email: " + lastErr.Error())
 	}
 
 	sess.reset()
+}
+
+// recordUsage attributes emails sent by a username to its device and records
+// a usage event so quotas/billing can see real volume.
+func (s *Server) recordUsage(username string, emails int) error {
+	var deviceID, planID string
+	err := s.db.QueryRow(
+		`SELECT d.id, d.plan_id
+		 FROM devices d
+		 JOIN customer_accounts ca ON d.account_id = ca.id
+		 WHERE ca.username = $1 AND d.is_active = TRUE
+		 LIMIT 1`,
+		username).Scan(&deviceID, &planID)
+	if err != nil {
+		return fmt.Errorf("lookup device for %q: %w", username, err)
+	}
+	cost := float64(emails) * catalog.Costs.SMTPPerEmail
+	return billing.NewService(s.db).RecordUsage(deviceID, planID, "smtp", "emails", float64(emails), cost, cost)
 }
 
 // splitMessage splits a raw RFC 5322 message into subject, html body, and text

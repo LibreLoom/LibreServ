@@ -44,16 +44,10 @@ func (h *ProvisionHandler) Info(w http.ResponseWriter, r *http.Request) {
 				}
 				return 0
 			}(),
-			"tunnel_mbps":         l.TunnelMbps,
 			"tunnel_gb_per_mo":    l.TunnelGBPerMo,
 			"backup_gb":           l.BackupGB,
-			"ai_messages_per_mo": func() int {
-				daily := l.AIMessagesPerDay
-				if daily > 0 {
-					return daily * 30
-				}
-				return 0
-			}(),
+			"ai_messages_per_day": l.AIMessagesPerDay, // 0 = no message cap (credit-based plans)
+			"ai_credit_cents":     l.AICreditCents,
 			"domain":        l.Domain,
 			"human_support": l.HumanSupport,
 		}
