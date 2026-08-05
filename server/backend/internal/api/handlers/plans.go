@@ -93,5 +93,36 @@ func (h *PlansHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	JSON(w, http.StatusOK, map[string]any{"plans": out})
+	// Cross-app port-collision detection (register #3): two apps needing the
+	// same external port can't both expose it — surface it plainly rather
+	// than letting the actuator fight over the mapping.
+	collisions := detectPortCollisions(out)
+
+	JSON(w, http.StatusOK, map[string]any{"plans": out, "collisions": collisions})
+}
+
+// detectPortCollisions finds external ports claimed by more than one app.
+// An app claiming the same port for tcp AND udp is not a collision — only
+// two distinct apps fighting for one port is.
+func detectPortCollisions(plans []planResult) []map[string]any {
+	byPort := map[int]map[string]bool{}
+	for _, p := range plans {
+		for _, pn := range p.Ports {
+			if byPort[pn.Port] == nil {
+				byPort[pn.Port] = map[string]bool{}
+			}
+			byPort[pn.Port][p.AppName] = true
+		}
+	}
+	var out []map[string]any
+	for port, apps := range byPort {
+		if len(apps) > 1 {
+			names := make([]string, 0, len(apps))
+			for name := range apps {
+				names = append(names, name)
+			}
+			out = append(out, map[string]any{"port": port, "apps": names})
+		}
+	}
+	return out
 }
