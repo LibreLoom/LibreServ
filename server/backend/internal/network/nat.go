@@ -23,10 +23,11 @@ const (
 )
 
 type NATResult struct {
-	Type     NATType    `json:"type"`
-	PublicIP netip.Addr `json:"public_ip"`
-	LocalIP  netip.Addr `json:"local_ip"`
-	Details  string     `json:"details,omitempty"`
+	Type            NATType    `json:"type"`
+	PublicIP        netip.Addr `json:"public_ip"`
+	LocalIP         netip.Addr `json:"local_ip"`
+	Details         string     `json:"details,omitempty"`
+	BehindDoubleNAT bool       `json:"behind_double_nat"`
 }
 
 var stunServers = []string{
@@ -35,6 +36,12 @@ var stunServers = []string{
 	"stun.services.mozilla.com:3478",
 }
 
+// DetectNATType classifies NAT via STUN alone. NOTE: the STUN-only path
+// cannot reliably detect CGNAT — STUN returns the CGNAT's *outer* egress,
+// which is a normal public IP, so isCGNAT(publicIP) below essentially never
+// fires. Use DetectNATTypeFromWAN once the router's WAN IP is known (UPnP
+// GetExternalIPAddress); it re-classifies with a reliable WAN-vs-STUN
+// comparison.
 func DetectNATType(ctx context.Context) (*NATResult, error) {
 	localIP, err := getLocalIP()
 	if err != nil {
@@ -60,6 +67,8 @@ func DetectNATType(ctx context.Context) (*NATResult, error) {
 	}
 
 	if isCGNAT(publicIP) {
+		// Kept as a defensive check: fires only when the STUN egress itself
+		// falls in 100.64/10, which is rare (see DetectNATType doc comment).
 		return &NATResult{
 			Type:     NATCGNAT,
 			PublicIP: publicIP,
@@ -92,6 +101,42 @@ func DetectNATType(ctx context.Context) (*NATResult, error) {
 		PublicIP: publicIP,
 		LocalIP:  localIP,
 	}, nil
+}
+
+// DetectNATTypeFromWAN classifies NAT using the router-reported WAN IP
+// (e.g. UPnP GetExternalIPAddress) in addition to STUN. This is the reliable
+// CGNAT/double-NAT detector: when the router's own WAN address is private or
+// differs from the STUN-observed egress, the device is behind carrier-grade
+// or nested NAT and direct inbound exposure is hopeless.
+func DetectNATTypeFromWAN(ctx context.Context, wanIP netip.Addr) (*NATResult, error) {
+	res, err := DetectNATType(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		return nil, fmt.Errorf("NAT detection returned no result")
+	}
+	if DetectCGNAT(wanIP, res.PublicIP) {
+		res.Type = NATCGNAT
+		res.BehindDoubleNAT = true
+		res.Details = "Carrier-Grade or double NAT: the router's WAN address differs from the public egress IP (ISP shares IP among customers)"
+	}
+	return res, nil
+}
+
+// DetectCGNAT reports whether the device sits behind carrier-grade or double
+// NAT, comparing the router's WAN address (UPnP GetExternalIPAddress or the
+// router-reported WAN) against the STUN-observed public egress IP.
+// True when the WAN is RFC1918/ULA (double NAT), in 100.64/10 (RFC 6598
+// carrier-grade space), or differs from the public egress (NAT in between).
+func DetectCGNAT(wanIP, publicIP netip.Addr) bool {
+	if !wanIP.IsValid() || !publicIP.IsValid() {
+		return false // can't tell without both addresses
+	}
+	if wanIP.IsPrivate() || isCGNAT(wanIP) {
+		return true
+	}
+	return wanIP != publicIP
 }
 
 func isCGNAT(ip netip.Addr) bool {
