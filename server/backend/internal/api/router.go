@@ -92,6 +92,7 @@ func (s *Server) setupRoutes() {
 	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
 	reportHandler := handlers.NewReportHandler(s.reportService)
+	plansHandler := handlers.NewPlansHandler(s.reportService, s.appManager, s.pathStateStore)
 
 	// Initialize Connect handler
 	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker, s.settingsService, s.caddyManager, s.backupService, s.tunnelService)
@@ -510,6 +511,12 @@ func (s *Server) setupRoutes() {
 			r.Route("/network/report", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", reportHandler.GetReport)
+			})
+
+			// Per-app exposure plans (admin only) — engine output for the UI.
+			r.Route("/network/plans", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/", plansHandler.GetPlans)
 			})
 
 			// Connect — LibreServ Connect integration

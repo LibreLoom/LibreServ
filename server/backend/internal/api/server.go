@@ -106,6 +106,7 @@ type Server struct {
 	ddnsService     *network.DDNSService
 	tunnelService   *network.TunnelService
 	reportService   *network.ReportService
+	pathStateStore  *network.PathStateStore
 	// agentChat removed — field was unused
 	selfHealMonitor  *agent.SelfHealingMonitor
 	connectClient    connect.Client
@@ -267,6 +268,7 @@ func NewServer(cfg ServerConfig) *Server {
 	// never races it for DNS updates).
 	upnpLogger := slog.Default().With("component", "upnp")
 	reportLogger := slog.Default().With("component", "network-report")
+	server.pathStateStore = network.NewPathStateStore(cfg.DB)
 	server.reportService = network.NewReportService(
 		network.NewUPnPClient(upnpLogger),
 		server.ddnsService,

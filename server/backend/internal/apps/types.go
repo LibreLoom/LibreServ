@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 	"time"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
 
 // AppType represents the type of app in the catalog
@@ -617,3 +619,21 @@ const (
 	AccessModelInternal AccessModel = "internal"
 	AccessModelExternal AccessModel = "external"
 )
+
+// ToNetworkRequirement adapts this Access schema into the network decision
+// engine's boundary type. Defined here (apps already imports network) so the
+// engine stays decoupled from the catalog.
+func (a Access) ToNetworkRequirement() network.Requirement {
+	req := network.Requirement{
+		Web:          a.Web,
+		LargeUploads: a.LargeUploads,
+	}
+	for _, p := range a.Ports {
+		req.Ports = append(req.Ports, network.PortNeed{
+			Protocol:   p.Protocol,
+			Port:       p.Port,
+			VerifyHint: p.VerifyHint,
+		})
+	}
+	return req
+}
