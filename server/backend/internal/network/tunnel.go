@@ -2,12 +2,14 @@ package network
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 )
 
@@ -18,20 +20,26 @@ const (
 	TunnelProviderCloudflare TunnelProviderType = "cloudflare"
 )
 
-// TunnelStatus is the public status of the tunnel service.
+// TunnelStatus is the public status of the tunnel service: a summary of all
+// configured providers plus the per-provider list.
 type TunnelStatus struct {
 	Available bool               `json:"available"`
 	Enabled   bool               `json:"enabled"`
 	Provider  TunnelProviderType `json:"provider,omitempty"`
 	URL       string             `json:"url,omitempty"`
 	Error     string             `json:"error,omitempty"`
+	Providers []TunnelStatus     `json:"providers,omitempty"`
 }
 
-// TunnelConfig holds the persisted tunnel configuration.
+// TunnelProviderConfig holds the persisted settings for one tunnel provider.
+type TunnelProviderConfig struct {
+	Token   string `yaml:"token" json:"-"`
+	Enabled bool   `yaml:"enabled" json:"enabled"`
+}
+
+// TunnelConfig holds persisted tunnel configurations, keyed by provider.
 type TunnelConfig struct {
-	Provider TunnelProviderType `yaml:"provider" json:"provider"`
-	Token    string             `yaml:"token" json:"-"`
-	Enabled  bool               `yaml:"enabled" json:"enabled"`
+	Providers map[TunnelProviderType]TunnelProviderConfig `yaml:"providers" json:"providers"`
 }
 
 // TunnelProvider is the interface for tunnel backends.
@@ -50,138 +58,212 @@ type TunnelProvider interface {
 	Status() TunnelStatus
 }
 
-// TunnelService manages the tunnel lifecycle, delegating to a TunnelProvider.
-type TunnelService struct {
-	mu       sync.RWMutex
-	config   TunnelConfig
+// providerEntry binds a provider's persisted config to its live instance.
+type providerEntry struct {
+	config   TunnelProviderConfig
 	provider TunnelProvider
-	logger   *slog.Logger
-	binDir   string
 }
 
-// NewTunnelService creates a tunnel service with the given config.
-// The provider is selected based on the config; defaults to Cloudflare.
+// TunnelService manages tunnel provider lifecycles. Multiple providers can be
+// configured and running simultaneously (e.g. cloudflared for web apps and an
+// FRP relay for direct TCP/UDP ports) — enabling one never stops another.
+type TunnelService struct {
+	mu        sync.RWMutex
+	providers map[TunnelProviderType]*providerEntry
+	logger    *slog.Logger
+	binDir    string
+
+	// providerFactory is overridable for tests; defaults to newProvider.
+	providerFactory func(TunnelProviderType, TunnelProviderConfig) TunnelProvider
+}
+
+// NewTunnelService creates a tunnel service seeded with the given providers.
 func NewTunnelService(config TunnelConfig, binDir string) *TunnelService {
 	ts := &TunnelService{
-		config: config,
-		logger: slog.Default().With("component", "tunnel"),
-		binDir: binDir,
+		providers: make(map[TunnelProviderType]*providerEntry),
+		logger:    slog.Default().With("component", "tunnel"),
+		binDir:    binDir,
 	}
-	ts.provider = ts.newProvider(config)
+	for providerType, cfg := range config.Providers {
+		ts.providers[providerType] = &providerEntry{
+			config:   cfg,
+			provider: ts.providerFor(providerType, cfg),
+		}
+	}
 	return ts
 }
 
-// newProvider creates the appropriate tunnel provider for the given config.
-func (t *TunnelService) newProvider(config TunnelConfig) TunnelProvider {
-	switch config.Provider {
+// providerFor returns the provider for a type, honoring the test factory.
+func (t *TunnelService) providerFor(providerType TunnelProviderType, cfg TunnelProviderConfig) TunnelProvider {
+	if t.providerFactory != nil {
+		return t.providerFactory(providerType, cfg)
+	}
+	return t.newProvider(providerType, cfg)
+}
+
+// newProvider creates the appropriate tunnel provider for the given type.
+func (t *TunnelService) newProvider(providerType TunnelProviderType, cfg TunnelProviderConfig) TunnelProvider {
+	switch providerType {
 	case TunnelProviderCloudflare:
-		return newCloudflareProvider(config, t.binDir, t.logger)
+		return newCloudflareProvider(cfg, t.binDir, t.logger)
 	default:
 		return nil
 	}
 }
 
-// Start starts the tunnel if enabled.
+// Start starts all enabled tunnel providers.
 func (t *TunnelService) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.provider == nil {
-		return fmt.Errorf("no tunnel provider configured")
+	var errs []error
+	for _, entry := range t.providers {
+		if !entry.config.Enabled || entry.provider == nil {
+			continue
+		}
+		if err := entry.provider.Start(ctx); err != nil {
+			errs = append(errs, err)
+		}
 	}
-
-	if !t.config.Enabled {
-		return nil
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
-
-	return t.provider.Start(ctx)
+	return nil
 }
 
-// Stop stops the tunnel.
+// Stop stops all tunnel providers.
 func (t *TunnelService) Stop() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.provider == nil {
-		return nil
+	var errs []error
+	for _, entry := range t.providers {
+		if entry.provider != nil {
+			if err := entry.provider.Stop(); err != nil {
+				errs = append(errs, err)
+			}
+		}
 	}
-
-	return t.provider.Stop()
+	return errors.Join(errs...)
 }
 
-// Enable configures and enables the tunnel with the given provider and token.
+// Enable configures and enables one provider without touching the others.
+// The provider starts on the next Start() call (existing callers call Start
+// after Enable).
 func (t *TunnelService) Enable(provider TunnelProviderType, token string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.config.Provider = provider
-	t.config.Token = token
-	t.config.Enabled = true
-
-	// Stop the old provider if running.
-	if t.provider != nil {
-		_ = t.provider.Stop()
+	entry, ok := t.providers[provider]
+	if !ok {
+		entry = &providerEntry{}
+		t.providers[provider] = entry
 	}
-
-	// Create the new provider with the updated config.
-	t.provider = t.newProvider(t.config)
+	entry.config.Token = token
+	entry.config.Enabled = true
+	if entry.provider == nil {
+		entry.provider = t.providerFor(provider, entry.config)
+	}
 
 	t.logger.Info("Tunnel enabled", "provider", provider)
 	return nil
 }
 
-// Disable disables and stops the tunnel.
-func (t *TunnelService) Disable() error {
+// Disable disables and stops the given providers. With no arguments, all
+// providers are disabled.
+func (t *TunnelService) Disable(providers ...TunnelProviderType) error {
 	t.mu.Lock()
-	t.config.Enabled = false
-	t.mu.Unlock()
+	defer t.mu.Unlock()
 
-	return t.Stop()
+	var errs []error
+	for providerType, entry := range t.providers {
+		if len(providers) > 0 && !slices.Contains(providers, providerType) {
+			continue
+		}
+		entry.config.Enabled = false
+		if entry.provider != nil {
+			if err := entry.provider.Stop(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		t.logger.Info("Tunnel disabled", "provider", providerType)
+	}
+	return errors.Join(errs...)
 }
 
-// GetStatus returns the current tunnel status.
+// GetStatus returns a summary plus per-provider status.
 func (t *TunnelService) GetStatus() TunnelStatus {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	if t.provider == nil {
-		return TunnelStatus{
-			Available: false,
-			Enabled:   t.config.Enabled,
-			Provider:  t.config.Provider,
-			Error:     "no tunnel provider configured",
+	summary := TunnelStatus{}
+	for providerType, entry := range t.providers {
+		status := TunnelStatus{
+			Provider: providerType,
+			Enabled:  entry.config.Enabled,
+		}
+		if entry.provider != nil {
+			ps := entry.provider.Status()
+			status.Available = ps.Available
+			status.URL = ps.URL
+			status.Error = ps.Error
+			if ps.Provider != "" {
+				status.Provider = ps.Provider
+			}
+		}
+		summary.Providers = append(summary.Providers, status)
+		if status.Enabled {
+			summary.Enabled = true
+		}
+		if status.Available && summary.Provider == "" {
+			summary.Available = true
+			summary.Provider = status.Provider
+			summary.URL = status.URL
+			summary.Error = status.Error
 		}
 	}
-
-	status := t.provider.Status()
-	status.Enabled = t.config.Enabled
-	return status
+	if len(summary.Providers) == 0 {
+		summary.Error = "no tunnel provider configured"
+	}
+	return summary
 }
 
-// Config returns the current tunnel configuration.
+// Config returns the persisted per-provider configurations.
 func (t *TunnelService) Config() TunnelConfig {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.config
+
+	cfg := TunnelConfig{Providers: make(map[TunnelProviderType]TunnelProviderConfig, len(t.providers))}
+	for providerType, entry := range t.providers {
+		cfg.Providers[providerType] = entry.config
+	}
+	return cfg
 }
 
-// SetConfig updates the tunnel configuration and recreates the provider.
+// SetConfig replaces all provider configurations and recreates their instances.
 func (t *TunnelService) SetConfig(cfg TunnelConfig) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.provider != nil {
-		_ = t.provider.Stop()
+	for _, entry := range t.providers {
+		if entry.provider != nil {
+			_ = entry.provider.Stop()
+		}
 	}
-	t.config = cfg
-	t.provider = t.newProvider(cfg)
+	t.providers = make(map[TunnelProviderType]*providerEntry, len(cfg.Providers))
+	for providerType, pc := range cfg.Providers {
+		t.providers[providerType] = &providerEntry{
+			config:   pc,
+			provider: t.providerFor(providerType, pc),
+		}
+	}
 }
 
 // ─── Cloudflare Tunnel Provider ─────────────────────────────────────────────
 
 // cloudflareProvider implements TunnelProvider using cloudflared.
 type cloudflareProvider struct {
-	config  TunnelConfig
+	config  TunnelProviderConfig
 	binDir  string
 	logger  *slog.Logger
 	mu      sync.Mutex
@@ -189,7 +271,7 @@ type cloudflareProvider struct {
 	running bool
 }
 
-func newCloudflareProvider(config TunnelConfig, binDir string, logger *slog.Logger) *cloudflareProvider {
+func newCloudflareProvider(config TunnelProviderConfig, binDir string, logger *slog.Logger) *cloudflareProvider {
 	return &cloudflareProvider{
 		config: config,
 		binDir: binDir,

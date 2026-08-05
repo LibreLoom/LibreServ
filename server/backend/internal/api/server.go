@@ -253,9 +253,12 @@ func NewServer(cfg ServerConfig) *Server {
 
 	// Initialize tunnel service
 	tunnelCfg := network.TunnelConfig{
-		Provider: network.TunnelProviderType(config.Get().Network.Tunnel.Provider),
-		Token:    config.Get().Network.Tunnel.Token,
-		Enabled:  config.Get().Network.Tunnel.Enabled,
+		Providers: map[network.TunnelProviderType]network.TunnelProviderConfig{
+			network.TunnelProviderType(config.Get().Network.Tunnel.Provider): {
+				Token:   config.Get().Network.Tunnel.Token,
+				Enabled: config.Get().Network.Tunnel.Enabled,
+			},
+		},
 	}
 	server.tunnelService = network.NewTunnelService(tunnelCfg, filepath.Join(config.Get().Apps.DataPath, "bin"))
 
