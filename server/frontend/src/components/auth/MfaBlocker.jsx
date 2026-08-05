@@ -65,7 +65,7 @@ export default function MfaBlocker() {
             <button
               type="button"
               onClick={logout}
-              className="inline-flex items-center gap-1 text-primary hover:text-accent no-underline hover:underline underline-offset-2 motion-safe:transition-colors"
+              className="inline-flex items-center gap-1 text-accent hover:text-primary no-underline hover:underline underline-offset-2 motion-safe:transition-colors"
             >
               <LogOut size={12} aria-hidden="true" />
               Sign out
