@@ -109,12 +109,18 @@ func GenerateNetworkReport(ctx context.Context, upnp *UPnPClient, inputs ReportI
 		report.Stacks.V4.PublicAddr = report.NAT.PublicIP
 	}
 	if inputs.VerifyV4 != nil && report.Stacks.V4.PublicAddr != "" {
-		ok, _ := inputs.VerifyV4(ctx, report.Stacks.V4.PublicAddr)
-		// InboundChecked is set on ANY probe outcome: "verified closed" is a
-		// real signal distinct from "never checked" (the fallback trigger).
-		report.Stacks.V4.InboundChecked = true
-		if ok {
-			report.Stacks.V4.InboundOpen = true
+		ok, err := inputs.VerifyV4(ctx, report.Stacks.V4.PublicAddr)
+		if err != nil {
+			// Probe didn't run (auth/rate-limit/outage): leave state
+			// untouched — "unknown" stays distinct from "verified closed".
+			slog.Warn("v4 verify probe failed", "error", err)
+		} else {
+			// InboundChecked is set on any REAL probe outcome: "verified
+			// closed" is distinct from "never checked".
+			report.Stacks.V4.InboundChecked = true
+			if ok {
+				report.Stacks.V4.InboundOpen = true
+			}
 		}
 	}
 
@@ -124,10 +130,14 @@ func GenerateNetworkReport(ctx context.Context, upnp *UPnPClient, inputs ReportI
 		report.Stacks.V6.PublicAddr = v6.String()
 	}
 	if inputs.VerifyV6 != nil && report.Stacks.V6.PublicAddr != "" {
-		ok, _ := inputs.VerifyV6(ctx, report.Stacks.V6.PublicAddr)
-		report.Stacks.V6.InboundChecked = true
-		if ok {
-			report.Stacks.V6.InboundOpen = true
+		ok, err := inputs.VerifyV6(ctx, report.Stacks.V6.PublicAddr)
+		if err != nil {
+			slog.Warn("v6 verify probe failed", "error", err)
+		} else {
+			report.Stacks.V6.InboundChecked = true
+			if ok {
+				report.Stacks.V6.InboundOpen = true
+			}
 		}
 	}
 

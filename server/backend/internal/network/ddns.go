@@ -170,9 +170,11 @@ func (s *DDNSService) UpdateDNS(ctx context.Context) error {
 
 	s.logger.Info("Public IP changed", "new_ip", publicIP)
 	// Notify the report loop so it regenerates immediately rather than
-	// serving a stale report until the next 15-min tick.
+	// serving a stale report until the next 15-min tick. Run it async:
+	// regeneration (STUN+UPnP+probes, ~20s) must not delay the DNS write
+	// that follows right after an IP change (review minor 3).
 	if hook != nil {
-		hook()
+		go hook()
 	}
 
 	cfg, err := s.providerMgr.GetConfig(ctx)

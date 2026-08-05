@@ -77,6 +77,20 @@ func (h *PlansHandler) GetPlans(w http.ResponseWriter, r *http.Request) {
 			if st, err := h.state.StateForApp(r.Context(), app.ID); err == nil {
 				state = st
 			}
+			// Merge the device-wide base-reachability cells (written by the
+			// report loop as app_id="system") into every app's state: direct_v4/
+			// direct_v6 history is device-wide, so the engine's hysteresis
+			// must see it regardless of app (review blocker C).
+			if sys, err := h.state.StateForApp(r.Context(), "system"); err == nil {
+				if state == nil {
+					state = map[network.Path]network.PathState{}
+				}
+				for p, st := range sys {
+					if p == network.PathDirectV4 || p == network.PathDirectV6 {
+						state[p] = st
+					}
+				}
+			}
 		}
 
 		plan := h.engine.Plan(req, rep, state)

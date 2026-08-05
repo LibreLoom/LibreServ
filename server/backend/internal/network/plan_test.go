@@ -69,7 +69,7 @@ func TestPlanWebMatrix(t *testing.T) {
 		{"web, large uploads + tunnel → LAN-only (never cloudflared)", webReq().largeUploads().build(), rb().tunnel().build(), PathLANOnly},
 		{"web, direct v4 + large uploads → direct", webReq().largeUploads().build(), rb().v4Open().tunnel().build(), PathDirectV4},
 		{"web, nothing → LAN-only", webReq().build(), rb().build(), PathLANOnly},
-		{"web, v6 only verified → direct", webReq().build(), rb().v6Open().build(), PathDirectV4},
+		{"web, v6 only verified → direct v6", webReq().build(), rb().v6Open().build(), PathDirectV6},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -217,14 +217,15 @@ func TestPlanWebPerStackHysteresis(t *testing.T) {
 	eng := webEngine()
 	req := webReq().build()
 
-	// v6 verified open, v4 degraded: still direct (v6 carries it).
+	// v6 verified open, v4 degraded: still direct via v6 (v4's degradation
+	// must not kill the healthy v6 stack).
 	rep := rb().v6Open().tunnel().build()
 	st := map[Path]PathState{
 		PathDirectV4: {ConsecutiveFailures: 5},
 	}
 	p := eng.Plan(req, rep, st)
-	if p.Path != PathDirectV4 {
-		t.Fatalf("path = %s, want direct (v6 healthy despite v4 degraded)", p.Path)
+	if p.Path != PathDirectV6 {
+		t.Fatalf("path = %s, want direct_v6 (v6 healthy despite v4 degraded)", p.Path)
 	}
 	if !p.CoverageV6 {
 		t.Error("coverage_v6 should be true (v6 verified)")

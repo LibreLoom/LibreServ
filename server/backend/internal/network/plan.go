@@ -97,8 +97,14 @@ func (e *Engine) planWeb(req Requirement, report *NetworkReport, state map[Path]
 	v4OK := report.Stacks.V4.InboundOpen && !downgraded(state[PathDirectV4])
 	v6OK := report.Stacks.V6.InboundOpen && !downgraded(state[PathDirectV6])
 	if v4OK || v6OK {
+		// Label the path by the stack that actually carries it (minor: the
+		// label was always PathDirectV4 even when only v6 verified).
+		path := PathDirectV4
+		if !v4OK && v6OK {
+			path = PathDirectV6
+		}
 		return &Plan{
-			Path:       PathDirectV4,
+			Path:       path,
 			CoverageV4: v4OK,
 			CoverageV6: v6OK,
 			Message:    "Your app is reachable directly from the internet.",
@@ -112,9 +118,10 @@ func (e *Engine) planWeb(req Requirement, report *NetworkReport, state map[Path]
 			Message:    "Your app is reachable from the internet through a protected connection.",
 		}
 	}
-	// Large-uploads web apps can't use cloudflared; if the network is
-	// CGNAT/double-NAT, the dedicated-IP relay is the path.
-	if req.LargeUploads && (report.NAT.BehindDoubleNAT || report.NAT.Type == NATCGNAT) {
+	// Large-uploads web apps can't use cloudflared; the dedicated-IP relay
+	// is the path whenever direct is unavailable (planCGNAT needs only
+	// HasDedicatedIP — CGNAT is not required for the relay to apply).
+	if req.LargeUploads {
 		return e.planCGNAT(req, report, nil, state)
 	}
 	return &Plan{

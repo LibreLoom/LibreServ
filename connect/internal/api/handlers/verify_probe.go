@@ -83,10 +83,13 @@ func (h *VerifyProbeHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit per device. The map is capped so stale devices can't grow
-	// it without bound.
+	// Rate limit PER TARGET (device+host+port+proto), not per device: the
+	// device's verify loop probes v4 443/80 and v6 443/80 back-to-back in one
+	// tick — a per-device limit would 429 every probe after the first.
+	// The map is capped so stale keys can't grow without bound.
+	targetKey := deviceID + "|" + req.Host + "|" + strconv.Itoa(req.Port) + "|" + proto
 	h.mu.Lock()
-	last, ok := h.lastProbe[deviceID]
+	last, ok := h.lastProbe[targetKey]
 	now := time.Now()
 	if ok && now.Sub(last) < verifyProbeRateLimit {
 		h.mu.Unlock()
@@ -100,13 +103,16 @@ func (h *VerifyProbeHandler) Probe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	h.lastProbe[deviceID] = now
+	h.lastProbe[targetKey] = now
 	h.mu.Unlock()
 
 	// Validate the target: the device may only probe its own addresses.
 	// Resolve the host and require the result to be a public IP that
-	// matches the device's own domain(s).
-	if err := h.validateTarget(r.Context(), deviceID, req.Host); err != nil {
+	// matches the device's own domain(s). The caller's egress IP (what
+	// Connect sees the device connecting FROM) is passed through so IP
+	// literals matching it are allowed.
+	callerIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if err := h.validateTarget(r.Context(), deviceID, req.Host, callerIP); err != nil {
 		JSONError(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -137,9 +143,18 @@ func (h *VerifyProbeHandler) Probe(w http.ResponseWriter, r *http.Request) {
 // custom domains registered to it. The hostname is RESOLVED and every
 // resulting IP is blocklist-checked — a device owner pointing a registered
 // domain at a victim/private address must not turn Connect into a scanner.
-func (h *VerifyProbeHandler) validateTarget(ctx context.Context, deviceID, host string) error {
-	// IP literals are never allowed: the device's names are hostnames.
-	if net.ParseIP(host) != nil {
+func (h *VerifyProbeHandler) validateTarget(ctx context.Context, deviceID, host, callerIP string) error {
+	// IP literals are allowed ONLY when they match the caller's egress IP —
+	// the address Connect observed the device connecting from. The device's
+	// verify loop probes its own public IP, so this is exactly "the device
+	// may probe its own address". Blocklist-check regardless.
+	if ip := net.ParseIP(host); ip != nil {
+		if callerIP != "" && net.ParseIP(callerIP) != nil && ip.Equal(net.ParseIP(callerIP)) {
+			if isBlockedIP(ip) {
+				return errTargetNotAllowed()
+			}
+			return nil
+		}
 		return errTargetNotAllowed()
 	}
 

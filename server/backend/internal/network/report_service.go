@@ -107,16 +107,33 @@ func (s *ReportService) generate(ctx context.Context) {
 		// Direct-web signal: 80 OR 443 open counts as reachable. Many ISPs
 		// block inbound 80 but allow 443 (register #20), so verifying only
 		// 443 would wrongly mark a working direct setup as closed.
+		//
+		// Error discipline (review blocker D): only record an outcome when
+		// the probe actually RAN (err == nil). 403/429/Connect-outage are
+		// NOT failures — the state must stay untouched and "unknown" must
+		// remain distinct from "verified closed".
 		inputs.VerifyV4 = func(ctx context.Context, addr string) (bool, error) {
-			ok443, _ := s.verifier.Verify(ctx, addr, 443, "tcp")
-			ok80, _ := s.verifier.Verify(ctx, addr, 80, "tcp")
-			s.record(ctx, "direct_v4", ok443 || ok80, nil)
+			ok443, err := s.verifier.Verify(ctx, addr, 443, "tcp")
+			if err != nil {
+				return false, err
+			}
+			ok80, err := s.verifier.Verify(ctx, addr, 80, "tcp")
+			if err != nil {
+				return false, err
+			}
+			s.record(ctx, "direct_v4", ok443 || ok80)
 			return ok443 || ok80, nil
 		}
 		inputs.VerifyV6 = func(ctx context.Context, addr string) (bool, error) {
-			ok443, _ := s.verifier.Verify(ctx, addr, 443, "tcp")
-			ok80, _ := s.verifier.Verify(ctx, addr, 80, "tcp")
-			s.record(ctx, "direct_v6", ok443 || ok80, nil)
+			ok443, err := s.verifier.Verify(ctx, addr, 443, "tcp")
+			if err != nil {
+				return false, err
+			}
+			ok80, err := s.verifier.Verify(ctx, addr, 80, "tcp")
+			if err != nil {
+				return false, err
+			}
+			s.record(ctx, "direct_v6", ok443 || ok80)
 			return ok443 || ok80, nil
 		}
 	}
@@ -144,9 +161,10 @@ func (s *ReportService) generate(ctx context.Context) {
 }
 
 // record persists a verify outcome into path_state for hysteresis. app_id is
-// the synthetic "system" cell (the engine's per-app cells are recorded by the
-// engine/actuator layer).
-func (s *ReportService) record(ctx context.Context, path string, ok bool, err error) {
+// the synthetic "system" cell (device-wide base reachability); the engine
+// merges it into per-app state at plan time (GetPlans).
+// Only called when the probe actually ran (err was nil).
+func (s *ReportService) record(ctx context.Context, path string, ok bool) {
 	if s.state == nil {
 		return
 	}
@@ -154,11 +172,7 @@ func (s *ReportService) record(ctx context.Context, path string, ok bool, err er
 		_ = s.state.RecordSuccess(ctx, "system", Path(path), "", 443)
 		return
 	}
-	reason := "unreachable"
-	if err != nil {
-		reason = err.Error()
-	}
-	_ = s.state.RecordFailure(ctx, "system", Path(path), "", 443, reason)
+	_ = s.state.RecordFailure(ctx, "system", Path(path), "", 443, "unreachable")
 }
 
 // Report returns the latest cached report (may be nil before the first tick).
