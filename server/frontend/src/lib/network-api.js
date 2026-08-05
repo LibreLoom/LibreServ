@@ -73,3 +73,13 @@ export async function disableTunnel() {
   const res = await api("/network/tunnel/disable", { method: "POST" });
   return res.json();
 }
+
+export async function getNetworkReport() {
+  const res = await api("/network/report");
+  return res.json();
+}
+
+export async function getNetworkPlans() {
+  const res = await api("/network/plans");
+  return res.json();
+}

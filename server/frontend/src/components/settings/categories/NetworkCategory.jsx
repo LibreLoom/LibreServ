@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, ChevronUp, Shield, Radio } from "lucide-react";
+import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, ChevronUp, Shield, Radio, Layers, PlugZap } from "lucide-react";
 import PropTypes from "prop-types";
 import ConfirmModal from "../../cards/ConfirmModal";
 import SettingsCard from "../SettingsCard";
@@ -8,9 +8,6 @@ import SettingsRow from "../SettingsRow.jsx";
 import RoutesCard from "../../network/RoutesCard";
 import DebugCard from "../../network/DebugCard";
 import RouteModal from "../RouteModal";
-
-
-
 import ValueDisplay from "../../common/ValueDisplay";
 import Dropdown from "../../common/Dropdown";
 import Button from "../../ui/Button";
@@ -26,7 +23,184 @@ import {
   ddnsForceUpdate,
   ddnsSetInterval,
   getTunnelStatus,
+  getNetworkReport,
+  getNetworkPlans,
 } from "../../../lib/network-api";
+
+// ─── Reachability card — the one big status the page leads with ────────────
+
+function ReachabilityCard({ report, loading, onRetry }) {
+  const status = useMemo(() => {
+    if (loading) {
+      return { icon: WifiOff, label: "Checking your network…", tone: "text-secondary/60", bg: "bg-accent/10 border-accent/20" };
+    }
+    if (!report) {
+      return { icon: WifiOff, label: "We couldn't check your network right now.", tone: "text-warning", bg: "bg-warning/10 border-warning/20" };
+    }
+    const tunnel = report.connect?.active && report.connect?.tunnel_ok;
+    const v4 = report.stacks?.v4?.inbound_open;
+    const v6 = report.stacks?.v6?.inbound_open;
+    if (tunnel) return { icon: Wifi, label: report.headline || "Your apps are reachable from the internet.", tone: "text-success", bg: "bg-success/10 border-success/20" };
+    if (v4 && v6) return { icon: Wifi, label: report.headline || "Your apps are reachable on both network types.", tone: "text-success", bg: "bg-success/10 border-success/20" };
+    if (v4 || v6) return { icon: Wifi, label: report.headline || "Your apps are reachable from the internet.", tone: "text-success", bg: "bg-success/10 border-success/20" };
+    if (report.nat?.behind_double_nat) return { icon: AlertTriangle, label: report.headline, tone: "text-warning", bg: "bg-warning/10 border-warning/20" };
+    return { icon: WifiOff, label: report.headline || "Only people on your home network can use your apps right now.", tone: "text-secondary/70", bg: "bg-primary/5 border-primary/10" };
+  }, [report, loading]);
+
+  const Icon = status.icon;
+
+  // Coverage pills: which visitor networks can reach the apps.
+  const coverage = useMemo(() => {
+    if (loading || !report) return [];
+    const tunnel = report.connect?.active && report.connect?.tunnel_ok;
+    const v4 = report.stacks?.v4?.inbound_open;
+    const v6 = report.stacks?.v6?.inbound_open;
+    if (tunnel) return [{ label: "Everyone", ok: true }];
+    const pills = [];
+    if (v4) pills.push({ label: "All networks", ok: true });
+    if (v6 && !v4) pills.push({ label: "Newer networks", ok: true });
+    if (!v4 && !v6) pills.push({ label: "Home network only", ok: false });
+    return pills;
+  }, [report, loading]);
+
+  return (
+    <SettingsCard icon={Radio} title="Reachability" index={0}>
+      <div className="px-5 py-4 space-y-4">
+        <div className={cn("rounded-large-element border px-4 py-3 flex items-center gap-3", status.bg)}>
+          <Icon className={cn("w-5 h-5 flex-shrink-0", status.tone)} />
+          <span className={cn("font-mono text-sm font-semibold leading-snug", status.tone)}>{status.label}</span>
+          {onRetry && report === null && !loading && (
+            <Button type="button" variant="ghost" surface="secondary" size="sm" onClick={onRetry} className="ml-auto shrink-0">
+              <RefreshCw size={14} /> Retry
+            </Button>
+          )}
+        </div>
+
+        {coverage.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {coverage.map((p) => (
+              <span
+                key={p.label}
+                className={cn(
+                  "text-xs px-3 py-1 rounded-pill border",
+                  p.ok
+                    ? "bg-success/10 border-success/20 text-success"
+                    : "bg-primary/5 border-primary/10 text-secondary/60"
+                )}
+              >
+                {p.label}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {report && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {report.stacks?.v4?.public_addr && (
+              <ValueDisplay label="Public Address" value={report.stacks.v4.public_addr} />
+            )}
+            {report.stacks?.v6?.public_addr && (
+              <ValueDisplay label="IPv6 Address" value={report.stacks.v6.public_addr} />
+            )}
+            {report.nat?.type && report.nat.type !== "unknown" && (
+              <ValueDisplay label="Network Type" value={report.nat.type} mono={false} />
+            )}
+            {report.upnp?.discovered && (
+              <ValueDisplay
+                label="Router"
+                value={[report.upnp.router_make, report.upnp.router_model].filter(Boolean).join(" ") || "Router"}
+                mono={false}
+              />
+            )}
+            {report.domain?.name && <ValueDisplay label="Domain" value={report.domain.name} />}
+          </div>
+        )}
+      </div>
+    </SettingsCard>
+  );
+}
+ReachabilityCard.propTypes = {
+  report: PropTypes.object,
+  loading: PropTypes.bool,
+  onRetry: PropTypes.func,
+};
+
+// ─── Per-app plan cards — what each app needs and how it's reached ─────────
+
+function AppPlanCard({ plan, index }) {
+  const needLabel = useMemo(() => {
+    const parts = [];
+    if (plan.ports?.length) {
+      parts.push(`Needs port${plan.ports.length > 1 ? "s" : ""} ${plan.ports.join(", ")}`);
+    } else {
+      parts.push("Web access");
+    }
+    return parts.join(" · ");
+  }, [plan]);
+
+  const stateCfg = {
+    direct_v4: { label: "Reachable directly", tone: "text-success", bg: "bg-success/10 border-success/20" },
+    direct_v6: { label: "Reachable directly", tone: "text-success", bg: "bg-success/10 border-success/20" },
+    upnp: { label: "Ports opened on your router", tone: "text-success", bg: "bg-success/10 border-success/20" },
+    guide_upnp: { label: "Router setting needs turning on", tone: "text-warning", bg: "bg-warning/10 border-warning/20" },
+    cloudflared: { label: "Reachable via protected connection", tone: "text-success", bg: "bg-success/10 border-success/20" },
+    frp: { label: "Reachable via dedicated address", tone: "text-success", bg: "bg-success/10 border-success/20" },
+    lan_only: { label: "Home network only", tone: "text-secondary/70", bg: "bg-primary/5 border-primary/10" },
+  };
+  const cfg = stateCfg[plan.path] || stateCfg.lan_only;
+
+  return (
+    <SettingsCard icon={PlugZap} title={plan.app_name} index={index}>
+      <div className="px-5 py-4 space-y-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-xs text-secondary/60">{needLabel}</span>
+          <span className={cn("text-xs px-3 py-1 rounded-pill border font-mono", cfg.bg, cfg.tone)}>
+            {cfg.label}
+          </span>
+        </div>
+        <p className="text-sm text-primary/70 leading-relaxed">{plan.message}</p>
+        {plan.addon_needed && (
+          <p className="text-xs text-warning leading-relaxed">
+            A dedicated address would make this reachable from the internet. Check Connect plans to add one.
+          </p>
+        )}
+      </div>
+    </SettingsCard>
+  );
+}
+AppPlanCard.propTypes = { plan: PropTypes.object, index: PropTypes.number };
+
+// ─── Advanced section (collapsed by default) ────────────────────────────────
+
+function AdvancedSection({ children, count }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-4">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "w-full flex items-center justify-between px-4 py-3 rounded-pill",
+          "bg-primary text-secondary border-2 border-secondary/10",
+          "hover:border-accent hover:text-accent motion-safe:transition-colors"
+        )}
+      >
+        <span className="font-mono text-sm font-semibold flex items-center gap-2">
+          <Layers size={16} />
+          Advanced
+          {typeof count === "number" && count > 0 && (
+            <span className="text-xs text-secondary/50">({count})</span>
+          )}
+        </span>
+        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
+      {open && <div className="space-y-6">{children}</div>}
+    </div>
+  );
+}
+AdvancedSection.propTypes = { children: PropTypes.node, count: PropTypes.number };
+
+// ─── Legacy detailed cards (kept for advanced users) ────────────────────────
 
 function RemoteAccessStatusCard({ connectivity, index }) {
   if (!connectivity) return null;
@@ -325,6 +499,8 @@ function CGNATGuidanceCard({ connectivity, index }) {
 }
 CGNATGuidanceCard.propTypes = { connectivity: PropTypes.object, index: PropTypes.number };
 
+// ─── Main page ──────────────────────────────────────────────────────────────
+
 export default function NetworkCategory({ settings }) {
   const { request } = useAuth();
   const { addToast } = useToast();
@@ -345,8 +521,25 @@ export default function NetworkCategory({ settings }) {
   const [upnpStatus, setUpnpStatus] = useState(null);
   const [ddnsStatus, setDdnsStatus] = useState(null);
   const [tunnelStatus, setTunnelStatus] = useState(null);
+  const [report, setReport] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const [reportLoading, setReportLoading] = useState(true);
 
   const defaultDomain = useMemo(() => settings?.proxy?.default_domain || "", [settings]);
+
+  const loadReport = useCallback(async () => {
+    setReportLoading(true);
+    try {
+      const [rep, pl] = await Promise.all([
+        getNetworkReport().catch(() => null),
+        getNetworkPlans().catch(() => []),
+      ]);
+      setReport(rep);
+      setPlans(Array.isArray(pl?.plans) ? pl.plans : []);
+    } finally {
+      setReportLoading(false);
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -389,7 +582,8 @@ export default function NetworkCategory({ settings }) {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    loadReport();
+  }, [loadData, loadReport]);
 
   const handleAddRoute = useCallback(() => {
     setSelectedRoute(null);
@@ -472,85 +666,99 @@ export default function NetworkCategory({ settings }) {
 
   return (
     <div className="space-y-6" data-slot="network-category">
-      <RemoteAccessStatusCard connectivity={connectivity} index={cardIndex++} />
+      <ReachabilityCard report={report} loading={reportLoading} onRetry={loadReport} />
 
-      <SettingsCard icon={Globe} title="Domain & DNS" padding={false} index={cardIndex++}>
-        <SettingsRow
-          label="Configure your domain"
-          description={defaultDomain ? `Current: ${defaultDomain}` : "No domain configured"}
-        >
-          <a
-            href="#external_services"
-            className="text-xs px-3 py-1.5 rounded-pill bg-primary text-secondary border-2 border-secondary/10 hover:bg-accent hover:text-primary hover:border-accent motion-safe:transition-colors"
-          >
-            External Services →
-          </a>
-        </SettingsRow>
-      </SettingsCard>
-
-      <SettingsCard icon={Shield} title="Tunnel" padding={false} index={cardIndex++}>
-        <SettingsRow
-          label="Tunnel service"
-          description={tunnelStatus?.enabled ? "Connected" : "Not configured"}
-        >
-          <a
-            href="#external_services"
-            className="text-xs px-3 py-1.5 rounded-pill bg-primary text-secondary border-2 border-secondary/10 hover:bg-accent hover:text-primary hover:border-accent motion-safe:transition-colors"
-          >
-            External Services →
-          </a>
-        </SettingsRow>
-      </SettingsCard>
-
-      <IPMonitorCard ddns={ddnsStatus} index={cardIndex++} />
-
-      <UPnPCard upnp={upnpStatus} index={cardIndex++} />
-
-      <PortForwardingGuideCard connectivity={connectivity} index={cardIndex++} />
-
-      <CGNATGuidanceCard connectivity={connectivity} index={cardIndex++} />
-
-      {caddyStatus && (
-        <SettingsCard icon={Server} title="Proxy Status" index={cardIndex++}>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-            <ValueDisplay
-              label="Status"
-              value={
-                caddyStatus.running
-                  ? <span className="text-success">Running</span>
-                  : <span className="text-error">Stopped</span>
-              }
-              mono={false}
-            />
-            <ValueDisplay label="Version" value={caddyStatus.version || "N/A"} />
-            <ValueDisplay
-              label="Configuration"
-              value={
-                caddyStatus.config_valid
-                  ? <span className="text-success">Valid</span>
-                  : <span className="text-warning">Invalid</span>
-              }
-            />
-            <ValueDisplay label="Web Addresses" value={String(caddyStatus.routes || routes.length)} />
-            <ValueDisplay label="Domains" value={String(caddyStatus.domains?.length || 0)} />
-          </div>
-        </SettingsCard>
+      {plans.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="font-mono text-sm font-semibold text-secondary flex items-center gap-2 px-1">
+            <PlugZap size={15} />
+            Your Apps
+          </h3>
+          {plans.map((plan) => <AppPlanCard key={plan.app_id} plan={plan} index={cardIndex++} />)}
+        </div>
       )}
 
-      <RoutesCard
-        routes={routes}
-        apps={apps}
-        loading={loading}
-        error={loadError}
-        onRetry={loadData}
-        onAdd={handleAddRoute}
-        onEdit={handleEditRoute}
-        onDelete={handleDeleteClick}
-        onToggle={handleToggleEnabled}
-        togglingId={togglingId}
-      />
+      <AdvancedSection count={6}>
+        <RemoteAccessStatusCard connectivity={connectivity} index={cardIndex++} />
 
-      <DebugCard content={caddyfileContent} onReload={loadCaddyfile} />
+        <SettingsCard icon={Globe} title="Domain & DNS" padding={false} index={cardIndex++}>
+          <SettingsRow
+            label="Configure your domain"
+            description={defaultDomain ? `Current: ${defaultDomain}` : "No domain configured"}
+          >
+            <a
+              href="#external_services"
+              className="text-xs px-3 py-1.5 rounded-pill bg-primary text-secondary border-2 border-secondary/10 hover:bg-accent hover:text-primary hover:border-accent motion-safe:transition-colors"
+            >
+              External Services →
+            </a>
+          </SettingsRow>
+        </SettingsCard>
+
+        <SettingsCard icon={Shield} title="Tunnel" padding={false} index={cardIndex++}>
+          <SettingsRow
+            label="Tunnel service"
+            description={tunnelStatus?.enabled ? "Connected" : "Not configured"}
+          >
+            <a
+              href="#external_services"
+              className="text-xs px-3 py-1.5 rounded-pill bg-primary text-secondary border-2 border-secondary/10 hover:bg-accent hover:text-primary hover:border-accent motion-safe:transition-colors"
+            >
+              External Services →
+            </a>
+          </SettingsRow>
+        </SettingsCard>
+
+        <IPMonitorCard ddns={ddnsStatus} index={cardIndex++} />
+
+        <UPnPCard upnp={upnpStatus} index={cardIndex++} />
+
+        <PortForwardingGuideCard connectivity={connectivity} index={cardIndex++} />
+
+        <CGNATGuidanceCard connectivity={connectivity} index={cardIndex++} />
+
+        {caddyStatus && (
+          <SettingsCard icon={Server} title="Proxy Status" index={cardIndex++}>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              <ValueDisplay
+                label="Status"
+                value={
+                  caddyStatus.running
+                    ? <span className="text-success">Running</span>
+                    : <span className="text-error">Stopped</span>
+                }
+                mono={false}
+              />
+              <ValueDisplay label="Version" value={caddyStatus.version || "N/A"} />
+              <ValueDisplay
+                label="Configuration"
+                value={
+                  caddyStatus.config_valid
+                    ? <span className="text-success">Valid</span>
+                    : <span className="text-warning">Invalid</span>
+                }
+              />
+              <ValueDisplay label="Web Addresses" value={String(caddyStatus.routes || routes.length)} />
+              <ValueDisplay label="Domains" value={String(caddyStatus.domains?.length || 0)} />
+            </div>
+          </SettingsCard>
+        )}
+
+        <RoutesCard
+          routes={routes}
+          apps={apps}
+          loading={loading}
+          error={loadError}
+          onRetry={loadData}
+          onAdd={handleAddRoute}
+          onEdit={handleEditRoute}
+          onDelete={handleDeleteClick}
+          onToggle={handleToggleEnabled}
+          togglingId={togglingId}
+        />
+
+        <DebugCard content={caddyfileContent} onReload={loadCaddyfile} />
+      </AdvancedSection>
 
       <RouteModal
         open={routeModalOpen}
@@ -583,7 +791,6 @@ export default function NetworkCategory({ settings }) {
           </div>
         )}
       </ConfirmModal>
-
     </div>
   );
 }

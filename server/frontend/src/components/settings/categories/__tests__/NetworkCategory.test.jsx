@@ -13,6 +13,8 @@ vi.mock("../../../../lib/network-api", () => ({
   getTunnelStatus: vi.fn().mockResolvedValue({ available: false, enabled: false }),
   ddnsForceUpdate: vi.fn(),
   ddnsSetInterval: vi.fn(),
+  getNetworkReport: vi.fn().mockResolvedValue(null),
+  getNetworkPlans: vi.fn().mockResolvedValue({ plans: [] }),
 }));
 
 const mockRequest = vi.fn().mockImplementation((path) => {
@@ -65,7 +67,7 @@ vi.mock("../../../../context/ToastContext", () => ({
   }),
 }));
 
-import { getCaddyStatus, listRoutes, getCaddyfile } from "../../../../lib/network-api";
+import { getCaddyStatus, listRoutes, getCaddyfile, getNetworkReport, getNetworkPlans } from "../../../../lib/network-api";
 
 const mockRoutes = [
   {
@@ -105,9 +107,19 @@ beforeEach(() => {
   /** @type {any} */ (getCaddyfile).mockResolvedValue("# Caddyfile\n{\n\tauto_https off\n}");
 });
 
+async function openAdvanced() {
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /Advanced/i })).toBeInTheDocument();
+  });
+  act(() => {
+    screen.getByRole("button", { name: /Advanced/i }).click();
+  });
+}
+
 describe("NetworkCategory", () => {
   it("renders caddy status card on success", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => {
       expect(screen.getByText("Running")).toBeInTheDocument();
@@ -119,6 +131,7 @@ describe("NetworkCategory", () => {
 
   it("renders RoutesCard with correct data", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => {
       expect(RoutesCardProps?.loading).toBe(false);
@@ -139,6 +152,7 @@ describe("NetworkCategory", () => {
     /** @type {any} */ (getCaddyStatus).mockImplementation(() => new Promise(() => {}));
 
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => {
       expect(RoutesCardProps).toMatchObject({ loading: true, error: null });
@@ -149,6 +163,7 @@ describe("NetworkCategory", () => {
     /** @type {any} */ (listRoutes).mockRejectedValue(new Error("Network error"));
 
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => {
       expect(RoutesCardProps).toMatchObject({ loading: false, error: "Network error" });
@@ -157,6 +172,7 @@ describe("NetworkCategory", () => {
 
   it("shows domain connection message when no domain is set", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => {
       expect(screen.getByText(/No domain configured/)).toBeInTheDocument();
@@ -165,6 +181,7 @@ describe("NetworkCategory", () => {
 
   it("shows current domain when default domain is set", async () => {
     renderWithProviders(<NetworkCategory settings={{ proxy: { default_domain: "example.com" } }} />);
+    await openAdvanced();
 
     await waitFor(() => {
       expect(screen.getByText(/Current:\s*example\.com/)).toBeInTheDocument();
@@ -173,6 +190,7 @@ describe("NetworkCategory", () => {
 
   it("RoutesCard onAdd opens add route modal", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => expect(screen.getByTestId("routes-card")).toBeInTheDocument());
 
@@ -188,6 +206,7 @@ describe("NetworkCategory", () => {
 
   it("RoutesCard onEdit opens edit modal", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => expect(screen.getByTestId("routes-card")).toBeInTheDocument());
 
@@ -202,6 +221,7 @@ describe("NetworkCategory", () => {
 
   it("RoutesCard onDelete opens delete confirmation", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => expect(screen.getByTestId("routes-card")).toBeInTheDocument());
 
@@ -216,6 +236,7 @@ describe("NetworkCategory", () => {
 
   it("renders DebugCard with caddyfile content", async () => {
     renderWithProviders(<NetworkCategory settings={{}} />);
+    await openAdvanced();
 
     await waitFor(() => {
       expect(screen.getByTestId("debug-card")).toBeInTheDocument();
@@ -229,5 +250,74 @@ describe("NetworkCategory", () => {
       });
     });
     expect(DebugCardProps.onReload).toBeDefined();
+  });
+});
+
+describe("NetworkCategory report + plans", () => {
+  beforeEach(() => {
+    /** @type {any} */ (getNetworkReport).mockResolvedValue(null);
+    /** @type {any} */ (getNetworkPlans).mockResolvedValue({ plans: [] });
+  });
+
+  it("renders reachability headline and coverage", async () => {
+    /** @type {any} */ (getNetworkReport).mockResolvedValue({
+      generated_at: Date.now() / 1000,
+      stacks: { v4: { available: true, public_addr: "203.0.113.10", inbound_open: true }, v6: { available: false } },
+      nat: { type: "open", behind_double_nat: false },
+      upnp: { discovered: false },
+      connect: { active: true, tunnel_ok: true },
+      domain: { source: "connect_subdomain", name: "dev.free.servers.libreloom.org" },
+      headline: "Your apps are reachable from the internet.",
+    });
+    renderWithProviders(<NetworkCategory settings={{}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Your apps are reachable from the internet.")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Everyone")).toBeInTheDocument();
+    expect(screen.getByText("203.0.113.10")).toBeInTheDocument();
+  });
+
+  it("renders per-app plan cards", async () => {
+    /** @type {any} */ (getNetworkPlans).mockResolvedValue({
+      plans: [
+        {
+          app_id: "app-mc", app_name: "Minecraft", path: "upnp",
+          message: "We opened the ports your apps need on your router.",
+          coverage_v4: true, coverage_v6: false, addon_needed: false, ports: [25565],
+        },
+        {
+          app_id: "app-nc", app_name: "Nextcloud", path: "cloudflared",
+          message: "Your app is reachable from the internet through a protected connection.",
+          coverage_v4: true, coverage_v6: true, addon_needed: false,
+        },
+      ],
+    });
+    renderWithProviders(<NetworkCategory settings={{}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("We opened the ports your apps need on your router.")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Needs port 25565/)).toBeInTheDocument();
+    expect(screen.getByText("Your app is reachable from the internet through a protected connection.")).toBeInTheDocument();
+    expect(screen.getByText("Ports opened on your router")).toBeInTheDocument();
+    expect(screen.getByText("Reachable via protected connection")).toBeInTheDocument();
+  });
+
+  it("shows addon upsell when plan needs it", async () => {
+    /** @type {any} */ (getNetworkPlans).mockResolvedValue({
+      plans: [
+        {
+          app_id: "app-mc", app_name: "Minecraft", path: "lan_only",
+          message: "Only people on your home network can use these apps right now.",
+          addon_needed: true, ports: [25565],
+        },
+      ],
+    });
+    renderWithProviders(<NetworkCategory settings={{}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/dedicated address would make this reachable/)).toBeInTheDocument();
+    });
   });
 });

@@ -3,11 +3,11 @@ import { render } from "@testing-library/react";
 import { useRef } from "react";
 import { useSmoothResize } from "../hooks/useSmoothResize";
 
-function TestButton({ label, style }) {
+function TestButton({ label }) {
   const ref = useRef(null);
   useSmoothResize(ref, { x: true });
   return (
-    <button ref={ref} type="button" style={{ display: "inline-flex", ...style }}>
+    <button ref={ref} type="button" style={{ display: "inline-flex" }}>
       {label}
     </button>
   );
