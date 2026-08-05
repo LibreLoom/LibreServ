@@ -86,7 +86,7 @@ export default function InviteeOnboardingPage() {
   if (!invite || invite.valid === false) {
     return (
       <main className="fixed inset-0 grid place-items-center bg-primary px-4" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
-        <div className="w-full max-w-lg bg-secondary text-primary rounded-large-element ring-2 ring-accent p-8 text-center">
+        <div className="w-full max-w-lg bg-secondary text-primary rounded-large-element p-8 text-center">
           <AlertCircle size={32} className="text-accent mx-auto mb-3" />
           <h1 className="font-mono text-xl mb-2">This invitation isn't valid</h1>
           <p className="text-primary/70 text-sm">
@@ -102,7 +102,7 @@ export default function InviteeOnboardingPage() {
 
   return (
     <main className="fixed inset-0 grid place-items-center bg-primary px-4 overflow-auto" id="main-content" tabIndex={-1} data-slot="invitee-onboarding">
-      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8 my-8">
+      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element pop-in p-8 my-8">
         <span className="text-primary font-mono text-2xl block text-center">LibreServ</span>
         <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
         <h1 className="text-primary font-mono text-xl font-normal block text-center">

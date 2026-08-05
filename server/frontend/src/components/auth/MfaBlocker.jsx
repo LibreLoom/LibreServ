@@ -31,7 +31,7 @@ export default function MfaBlocker() {
     >
       <div
         ref={outerRef}
-        className="relative w-full max-w-lg overflow-hidden bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in my-8 transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+        className="relative w-full max-w-lg overflow-hidden bg-secondary text-primary rounded-large-element pop-in my-8 transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
         style={{ transitionDuration: "var(--motion-duration-medium2)" }}
       >
         <div ref={innerRef} className="p-8">

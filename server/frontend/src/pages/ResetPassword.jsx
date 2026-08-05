@@ -105,7 +105,7 @@ export default function ResetPassword() {
   if (validating) {
     return (
       <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
-        <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8">
+        <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element pop-in p-8">
           <span className="text-primary font-mono text-2xl block text-center">
             LibreServ
           </span>
@@ -125,7 +125,7 @@ export default function ResetPassword() {
   if (!tokenValid && !success) {
     return (
       <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
-        <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8">
+        <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element pop-in p-8">
           <span className="text-primary font-mono text-2xl block text-center">
             LibreServ
           </span>
@@ -152,7 +152,7 @@ export default function ResetPassword() {
 
   return (
     <main data-slot="reset-password-page" className="fixed inset-0 grid place-items-center bg-primary px-4">
-      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element ring-2 ring-accent pop-in p-8">
+      <div className="relative w-full max-w-lg overflow-auto bg-secondary text-primary rounded-large-element pop-in p-8">
         <span className="text-primary font-mono text-2xl block text-center">
           LibreServ
         </span>
