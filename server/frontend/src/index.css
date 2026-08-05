@@ -203,7 +203,11 @@ body {
     }
     to {
         opacity: 1;
-        transform: translateY(0) scale(1);
+        /* end at `none` (not the identity matrix) so no transform persists
+           after the animation — a held transform forces a compositing
+           layer that desyncs parent box-shadows (e.g. the login card's
+           ring-2 frame lagging behind the card on resize). */
+        transform: none;
     }
 }
 
@@ -361,7 +365,13 @@ body {
 }
 
 .pop-in {
-    animation: pop-in 300ms var(--motion-easing-emphasized-decelerate) both;
+    /* `backwards`, not `both`: hold only the FROM state during any delay.
+       `both` (= backwards + forwards) also holds the TO state after the
+       animation, keeping a transform applied forever — that forced a
+       compositing layer and desynced parent box-shadows (the login card's
+       ring-2 frame lagging behind the card on resize). With `backwards`
+       the element returns to its natural style when the animation ends. */
+    animation: pop-in 300ms var(--motion-easing-emphasized-decelerate) backwards;
 }
 
 /* Staggered card grid entrance — rise up + subtle scale, cascading wave */
