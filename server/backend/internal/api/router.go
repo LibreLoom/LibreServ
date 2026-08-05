@@ -91,6 +91,7 @@ func (s *Server) setupRoutes() {
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
 	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
+	reportHandler := handlers.NewReportHandler(s.reportService)
 
 	// Initialize Connect handler
 	connectHandler := handlers.NewConnectHandler(s.connectClient, s.connectChecker, s.settingsService, s.caddyManager, s.backupService, s.tunnelService)
@@ -502,6 +503,13 @@ func (s *Server) setupRoutes() {
 			r.Route("/network/connectivity", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", connectivityHandler.GetStatus)
+			})
+
+			// Network report (admin only) — the diagnostic snapshot the
+			// decision engine and the Settings page consume.
+			r.Route("/network/report", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/", reportHandler.GetReport)
 			})
 
 			// Connect — LibreServ Connect integration

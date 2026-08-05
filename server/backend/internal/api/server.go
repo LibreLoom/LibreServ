@@ -105,6 +105,7 @@ type Server struct {
 	acmeManager     *network.ACMEManager
 	ddnsService     *network.DDNSService
 	tunnelService   *network.TunnelService
+	reportService   *network.ReportService
 	// agentChat removed — field was unused
 	selfHealMonitor  *agent.SelfHealingMonitor
 	connectClient    connect.Client
@@ -262,6 +263,24 @@ func NewServer(cfg ServerConfig) *Server {
 	}
 	server.tunnelService = network.NewTunnelService(tunnelCfg, filepath.Join(config.Get().Apps.DataPath, "bin"))
 
+	// Initialize network report service (15-min loop; reads DDNS IP state,
+	// never races it for DNS updates).
+	upnpLogger := slog.Default().With("component", "upnp")
+	reportLogger := slog.Default().With("component", "network-report")
+	server.reportService = network.NewReportService(
+		network.NewUPnPClient(upnpLogger),
+		server.ddnsService,
+		func() network.ReportInputs {
+			return network.ReportInputs{
+				Connect: network.ConnectState{
+					Active: server.connectClient != nil && server.connectChecker != nil,
+				},
+				Domain: network.DomainState{Source: "none"},
+			}
+		},
+		reportLogger,
+	)
+
 	// Initialize self-healing monitor
 	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.RuntimeClient, cfg.DB, server.connectClient, server.connectChecker)
 
@@ -270,6 +289,11 @@ func NewServer(cfg ServerConfig) *Server {
 
 	// Start DDNS service if enabled
 	server.ddnsService.Start()
+
+	// Start network report service (reads DDNS state; generate an initial report)
+	if server.reportService != nil {
+		server.reportService.Start(context.Background())
+	}
 
 	// Start tunnel service if enabled
 	if server.tunnelService != nil {
@@ -314,6 +338,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("Shutting down HTTP server")
 	if s.ddnsService != nil {
 		s.ddnsService.Stop()
+	}
+	if s.reportService != nil {
+		s.reportService.Stop()
 	}
 	if s.tunnelService != nil {
 		s.tunnelService.Stop()
