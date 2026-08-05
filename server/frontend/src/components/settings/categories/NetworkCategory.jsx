@@ -131,7 +131,8 @@ function AppPlanCard({ plan, index }) {
   const needLabel = useMemo(() => {
     const parts = [];
     if (plan.ports?.length) {
-      parts.push(`Needs port${plan.ports.length > 1 ? "s" : ""} ${plan.ports.join(", ")}`);
+      const labels = plan.ports.map((p) => (p.protocol ? `${p.protocol} ${p.port}` : String(p.port)));
+      parts.push(`Needs port${labels.length > 1 ? "s" : ""} ${labels.join(", ")}`);
     } else {
       parts.push("Web access");
     }

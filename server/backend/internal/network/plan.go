@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Path identifies one exposure mechanism for an app.
@@ -28,13 +29,13 @@ type PathState struct {
 
 // Plan is the decision engine's output for one app.
 type Plan struct {
-	Path        Path     `json:"path"`
-	Steps       []string `json:"steps"`           // executable actions, in order
-	CoverageV4  bool     `json:"coverage_v4"`     // IPv4 visitors reachable
-	CoverageV6  bool     `json:"coverage_v6"`     // IPv6 visitors reachable
-	Message     string   `json:"message"`         // plain-language, for the UI
-	AddonNeeded bool     `json:"addon_needed"`    // → upsell dedicated IP
-	Ports       []int    `json:"ports,omitempty"` // ports the plan opens/exposes
+	Path        Path       `json:"path"`
+	Steps       []string   `json:"steps"`           // executable actions, in order
+	CoverageV4  bool       `json:"coverage_v4"`     // IPv4 visitors reachable
+	CoverageV6  bool       `json:"coverage_v6"`     // IPv6 visitors reachable
+	Message     string     `json:"message"`         // plain-language, for the UI
+	AddonNeeded bool       `json:"addon_needed"`    // → upsell dedicated IP
+	Ports       []PortNeed `json:"ports,omitempty"` // protocol-aware ports the plan opens/exposes
 }
 
 // Hysteresis thresholds — N consecutive failures before downgrade, M before
@@ -87,15 +88,19 @@ func (e *Engine) Plan(req Requirement, report *NetworkReport, state map[Path]Pat
 // planWeb decides web-only apps.
 func (e *Engine) planWeb(req Requirement, report *NetworkReport, state map[Path]PathState) *Plan {
 	// Large uploads never go through cloudflared (CF free-tier 100MB cap).
-	// Direct is preferred when verified; only then does the tunnel apply.
-	directOK := report.Stacks.V4.InboundOpen || report.Stacks.V6.InboundOpen
+	// Direct is preferred when verified; the tunnel is the fallback, and the
+	// relay (dedicated IP) is the CGNAT path for large-uploads web apps.
 	tunnelUsable := !req.LargeUploads && report.Connect.Active && report.Connect.TunnelOK
 
-	if directOK && !downgraded(state[PathDirectV4], state[PathDirectV6]) {
+	// Per-stack hysteresis: each stack degrades independently. v4 failing 3×
+	// must not kill a healthy v6 direct path.
+	v4OK := report.Stacks.V4.InboundOpen && !downgraded(state[PathDirectV4])
+	v6OK := report.Stacks.V6.InboundOpen && !downgraded(state[PathDirectV6])
+	if v4OK || v6OK {
 		return &Plan{
 			Path:       PathDirectV4,
-			CoverageV4: report.Stacks.V4.InboundOpen,
-			CoverageV6: report.Stacks.V6.InboundOpen,
+			CoverageV4: v4OK,
+			CoverageV6: v6OK,
 			Message:    "Your app is reachable directly from the internet.",
 		}
 	}
@@ -107,6 +112,11 @@ func (e *Engine) planWeb(req Requirement, report *NetworkReport, state map[Path]
 			Message:    "Your app is reachable from the internet through a protected connection.",
 		}
 	}
+	// Large-uploads web apps can't use cloudflared; if the network is
+	// CGNAT/double-NAT, the dedicated-IP relay is the path.
+	if req.LargeUploads && (report.NAT.BehindDoubleNAT || report.NAT.Type == NATCGNAT) {
+		return e.planCGNAT(req, report, nil, state)
+	}
 	return &Plan{
 		Path:    PathLANOnly,
 		Message: "Only people on your home network can use this app right now.",
@@ -115,15 +125,9 @@ func (e *Engine) planWeb(req Requirement, report *NetworkReport, state map[Path]
 
 // planPorts decides apps that need direct TCP/UDP ports.
 func (e *Engine) planPorts(req Requirement, report *NetworkReport, state map[Path]PathState) *Plan {
-	// Collect the ports we need to expose (across all PortNeed entries).
-	var ports []int
-	seen := map[int]bool{}
-	for _, p := range req.Ports {
-		if !seen[p.Port] {
-			seen[p.Port] = true
-			ports = append(ports, p.Port)
-		}
-	}
+	// Collect the protocol-aware port needs (tcp+udp on the same port stay
+	// distinct — an actuator needs the protocol to create the right mapping).
+	ports := req.Ports
 
 	// 1. Direct exposure (v6 first when it verifies — it needs no port
 	//    mapping and survives CGNAT).
@@ -177,7 +181,7 @@ func (e *Engine) planPorts(req Requirement, report *NetworkReport, state map[Pat
 
 // planCGNAT handles the "no direct, no UPnP" bucket: CGNAT/symmetric/double
 // NAT — the relay add-on or LAN-only.
-func (e *Engine) planCGNAT(req Requirement, report *NetworkReport, ports []int, state map[Path]PathState) *Plan {
+func (e *Engine) planCGNAT(req Requirement, report *NetworkReport, ports []PortNeed, state map[Path]PathState) *Plan {
 	if report.Connect.HasDedicatedIP && !downgraded(state[PathRelay]) {
 		return &Plan{
 			Path:        PathRelay,
@@ -213,13 +217,20 @@ func ShouldUpgrade(state PathState) bool {
 	return state.ConsecutiveSuccesses >= UpgradeAfterSuccesses
 }
 
-func joinPorts(ports []int) string {
-	s := ""
-	for i, p := range ports {
-		if i > 0 {
-			s += ", "
+func joinPorts(ports []PortNeed) string {
+	seen := map[string]bool{}
+	var parts []string
+	for _, p := range ports {
+		key := fmt.Sprintf("%s/%d", p.Protocol, p.Port)
+		if seen[key] {
+			continue
 		}
-		s += fmt.Sprintf("%d", p)
+		seen[key] = true
+		proto := p.Protocol
+		if proto == "" {
+			proto = "tcp"
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", proto, p.Port))
 	}
-	return s
+	return strings.Join(parts, ", ")
 }

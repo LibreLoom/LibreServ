@@ -284,7 +284,7 @@ describe("NetworkCategory report + plans", () => {
         {
           app_id: "app-mc", app_name: "Minecraft", path: "upnp",
           message: "We opened the ports your apps need on your router.",
-          coverage_v4: true, coverage_v6: false, addon_needed: false, ports: [25565],
+          coverage_v4: true, coverage_v6: false, addon_needed: false, ports: [{ protocol: "tcp", port: 25565 }, { protocol: "udp", port: 25565 }],
         },
         {
           app_id: "app-nc", app_name: "Nextcloud", path: "cloudflared",
@@ -298,7 +298,7 @@ describe("NetworkCategory report + plans", () => {
     await waitFor(() => {
       expect(screen.getByText("We opened the ports your apps need on your router.")).toBeInTheDocument();
     });
-    expect(screen.getByText(/Needs port 25565/)).toBeInTheDocument();
+    expect(screen.getByText(/Needs ports tcp 25565, udp 25565/)).toBeInTheDocument();
     expect(screen.getByText("Your app is reachable from the internet through a protected connection.")).toBeInTheDocument();
     expect(screen.getByText("Ports opened on your router")).toBeInTheDocument();
     expect(screen.getByText("Reachable via protected connection")).toBeInTheDocument();
@@ -310,7 +310,7 @@ describe("NetworkCategory report + plans", () => {
         {
           app_id: "app-mc", app_name: "Minecraft", path: "lan_only",
           message: "Only people on your home network can use these apps right now.",
-          addon_needed: true, ports: [25565],
+          addon_needed: true, ports: [{ protocol: "udp", port: 25565 }],
         },
       ],
     });

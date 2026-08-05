@@ -270,19 +270,60 @@ func NewServer(cfg ServerConfig) *Server {
 	upnpLogger := slog.Default().With("component", "upnp")
 	reportLogger := slog.Default().With("component", "network-report")
 	server.pathStateStore = network.NewPathStateStore(cfg.DB)
+	server.upnpClient = network.NewUPnPClient(upnpLogger)
+
+	// The verify loop's outside prober: Connect's verify-probe endpoint.
+	// The device cannot verify its own reachability — Connect's edge can.
+	var verifier network.Verifier
+	if server.connectClient != nil {
+		verifier = &network.ConnectVerifier{
+			Probe: func(ctx context.Context, host string, port int, protocol string) (bool, error) {
+				res, err := server.connectClient.VerifyProbe(ctx, host, port, protocol)
+				if err != nil {
+					return false, err
+				}
+				return res.Reachable, nil
+			},
+		}
+	}
+
 	server.reportService = network.NewReportService(
-		network.NewUPnPClient(upnpLogger),
+		server.upnpClient,
 		server.ddnsService,
 		func() network.ReportInputs {
-			return network.ReportInputs{
+			inputs := network.ReportInputs{
 				Connect: network.ConnectState{
 					Active: server.connectClient != nil && server.connectChecker != nil,
 				},
 				Domain: network.DomainState{Source: "none"},
 			}
+			// Real domain state: the configured DNS provider's domain.
+			if server.dnsProviderMgr != nil {
+				if cfg, err := server.dnsProviderMgr.GetConfig(context.Background()); err == nil && cfg != nil && cfg.Domain != "" {
+					inputs.Domain = network.DomainState{Source: "own", Name: cfg.Domain}
+				}
+			}
+			// Real tunnel state: the tunnel service's status.
+			if server.tunnelService != nil {
+				ts := server.tunnelService.GetStatus()
+				if ts.Enabled && ts.URL != "" {
+					inputs.Connect.TunnelOK = true
+				}
+			}
+			return inputs
 		},
 		reportLogger,
+		verifier,
+		server.pathStateStore,
 	)
+
+	// Regenerate the report immediately when DDNS detects an IP change
+	// (the report loop would otherwise serve a stale report for up to 15 min).
+	if server.ddnsService != nil && server.reportService != nil {
+		server.ddnsService.OnIPChange(func() {
+			server.reportService.Regenerate(context.Background())
+		})
+	}
 
 	// Initialize self-healing monitor
 	server.selfHealMonitor = agent.NewSelfHealingMonitor(cfg.RuntimeClient, cfg.DB, server.connectClient, server.connectChecker)

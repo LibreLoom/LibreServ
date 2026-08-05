@@ -83,7 +83,8 @@ func (h *VerifyProbeHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit per device.
+	// Rate limit per device. The map is capped so stale devices can't grow
+	// it without bound.
 	h.mu.Lock()
 	last, ok := h.lastProbe[deviceID]
 	now := time.Now()
@@ -91,6 +92,13 @@ func (h *VerifyProbeHandler) Probe(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 		JSONError(w, http.StatusTooManyRequests, "too many probes — try again in a moment")
 		return
+	}
+	if len(h.lastProbe) >= 10000 {
+		for k, v := range h.lastProbe {
+			if now.Sub(v) > 10*time.Minute {
+				delete(h.lastProbe, k)
+			}
+		}
 	}
 	h.lastProbe[deviceID] = now
 	h.mu.Unlock()
@@ -123,41 +131,57 @@ func (h *VerifyProbeHandler) Probe(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, resp)
 }
 
-// validateTarget checks the probe host is one of the device's own names:
-// its Connect subdomain or a custom domain registered to it. An IP literal
-// is only allowed when it matches the device's observed connection IP.
+// validateTarget checks the probe host is one of the device's own names and
+// that every resolved IP is a public address (SSRF guard). Allowed names:
+// the device's Connect subdomain, any `<app>-<subdomain>` flat pattern, and
+// custom domains registered to it. The hostname is RESOLVED and every
+// resulting IP is blocklist-checked — a device owner pointing a registered
+// domain at a victim/private address must not turn Connect into a scanner.
 func (h *VerifyProbeHandler) validateTarget(ctx context.Context, deviceID, host string) error {
-	// IP literal: must match the device's own egress as seen by Connect.
-	if ip := net.ParseIP(host); ip != nil {
-		if isBlockedIP(ip) {
-			return errTargetNotAllowed()
-		}
-		// The device's own egress as seen by Connect is not in ctx here;
-		// IP literals are rejected unless they match a registered domain.
+	// IP literals are never allowed: the device's names are hostnames.
+	if net.ParseIP(host) != nil {
 		return errTargetNotAllowed()
 	}
 
-	// Hostname: must be the device's subdomain or one of its custom domains.
 	lower := strings.ToLower(strings.TrimSuffix(host, "."))
+
+	// Hostname: must be the device's subdomain, an `app-<sub>` flat app
+	// hostname, or one of its custom domains.
 	var subdomain sql.NullString
 	err := h.db.QueryRowContext(ctx,
 		`SELECT subdomain FROM devices WHERE id = $1`, deviceID).Scan(&subdomain)
 	if err != nil {
 		return errTargetNotAllowed()
 	}
-	if subdomain.Valid && strings.EqualFold(lower, subdomain.String) {
-		return nil
+	if !subdomain.Valid || subdomain.String == "" {
+		return errTargetNotAllowed()
 	}
+
+	sub := strings.ToLower(subdomain.String)
+	allowed := lower == sub || strings.HasSuffix(lower, "-"+sub)
 
 	var custom string
-	err = h.db.QueryRowContext(ctx,
-		`SELECT domain FROM custom_domains WHERE device_id = $1 AND domain = $2`,
-		deviceID, lower).Scan(&custom)
-	if err == nil && custom != "" {
-		return nil
+	if !allowed {
+		err = h.db.QueryRowContext(ctx,
+			`SELECT domain FROM custom_domains WHERE device_id = $1 AND domain = $2`,
+			deviceID, lower).Scan(&custom)
+		allowed = err == nil && custom != ""
+	}
+	if !allowed {
+		return errTargetNotAllowed()
 	}
 
-	return errTargetNotAllowed()
+	// SSRF guard: resolve the hostname and blocklist-check every IP.
+	ips, err := net.LookupIP(lower)
+	if err != nil || len(ips) == 0 {
+		return errTargetNotAllowed()
+	}
+	for _, ip := range ips {
+		if isBlockedIP(ip) {
+			return errTargetNotAllowed()
+		}
+	}
+	return nil
 }
 
 func errTargetNotAllowed() error {

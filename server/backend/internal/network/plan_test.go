@@ -1,6 +1,7 @@
 package network
 
 import (
+	"strconv"
 	"testing"
 )
 
@@ -167,8 +168,17 @@ func TestPlanUpgrade(t *testing.T) {
 func TestPlanPortsPresent(t *testing.T) {
 	eng := webEngine()
 	p := eng.Plan(mcReq().build(), rb().upnpOn().build(), nil)
-	if len(p.Ports) != 1 || p.Ports[0] != 25565 {
-		t.Errorf("ports = %v, want [25565]", p.Ports)
+	if len(p.Ports) != 2 {
+		t.Fatalf("ports = %v, want 2 (tcp+udp 25565)", p.Ports)
+	}
+	want := map[string]bool{"tcp/25565": false, "udp/25565": false}
+	for _, pn := range p.Ports {
+		want[pn.Protocol+"/"+strconv.Itoa(pn.Port)] = true
+	}
+	for k, v := range want {
+		if !v {
+			t.Errorf("missing port need %s in %+v", k, p.Ports)
+		}
 	}
 }
 

@@ -41,7 +41,7 @@ type planResult struct {
 	CoverageV4  bool                               `json:"coverage_v4"`
 	CoverageV6  bool                               `json:"coverage_v6"`
 	AddonNeeded bool                               `json:"addon_needed"`
-	Ports       []int                              `json:"ports,omitempty"`
+	Ports       []network.PortNeed                 `json:"ports,omitempty"`
 	State       map[network.Path]network.PathState `json:"-"`
 }
 

@@ -10,7 +10,7 @@ import (
 )
 
 func TestReportHandlerGetReport(t *testing.T) {
-	svc := network.NewReportService(nil, nil, nil, nil)
+	svc := network.NewReportService(nil, nil, nil, nil, nil, nil)
 	svc.SetReport(&network.NetworkReport{
 		Headline: "Your apps are reachable from the internet.",
 	})
@@ -35,7 +35,7 @@ func TestReportHandlerGetReport(t *testing.T) {
 }
 
 func TestReportHandlerNoReport(t *testing.T) {
-	svc := network.NewReportService(nil, nil, nil, nil)
+	svc := network.NewReportService(nil, nil, nil, nil, nil, nil)
 	h := NewReportHandler(svc)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/network/report", nil)

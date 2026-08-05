@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 // FRPProviderType identifies the FRP tunnel backend.
@@ -23,18 +25,20 @@ type FRPConfig struct {
 	TunnelProviderConfig `yaml:",inline"`
 	// Server is the frps address (host:port) of the relay.
 	Server string `yaml:"server" json:"server"`
-	// TLSCertFingerprint pins the frps TLS cert (per-device at provisioning).
-	TLSCertFingerprint string `yaml:"tls_cert_fingerprint,omitempty" json:"tls_cert_fingerprint,omitempty"`
+	// TLSEnabled forces TLS transport to frps (channel encryption + auth).
+	// Per-device cert pinning is a TODO: provision a per-device CA and set
+	// transport.tls.trustedCaFile (frp has no cert-fingerprint option).
+	TLSEnabled bool `yaml:"tls_enabled,omitempty" json:"tls_enabled,omitempty"`
 	// Proxies lists the port forwards to establish (name, localPort, remotePort).
 	Proxies []FRPProxy `yaml:"proxies,omitempty" json:"proxies,omitempty"`
 }
 
 // FRPProxy is one port forward through the relay.
 type FRPProxy struct {
-	Name        string `yaml:"name" json:"name"`
-	LocalPort   int    `yaml:"local_port" json:"local_port"`
-	RemotePort  int    `yaml:"remote_port" json:"remote_port"`
-	Type        string `yaml:"type" json:"type"` // tcp | udp
+	Name       string `yaml:"name" json:"name"`
+	LocalPort  int    `yaml:"local_port" json:"local_port"`
+	RemotePort int    `yaml:"remote_port" json:"remote_port"`
+	Type       string `yaml:"type" json:"type"` // tcp | udp
 }
 
 // frpProvider implements TunnelProvider using frpc.
@@ -45,13 +49,17 @@ type frpProvider struct {
 	mu     sync.Mutex
 	cmd    *exec.Cmd
 	pid    int
+	// stopSupervise closes to tell the supervisor goroutine to exit. Guards
+	// against two goroutines calling cmd.Wait() on the same process.
+	stopSupervise chan struct{}
 }
 
 func newFRPProvider(config FRPConfig, binDir string, logger *slog.Logger) *frpProvider {
 	return &frpProvider{
-		config: config,
-		binDir: binDir,
-		logger: logger,
+		config:        config,
+		binDir:        binDir,
+		logger:        logger,
+		stopSupervise: make(chan struct{}),
 	}
 }
 
@@ -86,7 +94,71 @@ func (f *frpProvider) Start(ctx context.Context) error {
 	f.cmd = cmd
 	f.pid = cmd.Process.Pid
 	f.logger.Info("FRP tunnel started", "server", f.config.Server, "pid", f.pid)
+
+	// Supervision (register #7): frpc exits if the relay is unreachable or
+	// dies. Restart it on a short backoff so the tunnel self-heals without
+	// waiting for the next Start() call at boot.
+	f.stopSupervise = make(chan struct{})
+	go f.supervise(ctx, cfgPath)
 	return nil
+}
+
+// supervise restarts frpc after unexpected exits until the provider is
+// explicitly stopped. Starts with a 2s backoff, doubling to a 30s cap.
+func (f *frpProvider) supervise(ctx context.Context, cfgPath string) {
+	backoff := 2 * time.Second
+	const maxBackoff = 30 * time.Second
+
+	for {
+		select {
+		case <-f.stopSupervise:
+			return
+		default:
+		}
+
+		f.mu.Lock()
+		running := f.pid != 0
+		cmd := f.cmd
+		f.mu.Unlock()
+		if !running || cmd == nil || cmd.Process == nil {
+			return
+		}
+		if err := cmd.Wait(); err != nil {
+			f.logger.Warn("frpc exited; will restart", "error", err)
+		} else {
+			f.logger.Warn("frpc exited cleanly; will restart")
+		}
+
+		select {
+		case <-f.stopSupervise:
+			return
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+		if backoff < maxBackoff {
+			backoff *= 2
+		}
+
+		f.mu.Lock()
+		// Stopped() may have killed the process between Wait and now.
+		if f.pid == 0 {
+			f.mu.Unlock()
+			return
+		}
+		cmd = exec.CommandContext(ctx, f.frpcPath(), "-c", cfgPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
+			f.logger.Warn("frpc restart failed", "error", err)
+			f.mu.Unlock()
+			continue
+		}
+		f.cmd = cmd
+		f.pid = cmd.Process.Pid
+		f.logger.Info("FRP tunnel restarted", "pid", f.pid)
+		f.mu.Unlock()
+	}
 }
 
 // Stop terminates frpc.
@@ -96,6 +168,13 @@ func (f *frpProvider) Stop() error {
 
 	if f.pid == 0 {
 		return nil
+	}
+	// Tell the supervisor to exit BEFORE Wait() so only one goroutine calls
+	// cmd.Wait() on the process.
+	select {
+	case <-f.stopSupervise:
+	default:
+		close(f.stopSupervise)
 	}
 	if f.cmd != nil && f.cmd.Process != nil {
 		_ = f.cmd.Process.Signal(os.Interrupt)
@@ -123,9 +202,14 @@ func (f *frpProvider) Install(ctx context.Context) error {
 	}
 
 	version := "v0.61.0"
-	arch := runtime.GOARCH
-	if arch != "amd64" {
-		arch = "arm64"
+	// frp publishes linux_amd64 and linux_arm64 tarballs. Fail on anything
+	// else rather than silently fetching the wrong binary.
+	var arch string
+	switch runtime.GOARCH {
+	case "amd64", "arm64":
+		arch = runtime.GOARCH
+	default:
+		return fmt.Errorf("unsupported architecture for frpc download: %s", runtime.GOARCH)
 	}
 	downloadURL := fmt.Sprintf("https://github.com/fatedier/frp/releases/download/%s/frp_%s_linux_%s.tar.gz", version, strings.TrimPrefix(version, "v"), arch)
 	f.logger.Info("Downloading frpc...", "url", downloadURL)
@@ -194,15 +278,20 @@ func (f *frpProvider) Capabilities() Capabilities {
 // writeConfig generates an frpc toml config from the provider settings.
 func (f *frpProvider) writeConfig() (string, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "serverAddr = %q\n", f.config.Server)
+	// frp splits host and port (serverAddr + serverPort), unlike a bare
+	// "host:port" string.
+	host, port := SplitHostPort(f.config.Server)
+	fmt.Fprintf(&b, "serverAddr = %q\n", host)
+	if port != "" {
+		fmt.Fprintf(&b, "serverPort = %s\n", port)
+	}
 	if f.config.Token != "" {
 		fmt.Fprintf(&b, "auth.method = \"token\"\n")
 		fmt.Fprintf(&b, "auth.token = %q\n", f.config.Token)
 	}
-	if f.config.TLSCertFingerprint != "" {
-		fmt.Fprintf(&b, "tls.force = true\n")
-		fmt.Fprintf(&b, "tls.serverName = %q\n", f.config.Server)
-		fmt.Fprintf(&b, "tls.certFingerprint = %q\n", f.config.TLSCertFingerprint)
+	if f.config.TLSEnabled {
+		fmt.Fprintf(&b, "transport.tls.enable = true\n")
+		fmt.Fprintf(&b, "transport.tls.serverName = %q\n", host)
 	}
 
 	for _, p := range f.config.Proxies {
@@ -227,6 +316,17 @@ func (f *frpProvider) writeConfig() (string, error) {
 
 func (f *frpProvider) frpcPath() string {
 	return filepath.Join(f.binDir, "frpc")
+}
+
+// SplitHostPort splits "host:port" into separate frp fields; bare hosts are
+// returned with an empty port (frp defaults serverPort to 7000). Exported for
+// the mappings handler's config export.
+func SplitHostPort(addr string) (host, port string) {
+	host = addr
+	if h, p, err := net.SplitHostPort(addr); err == nil {
+		return h, p
+	}
+	return host, ""
 }
 
 // processAlive reports whether the current frpc process is still running.

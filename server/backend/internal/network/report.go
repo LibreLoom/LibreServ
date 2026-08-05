@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
-	"strings"
 	"time"
 )
 
@@ -110,9 +109,12 @@ func GenerateNetworkReport(ctx context.Context, upnp *UPnPClient, inputs ReportI
 		report.Stacks.V4.PublicAddr = report.NAT.PublicIP
 	}
 	if inputs.VerifyV4 != nil && report.Stacks.V4.PublicAddr != "" {
-		if ok, _ := inputs.VerifyV4(ctx, report.Stacks.V4.PublicAddr); ok {
+		ok, _ := inputs.VerifyV4(ctx, report.Stacks.V4.PublicAddr)
+		// InboundChecked is set on ANY probe outcome: "verified closed" is a
+		// real signal distinct from "never checked" (the fallback trigger).
+		report.Stacks.V4.InboundChecked = true
+		if ok {
 			report.Stacks.V4.InboundOpen = true
-			report.Stacks.V4.InboundChecked = true
 		}
 	}
 
@@ -122,9 +124,10 @@ func GenerateNetworkReport(ctx context.Context, upnp *UPnPClient, inputs ReportI
 		report.Stacks.V6.PublicAddr = v6.String()
 	}
 	if inputs.VerifyV6 != nil && report.Stacks.V6.PublicAddr != "" {
-		if ok, _ := inputs.VerifyV6(ctx, report.Stacks.V6.PublicAddr); ok {
+		ok, _ := inputs.VerifyV6(ctx, report.Stacks.V6.PublicAddr)
+		report.Stacks.V6.InboundChecked = true
+		if ok {
 			report.Stacks.V6.InboundOpen = true
-			report.Stacks.V6.InboundChecked = true
 		}
 	}
 
@@ -180,14 +183,15 @@ func localIPv6GUA() (netip.Addr, bool) {
 func buildHeadline(r *NetworkReport) string {
 	open := r.Stacks.V4.InboundOpen || r.Stacks.V6.InboundOpen
 	tunnel := r.Connect.Active && r.Connect.TunnelOK
-	hasName := r.Domain.Name != ""
 
 	switch {
 	case tunnel:
 		return "Your apps are reachable from the internet."
 	case open && r.Stacks.V4.InboundOpen && r.Stacks.V6.InboundOpen:
 		return "Your apps are reachable from the internet on both network types."
-	case open && hasName:
+	case open:
+		// Inbound is verified open on at least one stack — reachable even
+		// without a friendly domain name yet.
 		return "Your apps are reachable from the internet."
 	case r.NAT.BehindDoubleNAT || r.NAT.Type == NATCGNAT:
 		return "Your network shares an internet address with others, so apps can't be reached directly from outside."
@@ -204,9 +208,4 @@ func buildHeadline(r *NetworkReport) string {
 func (r *NetworkReport) String() string {
 	return fmt.Sprintf("NetworkReport{stacks: v4=%s v6=%s, nat=%s, upnp=%v, headline=%q}",
 		r.Stacks.V4.PublicAddr, r.Stacks.V6.PublicAddr, r.NAT.Type, r.UPnP.Discovered, r.Headline)
-}
-
-// sanitizeHeadline strips anything unexpected before display (defense in depth).
-func sanitizeHeadline(h string) string {
-	return strings.TrimSpace(h)
 }

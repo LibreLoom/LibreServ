@@ -1,6 +1,7 @@
--- Network exposure path state: one row per app × path × stack, carrying the
--- verify history and consecutive failure/success counters the decision engine
--- uses for hysteresis (no flapping between paths on transient failures).
+-- Network exposure path state: one row per app × path × protocol × port,
+-- carrying the verify history and consecutive failure/success counters the
+-- decision engine uses for hysteresis (no flapping between paths on
+-- transient failures). Web paths use protocol '' and port 0.
 CREATE TABLE IF NOT EXISTS path_state (
     id INTEGER PRIMARY KEY,
     app_id TEXT NOT NULL,

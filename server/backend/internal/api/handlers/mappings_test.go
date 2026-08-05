@@ -16,7 +16,8 @@ func TestBuildFRPExport(t *testing.T) {
 		Ports:  []int{25565, 8080},
 	})
 	for _, want := range []string{
-		`serverAddr = "relay.example.com:7000"`,
+		`serverAddr = "relay.example.com"`,
+		`serverPort = 7000`,
 		`auth.token = "secret"`,
 		`name = "libreserv-25565"`,
 		`localPort = 25565`,

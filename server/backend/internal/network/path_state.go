@@ -86,6 +86,9 @@ func (s *PathStateStore) StateForApp(ctx context.Context, appID string) (map[Pat
 	}
 	defer rows.Close()
 
+	// Aggregate per-protocol×port cells for the same path: the worst
+	// consecutive-failure count drives downgrade (a UDP mapping failing
+	// shouldn't be masked by a healthy TCP cell), and the last reason wins.
 	out := map[Path]PathState{}
 	for rows.Next() {
 		var path string
@@ -94,10 +97,21 @@ func (s *PathStateStore) StateForApp(ctx context.Context, appID string) (map[Pat
 		if err := rows.Scan(&path, &st.ConsecutiveFailures, &st.ConsecutiveSuccesses, &reason); err != nil {
 			return nil, err
 		}
-		if reason.Valid {
-			st.LastFailureReason = reason.String
+		cur, ok := out[Path(path)]
+		if !ok {
+			out[Path(path)] = st
+		} else {
+			if st.ConsecutiveFailures > cur.ConsecutiveFailures {
+				cur.ConsecutiveFailures = st.ConsecutiveFailures
+			}
+			if st.ConsecutiveSuccesses > cur.ConsecutiveSuccesses {
+				cur.ConsecutiveSuccesses = st.ConsecutiveSuccesses
+			}
+			if reason.Valid {
+				cur.LastFailureReason = reason.String
+			}
+			out[Path(path)] = cur
 		}
-		out[Path(path)] = st
 	}
 	return out, rows.Err()
 }

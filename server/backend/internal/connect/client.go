@@ -20,6 +20,7 @@ type Client interface {
 	Status(ctx context.Context) (*ConnectStatus, error)
 	Usage(ctx context.Context) (*UsageSummary, error)
 	Info(ctx context.Context) (*ConnectInfo, error)
+	VerifyProbe(ctx context.Context, host string, port int, protocol string) (*VerifyProbeResult, error)
 	ConnectKey() string
 }
 
@@ -419,6 +420,16 @@ func (f *FakeClient) Usage(ctx context.Context) (*UsageSummary, error) {
 	}, nil
 }
 
+// FakeVerifyResult overrides VerifyProbe behavior in tests.
+var FakeVerifyResult *VerifyProbeResult = &VerifyProbeResult{Reachable: true}
+
+func (f *FakeClient) VerifyProbe(ctx context.Context, host string, port int, protocol string) (*VerifyProbeResult, error) {
+	if FakeVerifyResult == nil {
+		return &VerifyProbeResult{Reachable: false, Error: "unreachable"}, nil
+	}
+	return FakeVerifyResult, nil
+}
+
 func (f *FakeClient) Info(ctx context.Context) (*ConnectInfo, error) {
 	plans := []PlanInfo{
 		{ID: PlanFree, Name: "Connect Free", Description: "Get started with basic services. No credit card required.", PriceMonthly: 0},
@@ -441,4 +452,31 @@ func connectKeyHint(key string) string {
 		return key[:4] + "..." + key[len(key)-4:]
 	}
 	return key
+}
+
+// VerifyProbeResult is the outcome of a verify-probe call.
+type VerifyProbeResult struct {
+	Reachable bool   `json:"reachable"`
+	LatencyMS int64  `json:"latency_ms,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// VerifyProbe asks Connect to probe host:port from outside. The device cannot
+// grade its own homework — Connect's edge is the source of truth for
+// inbound_open. Requires an active Connect account (free tier counts).
+func (c *RealClient) VerifyProbe(ctx context.Context, host string, port int, protocol string) (*VerifyProbeResult, error) {
+	body := map[string]any{"host": host, "port": port}
+	if protocol != "" {
+		body["protocol"] = protocol
+	}
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/verify-probe", body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result VerifyProbeResult
+	if err := c.parseResponse(resp, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }

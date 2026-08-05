@@ -31,7 +31,7 @@ export async function getConnectivityStatus() {
 }
 
 export async function getUPnPStatus() {
-  const res = await api("/network/upnp/status");
+  const res = await api("/network/mappings/status");
   return res.json();
 }
 

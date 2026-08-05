@@ -142,10 +142,15 @@ func (h *MappingHandler) ExportConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// buildFRPExport renders an frpc.toml for the requested ports.
+// buildFRPExport renders an frpc.toml for the requested ports (valid frp
+// schema: serverAddr + serverPort split, transport.tls.* for channel auth).
 func buildFRPExport(req exportRequest) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "serverAddr = %q\n", req.Server)
+	host, port := network.SplitHostPort(req.Server)
+	fmt.Fprintf(&b, "serverAddr = %q\n", host)
+	if port != "" {
+		fmt.Fprintf(&b, "serverPort = %s\n", port)
+	}
 	if req.Token != "" {
 		b.WriteString("auth.method = \"token\"\n")
 		fmt.Fprintf(&b, "auth.token = %q\n", req.Token)
@@ -154,13 +159,12 @@ func buildFRPExport(req exportRequest) string {
 	if proto == "" {
 		proto = "tcp"
 	}
-	for i, port := range req.Ports {
+	for _, port := range req.Ports {
 		fmt.Fprintf(&b, "\n[[proxies]]\n")
 		fmt.Fprintf(&b, "name = %q\n", fmt.Sprintf("libreserv-%d", port))
 		fmt.Fprintf(&b, "type = %q\n", proto)
 		fmt.Fprintf(&b, "localPort = %d\n", port)
 		fmt.Fprintf(&b, "remotePort = %d\n", port)
-		_ = i
 	}
 	return b.String()
 }

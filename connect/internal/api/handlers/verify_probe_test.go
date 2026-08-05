@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -98,5 +99,32 @@ func TestVerifyProbeRateLimit(t *testing.T) {
 	w2 := probeWithDevice(t, db, deviceID, map[string]any{"host": "rl.free.servers.libreloom.org", "port": 443})
 	if w2.Code != http.StatusTooManyRequests {
 		t.Fatalf("second probe status = %d, want 429", w2.Code)
+	}
+}
+
+func TestIsBlockedIP(t *testing.T) {
+	blocked := []string{
+		"127.0.0.1", "10.0.0.1", "192.168.1.1", "172.16.0.1",
+		"169.254.169.254", "100.64.0.1", "::1", "fe80::1",
+		"0.0.0.0",
+	}
+	for _, s := range blocked {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			t.Fatalf("bad test IP %q", s)
+		}
+		if !isBlockedIP(ip) {
+			t.Errorf("isBlockedIP(%s) = false, want true", s)
+		}
+	}
+	allowed := []string{"203.0.113.10", "8.8.8.8", "2606:4700:4700::1111"}
+	for _, s := range allowed {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			t.Fatalf("bad test IP %q", s)
+		}
+		if isBlockedIP(ip) {
+			t.Errorf("isBlockedIP(%s) = true, want false", s)
+		}
 	}
 }

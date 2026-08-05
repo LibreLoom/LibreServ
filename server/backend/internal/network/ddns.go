@@ -13,19 +13,20 @@ import (
 )
 
 type DDNSService struct {
-	db          *database.DB
-	providerMgr *DNSProviderManager
-	logger      *slog.Logger
-	auditLogger *audit.Service
-	currentIP   netip.Addr
-	interval    time.Duration
-	mu          sync.RWMutex
-	stop        chan struct{}
-	stopped     chan struct{}
-	running     bool
-	ready       chan struct{}
-	lastUpdate  time.Time
-	lastError   error
+	db           *database.DB
+	providerMgr  *DNSProviderManager
+	logger       *slog.Logger
+	auditLogger  *audit.Service
+	currentIP    netip.Addr
+	interval     time.Duration
+	mu           sync.RWMutex
+	stop         chan struct{}
+	stopped      chan struct{}
+	running      bool
+	ready        chan struct{}
+	lastUpdate   time.Time
+	lastError    error
+	ipChangeHook func()
 }
 
 func NewDDNSService(db *database.DB, providerMgr *DNSProviderManager, auditLogger *audit.Service) *DDNSService {
@@ -39,6 +40,15 @@ func NewDDNSService(db *database.DB, providerMgr *DNSProviderManager, auditLogge
 		stopped:     make(chan struct{}),
 		ready:       make(chan struct{}),
 	}
+}
+
+// OnIPChange registers a callback fired whenever the tracked public IP
+// changes. The report loop uses it to regenerate without waiting for its
+// own ticker.
+func (s *DDNSService) OnIPChange(fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ipChangeHook = fn
 }
 
 func (s *DDNSService) SetInterval(d time.Duration) {
@@ -150,6 +160,7 @@ func (s *DDNSService) UpdateDNS(ctx context.Context) error {
 	s.mu.Lock()
 	ipChanged := s.currentIP.IsValid() && s.currentIP != publicIP
 	s.currentIP = publicIP
+	hook := s.ipChangeHook
 	s.mu.Unlock()
 
 	if !ipChanged {
@@ -158,6 +169,11 @@ func (s *DDNSService) UpdateDNS(ctx context.Context) error {
 	}
 
 	s.logger.Info("Public IP changed", "new_ip", publicIP)
+	// Notify the report loop so it regenerates immediately rather than
+	// serving a stale report until the next 15-min tick.
+	if hook != nil {
+		hook()
+	}
 
 	cfg, err := s.providerMgr.GetConfig(ctx)
 	if err != nil {
