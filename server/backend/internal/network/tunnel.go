@@ -38,8 +38,22 @@ type TunnelProviderConfig struct {
 }
 
 // TunnelConfig holds persisted tunnel configurations, keyed by provider.
+// The generic Providers map covers token-only providers (cloudflared); FRP
+// additionally needs server/proxy config, kept in the typed FRP field.
 type TunnelConfig struct {
 	Providers map[TunnelProviderType]TunnelProviderConfig `yaml:"providers" json:"providers"`
+	// FRP holds the full FRP relay config when an frp provider is configured.
+	FRP *FRPConfig `yaml:"frp,omitempty" json:"frp,omitempty"`
+}
+
+// Capabilities describes what traffic a tunnel provider can carry. The
+// decision engine routes per-app requirements against these — cloudflared is
+// web-only (its TCP mode needs a client-side proxy; no UDP), while an FRP
+// relay carries arbitrary TCP and UDP to vanilla clients.
+type Capabilities struct {
+	Web bool `json:"web"` // HTTPS reachability is sufficient
+	TCP bool `json:"tcp"` // arbitrary TCP ports to vanilla clients
+	UDP bool `json:"udp"` // UDP ports to vanilla clients
 }
 
 // TunnelProvider is the interface for tunnel backends.
@@ -56,6 +70,8 @@ type TunnelProvider interface {
 	Install(ctx context.Context) error
 	// Status returns the provider-specific status.
 	Status() TunnelStatus
+	// Capabilities declares what traffic this provider can carry.
+	Capabilities() Capabilities
 }
 
 // providerEntry binds a provider's persisted config to its live instance.
@@ -70,6 +86,8 @@ type providerEntry struct {
 type TunnelService struct {
 	mu        sync.RWMutex
 	providers map[TunnelProviderType]*providerEntry
+	// frpConfig holds the typed FRP relay config when one is configured.
+	frpConfig *FRPConfig
 	logger    *slog.Logger
 	binDir    string
 
@@ -84,6 +102,7 @@ func NewTunnelService(config TunnelConfig, binDir string) *TunnelService {
 		logger:    slog.Default().With("component", "tunnel"),
 		binDir:    binDir,
 	}
+	ts.frpConfig = config.FRP
 	for providerType, cfg := range config.Providers {
 		ts.providers[providerType] = &providerEntry{
 			config:   cfg,
@@ -97,6 +116,9 @@ func NewTunnelService(config TunnelConfig, binDir string) *TunnelService {
 func (t *TunnelService) providerFor(providerType TunnelProviderType, cfg TunnelProviderConfig) TunnelProvider {
 	if t.providerFactory != nil {
 		return t.providerFactory(providerType, cfg)
+	}
+	if providerType == TunnelProviderFRP && t.frpConfig != nil {
+		return newFRPProvider(*t.frpConfig, t.binDir, t.logger)
 	}
 	return t.newProvider(providerType, cfg)
 }
@@ -400,6 +422,14 @@ func (c *cloudflareProvider) Status() TunnelStatus {
 		Available: true,
 		Provider:  TunnelProviderCloudflare,
 	}
+}
+
+// Capabilities declares cloudflared's honest reach: web/HTTPS only. Its
+// arbitrary-TCP mode requires the visitor to run cloudflared (a vanilla
+// Minecraft client can't), and UDP is not supported at all — so TCP and UDP
+// both return false, and the decision engine routes port-needing apps away.
+func (c *cloudflareProvider) Capabilities() Capabilities {
+	return Capabilities{Web: true}
 }
 
 func (c *cloudflareProvider) cloudflaredPath() string {

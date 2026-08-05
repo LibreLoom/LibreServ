@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -36,6 +38,10 @@ func (f *fakeProvider) Install(ctx context.Context) error {
 }
 func (f *fakeProvider) Status() TunnelStatus {
 	return TunnelStatus{Available: true, Provider: f.provider}
+}
+
+func (f *fakeProvider) Capabilities() Capabilities {
+	return Capabilities{Web: true, TCP: true, UDP: true}
 }
 
 func TestTunnelServiceMultiProvider(t *testing.T) {
@@ -106,4 +112,58 @@ func TestTunnelServiceMultiProvider(t *testing.T) {
 
 func slogTestLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func TestProviderCapabilities(t *testing.T) {
+	cf := newCloudflareProvider(TunnelProviderConfig{Token: "t"}, "/tmp", slogTestLogger())
+	caps := cf.Capabilities()
+	if !caps.Web {
+		t.Error("cloudflared should be web-capable")
+	}
+	if caps.TCP || caps.UDP {
+		t.Errorf("cloudflared must be web-only, got %+v", caps)
+	}
+
+	frp := newFRPProvider(FRPConfig{}, "/tmp", slogTestLogger())
+	fcaps := frp.Capabilities()
+	if !fcaps.Web || !fcaps.TCP || !fcaps.UDP {
+		t.Errorf("frp should carry web+TCP+UDP, got %+v", fcaps)
+	}
+}
+
+func TestFRPConfigGeneration(t *testing.T) {
+	f := newFRPProvider(FRPConfig{
+		TunnelProviderConfig: TunnelProviderConfig{Token: "secret-token"},
+		Server:               "relay.example.com:7000",
+		Proxies: []FRPProxy{
+			{Name: "minecraft", LocalPort: 25565, RemotePort: 25565, Type: "udp"},
+			{Name: "web", LocalPort: 8080, RemotePort: 8080},
+		},
+	}, "/tmp", slogTestLogger())
+
+	// writeConfig writes to binDir — use a temp dir via the provider's path.
+	// Instead of hitting the real binary path, verify the toml content logic
+	// through a direct call with a temp bin dir.
+	cfg, err := f.writeConfig()
+	if err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		`serverAddr = "relay.example.com:7000"`,
+		`auth.token = "secret-token"`,
+		`name = "minecraft"`,
+		`type = "udp"`,
+		`localPort = 25565`,
+		`remotePort = 25565`,
+		`name = "web"`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("config missing %q\n%s", want, content)
+		}
+	}
 }
