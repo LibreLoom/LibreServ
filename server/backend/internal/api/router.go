@@ -89,6 +89,7 @@ func (s *Server) setupRoutes() {
 	auditHandler := handlers.NewAuditHandler(s.audit)
 	factoryResetHandler := handlers.NewFactoryResetHandler(s.db, s.setupService, s.authService)
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
+	domainHandler := handlers.NewDomainHandler(s.dnsProviderMgr, s.acmeManager, s.caddyManager)
 	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
 	reportHandler := handlers.NewReportHandler(s.reportService)
@@ -517,6 +518,14 @@ func (s *Server) setupRoutes() {
 			r.Route("/network/plans", func(r chi.Router) {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/", plansHandler.GetPlans)
+			})
+
+			// BYO domain (admin only) — extracted from the setup wizard so it's
+			// reachable from Settings after initial setup. Cloudflare + RFC2136.
+			r.Route("/settings/domain", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Put("/", domainHandler.Configure)
+				r.Get("/", domainHandler.Status)
 			})
 
 			// Connect — LibreServ Connect integration

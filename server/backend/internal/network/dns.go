@@ -19,6 +19,7 @@ type ProviderType string
 
 const (
 	ProviderCloudflare ProviderType = "cloudflare"
+	ProviderRFC2136    ProviderType = "rfc2136"
 )
 
 type DNSProviderConfig struct {
@@ -29,6 +30,13 @@ type DNSProviderConfig struct {
 	Enabled   bool         `json:"enabled"`
 	CreatedAt time.Time    `json:"created_at"`
 	UpdatedAt time.Time    `json:"updated_at"`
+
+	// RFC2136-specific settings (Provider == ProviderRFC2136).
+	// Nameserver is host:port of the authoritative server.
+	Nameserver    string `json:"nameserver,omitempty"`
+	TSIGKeyName   string `json:"tsig_key_name,omitempty"`
+	TSIGSecret    string `json:"-"`
+	HMACAlgorithm string `json:"hmac_algorithm,omitempty"`
 }
 
 func (c *DNSProviderConfig) Zone() string {

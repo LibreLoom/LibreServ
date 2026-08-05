@@ -228,3 +228,72 @@ func TestSetupWildcardDNSErrors(t *testing.T) {
 		t.Fatal("expected error from SetARecord")
 	}
 }
+
+func TestDNSProviderManagerNewProviderRFC2136(t *testing.T) {
+	mgr := NewDNSProviderManager(setupTestDB(t))
+	p, err := mgr.NewProvider(&DNSProviderConfig{
+		Provider:      ProviderRFC2136,
+		Domain:        "example.com",
+		Nameserver:    "ns1.example.com:53",
+		TSIGKeyName:   "libreserv-key",
+		TSIGSecret:    "c2VjcmV0",
+		HMACAlgorithm: "hmac-sha256",
+	})
+	if err != nil {
+		t.Fatalf("NewProvider rfc2136: %v", err)
+	}
+	rp, ok := p.(*RFC2136Provider)
+	if !ok {
+		t.Fatalf("provider type = %T, want *RFC2136Provider", p)
+	}
+	if rp.provider.Server != "ns1.example.com:53" {
+		t.Errorf("Server = %q, want ns1.example.com:53", rp.provider.Server)
+	}
+	if rp.provider.KeyName != "libreserv-key" {
+		t.Errorf("KeyName = %q, want libreserv-key", rp.provider.KeyName)
+	}
+	if rp.provider.KeyAlg != "hmac-sha256" {
+		t.Errorf("KeyAlg = %q, want hmac-sha256", rp.provider.KeyAlg)
+	}
+}
+
+func TestDNSProviderManagerRFC2136RoundTrip(t *testing.T) {
+	db := setupTestDB(t)
+	mgr := NewDNSProviderManager(db)
+
+	cfg := &DNSProviderConfig{
+		Provider:      ProviderRFC2136,
+		Domain:        "example.com",
+		APIToken:      "", // unused for rfc2136
+		Enabled:       true,
+		Nameserver:    "ns1.example.com:53",
+		TSIGKeyName:   "libreserv-key",
+		TSIGSecret:    "c2VjcmV0",
+		HMACAlgorithm: "hmac-sha256",
+	}
+	if err := mgr.SaveConfig(context.Background(), cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	got, err := mgr.GetConfig(t.Context())
+	if err != nil {
+		t.Fatalf("GetConfig: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected config")
+	}
+	if got.Provider != ProviderRFC2136 {
+		t.Errorf("Provider = %q, want rfc2136", got.Provider)
+	}
+	if got.Nameserver != "ns1.example.com:53" {
+		t.Errorf("Nameserver = %q", got.Nameserver)
+	}
+	if got.TSIGKeyName != "libreserv-key" {
+		t.Errorf("TSIGKeyName = %q", got.TSIGKeyName)
+	}
+	if got.TSIGSecret != "c2VjcmV0" {
+		t.Errorf("TSIGSecret = %q", got.TSIGSecret)
+	}
+	if got.HMACAlgorithm != "hmac-sha256" {
+		t.Errorf("HMACAlgorithm = %q", got.HMACAlgorithm)
+	}
+}

@@ -35,7 +35,8 @@ func parseTimestamp(s string) time.Time {
 
 func (m *DNSProviderManager) GetConfig(ctx context.Context) (*DNSProviderConfig, error) {
 	row := m.db.QueryRowContext(ctx,
-		`SELECT id, provider, domain, api_token, enabled, created_at, updated_at
+		`SELECT id, provider, domain, api_token, enabled, created_at, updated_at,
+		        nameserver, tsig_key_name, tsig_secret, hmac_algorithm
 		 FROM dns_provider_configs
 		 WHERE enabled = TRUE
 		 ORDER BY updated_at DESC
@@ -43,7 +44,8 @@ func (m *DNSProviderManager) GetConfig(ctx context.Context) (*DNSProviderConfig,
 	)
 	var cfg DNSProviderConfig
 	var createdAt, updatedAt string
-	if err := row.Scan(&cfg.ID, &cfg.Provider, &cfg.Domain, &cfg.APIToken, &cfg.Enabled, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&cfg.ID, &cfg.Provider, &cfg.Domain, &cfg.APIToken, &cfg.Enabled, &createdAt, &updatedAt,
+		&cfg.Nameserver, &cfg.TSIGKeyName, &cfg.TSIGSecret, &cfg.HMACAlgorithm); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -67,15 +69,21 @@ func (m *DNSProviderManager) SaveConfig(ctx context.Context, cfg *DNSProviderCon
 	cfg.UpdatedAt = now
 
 	_, err := m.db.ExecContext(ctx,
-		`INSERT INTO dns_provider_configs (id, provider, domain, api_token, enabled, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO dns_provider_configs (id, provider, domain, api_token, enabled, created_at, updated_at,
+		                                  nameserver, tsig_key_name, tsig_secret, hmac_algorithm)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		     provider = excluded.provider,
 		     domain = excluded.domain,
 		     api_token = excluded.api_token,
 		     enabled = excluded.enabled,
+		     nameserver = excluded.nameserver,
+		     tsig_key_name = excluded.tsig_key_name,
+		     tsig_secret = excluded.tsig_secret,
+		     hmac_algorithm = excluded.hmac_algorithm,
 		     updated_at = excluded.updated_at`,
 		cfg.ID, cfg.Provider, cfg.Domain, cfg.APIToken, cfg.Enabled, nowStr, nowStr,
+		cfg.Nameserver, cfg.TSIGKeyName, cfg.TSIGSecret, cfg.HMACAlgorithm,
 	)
 	if err != nil {
 		return fmt.Errorf("save dns provider config: %w", err)
@@ -87,6 +95,8 @@ func (m *DNSProviderManager) NewProvider(cfg *DNSProviderConfig) (DNSProvider, e
 	switch cfg.Provider {
 	case ProviderCloudflare:
 		return NewCloudflareProvider(cfg.APIToken), nil
+	case ProviderRFC2136:
+		return NewRFC2136Provider(cfg.Nameserver, cfg.TSIGKeyName, cfg.TSIGSecret, cfg.HMACAlgorithm), nil
 	default:
 		return nil, fmt.Errorf("unsupported dns provider: %s", cfg.Provider)
 	}

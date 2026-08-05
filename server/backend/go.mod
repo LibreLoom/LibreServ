@@ -26,7 +26,7 @@ require (
 	github.com/huin/goupnp v1.3.0
 	github.com/libdns/cloudflare v0.2.2
 	github.com/libdns/libdns v1.1.1
-	github.com/miekg/dns v1.1.55
+	github.com/miekg/dns v1.1.64
 	github.com/moby/moby/api v1.54.0
 	github.com/moby/moby/client v0.3.0
 	github.com/pion/stun v0.6.1
@@ -80,6 +80,7 @@ require (
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
+	github.com/libdns/rfc2136 v1.0.1 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
