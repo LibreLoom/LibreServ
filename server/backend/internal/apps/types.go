@@ -72,6 +72,11 @@ type AppDefinition struct {
 	// Deployment configuration
 	Deployment DeploymentConfig `yaml:"deployment" json:"deployment"`
 
+	// Access describes how the app must be reached from outside the device
+	// (web-only vs direct TCP/UDP ports). Feeds the network decision engine;
+	// defaults to web-only when unset.
+	Access Access `yaml:"access,omitempty" json:"access,omitempty"`
+
 	// OIDCRedirectPath is the callback path the app uses for OIDC auth.
 	// Defaults to /callback if not set. Used by the auto-provisioner to
 	// register the correct redirect URI with the OIDC client.
@@ -105,6 +110,47 @@ type AppDefinition struct {
 	SourceRepoURL string  `yaml:"-" json:"source_repo_url,omitempty"`
 }
 
+// Access describes how an app must be reached from outside the device.
+// The network decision engine uses it to pick an exposure path; users never
+// see it — the engine decides and the UI explains the outcome.
+type Access struct {
+	// Web is true when HTTPS reachability is sufficient (most web apps).
+	// Defaults to true when Access is not declared at all.
+	Web bool `yaml:"web" json:"web"`
+
+	// Ports lists direct TCP/UDP ports visitors must reach (e.g. Minecraft
+	// 25565 tcp+udp) that Web access alone can't cover. Each entry needs its
+	// own exposure path (UPnP/direct/relay) because tunnels like cloudflared
+	// can't carry arbitrary UDP.
+	Ports []PortNeed `yaml:"ports,omitempty" json:"ports,omitempty"`
+
+	// LargeUploads marks apps with request bodies larger than 100MB
+	// (e.g. Nextcloud file sync). The engine must never route these through
+	// cloudflared — CF free-tier proxies cap request bodies at 100MB.
+	LargeUploads bool `yaml:"large_uploads,omitempty" json:"large_uploads,omitempty"`
+}
+
+// PortNeed is one direct-port requirement for an app.
+type PortNeed struct {
+	// Protocol is "tcp", "udp", or "both".
+	Protocol string `yaml:"protocol" json:"protocol"`
+	// Port is the external port visitors connect to.
+	Port int `yaml:"port" json:"port"`
+	// VerifyHint names a per-protocol active check used to verify the port
+	// from outside (e.g. "bedrock_ping", "echo", "http"). UDP has no
+	// connect(); TCP-only probes can't prove a UDP mapping works.
+	VerifyHint string `yaml:"verify_hint,omitempty" json:"verify_hint,omitempty"`
+}
+
+// ResolveAccess returns the effective access requirements, defaulting an
+// undeclared Access to web-only (the common case — most apps are web apps).
+func (a *AppDefinition) ResolveAccess() Access {
+	if a.Access.Web || len(a.Access.Ports) > 0 || a.Access.LargeUploads {
+		return a.Access
+	}
+	return Access{Web: true}
+}
+
 // Clone returns a deep copy of the AppDefinition.
 // This prevents callers from mutating the catalog's canonical state.
 func (a *AppDefinition) Clone() *AppDefinition {
@@ -126,6 +172,7 @@ func (a *AppDefinition) Clone() *AppDefinition {
 	// Deep copy top-level slices
 	c.Configuration = slices.Clone(a.Configuration)
 	c.ExposedInfo = slices.Clone(a.ExposedInfo)
+	c.Access.Ports = slices.Clone(a.Access.Ports)
 
 	return &c
 }
