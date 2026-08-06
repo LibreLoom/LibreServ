@@ -104,6 +104,8 @@ export default function SettingsContent({
       case "notifications":
         return {
           settings: notificationsSettings,
+          securitySettings,
+          onSecuritySettingsChange,
           onSettingsChange: onNotificationsSettingsChange,
         };
       case "external_services":

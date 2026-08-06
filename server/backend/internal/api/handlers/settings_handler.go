@@ -208,6 +208,10 @@ func (h *SettingsHandler) UpdateSecurity(w http.ResponseWriter, r *http.Request)
 		NotifyOnFailedLogin:    req.NotifyOnFailedLogin,
 		NotifyOnPasswordChange: req.NotifyOnPasswordChange,
 		NotifyOnAdminAction:    req.NotifyOnAdminAction,
+		NotifyOnHealthAlert:    req.NotifyOnHealthAlert,
+		NotifyOnDiskWarning:    req.NotifyOnDiskWarning,
+		NotifyOnDockerFailure:  req.NotifyOnDockerFailure,
+		NotifyOnDatabaseIssue:  req.NotifyOnDatabaseIssue,
 		Use12HourTime:          req.Use12HourTime,
 	}
 
@@ -226,6 +230,10 @@ type securitySettingsRequest struct {
 	NotifyOnFailedLogin    bool   `json:"notify_on_failed_login"`
 	NotifyOnPasswordChange bool   `json:"notify_on_password_change"`
 	NotifyOnAdminAction    bool   `json:"notify_on_admin_action"`
+	NotifyOnHealthAlert    bool   `json:"notify_on_health_alert"`
+	NotifyOnDiskWarning    bool   `json:"notify_on_disk_warning"`
+	NotifyOnDockerFailure  bool   `json:"notify_on_docker_failure"`
+	NotifyOnDatabaseIssue  bool   `json:"notify_on_database_issue"`
 	Use12HourTime          bool   `json:"use_12_hour_time"`
 }
 

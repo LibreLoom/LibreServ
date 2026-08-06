@@ -166,6 +166,10 @@ type UserSettings struct {
 	NotifyOnFailedLogin    bool      `json:"notify_on_failed_login"`
 	NotifyOnPasswordChange bool      `json:"notify_on_password_change"`
 	NotifyOnAdminAction    bool      `json:"notify_on_admin_action"`
+	NotifyOnHealthAlert    bool      `json:"notify_on_health_alert"`
+	NotifyOnDiskWarning    bool      `json:"notify_on_disk_warning"`
+	NotifyOnDockerFailure  bool      `json:"notify_on_docker_failure"`
+	NotifyOnDatabaseIssue  bool      `json:"notify_on_database_issue"`
 	Use12HourTime          bool      `json:"use_12_hour_time"`
 	UpdatedAt              time.Time `json:"updated_at"`
 }

@@ -59,7 +59,7 @@ const HEALTH_NOTIFICATION_OPTIONS = [
     description: "When disk space is low",
   },
   {
-    key: "notify_on_runtime_failure",
+    key: "notify_on_docker_failure",
     label: "Runtime failures",
     description: "When the container engine fails",
   },
@@ -70,7 +70,7 @@ const HEALTH_NOTIFICATION_OPTIONS = [
   },
 ];
 
-export default function NotificationsCategory({ settings, onSettingsChange }) {
+export default function NotificationsCategory({ settings, securitySettings, onSecuritySettingsChange, onSettingsChange }) {
   const { addToast } = useToast();
   const [testing, setTesting] = useState(false);
 
@@ -108,15 +108,16 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
     }
   };
 
-  const handleFrequencyChange = (frequency) => {
-    onSettingsChange?.({ ...settings, notification_frequency: frequency });
-  };
-
-  const handleNotificationChange = (key) => {
-    onSettingsChange?.({ ...settings, [key]: !settings[key] });
+  const handleSecurityChange = (key) => {
+    onSecuritySettingsChange?.({
+      ...securitySettings,
+      [key]: !securitySettings[key],
+    });
   };
 
   const smtpConfigured = settings?.smtp?.configured || false;
+
+  const securityPrefs = securitySettings || {};
 
   return (
     <div className="space-y-4" data-slot="notifications-category">
@@ -204,8 +205,13 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                 <RadioOptionGroup
                   name="frequency"
                   options={FREQUENCY_OPTIONS}
-                  value={settings?.notification_frequency || "normal"}
-                  onChange={handleFrequencyChange}
+                  value={securityPrefs.notification_frequency || "normal"}
+                  onChange={(frequency) =>
+                    onSecuritySettingsChange?.({
+                      ...securitySettings,
+                      notification_frequency: frequency,
+                    })
+                  }
                 />
               </div>
 
@@ -216,15 +222,15 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                 <CheckboxOptionGroup
                   options={NOTIFICATION_OPTIONS}
                   values={{
-                    notify_on_login: settings?.notify_on_login || false,
+                    notify_on_login: securityPrefs.notify_on_login || false,
                     notify_on_failed_login:
-                      settings?.notify_on_failed_login || false,
+                      securityPrefs.notify_on_failed_login || false,
                     notify_on_password_change:
-                      settings?.notify_on_password_change || false,
+                      securityPrefs.notify_on_password_change || false,
                     notify_on_admin_action:
-                      settings?.notify_on_admin_action || false,
+                      securityPrefs.notify_on_admin_action || false,
                   }}
-                  onChange={handleNotificationChange}
+                  onChange={handleSecurityChange}
                 />
               </div>
 
@@ -236,15 +242,15 @@ export default function NotificationsCategory({ settings, onSettingsChange }) {
                   options={HEALTH_NOTIFICATION_OPTIONS}
                   values={{
                     notify_on_health_alert:
-                      settings?.notify_on_health_alert || false,
+                      securityPrefs.notify_on_health_alert || false,
                     notify_on_disk_warning:
-                      settings?.notify_on_disk_warning || false,
-                    notify_on_runtime_failure:
-                      settings?.notify_on_runtime_failure || false,
+                      securityPrefs.notify_on_disk_warning || false,
+                    notify_on_docker_failure:
+                      securityPrefs.notify_on_docker_failure || false,
                     notify_on_database_issue:
-                      settings?.notify_on_database_issue || false,
+                      securityPrefs.notify_on_database_issue || false,
                   }}
-                  onChange={handleNotificationChange}
+                  onChange={handleSecurityChange}
                 />
               </div>
             </div>

@@ -32,7 +32,7 @@ import {
 function ReachabilityCard({ report, loading, onRetry }) {
   const status = useMemo(() => {
     if (loading) {
-      return { icon: WifiOff, label: "Checking your network…", tone: "text-secondary/60", bg: "bg-accent/10 border-accent/20" };
+      return { icon: WifiOff, label: "Checking your network…", tone: "text-secondary", bg: "bg-accent/10 border-accent/20" };
     }
     if (!report) {
       return { icon: WifiOff, label: "We couldn't check your network right now.", tone: "text-warning", bg: "bg-warning/10 border-warning/20" };
@@ -44,7 +44,7 @@ function ReachabilityCard({ report, loading, onRetry }) {
     if (v4 && v6) return { icon: Wifi, label: report.headline || "Your apps are reachable on both network types.", tone: "text-success", bg: "bg-success/10 border-success/20" };
     if (v4 || v6) return { icon: Wifi, label: report.headline || "Your apps are reachable from the internet.", tone: "text-success", bg: "bg-success/10 border-success/20" };
     if (report.nat?.behind_double_nat) return { icon: AlertTriangle, label: report.headline, tone: "text-warning", bg: "bg-warning/10 border-warning/20" };
-    return { icon: WifiOff, label: report.headline || "Only people on your home network can use your apps right now.", tone: "text-secondary/70", bg: "bg-primary/5 border-primary/10" };
+    return { icon: WifiOff, label: report.headline || "Only people on your home network can use your apps right now.", tone: "text-secondary", bg: "bg-primary/5 border-primary/10" };
   }, [report, loading]);
 
   const Icon = status.icon;
@@ -85,7 +85,7 @@ function ReachabilityCard({ report, loading, onRetry }) {
                   "text-xs px-3 py-1 rounded-pill border",
                   p.ok
                     ? "bg-success/10 border-success/20 text-success"
-                    : "bg-primary/5 border-primary/10 text-secondary/60"
+                    : "bg-primary/5 border-primary/10 text-secondary"
                 )}
               >
                 {p.label}
@@ -146,7 +146,7 @@ function AppPlanCard({ plan, index }) {
     guide_upnp: { label: "Router setting needs turning on", tone: "text-warning", bg: "bg-warning/10 border-warning/20" },
     cloudflared: { label: "Reachable via protected connection", tone: "text-success", bg: "bg-success/10 border-success/20" },
     frp: { label: "Reachable via dedicated address", tone: "text-success", bg: "bg-success/10 border-success/20" },
-    lan_only: { label: "Home network only", tone: "text-secondary/70", bg: "bg-primary/5 border-primary/10" },
+    lan_only: { label: "Home network only", tone: "text-secondary", bg: "bg-primary/5 border-primary/10" },
   };
   const cfg = stateCfg[plan.path] || stateCfg.lan_only;
 
@@ -154,7 +154,7 @@ function AppPlanCard({ plan, index }) {
     <SettingsCard icon={PlugZap} title={plan.app_name} index={index}>
       <div className="px-5 py-4 space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <span className="text-xs text-secondary/60">{needLabel}</span>
+          <span className="text-xs text-secondary">{needLabel}</span>
           <span className={cn("text-xs px-3 py-1 rounded-pill border font-mono", cfg.bg, cfg.tone)}>
             {cfg.label}
           </span>

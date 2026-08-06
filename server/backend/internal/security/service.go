@@ -578,7 +578,9 @@ func (s *Service) GetUserSettings(ctx context.Context, userID string) (*UserSett
 
 	query := `
 		SELECT notifications_enabled, notification_frequency, notify_on_login,
-		       notify_on_failed_login, notify_on_password_change, notify_on_admin_action, use_12_hour_time, updated_at
+		       notify_on_failed_login, notify_on_password_change, notify_on_admin_action,
+		       notify_on_health_alert, notify_on_disk_warning, notify_on_docker_failure,
+		       notify_on_database_issue, use_12_hour_time, updated_at
 		FROM user_security_settings
 		WHERE user_id = ?
 	`
@@ -591,6 +593,10 @@ func (s *Service) GetUserSettings(ctx context.Context, userID string) (*UserSett
 		&settings.NotifyOnFailedLogin,
 		&settings.NotifyOnPasswordChange,
 		&settings.NotifyOnAdminAction,
+		&settings.NotifyOnHealthAlert,
+		&settings.NotifyOnDiskWarning,
+		&settings.NotifyOnDockerFailure,
+		&settings.NotifyOnDatabaseIssue,
 		&settings.Use12HourTime,
 		&settings.UpdatedAt,
 	)
@@ -604,6 +610,10 @@ func (s *Service) GetUserSettings(ctx context.Context, userID string) (*UserSett
 			NotifyOnFailedLogin:    true,
 			NotifyOnPasswordChange: true,
 			NotifyOnAdminAction:    true,
+			NotifyOnHealthAlert:    true,
+			NotifyOnDiskWarning:    true,
+			NotifyOnDockerFailure:  true,
+			NotifyOnDatabaseIssue:  true,
 			Use12HourTime:          false,
 			UpdatedAt:              time.Now().UTC(),
 		}, nil
@@ -624,8 +634,10 @@ func (s *Service) UpdateUserSettings(ctx context.Context, settings *UserSettings
 	query := `
 		INSERT INTO user_security_settings 
 		(user_id, notifications_enabled, notification_frequency, notify_on_login,
-		 notify_on_failed_login, notify_on_password_change, notify_on_admin_action, use_12_hour_time, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 notify_on_failed_login, notify_on_password_change, notify_on_admin_action,
+		 notify_on_health_alert, notify_on_disk_warning, notify_on_docker_failure,
+		 notify_on_database_issue, use_12_hour_time, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET
 			notifications_enabled = EXCLUDED.notifications_enabled,
 			notification_frequency = EXCLUDED.notification_frequency,
@@ -633,6 +645,10 @@ func (s *Service) UpdateUserSettings(ctx context.Context, settings *UserSettings
 			notify_on_failed_login = EXCLUDED.notify_on_failed_login,
 			notify_on_password_change = EXCLUDED.notify_on_password_change,
 			notify_on_admin_action = EXCLUDED.notify_on_admin_action,
+			notify_on_health_alert = EXCLUDED.notify_on_health_alert,
+			notify_on_disk_warning = EXCLUDED.notify_on_disk_warning,
+			notify_on_docker_failure = EXCLUDED.notify_on_docker_failure,
+			notify_on_database_issue = EXCLUDED.notify_on_database_issue,
 			use_12_hour_time = EXCLUDED.use_12_hour_time,
 			updated_at = EXCLUDED.updated_at
 	`
@@ -647,6 +663,10 @@ func (s *Service) UpdateUserSettings(ctx context.Context, settings *UserSettings
 		settings.NotifyOnFailedLogin,
 		settings.NotifyOnPasswordChange,
 		settings.NotifyOnAdminAction,
+		settings.NotifyOnHealthAlert,
+		settings.NotifyOnDiskWarning,
+		settings.NotifyOnDockerFailure,
+		settings.NotifyOnDatabaseIssue,
 		settings.Use12HourTime,
 		settings.UpdatedAt,
 	)
