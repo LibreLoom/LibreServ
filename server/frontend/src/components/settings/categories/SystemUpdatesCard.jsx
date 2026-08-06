@@ -149,7 +149,7 @@ export default function SystemUpdatesCard({ index = 0 }) {
               </span>
             )}
             {hasUpdate && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-warning text-primary">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-warning/20 border-2 border-warning/30 text-primary">
                 <AlertCircle size={12} />
                 {updateInfo.latest_version} available
               </span>

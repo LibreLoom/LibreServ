@@ -9,8 +9,8 @@ import SettingsCard from "../SettingsCard";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
 
-/** @param {{ index?: number, settings?: any }} _ */
-function FactoryResetCard({ index = 2 }) {
+/** @param {{ index?: number, settings?: any, className?: string }} _ */
+function FactoryResetCard({ index = 2, className = "" }) {
   const { request, logout } = useAuth();
   const { addToast } = useToast();
   const navigate = useNavigate();
@@ -43,7 +43,7 @@ function FactoryResetCard({ index = 2 }) {
 
   return (
     <div data-slot="factory-reset-card">
-      <SettingsCard icon={AlertTriangle} title="Factory Reset" index={index}>
+      <SettingsCard icon={AlertTriangle} title="Factory Reset" index={index} className={className}>
         <p className="text-sm text-primary mb-4">
           Reset this device to factory defaults. <strong>This will delete all data and settings.</strong>
         </p>
@@ -123,6 +123,7 @@ function FactoryResetCard({ index = 2 }) {
 
 FactoryResetCard.propTypes = {
   index: PropTypes.number,
+  className: PropTypes.string,
 };
 
 export default FactoryResetCard;

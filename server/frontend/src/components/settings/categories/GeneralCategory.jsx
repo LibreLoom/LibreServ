@@ -1,11 +1,10 @@
 import { Clock } from "lucide-react";
 import Toggle from "../../common/Toggle";
 import SettingsCard from "../SettingsCard";
-import FactoryResetCard from "./FactoryResetCard";
 import SystemUpdatesCard from "./SystemUpdatesCard";
 import RepoStatusCard from "./RepoStatusCard";
 
-export default function GeneralCategory({ settings, use12HourTime, on12HourTimeChange }) {
+export default function GeneralCategory({ use12HourTime, on12HourTimeChange }) {
   return (
     <div className="space-y-4" data-slot="general-category">
       <SystemUpdatesCard index={0} />
@@ -22,8 +21,6 @@ export default function GeneralCategory({ settings, use12HourTime, on12HourTimeC
           />
         </div>
       </SettingsCard>
-
-      <FactoryResetCard settings={settings} index={3} />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Heart, Coffee, AlertTriangle, GitBranch, Activity, CheckCircle2, XCircl
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import SettingsCard from "../SettingsCard";
+import FactoryResetCard from "./FactoryResetCard";
 import Button from "../../ui/Button";
 import CollapsibleSection from "../../common/CollapsibleSection";
 import ModalCard from "../../cards/ModalCard";
@@ -203,11 +204,10 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
         >
           <div className="px-5 py-4 space-y-4">
             <CollapsibleSection
-              title="Update Source"
+              title="System Update Source"
               mono
               size="sm"
               pill
-              className="mb-1"
             >
               <div className="p-4 mb-3 rounded-large-element bg-warning/20 border-2 border-warning/30">
                 <div className="flex items-start gap-3">
@@ -238,6 +238,8 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
                 Edit update source
               </Button>
             </CollapsibleSection>
+
+            <FactoryResetCard index={4} className="border-2 border-primary/10" />
           </div>
         </SettingsCard>
       )}
