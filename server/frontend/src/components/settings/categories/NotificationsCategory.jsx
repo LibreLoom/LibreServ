@@ -212,10 +212,11 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
           />
 
           <div
-            className={cn("overflow-hidden transition-all ease-[var(--motion-easing-emphasized)]", settings?.notify?.enabled ? "max-h-[100dvh] opacity-100 mt-4 pb-4" : "max-h-0 opacity-0")}
+            className={cn("grid transition-all ease-[var(--motion-easing-emphasized)]", settings?.notify?.enabled ? "grid-rows-[1fr] opacity-100 mt-4 pb-4" : "grid-rows-[0fr] opacity-0")}
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
-            <div className="pt-4 border-t border-primary/10 space-y-6">
+            <div className="overflow-hidden min-h-0">
+              <div className="pt-4 border-t border-primary/10 space-y-6">
               <div>
                 <div className="font-medium text-primary mb-3">Frequency</div>
                 <RadioOptionGroup
@@ -296,6 +297,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
                   }}
                   onChange={handleSecurityChange}
                 />
+              </div>
               </div>
             </div>
           </div>
