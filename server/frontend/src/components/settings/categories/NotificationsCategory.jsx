@@ -43,7 +43,23 @@ const NOTIFICATION_OPTIONS = [
   {
     key: "notify_on_admin_action",
     label: "Admin actions",
-    description: "When settings or apps are modified",
+    description: "When settings, routes, or domains are modified",
+  },
+];
+
+const APP_OPTIONS = [
+  {
+    key: "notify_on_app_updates",
+    label: "App updates",
+    description: "When apps are installed, updated, or removed",
+  },
+];
+
+const USER_MANAGEMENT_OPTIONS = [
+  {
+    key: "notify_on_user_management",
+    label: "User management",
+    description: "When users are created or deleted",
   },
 ];
 
@@ -229,6 +245,34 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
                       securityPrefs.notify_on_password_change || false,
                     notify_on_admin_action:
                       securityPrefs.notify_on_admin_action || false,
+                  }}
+                  onChange={handleSecurityChange}
+                />
+              </div>
+
+              <div>
+                <div className="font-medium text-primary mb-3">
+                  Apps
+                </div>
+                <CheckboxOptionGroup
+                  options={APP_OPTIONS}
+                  values={{
+                    notify_on_app_updates:
+                      securityPrefs.notify_on_app_updates ?? true,
+                  }}
+                  onChange={handleSecurityChange}
+                />
+              </div>
+
+              <div>
+                <div className="font-medium text-primary mb-3">
+                  User Management
+                </div>
+                <CheckboxOptionGroup
+                  options={USER_MANAGEMENT_OPTIONS}
+                  values={{
+                    notify_on_user_management:
+                      securityPrefs.notify_on_user_management ?? true,
                   }}
                   onChange={handleSecurityChange}
                 />

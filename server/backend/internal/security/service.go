@@ -181,12 +181,16 @@ func (s *Service) processNotification(event *Event) {
 func (s *Service) getNotificationRecipients(event *Event) ([]string, error) {
 	var recipients []string
 
-	// Get admins who want security notifications
+	// Get admins with notifications enabled who want this kind of event
 	rows, err := s.db.Query(`
-		SELECT u.email 
+		SELECT u.email, s.notifications_enabled, s.notify_on_login,
+		       s.notify_on_failed_login, s.notify_on_password_change, s.notify_on_admin_action,
+		       s.notify_on_app_updates, s.notify_on_user_management,
+		       s.notify_on_health_alert, s.notify_on_disk_warning, s.notify_on_docker_failure,
+		       s.notify_on_database_issue
 		FROM users u
 		JOIN user_security_settings s ON u.id = s.user_id
-		WHERE u.role = 'admin' AND s.notifications_enabled = true
+		WHERE u.role = 'admin'
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("query admins: %w", err)
@@ -195,11 +199,27 @@ func (s *Service) getNotificationRecipients(event *Event) ([]string, error) {
 
 	for rows.Next() {
 		var email string
-		if err := rows.Scan(&email); err != nil {
-			s.logger.Error("Failed to scan admin email", "error", err)
+		var settings UserSettings
+		if err := rows.Scan(
+			&email,
+			&settings.NotificationsEnabled,
+			&settings.NotifyOnLogin,
+			&settings.NotifyOnFailedLogin,
+			&settings.NotifyOnPasswordChange,
+			&settings.NotifyOnAdminAction,
+			&settings.NotifyOnAppUpdates,
+			&settings.NotifyOnUserManagement,
+			&settings.NotifyOnHealthAlert,
+			&settings.NotifyOnDiskWarning,
+			&settings.NotifyOnDockerFailure,
+			&settings.NotifyOnDatabaseIssue,
+		); err != nil {
+			s.logger.Error("Failed to scan admin notification settings", "error", err)
 			continue
 		}
-		recipients = append(recipients, email)
+		if event.ShouldNotify(&settings) {
+			recipients = append(recipients, email)
+		}
 	}
 
 	// Also notify the affected user if applicable
@@ -325,9 +345,17 @@ func (s *Service) RecordEvent(ctx context.Context, event *Event) error {
 }
 
 func (s *Service) shouldNotify(event *Event) bool {
-	// Only notify on specific high-priority events
+	// Gate which events enter the notification pipeline at all. Critical
+	// security events are always notified; everything else is sent to
+	// recipients whose preferences opt them in (getNotificationRecipients
+	// filters per-event via ShouldNotify).
 	switch event.EventType {
-	case EventAccountLocked, EventSuspiciousActivity, EventBruteForceDetected:
+	case EventAccountLocked, EventSuspiciousActivity, EventBruteForceDetected,
+		EventTokenReuse, EventTokenRevoked,
+		EventLoginSuccess, EventLoginFailed, EventPasswordChanged, EventPasswordReset,
+		EventAdminAction, EventSettingsChanged, EventConfigChanged,
+		EventAppInstalled, EventAppUpdated, EventAppRemoved,
+		EventUserCreated, EventUserDeleted:
 		return true
 	default:
 		return false
@@ -579,6 +607,7 @@ func (s *Service) GetUserSettings(ctx context.Context, userID string) (*UserSett
 	query := `
 		SELECT notifications_enabled, notification_frequency, notify_on_login,
 		       notify_on_failed_login, notify_on_password_change, notify_on_admin_action,
+		       notify_on_app_updates, notify_on_user_management,
 		       notify_on_health_alert, notify_on_disk_warning, notify_on_docker_failure,
 		       notify_on_database_issue, use_12_hour_time, updated_at
 		FROM user_security_settings
@@ -593,6 +622,8 @@ func (s *Service) GetUserSettings(ctx context.Context, userID string) (*UserSett
 		&settings.NotifyOnFailedLogin,
 		&settings.NotifyOnPasswordChange,
 		&settings.NotifyOnAdminAction,
+		&settings.NotifyOnAppUpdates,
+		&settings.NotifyOnUserManagement,
 		&settings.NotifyOnHealthAlert,
 		&settings.NotifyOnDiskWarning,
 		&settings.NotifyOnDockerFailure,
@@ -610,6 +641,8 @@ func (s *Service) GetUserSettings(ctx context.Context, userID string) (*UserSett
 			NotifyOnFailedLogin:    true,
 			NotifyOnPasswordChange: true,
 			NotifyOnAdminAction:    true,
+			NotifyOnAppUpdates:     true,
+			NotifyOnUserManagement: true,
 			NotifyOnHealthAlert:    true,
 			NotifyOnDiskWarning:    true,
 			NotifyOnDockerFailure:  true,
@@ -635,9 +668,10 @@ func (s *Service) UpdateUserSettings(ctx context.Context, settings *UserSettings
 		INSERT INTO user_security_settings 
 		(user_id, notifications_enabled, notification_frequency, notify_on_login,
 		 notify_on_failed_login, notify_on_password_change, notify_on_admin_action,
+		 notify_on_app_updates, notify_on_user_management,
 		 notify_on_health_alert, notify_on_disk_warning, notify_on_docker_failure,
 		 notify_on_database_issue, use_12_hour_time, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET
 			notifications_enabled = EXCLUDED.notifications_enabled,
 			notification_frequency = EXCLUDED.notification_frequency,
@@ -645,6 +679,8 @@ func (s *Service) UpdateUserSettings(ctx context.Context, settings *UserSettings
 			notify_on_failed_login = EXCLUDED.notify_on_failed_login,
 			notify_on_password_change = EXCLUDED.notify_on_password_change,
 			notify_on_admin_action = EXCLUDED.notify_on_admin_action,
+			notify_on_app_updates = EXCLUDED.notify_on_app_updates,
+			notify_on_user_management = EXCLUDED.notify_on_user_management,
 			notify_on_health_alert = EXCLUDED.notify_on_health_alert,
 			notify_on_disk_warning = EXCLUDED.notify_on_disk_warning,
 			notify_on_docker_failure = EXCLUDED.notify_on_docker_failure,
@@ -663,6 +699,8 @@ func (s *Service) UpdateUserSettings(ctx context.Context, settings *UserSettings
 		settings.NotifyOnFailedLogin,
 		settings.NotifyOnPasswordChange,
 		settings.NotifyOnAdminAction,
+		settings.NotifyOnAppUpdates,
+		settings.NotifyOnUserManagement,
 		settings.NotifyOnHealthAlert,
 		settings.NotifyOnDiskWarning,
 		settings.NotifyOnDockerFailure,

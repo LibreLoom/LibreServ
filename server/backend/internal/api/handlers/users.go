@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -9,17 +10,46 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/pagination"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/auth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database/models"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/validation"
 )
 
 // UsersHandler manages user CRUD endpoints
 type UsersHandler struct {
-	authService *auth.Service
+	authService    *auth.Service
+	securityEvents *security.Service
 }
 
 // NewUsersHandler creates a new UsersHandler
 func NewUsersHandler(authService *auth.Service) *UsersHandler {
 	return &UsersHandler{authService: authService}
+}
+
+// SetSecurityEvents sets the security event recorder (for user management notifications)
+func (h *UsersHandler) SetSecurityEvents(sec *security.Service) {
+	h.securityEvents = sec
+}
+
+// recordUserEvent records a user management event so notification preferences
+// (notify_on_user_management) can notify admins when users are created/deleted.
+func (h *UsersHandler) recordUserEvent(r *http.Request, eventType security.EventType, targetID, details string) {
+	if h.securityEvents == nil {
+		return
+	}
+	user := middleware.GetUser(r.Context())
+	actorID, actorName := "", ""
+	if user != nil {
+		actorID, actorName = user.ID, user.Username
+	}
+	_ = h.securityEvents.RecordEvent(r.Context(), &security.Event{
+		EventType:     eventType,
+		Severity:      security.SeverityInfo,
+		ActorID:       actorID,
+		ActorUsername: actorName,
+		IPAddress:     getClientIP(r),
+		Details:       details,
+		Metadata:      map[string]any{"user_id": targetID},
+	})
 }
 
 // ListUsers handles GET /api/v1/users
@@ -113,6 +143,9 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		"user":    user.Sanitize(),
 		"message": "user created",
 	})
+
+	h.recordUserEvent(r, security.EventUserCreated, user.ID,
+		fmt.Sprintf("User created: %s", user.Username))
 }
 
 // GetUser handles GET /api/v1/users/{userID}
@@ -230,6 +263,8 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		"message": "user deleted",
 		"user_id": userID,
 	})
+
+	h.recordUserEvent(r, security.EventUserDeleted, userID, "User deleted")
 }
 
 // SetPasswordRequest is the body for the admin set-password endpoint.

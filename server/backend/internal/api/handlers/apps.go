@@ -8,13 +8,16 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/apps"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 )
 
 // AppsHandler handles installed app management API endpoints
 type AppsHandler struct {
-	manager  *apps.Manager
-	auditLog AuditLogger
+	manager        *apps.Manager
+	auditLog       AuditLogger
+	securityEvents *security.Service
 }
 
 // NewAppsHandler creates a new AppsHandler
@@ -27,6 +30,35 @@ func NewAppsHandler(manager *apps.Manager) *AppsHandler {
 // SetAuditLogger sets the audit logging callback
 func (h *AppsHandler) SetAuditLogger(logger AuditLogger) {
 	h.auditLog = logger
+}
+
+// SetSecurityEvents sets the security event recorder (for app notifications)
+func (h *AppsHandler) SetSecurityEvents(sec *security.Service) {
+	h.securityEvents = sec
+}
+
+// recordAppEvent records an app lifecycle event so notification preferences
+// (notify_on_app_updates) can notify admins when apps are installed, updated,
+// or removed.
+func (h *AppsHandler) recordAppEvent(r *http.Request, eventType security.EventType, instanceID, details string) {
+	if h.securityEvents == nil {
+		return
+	}
+	userID := ""
+	username := ""
+	if user := middleware.GetUser(r.Context()); user != nil {
+		userID = user.ID
+		username = user.Username
+	}
+	_ = h.securityEvents.RecordEvent(r.Context(), &security.Event{
+		EventType:     eventType,
+		Severity:      security.SeverityInfo,
+		ActorID:       userID,
+		ActorUsername: username,
+		IPAddress:     getClientIP(r),
+		Details:       details,
+		Metadata:      map[string]any{"app_id": instanceID},
+	})
 }
 
 // InstallRequest represents an app installation request
@@ -137,6 +169,8 @@ func (h *AppsHandler) InstallApp(w http.ResponseWriter, r *http.Request) {
 	h.manager.EnsurePublicURL(result.App)
 
 	if result.App != nil {
+		h.recordAppEvent(r, security.EventAppInstalled, result.App.ID,
+			fmt.Sprintf("App installed: %s", result.App.Name))
 		result.App = result.App.RedactForAPI()
 	}
 	JSON(w, http.StatusCreated, result)
@@ -286,6 +320,8 @@ func (h *AppsHandler) UpdateApp(w http.ResponseWriter, r *http.Request) {
 		h.auditLog.Log(r.Context(), "app.update", instanceID, "", "success", "Manual update triggered", nil)
 	}
 
+	h.recordAppEvent(r, security.EventAppUpdated, instanceID, "App updated")
+
 	JSON(w, http.StatusOK, map[string]string{
 		"message":     "app updated",
 		"instance_id": instanceID,
@@ -306,6 +342,8 @@ func (h *AppsHandler) UninstallApp(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "We couldn't uninstall this app. Please try again.")
 		return
 	}
+
+	h.recordAppEvent(r, security.EventAppRemoved, instanceID, "App uninstalled")
 
 	JSON(w, http.StatusOK, map[string]string{
 		"message":     "app uninstalled",

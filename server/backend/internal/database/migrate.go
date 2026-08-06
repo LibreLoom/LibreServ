@@ -235,7 +235,9 @@ func (d *DB) reconcileSchema() error {
 			"backup_id": `ALTER TABLE updates ADD COLUMN backup_id TEXT`,
 		},
 		"user_security_settings": {
-			"use_12_hour_time": `ALTER TABLE user_security_settings ADD COLUMN use_12_hour_time BOOLEAN DEFAULT 0`,
+			"use_12_hour_time":          `ALTER TABLE user_security_settings ADD COLUMN use_12_hour_time BOOLEAN DEFAULT 0`,
+			"notify_on_app_updates":     `ALTER TABLE user_security_settings ADD COLUMN notify_on_app_updates BOOLEAN DEFAULT 1`,
+			"notify_on_user_management": `ALTER TABLE user_security_settings ADD COLUMN notify_on_user_management BOOLEAN DEFAULT 1`,
 		},
 		"apps": {
 			"revocation_revoked_at":      `ALTER TABLE apps ADD COLUMN revocation_revoked_at TIMESTAMP`,

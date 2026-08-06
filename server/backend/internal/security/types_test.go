@@ -129,6 +129,8 @@ func TestEventShouldNotify(t *testing.T) {
 		NotifyOnFailedLogin:    true,
 		NotifyOnPasswordChange: true,
 		NotifyOnAdminAction:    true,
+		NotifyOnAppUpdates:     true,
+		NotifyOnUserManagement: true,
 	}
 
 	tests := []struct {
@@ -140,14 +142,17 @@ func TestEventShouldNotify(t *testing.T) {
 		{EventPasswordChanged, true},    // NotifyOnPasswordChange=true
 		{EventPasswordReset, true},      // NotifyOnPasswordChange=true
 		{EventAdminAction, true},        // NotifyOnAdminAction=true
-		{EventUserCreated, true},        // NotifyOnAdminAction=true
-		{EventAppInstalled, true},       // NotifyOnAdminAction=true
+		{EventUserCreated, true},        // NotifyOnUserManagement=true
+		{EventUserDeleted, true},        // NotifyOnUserManagement=true
+		{EventAppInstalled, true},       // NotifyOnAppUpdates=true
+		{EventAppUpdated, true},         // NotifyOnAppUpdates=true
+		{EventAppRemoved, true},         // NotifyOnAppUpdates=true
 		{EventAccountLocked, true},      // Always notify for critical
 		{EventSuspiciousActivity, true}, // Always notify for critical
 		{EventBruteForceDetected, true}, // Always notify for critical
 		{EventTokenReuse, true},         // Always notify for critical
 		{EventTokenRevoked, true},       // Always notify for critical
-		{EventAppStarted, false},        // Not covered by any setting
+		{EventAppStarted, true},         // NotifyOnAppUpdates=true
 	}
 
 	for _, tt := range tests {

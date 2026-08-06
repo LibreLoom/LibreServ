@@ -166,6 +166,8 @@ type UserSettings struct {
 	NotifyOnFailedLogin    bool      `json:"notify_on_failed_login"`
 	NotifyOnPasswordChange bool      `json:"notify_on_password_change"`
 	NotifyOnAdminAction    bool      `json:"notify_on_admin_action"`
+	NotifyOnAppUpdates     bool      `json:"notify_on_app_updates"`
+	NotifyOnUserManagement bool      `json:"notify_on_user_management"`
 	NotifyOnHealthAlert    bool      `json:"notify_on_health_alert"`
 	NotifyOnDiskWarning    bool      `json:"notify_on_disk_warning"`
 	NotifyOnDockerFailure  bool      `json:"notify_on_docker_failure"`
@@ -236,10 +238,14 @@ func (e *Event) ShouldNotify(settings *UserSettings) bool {
 	case EventPasswordChanged, EventPasswordReset:
 		return settings.NotifyOnPasswordChange
 	case EventAdminAction, EventSettingsChanged, EventConfigChanged,
-		EventUserCreated, EventUserUpdated, EventUserDeleted,
-		EventAppInstalled, EventAppUpdated, EventAppRemoved,
-		EventRouteCreated, EventRouteUpdated, EventRouteDeleted:
+		EventRouteCreated, EventRouteUpdated, EventRouteDeleted,
+		EventDomainAdded, EventCertificateIssued:
 		return settings.NotifyOnAdminAction
+	case EventAppInstalled, EventAppUpdated, EventAppRemoved,
+		EventAppStarted, EventAppStopped:
+		return settings.NotifyOnAppUpdates
+	case EventUserCreated, EventUserUpdated, EventUserDeleted:
+		return settings.NotifyOnUserManagement
 	case EventAccountLocked, EventSuspiciousActivity, EventBruteForceDetected,
 		EventTokenReuse, EventTokenRevoked:
 		// Always notify for critical security events
