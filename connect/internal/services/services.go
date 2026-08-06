@@ -276,18 +276,21 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 		plan = catalog.PlanByID("free")
 	}
 
-	zone := strings.Replace(plan.Limits.Domain, "*", sub, 1)
+	// The device's assigned reachable domain (e.g. "68dcdde9.servers.libreloom.org").
+	deviceDomain := strings.Replace(plan.Limits.Domain, "*", sub, 1)
 
 	prov, err := s.providers.FindEnabled("dns")
 	if err != nil {
 		return nil, fmt.Errorf("could not look up DNS provider: %w", err)
 	}
+	// The DNS zone where records are created (e.g. "libreloom.org"). Distinct
+	// from the device's assigned domain — the provider zone must NOT replace it.
+	zone := prov.Setting("zone", "")
 	dnsManaged := false
 	if prov != nil && prov.Credential("api_token", "") != "" {
-		recordName := sub
-		if parent := prov.Setting("zone", ""); parent != "" {
-			zone = parent
-		}
+		// Full reachable hostname so the record is created correctly regardless
+		// of the provider zone (CreateRecord uses it as-is when it has a dot).
+		recordName := deviceDomain
 
 		// Check if the device has a provisioned tunnel. If so, create a
 		// CNAME pointing at the tunnel instead of an A record to the IP.
@@ -317,17 +320,17 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 			)
 		}
 	} else if config.C.DNS.Provider != "" && config.C.DNS.APIToken != "" && config.C.DNS.Zone != "" {
-		// Legacy fallback: we only know the zone, so use the full subdomain as the record name.
+		// Legacy fallback: we only know the zone, so create the record under it.
 		ip := clientIP
 		if ip == "" {
 			ip = "127.0.0.1"
 		}
-		zone = config.C.DNS.Zone
+		legacyZone := config.C.DNS.Zone
 		dnsManaged, _ = s.dns.CreateRecord(
 			config.C.DNS.APIToken,
 			"",
-			zone,
-			sub,
+			legacyZone,
+			deviceDomain,
 			"A",
 			ip,
 			600,
@@ -336,7 +339,7 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 
 	return map[string]any{
 		"domain": map[string]any{
-			"domain":      zone,
+			"domain":      deviceDomain,
 			"provider":    "connect",
 			"auto_https":  true,
 			"dns_managed": dnsManaged,
