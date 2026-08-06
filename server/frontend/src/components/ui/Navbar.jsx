@@ -87,9 +87,11 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
 export default function Navbar() {
   const { me: user, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
   const firstNavLinkRef = useRef(null);
   const dialogRef = useRef(null);
+  const userMenuRef = useRef(null);
   const mobileMenuId = "mobile-nav-menu";
 
   const [position, setPosition] = useState({ x: null, y: null });
@@ -264,6 +266,26 @@ export default function Navbar() {
     };
   }, []);
 
+  // Close the user menu on outside click or Escape, so it works as a
+  // click-toggle (Fitts's Law: hover-only menus are unreachable on touch).
+  useEffect(() => {
+    if (!isUserMenuOpen) return;
+    const onPointerDown = (e) => {
+      if (!userMenuRef.current?.contains(e.target)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setIsUserMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isUserMenuOpen]);
+
   const getHamburgerStyle = () => {
     if (position.x === null || position.y === null) {
       return {};
@@ -342,12 +364,14 @@ export default function Navbar() {
             <div className="flex items-center gap-6 text-sm font-sans justify-center flex-1">
               {navButtonsElements}
             </div>
-            <div className="group flex items-center gap-2 relative">
+            <div className="group flex items-center gap-2 relative" ref={userMenuRef}>
               <button
                 type="button"
                 className={cn("font-semibold", "text-sm", "inline-block", "min-w-[6ch]", "max-w-[18ch]", "truncate", "text-left", TRANSITION.full, user?.username ? "opacity-100 translate-y-0" : "opacity-0 translate-y-1", "translate-y-[-0.5px]")}
                 aria-label="User menu"
                 aria-haspopup="menu"
+                aria-expanded={isUserMenuOpen}
+                onClick={() => setIsUserMenuOpen((v) => !v)}
               >
                 {user?.username || ""}
               </button>
@@ -357,10 +381,10 @@ export default function Navbar() {
 
               <div
                 role="menu"
-                className={cn("absolute", "bottom-0", "right-0", "pb-16", "opacity-0", "pointer-events-none", "group-hover:opacity-100", "group-hover:pointer-events-auto", TRANSITION.full)}
+                className={cn("absolute", "bottom-0", "right-0", "pb-16", "opacity-0", "pointer-events-none", isUserMenuOpen && "opacity-100 pointer-events-auto", TRANSITION.full)}
               >
                 <div
-                  className={cn("bg-secondary", "text-primary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", "group-hover:translate-y-0", TRANSITION.full)}
+                  className={cn("bg-secondary", "text-primary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", isUserMenuOpen && "translate-y-0", TRANSITION.full)}
                 >
                   <NavLink
                     to="/users"

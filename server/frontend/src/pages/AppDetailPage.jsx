@@ -42,6 +42,7 @@ import {
   Terminal,
 } from "lucide-react";
 import StatusPill from "../components/common/StatusPill";
+import SegmentedControl from "../components/common/SegmentedControl";
 import { ActionCard } from "../components/app/actions/ActionCard";
 import { ActionOptionsModal } from "../components/app/actions/ActionOptionsModal";
 import { ExposedInfoCard } from "../components/app/ExposedInfoCard";
@@ -51,6 +52,7 @@ import RevocationBanner from "../components/app/RevocationBanner";
 import AcknowledgeRevocationModal from "../components/app/AcknowledgeRevocationModal";
 import ReconfigureModal from "../components/app/ReconfigureModal";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "../context/ToastContext";
 
 function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
   const [typedName, setTypedName] = useState("");
@@ -132,6 +134,7 @@ export default function AppDetailPage() {
   const { instanceId } = useParams();
   const navigate = useNavigate();
   const { request } = useAuth();
+  const { addToast } = useToast();
   const invalidateApps = useInvalidateApps();
   const queryClient = useQueryClient();
   const { formatDateTime } = useTimeFormat();
@@ -200,14 +203,22 @@ export default function AppDetailPage() {
   const handleUninstall = useCallback(async () => {
     if (!app || isUninstalling) return;
     setIsUninstalling(true);
+    const appName = app.name;
     try {
       await request(`/apps/${app.id}`, { method: "DELETE" });
       invalidateApps();
+      // Peak-End: end the destructive flow on a clear, positive note —
+      // confirm what happened, never leave a bare redirect.
+      addToast({
+        type: "success",
+        message: `${appName} was uninstalled`,
+        description: "Its data and settings were removed. You can install it again anytime.",
+      });
       navigate("/apps");
     } finally {
       setIsUninstalling(false);
     }
-  }, [app, isUninstalling, request, navigate, invalidateApps]);
+  }, [app, isUninstalling, request, navigate, invalidateApps, addToast]);
 
   const formatDate = (dateString) => {
     if (!dateString) return "Unknown";
@@ -446,43 +457,23 @@ export default function AppDetailPage() {
                 <h2 className="text-2xl font-mono font-normal">Control</h2>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  onClick={() =>
-                    app.status === "stopped" && handleAppAction("start")
+              <div className="flex flex-wrap items-center gap-3">
+                <SegmentedControl
+                  value={
+                    app.status === "running"
+                      ? "start"
+                      : app.status === "stopped"
+                        ? "stop"
+                        : "restart"
                   }
-                  disabled={app.status !== "stopped" || actionLoading}
-                  loading={actionLoading === "start"}
-                >
-                  {actionLoading === "start" ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
-                  {actionLoading === "start" ? "Starting..." : "Start"}
-                </Button>
-
-                <Button
-                  variant="secondary"
-                  surface="primary"
-                  onClick={() =>
-                    app.status === "running" && handleAppAction("stop")
-                  }
-                  disabled={app.status !== "running" || actionLoading}
-                  loading={actionLoading === "stop"}
-                >
-                  {actionLoading === "stop" ? <Loader2 size={18} className="animate-spin" /> : <Square size={18} />}
-                  {actionLoading === "stop" ? "Stopping..." : "Stop"}
-                </Button>
-
-                <Button
-                  variant="outline"
-                  surface="primary"
-                  onClick={() => handleAppAction("restart")}
-                  disabled={actionLoading}
-                  loading={actionLoading === "restart"}
-                >
-                  {actionLoading === "restart" ? <Loader2 size={18} className="animate-spin" /> : <RotateCw size={18} />}
-                  {actionLoading === "restart" ? "Restarting..." : "Restart"}
-                </Button>
+                  options={[
+                    { value: "start", label: "Start", icon: Play, disabled: app.status === "running" || actionLoading },
+                    { value: "stop", label: "Stop", icon: Square, disabled: app.status === "stopped" || actionLoading },
+                    { value: "restart", label: "Restart", icon: RotateCw, disabled: actionLoading },
+                  ]}
+                  onChange={(v) => handleAppAction(v)}
+                  className="h-10"
+                />
 
                 <Button
                   variant="outline"

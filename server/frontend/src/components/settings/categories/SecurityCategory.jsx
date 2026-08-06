@@ -168,7 +168,7 @@ export default function SecurityCategory() {
     <div className="space-y-4" data-slot="security-category">
       {stats && (
         <div
-          className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300"
+          className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-in fade-in slide-in-from-bottom-1 duration-150"
         >
           <StatCard value={stats.total_events} label="Total Events" />
           <StatCard value={stats.successful_logins} label="Successful Logins" />

@@ -3,10 +3,16 @@ import { cn } from "@/lib/utils";
 import { Lock } from "lucide-react";
 import { CloudflareIcon, PorkbunIcon, SpaceshipIcon } from "../icons";
 
+// Only ready providers are shown as cards (Hick's Law — dead options are
+// noise). Upcoming registrars collapse into one muted footer line.
 const REGISTRARS = [
   { id: "cloudflare", label: "Cloudflare", desc: "Manages your domain\u2019s address book", Icon: CloudflareIcon, ready: true },
-  { id: "porkbun",   label: "Porkbun",   desc: "Coming soon",                         Icon: PorkbunIcon,   ready: false },
-  { id: "spaceship",  label: "Spaceship",  desc: "Coming soon",                         Icon: SpaceshipIcon, ready: false },
+];
+
+// Shown as a single dimmed "coming soon" row at the bottom of the list.
+const UPCOMING = [
+  { id: "porkbun", label: "Porkbun", Icon: PorkbunIcon },
+  { id: "spaceship", label: "Spaceship", Icon: SpaceshipIcon },
 ];
 
 const ELSEWHERE = {
@@ -67,6 +73,13 @@ export default function ProviderPickStep({ selected, onSelect }) {
           <ProviderCard key={r.id} {...r} selected={selected} onClick={onSelect} />
         ))}
       </div>
+
+      {UPCOMING.length > 0 && (
+        <p className="mt-3 text-xs text-primary/30">
+          <Lock size={12} className="inline mr-1 -mt-0.5" aria-hidden="true" />
+          {UPCOMING.map((u) => u.label).join(" & ")} support is coming soon.
+        </p>
+      )}
 
       <div className="mt-4 p-3 rounded-card bg-primary/5 border border-primary/10">
         <p className="text-xs text-primary/50 leading-relaxed">

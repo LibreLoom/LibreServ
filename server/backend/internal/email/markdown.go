@@ -131,11 +131,42 @@ func (r *inlineStyleRenderer) renderLink(w util.BufWriter, source []byte, node a
 	n := node.(*ast.Link)
 	if entering {
 		url := string(n.Destination)
-		fmt.Fprintf(w, `<a href="%s" style="color:%s; text-decoration:underline; font-weight:600;">`, url, colorBlack)
+		// Check if this link is the only child of its paragraph (standalone CTA)
+		if isStandaloneLink(n, source) {
+			fmt.Fprintf(w, `<div style="text-align:center; padding:16px 0;"><a href="%s" style="display:inline-block; background-color:%s; color:#ffffff; padding:14px 32px; border-radius:9999px; text-decoration:none; font-family:%s; font-size:15px; font-weight:700;">`, url, colorBlack, fontSans)
+		} else {
+			fmt.Fprintf(w, `<a href="%s" style="color:%s; text-decoration:underline; font-weight:600;">`, url, colorBlack)
+		}
 	} else {
-		w.WriteString("</a>")
+		if isStandaloneLink(n, source) {
+			w.WriteString("</a></div>")
+		} else {
+			w.WriteString("</a>")
+		}
 	}
 	return ast.WalkContinue, nil
+}
+
+// isStandaloneLink returns true if the link is the only meaningful child in its
+// parent paragraph, making it a standalone call-to-action that should render as
+// a pill button rather than an inline underlined link.
+func isStandaloneLink(n *ast.Link, source []byte) bool {
+	parent := n.Parent()
+	if parent == nil || parent.Kind() != ast.KindParagraph {
+		return false
+	}
+	childCount := 0
+	for c := parent.FirstChild(); c != nil; c = c.NextSibling() {
+		// Skip whitespace-only text nodes
+		if c.Kind() == ast.KindText {
+			t := c.(*ast.Text)
+			if strings.TrimSpace(string(t.Segment.Value(source))) == "" && !t.HardLineBreak() {
+				continue
+			}
+		}
+		childCount++
+	}
+	return childCount == 1
 }
 
 func (r *inlineStyleRenderer) renderAutoLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {

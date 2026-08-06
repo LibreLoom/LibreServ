@@ -1,7 +1,11 @@
 import { memo } from "react";
 import Card from "../cards/Card";
 
-const STAGGER_DELAY_MS = 50;
+// Fast stagger: 25ms per card keeps the cascade visible without feeling sluggish.
+const STAGGER_DELAY_MS = 25;
+// Cap total stagger so pages with many cards (e.g. Network advanced section)
+// don't take forever to finish animating in.
+const MAX_STAGGER_DELAY_MS = 200;
 // Small base delay so no card animates at exactly 0ms. `.animate-in` uses
 // `animation-fill-mode: both`, so a positive delay holds the card in its
 // "before" state (opacity 0, shifted down) until the delay elapses. That
@@ -11,7 +15,7 @@ const STAGGER_DELAY_MS = 50;
 // insertion and can be mostly elapsed by the first paint, so the card just
 // "pops" in with no visible animation (this is what happened to the first,
 // index-0 Remote Access card).
-const BASE_DELAY_MS = 40;
+const BASE_DELAY_MS = 30;
 
 /**
  * Standardized settings card with staggered fly-in-from-bottom animation.
@@ -20,11 +24,14 @@ const BASE_DELAY_MS = 40;
  * @param {{ index?: number, [key: string]: any }} _
  */
 function SettingsCard({ index = 0, ...props }) {
-  const delay = BASE_DELAY_MS + index * STAGGER_DELAY_MS;
+  const delay = Math.min(
+    BASE_DELAY_MS + index * STAGGER_DELAY_MS,
+    MAX_STAGGER_DELAY_MS
+  );
 
   return (
     <div
-      className="animate-in fade-in slide-in-from-bottom-2 duration-300"
+      className="animate-in fade-in slide-in-from-bottom-1 duration-150"
       style={{ animationDelay: `${delay}ms` }}
     >
       <Card noPopIn {...props} />

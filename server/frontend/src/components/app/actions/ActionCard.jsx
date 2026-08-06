@@ -1,15 +1,34 @@
-import { Wrench, Play } from "lucide-react";
+import { Wrench, Play, AlertTriangle } from "lucide-react";
 import Button from "../../ui/Button";
+import { cn } from "@/lib/utils";
 
 /** @param {{ action: any, onExecute: any, disabled?: any, loading?: any }} _ */
 export function ActionCard({ action, onExecute, disabled, loading }) {
   const hasOptions = action.options?.length > 0;
+  const isConfirm = action.confirm?.enabled;
 
   return (
-    <div className="flex items-center justify-between p-4 border border-secondary/20 rounded-large-element hover:border-secondary/40 motion-safe:transition-colors" data-slot="action-card">
+    <div
+      className={cn(
+        "flex items-center justify-between p-4 rounded-large-element motion-safe:transition-colors",
+        isConfirm
+          ? "border border-warning/30 bg-warning/10 hover:border-warning/50"
+          : "border border-secondary/20 hover:border-secondary/40",
+      )}
+      data-slot="action-card"
+    >
       <div className="flex items-center gap-3">
-        <div className="p-2 bg-secondary/10 rounded-full">
-          <Wrench className="text-accent" size={20} />
+        <div
+          className={cn(
+            "p-2 rounded-full",
+            isConfirm ? "bg-warning/15" : "bg-secondary/10",
+          )}
+        >
+          {isConfirm ? (
+            <AlertTriangle className="text-warning" size={20} />
+          ) : (
+            <Wrench className="text-accent" size={20} />
+          )}
         </div>
         <div>
           <p className="font-mono font-medium">{action.label}</p>
@@ -21,7 +40,7 @@ export function ActionCard({ action, onExecute, disabled, loading }) {
         </div>
       </div>
       <Button
-        variant="secondary"
+        variant={isConfirm ? "secondary" : "secondary"}
         surface="primary"
         onClick={() => onExecute(action)}
         disabled={disabled || loading}

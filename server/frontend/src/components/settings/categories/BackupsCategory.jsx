@@ -477,7 +477,7 @@ export default function BackupsCategory({ connectStatus = null }) {
                   </div>
 
                   {expanded && (
-                    <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-1" style={{ animationDuration: "var(--motion-duration-short4)" }}>
+                    <div className="px-4 pb-4 animate-in fade-in slide-in-from-top-1 duration-150">
                       <div className="rounded-card bg-primary/5 border border-primary/10 p-3 space-y-3">
                         {schedule?.enabled ? (
                           <div className="flex items-center justify-between gap-3">

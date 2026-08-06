@@ -131,7 +131,7 @@ export default function SettingsContent({
   return (
     <div data-slot="settings-content" className={cn("space-y-4")}>
       <div className={cn("sticky top-0 z-10 bg-primary text-secondary pt-1 flex items-center justify-between")}>
-        <h1 className={cn("text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-2 duration-300")}>
+        <h1 className={cn("text-2xl font-mono font-normal text-secondary animate-in fade-in slide-in-from-bottom-1 duration-150")}>
           {title}
         </h1>
         <SaveStatusIndicator
@@ -140,7 +140,7 @@ export default function SettingsContent({
           onSavedComplete={onSavedComplete}
         />
       </div>
-      <div key={category} className={cn("animate-in fade-in duration-300 pb-16 md:pb-20")}>
+      <div key={category} className={cn("animate-in fade-in duration-150 pb-16 md:pb-20")}>
         <CategoryComponent {...getSettingsProps()} />
       </div>
     </div>

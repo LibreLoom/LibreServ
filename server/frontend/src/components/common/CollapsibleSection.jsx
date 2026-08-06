@@ -19,7 +19,7 @@ export default function CollapsibleSection({
   const wrapperClass = pill
     ? cn(
         "border rounded-large-element bg-primary/5 motion-safe:transition-colors motion-safe:duration-150",
-        open ? "border-primary/20" : "border-primary/10 hover:border-primary/25",
+        open ? "border-primary/35 bg-primary/10" : "border-primary/20 hover:border-primary/35",
         className
       )
     : className;

@@ -142,12 +142,9 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
           label="Email provider configuration"
           description={smtpConfigured ? "Connected — change provider in External Services" : "Not configured — set up in External Services"}
         >
-          <a
-            href="#external_services"
-            className="text-xs px-3 py-1.5 rounded-pill bg-primary text-secondary border-2 border-secondary/10 hover:bg-accent hover:text-primary hover:border-accent motion-safe:transition-colors"
-          >
-            External Services →
-          </a>
+          <Button asChild variant="outline" size="sm" surface="secondary">
+            <a href="#external_services">External Services →</a>
+          </Button>
         </SettingsRow>
       </SettingsCard>
 

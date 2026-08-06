@@ -10,30 +10,27 @@ export default function DebugCard({ content, onReload }) {
     <Card
       data-slot="network-debug"
       icon={FileCode}
-      title="Advanced"
+      title="Configuration"
       padding={false}
-      headerActions={
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onReload}
-          title="Reload configuration"
-        >
-          <RefreshCw size={14} aria-hidden="true" />
-          Reload
-        </Button>
-      }
     >
       <div className="px-4 py-3">
-        <CollapsibleSection
-          title="Configuration File"
-          defaultOpen={false}
-          pill={true}
-        >
+        <CollapsibleSection title="Configuration File" pill={true}>
           <div className="bg-primary/5 rounded-card p-3">
-            <p className="text-xs text-accent mb-3">
-              This shows the technical configuration file that controls your proxy. You usually don't need to look at this.
-            </p>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <p className="text-xs text-accent">
+                This shows the technical configuration file that controls your proxy. You usually don't need to look at this.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onReload}
+                title="Reload configuration"
+                className="shrink-0"
+              >
+                <RefreshCw size={14} aria-hidden="true" />
+                Reload
+              </Button>
+            </div>
             {isEmpty ? (
               <p className="text-sm text-primary/50 italic">
                 No configuration generated yet

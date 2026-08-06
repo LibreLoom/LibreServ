@@ -178,8 +178,8 @@ func (s *Scheduler) checkSystemUpdates() {
 	if info.UpdateAvailable {
 		s.logger.Info("System update available!", "latest", info.LatestVersion, "url", info.URL)
 		subject := "[LibreServ] Platform Update Available: " + info.LatestVersion
-		body := fmt.Sprintf("A new version of LibreServ is available: **%s**\n\nCurrent version: %s\n\n---\n\n%s\n\n---\n\n[Download %s](%s)",
-			info.LatestVersion, info.CurrentVersion, info.ReleaseNotes, info.LatestVersion, info.URL)
+		body := fmt.Sprintf("**A new version of LibreServ is available: %s**\n\nCurrent version: %s\n\n%s\n\n[Update Now](/settings/general)",
+			info.LatestVersion, info.CurrentVersion, info.ReleaseNotes)
 		if err := s.notify.AdminNotifyWithData(ctx, subject, body, map[string]interface{}{"markdown": true}); err != nil {
 			s.logger.Error("Failed to send system update notification", "error", err)
 		}
