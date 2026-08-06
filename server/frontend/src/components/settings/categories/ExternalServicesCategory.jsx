@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Mail,
   Globe,
@@ -9,12 +9,14 @@ import {
   LifeBuoy,
 } from "lucide-react";
 import SettingsCard from "../SettingsCard.jsx";
+import LayeredPill from "../../ui/LayeredPill.jsx";
 import ConnectStatusCard from "../../connect/ConnectStatusCard.jsx";
 import EmailServiceModal from "../../connect/EmailServiceModal.jsx";
 import DomainServiceModal from "../../connect/DomainServiceModal.jsx";
 import BackupServiceModal from "../../connect/BackupServiceModal.jsx";
 import TunnelServiceModal from "../../connect/TunnelServiceModal.jsx";
 import AIServiceModal from "../../connect/AIServiceModal.jsx";
+import { getConnectUsage } from "../../../lib/connect-api.js";
 
 function formatGB(value) {
   if (value === 0) return null;
@@ -22,28 +24,26 @@ function formatGB(value) {
   return `${value} GB`;
 }
 
-function formatBandwidth(mbps) {
-  if (mbps === 0) return null;
-  if (mbps >= 100) return "Full speed";
-  return `${mbps} Mbps`;
-}
-
 function formatEmailPerMo(value) {
   if (value === 0) return null;
   return `${value.toLocaleString()} emails/mo`;
 }
 
-function formatAIMessages(value) {
-  if (value === 0) return null;
-  return `${value.toLocaleString()} messages/day`;
+function formatAIMessages(planLimits) {
+  // AI is credit-based on paid plans (no message cap, but a monthly credit
+  // allowance), and a per-day message cap on the free plan.
+  if (planLimits?.ai_credit_cents > 0) {
+    return `$${(planLimits.ai_credit_cents / 100).toFixed(2)} credit/mo`;
+  }
+  if (planLimits?.ai_messages_per_day > 0) {
+    return `${planLimits.ai_messages_per_day.toLocaleString()} messages/day`;
+  }
+  return null;
 }
 
-function formatTunnel(limits) {
-  const speed = formatBandwidth(limits?.tunnel_mbps);
-  const data = formatGB(limits?.tunnel_gb_per_mo);
-  if (!speed && !data) return null;
-  if (speed && data) return `${speed} · ${data}/mo`;
-  return speed || `${data}/mo`;
+function formatTunnel() {
+  // Cloudflare Tunnel has no data or speed limits on any plan.
+  return "Unlimited";
 }
 
 function domainStatusLabel(status) {
@@ -84,27 +84,24 @@ function formatServiceLimit(serviceId, planLimits, svc) {
     case "backup":
       return formatGB(planLimits.backup_gb) || "Not in plan";
     case "tunnel":
-      return formatTunnel(planLimits) || "Not in plan";
+      return formatTunnel() || "Not in plan";
     case "ai":
-      return formatAIMessages(planLimits.ai_messages_per_mo) || "Pay per use";
+      return formatAIMessages(planLimits) || "Pay per use";
     default:
       return null;
   }
 }
 
-// Renders a second line under the "Included" pill for services whose details
-// carry actionable renewal / expiry information.
-function ServiceDetailLine({ serviceId, svc }) {
+// Returns a short text for the pill's second segment (layered pill):
+// domain details (actual subdomain or custom-domain renewal info), or the
+// usage-so-far for usage-based services. Null when there's nothing to show.
+function serviceDetailText({ serviceId, svc, usage }) {
   const details = svc?.details || {};
-  if (!details || Object.keys(details).length === 0) return null;
+  const hasDetails = details && Object.keys(details).length > 0;
 
-  if (serviceId === "domain") {
+  if (serviceId === "domain" && hasDetails) {
     if (details.type === "subdomain" && details.domain) {
-      return (
-        <p className="text-xs text-accent mt-1 font-mono truncate">
-          Your domain: {details.domain}
-        </p>
-      );
+      return `Your domain: ${details.domain}`;
     }
     if (details.type !== "custom") return null;
     const status = domainStatusLabel(details.status);
@@ -114,15 +111,25 @@ function ServiceDetailLine({ serviceId, svc }) {
     if (status) parts.push(status);
     if (expiry) parts.push(`renews ${expiry}`);
     if (autoRenew) parts.push("auto-renew on");
-    if (parts.length === 0) return null;
-    return (
-      <p className="text-xs text-accent mt-1 font-mono truncate">
-        {parts.join(" · ")}
-      </p>
-    );
+    return parts.length > 0 ? parts.join(" · ") : null;
   }
 
-  return null;
+  // Usage-based services: show how much of the included quota is used.
+  const used = usage?.by_service?.[serviceId]?.value;
+  if (used == null) return null;
+
+  switch (serviceId) {
+    case "smtp":
+      return `${Math.round(used).toLocaleString()} used`;
+    case "backup": {
+      const usedGB = formatGB(used / 1024);
+      return usedGB ? `${usedGB} used` : null;
+    }
+    case "ai":
+      return `${Math.round(used).toLocaleString()} used`;
+    default:
+      return null;
+  }
 }
 
 const SERVICE_META = [
@@ -185,8 +192,20 @@ export default function ExternalServicesCategory({
   csrfToken = "",
 }) {
   const [openModal, setOpenModal] = useState(null);
+  const [usage, setUsage] = useState(null);
 
   const closeModal = () => setOpenModal(null);
+
+  // Fetch per-service usage from Connect so the pills can show how much of
+  // the included quota has been used. Silent failure — usage is a nicety.
+  useEffect(() => {
+    if (!connectStatus?.connected) return undefined;
+    let cancelled = false;
+    getConnectUsage()
+      .then((u) => { if (!cancelled) setUsage(u); })
+      .catch(() => { if (!cancelled) setUsage(null); });
+    return () => { cancelled = true; };
+  }, [connectStatus?.connected]);
 
   const handleActivate = async (key) => {
     if (onActivateConnect) {
@@ -229,6 +248,7 @@ export default function ExternalServicesCategory({
         const svc = services[id];
         const badge = svc ? STATE_BADGES[svc.state] : STATE_BADGES.disabled;
         const limitLabel = isConnected ? formatServiceLimit(id, planLimits) : null;
+        const detailText = isConnected ? serviceDetailText({ serviceId: id, svc, usage }) : null;
 
         return (
           <div
@@ -251,23 +271,51 @@ export default function ExternalServicesCategory({
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-accent">{desc}</p>
-                    {limitLabel && (
+                    {(limitLabel || detailText) && (
                       <div className="mt-2">
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono",
-                            "bg-primary text-secondary border-2 border-secondary/10"
-                          )}
-                          title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
-                        >
-                          <span className="font-normal text-accent">Included:</span>
-                          <span className={limitLabel === "Not in plan" ? "text-secondary/60" : "text-secondary"}>
-                            {limitLabel}
+                        {detailText ? (
+                          <>
+                            {/* Desktop: combined two-segment pill */}
+                            <LayeredPill
+                              mono
+                              className="hidden sm:inline-flex"
+                              title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
+                              actionLabel={detailText}
+                            >
+                              <span className="font-normal text-accent">Included:</span>
+                              <span className={limitLabel === "Not in plan" ? "text-secondary/60" : "text-secondary"}>
+                                {limitLabel}
+                              </span>
+                            </LayeredPill>
+                            {/* Mobile: two separate stacked pills */}
+                            <div className="sm:hidden flex flex-col items-start gap-1">
+                              <span
+                                className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border-2 border-secondary/10"
+                                title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
+                              >
+                                Included: {limitLabel}
+                              </span>
+                              <span className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-accent text-primary border border-accent/40">
+                                {detailText}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono",
+                              "bg-primary text-secondary border-2 border-secondary/10"
+                            )}
+                            title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
+                          >
+                            <span className="font-normal text-accent">Included:</span>
+                            <span className={limitLabel === "Not in plan" ? "text-secondary/60" : "text-secondary"}>
+                              {limitLabel}
+                            </span>
                           </span>
-                        </span>
+                        )}
                       </div>
                     )}
-                    <ServiceDetailLine serviceId={id} svc={svc} />
                     {svc?.details && id !== "domain" && Object.keys(svc.details).length > 0 && (
                       <p className="text-xs text-accent/60 mt-1 font-mono truncate">
                         {Object.entries(svc.details).map(([k, v]) => `${k}: ${v}`).join(", ")}
@@ -340,6 +388,7 @@ export default function ExternalServicesCategory({
         service={services?.ai}
         connectStatus={connectStatus}
         aiSettings={aiSettings}
+        planLimits={planLimits}
         loading={modalLoading}
         csrfToken={csrfToken}
       />

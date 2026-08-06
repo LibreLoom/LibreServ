@@ -3,8 +3,11 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Check,
+  Database,
+  Mail,
   Moon,
   Plus,
+  RotateCw,
   Search,
   Settings,
   Sun,
@@ -19,6 +22,8 @@ import Button from "../components/ui/Button.jsx";
 import FormInput from "../components/common/forms/FormInput.jsx";
 import Pill from "../components/common/Pill.jsx";
 import StatusPill from "../components/common/StatusPill.jsx";
+import LayeredPill from "../components/ui/LayeredPill.jsx";
+import LayeredCard from "../components/ui/LayeredCard.jsx";
 import Alert from "../components/common/Alert.jsx";
 import Toggle from "../components/common/Toggle.jsx";
 import Dropdown from "../components/common/Dropdown.jsx";
@@ -372,6 +377,70 @@ export default function UIDemo() {
                   <Pill variant="warning">Warning</Pill>
                   <Pill variant="error">Error</Pill>
                   <Pill variant="info">Info</Pill>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm text-secondary/70 mb-3 font-mono">LayeredPill</p>
+                <div className="flex flex-wrap gap-3">
+                  <LayeredPill
+                    icon={<Mail size={12} />}
+                    actionIcon={<RotateCw size={11} />}
+                    actionLabel="Resend"
+                    onAction={() => {}}
+                  >
+                    Code sent to you@example.com
+                  </LayeredPill>
+                  <LayeredPill mono actionLabel="12.4 GB / 20 GB">
+                    <span className="font-normal text-accent">Included:</span> Backup
+                  </LayeredPill>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm text-secondary/70 mb-3 font-mono">LayeredCard (vertical)</p>
+                <div className="flex flex-wrap gap-3 items-start">
+                  <LayeredCard
+                    icon={<Mail size={12} />}
+                    actionIcon={<RotateCw size={11} />}
+                    actionLabel="Resend (30s)"
+                    onAction={() => {}}
+                    actionDisabled
+                  >
+                    Code sent to you@example.com
+                  </LayeredCard>
+                  <LayeredCard mono actionLabel="12.4 GB / 20 GB">
+                    <span className="font-normal text-accent">Included:</span> Backup
+                  </LayeredCard>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm text-secondary/70 mb-3 font-mono">LayeredCard (content, size="md")</p>
+                <div className="flex flex-wrap gap-3 items-start">
+                  <LayeredCard
+                    size="md"
+                    icon={<Database size={16} />}
+                    actionLabel="Manage"
+                    onAction={() => {}}
+                    className="w-64"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-mono text-sm">Backups</h3>
+                      <p className="text-xs text-accent mt-0.5">Last backup 2h ago</p>
+                    </div>
+                  </LayeredCard>
+                  <LayeredCard
+                    size="md"
+                    mono
+                    actionLabel="12.4 GB / 20 GB"
+                    className="w-64"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-mono text-sm">Included on your plan</h3>
+                      <p className="text-xs text-accent mt-0.5">Backup storage</p>
+                    </div>
+                  </LayeredCard>
                 </div>
               </div>
 
