@@ -61,7 +61,10 @@ export default function SettingsPage() {
   const [error, setError] = useState(null);
   const [activeCategory, setActiveCategory] = useState(() => {
     const hash = window.location.hash.slice(1);
-    if (allowedCategoryIds.includes(hash)) return hash;
+    // Deep links like #external_services-tunnel carry a service suffix; the
+    // category is the part before the dash.
+    const [catId] = hash.split("-");
+    if (allowedCategoryIds.includes(catId)) return catId;
     // Admins default to General; users (who can't see it) default to Appearance.
     return isAdmin ? "general" : "appearance";
   });
@@ -120,8 +123,11 @@ export default function SettingsPage() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.slice(1);
-      if (allowedCategoryIds.includes(hash)) {
-        setActiveCategory(hash);
+      // A trailing service suffix (e.g. #external_services-tunnel) deep-links
+      // into a specific service; the category is the part before the dash.
+      const [catId] = hash.split("-");
+      if (allowedCategoryIds.includes(catId)) {
+        setActiveCategory(catId);
         setShowMobileContent(true);
       }
     };
@@ -334,7 +340,7 @@ export default function SettingsPage() {
           />
         </div>
         {/* Content — the only thing that scrolls */}
-        <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-2 duration-300">
+        <div className="flex-1 overflow-y-auto min-h-0 pl-10 pr-4 pb-24 animate-in fade-in slide-in-from-right-1 duration-150">
           <SettingsContent
             category={activeCategory}
             settings={settings}
@@ -376,7 +382,7 @@ export default function SettingsPage() {
       <div className="md:hidden flex-1 overflow-y-auto min-h-0">
         {!showMobileContent ? (
           <div className="p-4 pt-6 pb-24">
-            <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-200">
+            <h1 className="text-xl font-mono font-normal text-secondary mb-4 animate-in fade-in duration-150">
               Settings
             </h1>
             <SettingsSidebar
@@ -386,7 +392,7 @@ export default function SettingsPage() {
             />
           </div>
         ) : (
-          <div className="p-4 pt-6 pb-24 animate-in fade-in slide-in-from-right-4 duration-300">
+          <div className="p-4 pt-6 pb-24 animate-in fade-in slide-in-from-right-2 duration-150">
             <Button
               variant="ghost"
               surface="primary"

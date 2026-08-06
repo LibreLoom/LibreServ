@@ -196,6 +196,23 @@ export default function ExternalServicesCategory({
 
   const closeModal = () => setOpenModal(null);
 
+  // Deep links like #external_services-tunnel land here with the service modal
+  // meant to open. The suffix is stripped from the URL so clicking the same
+  // link again still fires a hashchange. "support" is informational, not a
+  // modal, so it's excluded.
+  useEffect(() => {
+    const openFromHash = () => {
+      const m = window.location.hash.match(/^#external_services-(smtp|domain|backup|tunnel|ai)$/);
+      if (m) {
+        setOpenModal(m[1]);
+        window.history.replaceState(null, "", "#external_services");
+      }
+    };
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, []);
+
   // Fetch per-service usage from Connect so the pills can show how much of
   // the included quota has been used. Silent failure — usage is a nicety.
   useEffect(() => {
@@ -230,7 +247,7 @@ export default function ExternalServicesCategory({
         external services your server depends on, in one place.
       </p>
 
-      <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="animate-in fade-in slide-in-from-bottom-1 duration-150">
         <ConnectStatusCard
           connected={connectStatus?.connected}
           plan={connectStatus?.plan}

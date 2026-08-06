@@ -67,7 +67,7 @@ vi.mock("../../../../context/ToastContext", () => ({
   }),
 }));
 
-import { getCaddyStatus, listRoutes, getCaddyfile, getNetworkReport, getNetworkPlans } from "../../../../lib/network-api";
+import { getCaddyStatus, listRoutes, getCaddyfile, getNetworkReport, getNetworkPlans, getConnectivityStatus } from "../../../../lib/network-api";
 
 const mockRoutes = [
   {
@@ -319,5 +319,90 @@ describe("NetworkCategory report + plans", () => {
     await waitFor(() => {
       expect(screen.getByText(/dedicated address would make this reachable/)).toBeInTheDocument();
     });
+  });
+});
+
+describe("NetworkCategory reachability guidance per network state", () => {
+  beforeEach(() => {
+    /** @type {any} */ (getNetworkReport).mockResolvedValue({
+      generated_at: Date.now() / 1000,
+      stacks: { v4: { available: true, public_addr: "97.113.19.136", inbound_open: false }, v6: { available: false } },
+      nat: { type: "full_cone", behind_double_nat: false },
+      upnp: { discovered: true, enabled: false, router_make: "Linksys", router_model: "MX43" },
+      connect: { active: false, tunnel_ok: false },
+      domain: {},
+      headline: "Only people on your home network can use your apps right now.",
+    });
+    /** @type {any} */ (getNetworkPlans).mockResolvedValue({ plans: [] });
+  });
+
+  it("shows port forwarding steps for a router that can forward (full_cone)", async () => {
+    /** @type {any} */ (getConnectivityStatus).mockResolvedValue({
+      nat_type: "full_cone", local_ip: "192.168.1.41",
+    });
+    /** @type {any} */ (getNetworkReport).mockResolvedValue({
+      generated_at: Date.now() / 1000,
+      stacks: { v4: { available: true, public_addr: "97.113.19.136", inbound_open: false }, v6: { available: false } },
+      nat: { type: "full_cone", behind_double_nat: false },
+      upnp: { discovered: false },
+      connect: { active: false, tunnel_ok: false },
+      domain: {},
+      headline: "Only people on your home network can use your apps right now.",
+    });
+    renderWithProviders(<NetworkCategory settings={{}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Here's what to do")).toBeInTheDocument();
+    });
+    expect(screen.getByText(/blocks outside traffic/)).toBeInTheDocument();
+    expect(screen.getByText("Your device IP:")).toBeInTheDocument();
+  });
+
+  it("tells double-NAT users port forwarding won't work and points at Connect", async () => {
+    /** @type {any} */ (getNetworkReport).mockResolvedValue({
+      generated_at: Date.now() / 1000,
+      stacks: { v4: { available: true, public_addr: "10.0.0.1", inbound_open: false }, v6: { available: false } },
+      nat: { type: "cgnat", behind_double_nat: true },
+      upnp: { discovered: false },
+      connect: { active: false, tunnel_ok: false },
+      domain: {},
+      headline: "Your network shares an internet address with others, so apps can't be reached directly from outside.",
+    });
+    renderWithProviders(<NetworkCategory settings={{}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/shares your address with other customers/)).toBeInTheDocument();
+    });
+    expect(screen.getByRole("link", { name: /Open External Services/ })).toBeInTheDocument();
+  });
+
+  it("tells the user to turn on UPnP when the router has it disabled", async () => {
+    /** @type {any} */ (getConnectivityStatus).mockResolvedValue({
+      nat_type: "unknown", local_ip: "192.168.1.41",
+    });
+    renderWithProviders(<NetworkCategory settings={{}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/setting that opens your apps to the internet automatically/)).toBeInTheDocument();
+    });
+    expect(screen.getByText("Turn it on")).toBeInTheDocument();
+  });
+
+  it("offers both options when the network type could not be determined", async () => {
+    /** @type {any} */ (getNetworkReport).mockResolvedValue({
+      generated_at: Date.now() / 1000,
+      stacks: { v4: { available: true, public_addr: "97.113.19.136", inbound_open: false }, v6: { available: false } },
+      nat: { type: "unknown", behind_double_nat: false },
+      upnp: { discovered: false },
+      connect: { active: false, tunnel_ok: false },
+      domain: {},
+      headline: "Only people on your home network can use your apps right now.",
+    });
+    renderWithProviders(<NetworkCategory settings={{}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't determine exactly how your network is set up/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/A protected connection/)).toBeInTheDocument();
   });
 });

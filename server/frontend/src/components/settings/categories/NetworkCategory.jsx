@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, ChevronUp, Shield, Radio, Layers, PlugZap } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { Server, Trash2, Wifi, WifiOff, Globe, RefreshCw, AlertTriangle, ExternalLink, ChevronDown, Shield, Radio, Layers, PlugZap } from "lucide-react";
 import PropTypes from "prop-types";
 import ConfirmModal from "../../cards/ConfirmModal";
 import SettingsCard from "../SettingsCard";
@@ -9,7 +9,7 @@ import RoutesCard from "../../network/RoutesCard";
 import DebugCard from "../../network/DebugCard";
 import RouteModal from "../RouteModal";
 import ValueDisplay from "../../common/ValueDisplay";
-import Dropdown from "../../common/Dropdown";
+import CollapsibleSection from "../../common/CollapsibleSection";
 import Button from "../../ui/Button";
 import { useAuth } from "../../../hooks/useAuth";
 import { useToast } from "../../../context/ToastContext";
@@ -19,49 +19,70 @@ import {
   getCaddyfile,
   getConnectivityStatus,
   getUPnPStatus,
-  getDDNSStatus,
-  ddnsForceUpdate,
-  ddnsSetInterval,
   getTunnelStatus,
   getNetworkReport,
   getNetworkPlans,
 } from "../../../lib/network-api";
 
-// ─── Reachability card — the one big status the page leads with ────────────
+// ─── Reachability — the one big status the page leads with ──────────────────
 
-function ReachabilityCard({ report, loading, onRetry }) {
+function ReachabilityCard({ report, loading, onRetry, connectivity }) {
+  const tunnel = report?.connect?.active && report?.connect?.tunnel_ok;
+  const v4 = report?.stacks?.v4?.inbound_open;
+  const v6 = report?.stacks?.v6?.inbound_open;
+  const reachable = Boolean(tunnel || v4 || v6);
+
   const status = useMemo(() => {
     if (loading) {
-      return { icon: WifiOff, label: "Checking your network…", tone: "text-secondary", bg: "bg-accent/10 border-accent/20" };
+      return { icon: WifiOff, label: "Checking your network…", tone: "text-primary", bg: "bg-accent/10 border-accent/20" };
     }
     if (!report) {
       return { icon: WifiOff, label: "We couldn't check your network right now.", tone: "text-warning", bg: "bg-warning/10 border-warning/20" };
     }
-    const tunnel = report.connect?.active && report.connect?.tunnel_ok;
-    const v4 = report.stacks?.v4?.inbound_open;
-    const v6 = report.stacks?.v6?.inbound_open;
     if (tunnel) return { icon: Wifi, label: report.headline || "Your apps are reachable from the internet.", tone: "text-success", bg: "bg-success/10 border-success/20" };
     if (v4 && v6) return { icon: Wifi, label: report.headline || "Your apps are reachable on both network types.", tone: "text-success", bg: "bg-success/10 border-success/20" };
     if (v4 || v6) return { icon: Wifi, label: report.headline || "Your apps are reachable from the internet.", tone: "text-success", bg: "bg-success/10 border-success/20" };
     if (report.nat?.behind_double_nat) return { icon: AlertTriangle, label: report.headline, tone: "text-warning", bg: "bg-warning/10 border-warning/20" };
-    return { icon: WifiOff, label: report.headline || "Only people on your home network can use your apps right now.", tone: "text-secondary", bg: "bg-primary/5 border-primary/10" };
-  }, [report, loading]);
+    return { icon: WifiOff, label: report.headline || "Only people on your home network can use your apps right now.", tone: "text-primary", bg: "bg-primary/5 border-primary/10" };
+  }, [report, loading, tunnel, v4, v6]);
 
   const Icon = status.icon;
 
   // Coverage pills: which visitor networks can reach the apps.
   const coverage = useMemo(() => {
     if (loading || !report) return [];
-    const tunnel = report.connect?.active && report.connect?.tunnel_ok;
-    const v4 = report.stacks?.v4?.inbound_open;
-    const v6 = report.stacks?.v6?.inbound_open;
     if (tunnel) return [{ label: "Everyone", ok: true }];
     const pills = [];
     if (v4) pills.push({ label: "All networks", ok: true });
     if (v6 && !v4) pills.push({ label: "Newer networks", ok: true });
     if (!v4 && !v6) pills.push({ label: "Home network only", ok: false });
     return pills;
-  }, [report, loading]);
+  }, [report, loading, tunnel, v4, v6]);
+
+  // Which fix applies when nothing is reachable, in priority order. Port
+  // forwarding can't help behind double NAT (the address is shared), and a
+  // discovered-but-disabled router UPnP is a one-switch fix that beats manual
+  // rules. "generic" is the honest fallback when detection produced no usable
+  // NAT type.
+  const doubleNAT =
+    Boolean(report?.nat?.behind_double_nat) ||
+    ["cgnat", "symmetric", "blocked"].includes(connectivity?.nat_type);
+  const upnpOff = report?.upnp?.discovered && !report?.upnp?.enabled;
+  const needsPortForwarding = ["full_cone", "restricted", "port_restricted"].includes(connectivity?.nat_type);
+  const guide = !reachable
+    ? doubleNAT
+      ? "cgnat"
+      : upnpOff
+        ? "upnp"
+        : needsPortForwarding
+          ? "ports"
+          : report
+            ? "generic"
+            : null
+    : null;
+
+  const localIP = connectivity?.local_ip || "";
+  const routerName = [report?.upnp?.router_make, report?.upnp?.router_model].filter(Boolean).join(" ");
 
   return (
     <SettingsCard icon={Radio} title="Reachability" index={0}>
@@ -85,7 +106,7 @@ function ReachabilityCard({ report, loading, onRetry }) {
                   "text-xs px-3 py-1 rounded-pill border",
                   p.ok
                     ? "bg-success/10 border-success/20 text-success"
-                    : "bg-primary/5 border-primary/10 text-secondary"
+                    : "bg-primary/5 border-primary/10 text-primary"
                 )}
               >
                 {p.label}
@@ -94,25 +115,160 @@ function ReachabilityCard({ report, loading, onRetry }) {
           </div>
         )}
 
+        {guide === "cgnat" && (
+          <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3 space-y-3">
+            <div className="rounded-large-element bg-error/10 border border-error/20 px-4 py-3">
+              <p className="text-sm text-error leading-relaxed">
+                {connectivity?.nat_type === "symmetric"
+                  ? "Your router uses a strict network type that prevents port forwarding from working."
+                  : connectivity?.nat_type === "blocked"
+                    ? "Your network blocks incoming connections entirely."
+                    : "Your internet provider shares your address with other customers, so regular port forwarding won't work."
+                }
+              </p>
+            </div>
+
+            <p className="text-sm text-primary leading-relaxed">
+              Your apps need a protected connection out to the internet. The simple fix: LibreServ Connect gives this device an address on the internet — no router changes needed.
+            </p>
+            <p className="text-xs text-primary leading-relaxed">
+              In External Services: activate <strong>Connect</strong> at the top, then open the <strong>Tunnel</strong> card and turn it on.
+            </p>
+            <div>
+              <Button asChild variant="primary" size="sm" surface="secondary">
+                <a href="#external_services">Open External Services →</a>
+              </Button>
+            </div>
+
+            <CollapsibleSection title="Other ways to fix this" size="sm" pill>
+              <div className="space-y-2">
+                <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3">
+                  <p className="text-sm font-mono text-primary mb-1">Cloudflare Tunnel</p>
+                  <p className="text-xs text-primary leading-relaxed">
+                    Routes traffic through Cloudflare's network. Requires a domain managed by Cloudflare. Free for personal use.
+                  </p>
+                  <a
+                    href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-accent hover:underline mt-2"
+                  >
+                    Learn more <ExternalLink size={12} />
+                  </a>
+                </div>
+
+                <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3">
+                  <p className="text-sm font-mono text-primary mb-1">WireGuard VPS</p>
+                  <p className="text-xs text-primary leading-relaxed">
+                    Rent a small server (~$5/month) and create a private tunnel. Full control, no third-party dependency.
+                  </p>
+                  <a
+                    href="https://www.wireguard.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-accent hover:underline mt-2"
+                  >
+                    Learn more <ExternalLink size={12} />
+                  </a>
+                </div>
+
+                <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3">
+                  <p className="text-sm font-mono text-primary mb-1">Ask your internet provider</p>
+                  <p className="text-xs text-primary leading-relaxed">
+                    Ask for a public IP address. Some providers will give you one for free or a small fee.
+                  </p>
+                </div>
+              </div>
+            </CollapsibleSection>
+          </div>
+        )}
+
+        {guide === "upnp" && (
+          <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3 space-y-3">
+            <p className="font-mono text-sm font-semibold text-primary">Here's what to do</p>
+            <p className="text-sm text-primary leading-relaxed">
+              Your {routerName ? `${routerName} ` : ""}router already has the setting that opens your apps to the internet automatically — it's just turned off. Turning it on is the easiest fix.
+            </p>
+            <ol className="list-decimal list-inside space-y-2 text-xs text-primary leading-relaxed">
+              <li>Open your router settings (usually <span className="font-mono text-primary">http://192.168.1.1</span> or <span className="font-mono text-primary">http://10.0.0.1</span>)</li>
+              <li>Find the setting called <strong>UPnP</strong> (often under Advanced or Network settings)</li>
+              <li>Turn it on</li>
+              <li>Save and apply</li>
+            </ol>
+            <div className="border-t border-primary/10 pt-2">
+              <p className="text-xs text-primary">
+                Prefer not to use UPnP? Set up port forwarding manually instead: forward <span className="font-mono text-primary">TCP ports 80 and 443</span> to <span className="font-mono text-primary">{localIP || "this device"}</span>.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {guide === "ports" && (
+          <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3 space-y-3">
+            <p className="font-mono text-sm font-semibold text-primary">Here's what to do</p>
+            <p className="text-sm text-primary leading-relaxed">
+              Your router{routerName ? ` (${routerName})` : ""} blocks outside traffic, so only people on your
+              home network can use your apps right now. To let other people in, tell your router to send web
+              traffic to this device (that's ports 80 and 443). This is a one-time setup.
+            </p>
+            <ol className="list-decimal list-inside space-y-2 text-xs text-primary leading-relaxed">
+              <li>Open your router settings (usually <span className="font-mono text-primary">http://192.168.1.1</span> or <span className="font-mono text-primary">http://10.0.0.1</span>)</li>
+              <li>Find the section called <strong>Port Forwarding</strong> (sometimes listed as <strong>NAT</strong> or <strong>Port Mapping</strong>)</li>
+              <li>Add a rule: forward <span className="font-mono text-primary">TCP port 80</span> to <span className="font-mono text-primary">{localIP || "this device"}</span></li>
+              <li>Add a rule: forward <span className="font-mono text-primary">TCP port 443</span> to <span className="font-mono text-primary">{localIP || "this device"}</span></li>
+              <li>Save and apply</li>
+            </ol>
+            <div className="border-t border-primary/10 pt-2">
+              <p className="text-xs text-primary">
+                <strong className="font-mono text-primary">Your device IP:</strong> {localIP || "Detecting..."}
+              </p>
+            </div>
+            <div className="border-t border-primary/10 pt-3 space-y-2">
+              <p className="text-xs text-primary leading-relaxed">
+                Prefer to skip the router setup? Open the <strong>Tunnel</strong> card in External Services and turn it on — no router changes needed. You'll need either a LibreServ Connect account or a Cloudflare Tunnel token.
+              </p>
+              <Button asChild variant="outline" size="sm" surface="secondary">
+                <a href="#external_services-tunnel">Open Tunnel setup →</a>
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {guide === "generic" && (
+          <div className="rounded-large-element bg-primary/5 border border-primary/10 px-4 py-3 space-y-3">
+            <p className="font-mono text-sm font-semibold text-primary">Here's what to do</p>
+            <p className="text-sm text-primary leading-relaxed">
+              We couldn't determine exactly how your network is set up. Either of these will let other people reach your apps:
+            </p>
+            <ol className="list-decimal list-inside space-y-2 text-xs text-primary leading-relaxed">
+              <li><strong>Port forwarding</strong> — tell your router to send web traffic (ports 80 and 443) to this device. In your router settings, look for <strong>Port Forwarding</strong> (sometimes called <strong>NAT</strong>).</li>
+              <li><strong>A protected connection</strong> — open the <a href="#external_services-tunnel" className="text-accent underline">Tunnel</a> card in External Services and turn it on. No router changes needed.</li>
+            </ol>
+          </div>
+        )}
+
         {report && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            {report.stacks?.v4?.public_addr && (
-              <ValueDisplay label="Public Address" value={report.stacks.v4.public_addr} />
-            )}
-            {report.stacks?.v6?.public_addr && (
-              <ValueDisplay label="IPv6 Address" value={report.stacks.v6.public_addr} />
-            )}
-            {report.nat?.type && report.nat.type !== "unknown" && (
-              <ValueDisplay label="Network Type" value={report.nat.type} mono={false} />
-            )}
-            {report.upnp?.discovered && (
-              <ValueDisplay
-                label="Router"
-                value={[report.upnp.router_make, report.upnp.router_model].filter(Boolean).join(" ") || "Router"}
-                mono={false}
-              />
-            )}
-            {report.domain?.name && <ValueDisplay label="Domain" value={report.domain.name} />}
+          <div className="space-y-2">
+            <p className="font-mono text-xs font-semibold text-primary">About your network</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              {report.stacks?.v4?.public_addr && (
+                <ValueDisplay label="Public Address" value={report.stacks.v4.public_addr} />
+              )}
+              {report.stacks?.v6?.public_addr && (
+                <ValueDisplay label="IPv6 Address" value={report.stacks.v6.public_addr} />
+              )}
+              {report.nat?.type && report.nat.type !== "unknown" && (
+                <ValueDisplay label="Network Type" value={report.nat.type} mono={false} />
+              )}
+              {report.upnp?.discovered && (
+                <ValueDisplay
+                  label="Router"
+                  value={[report.upnp.router_make, report.upnp.router_model].filter(Boolean).join(" ") || "Router"}
+                  mono={false}
+                />
+              )}
+              {report.domain?.name && <ValueDisplay label="Domain" value={report.domain.name} />}
+            </div>
           </div>
         )}
       </div>
@@ -123,63 +279,79 @@ ReachabilityCard.propTypes = {
   report: PropTypes.object,
   loading: PropTypes.bool,
   onRetry: PropTypes.func,
+  connectivity: PropTypes.object,
 };
 
-// ─── Per-app plan cards — what each app needs and how it's reached ─────────
+// ─── Your apps — one card, one row per app ──────────────────────────────────
 
-function AppPlanCard({ plan, index }) {
+const PLAN_STATE = {
+  direct_v4: { label: "Reachable directly", tone: "text-success", bg: "bg-success/10 border-success/20" },
+  direct_v6: { label: "Reachable directly", tone: "text-success", bg: "bg-success/10 border-success/20" },
+  upnp: { label: "Ports opened on your router", tone: "text-success", bg: "bg-success/10 border-success/20" },
+  guide_upnp: { label: "Router setting needs turning on", tone: "text-warning", bg: "bg-warning/10 border-warning/20" },
+  cloudflared: { label: "Reachable via protected connection", tone: "text-success", bg: "bg-success/10 border-success/20" },
+  frp: { label: "Reachable via dedicated address", tone: "text-success", bg: "bg-success/10 border-success/20" },
+  lan_only: { label: "Home network only", tone: "text-primary", bg: "bg-primary/5 border-primary/10" },
+};
+
+function AppPlanRow({ plan }) {
   const needLabel = useMemo(() => {
-    const parts = [];
     if (plan.ports?.length) {
       const labels = plan.ports.map((p) => (p.protocol ? `${p.protocol} ${p.port}` : String(p.port)));
-      parts.push(`Needs port${labels.length > 1 ? "s" : ""} ${labels.join(", ")}`);
-    } else {
-      parts.push("Web access");
+      return `Needs port${labels.length > 1 ? "s" : ""} ${labels.join(", ")}`;
     }
-    return parts.join(" · ");
+    return "Web access";
   }, [plan]);
 
-  const stateCfg = {
-    direct_v4: { label: "Reachable directly", tone: "text-success", bg: "bg-success/10 border-success/20" },
-    direct_v6: { label: "Reachable directly", tone: "text-success", bg: "bg-success/10 border-success/20" },
-    upnp: { label: "Ports opened on your router", tone: "text-success", bg: "bg-success/10 border-success/20" },
-    guide_upnp: { label: "Router setting needs turning on", tone: "text-warning", bg: "bg-warning/10 border-warning/20" },
-    cloudflared: { label: "Reachable via protected connection", tone: "text-success", bg: "bg-success/10 border-success/20" },
-    frp: { label: "Reachable via dedicated address", tone: "text-success", bg: "bg-success/10 border-success/20" },
-    lan_only: { label: "Home network only", tone: "text-secondary", bg: "bg-primary/5 border-primary/10" },
-  };
-  const cfg = stateCfg[plan.path] || stateCfg.lan_only;
+  const cfg = PLAN_STATE[plan.path] || PLAN_STATE.lan_only;
 
   return (
-    <SettingsCard icon={PlugZap} title={plan.app_name} index={index}>
-      <div className="px-5 py-4 space-y-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <span className="text-xs text-secondary">{needLabel}</span>
-          <span className={cn("text-xs px-3 py-1 rounded-pill border font-mono", cfg.bg, cfg.tone)}>
-            {cfg.label}
-          </span>
+    <div className="px-5 py-4 space-y-2">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <p className="font-mono text-sm font-semibold text-primary truncate">{plan.app_name}</p>
+          <p className="text-xs text-primary mt-0.5">{needLabel}</p>
         </div>
-        <p className="text-sm text-primary/70 leading-relaxed">{plan.message}</p>
-        {plan.addon_needed && (
-          <p className="text-xs text-warning leading-relaxed">
-            A dedicated address would make this reachable from the internet. Check Connect plans to add one.
-          </p>
-        )}
+        <span className={cn("text-xs px-3 py-1 rounded-pill border font-mono shrink-0", cfg.bg, cfg.tone)}>
+          {cfg.label}
+        </span>
+      </div>
+      {plan.message && (
+        <p className="text-sm text-primary leading-relaxed">{plan.message}</p>
+      )}
+      {plan.addon_needed && (
+        <p className="text-xs text-warning leading-relaxed">
+          A dedicated address would make this reachable from the internet. Check Connect plans to add one.
+        </p>
+      )}
+    </div>
+  );
+}
+AppPlanRow.propTypes = { plan: PropTypes.object };
+
+function AppsCard({ plans, index }) {
+  return (
+    <SettingsCard icon={PlugZap} title="Your Apps" padding={false} index={index}>
+      <div className="divide-y divide-primary/10">
+        {plans.map((plan) => <AppPlanRow key={plan.app_id} plan={plan} />)}
       </div>
     </SettingsCard>
   );
 }
-AppPlanCard.propTypes = { plan: PropTypes.object, index: PropTypes.number };
+AppsCard.propTypes = { plans: PropTypes.array.isRequired, index: PropTypes.number };
 
 // ─── Advanced section (collapsed by default) ────────────────────────────────
 
-function AdvancedSection({ children, count }) {
+function AdvancedSection({ children }) {
   const [open, setOpen] = useState(false);
+  const contentId = useId();
   return (
     <div className="space-y-4">
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={contentId}
         className={cn(
           "w-full flex items-center justify-between px-4 py-3 rounded-pill",
           "bg-primary text-secondary border-2 border-secondary/10",
@@ -189,155 +361,42 @@ function AdvancedSection({ children, count }) {
         <span className="font-mono text-sm font-semibold flex items-center gap-2">
           <Layers size={16} />
           Advanced
-          {typeof count === "number" && count > 0 && (
-            <span className="text-xs text-secondary/50">({count})</span>
-          )}
         </span>
-        {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        <ChevronDown
+          size={16}
+          className={cn("motion-safe:transition-transform duration-200", open ? "rotate-180" : "rotate-0")}
+          aria-hidden="true"
+        />
       </button>
-      {open && <div className="space-y-6">{children}</div>}
+      {/* Always mounted so opening never replays the cards' entrance
+          animations; visibility is toggled with a grid-rows collapse. */}
+      <div
+        id={contentId}
+        inert={!open}
+        className={cn(
+          "grid motion-safe:transition-all motion-safe:duration-300 motion-safe:ease-[var(--motion-easing-emphasized)]",
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="space-y-6">{children}</div>
+        </div>
+      </div>
     </div>
   );
 }
-AdvancedSection.propTypes = { children: PropTypes.node, count: PropTypes.number };
+AdvancedSection.propTypes = { children: PropTypes.node };
 
-// ─── Legacy detailed cards (kept for advanced users) ────────────────────────
-
-function RemoteAccessStatusCard({ connectivity, index }) {
-  if (!connectivity) return null;
-
-  const statusConfig = {
-    active: { icon: Wifi, label: "Remote Access Active", className: "text-success", bg: "bg-success/10 border-success/20" },
-    degraded: { icon: Wifi, label: "Limited Remote Access", className: "text-warning", bg: "bg-warning/10 border-warning/20" },
-    local_only: { icon: WifiOff, label: "Local Access Only", className: "text-accent", bg: "bg-accent/10 border-accent/20" },
-    blocked: { icon: AlertTriangle, label: "Remote Access Blocked", className: "text-error", bg: "bg-error/10 border-error/20" },
-    unknown: { icon: WifiOff, label: "Checking...", className: "text-secondary/50", bg: "bg-primary/5 border-primary/10" },
-  };
-
-  const cfg = statusConfig[connectivity.remote_access] || statusConfig.unknown;
-  const Icon = cfg.icon;
-
-  const natLabel = {
-    open: "Direct (no NAT)",
-    full_cone: "Full Cone NAT",
-    restricted: "Restricted NAT",
-    port_restricted: "Port Restricted NAT",
-    symmetric: "Symmetric NAT",
-    cgnat: "Carrier-Grade NAT",
-    blocked: "UDP Blocked",
-  };
-
+function ExternalServicesLinkRow({ label, description }) {
   return (
-    <SettingsCard icon={Radio} title="Remote Access" index={index}>
-      <div className="px-5 py-4 space-y-4">
-        <div className={cn("rounded-large-element border px-4 py-3 flex items-center gap-3", cfg.bg)}>
-          <Icon className={cn("w-5 h-5", cfg.className)} />
-          <span className={cn("font-mono text-sm font-semibold", cfg.className)}>{cfg.label}</span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {connectivity.public_ip && (
-            <ValueDisplay label="Public IP" value={connectivity.public_ip} />
-          )}
-          {connectivity.nat_type && connectivity.nat_type !== "unknown" && (
-            <ValueDisplay label="Network Type" value={natLabel[connectivity.nat_type] || connectivity.nat_type} mono={false} />
-          )}
-          {connectivity.domain?.configured && (
-            <ValueDisplay label="Domain" value={connectivity.domain.domain} />
-          )}
-        </div>
-
-        {connectivity.suggestions?.length > 0 && (
-          <div className="space-y-1.5">
-            {connectivity.suggestions.map((s, i) => (
-              <p key={i} className="text-xs text-primary/60 leading-relaxed">{s}</p>
-            ))}
-          </div>
-        )}
-      </div>
-    </SettingsCard>
+    <SettingsRow label={label} description={description}>
+      <Button asChild variant="outline" size="sm" surface="secondary">
+        <a href="#external_services">External Services →</a>
+      </Button>
+    </SettingsRow>
   );
 }
-RemoteAccessStatusCard.propTypes = { connectivity: PropTypes.object, index: PropTypes.number };
-
-function IPMonitorCard({ ddns, index }) {
-  const { addToast } = useToast();
-  const [updating, setUpdating] = useState(false);
-
-  const handleForceUpdate = useCallback(async () => {
-    setUpdating(true);
-    try {
-      await ddnsForceUpdate();
-      addToast({ type: "success", message: "IP check complete" });
-    } catch {
-      addToast({ type: "error", message: "IP check failed" });
-    } finally {
-      setUpdating(false);
-    }
-  }, [addToast]);
-
-  const handleSetInterval = useCallback(async (value) => {
-    const minutes = parseInt(value, 10);
-    if (isNaN(minutes) || minutes < 1 || minutes > 60) return;
-    try {
-      await ddnsSetInterval(minutes);
-      addToast({ type: "success", message: `Check interval set to ${minutes} min` });
-    } catch {
-      addToast({ type: "error", message: "Failed to set interval" });
-    }
-  }, [addToast]);
-
-  if (!ddns) return null;
-
-  return (
-    <SettingsCard icon={Globe} title="IP Monitor" index={index}>
-      <div className="px-5 py-4 space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <ValueDisplay
-            label="Status"
-            value={ddns.running
-              ? <span className="text-success">Running</span>
-              : <span className="text-error">Stopped</span>
-            }
-            mono={false}
-          />
-          {ddns.current_ip && <ValueDisplay label="Current IP" value={ddns.current_ip} />}
-          {ddns.last_update && (
-            <ValueDisplay label="Last Check" value={new Date(ddns.last_update).toLocaleString()} mono={false} />
-          )}
-          {ddns.last_error && (
-            <ValueDisplay label="Last Error" value={ddns.last_error} mono={false} />
-          )}
-        </div>
-
-        <div className="flex items-center gap-3 pt-1">
-          <Dropdown
-            value={String(ddns.interval_minutes || 5)}
-            onChange={handleSetInterval}
-            options={[
-              { value: "1", label: "1 min" },
-              { value: "2", label: "2 min" },
-              { value: "5", label: "5 min" },
-              { value: "10", label: "10 min" },
-              { value: "15", label: "15 min" },
-              { value: "30", label: "30 min" },
-              { value: "60", label: "60 min" },
-            ]}
-            width={80}
-            surface="primary"
-          />
-          <span className="text-xs text-primary/50">Check interval</span>
-
-          <Button variant="accent" onClick={handleForceUpdate} disabled={updating} className="ml-auto">
-            <RefreshCw size={14} className={updating ? "animate-spin" : ""} />
-            Check Now
-          </Button>
-        </div>
-      </div>
-    </SettingsCard>
-  );
-}
-IPMonitorCard.propTypes = { ddns: PropTypes.object, index: PropTypes.number };
+ExternalServicesLinkRow.propTypes = { label: PropTypes.string, description: PropTypes.string };
 
 function UPnPCard({ upnp, index }) {
   if (!upnp) return null;
@@ -358,7 +417,7 @@ function UPnPCard({ upnp, index }) {
             label="Enabled"
             value={upnp.enabled
               ? <span className="text-success">Yes</span>
-              : <span className="text-primary/50">No</span>
+              : <span className="text-primary">No</span>
             }
             mono={false}
           />
@@ -366,7 +425,7 @@ function UPnPCard({ upnp, index }) {
         </div>
 
         {upnp.available && !upnp.enabled && (
-          <div className="flex items-start gap-2 px-3 py-2 rounded-pill bg-warning/10 border border-warning/20">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-large-element bg-warning/10 border border-warning/20">
             <AlertTriangle size={14} className="text-warning mt-0.5 flex-shrink-0" />
             <p className="text-xs text-warning leading-relaxed">
               UPnP is available on your router but not enabled. Enable it for automatic port forwarding.
@@ -375,7 +434,7 @@ function UPnPCard({ upnp, index }) {
         )}
 
         {!upnp.available && (
-          <p className="text-xs text-primary/50 leading-relaxed">
+          <p className="text-xs text-primary leading-relaxed">
             Your router does not support UPnP, or it is disabled. You can set up port forwarding manually instead.
           </p>
         )}
@@ -384,121 +443,6 @@ function UPnPCard({ upnp, index }) {
   );
 }
 UPnPCard.propTypes = { upnp: PropTypes.object, index: PropTypes.number };
-
-function PortForwardingGuideCard({ connectivity, index }) {
-  const [showSteps, setShowSteps] = useState(false);
-  const localIP = connectivity?.local_ip || "";
-  const needsGuide = connectivity?.nat_type === "full_cone" ||
-    connectivity?.nat_type === "restricted" ||
-    connectivity?.nat_type === "port_restricted";
-
-  if (!needsGuide) return null;
-
-  return (
-    <SettingsCard icon={ExternalLink} title="Port Forwarding" index={index}>
-      <div className="px-5 py-4 space-y-3">
-        <p className="text-sm text-primary/70 leading-relaxed">
-          Your router needs to be told to send incoming traffic to this device. This is a one-time setup in your router settings.
-        </p>
-
-        <Button
-          type="button"
-          variant="ghost"
-          surface="secondary"
-          size="sm"
-          onClick={() => setShowSteps(!showSteps)}
-          className="font-mono"
-        >
-          {showSteps ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          {showSteps ? "Hide steps" : "Show steps"}
-        </Button>
-
-        {showSteps && (
-          <ol className="list-decimal list-inside space-y-2 text-xs text-primary/70 leading-relaxed">
-            <li>Open your router settings (usually <span className="font-mono text-primary">http://192.168.1.1</span> or <span className="font-mono text-primary">http://10.0.0.1</span>)</li>
-            <li>Find the <strong>Port Forwarding</strong> or <strong>NAT</strong> section</li>
-            <li>Add a rule: forward <span className="font-mono text-primary">TCP port 80</span> to <span className="font-mono text-primary">{localIP || "this device"}</span></li>
-            <li>Add a rule: forward <span className="font-mono text-primary">TCP port 443</span> to <span className="font-mono text-primary">{localIP || "this device"}</span></li>
-            <li>Save and apply</li>
-          </ol>
-        )}
-
-        <div className="rounded-large-element bg-secondary/5 border border-primary/10 px-3 py-2">
-          <p className="text-xs text-primary/50">
-            <strong className="font-mono text-primary/70">Your device IP:</strong> {localIP || "Detecting..."}
-          </p>
-        </div>
-      </div>
-    </SettingsCard>
-  );
-}
-PortForwardingGuideCard.propTypes = { connectivity: PropTypes.object, index: PropTypes.number };
-
-function CGNATGuidanceCard({ connectivity, index }) {
-  const isCGNAT = connectivity?.nat_type === "cgnat" || connectivity?.nat_type === "symmetric" || connectivity?.nat_type === "blocked";
-  if (!isCGNAT) return null;
-
-  return (
-    <SettingsCard icon={AlertTriangle} title="Network Limited" index={index}>
-      <div className="px-5 py-4 space-y-3">
-        <div className="rounded-large-element bg-error/10 border border-error/20 px-4 py-3">
-          <p className="text-sm text-error leading-relaxed">
-            {connectivity.nat_type === "cgnat"
-              ? "Your internet provider shares your address with other customers, so regular port forwarding won't work."
-              : connectivity.nat_type === "symmetric"
-              ? "Your router uses a strict network type that prevents port forwarding from working."
-              : "Your network blocks incoming connections entirely."
-            }
-          </p>
-        </div>
-
-        <p className="text-sm text-primary/70 leading-relaxed">
-          To make your apps reachable from outside your home, you need a tunnel service. Options:
-        </p>
-
-        <div className="space-y-2">
-          <div className="rounded-large-element bg-secondary/5 border border-primary/10 px-4 py-3">
-            <p className="text-sm font-mono text-primary mb-1">Cloudflare Tunnel</p>
-            <p className="text-xs text-primary/60 leading-relaxed">
-              Routes traffic through Cloudflare's network. Requires a domain managed by Cloudflare. Free for personal use.
-            </p>
-            <a
-              href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-accent hover:text-accent/80 mt-2"
-            >
-              Learn more <ExternalLink size={12} />
-            </a>
-          </div>
-
-          <div className="rounded-large-element bg-secondary/5 border border-primary/10 px-4 py-3">
-            <p className="text-sm font-mono text-primary mb-1">WireGuard VPS</p>
-            <p className="text-xs text-primary/60 leading-relaxed">
-              Rent a small server (~$5/month) and create a private tunnel. Full control, no third-party dependency.
-            </p>
-            <a
-              href="https://www.wireguard.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-accent hover:text-accent/80 mt-2"
-            >
-              Learn more <ExternalLink size={12} />
-            </a>
-          </div>
-
-          <div className="rounded-large-element bg-secondary/5 border border-primary/10 px-4 py-3">
-            <p className="text-sm font-mono text-primary mb-1">Contact Your ISP</p>
-            <p className="text-xs text-primary/60 leading-relaxed">
-              Ask your provider for a public IP address. Some ISPs will provide one for free or a small fee.
-            </p>
-          </div>
-        </div>
-      </div>
-    </SettingsCard>
-  );
-}
-CGNATGuidanceCard.propTypes = { connectivity: PropTypes.object, index: PropTypes.number };
 
 // ─── Main page ──────────────────────────────────────────────────────────────
 
@@ -520,7 +464,6 @@ export default function NetworkCategory({ settings }) {
   const [togglingId, setTogglingId] = useState(null);
   const [connectivity, setConnectivity] = useState(null);
   const [upnpStatus, setUpnpStatus] = useState(null);
-  const [ddnsStatus, setDdnsStatus] = useState(null);
   const [tunnelStatus, setTunnelStatus] = useState(null);
   const [report, setReport] = useState(null);
   const [plans, setPlans] = useState([]);
@@ -546,14 +489,13 @@ export default function NetworkCategory({ settings }) {
     setLoading(true);
     setLoadError(null);
     try {
-      const [routesData, statusData, appsData, caddyData, connectivityData, upnpData, ddnsData, tunnelData] = await Promise.all([
+      const [routesData, statusData, appsData, caddyData, connectivityData, upnpData, tunnelData] = await Promise.all([
         listRoutes(),
         getCaddyStatus(),
         request("/apps").then((r) => r.json()).catch(() => []),
         getCaddyfile().catch(() => ""),
         getConnectivityStatus().catch(() => null),
         getUPnPStatus().catch(() => null),
-        getDDNSStatus().catch(() => null),
         getTunnelStatus().catch(() => ({ available: false, enabled: false })),
       ]);
       setRoutes(Array.isArray(routesData) ? routesData : []);
@@ -562,7 +504,6 @@ export default function NetworkCategory({ settings }) {
       setCaddyfileContent(caddyData || "");
       setConnectivity(connectivityData);
       setUpnpStatus(upnpData);
-      setDdnsStatus(ddnsData);
       setTunnelStatus(tunnelData);
     } catch (err) {
       setApps([]);
@@ -667,59 +608,28 @@ export default function NetworkCategory({ settings }) {
 
   return (
     <div className="space-y-6" data-slot="network-category">
-      <ReachabilityCard report={report} loading={reportLoading} onRetry={loadReport} />
+      <ReachabilityCard report={report} loading={reportLoading} onRetry={loadReport} connectivity={connectivity} />
+      {plans.length > 0 && <AppsCard plans={plans} index={cardIndex++} />}
 
-      {plans.length > 0 && (
-        <div className="space-y-4">
-          <h3 className="font-mono text-sm font-semibold text-secondary flex items-center gap-2 px-1">
-            <PlugZap size={15} />
-            Your Apps
-          </h3>
-          {plans.map((plan) => <AppPlanCard key={plan.app_id} plan={plan} index={cardIndex++} />)}
-        </div>
-      )}
-
-      <AdvancedSection count={6}>
-        <RemoteAccessStatusCard connectivity={connectivity} index={cardIndex++} />
-
+      <AdvancedSection>
         <SettingsCard icon={Globe} title="Domain & DNS" padding={false} index={cardIndex++}>
-          <SettingsRow
+          <ExternalServicesLinkRow
             label="Configure your domain"
             description={defaultDomain ? `Current: ${defaultDomain}` : "No domain configured"}
-          >
-            <a
-              href="#external_services"
-              className="text-xs px-3 py-1.5 rounded-pill bg-primary text-secondary border-2 border-secondary/10 hover:bg-accent hover:text-primary hover:border-accent motion-safe:transition-colors"
-            >
-              External Services →
-            </a>
-          </SettingsRow>
+          />
         </SettingsCard>
 
         <SettingsCard icon={Shield} title="Tunnel" padding={false} index={cardIndex++}>
-          <SettingsRow
+          <ExternalServicesLinkRow
             label="Tunnel service"
             description={tunnelStatus?.enabled ? "Connected" : "Not configured"}
-          >
-            <a
-              href="#external_services"
-              className="text-xs px-3 py-1.5 rounded-pill bg-primary text-secondary border-2 border-secondary/10 hover:bg-accent hover:text-primary hover:border-accent motion-safe:transition-colors"
-            >
-              External Services →
-            </a>
-          </SettingsRow>
+          />
         </SettingsCard>
-
-        <IPMonitorCard ddns={ddnsStatus} index={cardIndex++} />
 
         <UPnPCard upnp={upnpStatus} index={cardIndex++} />
 
-        <PortForwardingGuideCard connectivity={connectivity} index={cardIndex++} />
-
-        <CGNATGuidanceCard connectivity={connectivity} index={cardIndex++} />
-
         {caddyStatus && (
-          <SettingsCard icon={Server} title="Proxy Status" index={cardIndex++}>
+          <SettingsCard icon={Server} title="Web Server" index={cardIndex++}>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
               <ValueDisplay
                 label="Status"
