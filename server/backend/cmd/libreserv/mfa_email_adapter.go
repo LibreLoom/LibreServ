@@ -9,8 +9,13 @@ import "gt.plainskill.net/LibreLoom/LibreServ/internal/email"
 type mfaOTPSender struct{ s *email.Sender }
 
 func (m mfaOTPSender) SendOTP(to, code string) error {
-	return m.s.Send([]string{to}, "Your LibreServ sign-in code",
-		"Your sign-in code is "+code+". It expires in 10 minutes.")
+	subject := "Your LibreServ sign-in code"
+	body := "Your sign-in code is " + code + ". It expires in 10 minutes."
+	htmlBody, err := email.RenderOTPEmail(subject, code)
+	if err != nil {
+		return m.s.Send([]string{to}, subject, body)
+	}
+	return m.s.SendHTMLEmail([]string{to}, subject, htmlBody)
 }
 
 func (m mfaOTPSender) SendInvite(to, inviteURL string) error {

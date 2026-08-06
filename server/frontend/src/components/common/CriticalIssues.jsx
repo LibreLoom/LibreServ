@@ -5,28 +5,7 @@ import { AlertTriangle, CheckCircle, XCircle, ChevronDown } from "lucide-react";
 import Pill from "./Pill";
 import { useSystemHealthCheck } from "../../hooks/useSystemHealthCheck";
 import { haptic } from "../../utils/haptics";
-
-// Plain-language labels for technical health-check names (AGENTS.md
-// plain-language rule: a non-technical user should not see "caddy_certs_writable").
-const CHECK_LABELS = {
-  disk_space: "Storage space",
-  smtp: "Email delivery",
-  caddy_certs_writable: "HTTPS certificate folder",
-  caddy_admin_writable: "Web server config folder",
-  caddy_config_writable: "Web server config file",
-  acme_data_writable: "HTTPS certificate data",
-  acme_certs_writable: "HTTPS certificate storage",
-  database: "Database",
-};
-
-function labelFor(name) {
-  return (
-    CHECK_LABELS[name] ||
-    String(name)
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase())
-  );
-}
+import { labelFor } from "../../lib/healthChecks";
 
 /**
  * CriticalIssues — surfaces failed system health checks as a compact pill in

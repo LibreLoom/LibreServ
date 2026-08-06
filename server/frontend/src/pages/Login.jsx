@@ -50,7 +50,6 @@ function ForgotPasswordModal({ isOpen, onClose }) {
       }
       
       setSent(true);
-      addToast({ type: "success", message: "Check your email for the reset link!" });
     } catch (err) {
       setError(err.message);
       addToast({ type: "error", message: err.message });
@@ -94,7 +93,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
   );
 }
 
-export default function Login({ embedded = false, returnTo = "/", onLoginSuccess }) {
+export default function Login({ embedded = false, returnTo = "/", onLoginSuccess, notice, noticeDetail }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
@@ -246,12 +245,23 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
             <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
             <StepTransition step={mfa ? "mfa" : "form"} order={LOGIN_STEPS}>
               {!mfa && (
-                <>
-                  <span className="text-primary font-mono text-xl font-normal block text-center">
-                    Hey there! Log in to continue.
-                  </span>
-                  <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
-                </>
+                notice ? (
+                  <>
+                    <span className="text-primary font-mono text-xl font-normal block text-center">
+                      {notice}
+                    </span>
+                    {noticeDetail && (
+                      <p className="text-primary/80 text-sm text-center mt-2">{noticeDetail}</p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-primary font-mono text-xl font-normal block text-center">
+                      Hey there! Log in to continue.
+                    </span>
+                    <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
+                  </>
+                )
               )}
               {mfa ? (
           <MfaChallenge
@@ -335,9 +345,13 @@ Login.propTypes = {
   embedded: PropTypes.bool,
   returnTo: PropTypes.string,
   onLoginSuccess: PropTypes.func,
+  notice: PropTypes.string,
+  noticeDetail: PropTypes.string,
 };
 Login.defaultProps = {
   embedded: false,
   returnTo: "/",
   onLoginSuccess: undefined,
+  notice: undefined,
+  noticeDetail: undefined,
 };

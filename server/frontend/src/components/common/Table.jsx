@@ -12,8 +12,8 @@ const ALIGN = {
   right: "text-right",
 };
 
-/** @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string }} _ */
-export default function Table({ columns, data, rowKey, scrollable, maxHeight, className = "" }) {
+/** @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string }} _ */
+export default function Table({ columns, data, rowKey, scrollable, maxHeight, className = "", headClassName = "text-secondary" }) {
   const wrapperStyle = scrollable ? { maxHeight: maxHeight || "24rem" } : undefined;
 
   return (
@@ -26,7 +26,7 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
                 <th
                   key={col.key}
                   scope="col"
-                  className={cn(`${ALIGN[col.align] || ALIGN.left} px-3 py-1.5 text-xs font-medium text-secondary`, col.hidden ? `hidden ${col.hidden}:table-cell` : "", col.width || "")}
+                  className={cn(`${ALIGN[col.align] || ALIGN.left} px-3 py-1.5 text-xs font-medium ${headClassName}`, col.hidden ? `hidden ${col.hidden}:table-cell` : "", col.width || "")}
                 >
                   {col.srOnly ? <span className="sr-only">{col.label}</span> : col.label}
                 </th>
@@ -86,4 +86,5 @@ Table.propTypes = {
   scrollable: PropTypes.bool,
   maxHeight: PropTypes.string,
   className: PropTypes.string,
+  headClassName: PropTypes.string,
 };

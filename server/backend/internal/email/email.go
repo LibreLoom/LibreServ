@@ -109,7 +109,11 @@ func HealthCheck() error {
 	}
 	defer c.Close()
 	if cfg.Username != "" {
-		auth := smtp.PlainAuth("", cfg.Username, cfg.Password, cfg.Host)
+		// Use authFor (not smtp.PlainAuth) so plaintext relays the user opted
+		// into via use_tls=false — e.g. the Connect relay reached through the
+		// encrypted tunnel — don't false-fail the stdlib "unencrypted
+		// connection" guard. Matches what the real sender does.
+		auth := authFor(cfg.Username, cfg.Password, cfg.Host, cfg.UseTLS)
 		if err := c.Auth(auth); err != nil {
 			return err
 		}

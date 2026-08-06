@@ -19,11 +19,10 @@ const TRANSITION = {
   full: "motion-safe:transition-all duration-300 ease-out",
 };
 
-const navButtonClasses = cn(
+const navButtonBaseClasses = cn(
   "flex",
   "items-center",
   "gap-2",
-  TRANSITION.base,
   "px-3",
   "py-1.5",
   "rounded-pill",
@@ -39,7 +38,20 @@ const navButtonClasses = cn(
   "focus-visible:ring-accent",
 );
 
+const navButtonClasses = cn(navButtonBaseClasses, TRANSITION.base);
+
 const menuItemClasses = cn("flex", "items-center", "gap-2", "px-3", "py-2", "rounded-pill", TRANSITION.base);
+
+// Mobile menu items: hover states must flip instantly — no TRANSITION classes.
+// (Menu open/close animation lives on the dialog itself, not these items.)
+const mobileMenuItemClasses = cn(
+  "w-full",
+  "justify-start",
+  "px-5",
+  "py-3.5",
+  "text-base",
+  navButtonBaseClasses,
+);
 
 const navButtons = [
 	{ to: "/", icon: Home, label: "Dashboard" },
@@ -424,7 +436,7 @@ export default function Navbar() {
         aria-label="Primary navigation"
       >
          <nav
-           className="flex flex-col w-[50vw] relative bg-secondary text-primary rounded-large-element justify-start ring-2 ring-accent"
+           className="flex flex-col w-[82vw] max-w-xs relative bg-secondary text-primary rounded-large-element ring-2 ring-accent"
            aria-label="Primary"
          >
           <div className="p-2.5 gap-1 flex flex-col">
@@ -432,7 +444,7 @@ export default function Navbar() {
               <React.Fragment key={`mobileNav-${item.to}`}>
                 <NavLink
                   to={item.to}
-                  className={cn("justify-center", "border-6", "border-secondary", "py-4", navButtonClasses)}
+                  className={mobileMenuItemClasses}
                   onClick={() => {
                     setIsMobileMenuOpen(false);
                     menuButtonRef.current?.focus();
@@ -444,14 +456,13 @@ export default function Navbar() {
                 </NavLink>
               </React.Fragment>
             ))}
-          </div>
-          <div className="p-2.5">
+            <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
             <button
               type="button"
               onClick={async () => {
                 await logout();
               }}
-              className={cn("w-full", "justify-center", "border-6", "border-secondary", "py-4", navButtonClasses)}
+              className={mobileMenuItemClasses}
             >
               <X size={18} aria-hidden="true" />
               <span>Sign Out</span>

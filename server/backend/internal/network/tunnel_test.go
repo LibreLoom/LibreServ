@@ -135,6 +135,7 @@ func TestFRPConfigGeneration(t *testing.T) {
 	f := newFRPProvider(FRPConfig{
 		TunnelProviderConfig: TunnelProviderConfig{Token: "secret-token"},
 		Server:               "relay.example.com:7000",
+		TLSEnabled:           true,
 		Proxies: []FRPProxy{
 			{Name: "minecraft", LocalPort: 25565, RemotePort: 25565, Type: "udp"},
 			{Name: "web", LocalPort: 8080, RemotePort: 8080},
@@ -154,8 +155,11 @@ func TestFRPConfigGeneration(t *testing.T) {
 	}
 	content := string(data)
 	for _, want := range []string{
-		`serverAddr = "relay.example.com:7000"`,
+		`serverAddr = "relay.example.com"`,
+		`serverPort = 7000`,
 		`auth.token = "secret-token"`,
+		`transport.tls.enable = true`,
+		`transport.tls.serverName = "relay.example.com"`,
 		`name = "minecraft"`,
 		`type = "udp"`,
 		`localPort = 25565`,

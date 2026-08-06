@@ -88,7 +88,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
       <div>
         <label
           htmlFor="newPassword"
-          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
         >
           New Password
         </label>
@@ -124,7 +124,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
       <div>
         <label
           htmlFor="confirmPassword"
-          className="text-secondary/80 font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
+          className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1 block"
         >
           Confirm Password
         </label>

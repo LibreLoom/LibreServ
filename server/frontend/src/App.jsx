@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
+import { Agentation } from "agentation";
 import { useAuth } from "./hooks/useAuth";
 import LoadingFast from "./pages/LoadingFast";
 import ErrorBoundary from "./components/common/ErrorBoundary";
@@ -43,6 +44,7 @@ function DataPage({ children }) {
 export default function App() {
   return (
     <ErrorBoundary>
+      <Agentation />
       <Suspense fallback={<LoadingFast />}>
         <Routes>
           {/* App shell routes: gated by auth to keep public access minimal. */}

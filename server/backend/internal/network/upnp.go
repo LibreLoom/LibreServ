@@ -135,18 +135,28 @@ func (u *UPnPClient) AddMapping(ctx context.Context, protocol string, externalPo
 	if err := conn.client.AddPortMappingCtx(ctx, "", externalPort, strings.ToUpper(protocol), internalPort, internalIP.String(), true, description, 0); err != nil {
 		return nil, err
 	}
-	if err != nil {
-		return nil, err
-	}
 
-	return &UPnPMapping{
+	// Read back what the router actually recorded — IGD may assign a
+	// different external port than requested (plan register #5).
+	mapping := &UPnPMapping{
 		Protocol:     strings.ToLower(protocol),
 		ExternalPort: externalPort,
 		InternalPort: internalPort,
 		InternalIP:   internalIP.String(),
 		Description:  description,
 		Enabled:      true,
-	}, nil
+	}
+	if intPort, intClient, enabled, _, lease, err := conn.client.GetSpecificPortMappingEntryCtx(ctx, "", externalPort, strings.ToUpper(protocol)); err == nil {
+		if intPort != 0 {
+			mapping.InternalPort = intPort
+		}
+		if intClient != "" {
+			mapping.InternalIP = intClient
+		}
+		mapping.Enabled = enabled
+		mapping.LeaseSeconds = lease
+	}
+	return mapping, nil
 }
 
 // DeleteMapping removes a port mapping.

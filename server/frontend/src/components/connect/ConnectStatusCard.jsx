@@ -135,11 +135,11 @@ export default function ConnectStatusCard({
           {connectedCount} of {totalCount} services active
         </p>
 
-        <div className="flex gap-2">
-          <Button variant="primary" onClick={onOpenPlanPage}>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button variant="primary" onClick={onOpenPlanPage} smoothResize={false} className="shrink-0 [&_svg]:shrink-0">
             <ExternalLink size={16} /> Manage Plan
           </Button>
-          <Button variant="danger" onClick={onDeactivate}>
+          <Button variant="danger" onClick={onDeactivate} smoothResize={false} className="shrink-0 [&_svg]:shrink-0">
             <LogOut size={16} /> Disconnect
           </Button>
         </div>

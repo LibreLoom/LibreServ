@@ -63,8 +63,10 @@ export default function CardButton({
     (active && activeVariants[variant]) || variants[variant] || variants.default;
   const alignClass = alignments[align] || alignments.center;
   const ringClass = variant === "nav" ? "" : "hover:ring-2 hover:ring-solid";
+  // nav variant: no transition-all — instant hover feedback, sidebar feels snappier
+  const transitionClass = variant === "nav" ? "" : "motion-safe:transition-all";
 
-  const classes = cn("flex items-center gap-2 rounded-pill p-2 motion-safe:transition-all cursor-pointer", ringClass, alignClass, variantClasses, className, "h-full w-full");
+  const classes = cn("flex items-center gap-2 rounded-pill p-2 cursor-pointer", transitionClass, ringClass, alignClass, variantClasses, className, "h-full w-full");
 
   const label = children ?? actionLabel;
   const content = (

@@ -13,7 +13,7 @@ const FORMAT_OPTIONS = [
   { value: "anthropic", label: "Anthropic (Messages)" },
 ];
 
-export default function AIServiceModal({ open, onClose, onSaved, service, connectStatus = null, aiSettings = null, csrfToken = "", loading = false }) {
+export default function AIServiceModal({ open, onClose, onSaved, service, connectStatus = null, aiSettings = null, planLimits = null, csrfToken = "", loading = false }) {
   const rawSettings = aiSettings || {};
   const [useConnect, setUseConnect] = useState(service?.state === "connected");
   const [apiKey, setApiKey] = useState("");
@@ -131,7 +131,9 @@ export default function AIServiceModal({ open, onClose, onSaved, service, connec
                   AI handled by LibreServ Connect
                 </div>
                 <p className="text-xs text-accent">
-                  50 messages/month on Free. Lite and One plans have unlimited access.
+                  {planLimits?.ai_messages_per_day > 0
+                    ? `${planLimits.ai_messages_per_day.toLocaleString()} messages/day included on your ${connectStatus?.plan?.name || "plan"}.`
+                    : "No message limit — usage is covered by your included credit."}
                 </p>
               </div>
             </div>

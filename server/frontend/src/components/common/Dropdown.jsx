@@ -159,7 +159,7 @@ export default function Dropdown({
         aria-label={label ? `${label}: ${selectedOption?.label || "select"}` : undefined}
       >
         {label && !ghost && <span className="opacity-70">{label}</span>}
-        <span className={cn("inline-flex items-center gap-1", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>
+        <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", ghost ? "" : "font-mono", fullWidth && "justify-between w-full")}>
           {selectedOption?.label || placeholder}
           <ChevronDown
             size={14}

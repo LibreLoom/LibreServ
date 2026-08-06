@@ -437,9 +437,9 @@ func (f *FakeClient) Info(ctx context.Context) (*ConnectInfo, error) {
 		{ID: PlanOne, Name: "Connect One", Description: "All services, unlimited. Fixed monthly price.", PriceMonthly: 2500},
 	}
 	limits := map[PlanID]PlanLimits{
-		PlanFree: {MaxEmailsPerDay: 30, TunnelMbps: 1, TunnelGBPerMo: 1, BackupGB: 0, AIMessagesPerMo: 50, Domain: "*.free.servers.libreloom.org"},
-		PlanLite: {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 50, BackupGB: 100, AIMessagesPerMo: 0, Domain: "*.servers.libreloom.org"},
-		PlanOne:  {MaxEmailsPerDay: 0, TunnelMbps: 100, TunnelGBPerMo: 200, BackupGB: 1024, AIMessagesPerMo: 0, Domain: "*.servers.libreloom.org"},
+		PlanFree: {MaxEmailsPerDay: 30, TunnelGBPerMo: 0, BackupGB: 0, AIMessagesPerDay: 50, AICreditCents: 0, Domain: "*.free.servers.libreloom.org"},
+		PlanLite: {MaxEmailsPerDay: 0, TunnelGBPerMo: 0, BackupGB: 100, AIMessagesPerDay: 0, AICreditCents: 200, Domain: "*.servers.libreloom.org"},
+		PlanOne:  {MaxEmailsPerDay: 0, TunnelGBPerMo: 0, BackupGB: 1024, AIMessagesPerDay: 0, AICreditCents: 500, Domain: "*.servers.libreloom.org"},
 	}
 	return &ConnectInfo{
 		Plans:      plans,

@@ -192,7 +192,7 @@ function PlanCard({ plan, isCurrent, onClick }) {
             <Badge variant="outline">{limits.smtp_monthly} emails/mo</Badge>
           )}
           {(limits.ai_credit_cents || 0) > 0 && (
-            <Badge variant="outline">${(limits.ai_credit_cents / 100).toFixed(0)} AI credit</Badge>
+            <Badge variant="outline">${(limits.ai_credit_cents / 100).toFixed(0)} AI Support credits</Badge>
           )}
         </div>
         {isCurrent && (

@@ -68,12 +68,19 @@ type ConnectStatus struct {
 	ConnectKeyHint string                      `json:"connect_key_hint,omitempty"`
 }
 
+type ServiceUsageValue struct {
+	Value       float64 `json:"value"`
+	CostUSD     float64 `json:"cost_usd"`
+	CreditsUsed float64 `json:"credits_used"`
+}
+
 type UsageSummary struct {
-	CurrentCycleStart time.Time `json:"current_cycle_start"`
-	CurrentCycleEnd   time.Time `json:"current_cycle_end"`
-	TotalCostUSD      float64   `json:"total_cost_usd"`
-	CreditCapUSD      float64   `json:"credit_cap_usd"`
-	RemainingUSD      float64   `json:"remaining_usd"`
+	CurrentCycleStart time.Time                      `json:"current_cycle_start"`
+	CurrentCycleEnd   time.Time                      `json:"current_cycle_end"`
+	TotalCostUSD      float64                        `json:"total_cost_usd"`
+	CreditCapUSD      float64                        `json:"credit_cap_usd"`
+	RemainingUSD      float64                        `json:"remaining_usd"`
+	ByService         map[string]ServiceUsageValue   `json:"by_service"`
 }
 
 type ServiceToggleRequest struct {
@@ -141,10 +148,10 @@ type PlanInfo struct {
 }
 
 type PlanLimits struct {
-	MaxEmailsPerDay int    `json:"max_emails_per_day"`
-	TunnelMbps      int    `json:"tunnel_mbps"`
-	TunnelGBPerMo   int    `json:"tunnel_gb_per_mo"`
-	BackupGB        int    `json:"backup_gb"`
-	AIMessagesPerMo int    `json:"ai_messages_per_mo"`
-	Domain          string `json:"domain,omitempty"`
+	MaxEmailsPerDay  int    `json:"max_emails_per_day"`
+	TunnelGBPerMo    int    `json:"tunnel_gb_per_mo"`
+	BackupGB         int    `json:"backup_gb"`
+	AIMessagesPerDay int    `json:"ai_messages_per_day"`
+	AICreditCents    int    `json:"ai_credit_cents"`
+	Domain           string `json:"domain,omitempty"`
 }

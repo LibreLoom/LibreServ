@@ -153,34 +153,36 @@ export default function Dashboard() {
             {/* Device — the thing the user actually cares about */}
             <section>
               <SectionHeader label="Your device" />
-              {activeDevice ? (
-                <DeviceCard device={activeDevice} />
-              ) : connectKeys.length > 0 || generatedKey ? (
-                <KeySection
-                  connectKeys={connectKeys}
-                  generatedKey={generatedKey}
-                  copied={copied}
-                  onCopy={copyKey}
-                  onDismiss={() => setGeneratedKey(null)}
-                  onRegenerate={() => generateKeyMut.mutate()}
-                  regenerating={generateKeyMut.isPending}
-                  error={keyError}
-                />
-              ) : (
-                <Card>
-                  <CardHeader><CardTitle className="text-base">Get started</CardTitle></CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Generate a Connect key, then enter it on your LibreServ
-                      device to link it to your account.
-                    </p>
-                    <Button onClick={() => generateKeyMut.mutate()} loading={generateKeyMut.isPending}>
-                      <Key className="h-4 w-4" /> Generate Connect key
-                    </Button>
-                    {keyError && <ErrorLine message={keyError} />}
-                  </CardContent>
-                </Card>
-              )}
+              <div className="space-y-4">
+                {activeDevice && <DeviceCard device={activeDevice} />}
+
+                {connectKeys.length > 0 || generatedKey ? (
+                  <KeySection
+                    connectKeys={connectKeys}
+                    generatedKey={generatedKey}
+                    copied={copied}
+                    onCopy={copyKey}
+                    onDismiss={() => setGeneratedKey(null)}
+                    onRegenerate={() => generateKeyMut.mutate()}
+                    regenerating={generateKeyMut.isPending}
+                    error={keyError}
+                  />
+                ) : activeDevice ? null : (
+                  <Card>
+                    <CardHeader><CardTitle className="text-base">Get started</CardTitle></CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Generate a Connect key, then enter it on your LibreServ
+                        device to link it to your account.
+                      </p>
+                      <Button onClick={() => generateKeyMut.mutate()} loading={generateKeyMut.isPending}>
+                        <Key className="h-4 w-4" /> Generate Connect key
+                      </Button>
+                      {keyError && <ErrorLine message={keyError} />}
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             </section>
           </div>
         )}

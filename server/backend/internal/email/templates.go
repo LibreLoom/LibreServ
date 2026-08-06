@@ -188,16 +188,6 @@ const UniversalEmailTemplate = `<!DOCTYPE html>
 // RenderHTMLEmail renders ANY email using the universal LibreServ template.
 // When data["markdown"] is true, the body is rendered as Markdown; otherwise plain text.
 func RenderHTMLEmail(subject, plainTextBody string, data map[string]interface{}) (string, error) {
-	tmpl, err := template.New("universal_email").Parse(UniversalEmailTemplate)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse universal template: %w", err)
-	}
-
-	formattedData := make(map[string]interface{})
-	for k, v := range data {
-		formattedData[k] = v
-	}
-
 	bodyStr := plainTextBody
 	if bodyStr == "" {
 		bodyStr = fmt.Sprintf("%v", data["body"])
@@ -210,11 +200,39 @@ func RenderHTMLEmail(subject, plainTextBody string, data map[string]interface{})
 		htmlContent = convertTextToHTML(bodyStr)
 	}
 
-	formattedData["Content"] = template.HTML(htmlContent)
-	formattedData["Subject"] = subject
+	return renderUniversal(subject, template.HTML(htmlContent))
+}
+
+// RenderOTPEmail renders the MFA one-time sign-in code email. The code is the
+// single focus of the message: large, centered, in a bordered mono box, with a
+// plain-language expiry note. Falls back to a plain body if the shell fails.
+func RenderOTPEmail(subject, code string) (string, error) {
+	content := fmt.Sprintf(`
+<p style="margin:0 0 24px 0; font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:16px; line-height:1.6; color:#000000; text-align:center;">
+	Your sign-in code is:
+</p>
+<div style="text-align:center; padding:4px 0 28px 0;">
+	<div style="display:inline-block; border:2px solid #000000; border-radius:16px; padding:20px 40px; font-family:'FreeMono','Courier New',Courier,monospace; font-size:40px; letter-spacing:12px; line-height:1; color:#000000;">%s</div>
+</div>
+<p style="margin:0; font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:14px; line-height:1.6; color:#767676; text-align:center;">
+	This code expires in 10 minutes. If you didn't request it, you can safely ignore this email.
+</p>`, template.HTMLEscapeString(code))
+	return renderUniversal(subject, template.HTML(content))
+}
+
+// renderUniversal executes the shared LibreServ email shell (header, divider,
+// content, footer) with a prepared HTML content block.
+func renderUniversal(subject string, content template.HTML) (string, error) {
+	tmpl, err := template.New("universal_email").Parse(UniversalEmailTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse universal template: %w", err)
+	}
 
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, formattedData); err != nil {
+	if err := tmpl.Execute(&buf, map[string]interface{}{
+		"Subject": subject,
+		"Content": content,
+	}); err != nil {
 		return "", fmt.Errorf("failed to execute universal template: %w", err)
 	}
 
@@ -341,8 +359,10 @@ func (s *Sender) buildHTMLMessage(from string, to []string, subject, htmlBody st
 		"Subject: " + subject,
 		"MIME-Version: 1.0",
 		"Content-Type: text/html; charset=\"utf-8\"",
-		"",
 	}
-
-	return strings.Join(headers, "\r\n") + htmlBody
+	// RFC 5322 requires a blank line (CRLF CRLF) separating the header block
+	// from the body. Without it, the first body line is parsed as a header
+	// continuation and recipients see the raw MIME source instead of the
+	// rendered message.
+	return strings.Join(headers, "\r\n") + "\r\n\r\n" + htmlBody
 }

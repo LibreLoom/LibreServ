@@ -231,42 +231,9 @@ export default function SecurityCategory() {
               rowKey="id"
               scrollable
               maxHeight="24rem"
+              headClassName="text-primary"
             />
           )}
-        </div>
-      </SettingsCard>
-
-      <SettingsCard
-        icon={Shield}
-        title="Security Tips"
-        padding={false}
-        index={1}
-      >
-        <div className="p-4 grid md:grid-cols-2 gap-3">
-          <div className="p-3 bg-primary/5 rounded-large-element">
-            <h4 className="font-medium text-primary mb-1 text-sm">Use a Strong Password</h4>
-            <p className="text-xs text-accent">
-              Use a unique, strong password. Consider using a password manager.
-            </p>
-          </div>
-          <div className="p-3 bg-primary/5 rounded-large-element">
-            <h4 className="font-medium text-primary mb-1 text-sm">Monitor Your Account</h4>
-            <p className="text-xs text-accent">
-              Regularly review your security activity log for unauthorized access.
-            </p>
-          </div>
-          <div className="p-3 bg-warning/10 rounded-large-element">
-            <h4 className="font-medium text-warning mb-1 text-sm">Enable Notifications</h4>
-            <p className="text-xs text-accent">
-              Turn on security notifications to stay informed about important activity.
-            </p>
-          </div>
-          <div className="p-3 bg-primary/5 rounded-large-element">
-            <h4 className="font-medium text-primary mb-1 text-sm">Keep Software Updated</h4>
-            <p className="text-xs text-accent">
-              Ensure LibreServ and all installed apps have the latest security patches.
-            </p>
-          </div>
         </div>
       </SettingsCard>
     </div>

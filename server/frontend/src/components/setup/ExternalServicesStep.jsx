@@ -3,6 +3,7 @@ import { Globe, Mail, Shield, DatabaseBackup, LifeBuoy, Sparkles, ArrowRight, Ar
 import PropTypes from "prop-types";
 import { cn } from "@/lib/utils";
 import Button from "../ui/Button";
+import ModalCard from "../cards/ModalCard";
 
 const CONNECT_URL = "https://connect.serv.libreloom.org/onboarding";
 
@@ -32,6 +33,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
   const [activating, setActivating] = useState(false);
   const [error, setError] = useState("");
   const [popupBlocked, setPopupBlocked] = useState(false);
+  const [showDiyConfirm, setShowDiyConfirm] = useState(false);
 
   const handleActivate = async () => {
     if (!connectKey.trim()) {
@@ -60,6 +62,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
   // Landing view — explain the concept and offer two paths
   if (mode === null) {
     return (
+      <>
       <div className="flex flex-col items-center text-center py-4" data-slot="external-services">
         <Globe size={48} className="text-accent mx-auto mb-4" />
         <h1 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3">
@@ -108,7 +111,7 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
 
           <button
             type="button"
-            onClick={onSkip}
+            onClick={() => setShowDiyConfirm(true)}
             className={cn(
               "w-full flex items-center gap-4 p-4 rounded-large-element border",
               "border-accent/15 hover:border-accent/30",
@@ -127,6 +130,32 @@ export default function ExternalServicesStep({ onActivate, onSkip }) {
           </button>
         </div>
       </div>
+
+      {showDiyConfirm && (
+        <ModalCard
+          title="Set up on your own?"
+          onClose={() => setShowDiyConfirm(false)}
+          footer={({ close }) => (
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={close}>
+                Go back
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1"
+                onClick={() => { close(); onSkip(); }}
+              >
+                Yes, set up on my own
+              </Button>
+            </div>
+          )}
+        >
+          <p className="text-sm text-primary/80">
+            No problem. You&rsquo;ll set up each service yourself later in Settings. You can switch to Connect at any time.
+          </p>
+        </ModalCard>
+      )}
+      </>
     );
   }
 

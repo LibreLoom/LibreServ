@@ -1,13 +1,116 @@
 import { useState, useEffect } from "react";
-import { Heart, Coffee, AlertTriangle, GitBranch } from "lucide-react";
+import { Heart, Coffee, AlertTriangle, GitBranch, Activity, CheckCircle2, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
+import { cn } from "@/lib/utils";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
 import CollapsibleSection from "../../common/CollapsibleSection";
 import ModalCard from "../../cards/ModalCard";
+import { useSystemHealthCheck } from "../../../hooks/useSystemHealthCheck";
+import { labelFor } from "../../../lib/healthChecks";
 
 const inputClass =
   "w-full px-3 py-2 text-sm font-mono rounded-pill bg-primary/10 border-2 border-primary/20 text-primary focus-visible:ring-2 focus-visible:ring-accent no-focus-outline";
+
+function SystemChecksCard({ index = 2 }) {
+  const { data, isLoading, error } = useSystemHealthCheck();
+
+  if (isLoading && !data) {
+    return (
+      <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+        <div className="px-5 py-4 space-y-3 animate-pulse">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className="w-4 h-4 rounded-full bg-primary/20" />
+              <div className="h-3 rounded-pill bg-primary/10 flex-1" />
+            </div>
+          ))}
+        </div>
+      </SettingsCard>
+    );
+  }
+
+  if (!data && error) {
+    return (
+      <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+        <p className="px-5 py-4 text-sm text-error">
+          Couldn't check your system right now. Please try again later.
+        </p>
+      </SettingsCard>
+    );
+  }
+
+  const checks = data?.checks ? Object.entries(data.checks) : [];
+  const summary = data?.summary;
+  const passed = summary?.passed ?? checks.filter(([, c]) => c.status === "passed").length;
+  const failed = summary?.failed ?? checks.length - passed;
+  const allOk = failed === 0 && checks.length > 0;
+
+  // Failed checks first, then alphabetical, so problems are the first thing seen.
+  const ordered = [...checks].sort((a, b) => {
+    const fa = a[1].status === "passed" ? 1 : 0;
+    const fb = b[1].status === "passed" ? 1 : 0;
+    return fa - fb || labelFor(a[0]).localeCompare(labelFor(b[0]));
+  });
+
+  return (
+    <SettingsCard icon={Activity} title="System Checks" padding={false} index={index}>
+      <div className="px-5 py-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <p className="text-sm text-accent">
+            {checks.length === 0
+              ? "No checks recorded yet."
+              : allOk
+                ? `${passed} of ${checks.length} checks passed — everything looks good.`
+                : `${failed} of ${checks.length} checks need attention.`}
+          </p>
+          <span
+            className={cn(
+              "text-xs px-3 py-1 rounded-pill font-medium shrink-0",
+              allOk ? "bg-success/20 border-2 border-success/30 text-primary" : "bg-error/20 border-2 border-error/30 text-primary"
+            )}
+          >
+            {allOk ? "Healthy" : "Issues found"}
+          </span>
+        </div>
+
+        <ul className="space-y-1">
+          {ordered.map(([name, check]) => {
+            const ok = check.status === "passed";
+            return (
+              <li
+                key={name}
+                className="flex items-center justify-between gap-3 py-2 border-b border-primary/10 last:border-0"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {ok ? (
+                    <CheckCircle2 size={15} className="text-success shrink-0" aria-hidden="true" />
+                  ) : (
+                    <XCircle size={15} className="text-error shrink-0" aria-hidden="true" />
+                  )}
+                  <div className="min-w-0">
+                    <div className="text-sm text-primary">{labelFor(name)}</div>
+                    {check.message && (
+                      <div className="text-xs text-accent truncate">{check.message}</div>
+                    )}
+                  </div>
+                </div>
+                <span
+                  className={cn(
+                    "text-xs font-mono px-2.5 py-1 rounded-pill shrink-0",
+                    ok ? "bg-success/20 text-primary" : "bg-error/20 text-primary"
+                  )}
+                >
+                  {ok ? "OK" : "Issue"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </SettingsCard>
+  );
+}
 
 export default function AboutCategory({ settings, onUpdateSourceSave }) {
   const updates = settings?.updates;
@@ -88,13 +191,15 @@ export default function AboutCategory({ settings, onUpdateSourceSave }) {
         </div>
       </SettingsCard>
 
+      <SystemChecksCard index={2} />
+
       {/* Advanced — only rendered for admins, whose settings actually loaded. */}
       {updates != null && (
         <SettingsCard
           icon={AlertTriangle}
           title="Advanced"
           padding={false}
-          index={2}
+          index={3}
         >
           <div className="px-5 py-4 space-y-4">
             <CollapsibleSection

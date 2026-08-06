@@ -6,7 +6,7 @@ import SegmentedControl from "../../common/SegmentedControl";
 import SettingsRow from "../SettingsRow";
 import SettingsCard from "../SettingsCard";
 import Button from "../../ui/Button";
-import { useHapticsEnabled, setHapticsEnabled } from "../../../utils/haptics";
+import { useHapticsEnabled, setHapticsEnabled, haptic } from "../../../utils/haptics";
 
 const THEME_OPTIONS = [
   { value: "system", icon: Monitor, label: "System" },
@@ -82,22 +82,77 @@ function ColorPreset({ colors, label, currentColors, onSelect }) {
     currentColors?.accent === colors.accent;
 
   return (
-    <Button
-      variant="ghost"
-      surface="secondary"
-      onClick={() => onSelect(colors)}
-      className={cn("flex flex-col items-center gap-1 p-2 rounded-large-element border", isMatch ? "border-accent bg-accent/10" : "border-primary/10 hover:border-primary/30 hover:bg-primary/5")}
-      style={{ transitionDuration: "var(--motion-duration-short2)" }}
+    <button
+      type="button"
+      onClick={() => {
+        haptic("selection");
+        onSelect(colors);
+      }}
       aria-label={`Apply ${label} preset`}
       aria-pressed={isMatch}
+      className={cn(
+        "group relative flex flex-col items-center gap-2 p-2 pt-3 rounded-large-element border-2 text-center",
+        "motion-safe:transition-all motion-safe:duration-200 motion-safe:ease-out",
+        "no-focus-outline focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+        "hover:-translate-y-0.5 active:motion-safe:scale-95",
+        isMatch
+          ? "border-accent bg-accent/10"
+          : "border-primary/10 hover:border-primary/30 hover:bg-primary/5"
+      )}
+      style={{ transitionDuration: "var(--motion-duration-short2)" }}
     >
-      <div className="flex gap-1">
-        <div className="w-4 h-4 rounded-full border border-primary" style={{ backgroundColor: colors.primary }} aria-hidden="true" />
-        <div className="w-4 h-4 rounded-full border border-primary" style={{ backgroundColor: colors.secondary }} aria-hidden="true" />
-        <div className="w-4 h-4 rounded-full border border-primary" style={{ backgroundColor: colors.accent }} aria-hidden="true" />
+      {/* Mini theme preview — layered: preset.primary surface, preset.secondary
+          text bars, preset.accent pill, so the theme reads at a glance. */}
+      <div
+        className="w-full rounded-large-element px-2.5 py-2 border motion-safe:transition-transform motion-safe:duration-200 group-hover:scale-[1.02]"
+        style={{
+          backgroundColor: colors.primary,
+          borderColor: `${colors.secondary}33`,
+        }}
+        aria-hidden="true"
+      >
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ backgroundColor: colors.secondary }}
+          />
+          <div
+            className="h-1.5 rounded-full flex-1 opacity-40"
+            style={{ backgroundColor: colors.secondary }}
+          />
+        </div>
+        <div
+          className="h-1 rounded-full mb-1 opacity-30"
+          style={{ backgroundColor: colors.secondary }}
+        />
+        <div
+          className="h-1 rounded-full mb-1.5 w-3/4 opacity-30"
+          style={{ backgroundColor: colors.secondary }}
+        />
+        <div
+          className="w-8 h-3 rounded-pill"
+          style={{ backgroundColor: colors.accent }}
+        />
       </div>
-      <span className="text-xs text-accent">{label}</span>
-    </Button>
+
+      <span
+        className={cn(
+          "text-xs font-mono",
+          isMatch ? "text-primary" : "text-accent"
+        )}
+      >
+        {label}
+      </span>
+
+      {isMatch && (
+        <span
+          className="absolute -top-1.5 right-1.5 z-10 w-5 h-5 rounded-full bg-accent flex items-center justify-center animate-in fade-in zoom-in-75 duration-150"
+          aria-hidden="true"
+        >
+          <Check size={12} className="text-primary" strokeWidth={3} />
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -220,8 +275,8 @@ export default function AppearanceCategory({
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
             <div className="pt-4 border-t border-primary/10 pb-4">
-              <div className="text-xs font-medium text-accent uppercase tracking-wider mb-2">Color Presets</div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="font-mono text-[11px] uppercase tracking-[0.22em] text-accent mb-3">Color Presets</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 {COLOR_PRESETS.map((preset) => (
                   <ColorPreset
                     key={preset.label}

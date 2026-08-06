@@ -82,7 +82,7 @@ export default function TunnelServiceModal({ open, onClose, onSaved, service, co
               Tunnel handled by LibreServ Connect
             </div>
             <p className="text-xs text-accent">
-              Free: 1 Mbps, 1 GB/month. Lite and One: full speed, unlimited transfer.
+              Data transfer is unlimited on all plans.
             </p>
           </div>
         ) : (

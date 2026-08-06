@@ -693,22 +693,26 @@ function AccountStep({ onSuccess, onError }) {
     admin_username: "",
     admin_email:    "",
     admin_password: "",
+    confirm_password: "",
   });
   const [showPw, setShowPw]         = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState(null);
 
   const pw       = form.admin_password;
+  const confirm  = form.confirm_password;
   const strength = strengthInfo(pw);
   // Acceptable matches the backend policy exactly: 12+ chars, a letter, and a
   // digit. Symbols strengthen the password but are NOT required — gating on
   // them would reject valid passwords the backend accepts.
   const meetsPolicy = !!(strength?.hasLength && strength?.hasLetter && strength?.hasDigit);
+  const confirmOk   = confirm === pw && pw !== "";
   const isValid  =
     !!(form.admin_username.trim() &&
     form.admin_email.trim() &&
     pw &&
-    meetsPolicy);
+    meetsPolicy &&
+    confirmOk);
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -724,7 +728,7 @@ function AccountStep({ onSuccess, onError }) {
       const res = await api("/setup/complete", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(form),
+        body:    JSON.stringify({ ...form, confirm_password: undefined }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -834,6 +838,39 @@ function AccountStep({ onSuccess, onError }) {
                     <ReqChip ok={strength.hasSpecial} label="symbols" />
                   </div>
                 </div>
+              )}
+            </FormField>
+          </div>
+
+          {/* Confirm password */}
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-250">
+            <FormField id="confirm_password" label="Confirm password" hint={confirmOk && pw ? "Passwords match" : undefined}>
+              <div className="relative">
+                <input
+                  id="confirm_password"
+                  name="confirm_password"
+                  type={showPw ? "text" : "password"}
+                  autoComplete="new-password"
+                  placeholder="Re-enter your password"
+                  value={confirm}
+                  onChange={handleChange}
+                  disabled={submitting}
+                  required
+                  className={cn(WIZARD_INPUT_CLASS, "pr-12")}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw((v) => !v)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-primary/30 hover:text-primary/60 motion-safe:transition-colors motion-safe:duration-150"
+                  aria-label={showPw ? "Hide password" : "Show password"}
+                >
+                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {confirm && !confirmOk && (
+                <p className="text-xs text-error mt-1.5 translate-x-5">
+                  Passwords don&rsquo;t match
+                </p>
               )}
             </FormField>
           </div>
@@ -1140,11 +1177,22 @@ export default function SetupPage() {
   const handleConnectActivate = useCallback(async (key) => {
     // /connect/activate is CSRF-protected (router.go CSRF group). The bare
     // api() helper doesn't inject X-CSRF-Token; useAuth().request does.
-    await request("/connect/activate", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ connect_key: key }),
-    });
+    try {
+      await request("/connect/activate", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connect_key: key }),
+      });
+    } catch (err) {
+      // Session expired: the token refresh failed, so the user is genuinely
+      // logged out. Swap in the login form immediately — a dead "Session
+      // expired" error with no way to sign in would softlock the wizard.
+      if (err.name === "AuthError") {
+        setShowLoginGate(true);
+        return;
+      }
+      throw err;
+    }
     // Auto-provisioning runs in the background on the server, and the MFA
     // step reads /auth/mfa/availability once on mount. Wait briefly for the
     // email service to come online before advancing — otherwise the email
@@ -1196,6 +1244,27 @@ export default function SetupPage() {
 
   void error;
 
+  // Session-requiring steps: the wizard created the admin account at the
+  // ACCOUNT step, so once the user reaches EXTERNAL_SERVICES or MFA a valid
+  // session must exist. Probe /auth/me on page load (and on entering these
+  // steps) so an expired session surfaces the real login page immediately
+  // instead of failing later with a dead "Session expired" error. The
+  // handleConnectActivate/MfaSetupWizard AuthError paths are the backstop for
+  // mid-flow expiry.
+  useEffect(() => {
+    if (step !== STEP.EXTERNAL_SERVICES && step !== STEP.MFA) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api("/auth/me");
+        if (!res.ok && !cancelled) setShowLoginGate(true);
+      } catch (err) {
+        if (!cancelled && err.name === "AuthError") setShowLoginGate(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [step]);
+
   if (step === null) {
     return (
       <SetupShell>
@@ -1206,18 +1275,15 @@ export default function SetupPage() {
 
   if (showLoginGate) {
     return (
-      <SetupShell>
-        <SetupCard className="">
-          <Login
-            embedded
-            returnTo="/setup"
-            onLoginSuccess={() => {
-              setShowLoginGate(false);
-              refreshAuth().catch(() => {});
-            }}
-          />
-        </SetupCard>
-      </SetupShell>
+      <Login
+        returnTo="/setup"
+        notice="You got signed out. Our bad 😅"
+        noticeDetail="Log in again and we&rsquo;ll bring you right back to setup."
+        onLoginSuccess={() => {
+          setShowLoginGate(false);
+          refreshAuth().catch(() => {});
+        }}
+      />
     );
   }
 

@@ -1,6 +1,8 @@
 package email
 
 import (
+	"bytes"
+	"net/smtp"
 	"strings"
 	"testing"
 
@@ -154,5 +156,40 @@ func TestRenderHTMLEmailWithoutMarkdown(t *testing.T) {
 	}
 	if !strings.Contains(html, `<p style=`) {
 		t.Fatalf("expected styled paragraphs in plain text email, got:\n%s", html)
+	}
+}
+
+func TestRenderOTPEmailPutsCodeInFocusedBox(t *testing.T) {
+	html, err := RenderOTPEmail("Your LibreServ sign-in code", "A1B2C3")
+	if err != nil {
+		t.Fatalf("RenderOTPEmail returned error: %v", err)
+	}
+	// The code must sit inside the large mono code box, not plain inline text.
+	if !strings.Contains(html, `font-size:40px`) || !strings.Contains(html, `letter-spacing:12px`) {
+		t.Fatalf("expected the large mono code box, got:\n%s", html)
+	}
+	if !strings.Contains(html, `>A1B2C3</div>`) {
+		t.Fatalf("expected the code inside the code box, got:\n%s", html)
+	}
+	// The expiry + ignore note is always present.
+	if !strings.Contains(html, "expires in 10 minutes") {
+		t.Fatalf("expected expiry note, got:\n%s", html)
+	}
+}
+
+// The Connect relay is plaintext (use_tls=false) and reached over the
+// encrypted tunnel; the sender's authFor must perform AUTH PLAIN without the
+// stdlib TLS gate, or the health check false-fails with "unencrypted connection".
+func TestPlainAuthAllowsPlaintextCredentials(t *testing.T) {
+	auth := authFor("jan-doe", "secret", "smtp.serv.libreloom.org", false)
+	mechanism, resp, err := auth.Start(&smtp.ServerInfo{Name: "smtp.serv.libreloom.org", TLS: false, Auth: []string{"PLAIN"}})
+	if err != nil {
+		t.Fatalf("plaintext auth refused: %v", err)
+	}
+	if mechanism != "PLAIN" {
+		t.Fatalf("mechanism = %q, want PLAIN", mechanism)
+	}
+	if !bytes.Contains(resp, []byte("jan-doe")) || !bytes.Contains(resp, []byte("secret")) {
+		t.Fatalf("AUTH PLAIN response missing credentials: %q", resp)
 	}
 }
