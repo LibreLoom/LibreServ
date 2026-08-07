@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -327,6 +329,11 @@ func (c *cloudflareProvider) Start(ctx context.Context) error {
 		return fmt.Errorf("cloudflare tunnel token is required")
 	}
 
+	// Reap stale cloudflared processes from a previous backend instance that
+	// was killed hard (SIGKILL leaves the child orphaned). Without this, the
+	// orphan keeps the old tunnel alive and Start() appears to do nothing.
+	reapStaleCloudflared(c.cloudflaredPath())
+
 	cmd := exec.CommandContext(ctx, c.cloudflaredPath(),
 		"tunnel", "--no-autoupdate", "run", "--token", c.config.Token)
 	cmd.Stdout = os.Stdout
@@ -442,4 +449,38 @@ func (c *cloudflareProvider) Capabilities() Capabilities {
 
 func (c *cloudflareProvider) cloudflaredPath() string {
 	return filepath.Join(c.binDir, "cloudflared")
+}
+
+// reapStaleCloudflared sends SIGINT to any cloudflared process still running
+// from this binary path (i.e. a previous backend instance whose parent was
+// killed hard, orphaning the child). It only matches processes started from
+// the same binDir, so it never touches other tunnels (e.g. Connect's own).
+func reapStaleCloudflared(binPath string) {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join("/proc", e.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+		if !staleCloudflaredCmdline(string(raw), binPath) {
+			continue
+		}
+		if proc, err := os.FindProcess(pid); err == nil {
+			_ = proc.Signal(os.Interrupt)
+		}
+	}
+}
+
+// staleCloudflaredCmdline reports whether a /proc cmdline string (args
+// NUL-separated) belongs to a cloudflared started from binPath.
+func staleCloudflaredCmdline(cmdline string, binPath string) bool {
+	marker := binPath + " tunnel --no-autoupdate run"
+	return strings.Contains(strings.ReplaceAll(cmdline, "\x00", " "), marker)
 }

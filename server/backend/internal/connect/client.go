@@ -17,6 +17,7 @@ type Client interface {
 	Provision(ctx context.Context, service ServiceID) (*ProvisionedCredentials, error)
 	RegisterRoute(ctx context.Context, hostname string) error
 	UnregisterRoute(ctx context.Context, hostname string) error
+	DeleteTunnel(ctx context.Context) error
 	Status(ctx context.Context) (*ConnectStatus, error)
 	Usage(ctx context.Context) (*UsageSummary, error)
 	Info(ctx context.Context) (*ConnectInfo, error)
@@ -184,6 +185,20 @@ func (c *RealClient) UnregisterRoute(ctx context.Context, hostname string) error
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("connect returned %d for route removal", resp.StatusCode)
+	}
+	return nil
+}
+
+// DeleteTunnel asks Connect to delete this device's Cloudflare tunnel.
+// POST /api/v1/tunnel/delete (device auth).
+func (c *RealClient) DeleteTunnel(ctx context.Context) error {
+	resp, err := c.doRequest(ctx, http.MethodPost, "/api/v1/tunnel/delete", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("connect returned %d for tunnel deletion", resp.StatusCode)
 	}
 	return nil
 }
@@ -372,6 +387,10 @@ func (f *FakeClient) RegisterRoute(ctx context.Context, hostname string) error {
 }
 
 func (f *FakeClient) UnregisterRoute(ctx context.Context, hostname string) error {
+	return nil
+}
+
+func (f *FakeClient) DeleteTunnel(ctx context.Context) error {
 	return nil
 }
 

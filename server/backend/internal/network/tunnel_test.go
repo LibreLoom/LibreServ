@@ -211,3 +211,25 @@ func TestTunnelEnableWithNewTokenRestartsProvider(t *testing.T) {
 		t.Errorf("starts = %d, want 2 (restart with new token)", reg[pA].starts)
 	}
 }
+
+// TestStaleCloudflaredCmdline guards the /proc cmdline matcher used by the
+// orphan sweep: /proc args are NUL-separated, and the sweep must only match
+// cloudflared started from the same binDir (never another tunnel or binary).
+func TestStaleCloudflaredCmdline(t *testing.T) {
+	bin := "/data/apps/bin/cloudflared"
+	cases := []struct {
+		cmdline string
+		want    bool
+	}{
+		{"/data/apps/bin/cloudflared\x00tunnel\x00--no-autoupdate\x00run\x00--token\x00abc", true},
+		{"/data/apps/bin/cloudflared tunnel --no-autoupdate run --token abc", true},
+		{"/other/bin/cloudflared\x00tunnel\x00--no-autoupdate\x00run\x00--token\x00abc", false},
+		{"/data/apps/bin/cloudflared\x00tunnel\x00--autoupdate\x00run", false},
+		{"/usr/bin/bash\x00-c\x00/data/apps/bin/cloudflared", false},
+	}
+	for i, c := range cases {
+		if got := staleCloudflaredCmdline(c.cmdline, bin); got != c.want {
+			t.Errorf("case %d: got %v, want %v (cmdline %q)", i, got, c.want, c.cmdline)
+		}
+	}
+}
