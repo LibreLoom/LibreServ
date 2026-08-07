@@ -118,101 +118,23 @@ StepDots.propTypes = { current: PropTypes.string.isRequired };
 // content within it flies in/out. Mirrors the app install wizard's
 // slide-in-from-right-pop / -left-pop keyframes.
 
-// ─── Logo mark (inline SVG — currentColor, rendered on bg-secondary) ─────────
-// On bg-secondary the outer circle fills with primary (white in light, black in dark).
+// ─── Logo mark (inline SVG — fixed brand colors, renders on any surface) ──
 function LogoMark({ size = 64 }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 512 512"
+      viewBox="0 0 240 240"
       fill="none"
       width={size}
       height={size}
-      className="text-primary"
       aria-hidden="true"
     >
-      <ellipse cx="256" cy="256" rx="200" ry="200" fill="currentColor" />
-      <rect x="146" y="168" width="220" height="176" rx="20" fill="var(--color-secondary)" />
-      <rect x="162" y="154" width="188" height="20" rx="10" fill="var(--color-secondary)" opacity="0.55" />
-      <rect x="174" y="196" width="164" height="112" rx="14" fill="currentColor" />
-
-      <defs>
-        <clipPath id="ls-faceplate">
-          <rect x="174" y="196" width="164" height="112" rx="14"/>
-        </clipPath>
-        <clipPath id="ls-aboveFaceplate">
-          <rect x="174" y="174" width="164" height="22" rx="10"/>
-        </clipPath>
-        <mask id="ls-weftOverOdd" x="174" y="196" width="164" height="112" maskUnits="userSpaceOnUse">
-          <rect x="174" y="196" width="164" height="112" fill="black"/> {/* color-scan: ignore-line SVG mask requires black */}
-          <rect x="186" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
-          <rect x="222" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
-          <rect x="258" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
-          <rect x="294" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
-        </mask>
-        <mask id="ls-weftOverEven" x="174" y="196" width="164" height="112" maskUnits="userSpaceOnUse">
-          <rect x="174" y="196" width="164" height="112" fill="black"/> {/* color-scan: ignore-line SVG mask requires black */}
-          <rect x="204" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
-          <rect x="240" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
-          <rect x="276" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
-          <rect x="312" y="196" width="16" height="112" fill="white"/> {/* color-scan: ignore-line SVG mask requires white */}
-        </mask>
-      </defs>
-
-      <g clipPath="url(#ls-aboveFaceplate)" fill="currentColor" opacity="0.7">
-        <rect x="190" y="174" width="8" height="22" rx="3"/>
-        <rect x="208" y="174" width="8" height="22" rx="3"/>
-        <rect x="226" y="174" width="8" height="22" rx="3"/>
-        <rect x="244" y="174" width="8" height="22" rx="3"/>
-        <rect x="262" y="174" width="8" height="22" rx="3"/>
-        <rect x="280" y="174" width="8" height="22" rx="3"/>
-        <rect x="298" y="174" width="8" height="22" rx="3"/>
-        <rect x="316" y="174" width="8" height="22" rx="3"/>
-      </g>
-
-      <rect x="174" y="196" width="164" height="112" rx="14" stroke="var(--color-secondary)" strokeWidth="5" />
-      <g fill="currentColor" opacity="0.5">
-        <rect x="352" y="207" width="6" height="18" rx="3"/>
-        <rect x="352" y="231" width="6" height="18" rx="3"/>
-        <rect x="352" y="255" width="6" height="18" rx="3"/>
-        <rect x="352" y="279" width="6" height="18" rx="3"/>
-      </g>
-
-      <g clipPath="url(#ls-faceplate)" opacity="0.36">
-        <rect x="182" y="204" width="148" height="14" rx="7" stroke="var(--color-secondary)" strokeWidth="4" />
-        <rect x="182" y="290" width="148" height="14" rx="7" stroke="var(--color-secondary)" strokeWidth="4" />
-      </g>
-
-      <g clipPath="url(#ls-faceplate)">
-        <path d="M 180 238 H 356" stroke="var(--color-secondary)" strokeWidth="8" strokeLinecap="round" opacity="0.42" />
-        <path d="M 180 270 H 356" stroke="var(--color-secondary)" strokeWidth="8" strokeLinecap="round" opacity="0.4" />
-      </g>
-
-      <g clipPath="url(#ls-faceplate)" fill="var(--color-secondary)" opacity="1">
-        <rect x="190" y="218" width="8" height="84" rx="3"/>
-        <rect x="208" y="218" width="8" height="84" rx="3"/>
-        <rect x="226" y="218" width="8" height="84" rx="3"/>
-        <rect x="244" y="218" width="8" height="84" rx="3"/>
-        <rect x="262" y="218" width="8" height="84" rx="3"/>
-        <rect x="280" y="218" width="8" height="84" rx="3"/>
-        <rect x="298" y="218" width="8" height="84" rx="3"/>
-        <rect x="316" y="218" width="8" height="84" rx="3"/>
-      </g>
-
-      <g clipPath="url(#ls-faceplate)" mask="url(#ls-weftOverOdd)">
-        <path d="M 180 238 H 356" stroke="var(--color-secondary)" strokeWidth="10" strokeLinecap="round" opacity="1" />
-      </g>
-      <g clipPath="url(#ls-faceplate)" mask="url(#ls-weftOverEven)">
-        <path d="M 180 270 H 356" stroke="var(--color-secondary)" strokeWidth="10" strokeLinecap="round" opacity="1" />
-      </g>
-
-      <g fill="currentColor">
-        <rect x="182" y="320" width="30" height="10" rx="3" opacity="0.72" />
-        <rect x="218" y="320" width="30" height="10" rx="3" opacity="0.72" />
-        <circle cx="312" cy="326" r="5" opacity="0.55" />
-        <circle cx="328" cy="326" r="5" opacity="0.92" />
-        <circle cx="346" cy="326" r="7" opacity="0.92" />
-      </g>
+      {/* color-scan: ignore-next-line SVG logo uses fixed brand colors */}
+      <rect x="0" y="0" width="240" height="240" rx="32" fill="var(--color-accent)" />
+      {/* color-scan: ignore-next-line SVG logo uses fixed brand colors */}
+      <rect x="2" y="2" width="236" height="236" rx="30" fill="#ffffff" />
+      {/* color-scan: ignore-next-line SVG logo uses fixed brand colors */}
+      <circle cx="200" cy="200" r="24" fill="#000000" stroke="var(--color-accent)" strokeWidth="2" />
     </svg>
   );
 }
