@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -720,8 +719,8 @@ func checkPathWritableHealth(path string, cfg *config.Config) (bool, string, int
 	}
 
 	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
-		testDir := filepath.Join(resolved, ".health-check-"+randomSuffixHealth(8))
-		if err := os.Mkdir(testDir, 0o755); err != nil {
+		testDir, err := os.MkdirTemp(resolved, ".health-check-")
+		if err != nil {
 			return false, "Cannot write to directory", map[string]interface{}{
 				"path":  resolved,
 				"error": err.Error(),
@@ -764,12 +763,6 @@ func checkPathWritableHealth(path string, cfg *config.Config) (bool, string, int
 
 func resolveConfigPathHealth(path string) (string, error) {
 	return config.ResolveConfigPath(path)
-}
-
-func randomSuffixHealth(n int) string {
-	b := make([]byte, n)
-	_, _ = rand.Read(b)
-	return strings.ToUpper(string(b))[:n]
 }
 
 func formatBytes(bytes uint64) string {
