@@ -157,6 +157,7 @@ function SetupCodeStep({ onCodeVerified }) {
       const res = await api("/setup/validate-code", {
         method: "POST",
         body: JSON.stringify({ code: trimmed }),
+        allowNonOk: true,
       });
       if (!res.ok) {
         const msg = res.status === 429
