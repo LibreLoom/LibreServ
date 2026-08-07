@@ -14,16 +14,18 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/services"
 )
 
 // DeviceHandler handles device activation, status, and lifecycle.
 type DeviceHandler struct {
-	db      *sql.DB
-	billing *billing.Service
+	db           *sql.DB
+	billing      *billing.Service
+	provisioning *services.ProvisioningService
 }
 
 func NewDeviceHandler(db *sql.DB) *DeviceHandler {
-	return &DeviceHandler{db: db, billing: billing.NewService(db)}
+	return &DeviceHandler{db: db, billing: billing.NewService(db), provisioning: services.NewProvisioningService(db)}
 }
 
 // Activate registers a device using a Connect key.
@@ -124,6 +126,11 @@ func (h *DeviceHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = h.db.ExecContext(r.Context(),
 		"UPDATE subscriptions SET status = 'cancelled' WHERE device_id = $1", deviceID)
+	// Delete the device's Cloudflare tunnel before revoking credentials so the
+	// named tunnel does not leak in Cloudflare after deactivation.
+	if h.provisioning != nil {
+		_ = h.provisioning.Revoke(deviceID, "tunnel")
+	}
 	// Revoke all service credentials so stale "connected" states do not persist.
 	_, _ = h.db.ExecContext(r.Context(),
 		"UPDATE service_credentials SET is_active = FALSE, revoked_at = $1 WHERE device_id = $2",

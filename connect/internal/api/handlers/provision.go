@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 
@@ -139,6 +140,25 @@ func (h *ProvisionHandler) UnregisterRoute(w http.ResponseWriter, r *http.Reques
 		"hostname": req.Hostname,
 		"status":   "removed",
 	})
+}
+
+// DeleteTunnel removes the device's Cloudflare tunnel and its credentials.
+// POST /api/v1/tunnel/delete (device auth). Called by LibreServ when an admin
+// disables or deletes the tunnel.
+func (h *ProvisionHandler) DeleteTunnel(w http.ResponseWriter, r *http.Request) {
+	deviceID := middleware.GetDeviceID(r.Context())
+	if deviceID == "" {
+		JSONError(w, http.StatusUnauthorized, "device authentication required")
+		return
+	}
+
+	if err := h.svc.Revoke(deviceID, "tunnel"); err != nil {
+		slog.Error("could not delete tunnel", "device_id", deviceID, "error", err)
+		JSONError(w, http.StatusInternalServerError, "could not delete the tunnel")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{"status": "deleted"})
 }
 
 // clientIPFromRequest returns the client's IP without the port.

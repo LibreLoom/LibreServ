@@ -108,11 +108,68 @@ func (s *ProvisioningService) Provision(deviceID, serviceType, clientIP string) 
 	return creds, nil
 }
 
-// Revoke deactivates credentials for a service on a device.
+// Revoke deactivates credentials for a service on a device. For the tunnel
+// service, the Cloudflare named tunnel is deleted first so the remote tunnel
+// does not leak after the credentials are revoked.
 func (s *ProvisioningService) Revoke(deviceID, serviceType string) error {
+	if serviceType == "tunnel" {
+		if err := s.deleteDeviceTunnel(deviceID); err != nil {
+			return err
+		}
+	}
 	_, err := s.db.Exec(
 		"UPDATE service_credentials SET is_active = FALSE, revoked_at = $1 WHERE device_id = $2 AND service_type = $3",
 		time.Now(), deviceID, serviceType)
+	return err
+}
+
+// deleteDeviceTunnel deletes the device's Cloudflare named tunnel (if one
+// exists) and removes its tunnel credentials row. Safe to call when no tunnel
+// is provisioned — it is a no-op then. Used so re-provisioning and revocation
+// never leave orphaned named tunnels behind in Cloudflare.
+func (s *ProvisioningService) deleteDeviceTunnel(deviceID string) error {
+	var credsJSON string
+	err := s.db.QueryRow(
+		`SELECT credentials_json FROM service_credentials
+		 WHERE device_id = $1 AND service_type = 'tunnel'`,
+		deviceID).Scan(&credsJSON)
+	if err == sql.ErrNoRows {
+		return nil // no tunnel provisioned
+	}
+	if err != nil {
+		return fmt.Errorf("look up tunnel credentials: %w", err)
+	}
+
+	var creds struct {
+		Tunnel struct {
+			TunnelID string `json:"tunnel_id"`
+		} `json:"tunnel"`
+	}
+	_ = json.Unmarshal([]byte(credsJSON), &creds)
+
+	if creds.Tunnel.TunnelID != "" {
+		prov, err := s.providers.FindEnabled("tunnel")
+		if err != nil {
+			return fmt.Errorf("look up tunnel provider: %w", err)
+		}
+		if prov != nil {
+			accountID := prov.Credential("account_id", "")
+			apiToken := prov.Credential("api_token", "")
+			if accountID != "" && apiToken != "" {
+				if err := s.tunnel.DeleteTunnel(accountID, apiToken, creds.Tunnel.TunnelID); err != nil {
+					// A tunnel that is already gone remotely (or a provider hiccup)
+					// should not block the local cleanup — log and continue.
+					slog.Warn("could not delete Cloudflare tunnel",
+						"device_id", deviceID, "tunnel_id", creds.Tunnel.TunnelID, "error", err)
+				}
+			}
+		}
+	}
+
+	// Remove the credentials row so re-provisioning starts fresh.
+	_, err = s.db.Exec(
+		`DELETE FROM service_credentials WHERE device_id = $1 AND service_type = 'tunnel'`,
+		deviceID)
 	return err
 }
 
@@ -365,6 +422,12 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 // The tunnel's initial ingress routes the device's base hostname to the
 // device's Caddy (http://localhost:80), which handles app-level routing.
 func (s *ProvisioningService) generateTunnel(deviceID, sub string) (map[string]any, error) {
+	// Supersede cleanup: delete any existing tunnel for this device before
+	// creating a new one, so re-provisioning never leaks named tunnels.
+	if err := s.deleteDeviceTunnel(deviceID); err != nil {
+		return nil, err
+	}
+
 	prov, err := s.providers.FindEnabled("tunnel")
 	if err != nil {
 		return nil, fmt.Errorf("could not look up tunnel provider: %w", err)

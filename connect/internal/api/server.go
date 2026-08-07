@@ -100,6 +100,7 @@ func (s *Server) setupRoutes() {
 			r.Get("/status", handlers.NewDeviceHandler(s.db).Status)
 			r.Get("/usage", handlers.NewDeviceHandler(s.db).Usage)
 			r.Post("/services/provision", handlers.NewProvisionHandler(s.db).Provision)
+			r.Post("/tunnel/delete", handlers.NewProvisionHandler(s.db).DeleteTunnel)
 			r.Post("/routes", handlers.NewProvisionHandler(s.db).RegisterRoute)
 			r.Delete("/routes", handlers.NewProvisionHandler(s.db).UnregisterRoute)
 			r.Post("/verify-probe", handlers.NewVerifyProbeHandler(s.db).Probe)
