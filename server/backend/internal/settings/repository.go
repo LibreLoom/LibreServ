@@ -142,6 +142,9 @@ func (r *Repository) SeedFromConfig() error {
 		"network.caddy.default_domain": cfg.Network.Caddy.DefaultDomain,
 		"network.caddy.email":          cfg.Network.Caddy.Email,
 		"network.caddy.auto_https":     strconv.FormatBool(cfg.Network.Caddy.AutoHTTPS),
+		"network.tunnel.provider":      cfg.Network.Tunnel.Provider,
+		"network.tunnel.token":         cfg.Network.Tunnel.Token,
+		"network.tunnel.enabled":       strconv.FormatBool(cfg.Network.Tunnel.Enabled),
 		"updates.base_url":             cfg.Updates.BaseURL,
 		"updates.owner":                cfg.Updates.Owner,
 		"updates.repo":                 cfg.Updates.Repo,
@@ -287,6 +290,16 @@ func (r *Repository) LoadIntoConfig() error {
 		cfg.Network.Caddy.AutoHTTPS, _ = strconv.ParseBool(v)
 	}
 
+	if v, ok := changes["network.tunnel.provider"]; ok && v != "" {
+		cfg.Network.Tunnel.Provider = v
+	}
+	if v, ok := changes["network.tunnel.token"]; ok && v != "" {
+		cfg.Network.Tunnel.Token = v
+	}
+	if v, ok := changes["network.tunnel.enabled"]; ok {
+		cfg.Network.Tunnel.Enabled, _ = strconv.ParseBool(v)
+	}
+
 	if v, ok := changes["updates.base_url"]; ok {
 		cfg.Updates.BaseURL = v
 	}
@@ -381,6 +394,33 @@ func NewService(db *sql.DB) *Service {
 
 func (s *Service) Repository() *Repository {
 	return s.repo
+}
+
+// PersistTunnel stores tunnel provider config in the database (never the
+// config file) and mirrors it into the in-memory config so the running
+// services pick it up immediately. On the next start, LoadIntoConfig
+// re-applies it from the DB, overriding any config-file value.
+func (s *Service) PersistTunnel(provider, token string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.repo.Set("network.tunnel.provider", provider, "string"); err != nil {
+		return err
+	}
+	if err := s.repo.Set("network.tunnel.token", token, "string"); err != nil {
+		return err
+	}
+	if err := s.repo.Set("network.tunnel.enabled", strconv.FormatBool(enabled), "bool"); err != nil {
+		return err
+	}
+
+	cfg := config.Get()
+	if cfg != nil {
+		cfg.Network.Tunnel.Provider = provider
+		cfg.Network.Tunnel.Token = token
+		cfg.Network.Tunnel.Enabled = enabled
+	}
+	return nil
 }
 
 func (s *Service) OnChange(fn func(changedKeys []string)) {
@@ -844,7 +884,8 @@ func typeFor(key string) string {
 	case "smtp.port", "support.agent.max_turns":
 		return "int"
 	case "smtp.use_tls", "smtp.skip_verify", "notify.enabled",
-		"support.byok_enabled", "support.agent.review_enabled", "support.self_healing":
+		"support.byok_enabled", "support.agent.review_enabled", "support.self_healing",
+		"network.tunnel.enabled":
 		return "bool"
 	case "notify.support_recipients", "cors.allowed_origins":
 		return "csv"

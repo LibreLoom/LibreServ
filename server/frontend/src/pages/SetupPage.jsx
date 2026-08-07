@@ -329,10 +329,7 @@ function WelcomeStep({ onBegin }) {
           Welcome.
         </h1>
 
-        <p className="text-primary/68 text-xl leading-[1.65] mb-5 max-w-[22rem]">
-          It&rsquo;s great to see you here.
-        </p>
-        <p className="text-primary/42 text-base leading-relaxed mb-12 max-w-[20rem]">
+        <p className="text-primary/68 text-xl leading-[1.65] mb-12 max-w-[22rem]">
           Let&rsquo;s get LibreServ set up for you.
         </p>
 

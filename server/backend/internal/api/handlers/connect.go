@@ -427,6 +427,13 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 		if err := h.tunnelService.Enable(network.TunnelProviderCloudflare, creds.Tunnel.TunnelToken); err != nil {
 			return fmt.Errorf("Could not configure the tunnel service.")
 		}
+		// Persist to the database (never the config file) so the tunnel
+		// survives a restart without touching libreserv.yaml.
+		if h.settingsService != nil {
+			if err := h.settingsService.PersistTunnel(string(network.TunnelProviderCloudflare), creds.Tunnel.TunnelToken, true); err != nil {
+				slog.Warn("failed to persist tunnel config to database", "error", err)
+			}
+		}
 		if err := h.tunnelService.Start(context.Background()); err != nil {
 			return fmt.Errorf("The tunnel was configured but could not be started. Check your network connection and try again from Settings.")
 		}

@@ -2,17 +2,21 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/settings"
 )
 
 type TunnelHandler struct {
-	service *network.TunnelService
+	service  *network.TunnelService
+	settings *settings.Service
 }
 
-func NewTunnelHandler(service *network.TunnelService) *TunnelHandler {
-	return &TunnelHandler{service: service}
+func NewTunnelHandler(service *network.TunnelService, settingsSvc *settings.Service) *TunnelHandler {
+	return &TunnelHandler{service: service, settings: settingsSvc}
 }
 
 func (h *TunnelHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +49,12 @@ func (h *TunnelHandler) Enable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.settings != nil {
+		if err := h.settings.PersistTunnel(req.Provider, req.Token, true); err != nil {
+			slog.Warn("failed to persist tunnel config to database", "error", err)
+		}
+	}
+
 	JSON(w, http.StatusOK, map[string]string{"status": "enabled"})
 }
 
@@ -52,6 +62,17 @@ func (h *TunnelHandler) Disable(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.Disable(); err != nil {
 		JSONError(w, http.StatusInternalServerError, "We couldn't disable the tunnel. Please try again.")
 		return
+	}
+
+	if h.settings != nil {
+		provider, token := "", ""
+		if cfg := config.Get(); cfg != nil {
+			provider = cfg.Network.Tunnel.Provider
+			token = cfg.Network.Tunnel.Token
+		}
+		if err := h.settings.PersistTunnel(provider, token, false); err != nil {
+			slog.Warn("failed to persist tunnel disabled state to database", "error", err)
+		}
 	}
 
 	JSON(w, http.StatusOK, map[string]string{"status": "disabled"})

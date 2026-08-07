@@ -171,3 +171,43 @@ func TestFRPConfigGeneration(t *testing.T) {
 		}
 	}
 }
+
+// TestTunnelEnableWithNewTokenRestartsProvider guards the supersede path: when
+// a new token is enabled for an already-running provider, the stale cloudflared
+// must be stopped so the new token actually takes effect (Start() is a no-op
+// while a process is still running).
+func TestTunnelEnableWithNewTokenRestartsProvider(t *testing.T) {
+	const pA TunnelProviderType = "fake-a"
+	reg := map[TunnelProviderType]*fakeProvider{pA: {provider: pA}}
+	ts := &TunnelService{
+		providers: make(map[TunnelProviderType]*providerEntry),
+		logger:    slogTestLogger(),
+	}
+	ts.providerFactory = func(pt TunnelProviderType, cfg TunnelProviderConfig) TunnelProvider {
+		return reg[pt]
+	}
+
+	if err := ts.Enable(pA, "token-old"); err != nil {
+		t.Fatalf("Enable: %v", err)
+	}
+	if err := ts.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if reg[pA].starts != 1 {
+		t.Fatalf("starts = %d, want 1", reg[pA].starts)
+	}
+
+	// Supersede: same provider, new token — the running instance must stop.
+	if err := ts.Enable(pA, "token-new"); err != nil {
+		t.Fatalf("re-Enable: %v", err)
+	}
+	if reg[pA].stops != 1 {
+		t.Errorf("stops = %d, want 1 (stale tunnel must be stopped)", reg[pA].stops)
+	}
+	if err := ts.Start(context.Background()); err != nil {
+		t.Fatalf("Start after supersede: %v", err)
+	}
+	if reg[pA].starts != 2 {
+		t.Errorf("starts = %d, want 2 (restart with new token)", reg[pA].starts)
+	}
+}

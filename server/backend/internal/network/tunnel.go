@@ -181,6 +181,14 @@ func (t *TunnelService) Enable(provider TunnelProviderType, token string) error 
 		entry = &providerEntry{}
 		t.providers[provider] = entry
 	}
+	// A new token supersedes the old one: stop the running provider first so
+	// cloudflared picks up the new token instead of keeping the stale tunnel
+	// alive (Start() is a no-op while a process is already running).
+	if entry.provider != nil && entry.config.Enabled && entry.config.Token != token {
+		if err := entry.provider.Stop(); err != nil {
+			return err
+		}
+	}
 	entry.config.Token = token
 	entry.config.Enabled = true
 	if entry.provider == nil {

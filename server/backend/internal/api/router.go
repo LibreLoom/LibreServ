@@ -93,7 +93,7 @@ func (s *Server) setupRoutes() {
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
 	domainHandler := handlers.NewDomainHandler(s.dnsProviderMgr, s.acmeManager, s.caddyManager)
 	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
-	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService)
+	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService, s.settingsService)
 	reportHandler := handlers.NewReportHandler(s.reportService)
 	mappingHandler := handlers.NewMappingHandler(s.upnpClient)
 	plansHandler := handlers.NewPlansHandler(s.reportService, s.appManager, s.pathStateStore)
