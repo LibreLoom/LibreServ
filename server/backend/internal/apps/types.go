@@ -609,7 +609,7 @@ type RuntimeInfo struct {
 //
 // "internal" — LibreServ is the OIDC Identity Provider. The app authenticates
 // users via OIDC against LibreServ's user store. Access is controlled by
-// LibreServ user permissions. App must support OIDC (e.g. Nextcloud, ConvertX).
+// LibreServ user permissions. App must support OIDC (e.g. Nextcloud).
 //
 // "external" — LibreServ just reverse-proxies. The app manages its own auth
 // entirely. LibreServ does not gate access or propagate identity.

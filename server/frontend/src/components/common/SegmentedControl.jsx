@@ -50,12 +50,12 @@ export default function SegmentedControl({
           }}
           className={cn(
             "relative z-10 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-pill",
-            "text-xs font-medium transition-[color] ease-[var(--motion-easing-standard)]",
+            "text-xs font-medium transition-[color,background-color] ease-[var(--motion-easing-standard)]",
             disabled
               ? "text-accent opacity-50 cursor-not-allowed"
               : value === optValue
-                ? "text-primary"
-                : "text-accent hover:text-primary"
+                ? "text-secondary"
+                : "text-accent hover:text-secondary hover:bg-secondary/10"
           )}
           style={{ transitionDuration: "var(--motion-duration-short2)" }}
           role="radio"
