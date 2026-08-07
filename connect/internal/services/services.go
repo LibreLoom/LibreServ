@@ -626,13 +626,17 @@ func (s *ProvisioningService) findDeviceTunnelID(deviceID string) string {
 	if err != nil {
 		return ""
 	}
-	var creds struct {
-		TunnelID string `json:"tunnel_id"`
+	// Credentials are stored wrapped under the service key
+	// ({"tunnel": {"tunnel_id": ..., "tunnel_token": ...}}).
+	var wrapper struct {
+		Tunnel struct {
+			TunnelID string `json:"tunnel_id"`
+		} `json:"tunnel"`
 	}
-	if json.Unmarshal([]byte(credsJSON), &creds) != nil {
+	if json.Unmarshal([]byte(credsJSON), &wrapper) != nil {
 		return ""
 	}
-	return creds.TunnelID
+	return wrapper.Tunnel.TunnelID
 }
 
 func mustJSON(v any) string {
