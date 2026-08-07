@@ -118,7 +118,9 @@ StepDots.propTypes = { current: PropTypes.string.isRequired };
 // content within it flies in/out. Mirrors the app install wizard's
 // slide-in-from-right-pop / -left-pop keyframes.
 
-// ─── Logo mark (inline SVG — fixed brand colors, renders on any surface) ──
+// ─── Logo mark (inline SVG — theme-aware, renders on the inverted setup card) ─
+// The accent (#767676) border is constant; the white/black face and dot invert
+// with bg-secondary so the mark stays readable in both themes.
 function LogoMark({ size = 64 }) {
   return (
     <svg
@@ -129,12 +131,9 @@ function LogoMark({ size = 64 }) {
       height={size}
       aria-hidden="true"
     >
-      {/* color-scan: ignore-next-line SVG logo uses fixed brand colors */}
       <rect x="0" y="0" width="240" height="240" rx="32" fill="var(--color-accent)" />
-      {/* color-scan: ignore-next-line SVG logo uses fixed brand colors */}
-      <rect x="2" y="2" width="236" height="236" rx="30" fill="#ffffff" />
-      {/* color-scan: ignore-next-line SVG logo uses fixed brand colors */}
-      <circle cx="200" cy="200" r="24" fill="#000000" stroke="var(--color-accent)" strokeWidth="2" />
+      <rect x="2" y="2" width="236" height="236" rx="30" fill="var(--color-primary)" />
+      <circle cx="200" cy="200" r="24" fill="var(--color-secondary)" stroke="var(--color-accent)" strokeWidth="2" />
     </svg>
   );
 }
@@ -181,7 +180,7 @@ function SetupCodeStep({ onCodeVerified }) {
   return (
     <SetupShell>
       <SetupCard className="flex flex-col items-center text-center">
-        <div className="mb-10 flex h-36 w-36 items-center justify-center rounded-full border border-primary/12 bg-primary/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <div className="mb-10">
           <LogoMark size={120} />
         </div>
 
@@ -243,7 +242,7 @@ function WelcomeStep({ onBegin }) {
   return (
     <SetupShell>
       <SetupCard className="flex flex-col items-center text-center">
-        <div className="mb-10 flex h-36 w-36 items-center justify-center rounded-full border border-primary/12 bg-primary/6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <div className="mb-10">
           <LogoMark size={120} />
         </div>
 
