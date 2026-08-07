@@ -84,9 +84,10 @@ export default function Domains() {
               </CardContent></Card>
             )}
 
-            {/* Always show the owned domain list and custom domain registration */}
+            {/* The per-device section covers registration when a device exists;
+                standalone is only needed before any device is connected. */}
             <DomainList domains={ownedDomains} />
-            <CustomDomainRegistration />
+            {devices.length === 0 && <CustomDomainRegistration />}
 
             {warningDomains.length > 0 && <DomainWarnings domains={warningDomains} />}
           </div>
@@ -590,6 +591,7 @@ function CustomDomainRegistration() {
       // Register without a device_id — the domain is owned at the account level.
       const res = await api.registerDomain("", name);
       if (res.checkout_url) {
+        // eslint-disable-next-line react-hooks/immutability -- intentional full-page redirect to checkout
         window.location.href = res.checkout_url;
       } else {
         setSuccess(`${name} registered.`);
