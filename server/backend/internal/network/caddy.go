@@ -237,13 +237,11 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 	cm.routesMu.Unlock()
 
 	if err := cm.reloadCaddy(); err != nil {
-		// Rollback (requires re-locking) - best effort, ignore errors during rollback
-		cm.routesMu.Lock()
-		delete(cm.routes, route.ID)
-		_ = cm.deleteRoute(ctx, route.ID)
-		_ = cm.restoreBackup()
-		cm.routesMu.Unlock()
-		return nil, fmt.Errorf("failed to reload Caddy: %w", err)
+		// Keep the route even when the reload fails (e.g. Caddy is down or
+		// not installed — common in dev). Rolling back would discard the
+		// route and break the app's public URL; a later reload attempt will
+		// pick the route up once Caddy is reachable.
+		log.Printf("Route added %s but Caddy reload failed (kept route): %v", route.FullDomain(), err)
 	}
 
 	log.Printf("Route added: %s -> %s", route.FullDomain(), route.Backend)
@@ -307,12 +305,9 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 	cm.routesMu.Unlock()
 
 	if err := cm.reloadCaddy(); err != nil {
-		cm.routesMu.Lock()
-		delete(cm.routes, route.ID)
-		_ = cm.deleteRoute(ctx, route.ID)
-		_ = cm.restoreBackup()
-		cm.routesMu.Unlock()
-		return nil, fmt.Errorf("failed to reload Caddy: %w", err)
+		// Keep the route — reload failure (Caddy down/not installed) must not
+		// discard the route and break the app's public URL.
+		log.Printf("Route updated %s but Caddy reload failed (kept route): %v", route.FullDomain(), err)
 	}
 	return route, nil
 }

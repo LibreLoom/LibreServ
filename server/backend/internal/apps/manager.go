@@ -412,6 +412,63 @@ func (m *Manager) RebuildBackends(ctx context.Context) {
 		for _, be := range m.inferBackends(app) {
 			m.registerBackend(app.ID, be.backend, be.name)
 		}
+		// Recreate the Caddy route for apps with persisted domain config so
+		// the public URL survives a restart (routes are not persisted in
+		// Caddy's runtime state; only the app's domain/subdomain config is).
+		m.ensureRouteForApp(ctx, app)
+	}
+}
+
+// ensureRouteForApp creates the Caddy route for an installed app when it has
+// persisted domain config but no route yet, and re-registers the public
+// hostname with Connect's tunnel. Non-blocking: failures (e.g. Caddy reload
+// when Caddy is down, or Connect unreachable) are logged, never fatal.
+func (m *Manager) ensureRouteForApp(ctx context.Context, app *InstalledApp) {
+	if m.caddyManager == nil || app == nil || app.Config == nil {
+		return
+	}
+	domain, _ := app.Config["domain"].(string)
+	subdomain, _ := app.Config["subdomain"].(string)
+	if domain == "" || subdomain == "" {
+		return
+	}
+
+	// Always (re-)register the public hostname with Connect's tunnel —
+	// idempotent on Connect's side (DNS CNAME + tunnel ingress), and needed
+	// on every startup because Connect's tunnel ingress isn't persisted
+	// device-side.
+	if m.routeRegistrar != nil {
+		fullHostname := subdomain + "." + domain
+		if err := m.routeRegistrar(fullHostname); err != nil {
+			m.logger.Warn("Failed to register route with Connect on startup",
+				"instance_id", app.ID, "hostname", fullHostname, "error", err)
+		}
+	}
+
+	if existing, err := m.caddyManager.GetRouteByApp(app.ID); err == nil && existing != nil {
+		return
+	}
+	backend := ""
+	// Prefer the app's internal HTTP port from persisted config — the public
+	// URL (app.URL) may already be set to the domain itself by
+	// maybeSetPublicURL and must not be used as the Caddy proxy target.
+	if port, ok := app.Config["http_port"]; ok {
+		if p, ok2 := port.(float64); ok2 && p > 0 {
+			backend = fmt.Sprintf("http://localhost:%d", int(p))
+		}
+	}
+	if backend == "" {
+		backends := m.inferBackends(app)
+		if len(backends) > 0 {
+			backend = backends[0].backend
+		}
+	}
+	if backend == "" {
+		return
+	}
+	if _, err := m.caddyManager.AddRoute(ctx, subdomain, domain, backend, app.ID); err != nil {
+		m.logger.Warn("Failed to recreate route on startup",
+			"instance_id", app.ID, "subdomain", subdomain, "domain", domain, "error", err)
 	}
 }
 
@@ -1648,21 +1705,29 @@ func (m *Manager) maybeSetPublicURL(app *InstalledApp) {
 	}
 
 	cfg := m.caddyManager.Config()
-	if cfg.Mode == "disabled" {
+
+	// Prefer the Caddy route's domain when one exists.
+	if route, err := m.caddyManager.GetRouteByApp(app.ID); err == nil && route != nil {
+		scheme := "http"
+		if cfg.AutoHTTPS {
+			scheme = "https"
+		}
+		app.URL = fmt.Sprintf("%s://%s", scheme, route.FullDomain())
 		return
 	}
 
-	route, err := m.caddyManager.GetRouteByApp(app.ID)
-	if err != nil || route == nil {
-		return
+	// No Caddy route (Caddy disabled/down, or dev without Caddy): fall back
+	// to the app's persisted domain config — the tunnel path (Cloudflare
+	// routes the hostname straight to the backend). The tunnel domain is
+	// always HTTPS (Cloudflare terminates TLS).
+	if app.Config != nil {
+		if domain, ok := app.Config["domain"].(string); ok && domain != "" {
+			if subdomain, ok := app.Config["subdomain"].(string); ok && subdomain != "" {
+				app.URL = fmt.Sprintf("https://%s.%s", subdomain, domain)
+				return
+			}
+		}
 	}
-
-	scheme := "http"
-	if cfg.AutoHTTPS {
-		scheme = "https"
-	}
-
-	app.URL = fmt.Sprintf("%s://%s", scheme, route.FullDomain())
 }
 
 // EnsurePublicURL is the exported wrapper around maybeSetPublicURL so the

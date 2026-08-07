@@ -436,6 +436,13 @@ func main() {
 		return nil
 	})
 
+	// Re-run backend/route rebuild now that the route registrar is wired —
+	// NewManager already rebuilt at construction, but routeRegistrar was nil
+	// then, so apps with persisted domain config never registered their
+	// public hostname with Connect's tunnel. Doing it again here registers
+	// them (DNS CNAME + tunnel ingress) and recreates any missing routes.
+	appManager.RebuildBackends(context.Background())
+
 	// Start local SMTP relay — apps send to localhost, the relay forwards
 	// to the configured upstream (Connect SMTP or user-configured SMTP).
 	smtpRelay := email.NewRelay()
