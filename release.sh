@@ -480,14 +480,14 @@ upload_assets() {
     echo ""
     
     # Verify all files exist before uploading
-    for file in libreserv-linux-amd64 libreserv-linux-arm64 catalog.tar.gz SHA256SUMS.txt; do
+    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
         if [ ! -f "$BUILD_DIR/$file" ]; then
             log_error "Missing file: $BUILD_DIR/$file"
             exit 1
         fi
     done
     
-    for file in libreserv-linux-amd64 libreserv-linux-arm64 catalog.tar.gz SHA256SUMS.txt; do
+    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
         log_info "Uploading $file..."
         
         FILE_SIZE=$(du -h "$BUILD_DIR/$file" | cut -f1)
@@ -579,7 +579,6 @@ cleanup() {
         if [ "$PRESERVE_BUILD" = true ]; then
             log_info "Build directory preserved: $BUILD_DIR"
             echo "  Binaries: $BUILD_DIR/libreserv-linux-{amd64,arm64}"
-            echo "  Catalog: $BUILD_DIR/catalog.tar.gz"
             echo "  Checksums: $BUILD_DIR/SHA256SUMS.txt"
         else
             log_info "Cleaning up build directory..."
