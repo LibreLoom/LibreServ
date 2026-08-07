@@ -265,7 +265,10 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set auth cookies to automatically log in the user
+	// Set auth cookies to automatically log in the user. The Secure flag follows
+	// the request transport (isSecureRequest) so the wizard works over plain
+	// http:// (browsers silently drop Secure cookies otherwise) while staying
+	// Secure behind Caddy/TLS.
 	refreshExpiresAt := time.Now().Add(7 * 24 * time.Hour)
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
@@ -274,7 +277,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(tokens.Tokens.ExpiresAt, 0),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   isSecureRequest(r),
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
@@ -283,7 +286,7 @@ func (h *SetupHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   isSecureRequest(r),
 	})
 
 	// Send a welcome email if SMTP is configured

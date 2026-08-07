@@ -115,7 +115,7 @@ func (h *InviteHandler) RedeemInvite(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if err := setSessionCookies(w, h.authService, tokens); err != nil {
+	if err := setSessionCookies(w, h.authService, tokens, isSecureRequest(r)); err != nil {
 		JSONError(w, http.StatusInternalServerError, "We set up your account but couldn't start your session. Try logging in.")
 		return
 	}

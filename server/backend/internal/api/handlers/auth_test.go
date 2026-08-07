@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -129,6 +130,40 @@ func TestMeUnauthenticated(t *testing.T) {
 	handler.Me(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+}
+
+// isSecureRequest decides the cookie Secure flag from the transport: HTTPS
+// (direct TLS or trusted-proxy X-Forwarded-Proto) → Secure; plain HTTP → not
+// Secure. Browsers drop Secure cookies on http://, so the flag must follow the
+// real transport — the setup wizard and LAN access run over plain http://.
+func TestIsSecureRequest(t *testing.T) {
+	cases := []struct {
+		name   string
+		remote string
+		proto  string
+		tls    bool
+		want   bool
+	}{
+		{"plain http direct (remote setup over LAN IP)", "192.168.1.50:8080", "", false, false},
+		{"plain http localhost (dev server)", "127.0.0.1:8080", "", false, false},
+		{"direct TLS", "192.168.1.50:8080", "", true, true},
+		{"trusted proxy (Caddy) forwarding https", "127.0.0.1:443", "https", false, true},
+		{"trusted proxy forwarding http", "127.0.0.1:443", "http", false, false},
+		{"untrusted client spoofs X-Forwarded-Proto", "203.0.113.9:8080", "https", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tc.remote
+			req.Header.Set("X-Forwarded-Proto", tc.proto)
+			if tc.tls {
+				req.TLS = &tls.ConnectionState{}
+			}
+			if got := isSecureRequest(req); got != tc.want {
+				t.Fatalf("isSecureRequest() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -22,7 +23,33 @@ const (
 	refreshCookieName = "libreserv_refresh"
 )
 
+// isSecureRequest reports whether the client is on a confidential transport:
+// a direct TLS connection, or an https:// request forwarded by a trusted proxy
+// (Caddy). The auth/setup cookies are marked Secure only when the request is
+// HTTPS end-to-end; browsers refuse to store Secure cookies on plain http:// so
+// hard-coding Secure:true would lock users out whenever they reach the device
+// over plain HTTP — which is exactly how the whole setup wizard runs before
+// Caddy/proxy/domain configuration exists (e.g. http://192.168.x.x:8080).
+// Trusted-proxy detection mirrors getClientIP, and the 127.0.0.1/8 etc.
+// fallbacks are on the same trustedProxyNets list (rate_limit.go), so a
+// spoofed X-Forwarded-Proto from an untrusted client is ignored here.
+func isSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	remote := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(remote); err == nil {
+		remote = h
+	}
+	ip := net.ParseIP(remote)
+	if ip == nil || !middleware.IsTrustedProxyIP(ip) {
+		return false
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
 func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
+	secure := isSecureRequest(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     accessCookieName,
 		Value:    "",
@@ -31,7 +58,7 @@ func clearAuthCookies(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   secure,
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
@@ -131,7 +158,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	h.securityService.ClearFailedAttempts(clientIP, response.User.Username)
 
 	// Set access + refresh tokens as HTTP-only cookies.
-	if err := setSessionCookies(w, h.authService, response.Tokens); err != nil {
+	if err := setSessionCookies(w, h.authService, response.Tokens, isSecureRequest(r)); err != nil {
 		JSONError(w, http.StatusInternalServerError, "We couldn't set up your session. Please try again.")
 		return
 	}
@@ -140,8 +167,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 // setSessionCookies sets the access + refresh HTTP-only cookies for a token
 // pair. Shared by Login and the MFA verify/recover flows (which also complete a
-// session after a valid MFA challenge).
-func setSessionCookies(w http.ResponseWriter, authService *auth.Service, tokens *auth.TokenPair) error {
+// session after a valid MFA challenge). The Secure flag follows the request
+// transport (isSecureRequest) so sessions work over plain http:// (setup,
+// LAN access) while staying Secure behind TLS.
+func setSessionCookies(w http.ResponseWriter, authService *auth.Service, tokens *auth.TokenPair, secure bool) error {
 	refreshExpiresAt, err := authService.TokenExpiry(tokens.RefreshToken)
 	if err != nil {
 		return err
@@ -149,12 +178,12 @@ func setSessionCookies(w http.ResponseWriter, authService *auth.Service, tokens 
 	http.SetCookie(w, &http.Cookie{
 		Name: accessCookieName, Value: tokens.AccessToken, Path: "/",
 		Expires:  time.Unix(tokens.ExpiresAt, 0),
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: true,
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secure,
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name: refreshCookieName, Value: tokens.RefreshToken, Path: "/",
 		Expires:  refreshExpiresAt,
-		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: true,
+		HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: secure,
 	})
 	return nil
 }
@@ -238,7 +267,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(tokens.ExpiresAt, 0),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   isSecureRequest(r),
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
@@ -247,7 +276,7 @@ func (h *AuthHandler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		Expires:  refreshExpiresAt,
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   true,
+		Secure:   isSecureRequest(r),
 	})
 	JSON(w, http.StatusOK, map[string]string{"message": "refreshed"})
 }

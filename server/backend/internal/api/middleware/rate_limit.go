@@ -220,6 +220,19 @@ func TrustedProxyNets() []*net.IPNet {
 	return trustedProxyNets
 }
 
+// IsTrustedProxyIP reports whether ip belongs to a trusted proxy network
+// (the same trustedProxyNets list used for X-Forwarded-For parsing and client
+// IP detection). Handlers use it to gate headers like X-Forwarded-Proto on
+// requests that actually came from Caddy.
+func IsTrustedProxyIP(ip net.IP) bool {
+	for _, network := range trustedProxyNets {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 func isTrustedProxy(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {

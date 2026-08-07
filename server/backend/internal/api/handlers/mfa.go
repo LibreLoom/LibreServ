@@ -387,7 +387,7 @@ func (h *MFAHandler) Verify(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "That didn't work. Double-check the code and try again.")
 		return
 	}
-	if err := setSessionCookies(w, h.authService, tokens); err != nil {
+	if err := setSessionCookies(w, h.authService, tokens, isSecureRequest(r)); err != nil {
 		JSONError(w, http.StatusInternalServerError, "We couldn't set up your session. Please try again.")
 		return
 	}
@@ -424,7 +424,7 @@ func (h *MFAHandler) Recover(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusInternalServerError, "We couldn't sign you in. Please try again.")
 		return
 	}
-	if err := setSessionCookies(w, h.authService, tokens); err != nil {
+	if err := setSessionCookies(w, h.authService, tokens, isSecureRequest(r)); err != nil {
 		JSONError(w, http.StatusInternalServerError, "We couldn't set up your session. Please try again.")
 		return
 	}
