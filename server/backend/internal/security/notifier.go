@@ -143,7 +143,7 @@ func buildSecurityEmail(event *Event) string {
 
 	sb.WriteString("\n---\n\n")
 	sb.WriteString("You can view your security activity in the LibreServ web interface:\n")
-	sb.WriteString("Settings > Security > Activity Log\n\n")
+	sb.WriteString("LibreServ → Settings → Security → Activity Log\n\n")
 
 	sb.WriteString("If you have any questions or concerns, please don't hesitate to reach out.\n\n")
 	sb.WriteString("Best regards,\n")

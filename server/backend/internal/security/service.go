@@ -240,37 +240,14 @@ func (s *Service) getNotificationRecipients(event *Event) ([]string, error) {
 }
 
 func (s *Service) buildNotificationSubject(event *Event) string {
-	switch event.EventType {
-	case EventLoginFailed:
-		return "Security Alert: Failed Login Attempt"
-	case EventAccountLocked:
-		return "Security Alert: Account Locked"
-	case EventSuspiciousActivity:
-		return "Security Alert: Suspicious Activity Detected"
-	default:
-		return "Security Alert"
-	}
+	return "Security Alert: " + getEventTitle(event)
 }
 
 func (s *Service) buildNotificationBody(event *Event) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("Event Type: %s\n", event.EventType))
-	sb.WriteString(fmt.Sprintf("Time: %s\n", event.Timestamp.Format(time.RFC3339)))
-
-	if event.IPAddress != "" {
-		sb.WriteString(fmt.Sprintf("IP Address: %s\n", event.IPAddress))
-	}
-
-	if event.UserAgent != "" {
-		sb.WriteString(fmt.Sprintf("User Agent: %s\n", event.UserAgent))
-	}
-
-	if event.Details != "" {
-		sb.WriteString(fmt.Sprintf("Details: %s\n", event.Details))
-	}
-
-	return sb.String()
+	// The friendly builder in notifier.go already handles every event in
+	// plain language (no raw event codes, anonymized IPs, human timestamps,
+	// and a UI path to act on). Use it for the queue path too.
+	return buildSecurityEmail(event)
 }
 
 func (s *Service) RecordEvent(ctx context.Context, event *Event) error {
