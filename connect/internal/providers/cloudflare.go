@@ -3,6 +3,7 @@ package providers
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -157,6 +158,54 @@ func (c *CloudflareClient) CreateCNAME(apiToken, zone, hostname, target string) 
 }
 
 // lookupZoneID finds the Cloudflare zone ID for a given zone name.
+// CreateCustomHostname provisions a Cloudflare Custom Hostname (SSL for
+// SaaS) for a wildcard device domain, e.g. "*.8ea1f9c2.servers.libreloom.org".
+// Cloudflare issues the edge certificate automatically, covering every app
+// subdomain under the device (convertx.8ea1f9c2... etc.). This is the ACM
+// wildcard cert for Connect-managed device subdomains.
+func (c *CloudflareClient) CreateCustomHostname(apiToken, zone, hostname string) (bool, error) {
+	if apiToken == "" {
+		return false, fmt.Errorf("Cloudflare API token is not configured")
+	}
+	if zone == "" || hostname == "" {
+		return false, fmt.Errorf("zone and hostname are required")
+	}
+
+	baseURL := c.baseURL
+	if baseURL == "" {
+		baseURL = "https://api.cloudflare.com/client/v4"
+	}
+	zoneID, err := c.lookupZoneID(baseURL, apiToken, zone)
+	if err != nil {
+		return false, fmt.Errorf("could not find Cloudflare zone %q: %w", zone, err)
+	}
+
+	body := map[string]any{
+		"hostname": hostname,
+		"ssl": map[string]any{
+			"method": "http",
+			"type":   "dv",
+		},
+	}
+	url := fmt.Sprintf("%s/zones/%s/custom_hostnames", baseURL, zoneID)
+	headers := map[string]string{"Authorization": "Bearer " + apiToken}
+
+	var resp cloudflareRecordResponse
+	if _, err := doJSON(c.httpClient, http.MethodPost, url, headers, body, &resp); err != nil {
+		return false, fmt.Errorf("could not create custom hostname at Cloudflare: %w", err)
+	}
+	if !resp.Success && len(resp.Errors) > 0 {
+		// Idempotent: already-provisioned wildcard returns a duplicate error.
+		for _, e := range resp.Errors {
+			if strings.Contains(e.Message, "already exists") || strings.Contains(e.Message, "duplicate") {
+				return true, nil
+			}
+		}
+		return false, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+	}
+	return true, nil
+}
+
 func (c *CloudflareClient) lookupZoneID(baseURL, apiToken, zoneName string) (string, error) {
 	url := fmt.Sprintf("%s/zones?name=%s", baseURL, zoneName)
 	headers := map[string]string{

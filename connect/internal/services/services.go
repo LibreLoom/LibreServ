@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -287,6 +288,17 @@ func (s *ProvisioningService) generateDomain(deviceID, sub, clientIP string) (ma
 	// from the device's assigned domain — the provider zone must NOT replace it.
 	zone := prov.Setting("zone", "")
 	dnsManaged := false
+
+	// Provision the ACM wildcard edge cert for the device domain
+	// (*.8ea1f9c2.servers.libreloom.org) so every app subdomain under the
+	// device is covered by Cloudflare's edge TLS. Non-fatal: cert issuance is
+	// async on Cloudflare's side; the device stays reachable via the tunnel.
+	if prov != nil && prov.Credential("api_token", "") != "" && zone != "" {
+		wildcardHost := "*." + deviceDomain
+		if _, err := s.dns.CreateCustomHostname(prov.Credential("api_token", ""), zone, wildcardHost); err != nil {
+			slog.Warn("could not provision ACM wildcard cert for device", "hostname", wildcardHost, "error", err)
+		}
+	}
 	if prov != nil && prov.Credential("api_token", "") != "" {
 		// Full reachable hostname so the record is created correctly regardless
 		// of the provider zone (CreateRecord uses it as-is when it has a dot).
