@@ -4,8 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Connect Admin</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" id="favicon" />
     <script>
-      (function(){try{var t=localStorage.getItem("connect-admin-theme");var isDark=false;if(t==="dark")isDark=true;else if(t==="system"||!t){if(window.matchMedia&&window.matchMedia("(prefers-color-scheme:dark)").matches)isDark=true;}var r=document.documentElement;if(isDark)r.classList.add("dark");}catch(e){}})();
+      (function(){try{var t=localStorage.getItem("connect-admin-theme");var isDark=false;if(t==="dark")isDark=true;else if(t==="system"||!t){if(window.matchMedia&&window.matchMedia("(prefers-color-scheme:dark)").matches)isDark=true;}var r=document.documentElement;if(isDark)r.classList.add("dark");}catch(e){}try{var f=document.getElementById("favicon");if(f){f.href=(document.documentElement.classList.contains("dark"))?"/favicon-dark.svg":"/favicon.svg";}}catch(e){}})();
     </script>
   </head>
   <body>

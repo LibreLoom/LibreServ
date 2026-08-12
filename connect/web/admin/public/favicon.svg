@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" fill="none">
+  <!-- Border: solid gray rect underneath -->
+  <rect x="0" y="0" width="240" height="240" rx="32" fill="#767676"/>
+  <!-- Inner white rect inset by 2px creates a crisp, uniform border -->
+  <rect x="2" y="2" width="236" height="236" rx="30" fill="#ffffff"/>
+  <!-- Black circle in the bottom-right corner, p-4 (16px) padding, with gray border -->
+  <circle cx="200" cy="200" r="24" fill="#000000" stroke="#767676" stroke-width="2"/>
+</svg>
