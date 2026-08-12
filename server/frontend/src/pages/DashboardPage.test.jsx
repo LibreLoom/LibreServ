@@ -63,10 +63,6 @@ vi.mock("../components/common/CriticalIssues", () => ({
   default: () => <div data-testid="critical-issues">Critical Issues</div>,
 }));
 
-vi.mock("../components/onboarding/InstallFirstAppCard", () => ({
-  default: () => <div data-testid="install-first-app-card">Install First App</div>,
-}));
-
 import { useUser } from "../hooks/useUser";
 import { useUptime } from "../hooks/useUptime";
 import { useMonitoring } from "../hooks/useMonitoring";
@@ -90,11 +86,6 @@ describe("DashboardPage", () => {
   it("renders the dashboard title", () => {
     renderWithProviders(<Dashboard />);
     expect(screen.getByTestId("header-card")).toBeInTheDocument();
-  });
-
-  it("shows the install-first-app card", () => {
-    renderWithProviders(<Dashboard />);
-    expect(screen.getByTestId("install-first-app-card")).toBeInTheDocument();
   });
 
   it("shows uptime and stress index cards", () => {

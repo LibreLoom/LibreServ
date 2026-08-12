@@ -6,7 +6,6 @@ import Page from "../components/ui/Page";
 import AppCards from "../components/dashboard/AppCards";
 import StressIndexCard from "../components/dashboard/StressIndexCard";
 import CriticalIssues from "../components/common/CriticalIssues";
-import InstallFirstAppCard from "../components/onboarding/InstallFirstAppCard";
 
 import { dashboard as greetingMessages } from "../assets/greetings";
 import { useUser } from "../hooks/useUser";
@@ -146,10 +145,6 @@ export default function Dashboard() {
       headerCardClassName="group"
       rightContent={<CriticalIssues />}
     >
-      <section className="px-8 mb-10">
-        <InstallFirstAppCard />
-      </section>
-
       <section
         className="flex flex-col md:flex-row gap-8 px-8 w-full"
         aria-label="Dashboard metrics"

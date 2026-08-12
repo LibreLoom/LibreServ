@@ -226,10 +226,6 @@ function SetupCodeStep({ onCodeVerified }) {
           Verify
           <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
         </Button>
-
-        <p className="mt-9 text-xs text-primary/20">
-          LibreServ &bull; Self-hosted cloud platform
-        </p>
       </SetupCard>
     </SetupShell>
   );
@@ -263,10 +259,6 @@ function WelcomeStep({ onBegin }) {
           Begin Setup
           <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
         </Button>
-
-        <p className="mt-9 text-xs text-primary/20">
-          LibreServ &bull; Self-hosted cloud platform
-        </p>
       </SetupCard>
     </SetupShell>
   );
