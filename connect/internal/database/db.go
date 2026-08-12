@@ -353,11 +353,8 @@ CREATE INDEX IF NOT EXISTS idx_customer_sessions_account ON customer_sessions(ac
 CREATE UNIQUE INDEX IF NOT EXISTS idx_connect_keys_account_unique ON connect_keys(account_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_account_unique ON devices(account_id);
 CREATE INDEX IF NOT EXISTS idx_customer_accounts_plan ON customer_accounts(plan_id);
-		`,
-	},
-	{
-		name: "002_email_verification",
-		sql: `
+
+-- 002_email_verification
 ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
 	id TEXT PRIMARY KEY,
@@ -367,46 +364,28 @@ CREATE TABLE IF NOT EXISTS email_verification_tokens (
 	created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_email_verif_account ON email_verification_tokens(account_id);
-		`,
-	},
-	{
-		name: "003_username_and_smtp",
-		sql: `
+
+-- 003_username_and_smtp
 ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS username TEXT;
 ALTER TABLE customer_accounts ADD COLUMN IF NOT EXISTS smtp_password TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_accounts_username ON customer_accounts(username) WHERE username IS NOT NULL;
-		`,
-	},
-	{
-		name: "004_domain_renewal",
-		sql: `
+
+-- 004_domain_renewal
 ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS renewal_cost_cents INTEGER;
 ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS grace_until TIMESTAMP;
-		`,
-	},
-	{
-		name: "005_device_subdomain",
-		sql: `
+
+-- 005_device_subdomain
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS subdomain TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_subdomain_unique ON devices(subdomain);
-		`,
-	},
-	{
-		name: "006_cancel_at_period_end",
-		sql: `
+
+-- 006_cancel_at_period_end
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
-		`,
-	},
-	{
-		name: "007_domain_account_id",
-		sql: `
+
+-- 007_domain_account_id
 ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES customer_accounts(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_custom_domains_account ON custom_domains(account_id);
-		`,
-	},
-	{
-		name: "008_connect_key_subdomain",
-		sql: `
+
+-- 008_connect_key_subdomain
 ALTER TABLE connect_keys ADD COLUMN IF NOT EXISTS subdomain TEXT;
 		`,
 	},
