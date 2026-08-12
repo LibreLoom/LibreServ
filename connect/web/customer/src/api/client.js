@@ -59,9 +59,9 @@ export const api = {
 
   // Connect keys
   getConnectKeys: () => request("/portal/connect-keys"),
-  generateConnectKey: () => request("/portal/connect-keys", {
+  generateConnectKey: (subdomain) => request("/portal/connect-keys", {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify({ subdomain: subdomain || "" }),
   }),
   revokeConnectKey: (keyId) => request("/portal/connect-keys/revoke", {
     method: "POST",

@@ -543,17 +543,18 @@ export default function Onboarding() {
 
   // Auto-generate the connect key when the user reaches the key step.
   // The key step is the last step. We generate once — the guard
-  // prevents duplicate calls on re-renders.
+  // prevents duplicate calls on re-renders. The subdomain the user picked
+  // earlier is stamped on the key so the device gets it on activation.
   const keyStep = STEPS.length - 1;
   useEffect(() => {
     if (step !== keyStep || connectKey || generatingKey) return;
     setGeneratingKey(true);
     clearError();
-    api.generateConnectKey()
+    api.generateConnectKey(subdomainName.trim() || undefined)
       .then((res) => setConnectKey(res.connect_key))
       .catch((err) => setError(err.message || "Could not generate your Connect key. Try again."))
       .finally(() => setGeneratingKey(false));
-  }, [step, connectKey, generatingKey, keyStep]);
+  }, [step, connectKey, generatingKey, keyStep, subdomainName]);
 
   const handlePlanContinue = async () => {
     clearError();
@@ -626,7 +627,10 @@ export default function Onboarding() {
     setGeneratingKey(true);
     clearError();
     try {
-      const res = await api.generateConnectKey();
+      // Stamp the subdomain the user picked on the key so the device's
+      // registered free subdomain comes from the onboarding choice, not a
+      // random device-ID suffix.
+      const res = await api.generateConnectKey(subdomainName.trim() || undefined);
       setConnectKey(res.connect_key);
     } catch (err) {
       setError(err.message || "Could not generate your Connect key. Try again.");
@@ -1062,6 +1066,11 @@ export default function Onboarding() {
     return renderPaidDomain();
   };
 
+  // Suffix shown in the subdomain preview: the plan's wildcard domain pattern
+  // (e.g. "*.servers.libreloom.org") minus the wildcard. Fall back to the
+  // hardcoded legacy values if the plan hasn't loaded yet.
+  const domainSuffix = (currentPlan?.limits?.domain || "").replace("*", "") || "servers.libreloom.org";
+
   const renderPaidDomain = () => (
     <StepShell icon={Globe} title="Choose your domain">
       <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-2">
@@ -1077,7 +1086,7 @@ export default function Onboarding() {
           subAvailability={subAvailability}
           setSubAvailability={setSubAvailability}
           checkingSub={checkingSub}
-          suffix="servers.libreloom.org"
+          suffix={domainSuffix}
           onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
         />
       </div>
@@ -1135,7 +1144,7 @@ export default function Onboarding() {
           subAvailability={subAvailability}
           setSubAvailability={setSubAvailability}
           checkingSub={checkingSub}
-          suffix="free.servers.libreloom.org"
+          suffix={domainSuffix}
           onContinue={() => { if (subdomainName.trim() && subAvailability !== false) goNext(); }}
         />
       </div>

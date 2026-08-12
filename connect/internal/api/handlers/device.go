@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -42,11 +43,15 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 
 	keyHash := hashToken(req.ConnectKey)
 
-	// Look up the Connect key
+	// Look up the Connect key. The key can carry the subdomain the user picked
+	// during onboarding (stamped by GenerateConnectKey), which becomes the
+	// device's free plan subdomain — otherwise the device gets a random
+	// device-ID suffix.
 	var connectKeyID, planID, status, accountID string
+	var stampedSub sql.NullString
 	err := h.db.QueryRowContext(r.Context(),
-		`SELECT id, account_id, plan_id, status FROM connect_keys WHERE key_hash = $1`,
-		keyHash).Scan(&connectKeyID, &accountID, &planID, &status)
+		`SELECT id, account_id, plan_id, status, subdomain FROM connect_keys WHERE key_hash = $1`,
+		keyHash).Scan(&connectKeyID, &accountID, &planID, &status, &stampedSub)
 	if err == sql.ErrNoRows {
 		JSONError(w, http.StatusUnauthorized, "invalid Connect key")
 		return
@@ -81,12 +86,29 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.db.ExecContext(r.Context(),
 		"DELETE FROM devices WHERE account_id = $1 AND is_active = FALSE", accountID)
 
-	// Create device — one active device per account (enforced by DB unique constraint)
+	// Check the stamped subdomain is still available — another device may have
+	// claimed it since the key was generated.
 	deviceID := security.GenerateID("dev")
+	sub := ""
+	if stampedSub.Valid && stampedSub.String != "" {
+		sub = normalizeSubdomain(stampedSub.String)
+		if sub == "" {
+			JSONError(w, http.StatusBadRequest, "The Connect key carries an invalid subdomain. Regenerate it from your Connect dashboard.")
+			return
+		}
+		var taken string
+		if err := h.db.QueryRowContext(r.Context(),
+			"SELECT id FROM devices WHERE subdomain = $1 AND id <> $2", sub, deviceID).Scan(&taken); err == nil && taken != "" {
+			JSONError(w, http.StatusConflict, "That subdomain is already taken. Pick another in your Connect dashboard and try again.")
+			return
+		}
+	}
+
+	// Create device — one active device per account (enforced by DB unique constraint)
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO devices (id, account_id, connect_key_id, plan_id, activated_at, last_seen_at, is_active)
-		 VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
-		deviceID, accountID, connectKeyID, planID, time.Now(), time.Now())
+		`INSERT INTO devices (id, account_id, connect_key_id, plan_id, subdomain, activated_at, last_seen_at, is_active)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)`,
+		deviceID, accountID, connectKeyID, planID, sql.NullString{String: sub, Valid: sub != ""}, time.Now(), time.Now())
 	if err != nil {
 		JSONError(w, http.StatusConflict, "This account already has an activated device. Deactivate it first to activate a new one.")
 		return
@@ -96,6 +118,12 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.db.ExecContext(r.Context(),
 		"UPDATE connect_keys SET status = 'active', device_id = $1, activated_at = $2 WHERE id = $3",
 		deviceID, time.Now(), connectKeyID)
+	// Accept the stamped subdomain as the canonical one (updates are external:
+	// SetSubdomain in the portal picks the final value).
+	if sub != "" {
+		_, _ = h.db.ExecContext(r.Context(),
+			"UPDATE devices SET subdomain = $1 WHERE id = $2", sub, deviceID)
+	}
 
 	// Create or update subscription
 	_, _ = h.db.ExecContext(r.Context(),
@@ -113,7 +141,20 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	statusResp := h.buildStatus(r.Context(), deviceID, planID, keyHint)
+	// Surface the assigned subdomain so the device can show it immediately
+	// without waiting for a domain provision round-trip.
+	if sub != "" {
+		statusResp["subdomain"] = sub
+	}
 	JSON(w, http.StatusOK, statusResp)
+
+	// Claim any unassigned custom domain on the account and reconcile the
+	// device's domain state (custom domain → tunnel/DNS/credentials, or
+	// fall back to the subdomain). Best-effort; the scheduler re-runs it.
+	coord := services.NewDomainCoordinator(h.db)
+	if err := coord.Activation(deviceID); err != nil {
+		slog.Warn("activate: domain reconcile failed", "error", err, "device", deviceID)
+	}
 }
 
 func (h *DeviceHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
@@ -269,17 +310,18 @@ func (h *DeviceHandler) buildStatus(ctx context.Context, deviceID, planID, keyHi
 }
 
 // buildDomainDetails populates the details map for the domain service.
-// If the device has an active custom domain, returns custom domain metadata
-// (name, status, expiry, auto_renew). Otherwise, reads the subdomain name
-// from the service credentials JSON.
+// The single source of truth is the coordinator: an active custom domain is
+// serving; anything else (grace, cancelled, none) means the device serves
+// its plan subdomain.
 func (h *DeviceHandler) buildDomainDetails(ctx context.Context, deviceID, credsJSON string) map[string]string {
-	// Check for an active or grace custom domain.
+	// Check for the serving custom domain (status 'active' only — grace and
+	// cancelled have been switched away from).
 	var domain, status string
 	var autoRenew bool
 	var expiresAt sql.NullTime
 	err := h.db.QueryRowContext(ctx,
 		`SELECT domain, status, auto_renew, expires_at
-		 FROM custom_domains WHERE device_id = $1 AND status IN ('active', 'grace')
+		 FROM custom_domains WHERE device_id = $1 AND status = 'active'
 		 ORDER BY purchased_at DESC LIMIT 1`,
 		deviceID).Scan(&domain, &status, &autoRenew, &expiresAt)
 	if err == nil && domain != "" {

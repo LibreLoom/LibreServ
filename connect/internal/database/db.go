@@ -404,4 +404,10 @@ ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS account_id TEXT REFERENCES c
 CREATE INDEX IF NOT EXISTS idx_custom_domains_account ON custom_domains(account_id);
 		`,
 	},
+	{
+		name: "008_connect_key_subdomain",
+		sql: `
+ALTER TABLE connect_keys ADD COLUMN IF NOT EXISTS subdomain TEXT;
+		`,
+	},
 }

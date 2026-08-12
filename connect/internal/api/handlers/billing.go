@@ -236,43 +236,6 @@ func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Req
 		expiresAt = time.Now().AddDate(1, 0, 0)
 	}
 
-	// If the device already has a custom domain, cancel the old one before activating the new one.
-	if deviceID != "" {
-		h.cancelOldDomain(deviceID, apiToken, cfAccountID)
-
-		// Create DNS CNAME to route the custom domain to the device's tunnel.
-		tunnelID := h.findDeviceTunnelID(deviceID)
-		dnsConfigured := false
-		if tunnelID != "" {
-			zone := extractZone(domainName)
-			cnameTarget := fmt.Sprintf("%s.cfargotunnel.com", tunnelID)
-			dnsClient := providers.NewCloudflareClient(nil)
-			dnsConfigured, _ = dnsClient.CreateCNAME(apiToken, zone, domainName, cnameTarget)
-			if !dnsConfigured {
-				slog.Warn("failed to create CNAME for custom domain", "domain", domainName, "tunnel", tunnelID)
-			}
-		} else {
-			slog.Warn("device has no tunnel, cannot route custom domain", "device", deviceID, "domain", domainName)
-		}
-
-		// Push domain credentials to the device so Caddy serves the custom domain.
-		domainCreds := map[string]any{
-			"domain":      domainName,
-			"provider":    "connect",
-			"auto_https":  true,
-			"dns_managed": dnsConfigured,
-		}
-		credsJSON, _ := json.Marshal(domainCreds)
-		_, _ = h.billing.DB().Exec(
-			`INSERT INTO service_credentials (id, device_id, service_type, credentials_json, is_active)
-			 VALUES ($1, $2, 'domain', $3, TRUE)
-			 ON CONFLICT (device_id, service_type) DO UPDATE SET
-			   credentials_json = excluded.credentials_json,
-			   provisioned_at = CURRENT_TIMESTAMP,
-			   is_active = TRUE`,
-			security.GenerateID("cred"), deviceID, string(credsJSON))
-	}
-
 	// Record the domain purchase in custom_domains with expiry and renewal cost.
 	// Cloudflare auto-renews (charged to the CF account); LibreServ recovers the
 	// cost by deducting from the device's account credit on each renewal (scheduler).
@@ -290,6 +253,14 @@ func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Req
 		security.GenerateID("dom"), deviceID, accountID, domainName, int(amountCents), int(renewalCostCents), expiresAt)
 	if err != nil {
 		slog.Error("failed to record domain purchase", "error", err, "domain", domainName)
+	}
+
+	// If a device is linked, cancel the old domain and let the single
+	// reconciler take over: DNS CNAME → tunnel, tunnel ingress, and the
+	// device's domain credential are all re-applied for the new domain.
+	if deviceID != "" {
+		h.cancelOldDomain(deviceID, apiToken, cfAccountID)
+		services.NewDomainCoordinator(h.billing.DB()).Reconcile(deviceID)
 	}
 
 	slog.Info("domain registered after payment", "domain", domainName, "device", deviceID, "account", accountID, "cost_cents", amountCents, "renewal_cents", renewalCostCents, "expires_at", expiresAt)
@@ -545,15 +516,7 @@ func (h *BillingHandler) updateDevicePlan(deviceID, planID string) {
 
 	// Re-provision the subdomain if no active custom domain overrides it.
 	// A custom domain takes precedence over the plan's subdomain pattern.
-	var hasCustomDomain int
-	_ = h.billing.DB().QueryRow(
-		`SELECT 1 FROM custom_domains WHERE device_id = $1 AND status IN ('active', 'grace')`,
-		deviceID).Scan(&hasCustomDomain)
-	if hasCustomDomain == 0 {
-		provSvc := services.NewProvisioningService(h.billing.DB())
-		_ = provSvc.Revoke(deviceID, "domain")
-		_, _ = provSvc.Provision(deviceID, "domain", "")
-	}
+	services.NewDomainCoordinator(h.billing.DB()).Reconcile(deviceID)
 }
 
 // handleDomainGraceOnDowngrade puts a device's active custom domain into grace
@@ -610,6 +573,7 @@ func (h *BillingHandler) lookUpTunnelCredentials(ctx context.Context) (apiToken,
 	}
 	return apiToken, accountID, nil
 }
+
 // cancelOldDomain cancels the device's current custom domain (if any) by
 // disabling CF auto-renew and setting status='cancelled'. Used during domain
 // change to clean up the old domain before activating the new one.

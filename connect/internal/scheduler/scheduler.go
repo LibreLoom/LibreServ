@@ -113,6 +113,30 @@ func (s *Scheduler) syncDomains() error {
 		s.syncSingleDomain(ctx, d, apiToken, cfAccountID, now)
 	}
 
+	// Reconcile every active device's domain state so drift heals: a tunnel
+	// that came up after activation, a failed CNAME, an unclaimed unassigned
+	// domain, a subdomain set while the device was down — all converge here.
+	coord := services.NewDomainCoordinator(s.db)
+	devRows, err := s.db.QueryContext(ctx,
+		`SELECT id FROM devices WHERE is_active = TRUE`)
+	if err != nil {
+		slog.Warn("scheduler: could not list active devices for reconcile", "error", err)
+	} else {
+		var deviceIDs []string
+		for devRows.Next() {
+			var id string
+			if err := devRows.Scan(&id); err == nil {
+				deviceIDs = append(deviceIDs, id)
+			}
+		}
+		devRows.Close()
+		for _, id := range deviceIDs {
+			if err := coord.Reconcile(id); err != nil {
+				slog.Warn("scheduler: domain reconcile failed", "error", err, "device", id)
+			}
+		}
+	}
+
 	// Orphan detection: compare CF domains against our DB.
 	s.detectOrphans(ctx, apiToken, cfAccountID)
 

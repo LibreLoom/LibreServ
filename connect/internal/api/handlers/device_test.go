@@ -22,13 +22,21 @@ func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 		planID = "free"
 	}
 
+	// Create an account (connect_keys.account_id is NOT NULL).
+	accountID := "acc-fix-" + security.RandomString(8)
+	_, err := db.Exec(`INSERT INTO customer_accounts (id, email, password_hash, plan_id) VALUES ($1, $2, 'hash', $3)`,
+		accountID, accountID+"@test.com", planID)
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+
 	// Create a Connect key
 	key := security.GenerateConnectKey()
 	keyHash := hashToken(key)
 	connectKeyID := security.GenerateID("lic")
-	_, err := db.Exec(
-		`INSERT INTO connect_keys (id, key_hash, key_prefix, plan_id, status) VALUES ($1, $2, $3, $4, 'unused')`,
-		connectKeyID, keyHash, key[:8], planID)
+	_, err = db.Exec(
+		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, plan_id, status) VALUES ($1, $2, $3, $4, $5, 'unused')`,
+		connectKeyID, keyHash, key[:8], accountID, planID)
 	if err != nil {
 		t.Fatalf("create Connect key: %v", err)
 	}
@@ -58,12 +66,19 @@ func activateDeviceWithKey(t *testing.T, db *sql.DB, planID string) (string, str
 		planID = "free"
 	}
 
+	accountID := "acc-fix-" + security.RandomString(8)
+	_, err := db.Exec(`INSERT INTO customer_accounts (id, email, password_hash, plan_id) VALUES ($1, $2, 'hash', $3)`,
+		accountID, accountID+"@test.com", planID)
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+
 	key := security.GenerateConnectKey()
 	keyHash := hashToken(key)
 	connectKeyID := security.GenerateID("lic")
-	_, err := db.Exec(
-		`INSERT INTO connect_keys (id, key_hash, key_prefix, plan_id, status) VALUES ($1, $2, $3, $4, 'unused')`,
-		connectKeyID, keyHash, key[:8], planID)
+	_, err = db.Exec(
+		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, plan_id, status) VALUES ($1, $2, $3, $4, $5, 'unused')`,
+		connectKeyID, keyHash, key[:8], accountID, planID)
 	if err != nil {
 		t.Fatalf("create Connect key: %v", err)
 	}

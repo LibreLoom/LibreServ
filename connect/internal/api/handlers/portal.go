@@ -28,22 +28,24 @@ import (
 
 // PortalHandler handles customer-facing self-service API.
 type PortalHandler struct {
-	db        *sql.DB
-	billing   *billing.Service
-	registrar *providers.RegistrarClient
-	providers *providers.Service
-	resend    *providers.ResendClient
+	db          *sql.DB
+	billing     *billing.Service
+	registrar   *providers.RegistrarClient
+	providers   *providers.Service
+	resend      *providers.ResendClient
+	domainCoord *services.DomainCoordinator
 	// emailRateLimit tracks per-account email sends to prevent runaway loops.
 	emailRateLimit sync.Map // accountID → []time.Time
 }
 
 func NewPortalHandler(db *sql.DB) *PortalHandler {
 	return &PortalHandler{
-		db:        db,
-		billing:   billing.NewService(db),
-		registrar: providers.NewRegistrarClient(nil),
-		providers: providers.NewService(db),
-		resend:    providers.NewResendClient(nil),
+		db:          db,
+		billing:     billing.NewService(db),
+		registrar:   providers.NewRegistrarClient(nil),
+		providers:   providers.NewService(db),
+		resend:      providers.NewResendClient(nil),
+		domainCoord: services.NewDomainCoordinator(db),
 	}
 }
 
@@ -565,6 +567,33 @@ func (h *PortalHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 // "Regenerate" action in the portal; the old key stops working immediately.
 func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
+	// The subdomain the user picked during onboarding, if any. Stamp it on the
+	// key so that when the device activates with this key, it gets the
+	// user's chosen subdomain (not a random device-ID suffix). Independent of
+	// custom-domain ownership — the free subdomain is the default address.
+	var req struct {
+		Subdomain string `json:"subdomain"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	sub := normalizeSubdomain(req.Subdomain)
+	if req.Subdomain != "" && sub == "" {
+		JSONError(w, http.StatusBadRequest, "Subdomains can only contain letters, numbers, and dashes (3-63 characters).")
+		return
+	}
+	// Reject a subdomain that is already claimed (by another device or a
+	// pending key). The availability check counts devices + unused keys; the
+	// key stamping must enforce the same rule.
+	if sub != "" {
+		var taken int
+		_ = h.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = $1`, sub).Scan(&taken)
+		if taken == 0 {
+			_ = h.db.QueryRow(`SELECT COUNT(*) FROM connect_keys WHERE subdomain = $1 AND status = 'unused'`, sub).Scan(&taken)
+		}
+		if taken > 0 {
+			JSONError(w, http.StatusConflict, "That subdomain is already taken. Pick another one.")
+			return
+		}
+	}
 	// Require verified email before issuing a device activation key
 	var emailVerified bool
 	_ = h.db.QueryRowContext(r.Context(),
@@ -617,9 +646,9 @@ func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Reques
 
 	connectKeyID := security.GenerateID("lic")
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, plan_id, status)
-		 VALUES ($1, $2, $3, $4, $5, 'unused')`,
-		connectKeyID, keyHash, keyPrefix, accountID, planID)
+		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, plan_id, subdomain, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'unused')`,
+		connectKeyID, keyHash, keyPrefix, accountID, planID, sql.NullString{String: sub, Valid: sub != ""})
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not generate Connect key")
 		return
@@ -734,12 +763,13 @@ func (h *PortalHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 
 		// Domain info for the generic domain page: the plan's subdomain and,
 		// if a custom domain is active, which one is currently serving.
-		subRaw, subdomain := h.deviceSubdomain(d.ID)
-		customDomain, hasCustom := h.activeCustomDomain(d.ID)
-		current := subdomain
-		if hasCustom {
-			current = *customDomain
+		subRaw, subdomain := h.domainCoord.DeviceSubdomain(d.ID)
+		current, isCustom, _ := h.domainCoord.ServingDomain(d.ID)
+		var customDomain *string
+		if isCustom {
+			customDomain = &current
 		}
+		hasCustom := isCustom
 
 		devices = append(devices, map[string]any{
 			"id":                d.ID,
@@ -1203,6 +1233,10 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 		// Upgrade or lateral move — re-provision subdomain only if no custom domain.
 		h.reprovisionSubdomainIfNoCustomDomain(r.Context(), deviceID)
 	}
+
+	// Reconcile the device's domain state (custom → tunnel/DNS/credentials,
+	// or subdomain fallback). Best-effort; scheduler re-runs.
+	h.domainCoord.Reconcile(deviceID)
 
 	JSON(w, http.StatusOK, map[string]any{
 		"message":   "plan changed",
@@ -1896,17 +1930,11 @@ func (h *PortalHandler) CancelDomain(w http.ResponseWriter, r *http.Request) {
 		`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE WHERE domain = $1`,
 		domainName)
 
-	// Deactivate the domain service credential if a device is linked.
+	// If the domain was the device's serving domain, reconcile the device
+	// back onto its plan subdomain (single writer).
 	if deviceID.Valid {
-		_, _ = h.db.ExecContext(r.Context(),
-			`UPDATE service_credentials SET is_active = FALSE, revoked_at = $1
-			 WHERE device_id = $2 AND service_type = 'domain'`,
-			time.Now(), deviceID.String)
-
-		// Re-provision the subdomain fallback so the device gets a working hostname.
-		provSvc := services.NewProvisioningService(h.db)
-		if _, err := provSvc.Provision(deviceID.String, "domain", ""); err != nil {
-			slog.Warn("failed to re-provision subdomain after domain cancel", "error", err, "device", deviceID.String)
+		if err := h.domainCoord.Reconcile(deviceID.String); err != nil {
+			slog.Warn("failed to reconcile subdomain after domain cancel", "error", err, "device", deviceID.String)
 		}
 	}
 
@@ -1958,17 +1986,16 @@ func (h *PortalHandler) UseSubdomain(w http.ResponseWriter, r *http.Request) {
 	// Put any active custom domain into grace so it stops renewing/overriding.
 	h.handleDomainGraceOnDowngrade(r.Context(), req.DeviceID)
 
-	// Re-provision the plan subdomain (this also drops the active domain
-	// service credential so the device serves the subdomain again).
-	provSvc := services.NewProvisioningService(h.db)
-	if err := provSvc.Revoke(req.DeviceID, "domain"); err != nil {
-		slog.Warn("failed to revoke domain on switch-to-subdomain", "error", err, "device", req.DeviceID)
-	}
-	if _, err := provSvc.Provision(req.DeviceID, "domain", ""); err != nil {
-		slog.Warn("failed to provision subdomain", "error", err, "device", req.DeviceID)
+	// Single reconciler: switches the device back to its plan subdomain
+	// (revokes the custom domain credential, provisions the subdomain,
+	// and updates DNS/ingress).
+	if err := h.domainCoord.Reconcile(req.DeviceID); err != nil {
+		slog.Warn("failed to reconcile subdomain after switch", "error", err, "device", req.DeviceID)
+		JSONError(w, http.StatusInternalServerError, "could not switch to your subdomain. Please try again.")
+		return
 	}
 
-	subRaw, subdomain := h.deviceSubdomain(req.DeviceID)
+	subRaw, subdomain := h.domainCoord.DeviceSubdomain(req.DeviceID)
 	JSON(w, http.StatusOK, map[string]any{
 		"message":   "Switched to your plan's subdomain.",
 		"subdomain": subdomain,
@@ -1995,8 +2022,14 @@ func (h *PortalHandler) CheckSubdomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Uniqueness check (prevent duplicate subdomains) across both devices and
+	// pending (unused) Connect keys — a subdomain picked during onboarding is
+	// reserved on the key, so it must count as taken.
 	var taken int
 	_ = h.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = $1`, sub).Scan(&taken)
+	if taken == 0 {
+		_ = h.db.QueryRow(`SELECT COUNT(*) FROM connect_keys WHERE subdomain = $1 AND status = 'unused'`, sub).Scan(&taken)
+	}
 	JSON(w, http.StatusOK, map[string]any{
 		"subdomain": sub,
 		"available": taken == 0,
@@ -2059,15 +2092,13 @@ func (h *PortalHandler) SetSubdomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Re-provision the domain service so DNS reflects the new hostname.
-	provSvc := services.NewProvisioningService(h.db)
-	if err := provSvc.Revoke(req.DeviceID, "domain"); err != nil {
-		slog.Warn("failed to revoke domain on subdomain set", "error", err, "device", req.DeviceID)
-	}
-	if _, err := provSvc.Provision(req.DeviceID, "domain", ""); err != nil {
-		slog.Warn("failed to provision subdomain", "error", err, "device", req.DeviceID)
+	// Single reconciler: if a custom domain is active it takes precedence;
+	// otherwise the subdomain is provisioned.
+	if err := h.domainCoord.Reconcile(req.DeviceID); err != nil {
+		slog.Warn("failed to reconcile subdomain on set", "error", err, "device", req.DeviceID)
 	}
 
-	full := h.subdomainHostname(sub, req.DeviceID)
+	full := h.domainCoord.SubdomainHostname(sub, req.DeviceID)
 	JSON(w, http.StatusOK, map[string]any{
 		"message":        "Subdomain updated.",
 		"subdomain_raw":  sub,
@@ -2182,6 +2213,11 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 			`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
 			 VALUES ($1, $2, $3, $4, 'cloudflare', $5, $6, TRUE, 'active', $7)`,
 			domainID, req.DeviceID, accountID, req.NewDomain, int(amountCents), int(renewalCostCents), expiresAt)
+		// Apply the new domain as serving (DNS/ingress/credentials) via the
+		// single reconciler.
+		if err := h.domainCoord.Reconcile(req.DeviceID); err != nil {
+			slog.Warn("failed to reconcile domain after dev-mode change", "error", err, "device", req.DeviceID)
+		}
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.NewDomain,
 			"status": "registered",
@@ -2235,6 +2271,12 @@ func (h *PortalHandler) registerDomainInDB(deviceID, accountID, domain string, r
 		domainID, deviceID, accountID, domain, int(registrationCents), int(renewalCents), expiresAt)
 	if err != nil {
 		slog.Error("mock domain insert failed", "error", err, "domain", domain)
+	}
+	// If linked to a device, apply it as serving via the single reconciler.
+	if deviceID != "" {
+		if err := h.domainCoord.Reconcile(deviceID); err != nil {
+			slog.Warn("mock domain: reconcile failed", "error", err, "device", deviceID)
+		}
 	}
 }
 
