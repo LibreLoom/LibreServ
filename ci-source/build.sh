@@ -25,13 +25,6 @@ GOOS=freebsd GOARCH=amd64 go build -o bin/ci-freebsd-amd64 ./cmd/ci
 echo "  FreeBSD arm64..."
 GOOS=freebsd GOARCH=arm64 go build -o bin/ci-freebsd-arm64 ./cmd/ci
 
-# Windows
-echo "  Windows amd64..."
-GOOS=windows GOARCH=amd64 go build -o bin/ci-windows-amd64.exe ./cmd/ci
-
-echo "  Windows arm64..."
-GOOS=windows GOARCH=arm64 go build -o bin/ci-windows-arm64.exe ./cmd/ci
-
 echo ""
 echo "Done! Binaries in ci-source/bin/"
 ls -la bin/
