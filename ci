@@ -1,5 +1,6 @@
 #!/bin/sh
-# LibreServ CI Launcher — detects platform and delegates to the right binary
+# LibreServ CI Launcher — detects platform, delegates to the right binary,
+# rebuilds it if the source is newer than the binary.
 set -e
 
 SELF="$(cd "$(dirname "$0")" && pwd)"
@@ -27,8 +28,15 @@ esac
 
 CI_BIN="$BIN_DIR/ci-$PLATFORM"
 
-if [ ! -f "$CI_BIN" ]; then
-  echo "CI binary not found, building for $PLATFORM..." >&2
+# Rebuild if missing or if any Go source is newer than the binary
+needs_build() {
+  [ ! -f "$CI_BIN" ] && return 0
+  [ -n "$(find "$SOURCE_DIR" -name '*.go' -newer "$CI_BIN" -print -quit)" ] && return 0
+  return 1
+}
+
+if needs_build; then
+  echo "CI binary is stale or missing, rebuilding for $PLATFORM..." >&2
   mkdir -p "$BIN_DIR"
   (cd "$SOURCE_DIR" && GOOS="${PLATFORM%%-*}" GOARCH="${PLATFORM##*-}" go build -o "bin/ci-$PLATFORM" ./cmd/ci)
   echo "Build complete!" >&2

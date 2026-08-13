@@ -7,10 +7,8 @@ bin/
 *.out
 go.work
 
-# CI binaries - DON'T ignore these
-!ci-source/bin/
-!ci.exe
-!ci
+# CI runner binaries (auto-rebuilt by the ./ci launcher)
+ci-source/bin/
 
 # Playwright
 /playwright-cli/
