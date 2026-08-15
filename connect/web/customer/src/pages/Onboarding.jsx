@@ -1213,7 +1213,10 @@ export default function Onboarding() {
         </div>
       </div>
 
-      {step > 0 && step < STEPS.length && (
+      {/* The verify step is a one-way gate — the account stays locked until
+          the email link is clicked, so going back re-opens an account form
+          for an account that already exists. No Back button on this step. */}
+      {step > 0 && step < STEPS.length && STEPS[step].id !== "verify" && (
         <div className="px-4 pb-8 flex justify-center">
           <Button variant="outline" onClick={handleBack}>
             <ChevronLeft className="w-4 h-4 mr-1" /> Back
