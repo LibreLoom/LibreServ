@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import {
   Check,
   Shield,
@@ -20,7 +20,6 @@ import SettingsCard from "../SettingsCard";
 import { useToast } from "../../../context/ToastContext";
 import {
   getSecurityEvents,
-  getSecurityStats,
   getEventTypeDisplayName,
   formatTimestamp,
 } from "../../../lib/security-api.js";
@@ -32,6 +31,32 @@ const SEVERITY_PILL_VARIANT = {
   warning: "warning",
   critical: "error",
 };
+
+// Module-scope so the memoized filter dropdown sees a stable `options`
+// reference across renders (a fresh array literal would defeat React.memo).
+const ACTIVITY_FILTER_OPTIONS = [
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
+  { value: "all", label: "All" },
+];
+
+// Memoized so refreshing the activity log (which re-renders the card with
+// new loading/data state) never re-renders the dropdown itself — the reload
+// only affects the log. The dropdown's open/close and width animations are
+// therefore never interrupted by a reload.
+function ActivityFilterDropdown({ value, onChange }) {
+  return (
+    <Dropdown
+      value={value}
+      onChange={onChange}
+      surface="primary"
+      options={ACTIVITY_FILTER_OPTIONS}
+    />
+  );
+}
+
+const ActivityFilterDropdownMemo = memo(ActivityFilterDropdown);
 
 function getActivityColumns(use12HourTime) {
   return [
@@ -75,23 +100,12 @@ function getSeverityIcon(severity) {
   }
 }
 
-function StatCard({ value, label, variant = "accent" }) {
-  const colorClass = variant === "warning" ? "text-warning" : variant === "error" ? "text-error" : "text-accent";
-  return (
-    <div className="bg-secondary text-primary rounded-large-element text-center py-3 p-5">
-      <div className={cn("text-2xl font-bold", colorClass)}>{value}</div>
-      <div className="text-xs text-accent mt-1">{label}</div>
-    </div>
-  );
-}
-
 export default function SecurityCategory() {
   const { addToast } = useToast();
   const { use12HourTime } = useTimeFormat();
   const activityColumns = getActivityColumns(use12HourTime);
 
   const [events, setEvents] = useState([]);
-  const [stats, setStats] = useState(null);
   const [activityLoading, setActivityLoading] = useState(true);
   const [filter, setFilter] = useState("7d");
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -139,18 +153,7 @@ export default function SecurityCategory() {
           ? eventsData.events
           : [];
 
-      let statsData = null;
-      try {
-        statsData = await getSecurityStats(since ? { since: since.toISOString() } : {});
-      } catch (statsErr) {
-        const status = statsErr?.cause?.status;
-        if (status !== 403) {
-          throw statsErr;
-        }
-      }
-
       setEvents(rawEvents);
-      setStats(statsData);
       setLastUpdated(new Date());
     } catch (err) {
       const errorMessage =
@@ -166,17 +169,6 @@ export default function SecurityCategory() {
 
   return (
     <div className="space-y-4" data-slot="security-category">
-      {stats && (
-        <div
-          className="grid grid-cols-2 md:grid-cols-4 gap-3 animate-in fade-in slide-in-from-bottom-1 duration-150"
-        >
-          <StatCard value={stats.total_events} label="Total Events" />
-          <StatCard value={stats.successful_logins} label="Successful Logins" />
-          <StatCard value={stats.failed_logins} label="Failed Attempts" variant="warning" />
-          <StatCard value={stats.critical_events} label="Critical Events" variant="error" />
-        </div>
-      )}
-
       <SettingsCard
         icon={Activity}
         title="Activity Log"
@@ -184,18 +176,7 @@ export default function SecurityCategory() {
         index={0}
         headerActions={
             <div className="flex items-center gap-3">
-              <Dropdown
-                value={filter}
-                onChange={setFilter}
-                width={80}
-                surface="primary"
-                options={[
-                  { value: "24h", label: "24 hours" },
-                  { value: "7d", label: "7 days" },
-                  { value: "30d", label: "30 days" },
-                  { value: "all", label: "All" },
-                ]}
-              />
+              <ActivityFilterDropdownMemo value={filter} onChange={setFilter} />
             {lastUpdated && (
               <span className="text-xs text-accent hidden sm:inline">
                 {formatTimestamp(lastUpdated.toISOString(), use12HourTime)}
@@ -215,7 +196,7 @@ export default function SecurityCategory() {
         }
       >
         <div className="px-4 pb-4 pt-3">
-          {activityLoading ? (
+          {events.length === 0 && activityLoading ? (
             <div className="flex justify-center items-center py-12">
               <TypewriterLoader size="md" />
             </div>
@@ -225,14 +206,23 @@ export default function SecurityCategory() {
               <p className="text-sm text-accent">No security events found</p>
             </div>
           ) : (
-            <Table
-              columns={activityColumns}
-              data={events}
-              rowKey="id"
-              scrollable
-              maxHeight="24rem"
-              headClassName="text-primary"
-            />
+            // Reloads keep the current table mounted (stale-while-revalidate)
+            // so the log never blanks out — it just dims briefly while the new
+            // rows come in. The full loader only appears when there is no data
+            // to preserve (first load).
+            <div
+              className={cn("motion-safe:transition-opacity motion-safe:duration-200", activityLoading && "opacity-60")}
+              aria-busy={activityLoading}
+            >
+              <Table
+                columns={activityColumns}
+                data={events}
+                rowKey="id"
+                scrollable
+                maxHeight="24rem"
+                headClassName="text-primary"
+              />
+            </div>
           )}
         </div>
       </SettingsCard>

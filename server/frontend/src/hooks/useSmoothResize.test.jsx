@@ -42,4 +42,49 @@ describe("useSmoothResize", () => {
       if (desc) Object.defineProperty(HTMLElement.prototype, "offsetWidth", desc);
     }
   });
+
+  it("does not re-measure when the element's content is unchanged", () => {
+    // A re-render for unrelated reasons (parent state churn, a reload) must
+    // not re-probe the element: probing swaps width to max-content and back,
+    // which cancels an in-flight width transition and snaps the element to
+    // its target size instead of animating it. Count offsetWidth reads —
+    // unchanged content must trigger none.
+    let reads = 0;
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get() {
+        reads += 1;
+        return this.style.width === "max-content" ? 60 : 40;
+      },
+    });
+    try {
+      const { rerender } = render(<TestButton label="User" />);
+      const readsAfterMount = reads;
+      rerender(<TestButton label="User" />);
+      expect(reads).toBe(readsAfterMount);
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, "offsetWidth", desc);
+    }
+  });
+
+  it("re-measures when the element's content changes", () => {
+    let reads = 0;
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get() {
+        reads += 1;
+        return this.style.width === "max-content" ? 60 : 40;
+      },
+    });
+    try {
+      const { rerender } = render(<TestButton label="User" />);
+      const readsAfterMount = reads;
+      rerender(<TestButton label="A much longer label" />);
+      expect(reads).toBeGreaterThan(readsAfterMount);
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, "offsetWidth", desc);
+    }
+  });
 });
