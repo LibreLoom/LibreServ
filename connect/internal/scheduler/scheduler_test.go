@@ -27,8 +27,8 @@ func newTestRegistrarServer(expiresAt string, autoRenew bool) *httptest.Server {
 				"result": map[string]any{
 					"domains": []any{
 						map[string]any{
-							"name":         "test.com",
-							"registrable":  true,
+							"name":        "test.com",
+							"registrable": true,
 							"pricing": map[string]any{
 								"registration_cost": "10.11",
 								"renewal_cost":      "10.11",

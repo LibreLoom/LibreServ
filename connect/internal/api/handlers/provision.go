@@ -49,8 +49,8 @@ func (h *ProvisionHandler) Info(w http.ResponseWriter, r *http.Request) {
 			"backup_gb":           l.BackupGB,
 			"ai_messages_per_day": l.AIMessagesPerDay, // 0 = no message cap (credit-based plans)
 			"ai_credit_cents":     l.AICreditCents,
-			"domain":        l.Domain,
-			"human_support": l.HumanSupport,
+			"domain":              l.Domain,
+			"human_support":       l.HumanSupport,
 		}
 	}
 

@@ -69,8 +69,7 @@ func TestAdminGetDevice(t *testing.T) {
 
 	deviceID := activateDevice(t, db, "free")
 
-	req := adminRequest(t, http.MethodGet, "/api/admin/devices/"+deviceID, nil)
-	req = chiRequest(http.MethodGet, "/api/admin/devices/"+deviceID, nil, map[string]string{"deviceID": deviceID})
+	req := chiRequest(http.MethodGet, "/api/admin/devices/"+deviceID, nil, map[string]string{"deviceID": deviceID})
 	req.Header.Set("Authorization", "Bearer admin-test-token")
 	w := httptest.NewRecorder()
 	h.GetDevice(w, req)
@@ -155,8 +154,7 @@ func TestAdminCreateConsentRequest(t *testing.T) {
 		"path":       "/apps/nextcloud/data/config.php",
 		"scope_type": "file",
 	})
-	req := adminRequest(t, http.MethodPost, "/api/admin/cases/case_consent_1/consent-requests", body)
-	req = chiRequest(http.MethodPost, "/api/admin/cases/case_consent_1/consent-requests", body, map[string]string{"caseID": "case_consent_1"})
+	req := chiRequest(http.MethodPost, "/api/admin/cases/case_consent_1/consent-requests", body, map[string]string{"caseID": "case_consent_1"})
 	req.Header.Set("Authorization", "Bearer admin-test-token")
 	w := httptest.NewRecorder()
 	h.CreateConsentRequest(w, req)

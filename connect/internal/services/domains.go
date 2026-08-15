@@ -213,28 +213,6 @@ func defaultSubdomain(deviceID string) string {
 	return deviceID
 }
 
-// inactiveCustomDomains returns all custom domains for a device that are not
-// currently serving (grace, cancelled, payment_failed). Used to keep the
-// "current" picture consistent.
-func (s *DomainCoordinator) inactiveCustomDomains(deviceID string) ([]string, error) {
-	rows, err := s.db.Query(
-		`SELECT domain FROM custom_domains
-		 WHERE device_id = $1 AND status != 'active' ORDER BY purchased_at DESC`, deviceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var d string
-		if err := rows.Scan(&d); err != nil {
-			continue
-		}
-		out = append(out, d)
-	}
-	return out, nil
-}
-
 // planDomainPattern returns the plan's wildcard subdomain pattern for a device.
 func (s *DomainCoordinator) planDomainPattern(planID string) string {
 	plan := catalog.PlanByID(planID)
