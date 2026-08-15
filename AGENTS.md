@@ -11,6 +11,24 @@
 
 ---
 
+## Memory (Engraphis)
+
+Recall durable project context before asking or guessing. Execute the recall using this exact format:
+
+```js
+return await tools.engraphis["engraphis_recall_context"]({
+  query: "your question or topic here",
+  workspace: "default",
+  repo: "LibreServ",
+  k: 8,
+  token_budget: 1024
+})
+```
+
+Call it through the `execute` tool. Use `workspace: "default"` and `repo: "LibreServ"` so memories scope to this repo. Adjust `query` to the topic at hand; `k`/`token_budget` are sane defaults.
+
+---
+
 ## Architecture
 
 ```
