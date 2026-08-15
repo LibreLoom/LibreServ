@@ -691,27 +691,18 @@ export default function Onboarding() {
 
   const renderWelcome = () => (
     <StepShell icon={Sparkles} title="Set up LibreServ Connect">
-      <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-10">
-        Connect gives your LibreServ device a domain name, email, remote access,
-        and cloud backup — all wired up in one signup.
-      </p>
-      <div className="w-full max-w-sm mx-auto space-y-3 mb-10 text-left">
-        {[
-          "Create your account and verify your email",
-          "Pick a plan and a domain for your device",
-          "Get one key that links everything together",
-        ].map((item, i) => (
-          <div
-            key={item}
-            className="flex items-center gap-3 rounded-large-element bg-muted px-4 py-3 animate-fade-in-up"
-            style={{ animationDelay: `${120 + i * 90}ms` }}
-          >
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-foreground text-background text-xs font-mono shrink-0">
-              {i + 1}
-            </span>
-            <span className="text-sm text-card-foreground">{item}</span>
-          </div>
-        ))}
+      <div className="w-full max-w-md mx-auto space-y-4 mb-10">
+        <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
+          <span className="font-mono text-card-foreground">LibreServ</span> is the
+          server that runs on your own device at home. Your apps and data stay
+          with you.
+        </p>
+        <p className="text-muted-foreground text-sm leading-relaxed text-pretty">
+          <span className="font-mono text-card-foreground">Connect</span> is the
+          cloud companion. It gives your server a domain (like yourserver.com),
+          email, access from anywhere, cloud backup, real human support, and
+          more.
+        </p>
       </div>
       <Button size="lg" onClick={goNext} className="w-full max-w-sm">
         Get started <ArrowRight className="w-5 h-5 ml-1" />
