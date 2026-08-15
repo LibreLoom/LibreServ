@@ -1034,9 +1034,9 @@ export default function Onboarding() {
   };
 
   // Suffix shown in the subdomain preview: the plan's wildcard domain pattern
-  // (e.g. "*.servers.libreloom.org") minus the wildcard. Fall back to the
-  // hardcoded legacy values if the plan hasn't loaded yet.
-  const domainSuffix = (currentPlan?.limits?.domain || "").replace("*", "") || "servers.libreloom.org";
+  // (e.g. "*.servers.libreloom.org") minus the "*.", e.g. "servers.libreloom.org".
+  // Fall back to the hardcoded legacy values if the plan hasn't loaded yet.
+  const domainSuffix = (currentPlan?.limits?.domain || "").replace(/^\*\./, "") || "servers.libreloom.org";
 
   const renderPaidDomain = () => (
     <StepShell icon={Globe} title="Choose your domain">
