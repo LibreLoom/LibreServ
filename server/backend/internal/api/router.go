@@ -128,11 +128,16 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/v1/system/health/check", monitoringHandler.ComprehensiveHealthCheck)
 		r.Post("/api/v1/system/health/check/refresh", monitoringHandler.ComprehensiveHealthCheck)
 
-		// Prometheus metrics endpoint (public with rate limiting)
-		// NOTE: In production, restrict access via reverse proxy or move behind auth
-		r.With(middleware.RateLimit([]middleware.RateRule{
-			{Prefix: "/metrics", Limit: 30, Window: time.Minute},
-		})).Get("/metrics", monitoringHandler.PrometheusMetrics)
+		// Prometheus metrics endpoint — admin-only so host/app names and
+		// internal paths do not leak publicly. Scrapers authenticate with an
+		// admin session or a programmatic API token (Authorization: Bearer).
+		r.With(
+			middleware.Auth(authConfig),
+			middleware.RequireRole("admin"),
+			middleware.RateLimit([]middleware.RateRule{
+				{Prefix: "/metrics", Limit: 30, Window: time.Minute},
+			}),
+		).Get("/metrics", monitoringHandler.PrometheusMetrics)
 
 		// API version info endpoint
 		r.Get("/api/version", healthHandler.Version)

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 )
@@ -121,6 +122,10 @@ func (h *DomainHandler) Configure(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 
 	go func() {
+		// Detach from the request context (wildcard issuance can take minutes)
+		// and bound it with a timeout so a stuck ACME call cannot leak forever.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Minute)
+		defer cancel()
 		if h.acmeManager == nil {
 			h.mu.Lock()
 			h.certState.certDone = true
@@ -130,7 +135,7 @@ func (h *DomainHandler) Configure(w http.ResponseWriter, r *http.Request) {
 		}
 		// Prefer lego-in-podman (the primary ACME path).
 		h.acmeManager.WithUsePodman(true)
-		err := h.acmeManager.RequestWildcardCert(context.Background(), req.Domain, req.Email, cfg)
+		err := h.acmeManager.RequestWildcardCert(ctx, req.Domain, req.Email, cfg)
 		h.acmeManager.ClearUsePodmanOverride()
 		h.mu.Lock()
 		h.certState.certDone = true

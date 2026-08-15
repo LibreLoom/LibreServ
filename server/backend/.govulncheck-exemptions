@@ -17,17 +17,6 @@ GO-2026-4883
 # We use pion for UPnP/NAT traversal, not for TLS connections
 GO-2026-4479
 
-# GO-2026-4986: Quadratic string concat in net/mail (fixed in Go 1.26.3)
-# GO-2026-4982: XSS bypass in html/template (fixed in Go 1.26.3)
-# GO-2026-4980: Escaper bypass XSS in html/template (fixed in Go 1.26.3)
-# GO-2026-4977: Quadratic string concat in net/mail (fixed in Go 1.26.3)
-# GO-2026-4971: Panic in Dial on Windows (fixed in Go 1.26.3, Linux unaffected)
-# GO-2026-4918: Infinite loop in HTTP/2 transport (fixed in Go 1.26.3)
-# These are Go stdlib vulns patched in Go 1.26.3; the CI golang:1.26-alpine
-# image will resolve this when it picks up the patch release.
-GO-2026-4986
-GO-2026-4982
-GO-2026-4980
-GO-2026-4977
-GO-2026-4971
-GO-2026-4918
+# The Go stdlib advisories previously listed here (GO-2026-4986, 4982, 4980,
+# 4977, 4971, 4918) are resolved by the pinned toolchain go1.26.6 in go.mod and
+# no longer need exemptions.

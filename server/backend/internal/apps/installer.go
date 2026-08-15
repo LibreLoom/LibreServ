@@ -446,7 +446,9 @@ func (i *Installer) Install(ctx context.Context, opts InstallOptions) (*InstallR
 	// The API handler will clear i.domainConfig immediately after Install() returns
 	domainConfigForInstall := i.domainConfig
 
-	go i.completeInstall(appDef, installedApp, composePath, config, domainConfigForInstall)
+	// completeInstall runs detached from the request context so a mid-request
+	// cancel cannot strand an in-progress install.
+	go i.completeInstall(context.WithoutCancel(ctx), appDef, installedApp, composePath, config, domainConfigForInstall)
 
 	return &InstallResult{
 		Success: true,
@@ -495,9 +497,9 @@ func (i *Installer) updateAppConfigInDB(instanceID string, config map[string]int
 	return err
 }
 
-func (i *Installer) completeInstall(appDef *AppDefinition, installedApp *InstalledApp, composePath string, config map[string]interface{}, domainConfig *DomainConfig) {
+func (i *Installer) completeInstall(ctx context.Context, appDef *AppDefinition, installedApp *InstalledApp, composePath string, config map[string]interface{}, domainConfig *DomainConfig) {
 	instanceID := installedApp.ID
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Minute)
 	defer cancel()
 
 	// Create install output channel for streaming
