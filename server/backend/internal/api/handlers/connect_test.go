@@ -241,3 +241,85 @@ func TestConnectUpdateServicesDoesNotPersistOnApplyFailure(t *testing.T) {
 		t.Errorf("expected smtp host to remain empty after failed apply, got %v", smtp["host"])
 	}
 }
+
+// TestConnectReconcileDomainCredential covers the stale-default_domain bug:
+// Connect's domain coordinator pre-provisions the domain credential server-side
+// during activation, so the device's auto-provision loop (disabled-only) skips
+// it — leaving a stale local Caddy default_domain. reconcileDomainCredential
+// must re-apply the Connect-served domain when it differs from the local one.
+func TestConnectReconcileDomainCredential(t *testing.T) {
+	handler, svc, cm, _, _ := setupConnectTest(t)
+
+	// Local default domain starts at the stale value (old.example.com from
+	// setupConnectTest) — simulate the activation having been skipped.
+	_, _ = handler.client.Activate(context.Background(), "test-lite-token-12345")
+
+	// The Connect status reports the domain service connected with the
+	// device's assigned subdomain — different from the local stale one.
+	status := &connect.ConnectStatus{
+		Connected: true,
+		Plan:      &connect.ConnectPlan{ID: connect.PlanLite, Name: "Connect Lite"},
+		Services: map[connect.ServiceID]connect.ServiceStatus{
+			connect.ServiceDomain: {
+				State:   connect.ServiceConnected,
+				Label:   "Domain & DNS",
+				Details: map[string]string{"type": "subdomain", "domain": "test-lit.servers.libreloom.org"},
+			},
+		},
+	}
+
+	handler.reconcileDomainCredential(context.Background(), status)
+
+	settings, err := svc.GetSettings(context.Background())
+	if err != nil {
+		t.Fatalf("failed to get settings: %v", err)
+	}
+	proxy, ok := settings["proxy"].(map[string]interface{})
+	if !ok {
+		t.Fatal("proxy settings not found")
+	}
+	if proxy["default_domain"] != "test-lit.servers.libreloom.org" {
+		t.Errorf("expected default_domain reconciled to test-lit.servers.libreloom.org, got %v", proxy["default_domain"])
+	}
+	if cm.Config().DefaultDomain != "test-lit.servers.libreloom.org" {
+		t.Errorf("expected caddy default domain reconciled, got %v", cm.Config().DefaultDomain)
+	}
+}
+
+// TestConnectReconcileDomainCredentialNoopWhenMatching ensures the reconcile
+// is a no-op when the local domain already matches Connect — so it's safe to
+// run on every status poll.
+func TestConnectReconcileDomainCredentialNoopWhenMatching(t *testing.T) {
+	handler, svc, _, _, _ := setupConnectTest(t)
+
+	_, _ = handler.client.Activate(context.Background(), "test-lite-token-12345")
+
+	// Apply the correct domain first.
+	status := &connect.ConnectStatus{
+		Connected: true,
+		Plan:      &connect.ConnectPlan{ID: connect.PlanLite, Name: "Connect Lite"},
+		Services: map[connect.ServiceID]connect.ServiceStatus{
+			connect.ServiceDomain: {
+				State:   connect.ServiceConnected,
+				Label:   "Domain & DNS",
+				Details: map[string]string{"type": "subdomain", "domain": "test-lit.servers.libreloom.org"},
+			},
+		},
+	}
+	handler.reconcileDomainCredential(context.Background(), status)
+
+	// Second pass with an identical status must not change anything.
+	handler.reconcileDomainCredential(context.Background(), status)
+
+	settings, err := svc.GetSettings(context.Background())
+	if err != nil {
+		t.Fatalf("failed to get settings: %v", err)
+	}
+	proxy, ok := settings["proxy"].(map[string]interface{})
+	if !ok {
+		t.Fatal("proxy settings not found")
+	}
+	if proxy["default_domain"] != "test-lit.servers.libreloom.org" {
+		t.Errorf("expected default_domain to remain test-lit.servers.libreloom.org, got %v", proxy["default_domain"])
+	}
+}

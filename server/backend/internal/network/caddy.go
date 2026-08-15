@@ -35,6 +35,10 @@ type CaddyManager struct {
 	httpClient   *http.Client
 	configBackup string
 	metrics      *monitoring.CaddyMetrics
+	// onDefaultDomainChanged is invoked (outside any lock) after the default
+	// domain changes and routes have been migrated, so higher layers can
+	// re-register tunnel hostnames and update app configs.
+	onDefaultDomainChanged func(oldDomain, newDomain string)
 }
 
 type routeView struct {
@@ -80,6 +84,14 @@ func (cm *CaddyManager) ConfigPath() string {
 func (cm *CaddyManager) WithMetrics(metrics *monitoring.CaddyMetrics) *CaddyManager {
 	cm.metrics = metrics
 	return cm
+}
+
+// SetOnDefaultDomainChanged registers a callback invoked after the default
+// domain changes and all routes under the old domain have been migrated. It is
+// called outside CaddyManager locks so the callback may re-register tunnel
+// hostnames with Connect or update app configs without deadlocking.
+func (cm *CaddyManager) SetOnDefaultDomainChanged(fn func(oldDomain, newDomain string)) {
+	cm.onDefaultDomainChanged = fn
 }
 
 func (cm *CaddyManager) mode() string {
@@ -129,9 +141,13 @@ func (cm *CaddyManager) SetMode(mode string) error {
 }
 
 // UpdateDefaults updates domain/email/autohttps defaults and regenerates config.
+// When the default domain changes, every route that was created under the old
+// default domain is migrated to the new one (subdomain preserved), so apps
+// keep working without manual reconfiguration — e.g. a Connect subdomain move
+// (3a2b01ec.free.servers.libreloom.org → plainskill.servers.libreloom.org).
 func (cm *CaddyManager) UpdateDefaults(defaultDomain, email string, autoHTTPS bool) error {
 	cm.routesMu.Lock()
-	defer cm.routesMu.Unlock()
+	oldDomain := cm.config.DefaultDomain
 	if defaultDomain != "" {
 		cm.config.DefaultDomain = defaultDomain
 	}
@@ -139,7 +155,90 @@ func (cm *CaddyManager) UpdateDefaults(defaultDomain, email string, autoHTTPS bo
 		cm.config.Email = email
 	}
 	cm.config.AutoHTTPS = autoHTTPS
-	return cm.regenerateCaddyfileLocked()
+
+	// Migrate existing routes when the default domain changes. Only non-empty
+	// domain switches migrate — disconnecting the domain (empty) leaves routes
+	// untouched.
+	if oldDomain != "" && defaultDomain != "" && oldDomain != defaultDomain {
+		if err := cm.migrateRoutesLocked(oldDomain, defaultDomain); err != nil {
+			cm.routesMu.Unlock()
+			return err
+		}
+	}
+	err := cm.regenerateCaddyfileLocked()
+	cm.routesMu.Unlock()
+
+	// Notify higher layers (apps manager) after the lock is released so they
+	// can migrate app configs and re-register tunnel hostnames.
+	if err == nil && oldDomain != "" && defaultDomain != "" && oldDomain != defaultDomain && cm.onDefaultDomainChanged != nil {
+		cm.onDefaultDomainChanged(oldDomain, defaultDomain)
+	}
+	return err
+}
+
+// migrateRoutesLocked rewrites every route whose domain equals oldDomain to
+// newDomain, both in the database and in memory, preserving each route's
+// subdomain. Routes on custom domains (domain != oldDomain) are untouched.
+// Caller must hold routesMu.
+func (cm *CaddyManager) migrateRoutesLocked(oldDomain, newDomain string) error {
+	now := time.Now()
+	for id, r := range cm.routes {
+		if r.Domain == oldDomain {
+			r.Domain = newDomain
+			r.UpdatedAt = now
+			cm.routes[id] = r
+		}
+	}
+	_, err := cm.db.Exec(
+		`UPDATE routes SET domain = ?, updated_at = ? WHERE domain = ?`,
+		newDomain, now, oldDomain,
+	)
+	if err != nil {
+		return fmt.Errorf("migrate routes to new domain: %w", err)
+	}
+	slog.Info("migrated routes to new default domain", "old", oldDomain, "new", newDomain)
+	return nil
+}
+
+// MigrateRoutes rewrites every route whose domain equals oldDomain to
+// newDomain and regenerates the Caddyfile. Public entry point used at startup
+// to heal routes that were created before the domain changed (see
+// ReconcileConnectDomains). Returns the number of routes migrated.
+func (cm *CaddyManager) MigrateRoutes(oldDomain, newDomain string) (int, error) {
+	if oldDomain == "" || newDomain == "" || oldDomain == newDomain {
+		return 0, nil
+	}
+	cm.routesMu.Lock()
+	count := 0
+	now := time.Now()
+	for id, r := range cm.routes {
+		if r.Domain == oldDomain {
+			r.Domain = newDomain
+			r.UpdatedAt = now
+			cm.routes[id] = r
+			count++
+		}
+	}
+	res, err := cm.db.Exec(
+		`UPDATE routes SET domain = ?, updated_at = ? WHERE domain = ?`,
+		newDomain, now, oldDomain,
+	)
+	if err != nil {
+		cm.routesMu.Unlock()
+		return 0, fmt.Errorf("migrate routes to new domain: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n > int64(count) {
+		count = int(n)
+	}
+	err = cm.regenerateCaddyfileLocked()
+	cm.routesMu.Unlock()
+	if err != nil {
+		return count, fmt.Errorf("regenerate Caddyfile after route migration: %w", err)
+	}
+	if count > 0 {
+		slog.Info("migrated routes to new default domain", "old", oldDomain, "new", newDomain, "routes", count)
+	}
+	return count, nil
 }
 
 // Config returns the underlying Caddy configuration.

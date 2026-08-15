@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,199 @@ func TestManagerUpdateStatus(t *testing.T) {
 	}
 	if status != string(StatusRunning) {
 		t.Fatalf("expected running, got %s", status)
+	}
+}
+
+// TestMigrateAppDomains covers the stale-route bug: when the device's default
+// domain changes, each installed app's persisted domain config must be
+// rewritten, the old tunnel hostname unregistered, and the new one registered.
+func TestMigrateAppDomains(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	db, err := database.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// App under the OLD default domain — must migrate.
+	configJSON := `{"subdomain":"convertx","domain":"test.local","http_port":3002}`
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+		"app1", "ConvertX", "repo", "convertx", "/path1", "running", "healthy", configJSON)
+	if err != nil {
+		t.Fatalf("insert app1: %v", err)
+	}
+	// App on a CUSTOM domain — must NOT migrate.
+	configJSON2 := `{"subdomain":"","domain":"myapp.custom.com","http_port":3004}`
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+		"app2", "Custom", "repo", "custom", "/path2", "running", "healthy", configJSON2)
+	if err != nil {
+		t.Fatalf("insert app2: %v", err)
+	}
+
+	m := &Manager{db: db, logger: slog.Default()}
+	var unregistered, registered []string
+	m.routeUnregistrar = func(hostname string) error { unregistered = append(unregistered, hostname); return nil }
+	m.routeRegistrar = func(hostname string) error { registered = append(registered, hostname); return nil }
+
+	if err := m.MigrateAppDomains(context.Background(), "test.local", "new.local"); err != nil {
+		t.Fatalf("MigrateAppDomains: %v", err)
+	}
+
+	// Old hostname unregistered, new hostname registered for the migrated app.
+	if len(unregistered) != 1 || unregistered[0] != "convertx.test.local" {
+		t.Errorf("expected unregister convertx.test.local, got %v", unregistered)
+	}
+	if len(registered) != 1 || registered[0] != "convertx.new.local" {
+		t.Errorf("expected register convertx.new.local, got %v", registered)
+	}
+
+	// DB metadata rewritten for the migrated app, untouched for the custom one.
+	var meta string
+	if err := db.QueryRow(`SELECT metadata FROM apps WHERE id = 'app1'`).Scan(&meta); err != nil {
+		t.Fatalf("query app1 metadata: %v", err)
+	}
+	if !strings.Contains(meta, `"domain":"new.local"`) {
+		t.Errorf("expected app1 metadata to contain new.local, got %s", meta)
+	}
+	if strings.Contains(meta, "test.local") {
+		t.Errorf("expected app1 metadata to drop test.local, got %s", meta)
+	}
+	if err := db.QueryRow(`SELECT metadata FROM apps WHERE id = 'app2'`).Scan(&meta); err != nil {
+		t.Fatalf("query app2 metadata: %v", err)
+	}
+	if !strings.Contains(meta, "myapp.custom.com") {
+		t.Errorf("expected app2 custom domain untouched, got %s", meta)
+	}
+}
+
+// TestMigrateAppDomainsNoop covers the guard: same-domain or empty-domain
+// calls must not touch anything.
+func TestMigrateAppDomainsNoop(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	_ = db.Migrate()
+
+	m := &Manager{db: db, logger: slog.Default()}
+	fired := false
+	m.routeRegistrar = func(string) error { fired = true; return nil }
+	m.routeUnregistrar = func(string) error { fired = true; return nil }
+
+	_ = m.MigrateAppDomains(context.Background(), "test.local", "test.local") // same
+	_ = m.MigrateAppDomains(context.Background(), "", "new.local")            // empty old
+	_ = m.MigrateAppDomains(context.Background(), "test.local", "")           // empty new
+	if fired {
+		t.Error("expected no route callbacks for no-op migrations")
+	}
+}
+
+// TestReconcileConnectDomains covers the startup heal: apps whose persisted
+// domain is a stale Connect subdomain must be moved to the current default
+// domain (both the routes table and app configs), while custom-domain apps
+// stay put.
+func TestReconcileConnectDomains(t *testing.T) {
+	dir := t.TempDir()
+	db, err := database.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// App still on the OLD Connect subdomain — must be healed.
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+		"app1", "ConvertX", "repo", "convertx", "/path1", "running", "healthy",
+		`{"subdomain":"convertx","domain":"3a2b01ec.free.servers.libreloom.org","http_port":3002}`)
+	if err != nil {
+		t.Fatalf("insert app1: %v", err)
+	}
+	// App already on the CURRENT domain — must be untouched.
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+		"app2", "Nextcloud", "repo", "nextcloud", "/path2", "running", "healthy",
+		`{"subdomain":"nextcloud","domain":"plainskill.servers.libreloom.org","http_port":3003}`)
+	if err != nil {
+		t.Fatalf("insert app2: %v", err)
+	}
+	// Custom-domain app — must be untouched.
+	_, err = db.Exec(`INSERT INTO apps (id, name, type, source, path, status, health_status, installed_at, updated_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)`,
+		"app3", "Custom", "repo", "custom", "/path3", "running", "healthy",
+		`{"subdomain":"","domain":"myapp.custom.com","http_port":3004}`)
+	if err != nil {
+		t.Fatalf("insert app3: %v", err)
+	}
+	// A route in the routes table still on the OLD Connect domain — must be
+	// migrated even if the app config was already healed.
+	_, err = db.Exec(`INSERT INTO routes (id, subdomain, domain, backend, app_id, ssl, enabled, restricted_access, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		"route1", "convertx", "3a2b01ec.free.servers.libreloom.org", "http://localhost:3002", "app1", 0, 1, 0)
+	if err != nil {
+		t.Fatalf("insert route: %v", err)
+	}
+
+	// CaddyManager over the same DB so MigrateRoutes persists to the routes
+	// table the reconcile queries.
+	cm := network.NewCaddyManager(db, network.CaddyConfig{
+		Mode:          "noop",
+		ConfigPath:    filepath.Join(dir, "Caddyfile"),
+		DefaultDomain: "plainskill.servers.libreloom.org",
+	})
+	ctx := context.Background()
+	if err := cm.Initialize(ctx); err != nil {
+		t.Fatalf("caddy initialize: %v", err)
+	}
+
+	m := &Manager{db: db, logger: slog.Default(), caddyManager: cm}
+	var unregistered, registered []string
+	m.routeUnregistrar = func(hostname string) error { unregistered = append(unregistered, hostname); return nil }
+	m.routeRegistrar = func(hostname string) error { registered = append(registered, hostname); return nil }
+
+	if err := m.ReconcileConnectDomains(ctx, "plainskill.servers.libreloom.org"); err != nil {
+		t.Fatalf("ReconcileConnectDomains: %v", err)
+	}
+
+	// The stale route migrated to the new domain.
+	if _, ok := cm.FindRouteByDomain("convertx.plainskill.servers.libreloom.org"); !ok {
+		t.Error("expected route migrated to plainskill domain")
+	}
+	if _, ok := cm.FindRouteByDomain("convertx.3a2b01ec.free.servers.libreloom.org"); ok {
+		t.Error("expected old-domain route to be gone")
+	}
+
+	// Only the stale app moved: old hostname dropped, new one registered.
+	if len(unregistered) != 1 || unregistered[0] != "convertx.3a2b01ec.free.servers.libreloom.org" {
+		t.Errorf("expected unregister of stale hostname, got %v", unregistered)
+	}
+	if len(registered) != 1 || registered[0] != "convertx.plainskill.servers.libreloom.org" {
+		t.Errorf("expected register of new hostname, got %v", registered)
+	}
+
+	// DB metadata healed for app1, untouched for app2 and app3.
+	var meta string
+	if err := db.QueryRow(`SELECT metadata FROM apps WHERE id = 'app1'`).Scan(&meta); err != nil {
+		t.Fatalf("query app1: %v", err)
+	}
+	if !strings.Contains(meta, `"domain":"plainskill.servers.libreloom.org"`) {
+		t.Errorf("expected app1 healed to plainskill domain, got %s", meta)
+	}
+	if err := db.QueryRow(`SELECT metadata FROM apps WHERE id = 'app2'`).Scan(&meta); err != nil {
+		t.Fatalf("query app2: %v", err)
+	}
+	if !strings.Contains(meta, `"domain":"plainskill.servers.libreloom.org"`) {
+		t.Errorf("expected app2 unchanged on plainskill domain, got %s", meta)
+	}
+	if err := db.QueryRow(`SELECT metadata FROM apps WHERE id = 'app3'`).Scan(&meta); err != nil {
+		t.Fatalf("query app3: %v", err)
+	}
+	if !strings.Contains(meta, "myapp.custom.com") {
+		t.Errorf("expected app3 custom domain untouched, got %s", meta)
 	}
 }
 

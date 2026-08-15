@@ -370,6 +370,109 @@ func TestCaddyManager_UpdateDefaults(t *testing.T) {
 	}
 }
 
+// TestCaddyManager_UpdateDefaultsMigratesRoutes covers the stale-route bug:
+// when the default domain changes (e.g. a Connect subdomain move), every route
+// that was created under the old default domain must be rewritten to the new
+// one — in memory AND in the database — while custom-domain routes stay put.
+func TestCaddyManager_UpdateDefaultsMigratesRoutes(t *testing.T) {
+	cm, _ := setupTestCaddyManager(t, "noop")
+	ctx := context.Background()
+
+	if err := cm.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() failed: %v", err)
+	}
+
+	// Two app routes under the OLD default domain (test.local from setup).
+	_, err := cm.AddRoute(ctx, "convertx", "test.local", "http://localhost:3002", "app-1")
+	if err != nil {
+		t.Fatalf("AddRoute(convertx) failed: %v", err)
+	}
+	_, err = cm.AddRoute(ctx, "nextcloud", "test.local", "http://localhost:3003", "app-2")
+	if err != nil {
+		t.Fatalf("AddRoute(nextcloud) failed: %v", err)
+	}
+	// One custom-domain route that must NOT migrate.
+	_, err = cm.AddDomainRoute(ctx, "myapp.custom.com", "http://localhost:3004", "custom")
+	if err != nil {
+		t.Fatalf("AddDomainRoute failed: %v", err)
+	}
+
+	var migrated string
+	cm.SetOnDefaultDomainChanged(func(oldD, newD string) { migrated = oldD + "->" + newD })
+
+	if err := cm.UpdateDefaults("new.local", "", false); err != nil {
+		t.Fatalf("UpdateDefaults() failed: %v", err)
+	}
+
+	// In-memory routes migrated.
+	if r, ok := cm.FindRouteByDomain("convertx.new.local"); !ok {
+		t.Errorf("expected convertx.new.local to exist after migration")
+	} else if r.Backend != "http://localhost:3002" {
+		t.Errorf("expected backend preserved, got %s", r.Backend)
+	}
+	if _, ok := cm.FindRouteByDomain("nextcloud.new.local"); !ok {
+		t.Error("expected nextcloud.new.local to exist after migration")
+	}
+	// Old domains gone.
+	if _, ok := cm.FindRouteByDomain("convertx.test.local"); ok {
+		t.Error("expected convertx.test.local to be gone after migration")
+	}
+	// Custom domain untouched.
+	if r, ok := cm.FindRouteByDomain("myapp.custom.com"); !ok || r.Backend != "http://localhost:3004" {
+		t.Error("expected custom-domain route to be untouched")
+	}
+	// Hook fired with the right old/new pair.
+	if migrated != "test.local->new.local" {
+		t.Errorf("expected hook test.local->new.local, got %q", migrated)
+	}
+
+	// Database persisted: reload a fresh manager over the SAME database and
+	// confirm the migrated routes survive.
+	db2 := cm.db
+	cm2 := NewCaddyManager(db2, CaddyConfig{
+		Mode:          "noop",
+		ConfigPath:    filepath.Join(t.TempDir(), "Caddyfile2"),
+		DefaultDomain: "new.local",
+		AutoHTTPS:     false,
+	})
+	if err := cm2.Initialize(ctx); err != nil {
+		t.Fatalf("reload Initialize() failed: %v", err)
+	}
+	if _, ok := cm2.FindRouteByDomain("convertx.new.local"); !ok {
+		t.Error("expected migrated route to persist in the database")
+	}
+	if _, ok := cm2.FindRouteByDomain("myapp.custom.com"); !ok {
+		t.Error("expected custom-domain route to persist in the database")
+	}
+}
+
+// TestCaddyManager_UpdateDefaultsSameDomainNoMigration ensures no migration
+// runs when the domain doesn't actually change.
+func TestCaddyManager_UpdateDefaultsSameDomainNoMigration(t *testing.T) {
+	cm, _ := setupTestCaddyManager(t, "noop")
+	ctx := context.Background()
+
+	if err := cm.Initialize(ctx); err != nil {
+		t.Fatalf("Initialize() failed: %v", err)
+	}
+	if _, err := cm.AddRoute(ctx, "convertx", "test.local", "http://localhost:3002", "app-1"); err != nil {
+		t.Fatalf("AddRoute failed: %v", err)
+	}
+
+	var fired bool
+	cm.SetOnDefaultDomainChanged(func(_, _ string) { fired = true })
+
+	if err := cm.UpdateDefaults("test.local", "", false); err != nil {
+		t.Fatalf("UpdateDefaults() failed: %v", err)
+	}
+	if fired {
+		t.Error("expected no domain-changed hook when domain is unchanged")
+	}
+	if _, ok := cm.FindRouteByDomain("convertx.test.local"); !ok {
+		t.Error("expected route to remain on the original domain")
+	}
+}
+
 func TestCaddyManager_ReloadInDisabledMode(t *testing.T) {
 	cm, _ := setupTestCaddyManager(t, "disabled")
 	ctx := context.Background()

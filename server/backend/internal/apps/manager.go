@@ -419,6 +419,219 @@ func (m *Manager) RebuildBackends(ctx context.Context) {
 	}
 }
 
+// connectDomainSuffix is the LibreServ Connect-managed subdomain zone. App
+// domains ending with this suffix are Connect-provided subdomains (e.g.
+// "convertx.3a2b01ec.free.servers.libreloom.org") and follow the device's
+// default domain when it changes. Custom-domain apps never match this.
+const connectDomainSuffix = ".servers.libreloom.org"
+
+// ReconcileConnectDomains migrates installed apps that are still on a
+// Connect-managed subdomain domain which no longer matches the current default
+// domain. This heals devices where the domain changed while offline, or where
+// apps were installed before route migration existed — the app's persisted
+// config still names the old Connect domain. Custom-domain apps are untouched.
+// Both the routes table (Caddy) and app configs are reconciled.
+func (m *Manager) ReconcileConnectDomains(ctx context.Context, currentDefaultDomain string) error {
+	if currentDefaultDomain == "" {
+		return nil
+	}
+
+	// Collect stale Connect-subdomain domains from BOTH sources: the routes
+	// table (the Caddy serving source of truth) and the apps metadata (the
+	// persisted app config). Either may name the old domain independently.
+	stale := map[string]struct{}{}
+
+	// Routes table.
+	rows, err := m.db.Query(`SELECT DISTINCT domain FROM routes`)
+	if err != nil {
+		return fmt.Errorf("could not query route domains for reconciliation: %w", err)
+	}
+	func() {
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var domain string
+			if err := rows.Scan(&domain); err != nil {
+				continue
+			}
+			if domain == "" || domain == currentDefaultDomain {
+				continue
+			}
+			if strings.HasSuffix(domain, connectDomainSuffix) {
+				stale[domain] = struct{}{}
+			}
+		}
+	}()
+
+	// Apps metadata.
+	appRows, err := m.db.Query(`SELECT DISTINCT json_extract(metadata, '$.domain') FROM apps`)
+	if err != nil {
+		return fmt.Errorf("could not query app domains for reconciliation: %w", err)
+	}
+	func() {
+		defer func() { _ = appRows.Close() }()
+		for appRows.Next() {
+			var domain sql.NullString
+			if err := appRows.Scan(&domain); err != nil {
+				continue
+			}
+			d := domain.String
+			if d == "" || d == currentDefaultDomain {
+				continue
+			}
+			if strings.HasSuffix(d, connectDomainSuffix) {
+				stale[d] = struct{}{}
+			}
+		}
+	}()
+
+	for old := range stale {
+		// First migrate the Caddy routes table so the app keeps serving under
+		// the new domain, then rewrite app configs + tunnel hostnames.
+		if m.caddyManager != nil {
+			if n, err := m.caddyManager.MigrateRoutes(old, currentDefaultDomain); err != nil {
+				m.logger.Warn("startup route migration failed",
+					"old", old, "new", currentDefaultDomain, "error", err)
+			} else if n > 0 {
+				m.logger.Info("startup route migration", "old", old, "new", currentDefaultDomain, "routes", n)
+			}
+		}
+		if err := m.MigrateAppDomains(ctx, old, currentDefaultDomain); err != nil {
+			m.logger.Warn("startup domain reconciliation failed",
+				"old", old, "new", currentDefaultDomain, "error", err)
+		}
+	}
+	return nil
+}
+
+// MigrateAppDomains updates every installed app whose persisted domain equals
+// oldDomain to use newDomain, keeping its subdomain. Called after the device's
+// default domain changes (e.g. a Connect subdomain move) so apps keep working
+// without reinstalling. For each affected app it:
+//
+//  1. unregisters the old public hostname from Connect's tunnel,
+//  2. rewrites the persisted config (DB metadata + .libreserv.yaml),
+//  3. registers the new public hostname with Connect's tunnel.
+//
+// Non-blocking per app: failures are logged, never fatal — the routes have
+// already been migrated by CaddyManager, so the app stays reachable locally.
+func (m *Manager) MigrateAppDomains(ctx context.Context, oldDomain, newDomain string) error {
+	if oldDomain == "" || newDomain == "" || oldDomain == newDomain {
+		return nil
+	}
+
+	// Lightweight query: the migration only needs id, source (the AppID),
+	// path and the config JSON — not the full InstalledApp (which requires
+	// the catalog).
+	rows, err := m.db.Query(
+		`SELECT id, source, path, metadata FROM apps ORDER BY installed_at DESC`)
+	if err != nil {
+		return fmt.Errorf("could not list installed apps for domain migration: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type appRow struct {
+		ID       string
+		AppID    string // = source column (catalog app id)
+		Path     string
+		Metadata []byte
+	}
+	var appRows []appRow
+	for rows.Next() {
+		var a appRow
+		if err := rows.Scan(&a.ID, &a.AppID, &a.Path, &a.Metadata); err != nil {
+			m.logger.Warn("domain migration: failed to scan app row", "error", err)
+			continue
+		}
+		appRows = append(appRows, a)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("could not read installed apps for domain migration: %w", err)
+	}
+
+	var migrated int
+	for _, a := range appRows {
+		var cfg map[string]interface{}
+		if err := json.Unmarshal(a.Metadata, &cfg); err != nil || cfg == nil {
+			continue
+		}
+		domain, _ := cfg["domain"].(string)
+		if domain != oldDomain {
+			continue
+		}
+		subdomain, _ := cfg["subdomain"].(string)
+		if subdomain == "" {
+			continue
+		}
+		oldHost := subdomain + "." + oldDomain
+		newHost := subdomain + "." + newDomain
+
+		// 1. Drop the old tunnel hostname first (best-effort — the tunnel may
+		// not be provisioned or the hostname may not exist remotely).
+		if m.routeUnregistrar != nil {
+			if err := m.routeUnregistrar(oldHost); err != nil {
+				m.logger.Warn("domain migration: failed to unregister old hostname",
+					"instance_id", a.ID, "hostname", oldHost, "error", err)
+			}
+		}
+
+		// 2. Rewrite the persisted config so restarts keep the new domain.
+		cfg["domain"] = newDomain
+		safeConfig := stripServerContext(cfg)
+		configJSON, err := json.Marshal(safeConfig)
+		if err != nil {
+			m.logger.Warn("domain migration: failed to marshal app config",
+				"instance_id", a.ID, "error", err)
+			continue
+		}
+		if _, err := m.db.Exec(
+			`UPDATE apps SET metadata = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+			string(configJSON), a.ID,
+		); err != nil {
+			m.logger.Warn("domain migration: failed to persist app config",
+				"instance_id", a.ID, "error", err)
+			continue
+		}
+		// Also update the on-disk .libreserv.yaml metadata file (best-effort).
+		m.updateMetadataFile(ctx, a.ID, a.AppID, a.Path, cfg)
+
+		// 3. Register the new hostname with Connect's tunnel.
+		if m.routeRegistrar != nil {
+			if err := m.routeRegistrar(newHost); err != nil {
+				m.logger.Warn("domain migration: failed to register new hostname",
+					"instance_id", a.ID, "hostname", newHost, "error", err)
+			}
+		}
+
+		m.logger.Info("migrated app to new domain",
+			"instance_id", a.ID, "subdomain", subdomain, "hostname", newHost)
+		migrated++
+	}
+	if migrated > 0 {
+		m.logger.Info("domain migration complete", "old", oldDomain, "new", newDomain, "apps", migrated)
+	}
+	return nil
+}
+
+// updateMetadataFile rewrites an app's on-disk .libreserv.yaml metadata file
+// with the given config. Best-effort: failures are logged, never fatal.
+func (m *Manager) updateMetadataFile(ctx context.Context, instanceID, appID, path string, cfg map[string]interface{}) {
+	if m.installer == nil {
+		return
+	}
+	catalog := m.GetCatalog()
+	if catalog == nil {
+		return
+	}
+	appDef, err := catalog.GetApp(appID)
+	if err != nil || appDef == nil {
+		return
+	}
+	if err := m.installer.createMetadataFile(path, appDef, cfg); err != nil {
+		m.logger.Warn("failed to update metadata file during domain migration",
+			"instance_id", instanceID, "error", err)
+	}
+}
+
 // ensureRouteForApp creates the Caddy route for an installed app when it has
 // persisted domain config but no route yet, and re-registers the public
 // hostname with Connect's tunnel. Non-blocking: failures (e.g. Caddy reload

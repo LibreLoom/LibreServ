@@ -51,7 +51,59 @@ func (h *ConnectHandler) Status(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := h.checker.Status()
+	// Keep the locally-applied domain in sync with what Connect is actually
+	// serving. Connect's domain coordinator pre-provisions the domain
+	// credential server-side during activation, so the device's auto-provision
+	// loop can see the service as already "connected" and skip it — leaving a
+	// stale default_domain (e.g. from an earlier key or subdomain). Compare
+	// and re-apply when they differ.
+	h.reconcileDomainCredential(r.Context(), status)
 	response.JSON(w, http.StatusOK, status)
+}
+
+// reconcileDomainCredential ensures the device's locally-applied Caddy
+// default_domain matches the domain Connect is serving for this device. When
+// Connect reports the domain service as connected with a different domain than
+// the one currently applied (stale subdomain, regenerated key, plan change),
+// it provisions + applies the Connect credential so the device actually serves
+// the right domain. No-op when they already match, so it's cheap to run on
+// every status poll.
+func (h *ConnectHandler) reconcileDomainCredential(ctx context.Context, status *connect.ConnectStatus) {
+	if status == nil || status.Services == nil {
+		return
+	}
+	svc, ok := status.Services[connect.ServiceDomain]
+	if !ok || svc.State != connect.ServiceConnected {
+		return
+	}
+	remote := svc.Details["domain"]
+	if remote == "" {
+		return
+	}
+
+	// Current locally-applied domain.
+	local := ""
+	if h.settingsService != nil {
+		if s, err := h.settingsService.GetSettings(ctx); err == nil {
+			if proxy, ok := s["proxy"].(map[string]interface{}); ok {
+				local, _ = proxy["default_domain"].(string)
+			}
+		}
+	}
+	if local == remote {
+		return
+	}
+
+	slog.Info("reconciling connect domain credential",
+		"remote", remote, "local", local)
+	creds, err := h.client.Provision(ctx, connect.ServiceDomain)
+	if err != nil {
+		slog.Warn("domain reconcile: provision failed", "error", err)
+		return
+	}
+	if err := h.applyCredentials(ctx, connect.ServiceDomain, creds); err != nil {
+		slog.Warn("domain reconcile: apply failed", "error", err)
+	}
 }
 
 func (h *ConnectHandler) Activate(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +213,16 @@ func (h *ConnectHandler) autoProvisionServices(ctx context.Context, status *conn
 	// Notify the checker so subsequent polls reflect the newly-connected services.
 	if h.checker != nil {
 		h.checker.Refresh()
+	}
+
+	// Reconcile the domain credential against the latest status. Connect's
+	// domain coordinator pre-provisions the domain server-side during
+	// activation, so the domain service can already read "connected" here and
+	// be skipped by the disabled-only loop above — leaving a stale local
+	// default_domain. This closes that gap for re-activations and subdomain
+	// changes.
+	if h.checker != nil {
+		h.reconcileDomainCredential(ctx, h.checker.Status())
 	}
 }
 

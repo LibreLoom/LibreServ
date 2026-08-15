@@ -443,6 +443,31 @@ func main() {
 	// them (DNS CNAME + tunnel ingress) and recreates any missing routes.
 	appManager.RebuildBackends(context.Background())
 
+	// Heal apps that were installed (or last configured) under an older
+	// Connect subdomain: rewrite their persisted domain config and re-register
+	// their public hostname with Connect's tunnel so they follow the current
+	// default domain. Handles the case where the domain changed while the
+	// device was offline or before route migration existed.
+	if caddyManager != nil {
+		if err := appManager.ReconcileConnectDomains(context.Background(), caddyManager.Config().DefaultDomain); err != nil {
+			slog.Warn("startup Connect domain reconciliation failed", "error", err)
+		}
+	}
+
+	// When the default domain changes (e.g. a Connect subdomain move), Caddy
+	// migrates the routes table itself; this hook tells the apps manager to
+	// rewrite each app's persisted domain config and re-register its public
+	// hostname with Connect's tunnel so apps keep working without reinstall.
+	if caddyManager != nil {
+		caddyManager.SetOnDefaultDomainChanged(func(oldDomain, newDomain string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := appManager.MigrateAppDomains(ctx, oldDomain, newDomain); err != nil {
+				slog.Warn("default domain changed but app migration failed", "old", oldDomain, "new", newDomain, "error", err)
+			}
+		})
+	}
+
 	// Start local SMTP relay — apps send to localhost, the relay forwards
 	// to the configured upstream (Connect SMTP or user-configured SMTP).
 	smtpRelay := email.NewRelay()
