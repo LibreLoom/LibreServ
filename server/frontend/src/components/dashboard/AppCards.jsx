@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Link } from "react-router-dom";
-import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings } from "lucide-react";
+import { Package, Cpu, MemoryStick, Clock, TrendingUp, ExternalLink, Settings, ArrowRight } from "lucide-react";
 import Card from "../cards/Card";
 import Button from "../ui/Button";
 import CardButton from "../ui/CardButton";
@@ -112,26 +112,36 @@ const AppCard = memo(AppCardInner);
 
 function NoAppsCard() {
   return (
-    <Card className="flex flex-col items-center text-center" data-slot="no-apps-card">
-      <div className="flex items-center gap-4 mb-4">
-        <div className="h-12 w-12 rounded-pill bg-primary/10 text-primary/30 flex items-center justify-center" aria-hidden="true">
-          <Package size={22} />
+    <div className="xl:col-span-2">
+      <Card
+        noPopIn
+        padding={false}
+        className="flex flex-col items-center text-center py-12 px-6"
+        data-slot="no-apps-card"
+      >
+        <div
+          className="w-14 h-14 rounded-pill bg-primary/10 flex items-center justify-center mb-5"
+          aria-hidden="true"
+        >
+          <Package size={22} className="text-primary/50" />
         </div>
-        <div className="text-left">
-          <div className="font-mono font-normal">No Apps Installed</div>
-        </div>
-      </div>
 
-      <div className="h-1 w-full bg-primary rounded-pill mt-2 mb-4" aria-hidden="true" />
+        <h3 className="font-mono text-xl font-normal tracking-tight text-primary mb-2">
+          No apps yet
+        </h3>
 
-      <p className="text-sm text-primary/70 mb-6">
-        When apps are installed, they will appear here.
-      </p>
+        <p className="text-sm text-accent leading-relaxed max-w-md mb-6">
+          Your server is ready for its first app. Pick one from the catalog —
+          it'll be live in a couple of minutes.
+        </p>
 
-      <Button asChild variant="primary" className="font-mono">
-        <Link to="/apps">Install an App</Link>
-      </Button>
-    </Card>
+        <Button asChild variant="primary" size="md" className="font-mono">
+          <Link to="/apps">
+            Install an App <ArrowRight size={16} className="ml-1" />
+          </Link>
+        </Button>
+      </Card>
+    </div>
   );
 }
 

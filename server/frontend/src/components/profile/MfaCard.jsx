@@ -279,7 +279,7 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
             </span>
             <Button
               type="button"
-              variant="primary"
+              variant="outline"
               size="sm"
               loading={generatingRecovery}
               onClick={handleGenerateRecovery}

@@ -46,10 +46,6 @@ vi.mock("../components/common/AppIcon", () => ({
   default: ({ appId }) => <div data-testid={`app-icon-${appId}`}>Icon</div>,
 }));
 
-vi.mock("../components/common/StatusPill", () => ({
-  default: ({ status }) => <span data-testid="status-pill">{status}</span>,
-}));
-
 vi.mock("../lib/sanitize", () => ({
   sanitizeURL: (url) => url,
 }));
@@ -156,7 +152,9 @@ describe("AppsPage", () => {
 
   it("shows running status on installed apps", () => {
     renderWithProviders(<AppsPage />);
-    const statusPills = screen.getAllByTestId("status-pill");
-    expect(statusPills.length).toBeGreaterThanOrEqual(1);
+    // Installed apps get a layered pill: status label in the inset chip,
+    // plus the "Installed" trailing segment.
+    expect(screen.getAllByText("Running").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Installed").length).toBeGreaterThanOrEqual(1);
   });
 });

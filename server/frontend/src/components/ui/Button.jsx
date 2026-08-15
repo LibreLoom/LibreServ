@@ -99,6 +99,9 @@ const buttonVariants = cva(
       },
     },
     compoundVariants: [
+      // Solid variants scale to 105% on hover (transform-based, no layout
+      // shift) — the documented Button motion. Ghost/outline don't scale.
+      { variant: ["primary", "secondary", "accent", "danger"], class: "hover:scale-105" },
       // Ghost/outline: `surface` names the BACKDROP the button sits on
       // ("primary" = page bg, "secondary" = card). The chrome is always the
       // contrasting token, so the button can never blend into its backdrop.

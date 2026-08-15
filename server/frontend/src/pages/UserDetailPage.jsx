@@ -15,6 +15,7 @@ import { User, Shield, KeyRound, Pencil, Trash2 } from "lucide-react";
 import ChangeEmailForm from "../components/common/forms/ChangeEmailForm";
 import RoleChangeForm from "../components/common/forms/RoleChangeForm";
 import SetPasswordForm from "../components/common/forms/SetPasswordForm";
+import MfaCard from "../components/profile/MfaCard";
 import { useAuth } from "../hooks/useAuth";
 import { useTimeFormat } from "../hooks/useTimeFormat";
 
@@ -224,6 +225,16 @@ export default function UserDetailPage() {
               </div>
             </Card>
           </section>
+
+          {/* Two-factor authentication — only on your own account. Other
+              users' 2FA is private to them; nobody can manage it on their
+              behalf. This is the only place admins can manage their own 2FA
+              (MyProfile is non-admin only). */}
+          {isSelf && (
+            <section className="mt-4" aria-label="Two-factor authentication">
+              <MfaCard />
+            </section>
+          )}
 
           {/* Actions — compact pill button row instead of full-width grid. */}
           <section className="mt-4" aria-label="User actions">

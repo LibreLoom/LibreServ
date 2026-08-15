@@ -7,36 +7,48 @@ import Button from "../components/ui/Button";
 import AppIcon from "../components/common/AppIcon";
 import StateOverlay from "../components/cards/StateOverlay";
 import { Search, Download, Check, Settings, ExternalLink } from "lucide-react";
-import StatusPill from "../components/common/StatusPill";
+import LayeredPill from "../components/ui/LayeredPill";
+import { statusConfig } from "../data/statusConfig";
 import { useApps } from "../hooks/useApps";
 import { useCatalog } from "../hooks/useCatalog";
 import { sanitizeURL } from "../lib/sanitize";
 import { cn } from "@/lib/utils";
 
+// Status color for the layered pill's icon — mirrors StatusPill's tint mapping
+// (success/warning/error/info) as plain text colors.
+const STATUS_TEXT = {
+  running: "text-success",
+  stopped: "text-warning",
+  error: "text-error",
+  unknown: "text-accent",
+};
+
 function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index }) {
   const appUrl = instance ? sanitizeURL(instance.url || instance.backends?.[0]?.url || "") : "";
+  const statusConf = instance ? statusConfig[instance.status] || statusConfig.unknown : null;
+  const StatusIcon = statusConf?.icon;
 
   return (
     <div className="animate-card-stagger" style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}>
     <Card className="relative flex flex-col h-full" noHeightAnim noPopIn>
-      {instance && (
-        <StatusPill status={instance.status} className="absolute top-3 right-3" />
+      {instance && statusConf && (
+        <LayeredPill
+          mono
+          className="absolute top-3 right-3"
+          icon={<StatusIcon size={11} className={STATUS_TEXT[instance.status] || "text-accent"} />}
+          actionIcon={<Check size={11} />}
+          actionLabel="Installed"
+        >
+          {statusConf.label}
+        </LayeredPill>
       )}
       <div className="flex items-start gap-4">
         <AppIcon appId={app.id} size={48} className="flex-shrink-0" />
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="font-mono text-lg text-primary truncate pr-20">
-              {app.name}
-            </h3>
-            {isInstalled && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-pill bg-accent/20 text-secondary/80 text-xs font-mono">
-                <Check size={12} />
-                Installed
-              </span>
-            )}
-          </div>
+          <h3 className="font-mono text-lg text-primary truncate pr-48">
+            {app.name}
+          </h3>
         </div>
       </div>
 

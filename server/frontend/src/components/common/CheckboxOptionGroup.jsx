@@ -28,7 +28,7 @@ export default function CheckboxOptionGroup({
           <div
             className={cn(
               "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200",
-              values[opt.key] && "border-accent bg-accent",
+              values[opt.key] && "border-success bg-success",
               !values[opt.key] && "border-accent/40",
             )}
           >

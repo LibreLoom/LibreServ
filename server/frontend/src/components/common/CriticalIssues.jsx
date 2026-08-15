@@ -112,7 +112,7 @@ export default function CriticalIssues() {
     return (
       <Pill variant="success" data-slot="critical-issues">
         <CheckCircle size={12} strokeWidth={2.5} aria-hidden="true" />
-        <span className="font-mono font-medium">All systems healthy</span>
+        <span className="font-medium">All systems healthy</span>
       </Pill>
     );
   }
@@ -136,7 +136,7 @@ export default function CriticalIssues() {
       >
         <Pill variant="error" className="hover:brightness-110">
           <AlertTriangle size={12} strokeWidth={2.5} aria-hidden="true" />
-          <span className="font-mono font-medium">
+          <span className="font-medium">
             {count} issue{count !== 1 ? "s" : ""}
           </span>
           <ChevronDown

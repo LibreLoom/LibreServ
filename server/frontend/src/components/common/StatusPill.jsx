@@ -19,7 +19,7 @@ export default function StatusPill({ status, className = "", compact = false }) 
   return (
     <Pill variant={variant} className={className}>
       <Icon size={12} strokeWidth={2.5} aria-hidden="true" />
-      {!compact && <span className="font-mono font-medium">{config.label}</span>}
+      {!compact && <span className="font-medium">{config.label}</span>}
     </Pill>
   );
 }

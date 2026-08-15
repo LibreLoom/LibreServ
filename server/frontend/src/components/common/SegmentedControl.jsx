@@ -55,7 +55,7 @@ export default function SegmentedControl({
               ? "text-accent opacity-50 cursor-not-allowed"
               : value === optValue
                 ? "text-secondary"
-                : "text-accent hover:text-secondary hover:bg-secondary/10"
+                : "text-accent hover:text-primary"
           )}
           style={{ transitionDuration: "var(--motion-duration-short2)" }}
           role="radio"

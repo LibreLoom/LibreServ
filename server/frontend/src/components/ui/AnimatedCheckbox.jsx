@@ -7,7 +7,7 @@ export default function AnimatedCheckbox({ checked, onChange, children, classNam
       <div
         className={cn("w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all duration-200 flex-shrink-0",
           checked
-            ? "border-accent bg-accent"
+            ? "border-success bg-success"
             : "border-secondary/50 group-hover:border-secondary"
         )}
       >
