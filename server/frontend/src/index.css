@@ -331,6 +331,46 @@ body {
     will-change: transform, opacity;
 }
 
+/* Setup wizard StepDots — progress dots cascade in on step change.
+   Each dot pops up + scales in with a stagger (animation-delay set inline
+   per index — one value for the entrance, two comma values on the active
+   dot: entrance, then breathe once it has landed). The active dot breathes
+   gently so "where you are now" reads at a glance. `backwards` (not `both`)
+   so no transform is held after the entrance ends — the pop-in
+   compositing-layer gotcha. */
+@keyframes step-dot-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.4);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes step-dot-breathe {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+}
+
+.animate-step-dot-in {
+    animation: step-dot-in 260ms var(--motion-easing-emphasized-decelerate) backwards;
+    will-change: transform, opacity;
+}
+
+.animate-step-dot-current {
+    animation:
+        step-dot-in 260ms var(--motion-easing-emphasized-decelerate) backwards,
+        step-dot-breathe 2.4s var(--motion-easing-emphasized) infinite;
+    will-change: transform, opacity;
+}
+
 /* Settings sidebar nav — staggered slide-in from left */
 @keyframes nav-slide-in {
     from {
@@ -728,7 +768,9 @@ body {
     .animate-alert-enter,
     .animate-nav-slide-in,
     .animate-card-stagger,
-    .animate-pill-gauge-fill {
+    .animate-pill-gauge-fill,
+    .animate-step-dot-in,
+    .animate-step-dot-current {
         animation: none !important;
         opacity: 1;
         transform: none;

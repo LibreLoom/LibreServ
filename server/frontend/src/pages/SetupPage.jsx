@@ -98,10 +98,23 @@ function StepDots({ current }) {
     <div className="flex items-center gap-2 mb-8">
       {VISIBLE_STEPS.map((s, i) => (
         <div
-          className={cn("rounded-full motion-safe:transition-all motion-safe:duration-300", i === idx ? "w-5 h-2 bg-primary" : i < idx ? "w-2 h-2 bg-primary/40" : "w-2 h-2 bg-primary/15")}
+          key={s}
+          // Stagger the cascade by dot index; the active dot also delays its
+          // breathe until after the entrance has landed (comma value #2).
+          style={{
+            animationDelay: i === idx ? `${i * 60}ms, ${i * 60 + 320}ms` : `${i * 60}ms`,
+          }}
+          className={cn(
+            "rounded-full motion-safe:transition-all motion-safe:duration-300",
+            i === idx
+              ? "w-5 h-2 bg-primary animate-step-dot-current"
+              : i < idx
+                ? "w-2 h-2 bg-primary/40 animate-step-dot-in"
+                : "w-2 h-2 bg-primary/15 animate-step-dot-in"
+          )}
         />
       ))}
-      <span className="ml-auto text-[11px] font-mono tracking-wider text-primary/30">
+      <span className="ml-auto text-[11px] font-mono tracking-wider text-primary/30 animate-in fade-in duration-300">
         {idx + 1} / {VISIBLE_STEPS.length}
       </span>
     </div>
