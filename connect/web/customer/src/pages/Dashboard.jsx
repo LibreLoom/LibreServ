@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.
 import { Button } from "../components/ui/button.jsx";
 import { StatusBadge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
+import { copyToClipboard } from "../lib/clipboard.js";
 import {
   Check, X, Key, Copy, Shield, Loader2, MailCheck,
   AlertCircle, Globe, ArrowRight, RefreshCw,
@@ -68,9 +69,11 @@ export default function Dashboard() {
   });
 
   const copyKey = async (key) => {
-    await navigator.clipboard.writeText(key);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const ok = await copyToClipboard(key);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   return (
