@@ -133,3 +133,5 @@ connect/configs/connect.yaml
 .empryo
 
 .reasonix/
+.shots
+.chromium-profile
