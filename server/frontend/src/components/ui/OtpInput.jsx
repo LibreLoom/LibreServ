@@ -47,6 +47,10 @@ export default function OtpInput({
       onComplete={onComplete}
       disabled={disabled}
       autoFocus={autoFocus}
+      // Disable the password-manager badge polling: we render custom slots and
+      // never show a badge, so the background interval/timeouts are wasted work
+      // (and can outlive a test's jsdom teardown, causing flaky uncaught errors).
+      pushPasswordManagerStrategy="none"
       // numeric codes only — invalid keystrokes/pastes are dropped, not filtered.
       pattern="^\d+$"
       inputMode="numeric"
