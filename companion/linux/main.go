@@ -41,7 +41,7 @@ func onActivate(app *adw.Application) {
 	})
 
 	window.SetContent(connectView)
-	window.Show()
+	window.SetVisible(true)
 }
 
 func loadLogo() *gtk.Picture {
