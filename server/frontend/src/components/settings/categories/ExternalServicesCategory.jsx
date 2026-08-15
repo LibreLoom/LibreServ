@@ -290,47 +290,46 @@ export default function ExternalServicesCategory({
                     <p className="text-sm text-accent">{desc}</p>
                     {(limitLabel || detailText) && (
                       <div className="mt-2">
-                        {detailText ? (
-                          <>
-                            {/* Desktop: combined two-segment pill */}
-                            <LayeredPill
-                              mono
-                              className="hidden sm:inline-flex"
-                              title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
-                              actionLabel={detailText}
-                            >
-                              <span className="font-normal text-accent">Included:</span>
-                              <span className={limitLabel === "Not in plan" ? "text-secondary/60" : "text-secondary"}>
-                                {limitLabel}
-                              </span>
-                            </LayeredPill>
-                            {/* Mobile: two separate stacked pills */}
-                            <div className="sm:hidden flex flex-col items-start gap-1">
-                              <span
-                                className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border-2 border-secondary/10"
-                                title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
-                              >
-                                Included: {limitLabel}
-                              </span>
+                        {/* Desktop: combined two-segment pill — the trailing
+                            segment stays mounted and animates its width in/out
+                            when detailText arrives (grid 0fr → 1fr), so the
+                            "lower pill" grows smoothly instead of snapping. */}
+                        <LayeredPill
+                          mono
+                          className="hidden sm:inline-flex"
+                          title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
+                          actionLabel={detailText || null}
+                        >
+                          <span className="font-normal text-accent">Included:</span>
+                          <span className={limitLabel === "Not in plan" ? "text-secondary/60" : "text-secondary"}>
+                            {limitLabel}
+                          </span>
+                        </LayeredPill>
+                        {/* Mobile: two stacked pills — the lower one stays
+                            mounted and animates its height in/out. */}
+                        <div className="sm:hidden flex flex-col items-start">
+                          <span
+                            className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-primary text-secondary border-2 border-secondary/10"
+                            title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
+                          >
+                            Included: {limitLabel}
+                          </span>
+                          <span
+                            aria-hidden={!detailText}
+                            className={cn(
+                              "grid overflow-hidden",
+                              "motion-safe:transition-[grid-template-rows,opacity,margin] motion-safe:duration-300",
+                              "motion-safe:ease-[var(--motion-easing-emphasized-decelerate)]",
+                              detailText ? "grid-rows-[1fr] opacity-100 mt-1" : "grid-rows-[0fr] opacity-0 mt-0",
+                            )}
+                          >
+                            <span className="min-h-0 overflow-hidden">
                               <span className="inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono bg-accent text-primary border border-accent/40">
                                 {detailText}
                               </span>
-                            </div>
-                          </>
-                        ) : (
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-2 text-xs px-2.5 py-1 rounded-pill font-mono",
-                              "bg-primary text-secondary border-2 border-secondary/10"
-                            )}
-                            title={`Included on your ${connectStatus?.plan?.name || "plan"}`}
-                          >
-                            <span className="font-normal text-accent">Included:</span>
-                            <span className={limitLabel === "Not in plan" ? "text-secondary/60" : "text-secondary"}>
-                              {limitLabel}
                             </span>
                           </span>
-                        )}
+                        </div>
                       </div>
                     )}
                     {svc?.details && id !== "domain" && Object.keys(svc.details).length > 0 && (

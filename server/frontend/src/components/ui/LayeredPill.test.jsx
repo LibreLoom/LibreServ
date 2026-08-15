@@ -46,3 +46,33 @@ describe.each([
     expect(screen.getByRole("button", { name: "Manage" })).toBeEnabled();
   });
 });
+
+describe("LayeredPill (collapsible trailing segment)", () => {
+  it("collapses the trailing segment when actionLabel is omitted, and expands it when provided", () => {
+    const { rerender, container } = render(
+      <LayeredPill actionLabel={null}>Included: Backup</LayeredPill>,
+    );
+    // Collapsed: the trailing grid is hidden from AT and has the 0fr track.
+    const trail = container.querySelector('[aria-hidden="true"]');
+    expect(trail).not.toBeNull();
+    expect(trail.className).toContain("grid-cols-[0fr]");
+    expect(trail.className).toContain("opacity-0");
+
+    rerender(<LayeredPill actionLabel="12.4 GB / 20 GB">Included: Backup</LayeredPill>);
+    expect(screen.getByText("12.4 GB / 20 GB")).toBeInTheDocument();
+    const openTrail = screen.getByText("12.4 GB / 20 GB").closest('[aria-hidden="false"]');
+    expect(openTrail).not.toBeNull();
+    expect(openTrail.className).toContain("grid-cols-[1fr]");
+    expect(openTrail.className).toContain("opacity-100");
+  });
+
+  it("keeps the trailing content mounted while collapsed so it can animate open", () => {
+    const { container } = render(
+      <LayeredPill actionLabel={null}>Included: Backup</LayeredPill>,
+    );
+    // The wrapper grid exists even when collapsed — the collapse is visual
+    // (0fr track + opacity), not a removal.
+    expect(container.querySelector('[aria-hidden="true"]')).not.toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+});
