@@ -3,7 +3,6 @@ package connect
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 )
 
@@ -76,31 +75,4 @@ func (f *FakeClient) SetErrorStatus(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.errorStatus = err
-}
-
-// Thread-safe variant of SetErrorStatus for use inside tests that hold the mutex.
-func (f *FakeClient) setErrorStatusLocked(err error) {
-	f.errorStatus = err
-}
-
-// Atomically toggle error status (set on first call, clear on second).
-type errorToggle struct {
-	fake *FakeClient
-	flag atomic.Bool
-}
-
-// newErrorToggle creates a toggle: first call makes Status() error,
-// second call clears the error.
-func newErrorToggle(f *FakeClient) *errorToggle {
-	return &errorToggle{fake: f}
-}
-
-// Trigger sets errorStatus. Returns the toggle itself for chaining.
-func (t *errorToggle) Trigger() {
-	t.flag.Store(true)
-	t.fake.mu.Lock()
-	if t.flag.Load() {
-		t.fake.errorStatus = errors.New("triggered error")
-	}
-	t.fake.mu.Unlock()
 }

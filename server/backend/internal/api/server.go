@@ -166,7 +166,7 @@ func NewServer(cfg ServerConfig) *Server {
 
 	// Global middleware stack
 	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
+	r.Use(middleware.RealIP())
 	r.Use(middleware.Logger(logger))
 	r.Use(chimiddleware.Recoverer)
 	corsOrigins := config.Get().CORS.AllowedOrigins

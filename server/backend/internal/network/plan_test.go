@@ -27,8 +27,7 @@ func (b *reportBuilder) upnpOff() *reportBuilder {
 	b.r.UPnP.Enabled = false
 	return b
 }
-func (b *reportBuilder) noUpnp() *reportBuilder { b.r.UPnP.Discovered = false; return b }
-func (b *reportBuilder) dedIP() *reportBuilder  { b.r.Connect.HasDedicatedIP = true; return b }
+func (b *reportBuilder) dedIP() *reportBuilder { b.r.Connect.HasDedicatedIP = true; return b }
 func (b *reportBuilder) tunnel() *reportBuilder {
 	b.r.Connect.Active = true
 	b.r.Connect.TunnelOK = true

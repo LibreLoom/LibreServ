@@ -235,9 +235,7 @@ func (l *Loop) Run(ctx context.Context, userMessage string) {
 
 	// Max turns reached.
 	msg := "I've reached the limit of what I can check automatically. You may want to try a more specific question, or check your apps directly."
-	if l.emitAgentResponse(msg) {
-		// response emitted
-	}
+	l.emitAgentResponse(msg)
 	l.emitDone("max_turns")
 }
 
@@ -247,11 +245,7 @@ func (l *Loop) processToolCalls(ctx context.Context, resp *AgentResponse) bool {
 	// Record the assistant message in history.
 	var tcs []ToolCallMessage
 	for _, tc := range resp.ToolCalls {
-		tcs = append(tcs, ToolCallMessage{
-			ID:        tc.ID,
-			Name:      tc.Name,
-			Arguments: tc.Arguments,
-		})
+		tcs = append(tcs, ToolCallMessage(tc))
 	}
 	l.messages = append(l.messages, Message{
 		Role:      RoleAssistant,
@@ -285,9 +279,7 @@ func (l *Loop) processToolCalls(ctx context.Context, resp *AgentResponse) bool {
 			continue
 		}
 
-		l.emit(Event{Type: EventToolCall, Data: ToolCallData{
-			ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments,
-		}})
+		l.emit(Event{Type: EventToolCall, Data: ToolCallData(tc)})
 
 		executed, denied := l.executeWithReview(ctx, tool, tc)
 		if denied {

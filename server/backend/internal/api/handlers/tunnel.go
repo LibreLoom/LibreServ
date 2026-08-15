@@ -91,7 +91,7 @@ func (h *TunnelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	if h.settings != nil {
 		if err := h.settings.PersistTunnel("", "", false); err != nil {
-		slog.Warn("failed to clear tunnel config in database", "error", err)
+			slog.Warn("failed to clear tunnel config in database", "error", err)
 		}
 	}
 

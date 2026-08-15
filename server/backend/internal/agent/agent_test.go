@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 )
 
@@ -28,7 +29,7 @@ func TestNewAgent(t *testing.T) {
 
 func TestAgentCallNoProvider(t *testing.T) {
 	agent := NewAgent("test", "test-model", "diamond", "#FF6B35", "prompt", nil)
-	_, _, err := agent.Call(nil, nil, nil)
+	_, _, err := agent.Call(context.Background(), nil, nil)
 	if err == nil {
 		t.Error("expected error when calling agent with no provider")
 	}
@@ -39,7 +40,7 @@ func TestAgentCallWithSystemPrompt(t *testing.T) {
 	// We can't test a real call without a provider, but we can verify the
 	// message construction logic via Call's behavior with nil provider.
 	agent := NewAgent("test", "test-model", "circle", "#4ECDC4", "Custom prompt", nil)
-	_, _, err := agent.Call(nil, nil, nil)
+	_, _, err := agent.Call(context.Background(), nil, nil)
 	if err == nil || err.Error() != "no provider configured" {
 		t.Errorf("expected 'no provider configured' error with nil provider, got: %v", err)
 	}
@@ -47,7 +48,7 @@ func TestAgentCallWithSystemPrompt(t *testing.T) {
 
 func TestAgentCallEmptySystemPrompt(t *testing.T) {
 	agent := NewAgent("test", "test-model", "hexagon", "#45B7D1", "", nil)
-	_, _, err := agent.Call(nil, nil, nil)
+	_, _, err := agent.Call(context.Background(), nil, nil)
 	if err == nil || err.Error() != "no provider configured" {
 		t.Errorf("expected 'no provider configured' error, got: %v", err)
 	}

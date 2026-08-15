@@ -75,12 +75,12 @@ type ServiceUsageValue struct {
 }
 
 type UsageSummary struct {
-	CurrentCycleStart time.Time                      `json:"current_cycle_start"`
-	CurrentCycleEnd   time.Time                      `json:"current_cycle_end"`
-	TotalCostUSD      float64                        `json:"total_cost_usd"`
-	CreditCapUSD      float64                        `json:"credit_cap_usd"`
-	RemainingUSD      float64                        `json:"remaining_usd"`
-	ByService         map[string]ServiceUsageValue   `json:"by_service"`
+	CurrentCycleStart time.Time                    `json:"current_cycle_start"`
+	CurrentCycleEnd   time.Time                    `json:"current_cycle_end"`
+	TotalCostUSD      float64                      `json:"total_cost_usd"`
+	CreditCapUSD      float64                      `json:"credit_cap_usd"`
+	RemainingUSD      float64                      `json:"remaining_usd"`
+	ByService         map[string]ServiceUsageValue `json:"by_service"`
 }
 
 type ServiceToggleRequest struct {

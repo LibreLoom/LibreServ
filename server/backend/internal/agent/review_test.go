@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"testing"
 )
 
@@ -38,7 +39,7 @@ func TestReviewVerdictConstants(t *testing.T) {
 func TestReviewModelNilSafety(t *testing.T) {
 	// A nil review model in assisted mode should default to "review" verdict for safety.
 	var rm *ReviewModel
-	result, err := rm.Review(nil, "test request", "bash", nil, "no context", false)
+	result, err := rm.Review(context.Background(), "test request", "bash", nil, "no context", false)
 	if err != nil {
 		t.Fatalf("nil review model should not error: %v", err)
 	}
@@ -52,7 +53,7 @@ func TestReviewModelNilSafety(t *testing.T) {
 
 func TestReviewModelNilProvider(t *testing.T) {
 	rm := NewReviewModel(nil, "test-model")
-	result, err := rm.Review(nil, "test request", "bash", nil, "no context", false)
+	result, err := rm.Review(context.Background(), "test request", "bash", nil, "no context", false)
 	if err != nil {
 		t.Fatalf("nil provider review model should not error: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestReviewModelNilSafetyAutoMode(t *testing.T) {
 	// In autonomous mode a nil review model cannot escalate to a human, so it
 	// must fail safe to deny rather than returning "review".
 	var rm *ReviewModel
-	result, err := rm.Review(nil, "test request", "bash", nil, "no context", true)
+	result, err := rm.Review(context.Background(), "test request", "bash", nil, "no context", true)
 	if err != nil {
 		t.Fatalf("nil review model should not error: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestReviewModelNilSafetyAutoMode(t *testing.T) {
 
 func TestReviewModelNilProviderAutoMode(t *testing.T) {
 	rm := NewReviewModel(nil, "test-model")
-	result, err := rm.Review(nil, "test request", "bash", nil, "no context", true)
+	result, err := rm.Review(context.Background(), "test request", "bash", nil, "no context", true)
 	if err != nil {
 		t.Fatalf("nil provider review model should not error: %v", err)
 	}
