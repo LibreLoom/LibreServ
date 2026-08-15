@@ -14,7 +14,7 @@ import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
 import {
   Globe, Shield, Key,
   ChevronRight, ChevronLeft, Copy, Check, Loader2, Search,
-  ArrowRight, Sparkles, User, MailOpen, RefreshCw,
+  ArrowRight, Sparkles, User, MailOpen,
   X
 } from "lucide-react";
 
@@ -947,69 +947,45 @@ export default function Onboarding() {
 
     return (
       <StepShell icon={MailOpen} title="Check your inbox">
-        <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-4">
-          We sent a verification link to{" "}
-          <span className="font-mono text-card-foreground">{email}</span>.
-          Click it to confirm this address is really yours.
-        </p>
         <p className="text-muted-foreground text-sm leading-relaxed max-w-md mx-auto mb-8">
-          You need to verify before continuing — this page updates by itself
-          the moment you click the link.
+          We sent a verification link to{" "}
+          <span className="font-mono text-card-foreground">{email}</span>. Open
+          the email from LibreServ Connect and click{" "}
+          <span className="font-mono text-card-foreground">Verify my email</span>{" "}
+          — this page unlocks by itself when you're done.
         </p>
 
-        <div className="w-full max-w-sm mx-auto space-y-3 mb-8 text-left">
-          {[
-            <>Open the email from <span className="font-mono">LibreServ Connect</span></>,
-            "Click the Verify my email button inside",
-            "Come back here — this page unlocks automatically",
-          ].map((item, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-3 rounded-large-element bg-muted px-4 py-3 animate-fade-in-up"
-              style={{ animationDelay: `${120 + i * 90}ms` }}
-            >
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-foreground text-background text-xs font-mono shrink-0">
-                {i + 1}
-              </span>
-              <span className="text-sm text-card-foreground">{item}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="w-full max-w-sm mx-auto space-y-3">
-          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground py-1">
+        <div className="w-full max-w-sm mx-auto space-y-6 animate-fade-in-up">
+          <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />
             Waiting for verification…
           </div>
-          <Button
-            size="md"
-            variant="outline"
-            className="w-full"
-            onClick={handleManualCheck}
-            loading={checkingVerification}
-          >
+
+          <Button size="lg" className="w-full" onClick={handleManualCheck} loading={checkingVerification}>
             I've clicked the link — check again
           </Button>
-          <Button
-            size="md"
-            variant="outline"
-            className="w-full"
-            onClick={handleResend}
-            disabled={cooldown > 0 || resendState === "sending"}
-          >
-            {resendState === "sending" ? (
-              <><Loader2 className="w-4 h-4 animate-spin mr-1" /> Sending…</>
-            ) : resendState === "sent" ? (
-              <><Check className="w-4 h-4 mr-1 text-success" /> Email sent</>
-            ) : cooldown > 0 ? (
-              <>Resend in {cooldown}s</>
+
+          <p className="text-center text-sm text-muted-foreground">
+            {resendState === "sent" ? (
+              "Verification email sent — check your inbox (and spam folder)."
             ) : (
-              <><RefreshCw className="w-4 h-4 mr-1" /> Resend verification email</>
+              <>
+                Didn't get it? Check your spam folder, or{" "}
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={cooldown > 0 || resendState === "sending"}
+                  className="underline underline-offset-2 hover:text-card-foreground motion-safe:transition-colors disabled:opacity-60 disabled:pointer-events-none"
+                >
+                  {resendState === "sending"
+                    ? "sending…"
+                    : cooldown > 0
+                    ? `resend in ${cooldown}s`
+                    : "resend the email"}
+                </button>
+                .
+              </>
             )}
-          </Button>
-          <p className="text-xs text-muted-foreground leading-relaxed pt-1">
-            Can't find it? Check your spam or junk folder. Verification is
-            required — you can't use your account until it's done.
           </p>
         </div>
       </StepShell>
