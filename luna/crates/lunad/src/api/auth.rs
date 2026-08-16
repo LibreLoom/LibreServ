@@ -78,6 +78,7 @@ async fn login(
         .login(&body.username, &body.password)
         .map_err(map_auth_err)?;
     let cookie = auth::session_cookie(&token);
+    let bearer = token.clone();
     Ok((
         StatusCode::OK,
         [
@@ -89,6 +90,7 @@ async fn login(
             "username": user.username,
             "display_name": user.display_name,
             "role": user.role,
+            "token": bearer,
         })),
     )
         .into_response())

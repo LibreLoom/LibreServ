@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Luna</string>
+    <string name="setup_code_hint">Setup code from your device</string>
+    <string name="connect">Connect</string>
+</resources>

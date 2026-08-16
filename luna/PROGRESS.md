@@ -88,5 +88,18 @@
 - [ ] Auto-issue free Luna Connect keys (no user-entered key) — product work
       on the Connect portal side; free promise already in copy
 
-## M6..M11 — Not started
-See the final plan in the project memory / chat. Next: M6 Luna Mobile (BLE setup parity + Android photo backup), then M7 hardening.
+## M6 — Luna Mobile (IN PROGRESS)
+- [x] Android project at `luna/mobile` forked from the LibreServ companion:
+      same BLE service UUIDs and HTTP-over-GATT proxy protocol, so one app
+      sets up Luna AND LibreServ; accepts 6- and 8-character setup codes
+- [x] Photo backup: native login screen stores a Luna JWT, WorkManager
+      periodic worker (unmetered Wi-Fi + charging), MediaStore query since
+      last backup, chunked uploads through Luna's resumable upload API to
+      `Phone Backup/<year>/<month>` on the first drive
+- [x] Backend login response now returns the bearer token for native clients
+- [x] `./gradlew testDebugUnitTest` green; `assembleDebug` produces an APK
+- [ ] Device-token API (long-lived revocable app tokens) replacing stored JWT
+- [ ] BackupActivity visual polish + status notifications
+
+## M7..M11 — Not started
+See the final plan in the project memory / chat. Next: M7 reliability/perf hardening.

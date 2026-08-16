@@ -21,6 +21,18 @@ cargo clippy --workspace --all-targets -- -D warnings
 echo "==> cargo test"
 cargo test --workspace
 
+echo "==> mobile unit tests"
+(
+  cd mobile
+  if [ ! -w "${GRADLE_USER_HOME:-$HOME/.gradle}" ]; then
+    export GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/luna-gradle}"
+  fi
+  if [ ! -w "${ANDROID_USER_HOME:-$HOME/.config/.android}" ]; then
+    export ANDROID_USER_HOME="${ANDROID_USER_HOME:-/tmp/luna-android}"
+  fi
+  ./gradlew testDebugUnitTest --no-daemon
+)
+
 echo "==> web build"
 (
   cd web
