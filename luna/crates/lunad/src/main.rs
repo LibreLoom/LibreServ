@@ -1,6 +1,13 @@
 use std::net::SocketAddr;
 
-use lunad::{AppState, api, config::Config, db, drives::DriveManager, mount::CommandMounter};
+use lunad::{
+    AppState, api,
+    ble::{BleService, NoopTransport, RouterExecutor},
+    config::Config,
+    db,
+    drives::DriveManager,
+    mount::CommandMounter,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -27,6 +34,17 @@ async fn main() -> anyhow::Result<()> {
         let detected = lunad::detect::scan(std::path::Path::new("/sys/block"), &mounts);
         drive_manager.reconcile(&conn, &detected)?;
     }
+    let ble_setup_code = {
+        let existing = db::get_meta(&conn, "ble_setup_code")?;
+        match existing {
+            Some(code) if !code.is_empty() => code,
+            _ => {
+                let code = uuid::Uuid::new_v4().simple().to_string()[..8].to_uppercase();
+                db::set_meta(&conn, "ble_setup_code", &code)?;
+                code
+            }
+        }
+    };
     let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
     let net = lunad::net::read_status(std::path::Path::new("/sys/class/net"), &proc_route);
     let wpa_cli_ok = std::process::Command::new("wpa_cli")
@@ -49,12 +67,22 @@ async fn main() -> anyhow::Result<()> {
             lunad::staticweb::handle(uri.path())
         }));
 
+    let ble = BleService::new(
+        ble_setup_code,
+        RouterExecutor::new(app.clone()),
+        std::sync::Arc::new(NoopTransport),
+    );
+    if let Err(e) = ble.start() {
+        tracing::warn!(error = %e, "BLE bootstrap disabled");
+    }
+
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, product = "Luna", "listening");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
+    ble.stop();
     Ok(())
 }
 

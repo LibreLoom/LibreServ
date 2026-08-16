@@ -1,4 +1,5 @@
 pub mod api;
+pub mod ble;
 pub mod config;
 pub mod dav;
 pub mod db;

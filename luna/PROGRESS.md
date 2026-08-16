@@ -55,7 +55,11 @@
 - [x] Setup wizard UI (/setup): welcome with the four discovery paths, connection
       check (Ethernet optional/required logic), Wi-Fi scan + password + connect,
       name Luna, done → drives
-- [ ] BLE bootstrap (GATT peripheral speaking LibreServ's HTTP-over-BLE protocol)
+- [x] BLE protocol core (byte-compatible with LibreServ's HTTP-over-GATT): same
+      UUIDs, JSON shapes, auth-code flow, 300-byte base64 chunking, pending
+      reassembly + timeout sweep; executes against Luna's own router
+- [ ] BlueZ (bluer) GATT peripheral transport on Luna OS (trait is in place;
+      NoopTransport used where no radio exists)
 - [ ] LibreServ: Wi-Fi wizard step after Welcome/Preflight + shipped BLE default
 
 ## M4..M11 — Not started
