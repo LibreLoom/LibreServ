@@ -12,7 +12,7 @@ describe("FilesPage", () => {
         return new Response(JSON.stringify([{ id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" }]), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (u.includes("/files?")) {
-        return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+        return new Response(JSON.stringify([{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }]), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       return new Response("{}", { status: 500 });
     }));
@@ -25,5 +25,6 @@ describe("FilesPage", () => {
       </QueryClientProvider>
     );
     expect(screen.getAllByText(/Drop files here/i).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
   });
 });

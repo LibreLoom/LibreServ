@@ -5,7 +5,7 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
@@ -32,9 +32,16 @@ struct UploadQuery {
     overwrite: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct RenameBody {
+    path: String,
+    new_name: String,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/drives/{id}/files", get(list))
+        .route("/api/v1/drives/{id}/files", get(list).delete(delete_entry))
+        .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
         .route("/api/v1/drives/{id}/files/content", get(content))
         .route(
             "/api/v1/drives/{id}/files/upload",
@@ -149,6 +156,35 @@ async fn content(
         builder = builder.header(header::CONTENT_RANGE, range);
     }
     Ok(builder.body(Body::from_stream(stream)).unwrap())
+}
+
+async fn delete_entry(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let rel = query.path.unwrap_or_default();
+    let trash_path =
+        with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
+    Ok(Json(json!({ "ok": true, "trash_path": trash_path })))
+}
+
+async fn rename_entry(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<RenameBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    with_db(&state, |conn| {
+        files::rename(conn, &id, &body.path, &body.new_name)
+    })
+    .map_err(|e| match e {
+        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
+            StatusCode::CONFLICT,
+            "A file with this name is already here. Choose another name.",
+        ),
+        other => map_files_err(other),
+    })?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn upload(
@@ -299,7 +335,7 @@ fn plain_upload_error(err: &anyhow::Error) -> String {
     }
 }
 
-fn parse_range(spec: &str, total: u64) -> Option<(u64, u64)> {
+pub(crate) fn parse_range(spec: &str, total: u64) -> Option<(u64, u64)> {
     let rest = spec.strip_prefix("bytes=")?;
     if rest.contains(',') {
         return None;

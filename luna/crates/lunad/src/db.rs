@@ -31,6 +31,32 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             mount_point TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS uploads (
+            id TEXT PRIMARY KEY,
+            drive_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            name TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            received INTEGER NOT NULL DEFAULT 0,
+            state TEXT NOT NULL,
+            error TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS jobs (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            state TEXT NOT NULL,
+            from_drive TEXT NOT NULL DEFAULT '',
+            from_path TEXT NOT NULL DEFAULT '',
+            to_drive TEXT NOT NULL DEFAULT '',
+            to_path TEXT NOT NULL DEFAULT '',
+            progress INTEGER NOT NULL DEFAULT 0,
+            total INTEGER NOT NULL DEFAULT 0,
+            error TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
         );",
     )?;
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
@@ -155,6 +181,78 @@ pub fn set_meta(conn: &Connection, key: &str, value: &str) -> anyhow::Result<()>
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![key, value],
     )?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadRow {
+    pub id: String,
+    pub drive_id: String,
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub received: u64,
+    pub state: String,
+}
+
+pub fn insert_upload(
+    conn: &Connection,
+    id: &str,
+    drive_id: &str,
+    path: &str,
+    name: &str,
+    size: u64,
+) -> anyhow::Result<()> {
+    let now = now_unix();
+    conn.execute(
+        "INSERT INTO uploads (id, drive_id, path, name, size, received, state, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 'active', ?6, ?6)",
+        params![id, drive_id, path, name, size as i64, now],
+    )?;
+    Ok(())
+}
+
+pub fn get_upload(conn: &Connection, id: &str) -> anyhow::Result<Option<UploadRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, drive_id, path, name, size, received, state FROM uploads WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        Ok(UploadRow {
+            id: row.get(0)?,
+            drive_id: row.get(1)?,
+            path: row.get(2)?,
+            name: row.get(3)?,
+            size: row.get::<_, i64>(4)? as u64,
+            received: row.get::<_, i64>(5)? as u64,
+            state: row.get(6)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn update_upload_received(conn: &Connection, id: &str, received: u64) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE uploads SET received = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, received as i64, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn set_upload_state(
+    conn: &Connection,
+    id: &str,
+    state: &str,
+    error: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE uploads SET state = ?2, error = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, state, error, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn delete_upload(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM uploads WHERE id = ?1", params![id])?;
     Ok(())
 }
 

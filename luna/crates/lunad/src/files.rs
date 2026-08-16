@@ -169,6 +169,89 @@ pub fn install_temp(temp: &Path, dest: &Path) -> Result<(), FilesError> {
     Ok(())
 }
 
+/// Move a file or folder to `.luna-trash` on the same drive (atomic rename,
+/// same filesystem). Returns the trash-relative path.
+pub fn delete_to_trash(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Result<String, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let path = resolve_child(&root, rel)?;
+    if path == root {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "cannot trash the drive root",
+        )));
+    }
+    let Some(name) = path.file_name().map(|s| s.to_string_lossy().into_owned()) else {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "invalid path",
+        )));
+    };
+
+    let trash = root.join(".luna-trash");
+    std::fs::create_dir_all(&trash).map_err(FilesError::Io)?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut dest = trash.join(format!("{nonce}-{name}"));
+    let mut n = 1;
+    while dest.exists() {
+        dest = trash.join(format!("{nonce}-{n}-{name}"));
+        n += 1;
+    }
+
+    std::fs::rename(&path, &dest).map_err(FilesError::Io)?;
+    if let Ok(dir) = std::fs::File::open(&trash) {
+        let _ = dir.sync_all();
+    }
+    if let Some(parent) = path.parent()
+        && let Ok(dir) = std::fs::File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+    Ok(dest
+        .strip_prefix(&root)
+        .unwrap_or(&dest)
+        .to_string_lossy()
+        .into_owned())
+}
+
+/// Rename a file or folder within its current directory. Never overwrites.
+pub fn rename(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+    new_name: &str,
+) -> Result<(), FilesError> {
+    let new_name = safe_name(new_name)?;
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let path = resolve_child(&root, rel)?;
+    let parent = path.parent().ok_or_else(|| {
+        FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "no parent",
+        ))
+    })?;
+    let dest = parent.join(&new_name);
+    if dest.exists() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "destination exists",
+        )));
+    }
+    std::fs::rename(&path, &dest).map_err(FilesError::Io)?;
+    if let Ok(dir) = std::fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
 pub fn temp_path(dir: &Path) -> PathBuf {
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -225,6 +308,33 @@ mod tests {
         assert!(safe_name("../x").is_err());
         assert!(safe_name("a/b").is_err());
         assert_eq!(safe_name("photo.jpg").unwrap(), "photo.jpg");
+    }
+
+    #[test]
+    fn delete_moves_to_trash_and_rename_works() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        std::fs::write(root.join("keep.txt"), b"keep").unwrap();
+
+        rename(&conn, &id, "keep.txt", "renamed.txt").unwrap();
+        assert!(root.join("renamed.txt").exists());
+        assert!(!root.join("keep.txt").exists());
+
+        let trash_rel = delete_to_trash(&conn, &id, "renamed.txt").unwrap();
+        assert!(trash_rel.starts_with(".luna-trash/"));
+        assert!(!root.join("renamed.txt").exists());
+        assert!(root.join(&trash_rel).exists());
+    }
+
+    #[test]
+    fn rename_never_overwrites() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        std::fs::write(root.join("a.txt"), b"a").unwrap();
+        std::fs::write(root.join("b.txt"), b"b").unwrap();
+        assert!(rename(&conn, &id, "a.txt", "b.txt").is_err());
     }
 
     #[test]

@@ -37,8 +37,11 @@
 - [x] WebDAV per adopted drive at `/dav/{id}` (dav-server LocalFs, FakeLs locks);
       PROPFIND/GET/PUT/MKCOL verified live
 - [x] FilesPage: breadcrumbs, folder navigation, drag-and-drop upload, downloads
-- [ ] Chunked/resumable large uploads
-- [ ] Copy/move jobs, rename, trash-first delete, cross-drive operations
+- [x] Chunked/resumable large uploads (SQLite-persisted sessions, out-of-order
+      chunks, restart recovery, verify + atomic install)
+- [x] Rename (never overwrites) + trash-first delete (`.luna-trash` same-drive
+      atomic rename)
+- [ ] Copy/move jobs + cross-drive operations
 - [ ] Index-backed listings (SQLite) for >50ms-scale performance
 
 ## M3..M11 — Not started

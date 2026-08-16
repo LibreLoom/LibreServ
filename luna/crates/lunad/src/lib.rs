@@ -7,6 +7,7 @@ pub mod drives;
 pub mod files;
 pub mod mount;
 pub mod staticweb;
+pub mod uploads;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
