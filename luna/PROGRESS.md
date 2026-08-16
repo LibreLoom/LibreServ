@@ -20,8 +20,13 @@
 - [x] Path jail: canonicalized resolution rejects `..` and symlink escapes
 - [x] Read-only top-level scan for the "here's what's on this drive" summary
 - [x] sysfs + /proc/mounts detection (read-only), exposed at `/api/v1/drives/detected`
-- [ ] Mount manager (read-only foreign mounts, adoption, eject, missing/failed transitions)
-- [ ] Adoption API + UI flow
+- [x] Mount manager: read-only inspection mounts, adoption mounts, eject; Luna only
+      unmounts mounts it created; pre-existing OS mounts adopted in place
+- [x] Adoption API: `/api/v1/drives/{name}/inspect|adopt|dismiss`, `/api/v1/drives/{id}/eject`
+- [x] Adoption UI: /drives page with detected drives, read-only inspect modal,
+      marker warning, label + adopt flow
+- [ ] Reconcile missing/ejected drives on startup and on each detection poll
+- [ ] Read-only/failed transitions from I/O errors and full-disk detection
 
 ## M2..M11 — Not started
 See the final plan in the project memory / chat. Next: finish M1, then write path + WebDAV.

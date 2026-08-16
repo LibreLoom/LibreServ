@@ -1,6 +1,7 @@
 import { HardDrive, ShieldCheck, Wifi } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import Page from "../components/ui/Page";
+import TextLink from "../components/ui/TextLink";
 import Card from "../components/cards/Card";
 import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
@@ -48,9 +49,9 @@ export default function LandingPage() {
       </div>
 
       <div className="mt-8 flex flex-wrap gap-4">
-        <Button variant="secondary" surface="primary" onClick={() => document.getElementById("luna-title")?.focus()}>
-          Get started
-        </Button>
+        <TextLink to="/drives" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium bg-secondary text-primary px-4 py-2 text-sm hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-secondary motion-safe:transition-all">
+          Look at drives
+        </TextLink>
         <Button variant="outline" surface="primary" disabled>
           Setup will guide you here
         </Button>

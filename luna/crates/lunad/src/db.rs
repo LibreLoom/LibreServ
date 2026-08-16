@@ -28,10 +28,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             state TEXT NOT NULL,
             fs_type TEXT NOT NULL DEFAULT '',
             device TEXT NOT NULL DEFAULT '',
+            mount_point TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );",
     )?;
+    ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
     Ok(conn)
 }
 
@@ -43,11 +45,36 @@ pub struct DriveRow {
     pub state: String,
     pub fs_type: String,
     pub device: String,
+    pub mount_point: String,
+}
+
+pub fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> anyhow::Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let cols = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let mut found = false;
+    for col in cols {
+        if col? == column {
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+    }
+    Ok(())
 }
 
 pub fn list_drives(conn: &Connection) -> anyhow::Result<Vec<DriveRow>> {
-    let mut stmt =
-        conn.prepare("SELECT id, label, state, fs_type, device FROM drives ORDER BY label, id")?;
+    let mut stmt = conn.prepare(
+        "SELECT id, label, state, fs_type, device, mount_point FROM drives ORDER BY label, id",
+    )?;
     let rows = stmt.query_map([], |row| {
         Ok(DriveRow {
             id: row.get(0)?,
@@ -55,9 +82,60 @@ pub fn list_drives(conn: &Connection) -> anyhow::Result<Vec<DriveRow>> {
             state: row.get(2)?,
             fs_type: row.get(3)?,
             device: row.get(4)?,
+            mount_point: row.get(5)?,
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn get_drive(conn: &Connection, id: &str) -> anyhow::Result<Option<DriveRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, label, state, fs_type, device, mount_point FROM drives WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        Ok(DriveRow {
+            id: row.get(0)?,
+            label: row.get(1)?,
+            state: row.get(2)?,
+            fs_type: row.get(3)?,
+            device: row.get(4)?,
+            mount_point: row.get(5)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn upsert_drive(
+    conn: &Connection,
+    id: &str,
+    label: &str,
+    state: &str,
+    fs_type: &str,
+    device: &str,
+    mount_point: &str,
+) -> anyhow::Result<()> {
+    let now = now_unix();
+    conn.execute(
+        "INSERT INTO drives (id, label, state, fs_type, device, mount_point, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+         ON CONFLICT(id) DO UPDATE SET
+           label = excluded.label,
+           state = excluded.state,
+           fs_type = excluded.fs_type,
+           device = excluded.device,
+           mount_point = excluded.mount_point,
+           updated_at = excluded.updated_at",
+        params![id, label, state, fs_type, device, mount_point, now],
+    )?;
+    Ok(())
+}
+
+pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE drives SET state = ?2, updated_at = ?3 WHERE id = ?1",
+        params![id, state, now_unix()],
+    )?;
+    Ok(())
 }
 
 pub fn get_meta(conn: &Connection, key: &str) -> anyhow::Result<Option<String>> {

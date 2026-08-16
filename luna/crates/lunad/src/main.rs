@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use lunad::{AppState, api, config::Config, db};
+use lunad::{AppState, api, config::Config, db, drives::DriveManager, mount::CommandMounter};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -18,7 +18,11 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&cfg.data_dir)?;
     }
     let conn = db::open(&cfg.db_path())?;
-    let state = AppState::new(conn);
+    let drive_manager = std::sync::Arc::new(DriveManager::new(
+        std::sync::Arc::new(CommandMounter),
+        &cfg.data_dir,
+    ));
+    let state = AppState::new(conn, drive_manager);
 
     let app = axum::Router::new()
         .merge(api::router(state))

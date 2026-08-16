@@ -2,13 +2,33 @@
 // and makes the server contract explicit.
 
 export async function getJson(path, options = {}) {
+  return request(path, options);
+}
+
+export async function postJson(path, body, options = {}) {
+  return request(path, {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    body: JSON.stringify(body),
+  });
+}
+
+async function request(path, options = {}) {
   const res = await fetch(path, {
     credentials: "include",
     headers: { Accept: "application/json", ...(options.headers || {}) },
     ...options,
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await safeText(res));
+    let message = "";
+    try {
+      const data = await res.json();
+      message = data.error || "";
+    } catch {
+      // fall through to status text
+    }
+    throw new ApiError(res.status, message || `Request failed (${res.status})`);
   }
   return res.json();
 }
@@ -19,14 +39,6 @@ export function getHealth() {
 
 export function getDrives() {
   return getJson("/api/v1/drives");
-}
-
-async function safeText(res) {
-  try {
-    return await res.text();
-  } catch {
-    return "";
-  }
 }
 
 export class ApiError extends Error {
