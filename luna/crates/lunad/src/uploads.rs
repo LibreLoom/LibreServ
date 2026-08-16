@@ -138,9 +138,18 @@ pub fn write_chunk(
         .open(&upload.temp)
         .map_err(UploadError::Io)?;
     use std::io::{Seek, SeekFrom, Write};
-    file.seek(SeekFrom::Start(start)).map_err(UploadError::Io)?;
-    file.write_all(data).map_err(UploadError::Io)?;
-    file.flush().map_err(UploadError::Io)?;
+    if let Err(e) = file.seek(SeekFrom::Start(start)) {
+        files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
+        return Err(UploadError::Io(e));
+    }
+    if let Err(e) = file.write_all(data) {
+        files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
+        return Err(UploadError::Io(e));
+    }
+    if let Err(e) = file.flush() {
+        files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
+        return Err(UploadError::Io(e));
+    }
 
     let received = upload.received.max(end);
     db::update_upload_received(&conn, id, received).map_err(UploadError::Db)?;
@@ -181,7 +190,10 @@ pub fn complete(
             "destination exists",
         ))));
     }
-    files::install_temp(&upload.temp, &dest)?;
+    if let Err(e) = files::install_temp(&upload.temp, &dest) {
+        files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
+        return Err(e.into());
+    }
 
     let final_meta = std::fs::metadata(&dest).map_err(UploadError::Io)?;
     let modified = final_meta

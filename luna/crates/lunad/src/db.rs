@@ -111,6 +111,15 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             verified_at INTEGER NOT NULL,
             PRIMARY KEY (drive_id, path)
         );
+        CREATE TABLE IF NOT EXISTS protections (
+            id TEXT PRIMARY KEY,
+            source_drive TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            target_drive TEXT NOT NULL,
+            target_path TEXT NOT NULL,
+            last_run INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS photos (
             drive_id TEXT NOT NULL,
             path TEXT NOT NULL,
@@ -548,6 +557,81 @@ pub fn list_shares(conn: &Connection) -> anyhow::Result<Vec<ShareRow>> {
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProtectionRow {
+    pub id: String,
+    pub source_drive: String,
+    pub source_path: String,
+    pub target_drive: String,
+    pub target_path: String,
+    pub last_run: i64,
+}
+
+pub fn insert_protection(
+    conn: &Connection,
+    id: &str,
+    source_drive: &str,
+    source_path: &str,
+    target_drive: &str,
+    target_path: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO protections (id, source_drive, source_path, target_drive, target_path, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, source_drive, source_path, target_drive, target_path, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn list_protections(conn: &Connection) -> anyhow::Result<Vec<ProtectionRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, source_drive, source_path, target_drive, target_path, last_run
+         FROM protections ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(ProtectionRow {
+            id: row.get(0)?,
+            source_drive: row.get(1)?,
+            source_path: row.get(2)?,
+            target_drive: row.get(3)?,
+            target_path: row.get(4)?,
+            last_run: row.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn get_protection(conn: &Connection, id: &str) -> anyhow::Result<Option<ProtectionRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, source_drive, source_path, target_drive, target_path, last_run
+         FROM protections WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        Ok(ProtectionRow {
+            id: row.get(0)?,
+            source_drive: row.get(1)?,
+            source_path: row.get(2)?,
+            target_drive: row.get(3)?,
+            target_path: row.get(4)?,
+            last_run: row.get(5)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn delete_protection(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM protections WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn touch_protection(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE protections SET last_run = ?2 WHERE id = ?1",
+        params![id, now_unix()],
+    )?;
+    Ok(())
 }
 
 pub fn delete_share(conn: &Connection, id: &str) -> anyhow::Result<()> {

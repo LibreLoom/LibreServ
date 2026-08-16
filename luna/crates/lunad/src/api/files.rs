@@ -242,6 +242,9 @@ async fn upload(
                 let result = stream_to_temp(&mut field, &temp).await;
                 if let Err(e) = result {
                     let _ = tokio::fs::remove_file(&temp).await;
+                    if let Ok(conn) = state.db.lock() {
+                        files::note_write_failure(&conn, &id, &e.to_string());
+                    }
                     return Err(json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         format!("Luna couldn't save this file. {}", plain_upload_error(&e)),
@@ -249,6 +252,9 @@ async fn upload(
                 }
                 if let Err(e) = files::install_temp(&temp, &dest) {
                     let _ = tokio::fs::remove_file(&temp).await;
+                    if let Ok(conn) = state.db.lock() {
+                        files::note_write_failure(&conn, &id, &e.to_string());
+                    }
                     return Err(json_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         format!("Luna couldn't finish saving this file. {e}"),

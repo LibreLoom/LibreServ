@@ -4,6 +4,7 @@ pub mod drives;
 pub mod grants;
 pub mod health;
 pub mod network;
+pub mod protections;
 pub mod response;
 pub mod search;
 pub mod setup;
@@ -27,6 +28,7 @@ pub fn router() -> Router<AppState> {
         .merge(users::router())
         .merge(grants::router())
         .merge(search::router())
+        .merge(protections::router())
         .merge(shares::router())
         .merge(network::router())
         .merge(setup::router())

@@ -1,0 +1,185 @@
+//! Protect-a-folder: a local, free second copy on another Luna drive.
+//!
+//! Copies are append-only syncs — deleting a file from the source never
+//! deletes the protected copy, because this feature exists to survive
+//! accidents, not to mirror them.
+
+use std::io::{Read, Write};
+use std::path::Path;
+
+use rusqlite::Connection;
+use uuid::Uuid;
+
+use crate::db::{self, ProtectionRow};
+use crate::files;
+
+pub fn create(
+    conn: &Connection,
+    source_drive: &str,
+    source_path: &str,
+    target_drive: &str,
+) -> anyhow::Result<ProtectionRow> {
+    if source_drive == target_drive {
+        anyhow::bail!("Choose a different drive for the protected copy.");
+    }
+    let (_src, src_meta) = files::resolve_any(conn, source_drive, source_path)?;
+    if !src_meta.is_dir() {
+        anyhow::bail!("Protect a folder, not a single file.");
+    }
+    let _ = files::dest_dir(conn, target_drive, "")?;
+    let target_path = format!(".luna-protected/{source_drive}/{source_path}");
+    let id = Uuid::new_v4().to_string();
+    db::insert_protection(
+        conn,
+        &id,
+        source_drive,
+        source_path,
+        target_drive,
+        &target_path,
+    )?;
+    db::get_protection(conn, &id)?.ok_or_else(|| anyhow::anyhow!("protection not found"))
+}
+
+pub fn sync(conn: &Connection, row: &ProtectionRow) -> anyhow::Result<u64> {
+    let (src_root, src_meta) = files::resolve_any(conn, &row.source_drive, &row.source_path)?;
+    if !src_meta.is_dir() {
+        anyhow::bail!("The protected folder is missing.");
+    }
+    let target_root = files::dest_dir(conn, &row.target_drive, "")?.join(&row.target_path);
+
+    let mut copied = 0u64;
+    let mut stack = vec![(src_root.clone(), target_root.clone())];
+    while let Some((src_dir, dst_dir)) = stack.pop() {
+        std::fs::create_dir_all(&dst_dir)?;
+        for entry in std::fs::read_dir(&src_dir)? {
+            let entry = entry?;
+            let meta = std::fs::symlink_metadata(entry.path())?;
+            if meta.file_type().is_symlink() {
+                continue; // never follow links in a protection copy
+            }
+            let name = entry.file_name();
+            if meta.is_dir() {
+                stack.push((entry.path(), dst_dir.join(&name)));
+                continue;
+            }
+            if !meta.is_file() {
+                continue;
+            }
+            let dest = dst_dir.join(&name);
+            if is_current(&dest, &meta) {
+                continue;
+            }
+            copy_atomic(&entry.path(), &dest)?;
+            copied += 1;
+        }
+    }
+    db::touch_protection(conn, &row.id)?;
+    Ok(copied)
+}
+
+pub fn sync_all(conn: &Connection) -> anyhow::Result<u64> {
+    let mut copied = 0;
+    for row in db::list_protections(conn)? {
+        if let Ok(n) = sync(conn, &row) {
+            copied += n;
+        }
+    }
+    Ok(copied)
+}
+
+fn is_current(dest: &Path, src_meta: &std::fs::Metadata) -> bool {
+    let Ok(dest_meta) = std::fs::metadata(dest) else {
+        return false;
+    };
+    if dest_meta.len() != src_meta.len() {
+        return false;
+    }
+    let src_mtime = mtime(src_meta);
+    let dest_mtime = dest_meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    src_mtime == dest_mtime
+}
+
+fn mtime(meta: &std::fs::Metadata) -> i64 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn copy_atomic(src: &Path, dest: &Path) -> anyhow::Result<()> {
+    let mut input = std::fs::File::open(src)?;
+    let tmp = dest.with_extension("part");
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&tmp)?;
+    let mut buf = vec![0u8; 1024 * 1024];
+    loop {
+        let n = input.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        output.write_all(&buf[..n])?;
+    }
+    output.flush()?;
+    output.sync_all()?;
+    drop(output);
+    std::fs::rename(&tmp, dest)?;
+    if let Some(parent) = dest.parent()
+        && let Ok(dir) = std::fs::File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup() -> (tempfile::TempDir, rusqlite::Connection) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        for (id, name) in [("a", "A"), ("b", "B")] {
+            let root = dir.path().join(name);
+            std::fs::create_dir_all(&root).unwrap();
+            db::upsert_drive(&conn, id, name, "as_is", "ext4", id, root.to_str().unwrap()).unwrap();
+        }
+        (dir, conn)
+    }
+
+    #[test]
+    fn protects_folder_and_keeps_deleted_files() {
+        let (_dir, conn) = setup();
+        let src = db::get_drive(&conn, "a").unwrap().unwrap().mount_point;
+        std::fs::create_dir_all(format!("{src}/family")).unwrap();
+        std::fs::write(format!("{src}/family/photo.txt"), b"original").unwrap();
+
+        let row = create(&conn, "a", "family", "b").unwrap();
+        assert_eq!(sync(&conn, &row).unwrap(), 1);
+
+        let dst = db::get_drive(&conn, "b").unwrap().unwrap().mount_point;
+        assert_eq!(
+            std::fs::read(format!("{dst}/{}/photo.txt", row.target_path)).unwrap(),
+            b"original"
+        );
+
+        std::fs::write(format!("{src}/family/photo.txt"), b"changed").unwrap();
+        assert_eq!(sync(&conn, &row).unwrap(), 1);
+
+        std::fs::remove_file(format!("{src}/family/photo.txt")).unwrap();
+        assert_eq!(
+            sync(&conn, &row).unwrap(),
+            0,
+            "append-only protection never deletes"
+        );
+        assert!(Path::new(&format!("{dst}/{}/photo.txt", row.target_path)).exists());
+    }
+}

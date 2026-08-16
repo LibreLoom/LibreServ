@@ -115,7 +115,7 @@
       failures transition the drive to `readonly`, never `failed`
 - [x] Login/register rate limiting (10 per 5 min per IP, plain-language 429)
 - [x] Listing benchmark: 10,000 files served from SQLite in ~22ms (<50ms target)
-- [ ] Full-disk detection in write paths
+- [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 
 ## M8 — OS image + flash pipeline (DONE first pass)
 - [x] `os/build-rootfs.sh`: Alpine 3.24 rootfs via podman/apk (alpine-base,
@@ -165,7 +165,7 @@
 - [x] OS build documented for `--features ble`; rootfs already ships bluez
 - [ ] AP-mode hotspot (hardware qualification gate)
 - [ ] Desktop tray icon + installers
-- [ ] Full-disk detection in write paths
-- [ ] Protect-a-folder redundancy (local, free)
+- [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
+- [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI
 - [ ] Auto-issued free Connect keys (Connect portal work)
 - [ ] Physical 5-unit rehearsal on Wyse 5020 hardware

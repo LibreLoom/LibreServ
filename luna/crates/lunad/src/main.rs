@@ -74,6 +74,17 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let protect_db = state.db.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30 * 60));
+        loop {
+            ticker.tick().await;
+            if let Ok(conn) = protect_db.lock() {
+                let _ = lunad::protect::sync_all(&conn);
+            }
+        }
+    });
+
     let protected_api = api::router().layer(axum::middleware::from_fn_with_state(
         state.clone(),
         lunad::auth::guard,

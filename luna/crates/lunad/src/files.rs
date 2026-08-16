@@ -123,6 +123,20 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
     Ok(entries)
 }
 
+/// If a write failed because the drive is full or read-only, transition the
+/// drive to `readonly` so every later attempt fails fast and the UI can say
+/// what happened in plain language.
+pub fn note_write_failure(conn: &rusqlite::Connection, drive_id: &str, error: &str) {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("no space")
+        || lower.contains("read-only")
+        || lower.contains("readonly")
+        || lower.contains("disk full")
+    {
+        let _ = crate::db::set_drive_state(conn, drive_id, "readonly");
+    }
+}
+
 /// Resolve any existing path (file or directory) inside a drive.
 pub fn resolve_any(
     conn: &rusqlite::Connection,

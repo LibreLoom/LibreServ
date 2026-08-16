@@ -14,6 +14,7 @@ import SharesPage from "./pages/SharesPage";
 import UsersPage from "./pages/UsersPage";
 import SetupPage from "./pages/SetupPage";
 import NotFoundPage from "./pages/NotFoundPage";
+import ProtectionPage from "./pages/ProtectionPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,6 +46,7 @@ export default function App() {
               <Route path="/settings/users" element={<RequireAuth><UsersPage /></RequireAuth>} />
               <Route path="/settings/shares" element={<RequireAuth><SharesPage /></RequireAuth>} />
               <Route path="/shared" element={<RequireAuth><SharedPage /></RequireAuth>} />
+              <Route path="/settings/protect" element={<RequireAuth><ProtectionPage /></RequireAuth>} />
               <Route path="/settings/remote" element={<RequireAuth><RemotePage /></RequireAuth>} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

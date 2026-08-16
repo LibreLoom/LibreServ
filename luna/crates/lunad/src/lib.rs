@@ -14,6 +14,7 @@ pub mod index;
 pub mod jobs;
 pub mod mount;
 pub mod net;
+pub mod protect;
 pub mod rate_limit;
 pub mod scrub;
 pub mod smart;
