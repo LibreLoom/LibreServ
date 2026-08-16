@@ -79,5 +79,14 @@
       SharesPage (create password/expiry links, copy, revoke)
 - [ ] "Shared with me" view for non-admin users (grants backend is ready)
 
-## M5..M11 — Not started
-See the final plan in the project memory / chat. Next: M5 remote access (free Luna Connect, port-forward/BYO docs), then BlueZ BLE transport.
+## M5 — Remote access (IN PROGRESS)
+- [x] Connect client (ureq + rustls): activate key, provision tunnel, status,
+      deactivate; state in 0600 root-only connect.json; key masked in API
+- [x] Connect API: GET status, POST activate, POST tunnel/enable, POST deactivate
+- [x] Remote access UI (/settings/remote): Luna Connect on/off + key entry,
+      tunnel enable, port-forward + Tailscale/WireGuard plain-language paths
+- [ ] Auto-issue free Luna Connect keys (no user-entered key) — product work
+      on the Connect portal side; free promise already in copy
+
+## M6..M11 — Not started
+See the final plan in the project memory / chat. Next: M6 Luna Mobile (BLE setup parity + Android photo backup), then M7 hardening.

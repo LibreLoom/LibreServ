@@ -50,6 +50,9 @@ export default function LandingPage() {
 
       <div className="mt-8 flex flex-wrap gap-4">
         <div className="flex flex-wrap gap-3">
+          <TextLink to="/settings/remote" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+            Remote access
+          </TextLink>
           <TextLink to="/settings/users" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
             People
           </TextLink>

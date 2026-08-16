@@ -7,6 +7,7 @@ import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
+import RemotePage from "./pages/RemotePage";
 import SharesPage from "./pages/SharesPage";
 import UsersPage from "./pages/UsersPage";
 import SetupPage from "./pages/SetupPage";
@@ -40,6 +41,7 @@ export default function App() {
               <Route path="/drives/:id" element={<RequireAuth><FilesPage /></RequireAuth>} />
               <Route path="/settings/users" element={<RequireAuth><UsersPage /></RequireAuth>} />
               <Route path="/settings/shares" element={<RequireAuth><SharesPage /></RequireAuth>} />
+              <Route path="/settings/remote" element={<RequireAuth><RemotePage /></RequireAuth>} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </BrowserRouter>

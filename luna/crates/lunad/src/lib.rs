@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth;
 pub mod ble;
 pub mod config;
+pub mod connect;
 pub mod dav;
 pub mod db;
 pub mod detect;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub dav_handlers: Arc<Mutex<HashMap<String, DavHandler>>>,
     pub wifi: Arc<dyn crate::wifi::WifiProvider>,
     pub auth: Arc<crate::auth::AuthService>,
+    pub connect: Arc<crate::connect::ConnectService>,
 }
 
 impl AppState {
@@ -50,11 +52,20 @@ impl AppState {
             dav_handlers: Arc::new(Mutex::new(HashMap::new())),
             wifi: Arc::new(crate::wifi::NoopProvider),
             auth,
+            connect: Arc::new(crate::connect::ConnectService::new(
+                std::path::Path::new("/var/lib/luna"),
+                std::env::var("LUNA_CONNECT_URL").ok(),
+            )),
         }
     }
 
     pub fn with_wifi(mut self, wifi: Arc<dyn crate::wifi::WifiProvider>) -> Self {
         self.wifi = wifi;
+        self
+    }
+
+    pub fn with_connect(mut self, connect: Arc<crate::connect::ConnectService>) -> Self {
+        self.connect = connect;
         self
     }
 }

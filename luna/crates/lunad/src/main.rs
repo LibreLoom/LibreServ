@@ -57,7 +57,13 @@ async fn main() -> anyhow::Result<()> {
             (Some(iface), true) => std::sync::Arc::new(lunad::wifi::WpaCliProvider::new(iface)),
             _ => std::sync::Arc::new(lunad::wifi::NoopProvider),
         };
-    let state = AppState::new(conn, drive_manager).with_wifi(wifi);
+    let connect = std::sync::Arc::new(lunad::connect::ConnectService::new(
+        &cfg.data_dir,
+        std::env::var("LUNA_CONNECT_URL").ok(),
+    ));
+    let state = AppState::new(conn, drive_manager)
+        .with_wifi(wifi)
+        .with_connect(connect);
 
     let protected_api = api::router().layer(axum::middleware::from_fn_with_state(
         state.clone(),
