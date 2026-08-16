@@ -45,5 +45,18 @@
       cancellation, conflict rejection, move = verified copy then trash source
 - [ ] Index-backed listings (SQLite) — moved to M7 performance hardening
 
-## M3..M11 — Not started
-See the final plan in the project memory / chat. Next: M3 setup wizard, connection/Wi-Fi step, BLE bootstrap.
+## M3 — Setup wizard + Wi-Fi (IN PROGRESS)
+- [x] Network status from sysfs + /proc/net/route (`/api/v1/network/status`):
+      Ethernet carrier, Wi-Fi interface/carrier, default route, no external commands
+- [x] Wi-Fi provider abstraction: `WpaCliProvider` (scan/connect/verify/forget,
+      save_config, never logs passphrases), `NoopProvider` fallback, mock for tests
+- [x] Wi-Fi API: GET /network/wifi, GET /network/wifi/scan, POST connect, POST forget
+- [x] Setup state API: GET/POST /api/v1/setup (name + setup_completed, SQLite-persisted)
+- [x] Setup wizard UI (/setup): welcome with the four discovery paths, connection
+      check (Ethernet optional/required logic), Wi-Fi scan + password + connect,
+      name Luna, done → drives
+- [ ] BLE bootstrap (GATT peripheral speaking LibreServ's HTTP-over-BLE protocol)
+- [ ] LibreServ: Wi-Fi wizard step after Welcome/Preflight + shipped BLE default
+
+## M4..M11 — Not started
+See the final plan in the project memory / chat. Next: BLE bootstrap or M4 auth/users.

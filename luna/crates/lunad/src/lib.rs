@@ -7,8 +7,10 @@ pub mod drives;
 pub mod files;
 pub mod jobs;
 pub mod mount;
+pub mod net;
 pub mod staticweb;
 pub mod uploads;
+pub mod wifi;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -25,6 +27,7 @@ pub struct AppState {
     pub drive_manager: Arc<DriveManager>,
     pub job_manager: Arc<crate::jobs::JobManager>,
     pub dav_handlers: Arc<Mutex<HashMap<String, DavHandler>>>,
+    pub wifi: Arc<dyn crate::wifi::WifiProvider>,
 }
 
 impl AppState {
@@ -36,6 +39,12 @@ impl AppState {
             drive_manager,
             job_manager,
             dav_handlers: Arc::new(Mutex::new(HashMap::new())),
+            wifi: Arc::new(crate::wifi::NoopProvider),
         }
+    }
+
+    pub fn with_wifi(mut self, wifi: Arc<dyn crate::wifi::WifiProvider>) -> Self {
+        self.wifi = wifi;
+        self
     }
 }

@@ -27,7 +27,19 @@ async fn main() -> anyhow::Result<()> {
         let detected = lunad::detect::scan(std::path::Path::new("/sys/block"), &mounts);
         drive_manager.reconcile(&conn, &detected)?;
     }
-    let state = AppState::new(conn, drive_manager);
+    let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
+    let net = lunad::net::read_status(std::path::Path::new("/sys/class/net"), &proc_route);
+    let wpa_cli_ok = std::process::Command::new("wpa_cli")
+        .arg("-v")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let wifi: std::sync::Arc<dyn lunad::wifi::WifiProvider> =
+        match (net.wifi_interface.as_deref(), wpa_cli_ok) {
+            (Some(iface), true) => std::sync::Arc::new(lunad::wifi::WpaCliProvider::new(iface)),
+            _ => std::sync::Arc::new(lunad::wifi::NoopProvider),
+        };
+    let state = AppState::new(conn, drive_manager).with_wifi(wifi);
 
     let app = axum::Router::new()
         .merge(api::router())
