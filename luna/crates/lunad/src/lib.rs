@@ -1,6 +1,7 @@
 pub mod api;
 pub mod auth;
 pub mod ble;
+pub mod ble_bluez;
 pub mod config;
 pub mod connect;
 pub mod dav;

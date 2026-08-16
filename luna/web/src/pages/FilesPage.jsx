@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Download, File as FileIcon, Folder, Pencil, Trash2, UploadCloud } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
@@ -40,8 +40,9 @@ async function parseError(res) {
 
 export default function FilesPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [path, setPath] = useState("");
+  const [path, setPath] = useState(searchParams.get("path") || "");
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(null);
   const [uploadError, setUploadError] = useState(null);

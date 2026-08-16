@@ -1,11 +1,7 @@
 use std::net::SocketAddr;
 
 use lunad::{
-    AppState, api,
-    ble::{BleService, NoopTransport, RouterExecutor},
-    config::Config,
-    db,
-    drives::DriveManager,
+    AppState, api, ble::RouterExecutor, config::Config, db, drives::DriveManager,
     mount::CommandMounter,
 };
 
@@ -90,11 +86,17 @@ async fn main() -> anyhow::Result<()> {
             lunad::staticweb::handle(uri.path())
         }));
 
-    let ble = BleService::new(
+    let ble_core = std::sync::Arc::new(lunad::ble::BleCore::new(
         ble_setup_code,
         RouterExecutor::new(app.clone()),
-        std::sync::Arc::new(NoopTransport),
-    );
+    ));
+    #[cfg(feature = "ble")]
+    let ble_transport: std::sync::Arc<dyn lunad::ble::BleTransport> =
+        std::sync::Arc::new(lunad::ble_bluez::BlueZTransport::new(ble_core.clone()));
+    #[cfg(not(feature = "ble"))]
+    let ble_transport: std::sync::Arc<dyn lunad::ble::BleTransport> =
+        std::sync::Arc::new(lunad::ble::NoopTransport);
+    let ble = lunad::ble::BleService::from_parts(ble_core, ble_transport);
     if let Err(e) = ble.start() {
         tracing::warn!(error = %e, "BLE bootstrap disabled");
     }

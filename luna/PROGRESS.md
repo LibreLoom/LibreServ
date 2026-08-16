@@ -156,7 +156,16 @@
       to originals
 - [ ] libvips/HEIC path + EXIF dates/albums/face search (future polish)
 
-## M11 — Polish (NOT STARTED)
-See the final plan in the project memory / chat. Remaining after M10: M11
-polish + optional AP-mode hotspot, BlueZ BLE transport, "Shared with me"
-view, tray icon/installers, full-disk detection, physical 5-unit rehearsal.
+## M11 — Polish (IN PROGRESS)
+- [x] BlueZ BLE transport (feature `ble`): bluer GATT server advertising the
+      LibreServ-compatible UUIDs, write callbacks into BleCore, notification
+      sessions; `cargo check/clippy --features ble` green
+- [x] "Shared with me" view (/shared): lists the current user's grants with
+      drive labels and opens FilesPage at the granted path (`?path=`)
+- [x] OS build documented for `--features ble`; rootfs already ships bluez
+- [ ] AP-mode hotspot (hardware qualification gate)
+- [ ] Desktop tray icon + installers
+- [ ] Full-disk detection in write paths
+- [ ] Protect-a-folder redundancy (local, free)
+- [ ] Auto-issued free Connect keys (Connect portal work)
+- [ ] Physical 5-unit rehearsal on Wyse 5020 hardware

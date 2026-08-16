@@ -392,6 +392,13 @@ impl BleService {
         self.core.clone()
     }
 
+    pub fn from_parts(
+        core: std::sync::Arc<BleCore>,
+        transport: std::sync::Arc<dyn BleTransport>,
+    ) -> Self {
+        Self { core, transport }
+    }
+
     pub fn start(&self) -> anyhow::Result<()> {
         self.transport.start()
     }

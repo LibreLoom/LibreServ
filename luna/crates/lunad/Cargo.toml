@@ -7,12 +7,17 @@ rust-version.workspace = true
 description = "Luna daemon: axum + SQLite + embedded web UI"
 build = "build.rs"
 
+[features]
+default = []
+ble = ["dep:bluer"]
+
 [dependencies]
 anyhow.workspace = true
 argon2.workspace = true
 base64.workspace = true
 blake3.workspace = true
 axum.workspace = true
+bluer = { version = "0.17.4", features = ["bluetoothd"], optional = true }
 image.workspace = true
 include_dir.workspace = true
 jsonwebtoken.workspace = true
@@ -29,6 +34,7 @@ tokio-util.workspace = true
 tower.workspace = true
 ureq.workspace = true
 dav-server.workspace = true
+futures-util = "0.3"
 getrandom.workspace = true
 uuid.workspace = true
 tracing.workspace = true

@@ -9,6 +9,7 @@ import GalleryPage from "./pages/GalleryPage";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RemotePage from "./pages/RemotePage";
+import SharedPage from "./pages/SharedPage";
 import SharesPage from "./pages/SharesPage";
 import UsersPage from "./pages/UsersPage";
 import SetupPage from "./pages/SetupPage";
@@ -43,6 +44,7 @@ export default function App() {
               <Route path="/gallery" element={<RequireAuth><GalleryPage /></RequireAuth>} />
               <Route path="/settings/users" element={<RequireAuth><UsersPage /></RequireAuth>} />
               <Route path="/settings/shares" element={<RequireAuth><SharesPage /></RequireAuth>} />
+              <Route path="/shared" element={<RequireAuth><SharedPage /></RequireAuth>} />
               <Route path="/settings/remote" element={<RequireAuth><RemotePage /></RequireAuth>} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

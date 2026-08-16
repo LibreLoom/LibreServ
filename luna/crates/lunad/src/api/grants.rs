@@ -22,6 +22,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/grants", get(list).post(create))
         .route("/api/v1/grants/{id}", delete(remove))
+        .route("/api/v1/me/access", get(my_access))
 }
 
 async fn list(
@@ -109,6 +110,36 @@ async fn remove(
         .map_err(map_err)?;
     crate::db::delete_grant(&conn, &id).map_err(|e| map_err(AuthError::Db(e)))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn my_access(
+    State(state): State<AppState>,
+    Extension(user): Extension<auth::CurrentUser>,
+) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
+    let conn = state
+        .db
+        .lock()
+        .map_err(|_| AuthError::Unauthenticated)
+        .map_err(map_err)?;
+    let grants =
+        crate::db::list_grants_for_user(&conn, &user.id).map_err(|e| map_err(AuthError::Db(e)))?;
+    let drives = crate::db::list_drives(&conn).map_err(|e| map_err(AuthError::Db(e)))?;
+    let mut out = Vec::new();
+    for grant in grants {
+        let label = drives
+            .iter()
+            .find(|d| d.id == grant.drive_id)
+            .map(|d| d.label.clone())
+            .unwrap_or_else(|| grant.drive_id.clone());
+        out.push(json!({
+            "id": grant.id,
+            "drive_id": grant.drive_id,
+            "drive_label": label,
+            "path": grant.path,
+            "permission": grant.permission,
+        }));
+    }
+    Ok(Json(out))
 }
 
 fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
