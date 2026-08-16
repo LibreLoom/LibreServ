@@ -84,6 +84,23 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             expires_at INTEGER,
             created_by TEXT NOT NULL,
             created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS index_entries (
+            drive_id TEXT NOT NULL,
+            parent TEXT NOT NULL,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            modified INTEGER NOT NULL,
+            hidden INTEGER NOT NULL,
+            PRIMARY KEY (drive_id, parent, name)
+        );
+        CREATE TABLE IF NOT EXISTS indexed_dirs (
+            drive_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            dir_mtime INTEGER NOT NULL,
+            indexed_at INTEGER NOT NULL,
+            PRIMARY KEY (drive_id, path)
         );",
     )?;
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;

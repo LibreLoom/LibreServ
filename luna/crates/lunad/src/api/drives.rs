@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -57,6 +57,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/drives/{name}/adopt", post(adopt))
         .route("/api/v1/drives/{name}/dismiss", post(dismiss))
         .route("/api/v1/drives/{id}/eject", post(eject))
+        .route("/api/v1/drives/{id}/health", get(drive_health))
 }
 
 async fn list(
@@ -180,6 +181,34 @@ async fn eject(
         )
     })?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+async fn drive_health(
+    State(state): State<AppState>,
+    Extension(_user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<crate::smart::DriveHealth>, (StatusCode, Json<serde_json::Value>)> {
+    let device = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let drive = crate::db::get_drive(&conn, &id)
+            .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Luna doesn't know this drive."))?;
+        drive.device
+    };
+    let health = tokio::task::spawn_blocking(move || crate::smart::read(&device))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't check this drive.",
+            )
+        })?;
+    Ok(Json(health))
 }
 
 fn find_device(name: &str) -> Option<crate::detect::DetectedDrive> {

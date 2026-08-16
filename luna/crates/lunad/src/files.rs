@@ -47,6 +47,9 @@ pub fn drive_root(conn: &rusqlite::Connection, drive_id: &str) -> Result<DriveRo
 }
 
 /// List one directory. Directories first, then case-insensitive by name.
+///
+/// Serves from the SQLite index whenever the directory mtime matches; any
+/// change (Luna, WebDAV, or direct access) falls back to one fresh read_dir.
 pub fn list_dir(
     conn: &rusqlite::Connection,
     drive_id: &str,
@@ -62,8 +65,26 @@ pub fn list_dir(
         )));
     }
 
+    let meta = std::fs::metadata(&dir).map_err(FilesError::Io)?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if let Some(entries) = crate::index::fresh_entries(conn, drive_id, rel, mtime) {
+        return Ok(entries);
+    }
+
+    let entries = read_dir_entries(&dir)?;
+    let _ = crate::index::replace_dir(conn, drive_id, rel, mtime, &entries);
+    Ok(entries)
+}
+
+/// Read one directory into sorted entries (no index involvement).
+pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
     let mut entries = Vec::new();
-    let read = std::fs::read_dir(&dir).map_err(FilesError::Io)?;
+    let read = std::fs::read_dir(dir).map_err(FilesError::Io)?;
     for entry in read {
         let entry = entry.map_err(FilesError::Io)?;
         let name = entry.file_name().to_string_lossy().into_owned();

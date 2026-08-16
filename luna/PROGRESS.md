@@ -101,5 +101,18 @@
 - [ ] Device-token API (long-lived revocable app tokens) replacing stored JWT
 - [ ] BackupActivity visual polish + status notifications
 
-## M7..M11 — Not started
-See the final plan in the project memory / chat. Next: M7 reliability/perf hardening.
+## M7 — Reliability & performance hardening (IN PROGRESS)
+- [x] Index-backed listings: `index_entries` + `indexed_dirs` tables; list_dir
+      serves from SQLite when the directory mtime matches and refreshes from
+      one read_dir otherwise — correctness for Luna/WebDAV/direct writes
+- [x] Recursive background reindex (`POST /api/v1/system/reindex`) and scoped
+      search (`GET /api/v1/search?q=`) respecting user grants
+- [x] SMART drive health (`GET /api/v1/drives/{id}/health`): smartctl optional,
+      parses overall status/model/serial/temperature/reallocated sectors
+- [ ] Automatic periodic scrub/checksum verification
+- [ ] Automatic read-only transition on IO errors; full-disk detection
+- [ ] Rate limiting on login and auth endpoints
+- [ ] Throughput/latency benchmark suite
+
+## M8..M11 — Not started
+See the final plan in the project memory / chat. Next: scrub + rate limiting + benchmarks, then M8 OS image.
