@@ -7,23 +7,32 @@ import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
 import TextLink from "../components/ui/TextLink";
 import { getJson, postJson } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 
 const STEPS = [
   { id: "welcome", label: "Welcome" },
   { id: "connection", label: "Connection" },
   { id: "wifi", label: "Wi-Fi" },
+  { id: "account", label: "Account" },
   { id: "name", label: "Name" },
   { id: "done", label: "Done" },
 ];
 
 export default function SetupPage() {
   const queryClient = useQueryClient();
+  const { user, login } = useAuth();
   const [stepId, setStepId] = useState("welcome");
   const [skipWifi, setSkipWifi] = useState(false);
   const [selected, setSelected] = useState(null);
   const [password, setPassword] = useState("");
   const [name, setName] = useState("Luna");
+  const [accountUsername, setAccountUsername] = useState("");
+  const [accountDisplayName, setAccountDisplayName] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
+  const [accountBusy, setAccountBusy] = useState(false);
   const [error, setError] = useState(null);
+
+  const authStatus = useQuery({ queryKey: ["auth-status"], queryFn: () => getJson("/api/v1/auth/status") });
 
   const status = useQuery({
     queryKey: ["network-status"],
@@ -57,6 +66,25 @@ export default function SetupPage() {
     mutationFn: async (/** @type {{ deviceName: string, done: boolean }} */ { deviceName, done }) => postJson("/api/v1/setup", { name: deviceName, setup_completed: done }),
   });
 
+  async function createAdmin() {
+    setError(null);
+    setAccountBusy(true);
+    try {
+      await postJson("/api/v1/auth/register", {
+        username: accountUsername,
+        display_name: accountDisplayName || accountUsername,
+        password: accountPassword,
+      });
+      await login(accountUsername, accountPassword);
+      queryClient.invalidateQueries({ queryKey: ["auth-status"] });
+      setStepId("name");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setAccountBusy(false);
+    }
+  }
+
   const ethernet = status.data?.ethernet_connected;
   const wifiConnected = wifi.data?.connected || status.data?.wifi_connected;
 
@@ -66,11 +94,15 @@ export default function SetupPage() {
       return;
     }
     if (stepId === "connection") {
-      if (ethernet && skipWifi) setStepId("name");
+      if (ethernet && skipWifi) setStepId("account");
       else setStepId("wifi");
       return;
     }
     if (stepId === "wifi") {
+      setStepId("account");
+      return;
+    }
+    if (stepId === "account") {
       setStepId("name");
       return;
     }
@@ -90,9 +122,13 @@ export default function SetupPage() {
   }
 
   const nextLoading = stepId === "name" && save.isPending;
+  const hasAdmin = authStatus.data?.has_admin;
+  const accountReady = hasAdmin ? !!user : false;
   const nextDisabled =
     (stepId === "connection" && !ethernet && !wifiConnected) ||
     (stepId === "wifi" && !wifiConnected && !ethernet) ||
+    (stepId === "account" && !hasAdmin && (accountUsername.trim().length < 3 || accountPassword.length < 8)) ||
+    (stepId === "account" && hasAdmin && !accountReady) ||
     (stepId === "name" && name.trim().length === 0);
 
   return (
@@ -200,6 +236,47 @@ export default function SetupPage() {
               </div>
             )}
             {error && <p className="text-error text-xs">{error}</p>}
+          </div>
+        )}
+
+        {stepId === "account" && (
+          <div className="space-y-5">
+            <h2 className="font-mono text-xl">Create your admin account</h2>
+            {!hasAdmin ? (
+              <>
+                <p className="text-primary text-sm">
+                  This account protects every file on Luna. You can add people
+                  for the rest of your household later.
+                </p>
+                <label className="block">
+                  <span className="text-primary text-xs">Your name</span>
+                  <input className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                    value={accountDisplayName} onChange={(e) => setAccountDisplayName(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="text-primary text-xs">Username</span>
+                  <input className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                    value={accountUsername} autoComplete="username" onChange={(e) => setAccountUsername(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="text-primary text-xs">Password (8+ characters)</span>
+                  <input type="password" className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                    value={accountPassword} autoComplete="new-password" onChange={(e) => setAccountPassword(e.target.value)} />
+                </label>
+                {error && <p className="text-error text-xs">{error}</p>}
+                <Button variant="secondary" fullWidth loading={accountBusy} onClick={createAdmin}>
+                  Create account and continue
+                </Button>
+              </>
+            ) : user ? (
+              <p className="text-primary text-sm">
+                Signed in as <span className="font-mono">{user.username}</span>. This account manages Luna.
+              </p>
+            ) : (
+              <p className="text-primary text-sm">
+                This Luna already has an account. <TextLink to="/login">Sign in</TextLink> to continue setup.
+              </p>
+            )}
           </div>
         )}
 

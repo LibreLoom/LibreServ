@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import SetupPage from "./SetupPage";
+import { AuthProvider } from "../context/AuthContext";
 
 describe("SetupPage", () => {
   it("opens on welcome and shows the four discovery paths", async () => {
@@ -16,7 +17,9 @@ describe("SetupPage", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
-        <MemoryRouter><SetupPage /></MemoryRouter>
+        <AuthProvider>
+          <MemoryRouter><SetupPage /></MemoryRouter>
+        </AuthProvider>
       </QueryClientProvider>
     );
     expect(screen.getAllByText(/luna.local/i).length).toBeGreaterThan(0);

@@ -74,8 +74,10 @@
       scope in files, uploads, and jobs (live-verified: user read=ok, write=403)
 - [x] Shares API: password-hashed + expiring public links at /s/{token};
       file streaming + folder listing (live-verified with password)
-- [ ] Web UI: LoginPage, auth context, setup admin-account step, Users/Shares
-      settings pages, "Shared with me" view
+- [x] Web UI: AuthProvider + ProtectedRoute, LoginPage, admin-account step in
+      the setup wizard, UsersPage (create/remove users + drive/folder grants),
+      SharesPage (create password/expiry links, copy, revoke)
+- [ ] "Shared with me" view for non-admin users (grants backend is ready)
 
 ## M5..M11 — Not started
-See the final plan in the project memory / chat. Next: finish M4 UI + M5 remote access.
+See the final plan in the project memory / chat. Next: M5 remote access (free Luna Connect, port-forward/BYO docs), then BlueZ BLE transport.
