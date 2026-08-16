@@ -369,6 +369,25 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "benchmark; run with cargo test -- --ignored listing_benchmark"]
+    fn listing_benchmark_10k_files_from_index() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        for i in 0..10_000 {
+            std::fs::write(root.join(format!("file-{i:05}.txt")), b"x").unwrap();
+        }
+        let _ = list_dir(&conn, &id, "").unwrap(); // populate index
+
+        let start = std::time::Instant::now();
+        let entries = list_dir(&conn, &id, "").unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(entries.len(), 10_000);
+        println!("indexed listing of 10k files: {elapsed:?}");
+        assert!(elapsed.as_millis() < 50, "target: <50ms, got {elapsed:?}");
+    }
+
+    #[test]
     fn install_temp_is_atomic_and_persists_bytes() {
         let dir = tempfile::tempdir().unwrap();
         let temp = dir.path().join(".luna-upload.1");

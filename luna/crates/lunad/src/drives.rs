@@ -148,6 +148,21 @@ impl DriveManager {
         Ok(())
     }
 
+    /// Check every adopted drive is still writable. Drives that fail a safe
+    /// create/write/sync/delete probe transition to `readonly` — never failed
+    /// — because reads usually still work and the UI can explain calmly.
+    pub fn health_check(&self, conn: &Connection) -> anyhow::Result<()> {
+        for drive in db::list_drives(conn)? {
+            if drive.state != "as_is" || drive.mount_point.is_empty() {
+                continue;
+            }
+            if probe_writable(std::path::Path::new(&drive.mount_point)).is_err() {
+                db::set_drive_state(conn, &drive.id, "readonly")?;
+            }
+        }
+        Ok(())
+    }
+
     /// Reconcile the registry with reality.
     ///
     /// Adopted drives that disappeared become `missing`; drives that come back
@@ -189,6 +204,24 @@ impl DriveManager {
     fn is_ours(&self, path: &Path) -> bool {
         path.starts_with(&self.foreign_base) || path.starts_with(&self.adopted_base)
     }
+}
+
+fn probe_writable(root: &Path) -> anyhow::Result<()> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let probe = root.join(format!(".luna-write-test.{}.{nonce}", std::process::id()));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)?;
+    use std::io::Write;
+    file.write_all(b"luna")?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::remove_file(&probe)?;
+    Ok(())
 }
 
 fn sanitize(name: &str) -> String {
@@ -311,6 +344,34 @@ mod tests {
             db::get_drive(&conn, &row.id).unwrap().unwrap().state,
             "as_is"
         );
+    }
+
+    #[test]
+    fn readonly_drive_is_marked_readonly_not_failed() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
+            .unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&row.mount_point).unwrap().permissions();
+            perms.set_mode(0o555);
+            std::fs::set_permissions(&row.mount_point, perms).unwrap();
+            mgr.health_check(&conn).unwrap();
+            assert_eq!(
+                db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+                "readonly"
+            );
+            let mut perms = std::fs::metadata(&row.mount_point).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&row.mount_point, perms).unwrap();
+        }
     }
 
     #[test]

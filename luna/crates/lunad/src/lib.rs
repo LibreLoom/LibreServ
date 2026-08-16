@@ -12,6 +12,8 @@ pub mod index;
 pub mod jobs;
 pub mod mount;
 pub mod net;
+pub mod rate_limit;
+pub mod scrub;
 pub mod smart;
 pub mod staticweb;
 pub mod uploads;
@@ -35,6 +37,7 @@ pub struct AppState {
     pub wifi: Arc<dyn crate::wifi::WifiProvider>,
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::connect::ConnectService>,
+    pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
 }
 
 impl AppState {
@@ -57,6 +60,10 @@ impl AppState {
             connect: Arc::new(crate::connect::ConnectService::new(
                 std::path::Path::new("/var/lib/luna"),
                 std::env::var("LUNA_CONNECT_URL").ok(),
+            )),
+            login_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
+                std::time::Duration::from_secs(300),
+                10,
             )),
         }
     }

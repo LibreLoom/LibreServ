@@ -65,6 +65,18 @@ async fn main() -> anyhow::Result<()> {
         .with_wifi(wifi)
         .with_connect(connect);
 
+    let health_db = state.db.clone();
+    let health_drives = state.drive_manager.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(15 * 60));
+        loop {
+            ticker.tick().await;
+            if let Ok(conn) = health_db.lock() {
+                let _ = health_drives.health_check(&conn);
+            }
+        }
+    });
+
     let protected_api = api::router().layer(axum::middleware::from_fn_with_state(
         state.clone(),
         lunad::auth::guard,
@@ -89,9 +101,12 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = format!("{}:{}", cfg.host, cfg.port).parse()?;
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, product = "Luna", "listening");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     ble.stop();
     Ok(())
 }

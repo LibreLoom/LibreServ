@@ -17,6 +17,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/search", get(search))
         .route("/api/v1/system/reindex", post(reindex))
+        .route("/api/v1/system/scrub", get(scrub_status).post(start_scrub))
 }
 
 async fn search(
@@ -86,5 +87,71 @@ async fn reindex(
     });
     Ok(Json(
         json!({ "started": true, "message": "Luna is reading your drives in the background." }),
+    ))
+}
+
+async fn scrub_status(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let report = crate::db::get_meta(&conn, "last_scrub_report")
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't read scrub status.",
+            )
+        })?
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .unwrap_or(json!({ "files_hashed": 0, "files_checked": 0, "mismatches": 0 }));
+    Ok(Json(report))
+}
+
+async fn start_scrub(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can do that.",
+        ));
+    }
+    let db = state.db.clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = db.lock().unwrap();
+        let drives = crate::db::list_drives(&conn).unwrap_or_default();
+        let mut total = crate::scrub::ScrubReport {
+            files_checked: 0,
+            files_hashed: 0,
+            mismatches: 0,
+            bytes_hashed: 0,
+        };
+        for drive in drives {
+            if drive.state != "as_is" || drive.mount_point.is_empty() {
+                continue;
+            }
+            let root = std::path::PathBuf::from(&drive.mount_point);
+            if let Ok(report) = crate::scrub::hash_drive(&conn, &drive.id, &root) {
+                total.files_hashed += report.files_hashed;
+                total.bytes_hashed += report.bytes_hashed;
+            }
+            if let Ok(report) = crate::scrub::scrub_drive(&conn, &drive.id, &root) {
+                total.files_checked += report.files_checked;
+                total.mismatches += report.mismatches;
+            }
+        }
+        let _ = crate::db::set_meta(
+            &conn,
+            "last_scrub_report",
+            &serde_json::to_string(&total).unwrap_or_default(),
+        );
+    });
+    Ok(Json(
+        json!({ "started": true, "message": "Luna is checking your files in the background." }),
     ))
 }

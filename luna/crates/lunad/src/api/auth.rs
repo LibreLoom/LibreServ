@@ -1,4 +1,4 @@
-use axum::extract::{Extension, Request, State};
+use axum::extract::{ConnectInfo, Extension, Request, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -34,9 +34,16 @@ pub fn router() -> Router<AppState> {
 
 async fn register(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
     current: Option<Extension<CurrentUser>>,
     Json(body): Json<RegisterBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if !state.login_limiter.allow(&addr.ip().to_string()) {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a few minutes and try again.",
+        ));
+    }
     let has_users = state.auth.count_users().map_err(map_auth_err)? > 0;
     if has_users {
         let Some(Extension(user)) = current else {
@@ -71,8 +78,15 @@ async fn register(
 
 async fn login(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<LoginBody>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
+    if !state.login_limiter.allow(&addr.ip().to_string()) {
+        return Err(json_error(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many tries. Wait a few minutes and try again.",
+        ));
+    }
     let (user, token) = state
         .auth
         .login(&body.username, &body.password)

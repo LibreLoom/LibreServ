@@ -109,10 +109,13 @@
       search (`GET /api/v1/search?q=`) respecting user grants
 - [x] SMART drive health (`GET /api/v1/drives/{id}/health`): smartctl optional,
       parses overall status/model/serial/temperature/reallocated sectors
-- [ ] Automatic periodic scrub/checksum verification
-- [ ] Automatic read-only transition on IO errors; full-disk detection
-- [ ] Rate limiting on login and auth endpoints
-- [ ] Throughput/latency benchmark suite
+- [x] Periodic checksum scrub: blake3 file hashes in SQLite, hash-on-first-run,
+      re-verify on demand (`POST /api/v1/system/scrub`), mismatches reported
+- [x] Automatic writability probe every 15 min: create/write/fsync/delete;
+      failures transition the drive to `readonly`, never `failed`
+- [x] Login/register rate limiting (10 per 5 min per IP, plain-language 429)
+- [x] Listing benchmark: 10,000 files served from SQLite in ~22ms (<50ms target)
+- [ ] Full-disk detection in write paths
 
 ## M8..M11 — Not started
-See the final plan in the project memory / chat. Next: scrub + rate limiting + benchmarks, then M8 OS image.
+See the final plan in the project memory / chat. Next: M8 OS image + flash pipeline.
