@@ -68,6 +68,37 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Session { token: Mutex::new(None), backup: Mutex::new(None) })
+        .setup(|app| {
+            use tauri::Manager;
+            use tauri::menu::{Menu, MenuItem};
+            use tauri::tray::TrayIconBuilder;
+
+            let show = MenuItem::with_id(app, "show", "Show Luna", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "Quit Luna", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show, &quit])?;
+
+            let icon = match app.default_window_icon() {
+                Some(icon) => icon.clone(),
+                None => tauri::image::Image::from_bytes(include_bytes!("../icons/icon.png"))?,
+            };
+            TrayIconBuilder::new()
+                .icon(icon)
+                .tooltip("Luna Desktop — free folder backup")
+                .menu(&menu)
+                .show_menu_on_left_click(true)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .build(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             login,
             list_drives,

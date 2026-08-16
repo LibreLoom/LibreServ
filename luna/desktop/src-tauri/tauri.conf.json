@@ -13,5 +13,9 @@
     "windows": [{ "title": "Luna Desktop", "width": 900, "height": 700 }],
     "security": { "csp": null }
   },
-  "bundle": { "active": false, "targets": "all", "icon": [] }
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage", "msi", "dmg"],
+    "icon": ["icons/icon.png"]
+  }
 }

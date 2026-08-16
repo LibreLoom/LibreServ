@@ -164,7 +164,7 @@
       drive labels and opens FilesPage at the granted path (`?path=`)
 - [x] OS build documented for `--features ble`; rootfs already ships bluez
 - [x] AP-mode hotspot software: auto-starts open "Luna Setup" when no Ethernet/Wi-Fi and setup incomplete, stops when connected/setup done; hostapd+dnsmasq config; API start/stop/status; hardware qualification still pending
-- [ ] Desktop tray icon + installers
+- [x] Desktop tray icon (show/quit menu, left-click opens, tray-enabled release binary built); installer targets configured (deb/appimage/msi/dmg) — final bundling runs per-platform
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI
 - [x] Free one-tap Connect keys: Connect endpoint `/api/v1/luna/free-key` mints a free-plan account+key per Luna (10/hour/IP); Luna Remote page is now one tap with no key entry
