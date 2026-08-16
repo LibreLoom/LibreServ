@@ -1,4 +1,4 @@
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -31,8 +31,31 @@ pub fn router() -> Router<AppState> {
 
 async fn create(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<CreateJob>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let from_path = body.from_path.as_deref().unwrap_or("");
+        let to_path = body.to_path.as_deref().unwrap_or("");
+        if !crate::auth::can_access(&user, &conn, &body.from_drive, from_path, false) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to copy from here.",
+            ));
+        }
+        if !crate::auth::can_access(&user, &conn, &body.to_drive, to_path, true) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to save here.",
+            ));
+        }
+    }
     let job = state
         .job_manager
         .enqueue(

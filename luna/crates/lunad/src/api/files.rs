@@ -1,5 +1,5 @@
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Extension, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
 use axum::routing::{get, post};
@@ -51,10 +51,12 @@ pub fn router() -> Router<AppState> {
 
 async fn list(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Vec<FileEntry>>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
+    check_access(&state, &user, &id, &rel, false)?;
     let entries =
         with_db(&state, |conn| files::list_dir(conn, &id, &rel)).map_err(map_files_err)?;
     Ok(Json(entries))
@@ -62,11 +64,13 @@ async fn list(
 
 async fn content(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<ContentQuery>,
     headers: HeaderMap,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
+    check_access(&state, &user, &id, &rel, false)?;
     let (path, meta) =
         with_db(&state, |conn| files::file_path(conn, &id, &rel)).map_err(map_files_err)?;
     let total = meta.len();
@@ -160,10 +164,12 @@ async fn content(
 
 async fn delete_entry(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<ListQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let rel = query.path.unwrap_or_default();
+    check_access(&state, &user, &id, &rel, true)?;
     let trash_path =
         with_db(&state, |conn| files::delete_to_trash(conn, &id, &rel)).map_err(map_files_err)?;
     Ok(Json(json!({ "ok": true, "trash_path": trash_path })))
@@ -171,9 +177,11 @@ async fn delete_entry(
 
 async fn rename_entry(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Json(body): Json<RenameBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    check_access(&state, &user, &id, &body.path, true)?;
     with_db(&state, |conn| {
         files::rename(conn, &id, &body.path, &body.new_name)
     })
@@ -189,11 +197,13 @@ async fn rename_entry(
 
 async fn upload(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<UploadQuery>,
     mut multipart: Multipart,
 ) -> Result<Json<FileEntry>, (StatusCode, Json<Value>)> {
     let mut dest_rel = query.path.unwrap_or_default();
+    check_access(&state, &user, &id, &dest_rel, true)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
 
     while let Some(mut field) = multipart
@@ -289,6 +299,34 @@ async fn stream_to_temp(
     out.flush().await?;
     out.sync_all().await?;
     Ok(())
+}
+
+fn check_access(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    drive_id: &str,
+    path: &str,
+    write: bool,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if crate::auth::can_access(user, &conn, drive_id, path, write) {
+        Ok(())
+    } else if write {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to change this folder.",
+        ))
+    } else {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this folder.",
+        ))
+    }
 }
 
 fn with_db<T>(

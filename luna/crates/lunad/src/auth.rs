@@ -1,0 +1,411 @@
+//! Authentication: argon2 password hashing + signed session JWTs.
+//!
+//! Luna is LAN-first, but every data API still requires a session. Public
+//! paths are limited to health, login/register-when-empty, setup state, and
+//! the SPA shell.
+
+use std::sync::{Arc, Mutex};
+
+use argon2::password_hash::rand_core::{OsRng, RngCore};
+use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use axum::extract::{Request, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
+use base64::Engine;
+use rusqlite::Connection;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::AppState;
+use crate::api::response::json_error;
+use crate::db::{self, UserRow};
+
+pub const SESSION_COOKIE: &str = "luna_session";
+pub const SESSION_TTL_SECONDS: i64 = 60 * 60 * 24 * 30;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Claims {
+    pub sub: String,
+    pub username: String,
+    pub role: String,
+    pub exp: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CurrentUser {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum AuthError {
+    #[error("That username or password is wrong.")]
+    BadLogin,
+    #[error("Usernames are 3-32 letters, numbers, dots, dashes, or underscores.")]
+    BadUsername,
+    #[error("Passwords need at least 8 characters.")]
+    BadPassword,
+    #[error("That username is already taken.")]
+    Taken,
+    #[error("Only an admin can do that.")]
+    Forbidden,
+    #[error("Sign in to Luna first.")]
+    Unauthenticated,
+    #[error("{0}")]
+    Db(#[source] anyhow::Error),
+    #[error("{0}")]
+    Token(String),
+}
+
+#[derive(Clone)]
+pub struct AuthService {
+    db: Arc<Mutex<Connection>>,
+    secret: Vec<u8>,
+}
+
+impl AuthService {
+    pub fn new(db: Arc<Mutex<Connection>>, secret: Vec<u8>) -> Self {
+        Self { db, secret }
+    }
+
+    /// Generate (or load) the JWT signing secret, persisted in SQLite meta.
+    pub fn ensure_secret(conn: &Connection) -> anyhow::Result<String> {
+        if let Some(existing) = db::get_meta(conn, "jwt_secret")?
+            && !existing.is_empty()
+        {
+            return Ok(existing);
+        }
+        let mut bytes = [0u8; 32];
+        OsRng.fill_bytes(&mut bytes);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        db::set_meta(conn, "jwt_secret", &encoded)?;
+        Ok(encoded)
+    }
+
+    /// Create a user. The first user is always an admin, regardless of caller.
+    pub fn register(
+        &self,
+        username: &str,
+        display_name: &str,
+        password: &str,
+        requested_role: &str,
+    ) -> Result<UserRow, AuthError> {
+        let username = normalize_username(username)?;
+        let display_name = display_name.trim();
+        if display_name.is_empty() || display_name.len() > 80 {
+            return Err(AuthError::BadUsername);
+        }
+        if password.len() < 8 {
+            return Err(AuthError::BadPassword);
+        }
+
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        if db::get_user_by_username(&conn, &username)
+            .map_err(AuthError::Db)?
+            .is_some()
+        {
+            return Err(AuthError::Taken);
+        }
+        let role = if db::count_users(&conn).map_err(AuthError::Db)? == 0 {
+            "admin".to_string()
+        } else {
+            match requested_role {
+                "admin" | "user" => requested_role.to_string(),
+                _ => "user".to_string(),
+            }
+        };
+        let hash = hash_password(password)?;
+        let id = Uuid::new_v4().to_string();
+        db::insert_user(&conn, &id, &username, display_name, &hash, &role)
+            .map_err(AuthError::Db)?;
+        db::get_user(&conn, &id)
+            .map_err(AuthError::Db)?
+            .ok_or(AuthError::Db(anyhow::anyhow!(
+                "user not found after insert"
+            )))
+    }
+
+    pub fn login(&self, username: &str, password: &str) -> Result<(UserRow, String), AuthError> {
+        let username = username.trim().to_lowercase();
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        let user = db::get_user_by_username(&conn, &username)
+            .map_err(AuthError::Db)?
+            .ok_or(AuthError::BadLogin)?;
+        let parsed = PasswordHash::new(&user.password_hash).map_err(|_| AuthError::BadLogin)?;
+        verify_password_hash(password, &parsed)?;
+        let token = self.issue(&user)?;
+        Ok((user, token))
+    }
+
+    pub fn verify(&self, token: &str) -> Result<CurrentUser, AuthError> {
+        let data = jsonwebtoken::decode::<Claims>(
+            token,
+            &jsonwebtoken::DecodingKey::from_secret(&self.secret),
+            &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
+        )
+        .map_err(|e| AuthError::Token(e.to_string()))?;
+        Ok(CurrentUser {
+            id: data.claims.sub,
+            username: data.claims.username,
+            role: data.claims.role,
+        })
+    }
+
+    pub fn issue(&self, user: &UserRow) -> Result<String, AuthError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let claims = Claims {
+            sub: user.id.clone(),
+            username: user.username.clone(),
+            role: user.role.clone(),
+            exp: now + SESSION_TTL_SECONDS,
+        };
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(&self.secret),
+        )
+        .map_err(|e| AuthError::Token(e.to_string()))
+    }
+
+    pub fn user(&self, id: &str) -> Result<Option<UserRow>, AuthError> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        db::get_user(&conn, id).map_err(AuthError::Db)
+    }
+
+    pub fn list_users(&self) -> Result<Vec<UserRow>, AuthError> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        db::list_users(&conn).map_err(AuthError::Db)
+    }
+
+    pub fn delete_user(&self, id: &str) -> Result<(), AuthError> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        db::delete_user(&conn, id).map_err(AuthError::Db)?;
+        Ok(())
+    }
+
+    pub fn count_users(&self) -> Result<i64, AuthError> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        db::count_users(&conn).map_err(AuthError::Db)
+    }
+}
+
+pub fn session_cookie(token: &str) -> String {
+    format!(
+        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_TTL_SECONDS}"
+    )
+}
+
+pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
+    if let Some(auth) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        && let Some(token) = auth.strip_prefix("Bearer ")
+    {
+        return Some(token.to_string());
+    }
+    let cookie = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
+    cookie.split(';').find_map(|part| {
+        let (name, value) = part.trim().split_once('=')?;
+        (name == SESSION_COOKIE).then(|| value.to_string())
+    })
+}
+
+/// Global auth guard: health, auth, setup, and the SPA shell stay public;
+/// every `/api/` data endpoint requires a valid session.
+pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let path = req.uri().path();
+    let is_public = path == "/health"
+        || path == "/api/v1/health"
+        || path.starts_with("/api/v1/auth/")
+        || path.starts_with("/api/v1/setup")
+        || path.starts_with("/s/")
+        || !path.starts_with("/api/");
+    if is_public {
+        return next.run(req).await;
+    }
+    match token_from_headers(req.headers()).and_then(|t| state.auth.verify(&t).ok()) {
+        Some(user) => {
+            let mut req = req;
+            req.extensions_mut().insert(user);
+            next.run(req).await
+        }
+        None => json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response(),
+    }
+}
+
+/// Extract the authenticated user (handlers are behind the guard).
+pub fn current_user(req: &axum::extract::Request) -> Option<&CurrentUser> {
+    req.extensions().get::<CurrentUser>()
+}
+
+/// Does `user` have `read` or `write` access to `drive_id`/`path`?
+///
+/// Admins see everything. Scoped grants match the exact path or anything
+/// beneath it (`grant = "family"` allows `family/photos`).
+pub fn can_access(
+    user: &CurrentUser,
+    conn: &Connection,
+    drive_id: &str,
+    path: &str,
+    write: bool,
+) -> bool {
+    if user.role == "admin" {
+        return true;
+    }
+    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
+        return false;
+    };
+    grants.into_iter().any(|g| {
+        if g.drive_id != drive_id {
+            return false;
+        }
+        if write && g.permission != "write" {
+            return false;
+        }
+        g.path.is_empty() || path == g.path || path.starts_with(&format!("{}/", g.path))
+    })
+}
+
+pub fn require_admin(req: &axum::extract::Request) -> Result<&CurrentUser, AuthError> {
+    let user = current_user(req).ok_or(AuthError::Unauthenticated)?;
+    if user.role != "admin" {
+        return Err(AuthError::Forbidden);
+    }
+    Ok(user)
+}
+
+pub(crate) fn verify_password_hash(
+    password: &str,
+    parsed: &PasswordHash<'_>,
+) -> Result<(), AuthError> {
+    argon2::Argon2::default()
+        .verify_password(password.as_bytes(), parsed)
+        .map_err(|_| AuthError::BadLogin)
+}
+
+fn normalize_username(username: &str) -> Result<String, AuthError> {
+    let username = username.trim().to_lowercase();
+    let valid = !username.is_empty()
+        && username.len() <= 32
+        && username.len() >= 3
+        && username
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_');
+    if !valid {
+        return Err(AuthError::BadUsername);
+    }
+    Ok(username)
+}
+
+pub(crate) fn hash_password(password: &str) -> Result<String, AuthError> {
+    let salt = SaltString::generate(&mut OsRng);
+    argon2::Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|_| AuthError::BadPassword)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn service() -> (tempfile::TempDir, AuthService) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let secret = AuthService::ensure_secret(&conn).unwrap();
+        let db = Arc::new(Mutex::new(conn));
+        (dir, AuthService::new(db, secret.into_bytes()))
+    }
+
+    #[test]
+    fn first_user_is_admin_and_login_round_trips() {
+        let (_dir, auth) = service();
+        let user = auth
+            .register("Max", "Max", "hunter22hunter", "user")
+            .unwrap();
+        assert_eq!(user.role, "admin");
+
+        let (_, token) = auth.login("max", "hunter22hunter").unwrap();
+        let current = auth.verify(&token).unwrap();
+        assert_eq!(current.username, "max");
+        assert!(auth.login("max", "wrong-password").is_err());
+    }
+
+    #[test]
+    fn grants_scope_access_by_folder() {
+        let (dir, auth) = service();
+        let admin = auth
+            .register("Max", "Max", "hunter22hunter", "user")
+            .unwrap();
+        let sam = auth
+            .register("sam", "Sam", "hunter22hunter", "user")
+            .unwrap();
+        let conn = auth.db.lock().unwrap();
+        crate::db::insert_grant(&conn, "g1", &sam.id, "drive-a", "family", "read").unwrap();
+        let sam_user = CurrentUser {
+            id: sam.id.clone(),
+            username: sam.username.clone(),
+            role: "user".into(),
+        };
+        assert!(can_access(
+            &sam_user,
+            &conn,
+            "drive-a",
+            "family/photos",
+            false
+        ));
+        assert!(!can_access(&sam_user, &conn, "drive-a", "other", false));
+        assert!(
+            !can_access(&sam_user, &conn, "drive-a", "family", true),
+            "read grant is not write"
+        );
+        assert!(can_access(
+            &CurrentUser {
+                id: admin.id.clone(),
+                username: admin.username.clone(),
+                role: "admin".into()
+            },
+            &conn,
+            "drive-a",
+            "anything",
+            true
+        ));
+        drop(conn);
+        drop((dir, auth));
+    }
+
+    #[test]
+    fn username_is_normalized_and_unique() {
+        let (_dir, auth) = service();
+        auth.register("Max", "Max", "hunter22hunter", "user")
+            .unwrap();
+        assert!(matches!(
+            auth.register("MAX", "Other", "hunter22hunter", "user"),
+            Err(AuthError::Taken)
+        ));
+        assert!(auth.register("x", "Bad", "hunter22hunter", "user").is_err());
+    }
+}

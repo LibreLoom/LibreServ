@@ -62,5 +62,20 @@
       NoopTransport used where no radio exists)
 - [ ] LibreServ: Wi-Fi wizard step after Welcome/Preflight + shipped BLE default
 
-## M4..M11 — Not started
-See the final plan in the project memory / chat. Next: BLE bootstrap or M4 auth/users.
+## M4 — Users, grants, shares (IN PROGRESS)
+- [x] Argon2 password hashing, JWT sessions (HttpOnly cookie + Bearer), first
+      user is always admin, case-insensitive unique usernames
+- [x] Global auth guard: health/auth/setup/SPA/public-share paths public;
+      every other /api route requires a session
+- [x] Auth API: register (open only while no users exist, then admin-only),
+      login/logout/me/status
+- [x] Users API: list/create/delete (admin-only, can't delete self)
+- [x] Grants API: drive/folder scoped read|write grants; can_access enforces
+      scope in files, uploads, and jobs (live-verified: user read=ok, write=403)
+- [x] Shares API: password-hashed + expiring public links at /s/{token};
+      file streaming + folder listing (live-verified with password)
+- [ ] Web UI: LoginPage, auth context, setup admin-account step, Users/Shares
+      settings pages, "Shared with me" view
+
+## M5..M11 — Not started
+See the final plan in the project memory / chat. Next: finish M4 UI + M5 remote access.

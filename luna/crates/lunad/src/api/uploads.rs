@@ -1,5 +1,5 @@
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Extension, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::{delete, post, put};
 use axum::{Json, Router};
@@ -43,8 +43,16 @@ pub fn router() -> Router<AppState> {
 
 async fn create(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<CreateBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    check_access(
+        &state,
+        &user,
+        &body.drive_id,
+        body.path.as_deref().unwrap_or(""),
+        true,
+    )?;
     if body.size > MAX_FILE_BYTES {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -66,10 +74,12 @@ async fn create(
 
 async fn write_chunk(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    check_upload_access(&state, &user, &id, true)?;
     let spec = headers
         .get(header::CONTENT_RANGE)
         .and_then(|v| v.to_str().ok())
@@ -102,9 +112,11 @@ async fn write_chunk(
 
 async fn complete(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
     Query(query): Query<CompleteQuery>,
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
+    check_upload_access(&state, &user, &id, true)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
     let entry = uploads::complete(&state.db, &id, overwrite).map_err(map_upload_err)?;
     Ok(Json(entry))
@@ -112,10 +124,56 @@ async fn complete(
 
 async fn cancel(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    check_upload_access(&state, &user, &id, true)?;
     uploads::cancel(&state.db, &id).map_err(map_upload_err)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+fn check_access(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    drive_id: &str,
+    path: &str,
+    write: bool,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    if crate::auth::can_access(user, &conn, drive_id, path, write) {
+        Ok(())
+    } else if write {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to save here.",
+        ))
+    } else {
+        Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to view this folder.",
+        ))
+    }
+}
+
+fn check_upload_access(
+    state: &AppState,
+    user: &crate::auth::CurrentUser,
+    upload_id: &str,
+    write: bool,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    let row = uploads::get_row(&conn, upload_id).map_err(map_upload_err)?;
+    check_access(state, user, &row.drive_id, &row.path, write)
 }
 
 fn with_db<T>(

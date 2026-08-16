@@ -1,4 +1,5 @@
 pub mod api;
+pub mod auth;
 pub mod ble;
 pub mod config;
 pub mod dav;
@@ -29,11 +30,18 @@ pub struct AppState {
     pub job_manager: Arc<crate::jobs::JobManager>,
     pub dav_handlers: Arc<Mutex<HashMap<String, DavHandler>>>,
     pub wifi: Arc<dyn crate::wifi::WifiProvider>,
+    pub auth: Arc<crate::auth::AuthService>,
 }
 
 impl AppState {
     pub fn new(conn: Connection, drive_manager: Arc<DriveManager>) -> Self {
         let db = Arc::new(Mutex::new(conn));
+        let secret =
+            crate::auth::AuthService::ensure_secret(&db.lock().unwrap()).expect("jwt secret");
+        let auth = Arc::new(crate::auth::AuthService::new(
+            db.clone(),
+            secret.into_bytes(),
+        ));
         let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone()));
         Self {
             db,
@@ -41,6 +49,7 @@ impl AppState {
             job_manager,
             dav_handlers: Arc::new(Mutex::new(HashMap::new())),
             wifi: Arc::new(crate::wifi::NoopProvider),
+            auth,
         }
     }
 

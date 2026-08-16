@@ -59,8 +59,12 @@ async fn main() -> anyhow::Result<()> {
         };
     let state = AppState::new(conn, drive_manager).with_wifi(wifi);
 
+    let protected_api = api::router().layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        lunad::auth::guard,
+    ));
     let app = axum::Router::new()
-        .merge(api::router())
+        .merge(protected_api)
         .merge(lunad::dav::router())
         .with_state(state)
         .fallback(axum::routing::get(|uri: axum::http::Uri| async move {

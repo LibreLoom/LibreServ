@@ -57,6 +57,33 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             error TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS grants (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            drive_id TEXT NOT NULL,
+            path TEXT NOT NULL DEFAULT '',
+            permission TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS shares (
+            id TEXT PRIMARY KEY,
+            token_hash TEXT NOT NULL UNIQUE,
+            drive_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            password_hash TEXT NOT NULL DEFAULT '',
+            expires_at INTEGER,
+            created_by TEXT NOT NULL,
+            created_at INTEGER NOT NULL
         );",
     )?;
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
@@ -271,6 +298,223 @@ pub fn set_job_state(conn: &Connection, id: &str, state: &str, error: &str) -> a
         "UPDATE jobs SET state = ?2, error = ?3, updated_at = ?4 WHERE id = ?1",
         params![id, state, error, now_unix()],
     )?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserRow {
+    pub id: String,
+    pub username: String,
+    pub display_name: String,
+    pub password_hash: String,
+    pub role: String,
+}
+
+pub fn insert_user(
+    conn: &Connection,
+    id: &str,
+    username: &str,
+    display_name: &str,
+    password_hash: &str,
+    role: &str,
+) -> anyhow::Result<()> {
+    let now = now_unix();
+    conn.execute(
+        "INSERT INTO users (id, username, display_name, password_hash, role, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![id, username, display_name, password_hash, role, now],
+    )?;
+    Ok(())
+}
+
+pub fn get_user_by_username(conn: &Connection, username: &str) -> anyhow::Result<Option<UserRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, username, display_name, password_hash, role FROM users WHERE username = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![username], |row| {
+        Ok(UserRow {
+            id: row.get(0)?,
+            username: row.get(1)?,
+            display_name: row.get(2)?,
+            password_hash: row.get(3)?,
+            role: row.get(4)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn get_user(conn: &Connection, id: &str) -> anyhow::Result<Option<UserRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, username, display_name, password_hash, role FROM users WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        Ok(UserRow {
+            id: row.get(0)?,
+            username: row.get(1)?,
+            display_name: row.get(2)?,
+            password_hash: row.get(3)?,
+            role: row.get(4)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn list_users(conn: &Connection) -> anyhow::Result<Vec<UserRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, username, display_name, password_hash, role FROM users ORDER BY username",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(UserRow {
+            id: row.get(0)?,
+            username: row.get(1)?,
+            display_name: row.get(2)?,
+            password_hash: row.get(3)?,
+            role: row.get(4)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn count_users(conn: &Connection) -> anyhow::Result<i64> {
+    Ok(conn.query_row("SELECT COUNT(*) FROM users", [], |row| row.get(0))?)
+}
+
+pub fn delete_user(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM grants WHERE user_id = ?1", params![id])?;
+    conn.execute("DELETE FROM users WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrantRow {
+    pub id: String,
+    pub user_id: String,
+    pub drive_id: String,
+    pub path: String,
+    pub permission: String,
+}
+
+pub fn insert_grant(
+    conn: &Connection,
+    id: &str,
+    user_id: &str,
+    drive_id: &str,
+    path: &str,
+    permission: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO grants (id, user_id, drive_id, path, permission, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, user_id, drive_id, path, permission, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn list_grants_for_user(conn: &Connection, user_id: &str) -> anyhow::Result<Vec<GrantRow>> {
+    list_grants_where(conn, "user_id = ?1", params![user_id])
+}
+
+pub fn list_all_grants(conn: &Connection) -> anyhow::Result<Vec<GrantRow>> {
+    list_grants_where(conn, "1", params![])
+}
+
+fn list_grants_where(
+    conn: &Connection,
+    where_clause: &str,
+    args: impl rusqlite::Params,
+) -> anyhow::Result<Vec<GrantRow>> {
+    let sql = format!(
+        "SELECT id, user_id, drive_id, path, permission FROM grants WHERE {where_clause} ORDER BY drive_id, path"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(args, |row| {
+        Ok(GrantRow {
+            id: row.get(0)?,
+            user_id: row.get(1)?,
+            drive_id: row.get(2)?,
+            path: row.get(3)?,
+            permission: row.get(4)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn delete_grant(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM grants WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShareRow {
+    pub id: String,
+    pub token_hash: String,
+    pub drive_id: String,
+    pub path: String,
+    pub password_hash: String,
+    pub expires_at: Option<i64>,
+    pub created_by: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn insert_share(
+    conn: &Connection,
+    id: &str,
+    token_hash: &str,
+    drive_id: &str,
+    path: &str,
+    password_hash: &str,
+    expires_at: Option<i64>,
+    created_by: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO shares (id, token_hash, drive_id, path, password_hash, expires_at, created_by, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![id, token_hash, drive_id, path, password_hash, expires_at, created_by, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn get_share_by_token_hash(
+    conn: &Connection,
+    token_hash: &str,
+) -> anyhow::Result<Option<ShareRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, token_hash, drive_id, path, password_hash, expires_at, created_by FROM shares WHERE token_hash = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![token_hash], |row| {
+        Ok(ShareRow {
+            id: row.get(0)?,
+            token_hash: row.get(1)?,
+            drive_id: row.get(2)?,
+            path: row.get(3)?,
+            password_hash: row.get(4)?,
+            expires_at: row.get(5)?,
+            created_by: row.get(6)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn list_shares(conn: &Connection) -> anyhow::Result<Vec<ShareRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, token_hash, drive_id, path, password_hash, expires_at, created_by FROM shares ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok(ShareRow {
+            id: row.get(0)?,
+            token_hash: row.get(1)?,
+            drive_id: row.get(2)?,
+            path: row.get(3)?,
+            password_hash: row.get(4)?,
+            expires_at: row.get(5)?,
+            created_by: row.get(6)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn delete_share(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM shares WHERE id = ?1", params![id])?;
     Ok(())
 }
 
