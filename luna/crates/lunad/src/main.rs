@@ -62,6 +62,20 @@ async fn main() -> anyhow::Result<()> {
         .with_connect(connect)
         .with_thumb_dir(cfg.data_dir.join("thumbs"));
 
+    if !net.ethernet_connected
+        && !net.wifi_connected
+        && let Some(iface) = net.wifi_interface.clone()
+    {
+        let hotspot = lunad::hotspot::CommandHotspot::new(iface, &cfg.data_dir.join("run"));
+        match hotspot.start() {
+            Ok(()) => {
+                tracing::info!(ssid = lunad::hotspot::SETUP_SSID, "setup hotspot active");
+                state.set_hotspot(hotspot);
+            }
+            Err(e) => tracing::warn!(error = %e, "setup hotspot unavailable"),
+        }
+    }
+
     let health_db = state.db.clone();
     let health_drives = state.drive_manager.clone();
     tokio::spawn(async move {
@@ -81,6 +95,30 @@ async fn main() -> anyhow::Result<()> {
             ticker.tick().await;
             if let Ok(conn) = protect_db.lock() {
                 let _ = lunad::protect::sync_all(&conn);
+            }
+        }
+    });
+
+    let hotspot_db = state.db.clone();
+    let hotspot_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            ticker.tick().await;
+            let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
+            let net = lunad::net::read_status(std::path::Path::new("/sys/class/net"), &proc_route);
+            let setup_done = hotspot_db
+                .lock()
+                .ok()
+                .and_then(|conn| crate::db::get_meta(&conn, "setup").ok().flatten())
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
+                .unwrap_or(false);
+            if (setup_done || net.ethernet_connected || net.wifi_connected)
+                && let Some(hotspot) = hotspot_state.hotspot.lock().unwrap().take()
+            {
+                let _ = hotspot.stop();
+                tracing::info!("setup hotspot stopped");
             }
         }
     });

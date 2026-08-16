@@ -1,4 +1,4 @@
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -22,6 +22,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/network/wifi/scan", get(scan))
         .route("/api/v1/network/wifi/connect", post(connect))
         .route("/api/v1/network/wifi/forget", post(forget))
+        .route("/api/v1/network/hotspot", get(hotspot_status))
+        .route("/api/v1/network/hotspot/start", post(hotspot_start))
+        .route("/api/v1/network/hotspot/stop", post(hotspot_stop))
 }
 
 async fn status() -> Json<crate::net::NetworkStatus> {
@@ -105,6 +108,67 @@ async fn forget(State(state): State<AppState>) -> Result<Json<Value>, (StatusCod
             )
         })?
         .map_err(map_wifi_err)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn hotspot_status(State(state): State<AppState>) -> Json<crate::hotspot::HotspotStatus> {
+    if let Some(hotspot) = state.hotspot.lock().unwrap().as_ref() {
+        Json(hotspot.status())
+    } else {
+        Json(crate::hotspot::HotspotStatus {
+            available: false,
+            running: false,
+            interface: None,
+            ssid: crate::hotspot::SETUP_SSID.into(),
+        })
+    }
+}
+
+async fn hotspot_start(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can do that.",
+        ));
+    }
+    let status = crate::net::read_status(
+        std::path::Path::new("/sys/class/net"),
+        &std::fs::read_to_string("/proc/net/route").unwrap_or_default(),
+    );
+    let Some(iface) = status.wifi_interface else {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "This Luna's Wi-Fi adapter can't create a hotspot.",
+        ));
+    };
+    let hotspot = crate::hotspot::CommandHotspot::new(iface, std::path::Path::new("/run/luna"));
+    hotspot
+        .start()
+        .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    state.set_hotspot(hotspot);
+    Ok(Json(
+        json!({ "ok": true, "ssid": crate::hotspot::SETUP_SSID }),
+    ))
+}
+
+async fn hotspot_stop(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can do that.",
+        ));
+    }
+    if let Some(hotspot) = state.hotspot.lock().unwrap().take() {
+        hotspot
+            .stop()
+            .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
     Ok(Json(json!({ "ok": true })))
 }
 

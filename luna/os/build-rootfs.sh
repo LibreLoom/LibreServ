@@ -39,7 +39,7 @@ podman run --rm -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         alpine-base openrc \
         avahi wpa_supplicant hostapd bluez \
         e2fsprogs exfatprogs ntfs-3g-progs \
-        smartmontools syslinux util-linux \
+        smartmontools syslinux util-linux dnsmasq \
         dhcpcd ca-certificates ssl_client \
         hdparm
 

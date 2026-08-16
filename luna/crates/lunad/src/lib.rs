@@ -10,6 +10,7 @@ pub mod detect;
 pub mod drives;
 pub mod files;
 pub mod gallery;
+pub mod hotspot;
 pub mod index;
 pub mod jobs;
 pub mod mount;
@@ -42,6 +43,7 @@ pub struct AppState {
     pub connect: Arc<crate::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub thumb_dir: std::path::PathBuf,
+    pub hotspot: std::sync::Arc<Mutex<Option<crate::hotspot::CommandHotspot>>>,
 }
 
 impl AppState {
@@ -70,6 +72,7 @@ impl AppState {
                 10,
             )),
             thumb_dir: std::path::PathBuf::from("/var/lib/luna/thumbs"),
+            hotspot: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -86,5 +89,9 @@ impl AppState {
     pub fn with_thumb_dir(mut self, thumb_dir: std::path::PathBuf) -> Self {
         self.thumb_dir = thumb_dir;
         self
+    }
+
+    pub fn set_hotspot(&self, hotspot: crate::hotspot::CommandHotspot) {
+        *self.hotspot.lock().unwrap() = Some(hotspot);
     }
 }

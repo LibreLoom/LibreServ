@@ -163,7 +163,7 @@
 - [x] "Shared with me" view (/shared): lists the current user's grants with
       drive labels and opens FilesPage at the granted path (`?path=`)
 - [x] OS build documented for `--features ble`; rootfs already ships bluez
-- [ ] AP-mode hotspot (hardware qualification gate)
+- [x] AP-mode hotspot software: auto-starts open "Luna Setup" when no Ethernet/Wi-Fi and setup incomplete, stops when connected/setup done; hostapd+dnsmasq config; API start/stop/status; hardware qualification still pending
 - [ ] Desktop tray icon + installers
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI

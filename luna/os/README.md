@@ -4,7 +4,7 @@ Build pipeline for the Luna box's Alpine operating system.
 
 ```sh
 # 1. Build the musl daemon (host or inside Alpine):
-#    cargo build --release -p lunad          # after building inside alpine musl
+#    cargo build --release --features ble -p lunad
 #    or set LUNAD_BIN=/path/to/lunad
 
 # 2. Rootfs (needs rootless podman)
