@@ -25,8 +25,21 @@
 - [x] Adoption API: `/api/v1/drives/{name}/inspect|adopt|dismiss`, `/api/v1/drives/{id}/eject`
 - [x] Adoption UI: /drives page with detected drives, read-only inspect modal,
       marker warning, label + adopt flow
-- [ ] Reconcile missing/ejected drives on startup and on each detection poll
+- [x] Reconcile missing/ejected drives on startup and on each detection poll
 - [ ] Read-only/failed transitions from I/O errors and full-disk detection
 
-## M2..M11 — Not started
-See the final plan in the project memory / chat. Next: finish M1, then write path + WebDAV.
+## M2 — Write path + WebDAV (IN PROGRESS)
+- [x] Path-jailed directory listing (`GET /api/v1/drives/{id}/files?path=`)
+- [x] Streaming downloads with ETag/304, Range/206, content disposition
+      (`GET /api/v1/drives/{id}/files/content`)
+- [x] Multipart uploads with temp + fsync + atomic rename, overwrite protection
+      (`POST /api/v1/drives/{id}/files/upload`)
+- [x] WebDAV per adopted drive at `/dav/{id}` (dav-server LocalFs, FakeLs locks);
+      PROPFIND/GET/PUT/MKCOL verified live
+- [x] FilesPage: breadcrumbs, folder navigation, drag-and-drop upload, downloads
+- [ ] Chunked/resumable large uploads
+- [ ] Copy/move jobs, rename, trash-first delete, cross-drive operations
+- [ ] Index-backed listings (SQLite) for >50ms-scale performance
+
+## M3..M11 — Not started
+See the final plan in the project memory / chat. Next: chunked uploads + jobs.

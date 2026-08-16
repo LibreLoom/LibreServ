@@ -49,7 +49,7 @@ struct AdoptBody {
     label: String,
 }
 
-pub fn router(state: AppState) -> Router {
+pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/drives", get(list))
         .route("/api/v1/drives/detected", get(detected))
@@ -57,7 +57,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/drives/{name}/adopt", post(adopt))
         .route("/api/v1/drives/{name}/dismiss", post(dismiss))
         .route("/api/v1/drives/{id}/eject", post(eject))
-        .with_state(state)
 }
 
 async fn list(
@@ -72,9 +71,13 @@ async fn list(
     Ok(Json(rows.into_iter().map(Into::into).collect()))
 }
 
-async fn detected() -> Json<Vec<DetectedDriveJson>> {
+async fn detected(State(state): State<AppState>) -> Json<Vec<DetectedDriveJson>> {
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
     let drives = crate::detect::scan(std::path::Path::new("/sys/block"), &mounts);
+    // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is.
+    let _ = with_db(&state.db, |conn| {
+        state.drive_manager.reconcile(conn, &drives)
+    });
     Json(
         drives
             .into_iter()

@@ -1,7 +1,7 @@
 use axum::{Json, Router, routing::get};
 use serde_json::{Value, json};
 
-pub fn router() -> Router {
+pub fn router() -> Router<crate::AppState> {
     Router::new()
         .route("/health", get(health))
         .route("/api/v1/health", get(health))
@@ -27,9 +27,16 @@ fn uptime() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use crate::{AppState, db};
+
     #[tokio::test]
     async fn health_shape() {
-        let router = super::router();
+        let dir = tempfile::tempdir().unwrap();
+        let conn = db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let router = super::router().with_state(AppState::new(conn, drive_manager));
         let response = tower::ServiceExt::oneshot(
             router,
             axum::http::Request::builder()

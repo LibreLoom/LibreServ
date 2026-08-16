@@ -6,8 +6,11 @@ use axum::Router;
 
 use crate::AppState;
 
-pub fn router(state: AppState) -> Router {
+pub mod files;
+
+pub fn router() -> Router<AppState> {
     Router::new()
         .merge(health::router())
-        .merge(drives::router(state))
+        .merge(drives::router())
+        .merge(files::router())
 }

@@ -22,10 +22,17 @@ async fn main() -> anyhow::Result<()> {
         std::sync::Arc::new(CommandMounter),
         &cfg.data_dir,
     ));
+    {
+        let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
+        let detected = lunad::detect::scan(std::path::Path::new("/sys/block"), &mounts);
+        drive_manager.reconcile(&conn, &detected)?;
+    }
     let state = AppState::new(conn, drive_manager);
 
     let app = axum::Router::new()
-        .merge(api::router(state))
+        .merge(api::router())
+        .merge(lunad::dav::router())
+        .with_state(state)
         .fallback(axum::routing::get(|uri: axum::http::Uri| async move {
             lunad::staticweb::handle(uri.path())
         }));

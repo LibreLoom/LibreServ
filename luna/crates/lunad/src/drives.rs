@@ -148,6 +148,26 @@ impl DriveManager {
         Ok(())
     }
 
+    /// Reconcile the registry with reality.
+    ///
+    /// Adopted drives that disappeared become `missing`; drives that come back
+    /// become `as_is` again. Ejected drives stay ejected until they return.
+    pub fn reconcile(&self, conn: &Connection, detected: &[DetectedDrive]) -> anyhow::Result<()> {
+        for row in db::list_drives(conn)? {
+            let present = detected.iter().any(|d| d.name == row.device);
+            match row.state.as_str() {
+                "as_is" | "readonly" if !present => {
+                    db::set_drive_state(conn, &row.id, "missing")?;
+                }
+                "missing" | "ejected" if present => {
+                    db::set_drive_state(conn, &row.id, "as_is")?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Stop looking at a foreign drive Luna mounted for inspection.
     pub fn dismiss_foreign(&self, device_name: &str) -> anyhow::Result<()> {
         let target = self.foreign_mount_point(device_name);
@@ -265,6 +285,32 @@ mod tests {
             "ejected"
         );
         assert_eq!(mounter.unmounts.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reconcile_marks_missing_and_restores_on_return() {
+        let mounter = shared_mock();
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path();
+        let conn = db::open(&dir.join("luna.db")).unwrap();
+        let mgr = DriveManager::new(mounter, dir);
+        let row = mgr
+            .adopt(&conn, &detected("sdz", None), "Backup Drive")
+            .unwrap();
+
+        // Drive gone.
+        mgr.reconcile(&conn, &[]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "missing"
+        );
+
+        // Drive back.
+        mgr.reconcile(&conn, &[detected("sdz", None)]).unwrap();
+        assert_eq!(
+            db::get_drive(&conn, &row.id).unwrap().unwrap().state,
+            "as_is"
+        );
     }
 
     #[test]

@@ -48,6 +48,11 @@ function AdoptedCard({ drive }) {
       <p className="text-primary text-sm">
         Connected as {drive.device} · {drive.fs_type || "drive"}
       </p>
+      <div className="mt-3">
+        <Button size="sm" variant="outline" asChild>
+          <a href={`/drives/${drive.id}`}>Open files</a>
+        </Button>
+      </div>
     </Card>
   );
 }
