@@ -145,5 +145,18 @@
 - [ ] Tray icon/status + installers (bundle step) — polish pass
 - [ ] Real-machine mount/backup soak test
 
-## M10..M11 — Not started
-See the final plan in the project memory / chat. Next: M10 photo gallery.
+## M10 — Photo gallery (DONE first pass)
+- [x] Gallery scanner: walks adopted drives for jpg/jpeg/png/gif, records
+      size/mtime/dimensions in the `photos` table (symlinks skipped)
+- [x] Thumbnails: 400px JPEG generated once with the pure-Rust image crate,
+      cached under the data dir, served immutable; originals untouched
+- [x] API: POST /api/v1/gallery/scan (background), GET /api/v1/gallery
+      (timeline, grant-checked), GET /api/v1/gallery/thumb (lazy + cached)
+- [x] Photos page (/gallery): drive picker, masonry grid, lazy images, links
+      to originals
+- [ ] libvips/HEIC path + EXIF dates/albums/face search (future polish)
+
+## M11 — Polish (NOT STARTED)
+See the final plan in the project memory / chat. Remaining after M10: M11
+polish + optional AP-mode hotspot, BlueZ BLE transport, "Shared with me"
+view, tray icon/installers, full-disk detection, physical 5-unit rehearsal.

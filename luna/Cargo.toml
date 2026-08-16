@@ -16,6 +16,7 @@ axum = { version = "0.8", features = ["multipart", "macros"] }
 base64 = "0.22"
 blake3 = "1"
 getrandom = "0.2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }
 include_dir = "0.7"
 jsonwebtoken = "9"
 mime_guess = "2"

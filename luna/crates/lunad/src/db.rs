@@ -110,6 +110,17 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             hash TEXT NOT NULL,
             verified_at INTEGER NOT NULL,
             PRIMARY KEY (drive_id, path)
+        );
+        CREATE TABLE IF NOT EXISTS photos (
+            drive_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            name TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            mtime INTEGER NOT NULL,
+            width INTEGER NOT NULL DEFAULT 0,
+            height INTEGER NOT NULL DEFAULT 0,
+            thumb TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (drive_id, path)
         );",
     )?;
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;

@@ -5,6 +5,7 @@ import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
+import GalleryPage from "./pages/GalleryPage";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RemotePage from "./pages/RemotePage";
@@ -39,6 +40,7 @@ export default function App() {
               <Route path="/" element={<RequireAuth><LandingPage /></RequireAuth>} />
               <Route path="/drives" element={<RequireAuth><DrivesPage /></RequireAuth>} />
               <Route path="/drives/:id" element={<RequireAuth><FilesPage /></RequireAuth>} />
+              <Route path="/gallery" element={<RequireAuth><GalleryPage /></RequireAuth>} />
               <Route path="/settings/users" element={<RequireAuth><UsersPage /></RequireAuth>} />
               <Route path="/settings/shares" element={<RequireAuth><SharesPage /></RequireAuth>} />
               <Route path="/settings/remote" element={<RequireAuth><RemotePage /></RequireAuth>} />

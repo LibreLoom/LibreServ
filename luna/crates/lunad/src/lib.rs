@@ -8,6 +8,7 @@ pub mod db;
 pub mod detect;
 pub mod drives;
 pub mod files;
+pub mod gallery;
 pub mod index;
 pub mod jobs;
 pub mod mount;
@@ -38,6 +39,7 @@ pub struct AppState {
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
+    pub thumb_dir: std::path::PathBuf,
 }
 
 impl AppState {
@@ -65,6 +67,7 @@ impl AppState {
                 std::time::Duration::from_secs(300),
                 10,
             )),
+            thumb_dir: std::path::PathBuf::from("/var/lib/luna/thumbs"),
         }
     }
 
@@ -75,6 +78,11 @@ impl AppState {
 
     pub fn with_connect(mut self, connect: Arc<crate::connect::ConnectService>) -> Self {
         self.connect = connect;
+        self
+    }
+
+    pub fn with_thumb_dir(mut self, thumb_dir: std::path::PathBuf) -> Self {
+        self.thumb_dir = thumb_dir;
         self
     }
 }

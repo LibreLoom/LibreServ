@@ -63,7 +63,8 @@ async fn main() -> anyhow::Result<()> {
     ));
     let state = AppState::new(conn, drive_manager)
         .with_wifi(wifi)
-        .with_connect(connect);
+        .with_connect(connect)
+        .with_thumb_dir(cfg.data_dir.join("thumbs"));
 
     let health_db = state.db.clone();
     let health_drives = state.drive_manager.clone();
