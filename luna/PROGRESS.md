@@ -28,7 +28,7 @@
 - [x] Reconcile missing/ejected drives on startup and on each detection poll
 - [ ] Read-only/failed transitions from I/O errors and full-disk detection
 
-## M2 — Write path + WebDAV (IN PROGRESS)
+## M2 — Write path + WebDAV (COMPLETE except index listings, deferred to M7)
 - [x] Path-jailed directory listing (`GET /api/v1/drives/{id}/files?path=`)
 - [x] Streaming downloads with ETag/304, Range/206, content disposition
       (`GET /api/v1/drives/{id}/files/content`)
@@ -41,8 +41,9 @@
       chunks, restart recovery, verify + atomic install)
 - [x] Rename (never overwrites) + trash-first delete (`.luna-trash` same-drive
       atomic rename)
-- [ ] Copy/move jobs + cross-drive operations
-- [ ] Index-backed listings (SQLite) for >50ms-scale performance
+- [x] Copy/move job queue: SQLite-persisted progress, background thread pool,
+      cancellation, conflict rejection, move = verified copy then trash source
+- [ ] Index-backed listings (SQLite) — moved to M7 performance hardening
 
 ## M3..M11 — Not started
-See the final plan in the project memory / chat. Next: chunked uploads + jobs.
+See the final plan in the project memory / chat. Next: M3 setup wizard, connection/Wi-Fi step, BLE bootstrap.

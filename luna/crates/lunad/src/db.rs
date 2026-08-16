@@ -175,6 +175,105 @@ pub fn get_meta(conn: &Connection, key: &str) -> anyhow::Result<Option<String>> 
         .flatten())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JobRow {
+    pub id: String,
+    pub kind: String,
+    pub state: String,
+    pub from_drive: String,
+    pub from_path: String,
+    pub to_drive: String,
+    pub to_path: String,
+    pub progress: u64,
+    pub total: u64,
+    pub error: String,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn insert_job(
+    conn: &Connection,
+    id: &str,
+    kind: &str,
+    from_drive: &str,
+    from_path: &str,
+    to_drive: &str,
+    to_path: &str,
+    total: u64,
+) -> anyhow::Result<()> {
+    let now = now_unix();
+    conn.execute(
+        "INSERT INTO jobs (id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, created_at, updated_at)
+         VALUES (?1, ?2, 'running', ?3, ?4, ?5, ?6, 0, ?7, ?8, ?8)",
+        params![id, kind, from_drive, from_path, to_drive, to_path, total as i64, now],
+    )?;
+    Ok(())
+}
+
+pub fn get_job(conn: &Connection, id: &str) -> anyhow::Result<Option<JobRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error
+         FROM jobs WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![id], |row| {
+        Ok(JobRow {
+            id: row.get(0)?,
+            kind: row.get(1)?,
+            state: row.get(2)?,
+            from_drive: row.get(3)?,
+            from_path: row.get(4)?,
+            to_drive: row.get(5)?,
+            to_path: row.get(6)?,
+            progress: row.get::<_, i64>(7)? as u64,
+            total: row.get::<_, i64>(8)? as u64,
+            error: row.get(9)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn list_jobs(conn: &Connection, limit: i64) -> anyhow::Result<Vec<JobRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, kind, state, from_drive, from_path, to_drive, to_path, progress, total, error
+         FROM jobs ORDER BY created_at DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit], |row| {
+        Ok(JobRow {
+            id: row.get(0)?,
+            kind: row.get(1)?,
+            state: row.get(2)?,
+            from_drive: row.get(3)?,
+            from_path: row.get(4)?,
+            to_drive: row.get(5)?,
+            to_path: row.get(6)?,
+            progress: row.get::<_, i64>(7)? as u64,
+            total: row.get::<_, i64>(8)? as u64,
+            error: row.get(9)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn update_job_progress(
+    conn: &Connection,
+    id: &str,
+    progress: u64,
+    total: u64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE jobs SET progress = ?2, total = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, progress as i64, total as i64, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn set_job_state(conn: &Connection, id: &str, state: &str, error: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE jobs SET state = ?2, error = ?3, updated_at = ?4 WHERE id = ?1",
+        params![id, state, error, now_unix()],
+    )?;
+    Ok(())
+}
+
 pub fn set_meta(conn: &Connection, key: &str, value: &str) -> anyhow::Result<()> {
     conn.execute(
         "INSERT INTO meta (key, value) VALUES (?1, ?2)

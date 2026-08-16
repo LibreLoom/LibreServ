@@ -102,8 +102,8 @@ pub fn list_dir(
     Ok(entries)
 }
 
-/// Resolve a file for download/streaming, returning its path and metadata.
-pub fn file_path(
+/// Resolve any existing path (file or directory) inside a drive.
+pub fn resolve_any(
     conn: &rusqlite::Connection,
     drive_id: &str,
     rel: &str,
@@ -112,6 +112,16 @@ pub fn file_path(
     let root = PathBuf::from(&drive.mount_point);
     let path = resolve_child(&root, rel)?;
     let meta = std::fs::metadata(&path).map_err(FilesError::Io)?;
+    Ok((path, meta))
+}
+
+/// Resolve a file for download/streaming, returning its path and metadata.
+pub fn file_path(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    rel: &str,
+) -> Result<(PathBuf, std::fs::Metadata), FilesError> {
+    let (path, meta) = resolve_any(conn, drive_id, rel)?;
     if !meta.is_file() {
         return Err(FilesError::Io(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

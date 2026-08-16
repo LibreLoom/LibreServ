@@ -5,6 +5,7 @@ pub mod db;
 pub mod detect;
 pub mod drives;
 pub mod files;
+pub mod jobs;
 pub mod mount;
 pub mod staticweb;
 pub mod uploads;
@@ -22,14 +23,18 @@ pub type DavHandler = dav_server::DavHandler;
 pub struct AppState {
     pub db: Arc<Mutex<Connection>>,
     pub drive_manager: Arc<DriveManager>,
+    pub job_manager: Arc<crate::jobs::JobManager>,
     pub dav_handlers: Arc<Mutex<HashMap<String, DavHandler>>>,
 }
 
 impl AppState {
     pub fn new(conn: Connection, drive_manager: Arc<DriveManager>) -> Self {
+        let db = Arc::new(Mutex::new(conn));
+        let job_manager = Arc::new(crate::jobs::JobManager::new(db.clone()));
         Self {
-            db: Arc::new(Mutex::new(conn)),
+            db,
             drive_manager,
+            job_manager,
             dav_handlers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
