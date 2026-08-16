@@ -117,5 +117,20 @@
 - [x] Listing benchmark: 10,000 files served from SQLite in ~22ms (<50ms target)
 - [ ] Full-disk detection in write paths
 
-## M8..M11 — Not started
-See the final plan in the project memory / chat. Next: M8 OS image + flash pipeline.
+## M8 — OS image + flash pipeline (DONE first pass)
+- [x] `os/build-rootfs.sh`: Alpine 3.24 rootfs via podman/apk (alpine-base,
+      openrc, avahi, wpa_supplicant, hostapd, bluez, e2fsprogs, exfatprogs,
+      ntfs-3g-progs, smartmontools, syslinux, dhcpcd, util-linux), OpenRC
+      services for sysinit/boot/default (lunad, avahi, wpa_supplicant),
+      luna-net-fallback (169.254.42.42 direct-cable), musl release lunad
+- [x] `os/make-image.sh`: raw 1.2 GB ext4 image labeled LUNA from the rootfs
+      (verified: debugfs shows /usr/local/bin/lunad + hostname)
+- [x] `os/flash.sh`: whole-disk-only, double confirmation, MBR + ext4 +
+      extract + extlinux bootloader install
+- [x] `os/REHEARSAL.md`: 5-unit rehearsal checklist (materials, flash, first
+      boot, setup, storage safety, links, remote, reliability, ship)
+- [x] Built rootfs booted in a container: lunad served /health
+- [ ] Flash a physical Wyse 5020 with `os/flash.sh` and run the rehearsal
+
+## M9..M11 — Not started
+See the final plan in the project memory / chat. Next: M9 Luna Desktop.

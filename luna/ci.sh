@@ -21,6 +21,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 echo "==> cargo test"
 cargo test --workspace
 
+echo "==> os scripts"
+sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh
+
 echo "==> mobile unit tests"
 (
   cd mobile

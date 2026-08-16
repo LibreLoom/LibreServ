@@ -5,3 +5,5 @@
 *.db
 *.db-wal
 *.db-shm
+/os/work
+/os/dist
