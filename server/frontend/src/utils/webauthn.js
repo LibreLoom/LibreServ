@@ -16,7 +16,7 @@ export function bufToB64url(buf) {
 }
 
 /** base64url string → ArrayBuffer (for decoding backend challenge/credential bytes). */
-export function b64urlToBuf(b64url) {
+function b64urlToBuf(b64url) {
   const b64 = String(b64url).replace(/-/g, "+").replace(/_/g, "/");
   const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
   const bin = atob(padded);

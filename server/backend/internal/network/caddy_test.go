@@ -66,13 +66,12 @@ func TestCaddyManager_Mode(t *testing.T) {
 		mode     string
 		wantMode string
 		enabled  bool
-		disabled bool
 	}{
-		{"enabled", "enabled", "enabled", true, false},
-		{"noop", "noop", "noop", false, true},
-		{"disabled", "disabled", "disabled", false, true},
-		{"empty defaults to disabled", "", "disabled", false, true},
-		{"uppercase normalized", "ENABLED", "enabled", true, false},
+		{"enabled", "enabled", "enabled", true},
+		{"noop", "noop", "noop", false},
+		{"disabled", "disabled", "disabled", false},
+		{"empty defaults to disabled", "", "disabled", false},
+		{"uppercase normalized", "ENABLED", "enabled", true},
 	}
 
 	for _, tt := range tests {
@@ -84,9 +83,6 @@ func TestCaddyManager_Mode(t *testing.T) {
 			}
 			if got := cm.isEnabled(); got != tt.enabled {
 				t.Errorf("isEnabled() = %v, want %v", got, tt.enabled)
-			}
-			if got := cm.isDisabled(); got != tt.disabled {
-				t.Errorf("isDisabled() = %v, want %v", got, tt.disabled)
 			}
 		})
 	}
@@ -275,9 +271,9 @@ func TestCaddyManager_GenerateCaddyfile(t *testing.T) {
 	}
 
 	// Generate Caddyfile
-	content, err := cm.generateCaddyfile()
+	content, err := cm.generateCaddyfileLocked()
 	if err != nil {
-		t.Fatalf("generateCaddyfile() failed: %v", err)
+		t.Fatalf("generateCaddyfileLocked() failed: %v", err)
 	}
 
 	// Check content contains expected elements

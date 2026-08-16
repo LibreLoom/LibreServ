@@ -369,11 +369,6 @@ func decompressBz2(bz2Path string) error {
 	return nil
 }
 
-func IsAvailable() bool {
-	_, err := FindBinary()
-	return err == nil
-}
-
 type Snapshot struct {
 	ID       string    `json:"id"`
 	Time     time.Time `json:"time"`

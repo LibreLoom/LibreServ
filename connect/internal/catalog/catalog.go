@@ -22,13 +22,6 @@ type Limits struct {
 	TunnelGBPerMo    int    `json:"tunnel_gb_per_mo"`
 }
 
-// Overage rates — what the customer pays beyond included allowance.
-type Overage struct {
-	BackupPerTBMonth float64 // USD per TB/month
-	SMTPPerEmail     float64 // USD per email
-	AIAtCost         bool    // charged at actual provider cost
-}
-
 // ServiceCost holds verified upstream costs (from PLAN.md §2).
 type ServiceCost struct {
 	BackupStoragePerTBMonth float64 // Backblaze B2: $6.95
@@ -99,25 +92,6 @@ var Costs = ServiceCost{
 	ReviewOutputPerMToken:   0.80,
 }
 
-// Overage rates per plan.
-var overageRates = map[string]Overage{
-	"free": {
-		BackupPerTBMonth: 0, // not available
-		SMTPPerEmail:     0,
-		AIAtCost:         false,
-	},
-	"lite": {
-		BackupPerTBMonth: 7.50, // cost + small markup
-		SMTPPerEmail:     0.001,
-		AIAtCost:         true,
-	},
-	"one": {
-		BackupPerTBMonth: 6.95, // you-pay-what-we-pay
-		SMTPPerEmail:     0.001,
-		AIAtCost:         true,
-	},
-}
-
 // Plans returns all plan definitions.
 func Plans() []Plan {
 	return plans
@@ -133,25 +107,10 @@ func PlanByID(id string) *Plan {
 	return nil
 }
 
-// OverageFor returns the overage rates for a plan.
-func OverageFor(planID string) Overage {
-	if o, ok := overageRates[planID]; ok {
-		return o
-	}
-	return overageRates["free"]
-}
-
 // LimitsJSON returns the plan limits as a JSON string for DB storage.
 func (l Limits) JSON() string {
 	b, _ := json.Marshal(l)
 	return string(b)
-}
-
-// ParseLimits deserializes limits from JSON.
-func ParseLimits(jsonStr string) Limits {
-	var l Limits
-	_ = json.Unmarshal([]byte(jsonStr), &l)
-	return l
 }
 
 // PlanName returns the human-readable name for a plan ID.

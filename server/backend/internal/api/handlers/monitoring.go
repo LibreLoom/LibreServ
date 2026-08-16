@@ -86,12 +86,6 @@ func (ft *FailureTracker) RecordSuccess(checkName string) {
 	ft.failureCounts[checkName] = 0
 }
 
-func (ft *FailureTracker) GetCount(checkName string) int {
-	ft.mu.RLock()
-	defer ft.mu.RUnlock()
-	return ft.failureCounts[checkName]
-}
-
 func (ft *FailureTracker) CanAlert(checkName string) bool {
 	ft.mu.RLock()
 	defer ft.mu.RUnlock()

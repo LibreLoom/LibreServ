@@ -129,68 +129,6 @@ func GetAllSigningKeys(db *database.DB) ([]*publicKey, error) {
 	return keys, rows.Err()
 }
 
-// RotateSigningKey creates a new RSA key and marks the current one as non-current.
-// The whole operation runs in a single transaction and the old key is only
-// demoted AFTER the new key is inserted, so there is never a window with zero
-// current keys (and the single-current unique index is never violated).
-func RotateSigningKey(db *database.DB, encryptionKey string) (*signingKey, error) {
-	sqlDB := db.SQL()
-
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, fmt.Errorf("generate rsa key: %w", err)
-	}
-
-	newKeyID := uuid.NewString()
-	newPublicPEM, err := encodePublicKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("encode public key: %w", err)
-	}
-
-	privatePEM, err := encodePrivateKey(key)
-	if err != nil {
-		return nil, fmt.Errorf("encode private key: %w", err)
-	}
-
-	encryptedPEM, err := encryptPEM(privatePEM, encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("encrypt private key: %w", err)
-	}
-
-	tx, err := sqlDB.BeginTx(context.Background(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin rotation tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Demote the old current key, then insert the new one — both inside one
-	// transaction so concurrent readers (and the single-current unique index)
-	// never observe a zero-current or two-current window.
-	if _, err := tx.ExecContext(context.Background(),
-		`UPDATE oidc_signing_keys SET is_current = 0 WHERE is_current = 1`,
-	); err != nil {
-		return nil, fmt.Errorf("update current keys: %w", err)
-	}
-
-	if _, err := tx.ExecContext(context.Background(),
-		`INSERT INTO oidc_signing_keys (id, key_pem, public_pem, algorithm, is_current)
-		 VALUES (?, ?, ?, 'RS256', 1)`,
-		newKeyID, encryptedPEM, newPublicPEM,
-	); err != nil {
-		return nil, fmt.Errorf("insert signing key: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit rotation tx: %w", err)
-	}
-
-	return &signingKey{
-		id:        newKeyID,
-		algorithm: jose.RS256,
-		privKey:   key,
-	}, nil
-}
-
 // ---- Key encoding helpers ----
 
 func encodePrivateKey(key *rsa.PrivateKey) ([]byte, error) {

@@ -388,13 +388,13 @@ func (h *ConnectHandler) Info(w http.ResponseWriter, r *http.Request) {
 
 func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.ServiceID, creds *connect.ProvisionedCredentials) error {
 	if h.settingsService == nil {
-		return fmt.Errorf("Settings service is not available.")
+		return fmt.Errorf("settings service is not available")
 	}
 
 	switch svcID {
 	case connect.ServiceSMTP:
 		if creds.SMTP == nil {
-			return fmt.Errorf("Connect did not send any email credentials.")
+			return fmt.Errorf("connect did not send any email credentials")
 		}
 		if smtpValidator != nil {
 			cfg := config.SMTPConfig{
@@ -406,7 +406,7 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 				UseTLS:   creds.SMTP.UseTLS,
 			}
 			if err := smtpValidator(cfg); err != nil {
-				return fmt.Errorf("Could not connect to your email provider. Check that the server address and port are correct.")
+				return fmt.Errorf("could not connect to your email provider. Check that the server address and port are correct")
 			}
 		}
 		return h.settingsService.UpdateSettings(ctx, map[string]interface{}{
@@ -422,14 +422,14 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 
 	case connect.ServiceDomain:
 		if creds.Domain == nil {
-			return fmt.Errorf("Connect did not send any domain credentials.")
+			return fmt.Errorf("connect did not send any domain credentials")
 		}
 		domain := creds.Domain.Domain
 		if domain == "" {
-			return fmt.Errorf("Connect did not send a domain name.")
+			return fmt.Errorf("connect did not send a domain name")
 		}
 		if err := validateDomain(domain); err != nil {
-			return fmt.Errorf("The domain name provided by Connect isn't valid.")
+			return fmt.Errorf("the domain name provided by Connect isn't valid")
 		}
 		autoHTTPS := creds.Domain.AutoHTTPS
 		if err := h.settingsService.UpdateSettings(ctx, map[string]interface{}{
@@ -442,24 +442,24 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 		}
 		if h.caddyManager != nil {
 			if err := h.caddyManager.UpdateDefaults(domain, "", autoHTTPS); err != nil {
-				return fmt.Errorf("Could not apply the domain to your web server.")
+				return fmt.Errorf("could not apply the domain to your web server")
 			}
 		}
 		return nil
 
 	case connect.ServiceBackup:
 		if creds.Backup == nil {
-			return fmt.Errorf("Connect did not send any backup credentials.")
+			return fmt.Errorf("connect did not send any backup credentials")
 		}
 		if h.backupService == nil {
-			return fmt.Errorf("Backup service is not available.")
+			return fmt.Errorf("backup service is not available")
 		}
 		if ok, err := h.backupService.ProvisionRestic(); err != nil || !ok {
-			return fmt.Errorf("Could not set up the backup tool.")
+			return fmt.Errorf("could not set up the backup tool")
 		}
 		envJSON, err := json.Marshal(creds.Backup.Env)
 		if err != nil {
-			return fmt.Errorf("Could not prepare the backup credentials.")
+			return fmt.Errorf("could not prepare the backup credentials")
 		}
 		now := time.Now()
 		repo := &storage.BackupRepository{
@@ -473,21 +473,21 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 			UpdatedAt:   now,
 		}
 		if err := h.backupService.CreateRepository(ctx, repo); err != nil {
-			return fmt.Errorf("Could not save the backup repository.")
+			return fmt.Errorf("could not save the backup repository")
 		}
 	case connect.ServiceTunnel:
 		if creds.Tunnel == nil {
-			return fmt.Errorf("Connect did not send any tunnel credentials.")
+			return fmt.Errorf("connect did not send any tunnel credentials")
 		}
 		if creds.Tunnel.TunnelToken == "" {
-			return fmt.Errorf("Connect did not send a tunnel token.")
+			return fmt.Errorf("connect did not send a tunnel token")
 		}
 		if h.tunnelService == nil {
-			return fmt.Errorf("Tunnel service is not available on this server.")
+			return fmt.Errorf("tunnel service is not available on this server")
 		}
 		// Enable the tunnel with the Connect-provisioned token and start cloudflared.
 		if err := h.tunnelService.Enable(network.TunnelProviderCloudflare, creds.Tunnel.TunnelToken); err != nil {
-			return fmt.Errorf("Could not configure the tunnel service.")
+			return fmt.Errorf("could not configure the tunnel service")
 		}
 		// Persist to the database (never the config file) so the tunnel
 		// survives a restart without touching libreserv.yaml.
@@ -497,13 +497,13 @@ func (h *ConnectHandler) applyCredentials(ctx context.Context, svcID connect.Ser
 			}
 		}
 		if err := h.tunnelService.Start(context.Background()); err != nil {
-			return fmt.Errorf("The tunnel was configured but could not be started. Check your network connection and try again from Settings.")
+			return fmt.Errorf("the tunnel was configured but could not be started. Check your network connection and try again from Settings")
 		}
 		return nil
 
 	case connect.ServiceAI:
 		if creds.AI == nil {
-			return fmt.Errorf("Connect did not send any AI assistant credentials.")
+			return fmt.Errorf("connect did not send any AI assistant credentials")
 		}
 		return h.settingsService.UpdateSettings(ctx, map[string]interface{}{
 			"ai_support": map[string]interface{}{

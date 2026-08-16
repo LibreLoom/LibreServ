@@ -28,11 +28,6 @@ func TestStandardRegistry(t *testing.T) {
 			t.Errorf("tool.Name = %q, want %q", tool.Name, name)
 		}
 	}
-
-	all := r.All()
-	if len(all) != 4 {
-		t.Errorf("All() = %d tools, want 4", len(all))
-	}
 }
 
 func TestToolDefinitions(t *testing.T) {

@@ -43,35 +43,6 @@ func (s *Service) GetBalance(deviceID string) (int, error) {
 	return balance, err
 }
 
-// AddCredit adds credit to a device's account and records the transaction.
-func (s *Service) AddCredit(deviceID string, amountCents int, reason, referenceID string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if err := s.EnsureAccountCredits(deviceID); err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(
-		`UPDATE account_credits SET balance_cents = balance_cents + $1, updated_at = $2 WHERE device_id = $3`,
-		amountCents, time.Now(), deviceID)
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec(
-		`INSERT INTO credit_transactions (device_id, amount_cents, direction, reason, reference_id) VALUES ($1, $2, 'credit', $3, $4)`,
-		deviceID, amountCents, reason, referenceID)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
 // DeductCredit subtracts credit and records the transaction. Returns error if insufficient balance.
 func (s *Service) DeductCredit(deviceID string, amountCents int, reason, referenceID string) error {
 	tx, err := s.db.Begin()
@@ -218,15 +189,6 @@ func (s *Service) GetAggregatedUsage() (map[string]float64, error) {
 	}
 
 	return result, nil
-}
-
-// CreateInvoice creates an invoice record for a billing period.
-func (s *Service) CreateInvoice(deviceID string, amountCents int, periodStart, periodEnd time.Time, stripeInvoiceID string) error {
-	_, err := s.db.Exec(
-		`INSERT INTO invoices (id, device_id, stripe_invoice_id, status, amount_cents, period_start, period_end)
-		 VALUES ($1, $2, $3, 'open', $4, $5, $6)`,
-		security.GenerateID("inv"), deviceID, stripeInvoiceID, amountCents, periodStart, periodEnd)
-	return err
 }
 
 // CheckQuota checks if a device has remaining quota for a service.

@@ -149,7 +149,7 @@ function toVibratePattern(vibrations, defaultIntensity) {
   return result;
 }
 
-export function isHapticsEnabled() {
+function isHapticsEnabled() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     return stored === null ? true : JSON.parse(stored);
@@ -185,7 +185,7 @@ export function useHapticsEnabled() {
  * Whether the Vibration API is available on this platform.
  * True on Android Chrome; false on iOS Safari and desktop Safari.
  */
-export const isHapticsSupported =
+const isHapticsSupported =
   typeof navigator !== "undefined" && typeof navigator.vibrate === "function";
 
 /**

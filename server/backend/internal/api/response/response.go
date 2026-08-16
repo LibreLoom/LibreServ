@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/errors"
 )
 
 // Response represents a standardized API response
@@ -46,64 +44,12 @@ func JSONError(w http.ResponseWriter, status int, message string) {
 	JSON(w, status, map[string]string{"error": message})
 }
 
-// JSONErrorWithCode writes a JSON error response with error code
-func JSONErrorWithCode(w http.ResponseWriter, status int, code, message string) {
-	JSON(w, status, Response{
-		Success: false,
-		Error: &ErrorInfo{
-			Code:    code,
-			Message: message,
-		},
-	})
-}
-
-// JSONErrorFromAppError writes a JSON error response from an AppError
-func JSONErrorFromAppError(w http.ResponseWriter, appErr *errors.AppError) {
-	resp := Response{
-		Success: false,
-		Error: &ErrorInfo{
-			Code:    string(appErr.Code),
-			Message: appErr.Message,
-		},
-	}
-
-	if len(appErr.Details) > 0 {
-		resp.Error.Details = appErr.Details
-	}
-
-	JSON(w, appErr.StatusCode, resp)
-}
-
-// JSONSuccess writes a successful JSON response
-func JSONSuccess(w http.ResponseWriter, data interface{}) {
-	JSON(w, http.StatusOK, Response{
-		Success: true,
-		Data:    data,
-	})
-}
-
 // JSONCreated writes a successful creation response
 func JSONCreated(w http.ResponseWriter, data interface{}) {
 	JSON(w, http.StatusCreated, Response{
 		Success: true,
 		Data:    data,
 	})
-}
-
-// JSONNoContent writes a 204 No Content response
-func JSONNoContent(w http.ResponseWriter) {
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// HandleError handles an error and writes appropriate response
-func HandleError(w http.ResponseWriter, err error) {
-	if appErr, ok := errors.IsAppError(err); ok {
-		JSONErrorFromAppError(w, appErr)
-		return
-	}
-
-	// Fall back to generic error
-	JSONError(w, http.StatusInternalServerError, "An unexpected error occurred")
 }
 
 // Unauthorized writes an unauthorized error response
@@ -134,41 +80,6 @@ func Forbidden(w http.ResponseWriter, message string) {
 	})
 }
 
-// BadRequest writes a bad request error response
-func BadRequest(w http.ResponseWriter, message string) {
-	JSONError(w, http.StatusBadRequest, message)
-}
-
-// NotFound writes a not found error response
-func NotFound(w http.ResponseWriter, resourceType, identifier string) {
-	JSON(w, http.StatusNotFound, Response{
-		Success: false,
-		Error: &ErrorInfo{
-			Code:    "NOT_FOUND",
-			Message: "The requested resource was not found",
-			Details: map[string]interface{}{
-				"resource_type": resourceType,
-				"identifier":    identifier,
-			},
-		},
-	})
-}
-
-// ValidationError writes a validation error response
-func ValidationError(w http.ResponseWriter, field, message string) {
-	JSON(w, http.StatusBadRequest, Response{
-		Success: false,
-		Error: &ErrorInfo{
-			Code:    "VALIDATION_ERROR",
-			Message: "Validation failed",
-			Details: map[string]interface{}{
-				"field":   field,
-				"message": message,
-			},
-		},
-	})
-}
-
 // RateLimitExceeded writes a rate limit error response
 func RateLimitExceeded(w http.ResponseWriter, retryAfter int) {
 	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
@@ -182,12 +93,4 @@ func RateLimitExceeded(w http.ResponseWriter, retryAfter int) {
 			},
 		},
 	})
-}
-
-// ServerError writes an internal server error response
-func ServerError(w http.ResponseWriter, message string) {
-	if message == "" {
-		message = "An unexpected error occurred"
-	}
-	JSONError(w, http.StatusInternalServerError, message)
 }

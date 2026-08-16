@@ -36,14 +36,3 @@ export function formatDateLong(dateInput, use12Hour = false) {
   const timeStr = formatTime(date, use12Hour);
   return `${dateStr} ${timeStr}`;
 }
-
-export function formatDateOnly(dateInput) {
-  if (!dateInput) return "Unknown";
-  const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
-  if (isNaN(date.getTime())) return "Unknown";
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}

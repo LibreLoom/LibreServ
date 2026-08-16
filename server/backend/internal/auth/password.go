@@ -86,27 +86,6 @@ func VerifyPassword(hash, password string) error {
 	return nil
 }
 
-// GenerateSecurePassword generates a cryptographically secure random password
-func GenerateSecurePassword(length int) (string, error) {
-	if length < MinPasswordLength {
-		length = MinPasswordLength
-	}
-
-	// Generate random bytes
-	bytes := make([]byte, length)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-
-	// Use URL-safe base64 encoding and trim to desired length
-	password := base64.URLEncoding.EncodeToString(bytes)
-	if len(password) > length {
-		password = password[:length]
-	}
-
-	return password, nil
-}
-
 // GenerateSecureKey generates a cryptographically secure random key (e.g., for JWT secret)
 func GenerateSecureKey(length int) (string, error) {
 	bytes := make([]byte, length)

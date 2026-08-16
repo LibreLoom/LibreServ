@@ -276,12 +276,3 @@ func (rs *RenewalScheduler) getCertificateInfo(ctx context.Context, domain strin
 
 	return nil, nil // No certificate found
 }
-
-// GetStats returns scheduler statistics
-func (rs *RenewalScheduler) GetStats() map[string]interface{} {
-	return map[string]interface{}{
-		"enabled":           rs.enabled,
-		"interval":          rs.interval.String(),
-		"renewal_threshold": rs.renewalThreshold.String(),
-	}
-}

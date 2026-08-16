@@ -61,7 +61,7 @@ type registrarSearchResponse struct {
 // SearchDomains searches for available domains matching a query.
 func (c *RegistrarClient) SearchDomains(accountID, apiToken, query string, limit int) ([]DomainResult, error) {
 	if accountID == "" || apiToken == "" {
-		return nil, fmt.Errorf("Cloudflare account ID and API token are required")
+		return nil, fmt.Errorf("cloudflare account ID and API token are required")
 	}
 	if query == "" {
 		return nil, fmt.Errorf("search query is required")
@@ -85,7 +85,7 @@ func (c *RegistrarClient) SearchDomains(accountID, apiToken, query string, limit
 		return nil, fmt.Errorf("could not search domains: %w", err)
 	}
 	if !resp.Success && len(resp.Errors) > 0 {
-		return nil, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return nil, fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 
 	results := make([]DomainResult, 0, len(resp.Result.Domains))
@@ -124,7 +124,7 @@ type registrarCheckResponse struct {
 // Always call this before RegisterDomain.
 func (c *RegistrarClient) CheckDomain(accountID, apiToken, domain string) (*DomainResult, error) {
 	if accountID == "" || apiToken == "" {
-		return nil, fmt.Errorf("Cloudflare account ID and API token are required")
+		return nil, fmt.Errorf("cloudflare account ID and API token are required")
 	}
 	if domain == "" {
 		return nil, fmt.Errorf("domain name is required")
@@ -144,7 +144,7 @@ func (c *RegistrarClient) CheckDomain(accountID, apiToken, domain string) (*Doma
 		return nil, fmt.Errorf("could not check domain: %w", err)
 	}
 	if !resp.Success {
-		return nil, fmt.Errorf("Cloudflare API returned no results")
+		return nil, fmt.Errorf("cloudflare API returned no results")
 	}
 	if len(resp.Result.Domains) == 0 {
 		return nil, fmt.Errorf("no results for domain %s", domain)
@@ -187,7 +187,7 @@ type registrarRegisterResponse struct {
 // Returns the expiry time if available synchronously (zero value if pending).
 func (c *RegistrarClient) RegisterDomain(accountID, apiToken, domain string) (time.Time, error) {
 	if accountID == "" || apiToken == "" {
-		return time.Time{}, fmt.Errorf("Cloudflare account ID and API token are required")
+		return time.Time{}, fmt.Errorf("cloudflare account ID and API token are required")
 	}
 	if domain == "" {
 		return time.Time{}, fmt.Errorf("domain name is required")
@@ -207,7 +207,7 @@ func (c *RegistrarClient) RegisterDomain(accountID, apiToken, domain string) (ti
 		return time.Time{}, fmt.Errorf("could not register domain: %w", err)
 	}
 	if !resp.Success && len(resp.Errors) > 0 {
-		return time.Time{}, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return time.Time{}, fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 	if resp.Result.State != "succeeded" && resp.Result.State != "pending" {
 		return time.Time{}, fmt.Errorf("domain registration state: %s", resp.Result.State)
@@ -250,7 +250,7 @@ type registrarDomainResponse struct {
 // GetDomain fetches live details for a registered domain from Cloudflare Registrar.
 func (c *RegistrarClient) GetDomain(accountID, apiToken, domain string) (*DomainInfo, error) {
 	if accountID == "" || apiToken == "" {
-		return nil, fmt.Errorf("Cloudflare account ID and API token are required")
+		return nil, fmt.Errorf("cloudflare account ID and API token are required")
 	}
 	if domain == "" {
 		return nil, fmt.Errorf("domain name is required")
@@ -269,7 +269,7 @@ func (c *RegistrarClient) GetDomain(accountID, apiToken, domain string) (*Domain
 		return nil, fmt.Errorf("could not get domain: %w", err)
 	}
 	if !resp.Success && len(resp.Errors) > 0 {
-		return nil, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return nil, fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 
 	info := &DomainInfo{
@@ -305,7 +305,7 @@ type registrarDomainListResponse struct {
 // ListDomains lists all registered domains in the Cloudflare account.
 func (c *RegistrarClient) ListDomains(accountID, apiToken string) ([]DomainInfo, error) {
 	if accountID == "" || apiToken == "" {
-		return nil, fmt.Errorf("Cloudflare account ID and API token are required")
+		return nil, fmt.Errorf("cloudflare account ID and API token are required")
 	}
 
 	baseURL := c.baseURL
@@ -321,7 +321,7 @@ func (c *RegistrarClient) ListDomains(accountID, apiToken string) ([]DomainInfo,
 		return nil, fmt.Errorf("could not list domains: %w", err)
 	}
 	if !resp.Success && len(resp.Errors) > 0 {
-		return nil, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return nil, fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 
 	domains := make([]DomainInfo, 0, len(resp.Result))
@@ -345,7 +345,7 @@ func (c *RegistrarClient) ListDomains(accountID, apiToken string) ([]DomainInfo,
 // UpdateDomainAutoRenew enables or disables auto-renew on a registered domain.
 func (c *RegistrarClient) UpdateDomainAutoRenew(accountID, apiToken, domain string, autoRenew bool) error {
 	if accountID == "" || apiToken == "" {
-		return fmt.Errorf("Cloudflare account ID and API token are required")
+		return fmt.Errorf("cloudflare account ID and API token are required")
 	}
 	if domain == "" {
 		return fmt.Errorf("domain name is required")
@@ -371,7 +371,7 @@ func (c *RegistrarClient) UpdateDomainAutoRenew(accountID, apiToken, domain stri
 		return fmt.Errorf("could not update domain auto-renew: %w", err)
 	}
 	if !resp.Success && len(resp.Errors) > 0 {
-		return fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 	return nil
 }

@@ -60,16 +60,6 @@ func (s *ToolCallStore) UpdateResult(ctx context.Context, id, status, result, er
 	return nil
 }
 
-func (s *ToolCallStore) UpdateSnapshotID(ctx context.Context, id, snapshotID string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE tool_calls SET snapshot_id = ? WHERE id = ?`, snapshotID, id)
-	return err
-}
-
-func (s *ToolCallStore) UpdateApprovedBy(ctx context.Context, id, approvedBy string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE tool_calls SET approved_by = ? WHERE id = ?`, approvedBy, id)
-	return err
-}
-
 func (s *ToolCallStore) ListByConversation(ctx context.Context, convID string) ([]*ToolCallRecord, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, conversation_id, message_id, tool_name, tool_args, status, result, error, snapshot_id, approved_by, created_at, executed_at

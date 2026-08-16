@@ -106,12 +106,6 @@ func (cm *CaddyManager) isEnabled() bool {
 	return cm.mode() == "enabled"
 }
 
-//nolint:unused
-func (cm *CaddyManager) isDisabled() bool {
-	m := cm.mode()
-	return m == "disabled" || m == "noop"
-}
-
 // SetMode updates the CaddyManager's mode at runtime.
 // Switching from disabled/noop to enabled triggers initialization and a config reload.
 func (cm *CaddyManager) SetMode(mode string) error {
@@ -687,13 +681,6 @@ func (cm *CaddyManager) regenerateCaddyfileLocked() error {
 	return nil
 }
 
-// generateCaddyfile generates the Caddyfile content
-func (cm *CaddyManager) generateCaddyfile() (string, error) {
-	cm.routesMu.RLock()
-	defer cm.routesMu.RUnlock()
-	return cm.generateCaddyfileLocked()
-}
-
 var ipRegex = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$|^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$`)
 
 func hasRealDomain(routes []routeView) bool {
@@ -947,17 +934,6 @@ func (cm *CaddyManager) wildcardBlocksLocked() []wildcardBlock {
 		})
 	}
 	return blocks
-}
-
-func baseDomain(fullDomain string) string {
-	parts := strings.SplitN(fullDomain, ".", 2)
-	if len(parts) != 2 {
-		return ""
-	}
-	if len(strings.SplitN(parts[1], ".", 2)) == 1 {
-		return ""
-	}
-	return parts[1]
 }
 
 func safeDomainDir(domain string) string {
@@ -1316,21 +1292,4 @@ func (cm *CaddyManager) TestBackend(backend string) error {
 type CaddyAPIResponse struct {
 	Config json.RawMessage `json:"config,omitempty"`
 	Error  string          `json:"error,omitempty"`
-}
-
-// hasRealDomains checks if any routes have real (non-localhost) domains
-//
-//lint:ignore U1000 Utility function for future use
-func hasRealDomains(routes []routeView) bool {
-	for _, r := range routes {
-		domain := strings.ToLower(r.FullDomain)
-		if domain == "localhost" || domain == "127.0.0.1" || domain == "::1" {
-			continue
-		}
-		if ipRegex.MatchString(domain) {
-			continue
-		}
-		return true
-	}
-	return false
 }

@@ -49,7 +49,7 @@ type tunnelCreateResponse struct {
 // until cloudflared on the device connects with the returned token.
 func (c *TunnelClient) CreateTunnel(accountID, apiToken, name string) (*TunnelCredentials, error) {
 	if accountID == "" || apiToken == "" {
-		return nil, fmt.Errorf("Cloudflare account ID and API token are required")
+		return nil, fmt.Errorf("cloudflare account ID and API token are required")
 	}
 	if name == "" {
 		return nil, fmt.Errorf("tunnel name is required")
@@ -70,9 +70,9 @@ func (c *TunnelClient) CreateTunnel(accountID, apiToken, name string) (*TunnelCr
 	}
 	if !resp.Success {
 		if len(resp.Errors) > 0 {
-			return nil, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+			return nil, fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 		}
-		return nil, fmt.Errorf("Cloudflare API returned no tunnel")
+		return nil, fmt.Errorf("cloudflare API returned no tunnel")
 	}
 
 	return &TunnelCredentials{
@@ -144,7 +144,7 @@ func (c *TunnelClient) ConfigureIngressMulti(accountID, apiToken, tunnelID strin
 		return fmt.Errorf("could not configure tunnel ingress: %w", err)
 	}
 	if !resp.Success && len(resp.Errors) > 0 {
-		return fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 	return nil
 }
@@ -206,7 +206,7 @@ func (c *TunnelClient) GetTunnelStatus(accountID, apiToken, tunnelID string) (*T
 		return nil, fmt.Errorf("could not get tunnel status: %w", err)
 	}
 	if !resp.Success {
-		return nil, fmt.Errorf("Cloudflare API returned no tunnel")
+		return nil, fmt.Errorf("cloudflare API returned no tunnel")
 	}
 
 	return &TunnelStatus{

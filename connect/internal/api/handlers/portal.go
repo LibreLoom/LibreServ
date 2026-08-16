@@ -359,11 +359,11 @@ func (h *PortalHandler) sendVerificationEmailSync(email, token, source string) e
 	// Send via Resend REST API (API key stored in service_providers table)
 	prov, err := h.providers.FindEnabled("smtp")
 	if err != nil || prov == nil {
-		return fmt.Errorf("no email provider configured. Add Resend in Settings → Service Providers.")
+		return fmt.Errorf("no email provider configured. Add Resend in Settings → Service Providers")
 	}
 	apiKey := prov.Credential("api_key", "")
 	if apiKey == "" {
-		return fmt.Errorf("Resend API key not configured")
+		return fmt.Errorf("resend API key not configured")
 	}
 	from := config.C.SMTP.From
 	if from == "" {

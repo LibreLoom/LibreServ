@@ -87,7 +87,7 @@ func executeEdit(ctx context.Context, args json.RawMessage) (string, error) {
 		return "", fmt.Errorf("old_text was not found in %s", path)
 	}
 	if count > 1 {
-		return "", fmt.Errorf("old_text matches %d times in %s — it must be unique. Provide more surrounding context to make it specific.", count, path)
+		return "", fmt.Errorf("old_text matches %d times in %s — it must be unique. Provide more surrounding context to make it specific", count, path)
 	}
 
 	newContent := strings.Replace(content, params.OldText, params.NewText, 1)

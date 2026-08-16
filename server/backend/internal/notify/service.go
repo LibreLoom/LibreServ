@@ -31,34 +31,6 @@ func NewService(authSvc *auth.Service, emailSender *email.Sender) *Service {
 // after Connect provisioning). nil disables email notifications.
 func (s *Service) SetSender(emailSender *email.Sender) { s.email = emailSender }
 
-// NotifySpecific sends a notification to specific recipients (not just admins)
-// This is useful for targeted notifications without admin lookup overhead
-func (s *Service) NotifySpecific(recipients []string, subject, body string) error {
-	if s.email == nil {
-		s.logger.Debug("Email sender not configured, skipping notification")
-		return nil
-	}
-
-	if len(recipients) == 0 {
-		s.logger.Warn("No recipients provided for notification")
-		return nil
-	}
-
-	htmlBody, htmlErr := email.RenderHTMLEmail(subject, body, map[string]interface{}{})
-	if htmlErr != nil {
-		s.logger.Warn("Failed to render HTML email, falling back to plaintext", "error", htmlErr)
-		return s.email.Send(recipients, subject, body)
-	}
-
-	if err := s.email.SendHTMLEmail(recipients, subject, htmlBody); err != nil {
-		s.logger.Warn("Failed to send HTML email, falling back to plaintext", "error", err)
-		return s.email.Send(recipients, subject, body)
-	}
-
-	s.logger.Info("Notification sent", "recipients", len(recipients), "subject", subject)
-	return nil
-}
-
 // AdminNotify sends a notification to all administrators
 func (s *Service) AdminNotify(ctx context.Context, subject, body string) error {
 	return s.AdminNotifyWithData(ctx, subject, body, nil)

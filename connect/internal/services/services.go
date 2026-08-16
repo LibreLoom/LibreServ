@@ -41,19 +41,6 @@ func NewProvisioningService(db *sql.DB) *ProvisioningService {
 	}
 }
 
-// NewProvisioningServiceWithClients creates a provisioning service with injectable clients (used in tests).
-func NewProvisioningServiceWithClients(db *sql.DB, prov *providers.Service, b2 *providers.B2Client, resend *providers.ResendClient, dns *providers.CloudflareClient, tunnel *providers.TunnelClient) *ProvisioningService {
-	return &ProvisioningService{
-		db:        db,
-		providers: prov,
-		b2:        b2,
-		resend:    resend,
-		dns:       dns,
-		tunnel:    tunnel,
-		models:    models.NewService(db),
-	}
-}
-
 // Provision generates and stores credentials for a service.
 func (s *ProvisioningService) Provision(deviceID, serviceType, clientIP string) (map[string]any, error) {
 	// Enforce plan quotas before doing any real work.
@@ -61,10 +48,10 @@ func (s *ProvisioningService) Provision(deviceID, serviceType, clientIP string) 
 	case "backup", "tunnel", "smtp", "ai":
 		_, allowed, err := billing.NewService(s.db).CheckQuota(deviceID, serviceType, 1)
 		if err != nil {
-			return nil, fmt.Errorf("could not check your plan quota. Please try again in a moment.")
+			return nil, fmt.Errorf("could not check your plan quota. Please try again in a moment")
 		}
 		if !allowed {
-			return nil, fmt.Errorf("this service is not included in your current plan. Upgrade in Settings → Subscription to enable it.")
+			return nil, fmt.Errorf("this service is not included in your current plan. Upgrade in Settings → Subscription to enable it")
 		}
 	}
 
@@ -173,26 +160,6 @@ func (s *ProvisioningService) deleteDeviceTunnel(deviceID string) error {
 	return err
 }
 
-// ListActive returns all active service credentials for a device.
-func (s *ProvisioningService) ListActive(deviceID string) ([]string, error) {
-	rows, err := s.db.Query(
-		"SELECT service_type FROM service_credentials WHERE device_id = $1 AND is_active = TRUE", deviceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var services []string
-	for rows.Next() {
-		var svc string
-		if err := rows.Scan(&svc); err != nil {
-			return nil, err
-		}
-		services = append(services, svc)
-	}
-	return services, nil
-}
-
 func (s *ProvisioningService) generateCredentials(deviceID, service, clientIP string) (map[string]any, error) {
 	sub := s.deviceSubdomainPrefix(deviceID)
 
@@ -241,10 +208,10 @@ func (s *ProvisioningService) generateSMTP(deviceID string) (map[string]any, err
 		 WHERE d.id = $1 AND ca.is_active = TRUE`,
 		deviceID).Scan(&username, &smtpPassword)
 	if err != nil {
-		return nil, fmt.Errorf("could not find SMTP credentials for this device. Make sure your account has a username set.")
+		return nil, fmt.Errorf("could not find SMTP credentials for this device. Make sure your account has a username set")
 	}
 	if username == "" || smtpPassword == "" {
-		return nil, fmt.Errorf("your account does not have SMTP credentials set up. Please contact support.")
+		return nil, fmt.Errorf("your account does not have SMTP credentials set up. Please contact support")
 	}
 
 	// Public hostname of the Connect SMTP relay. MUST be a DNS-only (grey-cloud)
@@ -306,7 +273,7 @@ func (s *ProvisioningService) generateBackup(sub string) (map[string]any, error)
 	}
 
 	if config.C.Backup.Endpoint == "" {
-		return nil, fmt.Errorf("no backup provider is configured. Add one in the admin portal under Service Providers.")
+		return nil, fmt.Errorf("no backup provider is configured. Add one in the admin portal under Service Providers")
 	}
 
 	return map[string]any{
@@ -434,7 +401,7 @@ func (s *ProvisioningService) generateTunnel(deviceID, sub string) (map[string]a
 	}
 
 	if prov == nil || prov.Credential("api_token", "") == "" || prov.Credential("account_id", "") == "" {
-		return nil, fmt.Errorf("tunnel provider is not configured. Add a Cloudflare tunnel provider in the admin portal under Service Providers (service: tunnel).")
+		return nil, fmt.Errorf("tunnel provider is not configured. Add a Cloudflare tunnel provider in the admin portal under Service Providers (service: tunnel)")
 	}
 
 	accountID := prov.Credential("account_id", "")
@@ -536,7 +503,7 @@ func (s *ProvisioningService) RegisterRoute(deviceID, hostname string) error {
 	// Look up the device's tunnel credentials
 	tunnelID := s.findDeviceTunnelID(deviceID)
 	if tunnelID == "" {
-		return fmt.Errorf("no tunnel is provisioned for this device. Enable Tunnel Access in your Connect settings first.")
+		return fmt.Errorf("no tunnel is provisioned for this device. Enable Tunnel Access in your Connect settings first")
 	}
 
 	// Get tunnel provider credentials

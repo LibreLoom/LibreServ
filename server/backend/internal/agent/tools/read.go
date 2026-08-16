@@ -82,7 +82,7 @@ func executeRead(ctx context.Context, args json.RawMessage) (string, error) {
 
 	// Limit file size: max 10MB
 	if info.Size() > 10*1024*1024 {
-		return "", fmt.Errorf("file is too large (%d bytes). Ask the user what specific section they need.", info.Size())
+		return "", fmt.Errorf("file is too large (%d bytes). Ask the user what specific section they need", info.Size())
 	}
 
 	data, err := os.ReadFile(path)

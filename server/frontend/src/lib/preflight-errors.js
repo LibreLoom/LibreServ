@@ -96,13 +96,3 @@ export function summarizeError(error) {
   const lastSpace = truncated.lastIndexOf(' ');
   return (lastSpace > 40 ? truncated.slice(0, lastSpace) : truncated) + '...';
 }
-
-/**
- * Check if any errors are critical.
- * @param {Array<[string, {status: string, error?: string}]>} failedChecks
- * @returns {boolean}
- */
-export function hasCriticalErrors(failedChecks) {
-  const remediations = getRemediations(failedChecks);
-  return remediations.some(r => r.severity === 'critical');
-}

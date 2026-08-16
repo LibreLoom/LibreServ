@@ -33,15 +33,6 @@ type ScriptExecutor struct {
 	serverCtx     ServerContext
 }
 
-func NewScriptExecutor(logger *slog.Logger, runtimeClient *podman.Client, basePath string) *ScriptExecutor {
-	return &ScriptExecutor{
-		logger:        logger,
-		runtimeClient: runtimeClient,
-		basePath:      basePath,
-		catalogPath:   "",
-	}
-}
-
 func NewScriptExecutorWithCatalog(logger *slog.Logger, runtimeClient *podman.Client, basePath, catalogPath string) *ScriptExecutor {
 	return &ScriptExecutor{
 		logger:        logger,

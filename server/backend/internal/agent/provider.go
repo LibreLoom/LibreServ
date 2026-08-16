@@ -596,7 +596,7 @@ func (p *Provider) anthropicChat(ctx context.Context, model string, messages []M
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, nil, fmt.Errorf("Anthropic API returned %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, nil, fmt.Errorf("anthropic API returned %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var aResp anthropicResponse
@@ -707,7 +707,7 @@ func (p *Provider) anthropicModels(ctx context.Context) ([]ModelInfo, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Anthropic models API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("anthropic models API returned %d", resp.StatusCode)
 	}
 
 	// Umans returns OpenAI-compatible /v1/models format even with x-api-key auth
@@ -748,7 +748,7 @@ func (p *Provider) anthropicChatStream(ctx context.Context, model string, messag
 
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("Anthropic API returned %d", resp.StatusCode)
+		return nil, fmt.Errorf("anthropic API returned %d", resp.StatusCode)
 	}
 
 	ch := make(chan SSEChunk, 256)

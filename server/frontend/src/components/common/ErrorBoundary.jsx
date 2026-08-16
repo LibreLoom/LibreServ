@@ -141,45 +141,8 @@ class ErrorBoundary extends Component {
   }
 }
 
-/**
- * @param {{ children?: any, fallback?: any, onError?: any }} _
- */
-export class ErrorBoundaryWithFallback extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
-    if (this.props.onError) {
-      this.props.onError(error, errorInfo);
-    }
-  }
-
-  render() {
-    if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback(this.state.error);
-      }
-      return <ErrorBoundary />;
-    }
-    return this.props.children;
-  }
-}
-
 export default ErrorBoundary;
 
 ErrorBoundary.propTypes = {
   children: PropTypes.node,
-};
-
-ErrorBoundaryWithFallback.propTypes = {
-  children: PropTypes.node,
-  fallback: PropTypes.func,
-  onError: PropTypes.func,
 };

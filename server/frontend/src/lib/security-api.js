@@ -111,20 +111,6 @@ export function getEventTypeDisplayName(eventType) {
 }
 
 /**
- * Get severity color for UI
- * @param {string} severity - Severity level
- * @returns {string} CSS color class
- */
-export function getSeverityColor(severity) {
-  const colors = {
-    info: "text-accent bg-secondary/10",
-    warning: "text-warning bg-warning/10",
-    critical: "text-error bg-error/10",
-  };
-  return colors[severity] || colors.info;
-}
-
-/**
  * Format timestamp for display
  * @param {string} timestamp - ISO timestamp
  * @param {boolean} use12Hour - Use 12-hour format

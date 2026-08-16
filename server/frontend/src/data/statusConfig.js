@@ -1,4 +1,4 @@
-import { CheckCircle, XCircle, AlertCircle, Circle, Shield, Activity } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle, Circle } from "lucide-react";
 
 export const statusConfig = {
   running: {
@@ -37,46 +37,3 @@ export const statusConfig = {
   },
 };
 
-export const resourceLabels = {
-  cpu: "CPU",
-  ram: "RAM",
-  disk: "Disk",
-  net: "Network",
-  energy: "Energy",
-};
-
-export function normalizeResources(resources) {
-  if (!resources) return [];
-  if (Array.isArray(resources)) return resources;
-
-  return Object.entries(resources).map(([key, value]) => ({
-    label: resourceLabels[key] || key.toUpperCase(),
-    value: Math.round(value * 100),
-  }));
-}
-
-export function getStatusText(status, time, warningMessage) {
-  if (status === "online" && time) {
-    return `Uptime: ${time}`;
-  }
-  if (status === "offline" && time) {
-    return `Downtime: ${time}`;
-  }
-  if (status === "warning" && warningMessage) {
-    return warningMessage;
-  }
-  return null;
-}
-
-export const roleConfig = {
-  admin: {
-    icon: Shield,
-    color: "text-accent",
-    label: "Admin",
-  },
-  user: {
-    icon: Activity,
-    color: "text-primary",
-    label: "User",
-  },
-};
