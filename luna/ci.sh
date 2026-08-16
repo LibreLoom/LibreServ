@@ -24,6 +24,19 @@ cargo test --workspace
 echo "==> os scripts"
 sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh
 
+echo "==> desktop core"
+(
+  cd desktop/src-tauri
+  cargo test
+)
+
+echo "==> desktop web"
+(
+  cd desktop
+  npm install --no-audit --no-fund --cache /tmp/luna-npm-cache
+  npm run build
+)
+
 echo "==> mobile unit tests"
 (
   cd mobile

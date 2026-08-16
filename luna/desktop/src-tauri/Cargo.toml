@@ -1,0 +1,22 @@
+[package]
+name = "luna-desktop"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "luna_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+blake3 = "1"
+notify = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+ureq = { version = "3", features = ["json"] }

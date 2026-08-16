@@ -132,5 +132,18 @@
 - [x] Built rootfs booted in a container: lunad served /health
 - [ ] Flash a physical Wyse 5020 with `os/flash.sh` and run the rehearsal
 
-## M9..M11 — Not started
-See the final plan in the project memory / chat. Next: M9 Luna Desktop.
+## M9 — Luna Desktop (DONE first pass)
+- [x] Tauri 2 app at `luna/desktop` (Linux build verified; same code compiles
+      for macOS/Windows via Tauri targets)
+- [x] Native login → lists drives; folder picker via dialog plugin
+- [x] Folder backup engine: inotify watcher + initial recursive scan, uploads
+      through the same resumable chunked API as web/mobile, retry queue
+- [x] One-click WebDAV mount: gio mount on Linux, open/Finder on macOS,
+      Windows start/network-drive instructions
+- [x] `cargo test` green (HTTP client integration against a fake Luna API);
+      `npm run build` green; `tauri build --no-bundle` produced a 13MB binary
+- [ ] Tray icon/status + installers (bundle step) — polish pass
+- [ ] Real-machine mount/backup soak test
+
+## M10..M11 — Not started
+See the final plan in the project memory / chat. Next: M10 photo gallery.

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Luna Desktop",
+  "version": "0.1.0",
+  "identifier": "net.plainskill.luna.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "title": "Luna Desktop", "width": 900, "height": 700 }],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "targets": "all", "icon": [] }
+}
