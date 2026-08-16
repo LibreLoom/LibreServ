@@ -1,0 +1,12 @@
+[package]
+name = "luna-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Luna storage model: drive states, marker files, safe paths"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

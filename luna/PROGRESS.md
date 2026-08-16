@@ -1,0 +1,27 @@
+# Luna build progress
+
+## M0 — Skeleton + CI + hardware qualification (IN PROGRESS)
+- [x] Rust workspace: `luna-core` (storage model) + `lunad` (daemon)
+- [x] `lunad` boots on axum+tokio, serves `/health`, `/api/v1/health`, `/api/v1/drives`
+- [x] SQLite (WAL) metadata DB with `meta` + `drives` tables, rebuilt-from-drives design
+- [x] React 19 + Vite frontend with copied LibreServ UI primitives (Button, Page, Card,
+      HeaderCard, ModalCard, Pill, LayeredPill, IconCircle, TextLink, ThemeContext,
+      useAnimatedHeight, useSmoothResize, haptics, theme tokens, FreeMono)
+- [x] Frontend builds to `crates/lunad/web/dist`, embedded into the binary, SPA fallback,
+      immutable cache headers for hashed assets
+- [x] `ci.sh`: cargo fmt/clippy/test + web install/build/test/lint/typecheck (all green)
+- [x] Hardware qualification checklist written (`hardware/QUALIFICATION.md`)
+- [ ] Physically qualify Wi-Fi + BLE dongles on a Wyse 5020 and lock the BOM
+- [ ] Wire `ci.sh` into the repo's `./ci` runner
+
+## M1 — Safe drive handling (IN PROGRESS)
+- [x] Drive lifecycle states in `luna-core` (`unknown/foreign/as_is/readonly/missing/ejected/failed`)
+- [x] `.luna` marker read/write: atomic, one file, never touches drive contents
+- [x] Path jail: canonicalized resolution rejects `..` and symlink escapes
+- [x] Read-only top-level scan for the "here's what's on this drive" summary
+- [x] sysfs + /proc/mounts detection (read-only), exposed at `/api/v1/drives/detected`
+- [ ] Mount manager (read-only foreign mounts, adoption, eject, missing/failed transitions)
+- [ ] Adoption API + UI flow
+
+## M2..M11 — Not started
+See the final plan in the project memory / chat. Next: finish M1, then write path + WebDAV.

@@ -1,0 +1,916 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Load FreeMono font locally */
+@font-face {
+  font-family: 'FreeMono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/FreeMono.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/FreeMonoOblique.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/FreeMonoBold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'FreeMono';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/FreeMonoBoldOblique.ttf') format('truetype');
+}
+
+@property --primary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #ffffff;
+}
+
+@property --secondary {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #000000;
+}
+
+@property --accent {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #767676;
+}
+
+@theme inline {
+  --font-mono: "FreeMono", "Courier New", monospace;
+  --font-sans: "Noto Sans", "Helvetica Neue", sans-serif;
+
+  /* Setup Colors - Simplex Mono identity mapped to shadcn semantic tokens */
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+
+  /* shadcn semantic tokens — mapped to Simplex Mono identity */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  /* Status Colors - Standard colors independent of theme */
+  --color-success: var(--palette-success, #22c55e);
+  --color-warning: var(--palette-warning, #eab308);
+  --color-error: var(--palette-error, #ef4444);
+  --color-info: var(--palette-info, #3b82f6);
+  --color-destructive: var(--color-error);
+
+  /* Status Muted Colors - readable inline text regardless of theme */
+  /* color-scan: ignore-next-line */
+  --color-success-muted: #4ade80;
+  /* color-scan: ignore-next-line */
+  --color-warning-muted: #facc15;
+  /* color-scan: ignore-next-line */
+  --color-error-muted: #f87171;
+  /* color-scan: ignore-next-line */
+  --color-info-muted: #60a5fa;
+
+  /* Setup Pill Shape */
+  --radius-pill: 9999px;
+  --radius-large-element: 24px;
+  --radius-button: 9999px;
+  --radius-card: 24px;
+
+  /* shadcn radius scale */
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+
+  /* M3 Motion Tokens */
+  --motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0, 1);
+  --motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-duration-short1: 50ms;
+  --motion-duration-short2: 100ms;
+  --motion-duration-short3: 150ms;
+  --motion-duration-short4: 200ms;
+  --motion-duration-medium1: 250ms;
+  --motion-duration-medium2: 300ms;
+  --motion-duration-medium3: 350ms;
+  --motion-duration-medium4: 400ms;
+  --motion-duration-long1: 450ms;
+  --motion-duration-long2: 500ms;
+}
+
+
+html {
+  background-color: var(--color-primary);
+  color: var(--color-secondary);
+  color-scheme: light;
+  transition: --primary 1500ms cubic-bezier(0.215, 0.61, 0.355, 1),
+              --secondary 1500ms cubic-bezier(0.215, 0.61, 0.355, 1),
+              --accent 1500ms cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html[data-no-theme-transition] {
+  transition: none !important;
+}
+
+html[data-theme-transitioning] * {
+  transition-property: transform, opacity, max-height, max-width, width, height, left, top, right, bottom, margin, padding, font-size, scale, rotate, translate, visibility, grid-template-columns, grid-template-rows, gap, flex-grow, flex-shrink, flex-basis, aspect-ratio, outline-width, border-width, border-spacing, letter-spacing, line-height, word-spacing, z-index, order !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    transition: none;
+  }
+}
+
+:root {
+  --primary: #ffffff;
+  --secondary: #000000;
+  --accent: #767676;
+  --radius: 1.5rem;
+  /* shadcn semantic tokens — derived from the palette so one change propagates */
+  --background: var(--primary);
+  --foreground: var(--secondary);
+  --card: var(--secondary);
+  --card-foreground: var(--primary);
+  --popover: var(--secondary);
+  --popover-foreground: var(--primary);
+}
+
+.dark {
+  --primary: #000000;
+  --secondary: #ffffff;
+  --accent: #767676;
+}
+body {
+  background-color: var(--color-primary);
+  color: var(--color-secondary);
+  font-family: var(--font-sans);
+}
+
+:focus-visible:not(.no-focus-outline) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+.skip-link {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    z-index: 1000;
+    padding: 0.5rem 0.75rem;
+    border-radius: 9999px;
+    background: var(--color-secondary);
+    color: var(--color-primary);
+    transform: translateY(-200%);
+    transition: transform 150ms ease-out;
+}
+
+.skip-link:focus-visible {
+    transform: translateY(0);
+}
+
+/* Pop-in animation for modal/dialog appearances */
+@keyframes pop-in {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        /* end at `none` (not the identity matrix) so no transform persists
+           after the animation — a held transform forces a compositing
+           layer that desyncs parent box-shadows (e.g. the login card's
+           ring-2 frame lagging behind the card on resize). */
+        transform: none;
+    }
+}
+
+/* Dropdown animations — origin-aware expand/collapse from trigger */
+@keyframes dropdown-open {
+    from {
+        opacity: 0;
+        transform: translateY(-6px) scaleY(0.94);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+    }
+}
+
+@keyframes dropdown-close {
+    from {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-4px) scaleY(0.94);
+    }
+}
+
+@keyframes dropdown-option-enter {
+    from {
+        opacity: 0;
+        transform: translateY(-14px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.animate-dropdown-open {
+    animation: dropdown-open 220ms var(--motion-easing-emphasized-decelerate) both;
+    transform-origin: top center;
+    will-change: transform, opacity;
+}
+
+.animate-dropdown-close {
+    animation: dropdown-close 160ms var(--motion-easing-emphasized-accelerate) both;
+    transform-origin: top center;
+    will-change: transform, opacity;
+}
+
+.animate-dropdown-option {
+    animation: dropdown-option-enter 260ms var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
+}
+
+/* Toggle thumb — springy scale squish when it lands */
+@keyframes toggle-thumb-settle {
+    0% {
+        transform: scale(1);
+    }
+    45% {
+        transform: scale(1.16);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+.animate-toggle-settle {
+    animation: toggle-thumb-settle 240ms var(--motion-easing-spring) both;
+}
+
+/* SegmentedControl indicator — springy scale squish when it lands on a new position */
+@keyframes segmented-settle {
+    0% {
+        transform: scaleX(1) scaleY(1);
+    }
+    45% {
+        transform: scaleX(1.05) scaleY(1.1);
+    }
+    100% {
+        transform: scaleX(1) scaleY(1);
+    }
+}
+
+.animate-segmented-settle {
+    animation: segmented-settle 240ms var(--motion-easing-spring) both;
+}
+
+/* Alert/Callout — slide down + fade in on mount */
+@keyframes alert-enter {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-alert-enter {
+    animation: alert-enter 220ms var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
+}
+
+/* PillGauge — per-segment fill-up on mount */
+@keyframes pill-gauge-fill {
+    from {
+        opacity: 0;
+        transform: scaleX(0.3);
+    }
+    to {
+        opacity: 1;
+        transform: scaleX(1);
+    }
+}
+
+.animate-pill-gauge-fill {
+    animation: pill-gauge-fill 300ms var(--motion-easing-emphasized-decelerate) both;
+    transform-origin: left center;
+    will-change: transform, opacity;
+}
+
+/* Setup wizard StepDots — progress dots cascade in on step change.
+   Each dot pops up + scales in with a stagger (animation-delay set inline
+   per index — one value for the entrance, two comma values on the active
+   dot: entrance, then breathe once it has landed). The active dot breathes
+   gently so "where you are now" reads at a glance. `backwards` (not `both`)
+   so no transform is held after the entrance ends — the pop-in
+   compositing-layer gotcha. */
+@keyframes step-dot-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.4);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes step-dot-breathe {
+    0%,
+    100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.1);
+    }
+}
+
+.animate-step-dot-in {
+    animation: step-dot-in 260ms var(--motion-easing-emphasized-decelerate) backwards;
+    will-change: transform, opacity;
+}
+
+.animate-step-dot-current {
+    animation:
+        step-dot-in 260ms var(--motion-easing-emphasized-decelerate) backwards,
+        step-dot-breathe 2.4s var(--motion-easing-emphasized) infinite;
+    will-change: transform, opacity;
+}
+
+/* Settings sidebar nav — staggered slide-in from left */
+@keyframes nav-slide-in {
+    from {
+        opacity: 0;
+        transform: translateX(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.animate-nav-slide-in {
+    animation: nav-slide-in 200ms var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
+}
+
+/* Pop-out animation for modal/dialog exits */
+@keyframes pop-out {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(14px) scale(0.94);
+    }
+}
+
+.pop-out {
+    animation: pop-out 220ms var(--motion-easing-emphasized-accelerate) both;
+}
+
+.pop-in {
+    /* `backwards`, not `both`: hold only the FROM state during any delay.
+       `both` (= backwards + forwards) also holds the TO state after the
+       animation, keeping a transform applied forever — that forced a
+       compositing layer and desynced parent box-shadows (the login card's
+       ring-2 frame lagging behind the card on resize). With `backwards`
+       the element returns to its natural style when the animation ends. */
+    animation: pop-in 300ms var(--motion-easing-emphasized-decelerate) backwards;
+}
+
+/* Staggered card grid entrance — rise up + subtle scale, cascading wave */
+@keyframes card-stagger {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.animate-card-stagger {
+    animation: card-stagger var(--motion-duration-medium4) var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
+}
+
+/* Material Design 3 Indeterminate Linear Progress Animations */
+@keyframes md-indeterminate-bar-1 {
+    0% {
+        transform: translate3d(-35%, 0, 0) scaleX(0.35);
+    }
+    60%,
+    100% {
+        transform: translate3d(100%, 0, 0) scaleX(0.9);
+    }
+}
+
+@keyframes md-indeterminate-bar-2 {
+    0% {
+        transform: translate3d(-200%, 0, 0) scaleX(2);
+    }
+    60%,
+    100% {
+        transform: translate3d(107%, 0, 0) scaleX(0.01);
+    }
+}
+
+/* Fade in up animation */
+@keyframes fade-in-up {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Animation utility classes */
+.animate-md-bar-1,
+.animate-md-bar-2 {
+    width: 100%;
+    will-change: transform;
+    backface-visibility: hidden;
+    perspective: 1000px;
+    transform: translateZ(0);
+}
+
+.animate-md-bar-1 {
+    animation: md-indeterminate-bar-1 2s cubic-bezier(0.65, 0.815, 0.735, 0.395)
+        infinite both;
+}
+
+.animate-md-bar-2 {
+    animation: md-indeterminate-bar-2 2s cubic-bezier(0.165, 0.84, 0.44, 1)
+        infinite both;
+    animation-delay: 1s;
+}
+
+.animate-fade-in-up {
+    animation: fade-in-up 0.5s cubic-bezier(0.05, 0.7, 0.1, 1) forwards;
+}
+
+/* Loading bar */
+.loading-bar {
+    contain: strict;
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    transition:
+        opacity 100ms ease-out,
+        transform 100ms ease-out;
+}
+
+.loading-bar.loading-bar-enter {
+    opacity: 0;
+    transform: translate3d(0, 100%, 0);
+}
+
+.loading-bar.loading-bar-exit {
+    opacity: 0;
+    transform: translate3d(0, 100%, 0);
+    transition:
+        opacity 200ms ease-out,
+        transform 200ms ease-out;
+}
+
+/* GPU acceleration hints */
+.pop-out {
+    will-change: transform, opacity;
+}
+
+.motion-safe\:transition,
+.motion-safe\:transition-all {
+    will-change: transform, opacity, color, background-color;
+}
+
+.fixed.h-16.w-16.z-1000 {
+    will-change: transform, left, top;
+}
+
+/* Settings animations - Material Expressive inspired */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+@keyframes slide-in-from-bottom-1 {
+    from {
+        transform: translateY(4px);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+@keyframes slide-in-from-bottom-2 {
+    from {
+        transform: translateY(8px);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+@keyframes slide-in-from-bottom-4 {
+    from {
+        transform: translateY(32px);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+@keyframes slide-in-from-left-2 {
+    from {
+        transform: translateX(-8px);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slide-in-from-right-2 {
+    from {
+        transform: translateX(8px);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slide-in-from-right-4 {
+    from {
+        transform: translateX(16px);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+@keyframes slide-in-from-top-1 {
+    from {
+        transform: translateY(-4px);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+@keyframes slide-in-from-top-2 {
+    from {
+        transform: translateY(-8px);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+.animate-in {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.05, 0.7, 0.1, 1);
+    animation-fill-mode: both;
+}
+
+.animate-out {
+    animation-duration: 200ms;
+    animation-timing-function: ease-in;
+    animation-fill-mode: both;
+}
+
+.fade-in {
+    animation-name: fade-in;
+}
+
+.fade-out {
+    animation-name: fade-out;
+}
+
+.slide-in-from-bottom-1 {
+    animation-name: fade-in, slide-in-from-bottom-1;
+}
+
+.slide-in-from-bottom-2 {
+    animation-name: fade-in, slide-in-from-bottom-2;
+}
+
+.slide-in-from-bottom-4 {
+    animation-name: fade-in, slide-in-from-bottom-4;
+}
+
+.slide-in-from-left-2 {
+    animation-name: fade-in, slide-in-from-left-2;
+}
+
+.slide-in-from-right-2 {
+    animation-name: fade-in, slide-in-from-right-2;
+}
+
+.slide-in-from-right-4 {
+    animation-name: fade-in, slide-in-from-right-4;
+}
+
+.slide-in-from-top-1 {
+  animation-name: fade-in, slide-in-from-top-1;
+}
+
+.slide-in-from-top-2 {
+  animation-name: fade-in, slide-in-from-top-2;
+}
+
+.rounded-card {
+  border-radius: var(--radius-card);
+}
+
+@keyframes slide-in-from-right-pop {
+    from {
+        opacity: 0;
+        transform: translateX(32px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+@keyframes slide-in-from-left-pop {
+    from {
+        opacity: 0;
+        transform: translateX(-32px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+.slide-in-from-right-pop {
+    animation-name: slide-in-from-right-pop;
+}
+
+.slide-in-from-left-pop {
+    animation-name: slide-in-from-left-pop;
+}
+
+.duration-200 {
+    animation-duration: 200ms;
+}
+
+.duration-300 {
+    animation-duration: 300ms;
+}
+
+/* Cursor blink animation for TypewriterLoader */
+@keyframes cursor-blink {
+    0%, 50% {
+        opacity: 1;
+    }
+    51%, 100% {
+        opacity: 0;
+    }
+}
+
+.animate-cursor-blink {
+    animation: cursor-blink 1s step-end infinite;
+}
+/* OTP input fake caret blink (input-otp library) */
+@keyframes otp-caret-blink {
+    0%, 70%, 100% { opacity: 1; }
+    20%, 50% { opacity: 0; }
+}
+.animate-otp-caret-blink {
+    animation: otp-caret-blink 1.2s ease-out infinite;
+}
+
+/* Reduced motion accessibility - WCAG 2.1 Level AA */
+@media (prefers-reduced-motion: reduce) {
+    .pop-in,
+    .pop-out {
+        animation: none !important;
+    }
+    .animate-md-bar-1,
+    .animate-md-bar-2 {
+        animation: none;
+        transform: translate3d(0, 0, 0) scaleX(0.6);
+        opacity: 0.5;
+    }
+    .animate-fade-in-up {
+        animation: none;
+        opacity: 1;
+        transform: translateY(0);
+    }
+    .loading-bar {
+        opacity: 1;
+        transform: none;
+        transition: none;
+    }
+    .animate-cursor-blink,
+    .animate-otp-caret-blink {
+        animation: none;
+        opacity: 1;
+    }
+    .animate-dropdown-open,
+    .animate-dropdown-close,
+    .animate-dropdown-option,
+    .animate-toggle-settle,
+    .animate-segmented-settle,
+    .animate-alert-enter,
+    .animate-nav-slide-in,
+    .animate-card-stagger,
+    .animate-pill-gauge-fill,
+    .animate-step-dot-in,
+    .animate-step-dot-current {
+        animation: none !important;
+        opacity: 1;
+        transform: none;
+    }
+    [data-slot="switch-thumb"],
+    [data-slot="segmented-control-indicator"] {
+        transition: none !important;
+    }
+}
+
+/* Setup flow step transition - exit upward */
+@keyframes slide-out-to-top {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-24px) scale(0.97);
+    }
+}
+
+.slide-out-to-top {
+    animation: slide-out-to-top 320ms cubic-bezier(0.3, 0, 0.8, 0.15) both;
+}
+
+/* Animation delay utilities for staggered entrances */
+.delay-75  { animation-delay: 75ms; }
+.delay-100 { animation-delay: 100ms; }
+.delay-150 { animation-delay: 150ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; }
+.delay-600 { animation-delay: 600ms; }
+.delay-700 { animation-delay: 700ms; }
+
+@media (prefers-reduced-motion: reduce) {
+    .slide-out-to-top {
+        animation: none !important;
+        opacity: 0;
+    }
+    .delay-75, .delay-100, .delay-150, .delay-200,
+    .delay-300, .delay-400, .delay-500, .delay-600, .delay-700 {
+        animation-delay: 0ms;
+    }
+}
+
+/* Route change — page content rises in softly */
+@keyframes page-enter {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-page-enter {
+    animation: page-enter 320ms var(--motion-easing-emphasized-decelerate) both;
+    will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-page-enter {
+        animation: none !important;
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* Toast — M3 spring entrance; exit is JS-driven (height + margin collapse) */
+@keyframes toast-enter {
+    0% {
+        opacity: 0;
+        transform: translate(28px, -6px) scale(0.82);
+    }
+    55% {
+        opacity: 1;
+        transform: translate(-3px, 1px) scale(1.035);
+    }
+    100% {
+        opacity: 1;
+        transform: translate(0, 0) scale(1);
+    }
+}
+
+.animate-toast-enter {
+    animation: toast-enter 380ms var(--motion-easing-emphasized) both;
+    will-change: transform, opacity;
+}
+
+/* Exit: fast fade + subtle scale; the grid row collapses layout height separately */
+@keyframes toast-exit {
+    0% { opacity: 1; transform: scale(1); }
+    45% { opacity: 0; transform: scale(0.94); }
+    100% { opacity: 0; transform: scale(0.9); }
+}
+
+.animate-toast-exit {
+    animation: toast-exit 320ms var(--motion-easing-emphasized-accelerate) both;
+    will-change: transform, opacity;
+}
+
+/* Circular time-ring around the icon — depletes over the toast lifetime */
+@keyframes toast-ring {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: 75.4; }
+}
+
+.toast-ring {
+    animation: toast-ring 3000ms linear forwards;
+    will-change: stroke-dashoffset;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-toast-enter,
+    .animate-toast-exit {
+        animation: none !important;
+        opacity: 1;
+        transform: none;
+    }
+    .toast-ring {
+        animation: none !important;
+    }
+}
+
+/* Link utilities — surface-aware inline link styling */
+@utility link-accent {
+  @apply underline underline-offset-2 text-accent motion-safe:transition-colors;
+  &:hover {
+    color: var(--secondary);
+  }
+}
+
+@utility link-accent-card {
+  @apply underline underline-offset-2 text-accent motion-safe:transition-colors;
+  &:hover {
+    color: var(--primary);
+  }
+}

@@ -1,0 +1,7 @@
+/target
+/web/node_modules
+/web/dist
+/crates/lunad/web/dist
+*.db
+*.db-wal
+*.db-shm

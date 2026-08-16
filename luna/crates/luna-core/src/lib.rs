@@ -1,0 +1,15 @@
+//! Luna core storage model.
+//!
+//! Everything here is dependency-light and unit-testable without touching a
+//! real drive: drive lifecycle states, the `.luna` adoption marker, safe path
+//! resolution, and read-only top-level inspection summaries.
+
+pub mod drive;
+pub mod marker;
+pub mod path;
+pub mod scan;
+
+pub use drive::{DRIVE_STATES, DriveState};
+pub use marker::{Marker, MarkerError, read_marker, write_marker};
+pub use path::{PathError, resolve_child};
+pub use scan::{TopLevelSummary, scan_top_level};
