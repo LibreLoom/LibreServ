@@ -18,6 +18,7 @@ struct ActivateBody {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/connect/status", get(status))
+        .route("/api/v1/connect/activate-free", post(activate_free))
         .route("/api/v1/connect/activate", post(activate))
         .route("/api/v1/connect/tunnel/enable", post(enable_tunnel))
         .route("/api/v1/connect/deactivate", post(deactivate))
@@ -25,6 +26,22 @@ pub fn router() -> Router<AppState> {
 
 async fn status(State(state): State<AppState>) -> Json<crate::connect::ConnectStatus> {
     Json(state.connect.status())
+}
+
+async fn activate_free(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let service = state.connect.clone();
+    let result = tokio::task::spawn_blocking(move || service.activate_free("Luna"))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't reach Connect.",
+            )
+        })?
+        .map_err(map_connect_err)?;
+    Ok(Json(result))
 }
 
 async fn activate(

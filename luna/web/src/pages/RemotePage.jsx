@@ -10,12 +10,11 @@ import { getJson, postJson } from "../lib/api";
 
 export default function RemotePage() {
   const queryClient = useQueryClient();
-  const [key, setKey] = useState("");
   const [error, setError] = useState(null);
   const status = useQuery({ queryKey: ["connect-status"], queryFn: () => getJson("/api/v1/connect/status") });
 
   const activate = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/activate", { connect_key: key, device_name: "Luna" }),
+    mutationFn: () => postJson("/api/v1/connect/activate-free", {}),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["connect-status"] }),
     onError: (err) => setError(String(err)),
   });
@@ -51,11 +50,10 @@ export default function RemotePage() {
           ) : (
             <div className="space-y-3">
               <p className="text-primary text-sm">
-                Enter a free Luna Connect key and Luna does the rest — no router changes, no ports.
+                One tap. Luna gets its own free key — no account, no checkout,
+                no router changes, no ports. Free forever.
               </p>
-              <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-                placeholder="XXXX-XXXX-XXXX-XXXX" value={key} onChange={(e) => setKey(e.target.value)} />
-              <Button variant="secondary" fullWidth loading={activate.isPending} disabled={!key.trim()} onClick={() => activate.mutate()}>
+              <Button variant="secondary" fullWidth loading={activate.isPending} onClick={() => activate.mutate()}>
                 Turn Luna Connect on
               </Button>
             </div>

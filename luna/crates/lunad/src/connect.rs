@@ -86,6 +86,24 @@ impl ConnectService {
         }
     }
 
+    /// One-tap activation: ask Connect for a free Luna key (no account, no
+    /// checkout), then activate and provision the tunnel in one step.
+    pub fn activate_free(&self, device_name: &str) -> Result<Value, ConnectError> {
+        let free: Value = self.call_json(
+            "POST",
+            "/api/v1/luna/free-key",
+            None,
+            Some(json!({ "device_name": device_name })),
+        )?;
+        let key = free
+            .get("connect_key")
+            .and_then(|v| v.as_str())
+            .ok_or(ConnectError::Other(
+                "Connect did not return a free key.".into(),
+            ))?;
+        self.activate(key, device_name)
+    }
+
     pub fn activate(&self, key: &str, device_name: &str) -> Result<Value, ConnectError> {
         let key = key.trim();
         if key.is_empty() {
@@ -226,6 +244,12 @@ mod tests {
     async fn test_server() -> (u16, tokio::task::JoinHandle<()>) {
         let app = Router::new()
             .route(
+                "/api/v1/luna/free-key",
+                post(|Json(_): Json<Value>| async {
+                    Json(json!({ "connect_key": "free-key-123" }))
+                }),
+            )
+            .route(
                 "/api/v1/activate",
                 post(|Json(_): Json<Value>| async {
                     Json(json!({ "device_id": "dev-luna-1", "device_name": "Luna" }))
@@ -241,6 +265,20 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         (port, handle)
+    }
+
+    #[tokio::test]
+    async fn activate_free_gets_key_then_provisions() {
+        let (port, server) = test_server().await;
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some(format!("http://127.0.0.1:{port}")));
+        let result = tokio::task::spawn_blocking(move || service.activate_free("Luna"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result["tunnel"]["active"], true);
+        assert!(result.get("key_masked").is_some());
+        server.abort();
     }
 
     #[tokio::test]
