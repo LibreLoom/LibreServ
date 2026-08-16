@@ -167,5 +167,5 @@
 - [ ] Desktop tray icon + installers
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI
-- [ ] Auto-issued free Connect keys (Connect portal work)
+- [x] Free one-tap Connect keys: Connect endpoint `/api/v1/luna/free-key` mints a free-plan account+key per Luna (10/hour/IP); Luna Remote page is now one tap with no key entry
 - [ ] Physical 5-unit rehearsal on Wyse 5020 hardware
