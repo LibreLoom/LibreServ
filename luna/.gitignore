@@ -10,3 +10,6 @@
 /desktop/node_modules
 /desktop/dist
 /desktop/src-tauri/target
+
+# local luna dev data dir
+/dev

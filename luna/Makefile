@@ -1,6 +1,7 @@
 SHELL := /bin/bash
+ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 PORT ?= 8090
-DATA_DIR ?= $(shell if [ "$$(id -u)" = 0 ]; then echo /var/lib/luna; else echo $$HOME/.local/share/luna; fi)
+DATA_DIR ?= $(ROOT)/dev
 MAKEFLAGS += --no-print-directory
 
 .PHONY: web build test run dev dev-daemon dev-web lint clean
