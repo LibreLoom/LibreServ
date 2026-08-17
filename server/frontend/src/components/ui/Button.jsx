@@ -5,7 +5,7 @@
  * CONVENTION — when to use each variant
  * ═══════════════════════════════════════════════════════════════════════
  *
- * 1. SOLID (color invert + scale on hover) — the default. Use for actions.
+ * 1. SOLID (color invert on hover) — the default. Use for actions.
  *    primary   — page-bg fill. Hover → secondary. Use on CARDS only.
  *                The single most important action on a card surface.
  *    secondary — card-bg fill. Hover → accent. Use on the PAGE only.
@@ -17,13 +17,14 @@
  *    danger    — error fill. Hover → primary text. SEVERE destructive
  *                actions ONLY: "Delete", "Uninstall", "Factory Reset", "Erase".
  *
- *    All solid variants scale to 105% on hover (transform-based, no layout
- *    shift). primary/secondary are surface-restricted: their bg is a surface
+ *    The only scale animation is the press-down to 95% while clicked
+ *    (transform-based, no layout shift). Hover changes colors/ring only.
+ *    primary/secondary are surface-restricted: their bg is a surface
  *    color, so they only contrast on the OPPOSITE surface. Their hover goes
  *    to accent which contrasts with both surfaces, so the button never
  *    vanishes.
  *
- * 2. OUTLINE (transparent, fills + scales on hover) — medium emphasis.
+ * 2. OUTLINE (transparent, fills on hover) — medium emphasis.
  *    Use for secondary actions, especially Cancel/Back/Dismiss.
  *    Never use for the primary action on a modal.
  *
@@ -99,9 +100,6 @@ const buttonVariants = cva(
       },
     },
     compoundVariants: [
-      // Solid variants scale to 105% on hover (transform-based, no layout
-      // shift) — the documented Button motion. Ghost/outline don't scale.
-      { variant: ["primary", "secondary", "accent", "danger"], class: "hover:scale-105" },
       // Ghost/outline: `surface` names the BACKDROP the button sits on
       // ("primary" = page bg, "secondary" = card). The chrome is always the
       // contrasting token, so the button can never blend into its backdrop.

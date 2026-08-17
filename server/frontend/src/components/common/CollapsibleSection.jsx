@@ -57,7 +57,7 @@ export default function CollapsibleSection({
           <div
             key={open ? "open" : "closed"}
             className={cn(
-              pill ? "px-3 pb-4" : "pt-2 pl-6",
+              pill ? "px-3 pb-2" : "pt-2 pl-6",
               open && "animate-alert-enter"
             )}
           >

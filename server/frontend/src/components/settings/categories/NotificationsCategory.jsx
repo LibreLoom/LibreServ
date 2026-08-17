@@ -209,7 +209,7 @@ export default function NotificationsCategory({ settings, securitySettings, onSe
           />
 
           <div
-            className={cn("grid transition-all ease-[var(--motion-easing-emphasized)]", settings?.notify?.enabled ? "grid-rows-[1fr] opacity-100 mt-4 pb-4" : "grid-rows-[0fr] opacity-0")}
+            className={cn("grid transition-all ease-[var(--motion-easing-emphasized)]", settings?.notify?.enabled ? "grid-rows-[minmax(0,1fr)] opacity-100 mt-4 pb-4" : "grid-rows-[minmax(0,0fr)] opacity-0")}
             style={{ transitionDuration: "var(--motion-duration-medium2)" }}
           >
             <div className="overflow-hidden min-h-0">

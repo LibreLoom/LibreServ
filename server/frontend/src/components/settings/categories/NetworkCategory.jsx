@@ -33,9 +33,6 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
   const reachable = Boolean(tunnel || v4 || v6);
 
   const status = useMemo(() => {
-    if (loading) {
-      return { icon: WifiOff, label: "Checking your network…", tone: "text-primary", bg: "bg-accent/10 border-accent/20" };
-    }
     if (!report) {
       return { icon: WifiOff, label: "We couldn't check your network right now.", tone: "text-warning", bg: "bg-warning/10 border-warning/20" };
     }
@@ -44,20 +41,20 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
     if (v4 || v6) return { icon: Wifi, label: report.headline || "Your apps are reachable from the internet.", tone: "text-success", bg: "bg-success/10 border-success/20" };
     if (report.nat?.behind_double_nat) return { icon: AlertTriangle, label: report.headline, tone: "text-warning", bg: "bg-warning/10 border-warning/20" };
     return { icon: WifiOff, label: report.headline || "Only people on your home network can use your apps right now.", tone: "text-primary", bg: "bg-primary/5 border-primary/10" };
-  }, [report, loading, tunnel, v4, v6]);
+  }, [report, tunnel, v4, v6]);
 
   const Icon = status.icon;
 
   // Coverage pills: which visitor networks can reach the apps.
   const coverage = useMemo(() => {
-    if (loading || !report) return [];
+    if (!report) return [];
     if (tunnel) return [{ label: "Everyone", ok: true }];
     const pills = [];
     if (v4) pills.push({ label: "All networks", ok: true });
     if (v6 && !v4) pills.push({ label: "Newer networks", ok: true });
     if (!v4 && !v6) pills.push({ label: "Home network only", ok: false });
     return pills;
-  }, [report, loading, tunnel, v4, v6]);
+  }, [report, tunnel, v4, v6]);
 
   // Which fix applies when nothing is reachable, in priority order. Port
   // forwarding can't help behind double NAT (the address is shared), and a
@@ -84,9 +81,16 @@ function ReachabilityCard({ report, loading, onRetry, connectivity }) {
   const localIP = connectivity?.local_ip || "";
   const routerName = [report?.upnp?.router_make, report?.upnp?.router_model].filter(Boolean).join(" ");
 
+  // Leave the section empty while the diagnosis runs — a "Checking your
+  // network…" label swapping to the result reads as a flash between loading
+  // and loaded states (same pattern as CriticalIssues).
+  if (loading && !report) {
+    return <SettingsCard icon={Radio} title="Reachability" index={0} />;
+  }
+
   return (
     <SettingsCard icon={Radio} title="Reachability" index={0}>
-      <div className="px-5 py-4 space-y-4">
+      <div className="px-5 py-4 space-y-4 animate-in fade-in duration-150">
         <div className={cn("rounded-large-element border px-4 py-3 flex items-center gap-3", status.bg)}>
           <Icon className={cn("w-5 h-5 flex-shrink-0", status.tone)} />
           <span className={cn("font-mono text-sm font-semibold leading-snug", status.tone)}>{status.label}</span>

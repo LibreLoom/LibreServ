@@ -11,6 +11,24 @@ import ConfirmModal from "../../cards/ConfirmModal";
 const inputClasses =
   "w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/50 focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent";
 
+// "Git" links to a plain-language explainer so the term is glossed at point of
+// use (per the plain-language convention). Opens in a new tab — the form stays
+// intact behind it.
+const GIT_EXPLAINER_URL = "https://docs.github.com/en/get-started/using-git/about-git#about-repositories";
+
+function GitLink() {
+  return (
+    <a
+      href={GIT_EXPLAINER_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-accent underline"
+    >
+      Git
+    </a>
+  );
+}
+
 function AddRepoModal({ onClose, onAdded }) {
   const { request } = useAuth();
   const [url, setUrl] = useState("");
@@ -52,35 +70,34 @@ function AddRepoModal({ onClose, onAdded }) {
       {({ close }) => (
       <div className="space-y-4">
         <p className="text-sm text-primary">
-          LibreServ finds apps to install by downloading app lists from the
-          internet. Each list lives at a web address. Paste one below and
-          new apps will appear in your app store.
+          An app source is a <GitLink /> repository that contains app
+          definitions. Add one and LibreServ will read it for apps you can
+          install.
         </p>
 
         <div>
           <label htmlFor="repo-url" className="text-sm text-primary block mb-1">
-            App list address
+            Repository URL
           </label>
           <input
             id="repo-url"
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com/app-list"
+            placeholder="https://github.com/user/apps"
             className={inputClasses}
             disabled={adding}
             autoFocus
           />
           <p className="text-xs text-primary mt-1.5">
-            The person who made the app list gives you this address. It starts
-            with https://
+            The <GitLink /> URL of the repository, starting with http:// or https://.
           </p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="repo-branch" className="text-sm text-primary block mb-1">
-              Version name
+              Branch
             </label>
             <input
               id="repo-branch"
@@ -91,7 +108,7 @@ function AddRepoModal({ onClose, onAdded }) {
               disabled={adding}
             />
             <p className="text-xs text-primary mt-1.5">
-              Leave this as &quot;main&quot; unless you were told otherwise.
+              The <GitLink /> branch LibreServ tracks. Defaults to &quot;main&quot;.
             </p>
           </div>
           <div>
@@ -108,7 +125,8 @@ function AddRepoModal({ onClose, onAdded }) {
               disabled={adding}
             />
             <p className="text-xs text-primary mt-1.5">
-              If two lists offer the same app, the lower number wins.
+              Lower numbers are checked first. If two sources provide the same
+              app, the one checked first supplies it.
             </p>
           </div>
         </div>
@@ -123,7 +141,7 @@ function AddRepoModal({ onClose, onAdded }) {
         )}
 
         <p className="text-xs text-primary">
-          New apps will show up after LibreServ restarts.
+          A restart is required before the new source takes effect.
         </p>
 
         <div className="flex gap-3 pt-2">

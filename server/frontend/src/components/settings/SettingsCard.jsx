@@ -30,8 +30,12 @@ function SettingsCard({ index = 0, ...props }) {
   );
 
   return (
+    // `overflow-hidden` here stops collapsed card content (e.g. the grid-rows
+    // 0fr notification preferences section) from contributing ghost scroll
+    // overflow while the slide-in transform animation is applied. Without it
+    // the settings content panel scrolls past the card into blank space.
     <div
-      className="animate-in fade-in slide-in-from-bottom-1 duration-150"
+      className="animate-in fade-in slide-in-from-bottom-1 duration-150 overflow-hidden"
       style={{ animationDelay: `${delay}ms` }}
     >
       <Card noPopIn {...props} />
