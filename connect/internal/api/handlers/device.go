@@ -80,15 +80,28 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If a previous device exists for this account (left inactive by a key
-	// regeneration), remove it so the unique constraint on account_id doesn't
-	// block the new device. The old key was already revoked by regeneration.
-	_, _ = h.db.ExecContext(r.Context(),
-		"DELETE FROM devices WHERE account_id = $1 AND is_active = FALSE", accountID)
+	// Reuse the account's prior (inactive) device row when one exists instead
+	// of deleting it and inserting a fresh row. Deleting the row would
+	// cascade-delete everything keyed by device_id — usage history, billing
+	// cycles, invoices, support cases — and, critically, the prepaid credit
+	// balance and the account's custom-domain links. Re-activating a device
+	// after a key regeneration must never reset usage or billing.
+	var priorDeviceID string
+	err = h.db.QueryRowContext(r.Context(),
+		"SELECT id FROM devices WHERE account_id = $1 AND is_active = FALSE LIMIT 1", accountID,
+	).Scan(&priorDeviceID)
+	if err != nil && err != sql.ErrNoRows {
+		JSONError(w, http.StatusInternalServerError, "could not look up your existing device")
+		return
+	}
+	deviceID := priorDeviceID
+	if deviceID == "" {
+		deviceID = security.GenerateID("dev")
+	}
 
 	// Check the stamped subdomain is still available — another device may have
-	// claimed it since the key was generated.
-	deviceID := security.GenerateID("dev")
+	// claimed it since the key was generated. The device's own row (the one
+	// being reused or freshly created) never counts against it.
 	sub := ""
 	if stampedSub.Valid && stampedSub.String != "" {
 		sub = normalizeSubdomain(stampedSub.String)
@@ -104,11 +117,29 @@ func (h *DeviceHandler) Activate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create device — one active device per account (enforced by DB unique constraint)
-	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO devices (id, account_id, connect_key_id, plan_id, subdomain, activated_at, last_seen_at, is_active)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)`,
-		deviceID, accountID, connectKeyID, planID, sql.NullString{String: sub, Valid: sub != ""}, time.Now(), time.Now())
+	// If the regenerated key carries no stamp but the reused device had a
+	// user-chosen subdomain, keep it instead of erasing it to NULL.
+	if sub == "" && priorDeviceID != "" {
+		var priorSub sql.NullString
+		if err := h.db.QueryRow(`SELECT subdomain FROM devices WHERE id = $1`, deviceID).Scan(&priorSub); err == nil {
+			sub = priorSub.String
+		}
+	}
+
+	// Create or re-activate the device — one active device per account
+	// (enforced by DB unique constraint).
+	if priorDeviceID != "" {
+		_, err = h.db.ExecContext(r.Context(),
+			`UPDATE devices SET connect_key_id = $1, plan_id = $2, subdomain = $3,
+			        activated_at = $4, last_seen_at = $5, is_active = TRUE
+			 WHERE id = $6`,
+			connectKeyID, planID, sql.NullString{String: sub, Valid: sub != ""}, time.Now(), time.Now(), deviceID)
+	} else {
+		_, err = h.db.ExecContext(r.Context(),
+			`INSERT INTO devices (id, account_id, connect_key_id, plan_id, subdomain, activated_at, last_seen_at, is_active)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)`,
+			deviceID, accountID, connectKeyID, planID, sql.NullString{String: sub, Valid: sub != ""}, time.Now(), time.Now())
+	}
 	if err != nil {
 		JSONError(w, http.StatusConflict, "This account already has an activated device. Deactivate it first to activate a new one.")
 		return

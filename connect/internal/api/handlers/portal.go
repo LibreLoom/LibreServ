@@ -565,6 +565,13 @@ func (h *PortalHandler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 // deactivated, and all service credentials are revoked — then a fresh key
 // is generated so the user can activate a different device. This is the
 // "Regenerate" action in the portal; the old key stops working immediately.
+//
+// Regenerating a key NEVER changes the user's domain name: when the request
+// does not provide an explicit subdomain, the subdomain already in use (the
+// device's current subdomain, or the one stamped on the key at creation) is
+// carried over to the fresh key, so re-activating the device lands on the
+// same address. The domain name only changes when the request explicitly
+// asks for a different subdomain.
 func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Request) {
 	accountID := middleware.GetCustomerDeviceID(r.Context())
 	// The subdomain the user picked during onboarding, if any. Stamp it on the
@@ -580,20 +587,85 @@ func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Reques
 		JSONError(w, http.StatusBadRequest, "Subdomains can only contain letters, numbers, and dashes (3-63 characters).")
 		return
 	}
-	// Reject a subdomain that is already claimed (by another device or a
-	// pending key). The availability check counts devices + unused keys; the
-	// key stamping must enforce the same rule.
+
+	// Load the account's existing key (if any) before it is replaced, so a
+	// regeneration can carry the current domain name over to the new key.
+	var existingID, existingStatus string
+	var existingSub sql.NullString
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT id, status, subdomain FROM connect_keys WHERE account_id = $1`,
+		accountID).Scan(&existingID, &existingStatus, &existingSub)
+	if err != nil && err != sql.ErrNoRows {
+		JSONError(w, http.StatusInternalServerError, "could not look up your existing Connect key")
+		return
+	}
+
+	// If no explicit subdomain was provided, preserve the one already in use
+	// so regeneration never changes the user's domain name. The device's
+	// subdomain is authoritative once the key has been activated; otherwise
+	// fall back to the subdomain stamped on the key at creation. Any lookup
+	// failure aborts regeneration — a silent fallback could still change the
+	// user's domain, which is exactly what this code must never do.
+	if sub == "" && existingID != "" {
+		var deviceID string
+		err := h.db.QueryRow(
+			`SELECT id FROM devices WHERE connect_key_id = $1 AND is_active = TRUE`,
+			existingID,
+		).Scan(&deviceID)
+		if err != nil && err != sql.ErrNoRows {
+			JSONError(w, http.StatusInternalServerError, "could not look up your device")
+			return
+		}
+		if deviceID != "" {
+			var stored sql.NullString
+			if err := h.db.QueryRow(
+				`SELECT subdomain FROM devices WHERE id = $1`, deviceID,
+			).Scan(&stored); err != nil {
+				JSONError(w, http.StatusInternalServerError, "could not look up your device's subdomain")
+				return
+			}
+			if stored.Valid && stored.String != "" {
+				sub = stored.String
+			} else if raw, _ := h.deviceSubdomain(deviceID); raw != "" {
+				// No user-chosen subdomain — preserve the device-ID-derived
+				// prefix the portal displays, so even the auto-generated name
+				// doesn't change on regeneration.
+				sub = raw
+			}
+		} else if existingSub.Valid && existingSub.String != "" {
+			sub = existingSub.String
+		}
+	}
+
+	// Reject a subdomain that is already claimed by another account's device
+	// or pending key. The caller's own rows are replaced by this regeneration,
+	// so they never count as taken — otherwise preserving the current domain
+	// (or re-picking it) would falsely report "already taken". A failed
+	// availability query aborts instead of treating the name as free.
 	if sub != "" {
 		var taken int
-		_ = h.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = $1`, sub).Scan(&taken)
+		if err := h.db.QueryRow(
+			`SELECT COUNT(*) FROM devices WHERE subdomain = $1 AND account_id <> $2`,
+			sub, accountID,
+		).Scan(&taken); err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not check subdomain availability")
+			return
+		}
 		if taken == 0 {
-			_ = h.db.QueryRow(`SELECT COUNT(*) FROM connect_keys WHERE subdomain = $1 AND status = 'unused'`, sub).Scan(&taken)
+			if err := h.db.QueryRow(
+				`SELECT COUNT(*) FROM connect_keys WHERE subdomain = $1 AND status = 'unused' AND account_id <> $2`,
+				sub, accountID,
+			).Scan(&taken); err != nil {
+				JSONError(w, http.StatusInternalServerError, "could not check subdomain availability")
+				return
+			}
 		}
 		if taken > 0 {
 			JSONError(w, http.StatusConflict, "That subdomain is already taken. Pick another one.")
 			return
 		}
 	}
+
 	// Require verified email before issuing a device activation key
 	var emailVerified bool
 	_ = h.db.QueryRowContext(r.Context(),
@@ -603,18 +675,12 @@ func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check if the account already has a key
-	var existingKey, existingID, existingPlanID, existingStatus string
-	err := h.db.QueryRowContext(r.Context(),
-		`SELECT key_prefix || '…', id, plan_id, status FROM connect_keys WHERE account_id = $1`,
-		accountID).Scan(&existingKey, &existingID, &existingPlanID, &existingStatus)
-
-	if err == nil {
-		// Key already exists. For unused/revoked keys, delete and regenerate.
-		// For active keys (device already activated), revoke the key and
-		// deactivate the device so the user can activate a new device —
-		// this is the "Regenerate" path. All service credentials are
-		// revoked so stale connected states don't persist on the old device.
+	// Key already exists. For unused/revoked keys, delete and regenerate.
+	// For active keys (device already activated), revoke the key and
+	// deactivate the device so the user can activate a new device —
+	// this is the "Regenerate" path. All service credentials are
+	// revoked so stale connected states don't persist on the old device.
+	if existingID != "" {
 		if existingStatus == "active" {
 			var deviceID string
 			_ = h.db.QueryRowContext(r.Context(),
@@ -1228,7 +1294,11 @@ func (h *PortalHandler) ChangePlan(w http.ResponseWriter, r *http.Request) {
 
 	// If downgrading to Free, put any active custom domain into grace.
 	if req.PlanID == "free" {
-		h.handleDomainGraceOnDowngrade(r.Context(), deviceID)
+		if err := h.handleDomainGraceOnDowngrade(r.Context(), deviceID); err != nil {
+			// Plan change itself succeeded; don't roll it back, but never
+			// swallow the failure — the domain would keep renewing silently.
+			slog.Error("change-plan: could not retire custom domain on downgrade", "error", err, "device", deviceID)
+		}
 	} else {
 		// Upgrade or lateral move — re-provision subdomain only if no custom domain.
 		h.reprovisionSubdomainIfNoCustomDomain(r.Context(), deviceID)
@@ -1597,7 +1667,10 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 				deviceID = "" // no device — domain is account-level only
 			}
 		}
-		h.registerDomainInDB(deviceID, accountID, req.Domain, 1120, 1120)
+		if err := h.registerDomainInDB(deviceID, accountID, req.Domain, 1120, 1120); err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not register the domain")
+			return
+		}
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.Domain,
 			"status": "registered",
@@ -1673,10 +1746,13 @@ func (h *PortalHandler) RegisterDomain(w http.ResponseWriter, r *http.Request) {
 			renewalCostCents = rc
 		}
 		domainID := security.GenerateID("dom")
-		_, _ = h.db.ExecContext(r.Context(),
+		if _, err := h.db.ExecContext(r.Context(),
 			`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
 			 VALUES ($1, $2, $3, $4, 'cloudflare', $5, $6, TRUE, 'active', $7)`,
-			domainID, req.DeviceID, accountID, req.Domain, int(amountCents), int(renewalCostCents), expiresAt)
+			domainID, req.DeviceID, accountID, req.Domain, int(amountCents), int(renewalCostCents), expiresAt); err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not record the registered domain")
+			return
+		}
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.Domain,
 			"status": "registered",
@@ -1984,7 +2060,13 @@ func (h *PortalHandler) UseSubdomain(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Put any active custom domain into grace so it stops renewing/overriding.
-	h.handleDomainGraceOnDowngrade(r.Context(), req.DeviceID)
+	// If the grace state can't be recorded, abort instead of reporting a
+	// switch that the next reconcile would silently undo.
+	if err := h.handleDomainGraceOnDowngrade(r.Context(), req.DeviceID); err != nil {
+		slog.Error("use-subdomain: could not retire custom domain", "error", err, "device", req.DeviceID)
+		JSONError(w, http.StatusInternalServerError, "Could not switch back to your subdomain. Please try again.")
+		return
+	}
 
 	// Single reconciler: switches the device back to its plan subdomain
 	// (revokes the custom domain credential, provisions the subdomain,
@@ -2024,11 +2106,18 @@ func (h *PortalHandler) CheckSubdomain(w http.ResponseWriter, r *http.Request) {
 
 	// Uniqueness check (prevent duplicate subdomains) across both devices and
 	// pending (unused) Connect keys — a subdomain picked during onboarding is
-	// reserved on the key, so it must count as taken.
+	// reserved on the key, so it must count as taken. A failed query reports
+	// unavailable rather than a false "available".
 	var taken int
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = $1`, sub).Scan(&taken)
+	if err := h.db.QueryRow(`SELECT COUNT(*) FROM devices WHERE subdomain = $1`, sub).Scan(&taken); err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not check subdomain availability")
+		return
+	}
 	if taken == 0 {
-		_ = h.db.QueryRow(`SELECT COUNT(*) FROM connect_keys WHERE subdomain = $1 AND status = 'unused'`, sub).Scan(&taken)
+		if err := h.db.QueryRow(`SELECT COUNT(*) FROM connect_keys WHERE subdomain = $1 AND status = 'unused'`, sub).Scan(&taken); err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not check subdomain availability")
+			return
+		}
 	}
 	JSON(w, http.StatusOK, map[string]any{
 		"subdomain": sub,
@@ -2159,7 +2248,10 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 
 	// Mock mode: replace any existing registered domain and activate the new one.
 	if config.C.Purchase.MockDomain {
-		h.registerDomainInDB(req.DeviceID, accountID, req.NewDomain, 1120, 1120)
+		if err := h.registerDomainInDB(req.DeviceID, accountID, req.NewDomain, 1120, 1120); err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not register the domain")
+			return
+		}
 		JSON(w, http.StatusOK, map[string]any{
 			"domain": req.NewDomain,
 			"status": "registered",
@@ -2209,10 +2301,13 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 		h.cancelExistingDomain(r.Context(), req.DeviceID, apiToken, cfAccountID)
 
 		domainID := security.GenerateID("dom")
-		_, _ = h.db.ExecContext(r.Context(),
+		if _, err := h.db.ExecContext(r.Context(),
 			`INSERT INTO custom_domains (id, device_id, account_id, domain, registered_via, registration_cost_cents, renewal_cost_cents, auto_renew, status, expires_at)
 			 VALUES ($1, $2, $3, $4, 'cloudflare', $5, $6, TRUE, 'active', $7)`,
-			domainID, req.DeviceID, accountID, req.NewDomain, int(amountCents), int(renewalCostCents), expiresAt)
+			domainID, req.DeviceID, accountID, req.NewDomain, int(amountCents), int(renewalCostCents), expiresAt); err != nil {
+			JSONError(w, http.StatusInternalServerError, "could not record the changed domain")
+			return
+		}
 		// Apply the new domain as serving (DNS/ingress/credentials) via the
 		// single reconciler.
 		if err := h.domainCoord.Reconcile(req.DeviceID); err != nil {
@@ -2248,13 +2343,15 @@ func (h *PortalHandler) ChangeDomain(w http.ResponseWriter, r *http.Request) {
 // no Cloudflare registration), so the purchase flow can be walked without a
 // real registrar or payment. If deviceID is empty, the domain is owned at the
 // account level and can be assigned to a device later.
-func (h *PortalHandler) registerDomainInDB(deviceID, accountID, domain string, registrationCents, renewalCents int64) {
+func (h *PortalHandler) registerDomainInDB(deviceID, accountID, domain string, registrationCents, renewalCents int64) error {
 	// Cancel any existing active/grace custom domain for this device.
 	if deviceID != "" {
-		_, _ = h.db.Exec(
+		if _, err := h.db.Exec(
 			`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE
 			 WHERE device_id = $1 AND status IN ('active','grace','payment_failed')`,
-			deviceID)
+			deviceID); err != nil {
+			return fmt.Errorf("could not retire the previous domain: %w", err)
+		}
 	}
 
 	domainID := security.GenerateID("dom")
@@ -2270,7 +2367,7 @@ func (h *PortalHandler) registerDomainInDB(deviceID, accountID, domain string, r
 		   expires_at = EXCLUDED.expires_at`,
 		domainID, deviceID, accountID, domain, int(registrationCents), int(renewalCents), expiresAt)
 	if err != nil {
-		slog.Error("mock domain insert failed", "error", err, "domain", domain)
+		return fmt.Errorf("could not record the registered domain: %w", err)
 	}
 	// If linked to a device, apply it as serving via the single reconciler.
 	if deviceID != "" {
@@ -2278,6 +2375,7 @@ func (h *PortalHandler) registerDomainInDB(deviceID, accountID, domain string, r
 			slog.Warn("mock domain: reconcile failed", "error", err, "device", deviceID)
 		}
 	}
+	return nil
 }
 
 // cancelExistingDomain cancels the device's current custom domain (if any)
@@ -2294,9 +2392,13 @@ func (h *PortalHandler) cancelExistingDomain(ctx context.Context, deviceID, apiT
 	if err := h.registrar.UpdateDomainAutoRenew(cfAccountID, apiToken, oldDomain, false); err != nil {
 		slog.Warn("failed to disable auto-renew on old domain", "error", err, "domain", oldDomain)
 	}
-	_, _ = h.db.ExecContext(ctx,
+	if _, err := h.db.ExecContext(ctx,
 		`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE WHERE domain = $1`,
-		oldDomain)
+		oldDomain); err != nil {
+		// Never swallow: the old domain would keep renewing while the new one serves.
+		slog.Error("failed to cancel old domain on change", "error", err, "domain", oldDomain)
+		return
+	}
 	slog.Info("cancelled old domain for device", "domain", oldDomain, "device", deviceID)
 }
 
@@ -2304,14 +2406,22 @@ func (h *PortalHandler) cancelExistingDomain(ctx context.Context, deviceID, apiT
 // status when the device is downgraded to Free. The domain keeps routing until
 // expiry; CF auto-renew is disabled so the domain expires naturally. The
 // scheduler revokes DNS and re-provisions the subdomain after expiry.
-func (h *PortalHandler) handleDomainGraceOnDowngrade(ctx context.Context, deviceID string) {
+//
+// Returns an error only when the grace state could not be recorded — the
+// caller must then abort rather than leave the domain 'active' while the
+// serving address has already moved, which would silently flip back on the
+// next reconcile.
+func (h *PortalHandler) handleDomainGraceOnDowngrade(ctx context.Context, deviceID string) error {
 	var domain string
 	var expiresAt sql.NullTime
 	err := h.db.QueryRowContext(ctx,
 		`SELECT domain, expires_at FROM custom_domains WHERE device_id = $1 AND status = 'active'`,
 		deviceID).Scan(&domain, &expiresAt)
-	if err != nil || domain == "" {
-		return // no active custom domain — nothing to grace
+	if err == sql.ErrNoRows || domain == "" {
+		return nil // no active custom domain — nothing to grace
+	}
+	if err != nil {
+		return fmt.Errorf("could not look up custom domain: %w", err)
 	}
 
 	apiToken, cfAccountID, credErr := h.lookUpTunnelCredentialsFromContext(ctx)
@@ -2322,16 +2432,21 @@ func (h *PortalHandler) handleDomainGraceOnDowngrade(ctx context.Context, device
 	}
 
 	// Set status='grace' and record grace_until as the domain's expiry.
+	var uerr error
 	if expiresAt.Valid {
-		_, _ = h.db.ExecContext(ctx,
+		_, uerr = h.db.ExecContext(ctx,
 			`UPDATE custom_domains SET status = 'grace', auto_renew = FALSE, grace_until = $1 WHERE domain = $2`,
 			expiresAt.Time, domain)
 	} else {
-		_, _ = h.db.ExecContext(ctx,
+		_, uerr = h.db.ExecContext(ctx,
 			`UPDATE custom_domains SET status = 'grace', auto_renew = FALSE WHERE domain = $1`,
 			domain)
 	}
+	if uerr != nil {
+		return fmt.Errorf("could not retire custom domain %q: %w", domain, uerr)
+	}
 	slog.Info("custom domain entered grace on downgrade", "domain", domain, "device", deviceID)
+	return nil
 }
 
 // reprovisionSubdomainIfNoCustomDomain re-provisions the subdomain for a device
