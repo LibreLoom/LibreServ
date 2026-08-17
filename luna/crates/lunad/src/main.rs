@@ -16,9 +16,16 @@ async fn main() -> anyhow::Result<()> {
         .compact()
         .init();
 
-    let cfg = Config::from_env();
-    if cfg.data_dir.exists() {
-        std::fs::create_dir_all(&cfg.data_dir)?;
+    let mut cfg = Config::from_env().overlay_from_args();
+    if let Err(e) = std::fs::create_dir_all(&cfg.data_dir) {
+        // The configured data dir isn't usable (e.g. a read-only $HOME in a
+        // container, or /var/lib/luna without root). Fall back to a scratch
+        // dir instead of dying — a dev box should just boot.
+        let fallback = std::env::temp_dir().join("luna-data");
+        std::fs::create_dir_all(&fallback)
+            .map_err(|_| anyhow::anyhow!("could not create data dir: {e}"))?;
+        tracing::warn!(data_dir = %cfg.data_dir.display(), fallback = %fallback.display(), "data dir unusable, using scratch dir");
+        cfg.data_dir = fallback;
     }
     let conn = db::open(&cfg.db_path())?;
     let drive_manager = std::sync::Arc::new(DriveManager::new(
