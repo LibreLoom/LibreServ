@@ -15,7 +15,9 @@ import Button from "../ui/Button";
 function formatBackend(backend) {
   if (!backend) return "N/A";
   try {
-    const url = new URL(backend);
+    // Bare host:port has no scheme — new URL() would misparse it as a
+    // custom protocol, so normalize before parsing.
+    const url = new URL(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(backend) ? backend : `http://${backend}`);
     return url.host;
   } catch {
     return backend;

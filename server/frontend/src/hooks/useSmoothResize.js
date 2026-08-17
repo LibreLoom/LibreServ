@@ -33,6 +33,13 @@ export function useSmoothResize(ref, options = {}) {
   const prevH = useRef(null);
   const init = useRef(false);
   const transitionTimer = useRef(null);
+  // The element's inline transition as it was before this hook ever touched
+  // it (captured on first probe, usually ""). The restore timer always
+  // rewinds to THIS baseline — never to a value we set ourselves — so rapid
+  // successive content changes can't leave the element permanently stuck on
+  // the inline width-transition (which overrides class transitions like
+  // `transition-all`, killing hover/active animations).
+  const baselineTransition = useRef(null);
   // Signature of the element's last-measured content (class + text). When a
   // re-render leaves it untouched, the element cannot have changed size, so
   // we skip the probe entirely instead of clobbering an in-flight transition.
@@ -69,6 +76,7 @@ export function useSmoothResize(ref, options = {}) {
       // rendered width wider than the natural max-content width means the
       // layout is stretching it — grid cells, flex-grow, etc. Leave width to
       // the layout and don't animate x on this element.
+      baselineTransition.current = el.style.transition;
       layoutControlled.current = animateX && renderedW !== nextW;
       prevW.current = nextW;
       prevH.current = nextH;
@@ -82,11 +90,16 @@ export function useSmoothResize(ref, options = {}) {
 
     if (!wChanged && !hChanged) return;
 
-    // Capture the inline transition (usually empty) so we can hand transition
-    // control back to the CSS classes once the size animation finishes.
-    // Without this, the inline `transition: width …` permanently overrides a
-    // class like `transition-all`, so hover colors/backgrounds stop animating.
-    const priorInlineTransition = el.style.transition;
+    // Hand transition control back to the CSS classes once the size animation
+    // finishes by restoring the element's ORIGINAL inline transition (captured
+    // on first probe, before we touched it). Without this, the inline
+    // `transition: width …` permanently overrides a class like
+    // `transition-all`, so hover colors/backgrounds stop animating.
+    // Restoring the baseline (not the transition captured on this probe)
+    // matters: when two content changes happen within 260ms of each other,
+    // the second probe would otherwise capture the FIRST probe's inline
+    // transition as the value to "restore", sticking the width-only
+    // transition on the element forever.
 
     // Set to previous values without transition
     el.style.transition = "none";
@@ -108,7 +121,7 @@ export function useSmoothResize(ref, options = {}) {
     // Restore the class-driven transition once the size animation has settled.
     window.clearTimeout(transitionTimer.current);
     transitionTimer.current = window.setTimeout(() => {
-      el.style.transition = priorInlineTransition;
+      el.style.transition = baselineTransition.current;
     }, 260);
   });
 

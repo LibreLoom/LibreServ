@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Globe, Network, XCircle } from "lucide-react";
+import { CheckCircle2, Globe, XCircle } from "lucide-react";
 import PropTypes from "prop-types";
 import ModalCard from "../cards/ModalCard";
 import Dropdown from "../common/Dropdown";
@@ -9,7 +9,28 @@ import { useAuth } from "../../hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { testBackend } from "../../lib/network-api";
 
+// "Manual address" is the default app-picker option; choosing a running app
+// fills the destination for you. The route itself never requires an app.
+const MANUAL = "__manual__";
+
+const HOST_PORT_RE = /^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?:\d{1,5}$/;
+const URL_RE = /^https?:\/\//i;
+const UNIX_RE = /^unix:\/\//i;
+
+// Matches what the backend accepts: host:port (e.g. localhost:8080),
+// http(s):// URLs, or unix:// sockets.
+function looksValidDestination(value) {
+  const v = (value || "").trim();
+  if (!v || /\s/.test(v)) return false;
+  return HOST_PORT_RE.test(v) || URL_RE.test(v) || UNIX_RE.test(v);
+}
+
 /**
+ * Add / edit a network route. Creating a route is just: a subdomain, a
+ * domain, and the address on this device it should forward to (host:port).
+ * No app has to be running — linking a running app is an optional shortcut
+ * that fills in the address for you.
+ *
  * @param {{ open: boolean, onClose: any, mode: string, route?: any, defaultDomain?: any, apps?: any[], onSuccess?: any }} _
  */
 export default function RouteModal({ open, onClose, mode, route, defaultDomain, apps, onSuccess }) {
@@ -17,9 +38,9 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
   const [formData, setFormData] = useState({
     subdomain: "",
     domain: "",
-    appId: "",
+    appId: MANUAL,
     backendName: "",
-    ssl: true,
+    destination: "",
     enabled: true,
   });
   const [loading, setLoading] = useState(false);
@@ -33,12 +54,21 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
   const testDebounceRef = useRef(null);
 
   const runningApps = useMemo(() => apps?.filter((app) => app.status === "running") || [], [apps]);
-  const noAppsError = mode === "create" && apps !== null && runningApps.length === 0;
-
   const selectedApp = apps?.find((app) => app.id === formData.appId);
   const appBackends = selectedApp?.backends || [];
   const showBackendPicker = appBackends.length > 1;
   const selectedBackend = appBackends.find((b) => b.name === formData.backendName) || appBackends[0];
+  // Auto-test only when the destination came from a picked app (a known-good
+  // address); while typing manually, the Test button is the trigger.
+  const autoTest = formData.appId !== MANUAL && Boolean(selectedBackend?.url);
+
+  const appOptions = useMemo(
+    () => [
+      { value: MANUAL, label: "Manual address (host:port)" },
+      ...runningApps.map((app) => ({ value: app.id, label: app.name })),
+    ],
+    [runningApps]
+  );
 
   useEffect(() => {
     if (!open) {
@@ -60,29 +90,27 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
     const routeAppId = route?.app_id;
     const routeDomain = route?.domain;
     const routeSubdomain = route?.subdomain;
-    const routeBackendName = route?.backend_name;
-    const routeSsl = route?.ssl;
+    const routeBackend = route?.backend;
     const routeEnabled = route?.enabled;
-    const formKey = `${mode}-${routeId}-${defaultDomain}-${routeAppId}-${routeSsl}-${routeEnabled}`;
+    const formKey = `${mode}-${routeId}-${defaultDomain}-${routeAppId}-${routeBackend}-${routeEnabled}`;
     if (prevFormKeyRef.current !== formKey) {
       prevFormKeyRef.current = formKey;
       if (mode === "create") {
         setFormData({
           subdomain: "",
           domain: defaultDomain || "",
-          appId: "",
+          appId: MANUAL,
           backendName: "",
-          ssl: true,
+          destination: "",
           enabled: true,
         });
       } else if (route) {
-        const fullDomain = routeDomain || "";
         setFormData({
-          subdomain: routeSubdomain ? `${routeSubdomain}.${fullDomain}` : "",
-          domain: fullDomain,
-          appId: routeAppId || "",
-          backendName: routeBackendName || "",
-          ssl: routeSsl !== false,
+          subdomain: routeSubdomain ? `${routeSubdomain}.${routeDomain}` : "",
+          domain: routeDomain || "",
+          appId: routeAppId || MANUAL,
+          backendName: "",
+          destination: routeBackend || "",
           enabled: routeEnabled !== false,
         });
       }
@@ -135,10 +163,9 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
     if (testDebounceRef.current) {
       clearTimeout(testDebounceRef.current);
     }
-    const backendUrl = selectedBackend?.url;
-    if (backendUrl && open && !loading) {
+    if (autoTest && open && !loading) {
       testDebounceRef.current = setTimeout(() => {
-        doTestBackend(backendUrl);
+        doTestBackend(selectedBackend.url);
       }, 500);
     } else {
       setBackendTestResult(null);
@@ -149,20 +176,31 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         testDebounceRef.current = null;
       }
     };
-  }, [selectedBackend, open, loading, doTestBackend]);
+  }, [autoTest, selectedBackend, open, loading, doTestBackend]);
 
   const handleChange = useCallback((field) => (e) => {
     const value = e.target.value;
     setFormData((prev) => {
       const next = { ...prev, [field]: value };
       if (field === "appId") {
-        const app = apps?.find((a) => a.id === value);
-        next.backendName = app?.backends?.[0]?.name || "";
+        if (value === MANUAL) {
+          // Switching back to manual keeps whatever address was typed.
+          next.backendName = "";
+        } else {
+          const app = apps?.find((a) => a.id === value);
+          next.backendName = app?.backends?.[0]?.name || "";
+          next.destination = app?.backends?.[0]?.url || next.destination;
+        }
+      }
+      if (field === "backendName") {
+        const app = apps?.find((a) => a.id === formData.appId);
+        const backend = app?.backends?.find((b) => b.name === value);
+        if (backend) next.destination = backend.url;
       }
       return next;
     });
-    setErrors((prev) => ({ ...prev, [field]: "" }));
-  }, [apps]);
+    setErrors((prev) => ({ ...prev, [field]: "", destination: "" }));
+  }, [apps, formData.appId]);
 
   const validateForm = useCallback(() => {
     const newErrors = {};
@@ -179,14 +217,12 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
       } else if (!/^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$/.test(formData.domain.trim())) {
         newErrors.domain = "Enter a valid domain (e.g. example.com)";
       }
+    }
 
-      if (!formData.appId) {
-        newErrors.appId = "Select an app";
-      }
-    } else {
-      if (!formData.appId) {
-        newErrors.appId = "Select an app";
-      }
+    if (!formData.destination.trim()) {
+      newErrors.destination = "Enter the address on this device to forward to";
+    } else if (!looksValidDestination(formData.destination)) {
+      newErrors.destination = "Enter it as host:port — for example localhost:8080";
     }
 
     return newErrors;
@@ -213,23 +249,20 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         body = /** @type {{ [key: string]: any }} */ ({
           subdomain: formData.subdomain,
           domain: formData.domain,
-          app_id: formData.appId,
-          ssl: formData.ssl,
+          backend: formData.destination.trim(),
+          ssl: true,
         });
-        if (formData.backendName) {
-          body.backend_name = formData.backendName;
+        if (formData.appId !== MANUAL) {
+          body.app_id = formData.appId;
+          if (formData.backendName) body.backend_name = formData.backendName;
         }
         method = "POST";
         endpoint = "/network/routes";
       } else {
         body = /** @type {{ [key: string]: any }} */ ({
-          app_id: formData.appId,
-          ssl: formData.ssl,
+          backend: formData.destination.trim(),
           enabled: formData.enabled,
         });
-        if (formData.backendName) {
-          body.backend_name = formData.backendName;
-        }
         method = "PUT";
         endpoint = `/network/routes/${route.id}`;
       }
@@ -298,171 +331,169 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
         </div>
       )}
 
-      {noAppsError ? (
-        <div className="text-center py-12">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-primary/10 mb-4">
-            <Network size={24} className="text-primary/50" />
-          </div>
-          <p className="font-mono text-sm text-primary mb-1">No running apps</p>
-          <p className="text-xs text-primary/50 mb-6">
-            Install and start an app before creating a route.
-          </p>
-          <Button
-            type="button"
-            variant="outline"
-            fullWidth
-            onClick={handleClose}
-          >
-            Close
-          </Button>
-        </div>
-      ) : (
-        <form onSubmit={handleSubmit}>
-          {mode === "create" && (
-            <>
-              <p className="text-xs text-primary/50 mb-6">
-                Create a network route to expose an app on a custom domain.
-              </p>
-              <div className="flex gap-2 mb-5">
-                <div className="flex-1">
-                  <label
-                    htmlFor="subdomain"
-                    className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
-                  >
-                    Subdomain<span className="text-error ml-0.5">*</span>
-                  </label>
-                  <input
-                    id="subdomain"
-                    type="text"
-                    value={formData.subdomain}
-                    onChange={handleChange("subdomain")}
-                    placeholder="e.g. nextcloud"
-                    disabled={loading}
-                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.subdomain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.subdomain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
-                  />
-                  {errors.subdomain && (
-                    <p className="text-error text-xs mt-1">{errors.subdomain}</p>
-                  )}
-                </div>
-                <div className="flex items-end pb-2 text-primary font-mono text-lg font-black">.</div>
-                <div className="flex-1">
-                  <label
-                    htmlFor="domain"
-                    className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
-                  >
-                    Domain<span className="text-error ml-0.5">*</span>
-                  </label>
-                  <input
-                    id="domain"
-                    type="text"
-                    value={formData.domain}
-                    onChange={handleChange("domain")}
-                    placeholder={defaultDomain || "e.g. example.com"}
-                    disabled={loading}
-                    className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.domain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.domain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
-                  />
-                  {errors.domain && (
-                    <p className="text-error text-xs mt-1">{errors.domain}</p>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
+      <form onSubmit={handleSubmit}>
+        {mode === "create" ? (
+          <>
+            <p className="text-xs text-primary/50 mb-6 leading-relaxed">
+              Give this subdomain its own address on the internet: anyone who
+              opens it is sent to the address on this device you choose below.
+            </p>
 
-          {mode === "edit" && route && (
+            <div className="flex gap-2 mb-5">
+              <div className="flex-1">
+                <label
+                  htmlFor="subdomain"
+                  className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
+                >
+                  Subdomain<span className="text-error ml-0.5">*</span>
+                </label>
+                <input
+                  id="subdomain"
+                  type="text"
+                  value={formData.subdomain}
+                  onChange={handleChange("subdomain")}
+                  placeholder="e.g. nextcloud"
+                  disabled={loading}
+                  className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.subdomain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.subdomain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
+                />
+                {errors.subdomain && (
+                  <p className="text-error text-xs mt-1">{errors.subdomain}</p>
+                )}
+              </div>
+              <div className="flex items-end pb-2 text-primary font-mono text-lg font-black">.</div>
+              <div className="flex-1">
+                <label
+                  htmlFor="domain"
+                  className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
+                >
+                  Domain<span className="text-error ml-0.5">*</span>
+                </label>
+                <input
+                  id="domain"
+                  type="text"
+                  value={formData.domain}
+                  onChange={handleChange("domain")}
+                  placeholder={defaultDomain || "e.g. example.com"}
+                  disabled={loading}
+                  className={cn("w-full px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.domain && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.domain && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
+                />
+                {errors.domain && (
+                  <p className="text-error text-xs mt-1">{errors.domain}</p>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
+          route && (
             <div className="mb-5 flex items-center gap-2 px-4 py-2.5 rounded-large-element bg-primary/5">
               <Globe size={16} className="text-primary/50 shrink-0" />
               <p className="font-mono text-sm text-primary truncate">
                 {route.subdomain ? `${route.subdomain}.${route.domain}` : route.domain}
               </p>
             </div>
-          )}
+          )
+        )}
 
-          <div className="rounded-large-element bg-primary/5 border border-primary/10 mb-6 p-1">
-              <div className="rounded-large-element bg-secondary text-primary border border-primary/10">
-                <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
-                  App<span className="text-error ml-0.5">*</span>
-                </label>
-                <div className="px-3 pb-3">
-                  <Dropdown
-                    value={formData.appId}
-                    onChange={(val) => handleChange("appId")({ target: { value: val } })}
-                    placeholder="Select an app..."
-                    fullWidth
-                    disabled={loading}
-                    options={runningApps.map((app) => ({ value: app.id, label: app.name }))}
-                  />
-                </div>
-                {errors.appId && (
-                  <p className="text-error text-xs mt-1 px-3 pb-3">{errors.appId}</p>
+        {/* Destination — the one thing a route actually needs. */}
+        <div className="rounded-large-element bg-primary/5 border border-primary/10 p-4 space-y-3">
+          <div>
+            <label
+              htmlFor="destination"
+              className="text-primary font-sans text-sm text-left translate-x-5 motion-safe:transition-all mb-1.5 block"
+            >
+              Forward to<span className="text-error ml-0.5">*</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="destination"
+                type="text"
+                value={formData.destination}
+                onChange={handleChange("destination")}
+                placeholder="localhost:8080"
+                spellCheck={false}
+                autoComplete="off"
+                disabled={loading}
+                className={cn("flex-1 min-w-0 px-4 py-2 border-2 rounded-pill bg-secondary text-primary placeholder:text-primary/50 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none", errors.destination && "border-error focus:border-error focus:ring-2 focus:ring-error/30", !errors.destination && "border-primary/20 focus:border-accent focus:ring-2 focus:ring-accent/30")}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => doTestBackend(formData.destination.trim())}
+                disabled={loading || !looksValidDestination(formData.destination)}
+                loading={testingBackend}
+                className="whitespace-nowrap shrink-0"
+              >
+                {testingBackend ? "Testing..." : "Test"}
+              </Button>
+            </div>
+            <p className="text-xs text-primary/50 mt-2 leading-relaxed">
+              The address on this device that should answer for this subdomain.
+              Use <span className="font-mono">localhost:8080</span> for a service
+              on this device, or an IP like <span className="font-mono">192.168.1.50:3000</span>.
+            </p>
+            {errors.destination && (
+              <p className="text-error text-xs mt-1">{errors.destination}</p>
+            )}
+            {backendTestResult && (
+              <div className={cn("flex items-center gap-1.5 text-xs mt-2", backendTestResult.reachable ? "text-success" : "text-error")}>
+                {backendTestResult.reachable ? (
+                  <>
+                    <CheckCircle2 size={12} />
+                    <span className="font-mono">Reachable</span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle size={12} />
+                    <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
+                  </>
                 )}
               </div>
+            )}
+          </div>
 
-              {selectedApp && (
-                <div className="rounded-large-element bg-secondary text-primary border border-primary/10 mt-2">
-                  <label className="text-primary font-sans text-sm mb-1 block px-3 pt-3">
+          {mode === "create" && runningApps.length > 0 && (
+            <div className="border-t border-primary/10 pt-3">
+              <label className="text-primary font-sans text-sm mb-1 block">
+                Or use a running app
+              </label>
+              <Dropdown
+                value={formData.appId}
+                onChange={(val) => handleChange("appId")({ target: { value: val } })}
+                placeholder="Choose an app..."
+                fullWidth
+                disabled={loading}
+                options={appOptions}
+              />
+              {showBackendPicker && (
+                <div className="mt-2">
+                  <label className="text-primary font-sans text-sm mb-1 block">
                     Backend
                   </label>
-                  {showBackendPicker ? (
-                    <>
-                      <div className="px-3 pb-3">
-                        <Dropdown
-                          value={formData.backendName}
-                          onChange={(val) => handleChange("backendName")({ target: { value: val } })}
-                          fullWidth
-                          disabled={loading}
-                          options={appBackends.map((backend) => ({
-                            value: backend.name,
-                            label: backend.name ? `${backend.name} — ${backend.url}` : backend.url,
-                          }))}
-                        />
-                      </div>
-                      {errors.backendName && (
-                        <p className="text-error text-xs mt-1 px-3 pb-3">{errors.backendName}</p>
-                      )}
-                    </>
-                  ) : (
-                    <div className="px-3 pb-3">
-                      <p className="font-mono text-sm text-primary bg-primary/10 rounded-pill px-4 py-2 truncate">
-                        {selectedBackend?.url || "No backend available"}
-                      </p>
-                    </div>
-                  )}
-                  {selectedBackend?.url && (
-                    <div className="mt-2 flex items-center gap-2 px-3 pb-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => doTestBackend(selectedBackend.url)}
-                        disabled={loading}
-                        loading={testingBackend}
-                        className="whitespace-nowrap"
-                      >
-                        {testingBackend ? "Testing..." : "Test Connection"}
-                      </Button>
-                      {backendTestResult && (
-                        <div className={cn("flex items-center gap-1 text-xs", backendTestResult.reachable ? "text-success" : "text-error")}>
-                          {backendTestResult.reachable ? (
-                            <>
-                              <CheckCircle2 size={12} />
-                              <span className="font-mono">Reachable</span>
-                            </>
-                          ) : (
-                            <>
-                              <XCircle size={12} />
-                              <span className="font-mono">{backendTestResult.error || "Unreachable"}</span>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <Dropdown
+                    value={formData.backendName}
+                    onChange={(val) => handleChange("backendName")({ target: { value: val } })}
+                    fullWidth
+                    disabled={loading}
+                    options={appBackends.map((backend) => ({
+                      value: backend.name,
+                      label: backend.name ? `${backend.name} — ${backend.url}` : backend.url,
+                    }))}
+                  />
                 </div>
               )}
             </div>
+          )}
 
-          <div className="space-y-3 mb-5 mt-4 p-4 rounded-large-element bg-primary/5 border border-primary/10">
+          {mode === "edit" && selectedApp && (
+            <p className="text-xs text-primary/50">
+              This route belongs to <span className="font-mono text-primary">{selectedApp.name}</span>.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-3 mb-5 mt-4 p-4 rounded-large-element bg-primary/5 border border-primary/10">
+          {mode === "edit" ? (
             <Toggle
               checked={formData.enabled}
               onChange={(val) => setFormData((prev) => ({ ...prev, enabled: val }))}
@@ -470,42 +501,39 @@ export default function RouteModal({ open, onClose, mode, route, defaultDomain, 
               description="Route is active and handling traffic"
               disabled={loading}
             />
-            <Toggle
-              checked={formData.ssl}
-              onChange={(val) => setFormData((prev) => ({ ...prev, ssl: val }))}
-              label="Enable SSL"
-              description="Request and renew TLS certificate automatically"
-              disabled={loading}
-            />
-          </div>
-
-          {errors.form && (
-            <div className="mb-4 bg-error/10 border border-error/30 rounded-pill px-4 py-2 text-error text-sm text-center">
-              {errors.form}
-            </div>
+          ) : (
+            <p className="text-xs text-primary/50 leading-relaxed">
+              The route is enabled as soon as it's created, with automatic HTTPS.
+            </p>
           )}
+        </div>
 
-          <div className="flex gap-3 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleClose}
-              disabled={loading}
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              loading={loading}
-              className="flex-1"
-            >
-              {loading ? "Saving..." : submitLabel}
-            </Button>
+        {errors.form && (
+          <div className="mb-4 bg-error/10 border border-error/30 rounded-pill px-4 py-2 text-error text-sm text-center">
+            {errors.form}
           </div>
-        </form>
-      )}
+        )}
+
+        <div className="flex gap-3 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleClose}
+            disabled={loading}
+            className="flex-1"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={loading}
+            className="flex-1"
+          >
+            {loading ? "Saving..." : submitLabel}
+          </Button>
+        </div>
+      </form>
     </ModalCard>
   );
 }

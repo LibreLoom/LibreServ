@@ -7,7 +7,11 @@ export async function getCaddyStatus() {
 
 export async function listRoutes() {
   const res = await api("/network/routes");
-  return res.json();
+  const data = await res.json();
+  // The backend returns { routes: [...], count } — unwrap to the array so
+  // consumers can treat routes as a list.
+  if (Array.isArray(data)) return data;
+  return Array.isArray(data?.routes) ? data.routes : [];
 }
 
 export async function getCaddyfile() {

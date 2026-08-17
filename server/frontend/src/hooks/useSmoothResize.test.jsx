@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { useRef } from "react";
 import { useSmoothResize } from "../hooks/useSmoothResize";
@@ -85,6 +85,42 @@ describe("useSmoothResize", () => {
       expect(reads).toBeGreaterThan(readsAfterMount);
     } finally {
       if (desc) Object.defineProperty(HTMLElement.prototype, "offsetWidth", desc);
+    }
+  });
+
+  it("restores the class transition after rapid successive content changes", () => {
+    // Regression: two content changes within the 260ms restore window used to
+    // leave the element permanently stuck on the inline `transition: width …`
+    // (the second probe captured the FIRST probe's inline transition as the
+    // value to "restore"), overriding class transitions like transition-all
+    // and killing every hover/active animation on the element forever.
+    vi.useFakeTimers();
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+      configurable: true,
+      get() {
+        // Rendered width tracks natural content width (no layout stretch),
+        // so the hook animates x; longer labels measure wider.
+        return this.textContent.length * 7;
+      },
+    });
+    try {
+      const { container, rerender } = render(<TestButton label="User" />);
+      const btn = container.querySelector("button");
+      expect(btn.style.transition).toBe("");
+
+      // First content change starts the width animation and arms the restore.
+      rerender(<TestButton label="A much longer label here" />);
+      // Second content change lands before the 260ms restore fired.
+      rerender(<TestButton label="User" />);
+      // Mid-animation the inline width transition is legitimately applied…
+      expect(btn.style.transition).toBe("width 250ms var(--motion-easing-emphasized-decelerate)");
+      // …but once it settles it must return to the baseline (""), not stay stuck.
+      vi.advanceTimersByTime(300);
+      expect(btn.style.transition).toBe("");
+    } finally {
+      if (desc) Object.defineProperty(HTMLElement.prototype, "offsetWidth", desc);
+      vi.useRealTimers();
     }
   });
 });
