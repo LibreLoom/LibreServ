@@ -6,6 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.
 import { Button } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Input } from "../components/ui/input.jsx";
+import { Dialog } from "../components/ui/dialog.jsx";
 import { Layout } from "../components/Layout.jsx";
 import {
   Globe, Link as LinkIcon, Search, Loader2, Check, X,
@@ -207,6 +208,7 @@ function DomainSkeleton() {
 // ─── The whole address control for one device ───────────────────────────────
 function AddressControl({ device }) {
   const queryClient = useQueryClient();
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
   const {
     current_domain, subdomain_raw, subdomain_host,
     has_custom_domain, plan_domain, plan_name,
@@ -219,7 +221,10 @@ function AddressControl({ device }) {
 
   const switchSubMut = useMutation({
     mutationFn: api.useSubdomain,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["devices"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      setConfirmSwitch(false);
+    },
   });
 
   return (
@@ -243,9 +248,8 @@ function AddressControl({ device }) {
 
       {hasCustom ? (
         <CustomActive
-          device={device}
           subFull={subFull}
-          onSwitchSub={() => switchSubMut.mutate(device.id)}
+          onSwitchSub={() => setConfirmSwitch(true)}
           switchingSub={switchSubMut.isPending}
         />
       ) : (
@@ -257,6 +261,26 @@ function AddressControl({ device }) {
       )}
 
       <CustomDomainSection device={device} hasCustom={hasCustom} />
+
+      {/* Switch back to subdomain — changes the address people reach the
+          server on; requires explicit confirmation. */}
+      <Dialog
+        open={confirmSwitch}
+        onOpenChange={setConfirmSwitch}
+        title="Switch back to your subdomain?"
+        confirmLabel="Switch back"
+        cancelLabel="Keep custom domain"
+        loading={switchSubMut.isPending}
+        onConfirm={() => switchSubMut.mutate(device.id)}
+      >
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Your custom domain{" "}
+          <span className="font-mono text-foreground">{current_domain}</span>{" "}
+          stops being your address and will be retired. Your server will move to
+          your built-in subdomain{" "}
+          <span className="font-mono text-foreground">{subFull}</span>.
+        </p>
+      </Dialog>
     </div>
   );
 }
@@ -278,6 +302,7 @@ function SubdomainEditor({ device, baseRaw, suffix }) {
   const [value, setValue] = useState(baseRaw || "");
   const [available, setAvailable] = useState(null); // null | true | false
   const [checking, setChecking] = useState(false);
+  const [confirmRename, setConfirmRename] = useState(false);
   const debounceRef = useRef(null);
 
   const invalid = !/^[a-z0-9-]{3,63}$/.test(value) ||
@@ -310,7 +335,10 @@ function SubdomainEditor({ device, baseRaw, suffix }) {
 
   const saveMut = useMutation({
     mutationFn: () => api.setSubdomain(device.id, value),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["devices"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      setConfirmRename(false);
+    },
   });
 
   let status = null;
@@ -360,11 +388,30 @@ function SubdomainEditor({ device, baseRaw, suffix }) {
       <Button
         size="md"
         loading={saveMut.isPending}
-        onClick={() => saveMut.mutate()}
+        onClick={() => setConfirmRename(true)}
         disabled={!canSave}
       >
         Save name
       </Button>
+
+      {/* Rename changes the address people reach the server on; the modal is
+          the required confirmation before the domain name changes. */}
+      <Dialog
+        open={confirmRename}
+        onOpenChange={setConfirmRename}
+        title="Rename your subdomain?"
+        confirmLabel="Rename"
+        cancelLabel="Keep current name"
+        loading={saveMut.isPending}
+        onConfirm={() => saveMut.mutate()}
+      >
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Your address changes from{" "}
+          <span className="font-mono text-foreground">{baseRaw}{suffix}</span> to{" "}
+          <span className="font-mono text-foreground">{value}{suffix}</span>.
+          Anyone using the old address will need the new one.
+        </p>
+      </Dialog>
     </section>
   );
 }
@@ -400,6 +447,8 @@ function CustomDomainSection({ device, hasCustom }) {
   const [purchasing, setPurchasing] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  // The domain pending confirmation: {name, price} or null.
+  const [confirmPurchase, setConfirmPurchase] = useState(null);
 
   // Always show the section when there's no custom domain (it's the only
   // alternative). When a custom domain is active, collapse it behind a toggle.
@@ -517,7 +566,7 @@ function CustomDomainSection({ device, hasCustom }) {
                         r.available ? (
                           <Button
                             size="sm"
-                            onClick={() => purchase(r.name)}
+                            onClick={() => setConfirmPurchase({ name: r.name, price: r.price })}
                             loading={purchasing}
                             disabled={purchasing}
                           >
@@ -544,6 +593,40 @@ function CustomDomainSection({ device, hasCustom }) {
           </>
         )}
       </section>
+
+      {/* Registering a custom domain makes it the device's address (and is a
+          purchase); the modal is the required confirmation for the change. */}
+      <Dialog
+        open={!!confirmPurchase}
+        onOpenChange={(open) => { if (!open) setConfirmPurchase(null); }}
+        title={confirmPurchase ? `Make ${confirmPurchase.name} your address?` : ""}
+        confirmLabel={confirmPurchase && confirmPurchase.price ? `Register for $${confirmPurchase.price}/year` : "Register"}
+        cancelLabel="Not now"
+        danger
+        loading={purchasing}
+        onConfirm={() => {
+          if (!confirmPurchase) return;
+          const name = confirmPurchase.name;
+          setConfirmPurchase(null);
+          purchase(name);
+        }}
+      >
+        {confirmPurchase && (
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {hasCustom ? (
+              <>This replaces your current custom domain{" "}
+                <span className="font-mono text-foreground">({device.current_domain})</span>{" "}
+                as the address people reach your server on.</>
+            ) : (
+              <>Your server will move from your built-in subdomain{" "}
+                <span className="font-mono text-foreground">{device.subdomain_host || device.current_domain}</span>{" "}
+                to this new address.</>
+            )}{" "}
+            You'll be charged at checkout — exactly what we pay the registrar,
+            no markup.
+          </p>
+        )}
+      </Dialog>
     </>
   );
 }

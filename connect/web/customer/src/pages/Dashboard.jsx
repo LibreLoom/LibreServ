@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api/client.js";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card.jsx";
 import { Button } from "../components/ui/button.jsx";
+import { Dialog } from "../components/ui/dialog.jsx";
 import { StatusBadge } from "../components/ui/badge.jsx";
 import { Layout } from "../components/Layout.jsx";
 import {
@@ -23,6 +24,7 @@ export default function Dashboard() {
   const [generatedKey, setGeneratedKey] = useState(null);
   const [copied, setCopied] = useState(false);
   const [keyError, setKeyError] = useState("");
+  const [confirmRegen, setConfirmRegen] = useState(false);
 
   const verified = !!account?.email_verified;
 
@@ -163,7 +165,7 @@ export default function Dashboard() {
                     copied={copied}
                     onCopy={copyKey}
                     onDismiss={() => setGeneratedKey(null)}
-                    onRegenerate={() => generateKeyMut.mutate()}
+                    onRegenerate={() => setConfirmRegen(true)}
                     regenerating={generateKeyMut.isPending}
                     error={keyError}
                   />
@@ -187,6 +189,35 @@ export default function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* Regenerate key — destructive (deactivates the device) but never
+          changes the domain name; the modal makes both explicit. */}
+      <Dialog
+        open={confirmRegen}
+        onOpenChange={setConfirmRegen}
+        title="Regenerate your Connect key?"
+        danger
+        confirmLabel="Regenerate key"
+        cancelLabel="Cancel"
+        loading={generateKeyMut.isPending}
+        onConfirm={() => {
+          setConfirmRegen(false);
+          generateKeyMut.mutate();
+        }}
+      >
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          Your current key stops working immediately and your device will be
+          disconnected. You'll need to enter the new key on your device to
+          reconnect it.
+        </p>
+        <p className="flex items-start gap-2 rounded-large-element border border-border bg-secondary text-primary p-3 mt-4 text-sm leading-relaxed">
+          <Shield className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+          <span>
+            Your domain name <span className="font-mono">{activeDevice?.current_domain || "address"}</span>{" "}
+            will not change.
+          </span>
+        </p>
+      </Dialog>
     </Layout>
   );
 }
