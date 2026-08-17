@@ -154,20 +154,22 @@ func (h *ACMEHandler) RequestCert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Process issuance asynchronously and persist outcome.
+		// Process issuance asynchronously and persist outcome. Detach from the
+		// request context so a mid-request cancel cannot strand the job.
 		go func(jobID string, req network.ACMERequest) {
-			_ = network.UpdateACMEJobRunning(context.Background(), h.db, jobID)
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			root := context.WithoutCancel(r.Context())
+			_ = network.UpdateACMEJobRunning(root, h.db, jobID)
+			ctx, cancel := context.WithTimeout(root, 2*time.Minute)
 			defer cancel()
 			if err := h.manager.Issue(ctx, req); err != nil {
-				_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, false, err.Error())
+				_ = network.UpdateACMEJobFinished(root, h.db, jobID, false, err.Error())
 				return
 			}
 			// If certs were issued externally, regenerate and reload so Caddy picks up manual tls paths.
 			if h.caddyManager != nil {
 				_ = h.caddyManager.ApplyConfig()
 			}
-			_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, true, "")
+			_ = network.UpdateACMEJobFinished(root, h.db, jobID, true, "")
 		}(job.ID, body)
 
 		JSON(w, http.StatusAccepted, map[string]any{
@@ -195,17 +197,18 @@ func (h *ACMEHandler) EnqueueIssue(ctx context.Context, domain, email string) (s
 		return "", err
 	}
 	go func(jobID string, req network.ACMERequest) {
-		_ = network.UpdateACMEJobRunning(context.Background(), h.db, jobID)
-		issueCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		root := context.WithoutCancel(ctx)
+		_ = network.UpdateACMEJobRunning(root, h.db, jobID)
+		issueCtx, cancel := context.WithTimeout(root, 2*time.Minute)
 		defer cancel()
 		if err := h.manager.Issue(issueCtx, req); err != nil {
-			_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, false, err.Error())
+			_ = network.UpdateACMEJobFinished(root, h.db, jobID, false, err.Error())
 			return
 		}
 		if h.caddyManager != nil {
 			_ = h.caddyManager.ApplyConfig()
 		}
-		_ = network.UpdateACMEJobFinished(context.Background(), h.db, jobID, true, "")
+		_ = network.UpdateACMEJobFinished(root, h.db, jobID, true, "")
 	}(job.ID, network.ACMERequest{Domain: domain, Email: email})
 	return job.ID, nil
 }

@@ -977,7 +977,21 @@ export default function SetupPage() {
     savingRef.current = true;
     try {
       await saveProgress(nextStep, subStep || "", data);
-    } catch {
+    } catch (err) {
+      // The stored setup code is missing or no longer valid (e.g. the setup
+      // state/nonce changed after a reset while a previous token is still in
+      // localStorage). Re-prompt for the code instead of failing with a
+      // generic error.
+      const isSetupCodeError =
+        err?.cause?.status === 403 &&
+        typeof err?.message === "string" &&
+        /setup code/i.test(err.message);
+      if (isSetupCodeError) {
+        localStorage.removeItem(SETUP_TOKEN_KEY);
+        setSetupToken("");
+        setStep(STEP.SETUP_CODE);
+        return;
+      }
       // Retry once on any error (covers 409 stale timestamp + transient failures)
       try {
         await saveProgress(nextStep, subStep || "", data);

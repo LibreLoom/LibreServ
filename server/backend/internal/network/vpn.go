@@ -14,19 +14,19 @@ import (
 // STUN/UPnP probe traffic — may be going through the tunnel, which makes
 // NAT classification unreliable (see DetectedVPN doc).
 var vpnInterfacePatterns = []string{
-	"proton", "pvpn",      // Proton VPN (incl. kill-switch iface)
-	"wg", "wireguard",     // WireGuard / NordLynx / Mullvad
-	"tun", "tap",          // OpenVPN / generic
-	"tailscale", "ts",     // Tailscale
-	"zerotier", "zt",      // ZeroTier
-	"nordl", "nordlynx",   // NordVPN
-	"openvpn", "ovpn",     // OpenVPN
-	"cscotun",             // Cisco AnyConnect
-	"ppp", "pptp",         // PPP / PPTP
+	"proton", "pvpn", // Proton VPN (incl. kill-switch iface)
+	"wg", "wireguard", // WireGuard / NordLynx / Mullvad
+	"tun", "tap", // OpenVPN / generic
+	"tailscale", "ts", // Tailscale
+	"zerotier", "zt", // ZeroTier
+	"nordl", "nordlynx", // NordVPN
+	"openvpn", "ovpn", // OpenVPN
+	"cscotun",     // Cisco AnyConnect
+	"ppp", "pptp", // PPP / PPTP
 	"utun",                // macOS userspace tunnels
 	"ipsec", "strongswan", // IPsec
-	"windscribe",          // Windscribe
-	"surfshark", "sfs",    // Surfshark
+	"windscribe",       // Windscribe
+	"surfshark", "sfs", // Surfshark
 }
 
 // VPNInterfacePatterns is a private tunnel range.

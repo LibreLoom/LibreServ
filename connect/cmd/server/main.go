@@ -78,7 +78,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	srv := api.NewServer(db)
+	apiServer := api.NewServer(db)
 
 	// Start the domain sync scheduler.
 	schedulerInterval := 6 * time.Hour
@@ -99,7 +99,17 @@ func main() {
 	bind := net.JoinHostPort(addr, strconv.Itoa(port))
 
 	slog.Info("connect server starting", "address", bind, "version", version, "commit", gitCommit, "built", buildTime)
-	if err := http.ListenAndServe(bind, srv.Router()); err != nil {
+
+	httpServer := &http.Server{
+		Addr:              bind,
+		Handler:           apiServer.Router(),
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	if err := httpServer.ListenAndServe(); err != nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
 	}

@@ -456,8 +456,7 @@ func TestFrontendStepContractKeptInSync(t *testing.T) {
 
 func TestCheckBreachedPassword(t *testing.T) {
 	// Stub range API keyed on the 5-char SHA-1 prefix.
-	var stub *httptest.Server
-	stub = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		prefix := strings.TrimPrefix(r.URL.Path, "/range/")
 		if len(prefix) != 5 {
 			t.Errorf("expected 5-char prefix, got %q", prefix)

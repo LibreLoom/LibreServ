@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
@@ -193,7 +194,11 @@ func (h *NetworkHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		go func(domain string) {
 			// NOTE: We intentionally do not block route creation on issuance.
 			// Admins can query /api/v1/network/acme/status?domain=... for results.
-			_, _ = h.acmeHandler.EnqueueIssue(context.Background(), domain, email)
+			// Detach from the request context so cancellation mid-request does not
+			// drop the persisted job, and bound the enqueue with a timeout.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), time.Minute)
+			defer cancel()
+			_, _ = h.acmeHandler.EnqueueIssue(ctx, domain, email)
 		}(route.FullDomain())
 	}
 

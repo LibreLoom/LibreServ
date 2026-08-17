@@ -170,7 +170,7 @@ func (h *MFAHandler) SetupTOTP(w http.ResponseWriter, r *http.Request) {
 		Label string `json:"label"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if h.authService.MFATOTPEncryptionKeySet() == false {
+	if !h.authService.MFATOTPEncryptionKeySet() {
 		JSONError(w, http.StatusServiceUnavailable, "An authenticator app can't be set up right now. Ask your administrator to configure MFA.")
 		return
 	}

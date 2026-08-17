@@ -856,48 +856,6 @@ func (h *PortalHandler) GetDevices(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"devices": devices})
 }
 
-// deviceSubdomain returns the device's subdomain prefix — either the
-// user-chosen one stored in devices.subdomain, or the last 8 characters
-// of the device ID (the historical default).
-func (h *PortalHandler) deviceSubdomain(deviceID string) (string, string) {
-	var raw string
-	err := h.db.QueryRow(`SELECT subdomain FROM devices WHERE id = $1`, deviceID).Scan(&raw)
-	if err == nil && raw != "" {
-		// Stored subdomain — return both the raw prefix and the full hostname.
-		full := h.subdomainHostname(raw, deviceID)
-		return raw, full
-	}
-	// Fallback: derive from device ID (last 8 chars).
-	sub := deviceID
-	if len(sub) >= 8 {
-		sub = sub[len(sub)-8:]
-	}
-	full := h.subdomainHostname(sub, deviceID)
-	return sub, full
-}
-
-// subdomainHostname builds the full hostname for a given subdomain prefix.
-func (h *PortalHandler) subdomainHostname(sub, deviceID string) string {
-	planDomain := h.planDomainFromDevice(deviceID)
-	if planDomain == "" {
-		return sub
-	}
-	return strings.Replace(planDomain, "*", sub, 1)
-}
-
-// planDomainFromDevice returns the plan's wildcard subdomain pattern for a device.
-func (h *PortalHandler) planDomainFromDevice(deviceID string) string {
-	var planID string
-	if err := h.db.QueryRow(`SELECT plan_id FROM devices WHERE id = $1`, deviceID).Scan(&planID); err != nil {
-		return ""
-	}
-	plan := catalog.PlanByID(planID)
-	if plan == nil {
-		plan = catalog.PlanByID("free")
-	}
-	return plan.Limits.Domain
-}
-
 // planDomain returns the plan's subdomain wildcard pattern, e.g.
 // "*.free.servers.libreloom.org" (free) or "*.servers.libreloom.org" (paid).
 func (h *PortalHandler) planDomain(planID string) string {
@@ -906,19 +864,6 @@ func (h *PortalHandler) planDomain(planID string) string {
 		plan = catalog.PlanByID("free")
 	}
 	return plan.Limits.Domain
-}
-
-// activeCustomDomain returns the device's currently-serving custom domain
-// (status 'active'), or (nil, false) if none is serving. Domains in grace or
-// cancelled have been switched away from and no longer route — so they do not
-// count as the current domain.
-func (h *PortalHandler) activeCustomDomain(deviceID string) (*string, bool) {
-	var domain string
-	err := h.db.QueryRow(`SELECT domain FROM custom_domains WHERE device_id = $1 AND status = 'active'`, deviceID).Scan(&domain)
-	if err != nil || domain == "" {
-		return nil, false
-	}
-	return &domain, true
 }
 
 // GetPlans returns the public plan catalog.
@@ -1929,7 +1874,7 @@ func (h *PortalHandler) GetDomainDetails(w http.ResponseWriter, r *http.Request)
 	// Compute days until expiry.
 	daysUntilExpiry := 0
 	if liveExpiry.Valid {
-		daysUntilExpiry = int(liveExpiry.Time.Sub(time.Now()).Hours() / 24)
+		daysUntilExpiry = int(time.Until(liveExpiry.Time).Hours() / 24)
 	}
 
 	regCost := int64(0)

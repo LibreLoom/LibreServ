@@ -115,11 +115,11 @@ gosec:
 
 staticcheck:
 	@echo ">> Running staticcheck"
-	@staticcheck $(GO_PKGS)
+	@staticcheck -tags libreserv_ble -checks all,-ST1*,-ST1000 $(GO_PKGS)
 	@echo ">> Running staticcheck (connect)"
-	@cd ../../connect && staticcheck ./internal/... ./cmd/...
+	@cd ../../connect && staticcheck -checks all,-ST1*,-ST1000 ./internal/... ./cmd/...
 	@echo ">> Running staticcheck (companion/linux)"
-	@cd ../../companion/linux && staticcheck ./...
+	@cd ../../companion/linux && staticcheck -checks all,-ST1* ./...
 
 security: govulncheck gosec staticcheck
 

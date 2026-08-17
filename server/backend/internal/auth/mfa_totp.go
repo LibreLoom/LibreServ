@@ -7,24 +7,7 @@ import (
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 	"github.com/skip2/go-qrcode"
-	"golang.org/x/crypto/bcrypt"
 )
-
-// ----- bcrypt for recovery codes (raw — no password-strength rules) -----
-
-// bcryptHash hashes a recovery code with bcrypt at the default cost.
-func bcryptHash(code string) (string, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
-	if err != nil {
-		return "", err
-	}
-	return string(h), nil
-}
-
-// bcryptCompare returns nil if code matches the bcrypt hash.
-func bcryptCompare(hash, code string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(code))
-}
 
 // ----- TOTP -----
 

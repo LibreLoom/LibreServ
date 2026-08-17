@@ -75,12 +75,18 @@ func newVirtualAuthenticator(t *testing.T, backupEligible bool, attachment strin
 // (EC2/ES256/P-256). The map[int]any form produces the int-keyed CBOR the
 // library expects to unmarshal into webauthncose.EC2PublicKeyData.
 func (a *virtualAuthenticator) cosePublicKey() []byte {
+	ecdhKey, err := a.priv.ECDH()
+	if err != nil {
+		panic("ecdh key: " + err.Error())
+	}
+	// Uncompressed SEC1 point: 0x04 || X(32) || Y(32) for P-256.
+	pub := ecdhKey.PublicKey().Bytes()
 	key := map[int]any{
 		1:  int64(2),  // kty: EC2
 		3:  int64(-7), // alg: ES256
 		-1: int64(1),  // crv: P-256
-		-2: pad32(a.priv.PublicKey.X.Bytes()),
-		-3: pad32(a.priv.PublicKey.Y.Bytes()),
+		-2: pad32(pub[1:33]),
+		-3: pad32(pub[33:65]),
 	}
 	out, err := webauthncbor.Marshal(key)
 	if err != nil {

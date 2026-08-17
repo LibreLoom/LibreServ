@@ -114,9 +114,6 @@ func main() {
 		slog.Warn("failed to load settings from database", "error", err)
 	}
 
-	if err != nil {
-	}
-
 	runtimeClient, err := podman.NewClient(cfg.Runtime)
 	if err != nil {
 		slog.Error("failed to initialize container runtime", "error", err)

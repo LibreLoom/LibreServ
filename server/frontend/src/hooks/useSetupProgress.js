@@ -21,11 +21,14 @@ export default function useSetupProgress() {
     }).then(() => ({ seq }));
 
     inFlightRef.current = promise;
+    // .finally() returns a derived promise that also rejects when `promise`
+    // rejects; swallow it so a failed save doesn't surface as an unhandled
+    // rejection. The caller still sees the original rejection via `promise`.
     promise.finally(() => {
       if (inFlightRef.current === promise) {
         inFlightRef.current = null;
       }
-    });
+    }).catch(() => {});
 
     return promise;
   }, []);

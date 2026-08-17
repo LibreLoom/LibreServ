@@ -3,6 +3,7 @@ package email
 import (
 	"bytes"
 	"fmt"
+	"html"
 	"html/template"
 	"net/smtp"
 	"strings"
@@ -241,7 +242,7 @@ func renderUniversal(subject string, content template.HTML) (string, error) {
 
 // convertTextToHTML converts plain text email body to HTML with Simplex Mono styling
 func convertTextToHTML(text string) string {
-	var html strings.Builder
+	var sb strings.Builder
 
 	paragraphs := strings.Split(text, "\n\n")
 
@@ -261,22 +262,22 @@ func convertTextToHTML(text string) string {
 				url := extractURL(line)
 				if url != "" {
 					label := inferButtonLabel(line, url)
-					html.WriteString(fmt.Sprintf(
+					sb.WriteString(fmt.Sprintf(
 						`<div style="text-align:center; padding:16px 0;">`+
 							`<a href="%s" style="display:inline-block; background-color:#000000; color:#ffffff; padding:14px 32px; border-radius:9999px; text-decoration:none; font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:15px; font-weight:700;">%s</a>`+
 							`</div>`,
-						url, label,
+						html.EscapeString(url), html.EscapeString(label),
 					))
 				} else {
-					html.WriteString(renderLine(line))
+					sb.WriteString(renderLine(line))
 				}
 			}
 		} else {
-			html.WriteString(renderParagraph(p))
+			sb.WriteString(renderParagraph(p))
 		}
 	}
 
-	return html.String()
+	return sb.String()
 }
 
 // containsURL checks whether a paragraph contains an http(s) link
@@ -286,13 +287,14 @@ func containsURL(text string) bool {
 
 // renderParagraph wraps a block of text in a <p> with inline styles, converting \n to <br>
 func renderParagraph(text string) string {
-	escaped := strings.ReplaceAll(text, "\n", "<br>")
+	escaped := html.EscapeString(strings.ReplaceAll(text, "\n", "<br>"))
 	return fmt.Sprintf(`<p style="margin:0 0 16px 0; font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:16px; line-height:1.6; color:#000000;">%s</p>`, escaped)
 }
 
 // renderLine renders a single non-URL line as a <p>
 func renderLine(line string) string {
-	return fmt.Sprintf(`<p style="margin:0 0 8px 0; font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:16px; line-height:1.6; color:#000000;">%s</p>`, line)
+	escaped := html.EscapeString(line)
+	return fmt.Sprintf(`<p style="margin:0 0 8px 0; font-family:'Noto Sans','Helvetica Neue',Arial,sans-serif; font-size:16px; line-height:1.6; color:#000000;">%s</p>`, escaped)
 }
 
 // inferButtonLabel chooses a button label based on context clues in the surrounding text

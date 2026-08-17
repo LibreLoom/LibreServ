@@ -1,8 +1,8 @@
 # Stage 1: Build Frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY server/frontend/package*.json ./
-RUN npm install
+RUN npm ci
 COPY server/frontend/ ./
 # Copy .lore to repo root where frontend expects it
 COPY .lore /.lore
@@ -20,7 +20,7 @@ ARG VERSION=dev
 RUN VERSION=${VERSION} make build
 
 # Stage 3: Final Image
-FROM alpine:3.19
+FROM alpine:3.22
 RUN apk add --no-cache ca-certificates docker-cli docker-compose restic
 
 # Create non-root user

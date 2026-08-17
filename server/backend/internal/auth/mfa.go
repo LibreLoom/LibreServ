@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -865,14 +864,3 @@ func (s *Service) DeleteMFAMethod(ctx context.Context, userID, methodID string) 
 }
 
 // ----- helpers (deps isolated in mfa_totp.go + mfa_bcrypt.go) -----
-
-// Strings used by the login-flow picker.
-var _ = strings.TrimSpace
-
-// logger accessor for future logging hooks without changing call sites.
-func (s *Service) mfaLog() *slog.Logger {
-	if s.logger != nil {
-		return s.logger.With("component", "mfa")
-	}
-	return slog.Default()
-}

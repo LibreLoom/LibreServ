@@ -8,14 +8,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	stripego "github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/webhook"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/billing"
-	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/catalog"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
@@ -438,13 +436,6 @@ func (h *BillingHandler) handleInvoiceFailed(w http.ResponseWriter, r *http.Requ
 	JSON(w, http.StatusOK, map[string]string{"message": "invoice payment failed"})
 }
 
-// priceToPlan maps a Stripe price ID to our internal plan ID.
-// We use the subscription's items to find the price.
-func priceToPlan(_ int64) string {
-	// This is a fallback — the real mapping happens in priceToPlanFromSubscription
-	return "free"
-}
-
 // priceToPlanFromSubscription extracts the plan ID from a subscription's price items.
 func priceToPlanFromSubscription(sub *stripego.Subscription) string {
 	if sub == nil || sub.Items == nil || len(sub.Items.Data) == 0 {
@@ -475,38 +466,6 @@ func planToPrice(planID string) string {
 	default:
 		return config.C.Stripe.PriceFree
 	}
-}
-
-// unused but keeps catalog import for future use
-var _ = catalog.PlanByID
-
-// findDeviceTunnelID looks up the tunnel ID for a device from service_credentials.
-func (h *BillingHandler) findDeviceTunnelID(deviceID string) string {
-	var credsJSON string
-	err := h.billing.DB().QueryRow(
-		`SELECT credentials_json FROM service_credentials
-		 WHERE device_id = $1 AND service_type = 'tunnel' AND is_active = TRUE`,
-		deviceID).Scan(&credsJSON)
-	if err != nil {
-		return ""
-	}
-	var creds struct {
-		TunnelID string `json:"tunnel_id"`
-	}
-	if json.Unmarshal([]byte(credsJSON), &creds) != nil {
-		return ""
-	}
-	return creds.TunnelID
-}
-
-// extractZone returns the registrable zone from a domain name.
-// e.g. "myapp.example.com" → "example.com", "example.org" → "example.org"
-func extractZone(domain string) string {
-	parts := strings.Split(domain, ".")
-	if len(parts) <= 2 {
-		return domain
-	}
-	return strings.Join(parts[len(parts)-2:], ".")
 }
 
 // updateDevicePlan updates the plan on both the device and its owning account.

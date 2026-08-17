@@ -10,6 +10,7 @@ import { Label } from "../components/ui/label.jsx";
 
 import { Badge } from "../components/ui/badge.jsx";
 import { cn } from "../lib/utils.js";
+import { copyToClipboard } from "../lib/clipboard.js";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight.js";
 import {
   Globe, Shield, Key,
@@ -668,10 +669,12 @@ export default function Onboarding() {
     }
   };
 
-  const handleCopy = (text) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async (text) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const goNext = () => { setDirection("right"); setStep((s) => s + 1); };

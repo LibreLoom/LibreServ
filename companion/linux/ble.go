@@ -318,10 +318,3 @@ func (c *bleClient) disconnect() error {
 	}
 	return nil
 }
-
-// waitForConnectionLoss blocks until the BLE connection is lost.
-// Returns true if lost, false if the channel was closed.
-func (c *bleClient) waitForConnectionLoss() bool {
-	_, ok := <-c.lostCh
-	return ok
-}

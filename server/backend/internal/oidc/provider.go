@@ -49,7 +49,7 @@ func NewProvider(storage op.Storage, issuer string, logger *slog.Logger) (http.H
 	}
 
 	// Build the OpenID Provider, allowing insecure (http) issuer URLs.
-	provider, err := op.NewOpenIDProvider(issuer, opConfig, storage,
+	provider, err := op.NewProvider(opConfig, storage, op.StaticIssuer(issuer),
 		op.WithAllowInsecure(),
 		op.WithLogger(logger.WithGroup("op")),
 	)

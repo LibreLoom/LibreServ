@@ -59,46 +59,6 @@ func activateDevice(t *testing.T, db *sql.DB, planID string) string {
 	return deviceID
 }
 
-// activateDeviceWithKey activates a device with a specific Connect key and returns both.
-func activateDeviceWithKey(t *testing.T, db *sql.DB, planID string) (string, string) {
-	t.Helper()
-	if planID == "" {
-		planID = "free"
-	}
-
-	accountID := "acc-fix-" + security.RandomString(8)
-	_, err := db.Exec(`INSERT INTO customer_accounts (id, email, password_hash, plan_id) VALUES ($1, $2, 'hash', $3)`,
-		accountID, accountID+"@test.com", planID)
-	if err != nil {
-		t.Fatalf("create account: %v", err)
-	}
-
-	key := security.GenerateConnectKey()
-	keyHash := hashToken(key)
-	connectKeyID := security.GenerateID("lic")
-	_, err = db.Exec(
-		`INSERT INTO connect_keys (id, key_hash, key_prefix, account_id, plan_id, status) VALUES ($1, $2, $3, $4, $5, 'unused')`,
-		connectKeyID, keyHash, key[:8], accountID, planID)
-	if err != nil {
-		t.Fatalf("create Connect key: %v", err)
-	}
-
-	body, _ := json.Marshal(map[string]string{"connect_key": key})
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/activate", bytes.NewReader(body))
-	w := httptest.NewRecorder()
-	NewDeviceHandler(db).Activate(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("activate failed: %d %s", w.Code, w.Body.String())
-	}
-
-	var deviceID string
-	err = db.QueryRow("SELECT id FROM devices WHERE connect_key_id = $1", connectKeyID).Scan(&deviceID)
-	if err != nil {
-		t.Fatalf("find activated device: %v", err)
-	}
-	return deviceID, key
-}
-
 func TestDeviceActivate(t *testing.T) {
 	db := database.OpenTestDB(t)
 	h := NewDeviceHandler(db)
