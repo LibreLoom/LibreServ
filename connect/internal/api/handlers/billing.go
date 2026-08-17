@@ -252,7 +252,12 @@ func (h *BillingHandler) handleDomainPurchase(w http.ResponseWriter, r *http.Req
 		   auto_renew = TRUE`,
 		security.GenerateID("dom"), deviceID, accountID, domainName, int(amountCents), int(renewalCostCents), expiresAt)
 	if err != nil {
+		// The payment succeeded but the domain was never recorded — surface
+		// the failure so Stripe retries the webhook instead of leaving a
+		// paid-for domain that silently doesn't exist.
 		slog.Error("failed to record domain purchase", "error", err, "domain", domainName)
+		JSONError(w, http.StatusInternalServerError, "could not record the purchased domain")
+		return
 	}
 
 	// If a device is linked, cancel the old domain and let the single
@@ -539,14 +544,22 @@ func (h *BillingHandler) handleDomainGraceOnDowngrade(ctx context.Context, devic
 		}
 	}
 
+	// Set status='grace' and record grace_until as the domain's expiry. Never
+	// swallow the failure silently — the domain would keep renewing (and keep
+	// serving) on a plan it should no longer hold.
+	var uerr error
 	if expiresAt.Valid {
-		_, _ = h.billing.DB().ExecContext(ctx,
+		_, uerr = h.billing.DB().ExecContext(ctx,
 			`UPDATE custom_domains SET status = 'grace', auto_renew = FALSE, grace_until = $1 WHERE domain = $2`,
 			expiresAt.Time, domain)
 	} else {
-		_, _ = h.billing.DB().ExecContext(ctx,
+		_, uerr = h.billing.DB().ExecContext(ctx,
 			`UPDATE custom_domains SET status = 'grace', auto_renew = FALSE WHERE domain = $1`,
 			domain)
+	}
+	if uerr != nil {
+		slog.Error("downgrade: could not put custom domain into grace", "error", uerr, "domain", domain, "device", deviceID)
+		return
 	}
 	slog.Info("custom domain entered grace on downgrade", "domain", domain, "device", deviceID)
 }
@@ -588,8 +601,13 @@ func (h *BillingHandler) cancelOldDomain(deviceID, apiToken, cfAccountID string)
 	if err := h.registrar.UpdateDomainAutoRenew(cfAccountID, apiToken, oldDomain, false); err != nil {
 		slog.Warn("failed to disable auto-renew on old domain", "error", err, "domain", oldDomain)
 	}
-	_, _ = h.billing.DB().Exec(
+	if _, err := h.billing.DB().Exec(
 		`UPDATE custom_domains SET status = 'cancelled', auto_renew = FALSE WHERE domain = $1`,
-		oldDomain)
+		oldDomain); err != nil {
+		// Never swallow: the old domain would keep renewing (and billing)
+		// while the new one serves.
+		slog.Error("failed to cancel old domain after change", "error", err, "domain", oldDomain)
+		return
+	}
 	slog.Info("cancelled old domain for device", "domain", oldDomain, "device", deviceID)
 }
