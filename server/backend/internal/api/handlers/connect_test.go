@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
@@ -321,5 +322,63 @@ func TestConnectReconcileDomainCredentialNoopWhenMatching(t *testing.T) {
 	}
 	if proxy["default_domain"] != "test-lit.servers.libreloom.org" {
 		t.Errorf("expected default_domain to remain test-lit.servers.libreloom.org, got %v", proxy["default_domain"])
+	}
+}
+
+// failingConnectClient returns a canned error from Activate; the remaining
+// interface methods are no-op stubs so the handler can be constructed with it.
+type failingConnectClient struct{ err error }
+
+func (f failingConnectClient) Activate(context.Context, string) (*connect.ConnectStatus, error) {
+	return nil, f.err
+}
+func (f failingConnectClient) Deactivate(context.Context) error { return nil }
+func (f failingConnectClient) Provision(context.Context, connect.ServiceID) (*connect.ProvisionedCredentials, error) {
+	return nil, nil
+}
+func (f failingConnectClient) RegisterRoute(context.Context, string) error   { return nil }
+func (f failingConnectClient) UnregisterRoute(context.Context, string) error { return nil }
+func (f failingConnectClient) DeleteTunnel(context.Context) error            { return nil }
+func (f failingConnectClient) Status(context.Context) (*connect.ConnectStatus, error) {
+	return nil, nil
+}
+func (f failingConnectClient) Usage(context.Context) (*connect.UsageSummary, error) { return nil, nil }
+func (f failingConnectClient) Info(context.Context) (*connect.ConnectInfo, error)   { return nil, nil }
+func (f failingConnectClient) VerifyProbe(context.Context, string, int, string) (*connect.VerifyProbeResult, error) {
+	return nil, nil
+}
+func (f failingConnectClient) ConnectKey() string { return "" }
+
+// TestConnectActivateErrorMessages covers the plain-language, actionable
+// activation errors: each failure mode must say what happened and what to do
+// (invalid key, revoked key, already-active key, cloud unreachable) instead of
+// one generic "could not connect" message.
+func TestConnectActivateErrorMessages(t *testing.T) {
+	tests := []struct {
+		name         string
+		err          error
+		wantStatus   int
+		wantFragment string
+	}{
+		{"invalid key", &connect.ConnectAPIError{StatusCode: http.StatusUnauthorized, Message: "invalid Connect key"}, http.StatusBadRequest, "didn't work"},
+		{"revoked key", &connect.ConnectAPIError{StatusCode: http.StatusForbidden, Message: "this Connect key has been revoked"}, http.StatusBadRequest, "turned off"},
+		{"key already active elsewhere", &connect.ConnectAPIError{StatusCode: http.StatusConflict, Message: "This account already has an activated device. Deactivate it first to activate a new one."}, http.StatusConflict, "already in use"},
+		{"cloud unreachable", fmt.Errorf("connect request failed: EOF"), http.StatusBadGateway, "couldn't reach"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &ConnectHandler{client: failingConnectClient{err: tt.err}}
+			body, _ := json.Marshal(map[string]string{"connect_key": "XXXX-YYYY-ZZZZ"})
+			req := httptest.NewRequest(http.MethodPut, "/connect/activate", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			h.Activate(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("expected status %d, got %d: %s", tt.wantStatus, rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantFragment) {
+				t.Fatalf("expected body to contain %q, got: %s", tt.wantFragment, rec.Body.String())
+			}
+		})
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/config"
 )
 
 func TestEntitlementCheckerRefreshClearsStatusOnError(t *testing.T) {
@@ -65,6 +67,47 @@ func TestEntitlementCheckerRefreshSucceedsAfterError(t *testing.T) {
 	}
 	if s := checker.Status(); !s.Connected {
 		t.Fatal("expected Connected: true after recovery Refresh")
+	}
+}
+
+// TestEntitlementHumanSupportFollowsServerPlan guards the "Human Support
+// stays Off after connecting" bug: a stale local override ("support: disabled"
+// in the config file, or persisted by a previous deactivate) must never demote
+// the Connect server's plan-derived state. Support is a plan entitlement — the
+// server decides it, and the local ServiceStates merge must skip it.
+func TestEntitlementHumanSupportFollowsServerPlan(t *testing.T) {
+	cfg := &config.Config{
+		Connect: config.ConnectConfig{
+			ServiceStates: map[string]string{"support": "disabled"},
+		},
+	}
+	config.SetTestConfig(cfg)
+	t.Cleanup(func() { config.SetTestConfig(nil) })
+
+	fake := NewFakeClient()
+	ctx := context.Background()
+
+	// Connect One includes human support — the server reports it connected,
+	// and the local "disabled" override must not mask that.
+	if _, err := fake.Activate(ctx, "test-one-token-12345"); err != nil {
+		t.Fatalf("Activate failed: %v", err)
+	}
+	checker := NewEntitlementChecker(fake)
+	checker.Refresh()
+
+	if got := checker.Status().Services[ServiceSupport].State; got != ServiceConnected {
+		t.Fatalf("expected Human Support connected on Connect One, got %q", got)
+	}
+
+	// Connect Free has no human support — the server reports it unavailable,
+	// and the local override must not change that either.
+	if _, err := fake.Activate(ctx, "test-free-token-12345"); err != nil {
+		t.Fatalf("Activate failed: %v", err)
+	}
+	checker.Refresh()
+
+	if got := checker.Status().Services[ServiceSupport].State; got != ServiceUnavailable {
+		t.Fatalf("expected Human Support unavailable on Connect Free, got %q", got)
 	}
 }
 

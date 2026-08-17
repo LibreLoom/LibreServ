@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -120,7 +121,33 @@ func (h *ConnectHandler) Activate(w http.ResponseWriter, r *http.Request) {
 	status, err := h.client.Activate(r.Context(), req.ConnectKey)
 	if err != nil {
 		slog.Error("connect activation failed", "error", err)
-		response.JSONError(w, http.StatusBadGateway, "Could not connect to LibreServ Connect. Please check your Connect key and try again. If the problem persists, visit connect.serv.libreloom.org.")
+		// Plain-language, actionable errors. Each failure means a different
+		// fix, so say what happened and what to do about it — a generic
+		// "could not connect" helps nobody.
+		var apiErr *connect.ConnectAPIError
+		if errors.As(err, &apiErr) {
+			switch apiErr.StatusCode {
+			case http.StatusUnauthorized:
+				// The cloud has no record of this key (typo, truncated paste).
+				response.JSONError(w, http.StatusBadRequest,
+					"That Connect key didn't work. Check that you copied the whole key from connect.serv.libreloom.org, then paste it again.")
+				return
+			case http.StatusForbidden:
+				// Key exists but was revoked on the portal.
+				response.JSONError(w, http.StatusBadRequest,
+					"That Connect key has been turned off. Get a fresh one from connect.serv.libreloom.org → Dashboard → Regenerate key.")
+				return
+			case http.StatusConflict:
+				// Key is already powering another device.
+				response.JSONError(w, http.StatusConflict,
+					"That Connect key is already in use on another device. Deactivate it there first, or get a fresh key from connect.serv.libreloom.org.")
+				return
+			}
+		}
+		// Network/DNS/TLS failure or an unexpected response — the key may be
+		// fine, we just couldn't ask.
+		response.JSONError(w, http.StatusBadGateway,
+			"We couldn't reach LibreServ Connect. Check that your server has internet access, then try again.")
 		return
 	}
 
@@ -244,11 +271,17 @@ func (h *ConnectHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear all Connect service states from settings so they revert to
-	// the default (disabled) after disconnect.
+	// the default (disabled) after disconnect. Support is plan-gated (the
+	// Connect server decides it) and is never a local toggle, so no state
+	// is persisted for it — otherwise a later re-activation would carry a
+	// stale "disabled" override and mask the plan's human support.
 	if h.settingsService != nil {
 		services := connect.DefaultServiceStates()
 		svcMap := make(map[string]interface{})
 		for svcID := range services {
+			if svcID == connect.ServiceSupport {
+				continue
+			}
 			svcMap[string(svcID)] = string(connect.ServiceDisabled)
 		}
 		if err := h.settingsService.UpdateSettings(r.Context(), map[string]interface{}{
@@ -307,6 +340,13 @@ func (h *ConnectHandler) UpdateServices(w http.ResponseWriter, r *http.Request) 
 	_, exists := connect.DefaultServiceStates()[svcID]
 	if !exists {
 		response.JSONError(w, http.StatusBadRequest, "Unknown service.")
+		return
+	}
+
+	// Human support is included with the Connect plan — the server decides
+	// it, so it can't be turned off (or "brought your own") locally.
+	if svcID == connect.ServiceSupport {
+		response.JSONError(w, http.StatusBadRequest, "Human Support comes with your Connect plan and can't be turned off here.")
 		return
 	}
 

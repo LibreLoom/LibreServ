@@ -123,6 +123,15 @@ func (e *EntitlementChecker) Status() *ConnectStatus {
 			if _, ok := status.Services[svcID]; !ok {
 				continue
 			}
+			// Human support is a plan entitlement, not a local service
+			// choice — the Connect server decides its state (connected on
+			// plans that include it, unavailable otherwise). A local
+			// override (config file, or a stale "disabled" persisted by a
+			// previous deactivate) must never mask that, or the badge
+			// shows "Off" on a plan that includes support.
+			if svcID == ServiceSupport {
+				continue
+			}
 			switch state {
 			case ServiceConnected:
 				// If the server says the service is unavailable (plan doesn't

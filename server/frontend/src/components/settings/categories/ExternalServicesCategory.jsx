@@ -263,7 +263,13 @@ export default function ExternalServicesCategory({
 
       {SERVICE_META.map(({ id, Icon, title, desc, informational }, i) => {
         const svc = services[id];
-        const badge = svc ? STATE_BADGES[svc.state] : STATE_BADGES.disabled;
+        // Human Support is included with the plan, not something you
+        // "connect" — when the plan provides it, say so.
+        const badge = svc
+          ? informational && svc.state === "connected"
+            ? { ...STATE_BADGES.connected, label: "Included" }
+            : STATE_BADGES[svc.state]
+          : STATE_BADGES.disabled;
         const limitLabel = isConnected ? formatServiceLimit(id, planLimits) : null;
         const detailText = isConnected ? serviceDetailText({ serviceId: id, svc, usage }) : null;
 

@@ -95,6 +95,18 @@ func (c *RealClient) doRequest(ctx context.Context, method, path string, body in
 	return resp, nil
 }
 
+// ConnectAPIError is returned when the Connect cloud responds with a non-2xx
+// status. StatusCode lets callers tell an invalid key (401) from a revoked key
+// (403) or an already-activated account (409) apart from each other and from
+// network failures (plain wrapped errors), so user-facing messages can say
+// what actually went wrong instead of a generic "could not connect".
+type ConnectAPIError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *ConnectAPIError) Error() string { return e.Message }
+
 func (c *RealClient) parseResponse(resp *http.Response, target interface{}) error {
 	defer resp.Body.Close()
 
@@ -107,7 +119,7 @@ func (c *RealClient) parseResponse(resp *http.Response, target interface{}) erro
 		if msg == "" {
 			msg = fmt.Sprintf("connect server returned HTTP %d", resp.StatusCode)
 		}
-		return fmt.Errorf("connect API error: %s", msg)
+		return &ConnectAPIError{StatusCode: resp.StatusCode, Message: msg}
 	}
 
 	if target != nil {
@@ -414,6 +426,18 @@ func (f *FakeClient) buildStatusLocked() *ConnectStatus {
 			}
 		}
 		svcs[id] = svc
+	}
+
+	// Mirror the real Connect server: human support is a plan entitlement,
+	// not a provisionable service. Plans that include it report it as
+	// connected, the free plan as unavailable, and a device with no active
+	// plan stays disabled (the default state).
+	if f.plan != nil {
+		state := ServiceUnavailable
+		if f.plan.ID == PlanOne || f.plan.ID == PlanLite {
+			state = ServiceConnected
+		}
+		svcs[ServiceSupport] = ServiceStatus{State: state, Label: "Human Support"}
 	}
 
 	var hint string
