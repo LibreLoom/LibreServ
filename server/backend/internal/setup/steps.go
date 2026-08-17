@@ -3,6 +3,7 @@ package setup
 var validMainSteps = map[string]bool{
 	StepWelcome:          true,
 	StepPreflight:        true,
+	StepWifi:             true,
 	StepDomain:           true,
 	StepRemoteAccess:     true,
 	StepSMTP:             true,
@@ -31,6 +32,8 @@ var validSubSteps = map[string]bool{
 
 var allowedStepDataKeys = map[string]bool{
 	"preflight_passed":          true,
+	"wifi_connected":            true,
+	"wifi_skipped":              true,
 	"account_completed":         true,
 	"admin_email":               true,
 	"domain_completed":          true,
@@ -53,6 +56,7 @@ var allowedStepDataKeys = map[string]bool{
 const (
 	StepWelcome          = "welcome"
 	StepPreflight        = "preflight"
+	StepWifi             = "wifi"
 	StepDomain           = "domain"
 	StepRemoteAccess     = "remote_access"
 	StepSMTP             = "smtp"

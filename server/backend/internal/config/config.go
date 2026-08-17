@@ -335,7 +335,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("network.caddy.logging.output", "stdout")
 	v.SetDefault("network.caddy.logging.format", "console")
 	v.SetDefault("network.mdns.enabled", true)
-	v.SetDefault("network.bluetooth.enabled", false)
+	v.SetDefault("network.bluetooth.enabled", true)
 
 	v.SetDefault("support.inference_base_url", "https://api.routing.run/v1")
 

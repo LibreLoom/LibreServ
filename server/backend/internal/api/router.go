@@ -12,6 +12,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/wifi"
 )
 
 // setupRoutes configures all API routes
@@ -93,6 +94,7 @@ func (s *Server) setupRoutes() {
 	ddnsHandler := handlers.NewDDNSHandler(s.ddnsService)
 	domainHandler := handlers.NewDomainHandler(s.dnsProviderMgr, s.acmeManager, s.caddyManager)
 	connectivityHandler := handlers.NewConnectivityHandler(s.ddnsService, s.appManager, s.caddyManager)
+	wifiHandler := handlers.NewWifiHandler(wifi.Auto())
 	tunnelHandler := handlers.NewTunnelHandler(s.tunnelService, s.settingsService, s.connectClient)
 	reportHandler := handlers.NewReportHandler(s.reportService)
 	mappingHandler := handlers.NewMappingHandler(s.upnpClient)
@@ -169,6 +171,16 @@ func (s *Server) setupRoutes() {
 			r.With(setupAccess).Post("/dns/test", setupHandler.TestDNS)
 			r.With(setupAccess).Post("/dns/apply", setupHandler.ApplyDNS)
 			r.Get("/dns/status", setupHandler.GetDNSStatus)
+
+			// Wi-Fi setup wiring — the connection step of the wizard. Public
+			// like the rest of /setup, but write endpoints still require the
+			// setup token (SetupAccess) so a guest on the LAN can't join the
+			// server to a network they choose. Passphrases are never logged.
+			r.Get("/wifi/status", wifiHandler.GetStatus)
+			r.With(setupAccess).Get("/wifi/scan", wifiHandler.Scan)
+			r.With(middleware.RateLimit([]middleware.RateRule{
+				{Prefix: "/api/v1/setup/wifi/connect", Limit: 6, Window: time.Minute},
+			}), setupAccess).Post("/wifi/connect", wifiHandler.Connect)
 			r.With(setupAccess).Put("/smtp", setupHandler.SaveSMTP)
 			r.With(setupAccess).Post("/smtp/test", setupHandler.TestSMTP)
 			r.With(setupAccess).Post("/finalize", setupHandler.FinalizeSetup)
@@ -392,6 +404,18 @@ func (s *Server) setupRoutes() {
 					r.Get("/port-forwarding-status", networkHandler.GetPortForwardingStatus)
 				})
 			}
+
+			// Wi-Fi management (admin only) — Settings → Network. Backed by
+			// wpa_cli on headless/devices, no-op when no radio exists.
+			r.Route("/network/wifi", func(r chi.Router) {
+				r.Use(middleware.RequireRole("admin"))
+				r.Get("/status", wifiHandler.GetStatus)
+				r.Get("/scan", wifiHandler.Scan)
+				r.With(middleware.RateLimit([]middleware.RateRule{
+					{Prefix: "/api/v1/network/wifi/connect", Limit: 6, Window: time.Minute},
+				})).Post("/connect", wifiHandler.Connect)
+				r.Post("/forget", wifiHandler.Forget)
+			})
 
 			// Network probing - connectivity and DNS testing
 			r.Route("/network/probe", func(r chi.Router) {

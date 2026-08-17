@@ -531,6 +531,24 @@ func main() {
 				slog.Warn("failed to start bluetooth service", "error", err)
 			}
 		}
+		// BLE is a setup bootstrap, not a permanent radio. Once setup is
+		// complete the phone has been handed off to LAN, so stop advertising
+		// the setup GATT service to save power and surface. A later factory
+		// reset restarts BLE on the next process start.
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					if setupService.IsComplete(context.Background()) {
+						bleSvc.Stop()
+						slog.Info("bluetooth bootstrap stopped: setup complete")
+						return
+					}
+				}
+			}
+		}()
 	}
 
 	errCh := make(chan error, 1)

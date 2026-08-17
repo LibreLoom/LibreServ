@@ -26,7 +26,7 @@
 - [x] Adoption UI: /drives page with detected drives, read-only inspect modal,
       marker warning, label + adopt flow
 - [x] Reconcile missing/ejected drives on startup and on each detection poll
-- [ ] Read-only/failed transitions from I/O errors and full-disk detection
+- [x] Read-only/failed transitions from I/O errors and full-disk detection (done in M7)
 
 ## M2 — Write path + WebDAV (COMPLETE except index listings, deferred to M7)
 - [x] Path-jailed directory listing (`GET /api/v1/drives/{id}/files?path=`)
@@ -43,7 +43,7 @@
       atomic rename)
 - [x] Copy/move job queue: SQLite-persisted progress, background thread pool,
       cancellation, conflict rejection, move = verified copy then trash source
-- [ ] Index-backed listings (SQLite) — moved to M7 performance hardening
+- [x] Index-backed listings (SQLite) — delivered in M7 (10k files ~22ms)
 
 ## M3 — Setup wizard + Wi-Fi (IN PROGRESS)
 - [x] Network status from sysfs + /proc/net/route (`/api/v1/network/status`):
@@ -58,9 +58,8 @@
 - [x] BLE protocol core (byte-compatible with LibreServ's HTTP-over-GATT): same
       UUIDs, JSON shapes, auth-code flow, 300-byte base64 chunking, pending
       reassembly + timeout sweep; executes against Luna's own router
-- [ ] BlueZ (bluer) GATT peripheral transport on Luna OS (trait is in place;
-      NoopTransport used where no radio exists)
-- [ ] LibreServ: Wi-Fi wizard step after Welcome/Preflight + shipped BLE default
+- [x] BlueZ (bluer) GATT peripheral transport on Luna OS (done in M11)
+- [x] LibreServ: Wi-Fi wizard step after Welcome/Preflight + BLE shipped as the default build
 
 ## M4 — Users, grants, shares (IN PROGRESS)
 - [x] Argon2 password hashing, JWT sessions (HttpOnly cookie + Bearer), first
@@ -77,7 +76,7 @@
 - [x] Web UI: AuthProvider + ProtectedRoute, LoginPage, admin-account step in
       the setup wizard, UsersPage (create/remove users + drive/folder grants),
       SharesPage (create password/expiry links, copy, revoke)
-- [ ] "Shared with me" view for non-admin users (grants backend is ready)
+- [x] "Shared with me" view for non-admin users (done in M11, /shared)
 
 ## M5 — Remote access (IN PROGRESS)
 - [x] Connect client (ureq + rustls): activate key, provision tunnel, status,
@@ -85,8 +84,7 @@
 - [x] Connect API: GET status, POST activate, POST tunnel/enable, POST deactivate
 - [x] Remote access UI (/settings/remote): Luna Connect on/off + key entry,
       tunnel enable, port-forward + Tailscale/WireGuard plain-language paths
-- [ ] Auto-issue free Luna Connect keys (no user-entered key) — product work
-      on the Connect portal side; free promise already in copy
+- [x] Auto-issue free Luna Connect keys (done in M11: POST /api/v1/luna/free-key)
 
 ## M6 — Luna Mobile (IN PROGRESS)
 - [x] Android project at `luna/mobile` forked from the LibreServ companion:
@@ -142,7 +140,7 @@
       Windows start/network-drive instructions
 - [x] `cargo test` green (HTTP client integration against a fake Luna API);
       `npm run build` green; `tauri build --no-bundle` produced a 13MB binary
-- [ ] Tray icon/status + installers (bundle step) — polish pass
+- [x] Tray icon/status + installer configuration (done in M11; final bundling runs per-platform)
 - [ ] Real-machine mount/backup soak test
 
 ## M10 — Photo gallery (DONE first pass)

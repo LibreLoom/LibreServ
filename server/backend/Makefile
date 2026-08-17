@@ -6,7 +6,7 @@ RESTIC_DIR := OS/bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME ?=
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
-BUILD_TAGS ?=
+BUILD_TAGS ?= libreserv_ble
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 

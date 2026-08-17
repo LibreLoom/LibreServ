@@ -5,6 +5,7 @@ import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, ShieldCheck } 
 import PropTypes from "prop-types";
 import api from "../lib/api";
 import ExternalServicesStep from "../components/setup/ExternalServicesStep";
+import WifiStep from "../components/setup/WifiStep";
 import PreflightRemediation from "../components/setup/PreflightRemediation";
 import { summarizeError } from "../lib/preflight-errors";
 import useSetupProgress from "../hooks/useSetupProgress";
@@ -21,6 +22,7 @@ const STEP = {
   SETUP_CODE:  "setup_code",
   WELCOME:      "welcome",
   PREFLIGHT:   "preflight",
+  WIFI:        "wifi",
   ACCOUNT:     "account",
   EXTERNAL_SERVICES: "external_services",
   MFA:         "mfa",
@@ -89,7 +91,7 @@ SetupCard.propTypes = {
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
-const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.ACCOUNT, STEP.EXTERNAL_SERVICES, STEP.MFA, STEP.COMPLETE];
+const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.WIFI, STEP.ACCOUNT, STEP.EXTERNAL_SERVICES, STEP.MFA, STEP.COMPLETE];
 
 function StepDots({ current }) {
   const idx = VISIBLE_STEPS.indexOf(current);
@@ -940,6 +942,7 @@ const STEP_ORDER = [
   STEP.SETUP_CODE,
   STEP.WELCOME,
   STEP.PREFLIGHT,
+  STEP.WIFI,
   STEP.ACCOUNT,
   STEP.EXTERNAL_SERVICES,
   STEP.MFA,
@@ -1095,6 +1098,16 @@ export default function SetupPage() {
 
   const handlePreflightPass = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), preflight_passed: true };
+    advanceStep(STEP.WIFI, "", data);
+  }, [advanceStep]);
+
+  const handleWifiConnected = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), wifi_connected: true };
+    advanceStep(STEP.ACCOUNT, "", data);
+  }, [advanceStep]);
+
+  const handleWifiSkip = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), wifi_skipped: true };
     advanceStep(STEP.ACCOUNT, "", data);
   }, [advanceStep]);
 
@@ -1222,6 +1235,14 @@ export default function SetupPage() {
     renderedStep = <WelcomeStep onBegin={handleBegin} />;
   } else if (step === STEP.PREFLIGHT) {
     renderedStep = <PreflightStep onPass={handlePreflightPass} />;
+  } else if (step === STEP.WIFI) {
+    renderedStep = (
+      <SetupShell>
+        <SetupCard className="" header={<StepDots current={STEP.WIFI} />}>
+          <WifiStep onConnected={handleWifiConnected} onSkipWifi={handleWifiSkip} />
+        </SetupCard>
+      </SetupShell>
+    );
   } else if (step === STEP.EXTERNAL_SERVICES) {
     renderedStep = (
       <SetupShell>
