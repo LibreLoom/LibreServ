@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Plug, PlugZap, ExternalLink, LogOut } from "lucide-react";
+import { Plug, PlugZap, ExternalLink, LogOut, CircleHelp } from "lucide-react";
 import Card from "../cards/Card.jsx";
 import ModalCard from "../cards/ModalCard.jsx";
 import Button from "../ui/Button";
-import Alert from "../common/Alert";
+import Callout from "../common/Callout";
 
 const PLAN_BADGES = {
   free: { label: "Connect Free", class: "bg-accent/10 text-accent" },
@@ -79,7 +80,18 @@ export default function ConnectStatusCard({
               placeholder="Paste your Connect key here"
               className="w-full px-4 py-3 rounded-pill bg-primary text-secondary border-2 border-secondary/20 focus:border-accent focus:outline-none motion-safe:transition-colors"
             />
-            {error && <Alert variant="error" message={error} />}
+            {error && (
+              <Callout tone="error" rounded="large-element">
+                <span className="block">{error}</span>
+                <Link
+                  to="/troubleshoot?issue=connect-key"
+                  className="mt-2 inline-flex items-center gap-1 text-xs whitespace-nowrap font-medium text-error hover:text-primary underline decoration-1 underline-offset-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 no-focus-outline rounded-pill motion-safe:transition-colors"
+                >
+                  <CircleHelp size={14} aria-hidden="true" />
+                  Get help fixing this
+                </Link>
+              </Callout>
+            )}
             <div className="flex gap-2 pt-2">
               <Button
                 onClick={async () => {
@@ -90,7 +102,7 @@ export default function ConnectStatusCard({
                     setConnectKey("");
                     setShowTokenInput(false);
                   } catch (err) {
-                    setError(err.message || "Could not connect to LibreServ Connect. Please check your Connect key and try again.");
+                    setError(err.message || "That Connect key didn't work. Check that you copied the whole key, then try again.");
                   }
                 }}
                 disabled={!connectKey.trim() || loading}

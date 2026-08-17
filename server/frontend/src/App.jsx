@@ -12,6 +12,7 @@ const UsersPage = lazy(() => import("./pages/UsersPage"));
 const UserDetailPage = lazy(() => import("./pages/UserDetailPage"));
 const AddUserPage = lazy(() => import("./pages/AddUserPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const TroubleshootPage = lazy(() => import("./pages/TroubleshootPage"));
 
 const AppDetailPage = lazy(() => import("./pages/AppDetailPage"));
 const AppInstallPage = lazy(() => import("./pages/AppInstallPage"));
@@ -122,6 +123,7 @@ export default function App() {
 />
             <Route path="/lore" element={<LorePage />} />
             <Route path="/pigeon" element={<PigeonPage />} />
+            <Route path="/troubleshoot" element={<TroubleshootPage />} />
           </Route>
           {/* Login — public, also used as the OIDC LoginURL target. */}
           <Route path="/login" element={<Login />} />
