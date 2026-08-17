@@ -96,8 +96,14 @@
       `Phone Backup/<year>/<month>` on the first drive
 - [x] Backend login response now returns the bearer token for native clients
 - [x] `./gradlew testDebugUnitTest` green; `assembleDebug` produces an APK
-- [ ] Device-token API (long-lived revocable app tokens) replacing stored JWT
-- [ ] BackupActivity visual polish + status notifications
+- [x] Device-token API (long-lived revocable app tokens): POST/GET/DELETE
+      `/api/v1/device-tokens`, blake3-hashed storage, revoke
+      without touching the password; auth guard accepts `Bearer <device-token>`
+- [x] BackupActivity polish: switch + turn-off control, device name, one-time
+      token mint (session JWT rolled into a device token, then discarded spooled),
+      ANDROID POST_NOTIFICATIONS runtime permission, channel + progress/stopped/
+      failure notifications; worker posts progress and self-clears on a revoked
+      (401) token
 
 ## M7 — Reliability & performance hardening (IN PROGRESS)
 - [x] Index-backed listings: `index_entries` + `indexed_dirs` tables; list_dir

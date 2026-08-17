@@ -120,6 +120,15 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             last_run INTEGER NOT NULL DEFAULT 0,
             created_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS device_tokens (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL,
+            last_used_at INTEGER NOT NULL DEFAULT 0,
+            revoked_at INTEGER
+        );
         CREATE TABLE IF NOT EXISTS photos (
             drive_id TEXT NOT NULL,
             path TEXT NOT NULL,
@@ -717,6 +726,92 @@ pub fn set_upload_state(
 
 pub fn delete_upload(conn: &Connection, id: &str) -> anyhow::Result<()> {
     conn.execute("DELETE FROM uploads WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceTokenRow {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub token_hash: String,
+    pub created_at: i64,
+    pub last_used_at: i64,
+    pub revoked_at: Option<i64>,
+}
+
+pub fn insert_device_token(
+    conn: &Connection,
+    id: &str,
+    user_id: &str,
+    name: &str,
+    token_hash: &str,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO device_tokens (id, user_id, name, token_hash, created_at, last_used_at, revoked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, NULL)",
+        params![id, user_id, name, token_hash, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn get_device_token_by_hash(
+    conn: &Connection,
+    token_hash: &str,
+) -> anyhow::Result<Option<DeviceTokenRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, user_id, name, token_hash, created_at, last_used_at, revoked_at
+         FROM device_tokens WHERE token_hash = ?1",
+    )?;
+    let mut rows = stmt.query_map(params![token_hash], |row| {
+        Ok(DeviceTokenRow {
+            id: row.get(0)?,
+            user_id: row.get(1)?,
+            name: row.get(2)?,
+            token_hash: row.get(3)?,
+            created_at: row.get(4)?,
+            last_used_at: row.get(5)?,
+            revoked_at: row.get::<_, Option<i64>>(6)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
+}
+
+pub fn list_device_tokens_for_user(
+    conn: &Connection,
+    user_id: &str,
+) -> anyhow::Result<Vec<DeviceTokenRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, user_id, name, token_hash, created_at, last_used_at, revoked_at
+         FROM device_tokens WHERE user_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![user_id], |row| {
+        Ok(DeviceTokenRow {
+            id: row.get(0)?,
+            user_id: row.get(1)?,
+            name: row.get(2)?,
+            token_hash: row.get(3)?,
+            created_at: row.get(4)?,
+            last_used_at: row.get(5)?,
+            revoked_at: row.get::<_, Option<i64>>(6)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn touch_device_token(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE device_tokens SET last_used_at = ?2 WHERE id = ?1",
+        params![id, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn revoke_device_token(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE device_tokens SET revoked_at = ?2 WHERE id = ?1",
+        params![id, now_unix()],
+    )?;
     Ok(())
 }
 

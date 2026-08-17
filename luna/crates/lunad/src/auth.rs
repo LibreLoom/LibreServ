@@ -39,6 +39,12 @@ pub struct CurrentUser {
     pub role: String,
 }
 
+impl CurrentUser {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
     #[error("That username or password is wrong.")]
@@ -159,6 +165,40 @@ impl AuthService {
         })
     }
 
+    /// Resolve a device token (from `Authorization: Bearer <token>`). Device
+    /// tokens share the same surface as session JWTs but are stored by their
+    /// blake3 hash in SQLite and can be revoked without touching the user's
+    /// password. Returns None when the token is unknown.
+    pub fn verify_device_token(
+        &self,
+        token: &str,
+    ) -> Result<Option<(CurrentUser, String)>, AuthError> {
+        let token_hash = hash_device_token(token);
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        let Some(dt) = db::get_device_token_by_hash(&conn, &token_hash).map_err(AuthError::Db)?
+        else {
+            return Ok(None);
+        };
+        if dt.revoked_at.is_some() {
+            return Ok(None);
+        }
+        let Some(user) = db::get_user(&conn, &dt.user_id).map_err(AuthError::Db)? else {
+            return Ok(None);
+        };
+        let _ = db::touch_device_token(&conn, &dt.id);
+        Ok(Some((
+            CurrentUser {
+                id: user.id.clone(),
+                username: user.username.clone(),
+                role: user.role.clone(),
+            },
+            dt.id,
+        )))
+    }
+
     pub fn issue(&self, user: &UserRow) -> Result<String, AuthError> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -246,14 +286,21 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
     if is_public {
         return next.run(req).await;
     }
-    match token_from_headers(req.headers()).and_then(|t| state.auth.verify(&t).ok()) {
-        Some(user) => {
+    // Prefer the session JWT; fall back to a device token so the mobile and
+    // desktop clients can authenticate with a revocable, long-lived token.
+    if let Some(raw) = token_from_headers(req.headers()) {
+        if let Ok(user) = state.auth.verify(&raw) {
             let mut req = req;
             req.extensions_mut().insert(user);
-            next.run(req).await
+            return next.run(req).await;
         }
-        None => json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response(),
+        if let Ok(Some((user, _token_id))) = state.auth.verify_device_token(&raw) {
+            let mut req = req;
+            req.extensions_mut().insert(user);
+            return next.run(req).await;
+        }
     }
+    json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response()
 }
 
 /// Extract the authenticated user (handlers are behind the guard).
@@ -318,6 +365,14 @@ fn normalize_username(username: &str) -> Result<String, AuthError> {
         return Err(AuthError::BadUsername);
     }
     Ok(username)
+}
+
+pub(crate) fn hash_device_token(input: &str) -> String {
+    // Hash device tokens before storage so a leaked database never yields a
+    // usable bearer token. blake3 is already a workspace dependency (used for
+    // file scrub hashes), and base64 is already imported above.
+    let digest = blake3::hash(input.as_bytes());
+    base64::engine::general_purpose::STANDARD.encode(digest.as_bytes())
 }
 
 pub(crate) fn hash_password(password: &str) -> Result<String, AuthError> {
@@ -395,6 +450,40 @@ mod tests {
         ));
         drop(conn);
         drop((dir, auth));
+    }
+
+    #[test]
+    fn device_token_round_trips_and_revokes() {
+        let (_dir, auth) = service();
+        let max = auth
+            .register("Max", "Max", "hunter22hunter", "user")
+            .unwrap();
+
+        let token = {
+            let conn = auth.db.lock().unwrap();
+            let raw_token = "secret-device-token-value";
+            crate::db::insert_device_token(
+                &conn,
+                "dt1",
+                &max.id,
+                "My phone",
+                &hash_device_token(raw_token),
+            )
+            .unwrap();
+            raw_token.to_string()
+        };
+
+        let (who, id) = auth.verify_device_token(&token).unwrap().unwrap();
+        assert_eq!(who.id, max.id);
+        assert_eq!(id, "dt1");
+
+        // Unknown token -> None, and a revoked token -> None.
+        assert!(auth.verify_device_token("nope").unwrap().is_none());
+        {
+            let conn = auth.db.lock().unwrap();
+            crate::db::revoke_device_token(&conn, "dt1").unwrap();
+        }
+        assert!(auth.verify_device_token(&token).unwrap().is_none());
     }
 
     #[test]

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod connect;
+pub mod device_tokens;
 pub mod drives;
 pub mod grants;
 pub mod health;
@@ -25,6 +26,7 @@ pub fn router() -> Router<AppState> {
         .merge(health::router())
         .merge(auth::router())
         .merge(connect::router())
+        .merge(device_tokens::router())
         .merge(users::router())
         .merge(grants::router())
         .merge(search::router())

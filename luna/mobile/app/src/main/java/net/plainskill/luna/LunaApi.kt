@@ -14,7 +14,12 @@ import java.net.URL
 object LunaApi {
     const val CHUNK_SIZE = 1024 * 1024 // 1 MiB
 
-    class ApiException(val code: Int, message: String) : Exception(message)
+    class ApiException(val code: Int, message: String) : Exception(message) {
+        val unauthorized get() = code == 401
+    }
+
+    /** A named token the server tracks so it can be revoked separately from the password. */
+    class DeviceToken(val id: String, val token: String)
 
     fun login(baseUrl: String, username: String, password: String): String {
         val body = JSONObject().apply {
@@ -23,6 +28,27 @@ object LunaApi {
         }
         val json = post(baseUrl, "/api/v1/auth/login", body.toString(), null)
         return json.optString("token").ifEmpty { throw ApiException(401, "No session token in reply") }
+    }
+
+    fun createDeviceToken(baseUrl: String, token: String, name: String): DeviceToken {
+        val body = JSONObject().apply { put("name", name) }
+        val json = post(baseUrl, "/api/v1/device-tokens", body.toString(), token)
+        val id = json.optString("id").ifEmpty { throw ApiException(500, "No device-token id in reply") }
+        val raw = json.optString("token").ifEmpty { throw ApiException(500, "No device-token value in reply") }
+        return DeviceToken(id, raw)
+    }
+
+    fun revokeToken(baseUrl: String, sessionToken: String, deviceId: String): Boolean {
+        val conn = open(baseUrl, "/api/v1/device-tokens/$deviceId", sessionToken)
+        try {
+            conn.requestMethod = "DELETE"
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            val code = conn.responseCode
+            return code in 200..299
+        } finally {
+            conn.disconnect()
+        }
     }
 
     fun firstDriveId(baseUrl: String, token: String): String {
