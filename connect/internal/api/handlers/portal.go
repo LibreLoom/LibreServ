@@ -626,11 +626,15 @@ func (h *PortalHandler) GenerateConnectKey(w http.ResponseWriter, r *http.Reques
 			}
 			if stored.Valid && stored.String != "" {
 				sub = stored.String
-			} else if raw, _ := h.deviceSubdomain(deviceID); raw != "" {
+			} else {
 				// No user-chosen subdomain — preserve the device-ID-derived
-				// prefix the portal displays, so even the auto-generated name
-				// doesn't change on regeneration.
-				sub = raw
+				// prefix the portal displays (last 8 characters of the device
+				// id), so even the auto-generated name doesn't change on
+				// regeneration.
+				sub = deviceID
+				if len(sub) >= 8 {
+					sub = sub[len(sub)-8:]
+				}
 			}
 		} else if existingSub.Valid && existingSub.String != "" {
 			sub = existingSub.String
