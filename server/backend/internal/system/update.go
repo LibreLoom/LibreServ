@@ -107,6 +107,16 @@ func (c *UpdateChecker) SetRestartChannel(ch chan<- RestartSignal) {
 	c.restartCh = ch
 }
 
+// RequestRestart asks the running process to restart itself (graceful
+// shutdown, then re-exec of the same binary). Used by the Troubleshooting
+// page's "Restart now" button — the same path the update flow uses after
+// applying an update. No-op if no restart channel is wired (e.g. tests).
+func (c *UpdateChecker) RequestRestart() {
+	if c.restartCh != nil {
+		c.restartCh <- RestartSignal{}
+	}
+}
+
 func (c *UpdateChecker) downloadBaseURL() string {
 	base := strings.TrimRight(c.baseURL, "/")
 	base = strings.TrimSuffix(base, "/api/v1")

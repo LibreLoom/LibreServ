@@ -53,3 +53,17 @@ func (h *SystemHandler) ApplyUpdate(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusOK, map[string]string{"message": "update applied, restarting..."})
 }
+
+// RestartNow handles POST /api/v1/system/restart — restarts the server
+// process on demand (graceful shutdown, then re-exec). Backs the
+// Troubleshooting page's "Restart now" step. The response may not be
+// delivered because the server begins shutting down immediately, so the
+// frontend treats either a response or a dropped connection as success and
+// polls /health until the server is back.
+func (h *SystemHandler) RestartNow(w http.ResponseWriter, r *http.Request) {
+	if h.auditLog != nil {
+		h.auditLog.Log(r.Context(), "system.restart", "", "libreserv", "started", "Restart requested from Troubleshooting", nil)
+	}
+	h.checker.RequestRestart()
+	JSON(w, http.StatusAccepted, map[string]string{"message": "LibreServ is restarting. It will be back in about a minute."})
+}

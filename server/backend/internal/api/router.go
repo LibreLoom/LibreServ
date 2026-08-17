@@ -518,6 +518,7 @@ func (s *Server) setupRoutes() {
 				r.Use(middleware.RequireRole("admin"))
 				r.Get("/updates/check", systemHandler.CheckUpdates)
 				r.Post("/updates/apply", systemHandler.ApplyUpdate)
+				r.Post("/restart", systemHandler.RestartNow)
 			})
 
 			// DDNS auto-update service (admin only)
