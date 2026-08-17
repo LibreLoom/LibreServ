@@ -11,7 +11,7 @@
 
 **Do not open public issues for security vulnerabilities.**
 
-Email security reports to: `trafficcone@onetrue.name`, `max@plainskill.net`, and `w.n.lazypanda5050@gmail.com`
+Email security reports to: `trafficcone@onetrue.name` and `max@plainskill.net`
 
 ## Threat Model: WAN-Accessible by Design
 
