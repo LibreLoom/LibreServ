@@ -87,7 +87,13 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
     let read = std::fs::read_dir(dir).map_err(FilesError::Io)?;
     for entry in read {
         let entry = entry.map_err(FilesError::Io)?;
-        let name = entry.file_name().to_string_lossy().into_owned();
+        // Skip names that aren't losslessly UTF-8: a lossy mangle would show a
+        // file the UI can never resolve back to its real bytes (stranding it),
+        // and two distinct names could collide in the index.
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
         let meta = std::fs::symlink_metadata(entry.path()).map_err(FilesError::Io)?;
         let kind = if meta.file_type().is_dir() {
             "dir"
@@ -106,7 +112,7 @@ pub fn read_dir_entries(dir: &Path) -> Result<Vec<FileEntry>, FilesError> {
             .unwrap_or(0);
         entries.push(FileEntry {
             hidden: name.starts_with('.'),
-            name,
+            name: name.to_string(),
             kind: kind.to_string(),
             size: meta.len(),
             modified,
@@ -216,10 +222,25 @@ pub fn safe_name(name: &str) -> Result<String, FilesError> {
     Ok(trimmed.to_string())
 }
 
-/// Atomically install `temp` as `dest`. `dest` must not exist.
-pub fn install_temp(temp: &Path, dest: &Path) -> Result<(), FilesError> {
-    std::fs::rename(temp, dest).map_err(FilesError::Io)?;
-    // Persist the directory entry so the rename survives power loss.
+/// Atomically install `temp` as `dest`.
+///
+/// When `overwrite` is false, the install fails with `AlreadyExists` if
+/// `dest` already exists. It does this with `hard_link` (which fails
+/// atomically if the destination appears) followed by removing `temp`, rather
+/// than `exists()`-then-`rename` — `rename(2)` silently overwrites, so the
+/// check-then-rename pattern has a TOCTOU window where a concurrently-created
+/// destination is clobbered even when overwrite was refused.
+pub fn install_temp(temp: &Path, dest: &Path, overwrite: bool) -> Result<(), FilesError> {
+    if overwrite {
+        std::fs::rename(temp, dest).map_err(FilesError::Io)?;
+    } else {
+        std::fs::hard_link(temp, dest).map_err(|e| match e.kind() {
+            std::io::ErrorKind::AlreadyExists => FilesError::Io(e),
+            _ => FilesError::Io(e),
+        })?;
+        std::fs::remove_file(temp).map_err(FilesError::Io)?;
+    }
+    // Persist the directory entry so the rename/link survives power loss.
     if let Some(parent) = dest.parent()
         && let Ok(dir) = std::fs::File::open(parent)
     {
@@ -421,8 +442,26 @@ mod tests {
         let temp = dir.path().join(".luna-upload.1");
         std::fs::write(&temp, b"hello").unwrap();
         let dest = dir.path().join("file.txt");
-        install_temp(&temp, &dest).unwrap();
+        install_temp(&temp, &dest, false).unwrap();
         assert!(!temp.exists());
         assert_eq!(std::fs::read(&dest).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn install_temp_never_overwrites_without_opt_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".luna-upload.1");
+        let dest = dir.path().join("file.txt");
+        std::fs::write(&temp, b"new").unwrap();
+        std::fs::write(&dest, b"original").unwrap();
+
+        // No-overwrite install must fail and leave the original intact.
+        assert!(install_temp(&temp, &dest, false).is_err());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"original");
+        assert!(temp.exists(), "temp is preserved so nothing is lost");
+
+        // Overwrite install replaces it.
+        install_temp(&temp, &dest, true).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"new");
     }
 }

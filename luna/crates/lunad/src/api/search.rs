@@ -18,6 +18,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/search", get(search))
         .route("/api/v1/system/reindex", post(reindex))
         .route("/api/v1/system/scrub", get(scrub_status).post(start_scrub))
+        .route("/api/v1/system/factory-reset", post(factory_reset))
 }
 
 async fn search(
@@ -153,5 +154,48 @@ async fn start_scrub(
     });
     Ok(Json(
         json!({ "started": true, "message": "Luna is checking your files in the background." }),
+    ))
+}
+
+/// Wipe all accounts, shares, and settings and return the box to first-run,
+/// leaving the actual files on the drives untouched.
+async fn factory_reset(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can do that.",
+        ));
+    }
+    let conn = state.db.lock().map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna's index is busy. Try again.",
+        )
+    })?;
+    // Un-adopt every drive (remove the `.luna` marker and unmount Luna-owned
+    // mounts) so the data is left intact but no longer owned by Luna.
+    let drives = crate::db::list_drives(&conn).unwrap_or_default();
+    for drive in drives {
+        if !drive.mount_point.is_empty() {
+            let _ = std::fs::remove_file(std::path::Path::new(&drive.mount_point).join(".luna"));
+            let _ = state.drive_manager.eject(&conn, &drive.id);
+        }
+    }
+    crate::db::factory_reset(&conn).map_err(|_| {
+        json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Luna couldn't finish the reset. Try again.",
+        )
+    })?;
+    // Regenerate the JWT signing secret and a fresh BLE setup code for the new
+    // first-run.
+    let _ = crate::auth::AuthService::ensure_secret(&conn);
+    let fresh = uuid::Uuid::new_v4().simple().to_string()[..8].to_uppercase();
+    let _ = crate::db::set_meta(&conn, "ble_setup_code", &fresh);
+    Ok(Json(
+        json!({ "ok": true, "message": "Luna has been reset. Set it up again from the start." }),
     ))
 }

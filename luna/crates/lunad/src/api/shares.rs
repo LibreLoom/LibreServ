@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use argon2::password_hash::rand_core::RngCore;
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
@@ -156,11 +154,12 @@ async fn remove(
 /// it streams the content. Optional password via `?password=...`.
 async fn public(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Path(token): Path<String>,
     Query(query): Query<PublicQuery>,
 ) -> axum::response::Response {
     let result: Result<axum::response::Response, (StatusCode, Json<Value>)> =
-        public_inner(state, token, query).await;
+        public_inner(state, addr.ip().to_string(), token, query).await;
     match result {
         Ok(response) => response,
         Err(err) => err.into_response(),
@@ -169,12 +168,13 @@ async fn public(
 
 async fn public_inner(
     state: AppState,
+    ip: String,
     token: String,
     query: PublicQuery,
 ) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
     // Keep the SQLite lock scoped to this block: the file-streaming await
     // below must not hold a MutexGuard across an await point.
-    let (path, meta, drive_id, path_label, entries) = {
+    let (_, meta, drive_id, path_label, entries) = {
         let conn = state
             .db
             .lock()
@@ -192,6 +192,14 @@ async fn public_inner(
         }
         if !share.password_hash.is_empty() {
             let provided = query.password.unwrap_or_default();
+            // Rate-limit password attempts: `/s/` is a public, WAN-exposed
+            // endpoint, so an unthrottled share password would be brute-forceable.
+            if !state.share_limiter.allow(&ip) {
+                return Err(json_error(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Too many tries. Wait a few minutes and try again.",
+                ));
+            }
             let parsed =
                 argon2::password_hash::PasswordHash::new(&share.password_hash).map_err(|_| {
                     json_error(
@@ -225,7 +233,7 @@ async fn public_inner(
     };
 
     if meta.is_file() {
-        return serve_file(path).await;
+        return serve_file(&state, &drive_id, &path_label).await;
     }
     Ok(Json(json!({
         "drive_id": drive_id,
@@ -235,13 +243,42 @@ async fn public_inner(
     .into_response())
 }
 
-async fn serve_file(path: PathBuf) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
-    let file = tokio::fs::File::open(&path).await.map_err(|_| {
-        json_error(
-            StatusCode::NOT_FOUND,
-            "The shared file isn't available right now.",
-        )
-    })?;
+async fn serve_file(
+    state: &AppState,
+    drive_id: &str,
+    rel: &str,
+) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
+    // Open against a re-verified descriptor so a mid-request symlink swap on
+    // the drive cannot read outside the jail.
+    let (file, path) = {
+        let conn = state.db.lock().map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna's index is busy. Try again.",
+            )
+        })?;
+        let Some(drive) = crate::db::get_drive(&conn, drive_id).map_err(|_| {
+            json_error(
+                StatusCode::NOT_FOUND,
+                "The shared file isn't available right now.",
+            )
+        })?
+        else {
+            return Err(json_error(
+                StatusCode::NOT_FOUND,
+                "The shared file isn't available right now.",
+            ));
+        };
+        let root = std::path::PathBuf::from(&drive.mount_point);
+        let (file, path) = luna_core::path::open_verified(&root, rel).map_err(|_| {
+            json_error(
+                StatusCode::NOT_FOUND,
+                "The shared file isn't available right now.",
+            )
+        })?;
+        (file, path)
+    };
+    let file = tokio::fs::File::from_std(file);
     let meta = std::fs::metadata(&path).map_err(|_| {
         json_error(
             StatusCode::NOT_FOUND,

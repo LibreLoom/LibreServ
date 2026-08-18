@@ -25,6 +25,7 @@ struct CreateBody {
 #[derive(Deserialize)]
 struct CompleteQuery {
     overwrite: Option<String>,
+    hash: Option<String>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -118,7 +119,8 @@ async fn complete(
 ) -> Result<Json<crate::files::FileEntry>, (StatusCode, Json<Value>)> {
     check_upload_access(&state, &user, &id, true)?;
     let overwrite = query.overwrite.as_deref() == Some("1");
-    let entry = uploads::complete(&state.db, &id, overwrite).map_err(map_upload_err)?;
+    let entry = uploads::complete(&state.db, &id, overwrite, query.hash.as_deref())
+        .map_err(map_upload_err)?;
     Ok(Json(entry))
 }
 

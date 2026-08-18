@@ -2,12 +2,34 @@ package net.plainskill.luna
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 
 object BackupPrefs {
     private const val NAME = "luna_backup"
 
-    fun prefs(context: Context): SharedPreferences =
-        context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+    /**
+     * The bearer token grants access to the user's files, so it is stored
+     * encrypted at rest (Android Keystore-backed). If encryption is
+     * unavailable on a device we fall back to private prefs rather than break
+     * backup entirely.
+     */
+    private fun prefs(context: Context): SharedPreferences {
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                context,
+                NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            context.getSharedPreferences(NAME, Context.MODE_PRIVATE)
+        }
+    }
 
     fun token(context: Context): String? = prefs(context).getString("token", null)
     fun deviceName(context: Context): String? = prefs(context).getString("device_name", null)

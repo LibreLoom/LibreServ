@@ -43,6 +43,11 @@ impl DetectedDrive {
 
 pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
     let mounts = parse_mounts(proc_mounts);
+    // The device that carries the running OS (the `/` mount and its parent
+    // disk) must never be offered up for adoption — adopting it would let Luna
+    // write a `.luna` marker at the system root and then recursively walk,
+    // hash, protect and thumbnail the whole OS. Same for anything mounted at `/`.
+    let system_devices = system_devices(proc_mounts);
     let mut drives = Vec::new();
     let Ok(entries) = std::fs::read_dir(sys_block) else {
         return drives;
@@ -63,6 +68,12 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
         let usb = device_path_is_usb(&dir);
         let (mount_point, fs_type) = mounts.get(&name).cloned().unwrap_or((None, None));
 
+        // Never surface the live OS disk (or anything mounted at the system
+        // root) as an adoptable drive.
+        if system_devices.contains(&name) || mount_point.as_deref() == Some("/") {
+            continue;
+        }
+
         drives.push(DetectedDrive {
             name,
             model,
@@ -75,6 +86,35 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
     }
     drives.sort_by(|a, b| a.name.cmp(&b.name));
     drives
+}
+
+/// Names of the block devices backing the running OS root (`/`) — the exact
+/// device and its parent disk (so `sda1` → `sda` is covered).
+fn system_devices(proc_mounts: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in proc_mounts.lines() {
+        let mut fields = line.split_whitespace();
+        let Some(device) = fields.next() else {
+            continue;
+        };
+        let Some(point) = fields.next() else { continue };
+        if point != "/" {
+            continue;
+        }
+        let dev = Path::new(device)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| device.to_string());
+        if !out.contains(&dev) {
+            out.push(dev.clone());
+        }
+        if let Some(parent) = parent_device(&dev).filter(|p| p != &dev)
+            && !out.contains(&parent)
+        {
+            out.push(parent);
+        }
+    }
+    out
 }
 
 fn is_block_name(name: &str) -> bool {
@@ -217,5 +257,26 @@ mod tests {
         let (point, fs) = map.get("sdb1").unwrap();
         assert_eq!(point.as_deref(), Some("/mnt/one"));
         assert_eq!(fs.as_deref(), Some("ext4"));
+    }
+
+    #[test]
+    fn system_root_device_is_never_adoptable() {
+        let root = tempfile::tempdir().unwrap();
+        let sys = fake_sysfs(root.path());
+        // Add a fake NVMe boot disk mounted at /.
+        fs::create_dir_all(sys.join("nvme0n1/device")).unwrap();
+        fs::write(sys.join("nvme0n1/size"), "999999\n").unwrap();
+        fs::write(sys.join("nvme0n1/removable"), "0\n").unwrap();
+        let mounts = "/dev/nvme0n1p2 / ext4 rw 0 0\n/dev/sda1 /mnt/photos ext4 rw 0 0\nproc /proc proc rw 0 0\n";
+
+        let drives = scan(&sys, mounts);
+        assert!(
+            drives.iter().all(|d| d.name != "nvme0n1"),
+            "the OS boot disk must not be offered for adoption"
+        );
+        assert!(
+            drives.iter().any(|d| d.name == "sda"),
+            "an unrelated USB drive must still be offered"
+        );
     }
 }

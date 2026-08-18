@@ -94,12 +94,20 @@ async fn content(
             .unwrap());
     }
 
-    let mut file = tokio::fs::File::open(&path).await.map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't open this file. Try again.",
-        )
-    })?;
+    let mut file = {
+        let drive =
+            with_db(&state, |conn| crate::files::drive_root(conn, &id)).map_err(map_files_err)?;
+        let root = std::path::PathBuf::from(&drive.mount_point);
+        // Open the file against a re-verified descriptor so a mid-request
+        // symlink swap on the drive cannot read outside the jail.
+        let (file, _) = luna_core::path::open_verified(&root, &rel).map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't open this file. Try again.",
+            )
+        })?;
+        tokio::fs::File::from_std(file)
+    };
 
     let (status, stream_len, content_range) =
         match headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
@@ -252,7 +260,7 @@ async fn upload(
                         format!("Luna couldn't save this file. {}", plain_upload_error(&e)),
                     ));
                 }
-                if let Err(e) = files::install_temp(&temp, &dest) {
+                if let Err(e) = files::install_temp(&temp, &dest, overwrite) {
                     let _ = tokio::fs::remove_file(&temp).await;
                     if let Ok(conn) = state.db.lock() {
                         files::note_write_failure(&conn, &id, &e.to_string());

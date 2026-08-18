@@ -61,6 +61,28 @@ fn canonical_root(root: &Path) -> Result<PathBuf, PathError> {
     root.canonicalize().map_err(PathError::Io)
 }
 
+/// Open a file inside the jail and verify, against the *actually opened* file
+/// descriptor, that it still lives under `root`.
+///
+/// `resolve_child` canonicalizes the path, but there is a small window between
+/// that check and a later `File::open` where a malicious drive (the drives are
+/// user-supplied content) could swap an intermediate directory for a symlink
+/// pointing outside the root. Re-checking the opened fd via `/proc/self/fd`
+/// closes that race: whatever object was really opened is verified.
+#[cfg(target_os = "linux")]
+pub fn open_verified(root: &Path, rel: &str) -> Result<(std::fs::File, PathBuf), PathError> {
+    use std::os::unix::io::AsRawFd;
+    let path = resolve_child(root, rel)?;
+    let file = std::fs::File::open(&path).map_err(PathError::Io)?;
+    let link =
+        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(PathError::Io)?;
+    let canonical_root = root.canonicalize().map_err(PathError::Io)?;
+    if !link.starts_with(&canonical_root) {
+        return Err(PathError::Escape);
+    }
+    Ok((file, path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

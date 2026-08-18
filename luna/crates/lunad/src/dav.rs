@@ -68,8 +68,20 @@ fn require_dav_admin(
         return require_admin_role(user);
     }
     // 2) The user's real username + password over Basic (what OS WebDAV
-    //    clients send when the OS prompts for credentials).
+    //    clients send when the OS prompts for credentials). Rate-limited so a
+    //    brute force over the unthrottled WebDAV surface can't hammer passwords.
     if let Some((username, password)) = basic_credentials(req.headers()) {
+        let ip = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|ci| ci.0.ip().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        if !state.dav_limiter.allow(&ip) {
+            return Err(json_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too many tries. Wait a few minutes and try again.",
+            ));
+        }
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
