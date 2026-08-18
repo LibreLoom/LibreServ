@@ -23,6 +23,12 @@ pub const CHAR_PROXY_REQ: &str = "5a494c42-6572-6572-7600-000000000004";
 pub const CHAR_PROXY_RESP: &str = "5a494c42-6572-6572-7600-000000000005";
 pub const MAX_CHUNK: usize = 300; // raw bytes per base64 chunk, same as LibreServ
 pub const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+// Hard bounds so a brute-forcing or misbehaving BLE client can't exhaust the
+// 4GB box: auth-code attempts are throttled with a lockout, and in-flight
+// request bodies are capped.
+const MAX_AUTH_FAILURES: u32 = 8;
+const AUTH_LOCKOUT: std::time::Duration = std::time::Duration::from_secs(300);
+const MAX_PENDING_BODY: usize = 256 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyRequest {
@@ -138,12 +144,21 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
+/// Authentication state for the BLE transport. A single shared flag is enough
+/// because the GATT service is one peripheral; failed codes throttle with a
+/// lockout, and a correct code flips the whole transport authenticated.
+struct AuthState {
+    authed: bool,
+    failures: u32,
+    locked_until: Option<std::time::Instant>,
+}
+
 /// The protocol core. Hardware-agnostic; a BlueZ transport will call
 /// `handle_auth_write` and `handle_request_write` on characteristic events.
 pub struct BleCore {
     setup_code: String,
     executor: RouterExecutor,
-    authed: Mutex<bool>,
+    auth_state: Mutex<AuthState>,
     pending: Mutex<HashMap<String, PendingRequest>>,
 }
 
@@ -152,7 +167,11 @@ impl BleCore {
         Self {
             setup_code: setup_code.into(),
             executor,
-            authed: Mutex::new(false),
+            auth_state: Mutex::new(AuthState {
+                authed: false,
+                failures: 0,
+                locked_until: None,
+            }),
             pending: Mutex::new(HashMap::new()),
         }
     }
@@ -165,16 +184,34 @@ impl BleCore {
             message: None,
             ts: unix_now(),
         };
-        let mut authed = self.authed.lock().unwrap();
+        let mut state = self.auth_state.lock().unwrap();
+        let now = std::time::Instant::now();
+        if let Some(until) = state.locked_until {
+            if now < until {
+                status.message =
+                    Some("Too many wrong codes. Wait a few minutes and try again.".into());
+                return serde_json::to_vec(&status).unwrap_or_default();
+            }
+            state.locked_until = None;
+            state.failures = 0;
+        }
         if code.trim().eq_ignore_ascii_case(&self.setup_code) {
-            *authed = true;
+            state.authed = true;
+            state.failures = 0;
             status.ok = true;
         } else {
-            *authed = false;
-            status.message = Some(
-                "The code you entered does not match. Check the setup code printed on your device and try again."
-                    .into(),
-            );
+            state.authed = false;
+            state.failures += 1;
+            if state.failures >= MAX_AUTH_FAILURES {
+                state.locked_until = Some(now + AUTH_LOCKOUT);
+                status.message =
+                    Some("Too many wrong codes. Wait a few minutes and try again.".into());
+            } else {
+                status.message = Some(
+                    "The code you entered does not match. Check the setup code printed on your device and try again."
+                        .into(),
+                );
+            }
         }
         serde_json::to_vec(&status).unwrap_or_default()
     }
@@ -182,7 +219,14 @@ impl BleCore {
     /// Returns zero or more JSON frames to write to the Proxy Response
     /// characteristic (usually one frame per 300-byte chunk).
     pub async fn handle_request_write(&self, value: &[u8]) -> Vec<Vec<u8>> {
-        if !*self.authed.lock().unwrap() {
+        let allowed = {
+            let state = self.auth_state.lock().unwrap();
+            state.authed
+                && state
+                    .locked_until
+                    .is_none_or(|until| std::time::Instant::now() >= until)
+        };
+        if !allowed {
             return vec![self.error_frame(
                 "",
                 StatusCode::FORBIDDEN,
@@ -210,7 +254,22 @@ impl BleCore {
 
         if req.chunk == 0 {
             let body = decode_body(&req.body);
-            self.pending.lock().unwrap().insert(
+            let mut map = self.pending.lock().unwrap();
+            // Bound the total reassembly buffer per request id.
+            if map
+                .get(&req.id)
+                .map_or(body.len(), |p| p.body.len() + body.len())
+                > MAX_PENDING_BODY
+            {
+                map.remove(&req.id);
+                drop(map);
+                return vec![self.error_frame(
+                    &req.id,
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "That message is too large to send over Bluetooth. Try a smaller file.",
+                )];
+            }
+            map.insert(
                 req.id.clone(),
                 PendingRequest {
                     method: req.method.clone(),
@@ -227,7 +286,17 @@ impl BleCore {
             let mut map = self.pending.lock().unwrap();
             match map.get_mut(&req.id) {
                 Some(p) => {
-                    p.body.extend_from_slice(&decode_body(&req.body));
+                    let incoming = decode_body(&req.body);
+                    if p.body.len() + incoming.len() > MAX_PENDING_BODY {
+                        map.remove(&req.id);
+                        drop(map);
+                        return vec![self.error_frame(
+                            &req.id,
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            "That message is too large to send over Bluetooth. Try a smaller file.",
+                        )];
+                    }
+                    p.body.extend_from_slice(&incoming);
                     if req.r#final {
                         Some(map.remove(&req.id).unwrap())
                     } else {
@@ -450,6 +519,21 @@ mod tests {
         let frame = core.handle_auth_write(b"A1B2C3").await;
         let status: AuthStatus = serde_json::from_slice(&frame).unwrap();
         assert!(status.ok);
+    }
+
+    #[tokio::test]
+    async fn auth_lockout_blocks_brute_force() {
+        let core = test_core().await;
+        for _ in 0..MAX_AUTH_FAILURES {
+            let frame = core.handle_auth_write(b"wrong-code").await;
+            let status: AuthStatus = serde_json::from_slice(&frame).unwrap();
+            assert!(!status.ok);
+        }
+        // Even the correct code is refused while the transport is locked out.
+        let frame = core.handle_auth_write(b"a1b2c3").await;
+        let status: AuthStatus = serde_json::from_slice(&frame).unwrap();
+        assert!(!status.ok);
+        assert!(status.message.unwrap().contains("Wait a few minutes"));
     }
 
     #[tokio::test]

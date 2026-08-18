@@ -89,6 +89,15 @@ impl DriveManager {
         let label = label.trim();
         let id = Uuid::new_v4().to_string();
 
+        // Defense-in-depth: never adopt the live OS disk or anything mounted
+        // at the system root. Detection normally filters these out, but this
+        // guard makes it impossible to adopt them even if a caller bypasses it.
+        if device.mount_point.as_deref() == Some("/") {
+            anyhow::bail!(
+                "That's the system disk Luna runs from — Luna won't touch the operating system's own drive."
+            );
+        }
+
         let foreign_target = self.foreign_mount_point(&device.name);
         let foreign_was_mounted = self.is_ours(&foreign_target);
 
@@ -110,17 +119,9 @@ impl DriveManager {
             }
         };
 
-        let marker = Marker::new(id.clone(), label);
-        if let Err(e) = write_marker(&mount_point, &marker) {
-            if mounted_by_luna {
-                let _ = self.mounter.unmount(&mount_point);
-                let _ = std::fs::remove_dir(&mount_point);
-            }
-            return Err(anyhow::anyhow!(
-                "Luna could not mark this drive as its own. {e}"
-            ));
-        }
-
+        // Register the drive first, then write the marker. If the marker can't
+        // be written, roll back the DB row and unmount so we never leave a
+        // writable, registered-but-unmarked drive behind.
         db::upsert_drive(
             conn,
             &id,
@@ -130,6 +131,19 @@ impl DriveManager {
             &device.name,
             mount_point.to_str().unwrap_or(""),
         )?;
+
+        let marker = Marker::new(id.clone(), label);
+        if let Err(e) = write_marker(&mount_point, &marker) {
+            let _ = db::delete_drive(conn, &id);
+            if mounted_by_luna {
+                let _ = self.mounter.unmount(&mount_point);
+                let _ = std::fs::remove_dir(&mount_point);
+            }
+            return Err(anyhow::anyhow!(
+                "Luna could not mark this drive as its own. {e}"
+            ));
+        }
+
         db::get_drive(conn, &id)?
             .map(Ok)
             .unwrap_or_else(|| anyhow::bail!("Drive was added but could not be read back."))

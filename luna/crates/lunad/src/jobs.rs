@@ -238,8 +238,10 @@ fn run_job(db: Arc<Mutex<Connection>>, prepared: PreparedJob, cancel: Arc<Atomic
         let _ = db::set_job_state(&conn, &prepared.row.id, &state, &error);
         let _ = db::update_job_progress(&conn, &prepared.row.id, prepared.total, prepared.total);
     }
-    // A cancelled job may have a partial destination; remove it.
-    if state == "cancelled" {
+    // A cancelled or failed job may have a partial destination; remove it so a
+    // retry isn't blocked by a torn tree (for a move, the source is only
+    // trashed after a full copy, so nothing is lost by cleaning up).
+    if state == "cancelled" || state == "error" {
         let _ = std::fs::remove_file(&prepared.dest);
         let _ = std::fs::remove_dir_all(&prepared.dest);
     }
@@ -318,7 +320,7 @@ fn copy_node(
     output.flush().map_err(JobError::Io)?;
     output.sync_all().map_err(JobError::Io)?;
     drop(output);
-    files::install_temp(&tmp, dest)?;
+    files::install_temp(&tmp, dest, false)?;
     Ok(done)
 }
 

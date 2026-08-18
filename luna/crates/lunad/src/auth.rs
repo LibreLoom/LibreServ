@@ -176,7 +176,23 @@ impl AuthService {
             return Ok(None);
         };
         if let Ok(user) = self.verify(&raw) {
-            return Ok(Some(user));
+            // Re-check every session JWT against the DB so a deleted user loses
+            // access immediately (not after their 30-day token expires) and a
+            // role change takes effect without waiting for re-login.
+            let conn = self
+                .db
+                .lock()
+                .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+            return Ok(
+                match db::get_user(&conn, &user.id).map_err(AuthError::Db)? {
+                    Some(row) => Some(CurrentUser {
+                        id: row.id,
+                        username: row.username,
+                        role: row.role,
+                    }),
+                    None => None,
+                },
+            );
         }
         if let Ok(Some((user, _))) = self.verify_device_token(&raw) {
             return Ok(Some(user));

@@ -7,8 +7,11 @@ import java.io.ByteArrayInputStream
  * A tiny embedded HTTP proxy that forwards requests to Luna or LibreServ over BLE.
  * The WebView loads http://127.0.0.1:18080/ and every request is piped through
  * the [BleManager].
+ *
+ * Bound to loopback only — other apps on the phone must not be able to reach
+ * the proxy that talks to your device.
  */
-class ProxyServer(private val bleManager: BleManager, port: Int) : NanoHTTPD(port) {
+class ProxyServer(private val bleManager: BleManager, port: Int) : NanoHTTPD("127.0.0.1", port) {
 
     override fun serve(session: IHTTPSession): Response {
         val method = session.method.name

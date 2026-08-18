@@ -10,7 +10,12 @@ pub struct Session {
 }
 
 #[tauri::command]
-fn login(base_url: String, username: String, password: String, state: State<Session>) -> Result<String, String> {
+fn login(
+    base_url: String,
+    username: String,
+    password: String,
+    state: State<Session>,
+) -> Result<String, String> {
     let token = luna::login(&base_url, &username, &password).map_err(|e| e.to_string())?;
     *state.token.lock().unwrap() = Some(token);
     Ok("Signed in.".into())
@@ -18,7 +23,12 @@ fn login(base_url: String, username: String, password: String, state: State<Sess
 
 #[tauri::command]
 fn list_drives(base_url: String, state: State<Session>) -> Result<Vec<luna::Drive>, String> {
-    let token = state.token.lock().unwrap().clone().ok_or("Sign in first.")?;
+    let token = state
+        .token
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("Sign in first.")?;
     luna::list_drives(&base_url, &token).map_err(|e| e.to_string())
 }
 
@@ -37,11 +47,17 @@ fn start_backup(
     remote_path: String,
     state: State<Session>,
 ) -> Result<String, String> {
-    let token = state.token.lock().unwrap().clone().ok_or("Sign in first.")?;
+    let token = state
+        .token
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("Sign in first.")?;
     if folder.is_empty() || !std::path::Path::new(&folder).is_dir() {
         return Err("Choose a folder that exists.".into());
     }
-    let handle = backup::start(base_url, token, folder, drive_id, remote_path).map_err(|e| e.to_string())?;
+    let handle =
+        backup::start(base_url, token, folder, drive_id, remote_path).map_err(|e| e.to_string())?;
     *state.backup.lock().unwrap() = Some(handle);
     Ok("Backup started. Luna Desktop keeps watching this folder.".into())
 }
@@ -58,8 +74,17 @@ fn stop_backup(state: State<Session>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn mount_drive(base_url: String, drive_id: String, state: State<Session>) -> Result<String, String> {
-    let token = state.token.lock().unwrap().clone().ok_or("Sign in first.")?;
+fn mount_drive(
+    base_url: String,
+    drive_id: String,
+    state: State<Session>,
+) -> Result<String, String> {
+    let token = state
+        .token
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("Sign in first.")?;
     luna::mount_instructions(&base_url, &token, &drive_id)
 }
 
@@ -67,7 +92,10 @@ fn mount_drive(base_url: String, drive_id: String, state: State<Session>) -> Res
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(Session { token: Mutex::new(None), backup: Mutex::new(None) })
+        .manage(Session {
+            token: Mutex::new(None),
+            backup: Mutex::new(None),
+        })
         .setup(|app| {
             use tauri::Manager;
             use tauri::menu::{Menu, MenuItem};

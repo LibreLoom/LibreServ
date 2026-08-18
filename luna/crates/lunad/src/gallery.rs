@@ -10,6 +10,10 @@ use serde::Serialize;
 
 const THUMB_MAX: u32 = 400;
 const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif"];
+// Bounds for decoding a photo into a thumbnail. A tiny crafted file declaring
+// huge dimensions must not make the daemon allocate unbounded memory.
+const MAX_IMAGE_DIM: u32 = 16_384;
+const MAX_DECODE_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Photo {
@@ -68,13 +72,15 @@ pub fn scan_drive(
             if !meta.is_file() || !is_image(&entry.path()) {
                 continue;
             }
-            let rel = entry
-                .path()
-                .strip_prefix(root)
-                .unwrap_or(&entry.path())
-                .to_string_lossy()
-                .into_owned();
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let path_buf = entry.path();
+            let Some(rel) = path_buf.strip_prefix(root).ok().and_then(|p| p.to_str()) else {
+                continue;
+            };
+            let file_name = entry.file_name();
+            let Some(name) = file_name.to_str() else {
+                continue;
+            };
+            let name = name.to_string();
             let mtime = meta
                 .modified()
                 .ok()
@@ -85,13 +91,13 @@ pub fn scan_drive(
             let mut width = 0;
             let mut height = 0;
             let mut thumb = String::new();
-            match ensure_thumb(&entry.path(), &thumb_path(thumb_dir, drive_id, &rel)) {
+            match ensure_thumb(&entry.path(), &thumb_path(thumb_dir, drive_id, rel)) {
                 Ok((w, h, made)) => {
                     width = w;
                     height = h;
                     thumb = format!(
                         "/api/v1/gallery/thumb?drive_id={drive_id}&path={}",
-                        urlencode(&rel)
+                        urlencode(rel)
                     );
                     report.found += 1;
                     if made {
@@ -133,7 +139,15 @@ pub fn ensure_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)>
     if dest.exists() {
         return Ok((0, 0, false));
     }
-    let img = ImageReader::open(src)?.decode()?;
+    // Cap the decoded image so a decompression-bomb / huge-dimension file
+    // cannot exhaust memory on the 4GB box.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIM);
+    limits.max_image_height = Some(MAX_IMAGE_DIM);
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    let mut reader = ImageReader::open(src)?;
+    reader.limits(limits);
+    let img = reader.decode()?;
     let (w, h) = (img.width(), img.height());
     let thumb = img.thumbnail(THUMB_MAX, THUMB_MAX);
     let tmp = dest.with_extension("jpg.tmp");

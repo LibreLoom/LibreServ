@@ -42,6 +42,8 @@ pub struct AppState {
     pub auth: Arc<crate::auth::AuthService>,
     pub connect: Arc<crate::connect::ConnectService>,
     pub login_limiter: Arc<crate::rate_limit::RateLimiter>,
+    pub dav_limiter: Arc<crate::rate_limit::RateLimiter>,
+    pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub thumb_dir: std::path::PathBuf,
     pub hotspot: std::sync::Arc<Mutex<Option<crate::hotspot::CommandHotspot>>>,
 }
@@ -68,6 +70,14 @@ impl AppState {
                 std::env::var("LUNA_CONNECT_URL").ok(),
             )),
             login_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
+                std::time::Duration::from_secs(300),
+                10,
+            )),
+            dav_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
+                std::time::Duration::from_secs(300),
+                10,
+            )),
+            share_limiter: Arc::new(crate::rate_limit::RateLimiter::new(
                 std::time::Duration::from_secs(300),
                 10,
             )),

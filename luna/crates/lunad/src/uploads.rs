@@ -153,14 +153,17 @@ pub fn write_chunk(
 
     let received = upload.received.max(end);
     db::update_upload_received(&conn, id, received).map_err(UploadError::Db)?;
+    db::upsert_upload_chunk(&conn, id, start, end).map_err(UploadError::Db)?;
     Ok(received)
 }
 
-/// Verify length and install. The caller chooses overwrite semantics.
+/// Verify length, contiguous coverage, and (optionally) a client-supplied
+/// blake3 hash, then install. The caller chooses overwrite semantics.
 pub fn complete(
     db: &Arc<Mutex<Connection>>,
     id: &str,
     overwrite: bool,
+    expected_hash: Option<&str>,
 ) -> Result<FileEntry, UploadError> {
     let conn = db.lock().map_err(|_| UploadError::NotFound)?;
     let upload = load(&conn, id)?;
@@ -169,9 +172,25 @@ pub fn complete(
     }
 
     let meta = std::fs::metadata(&upload.temp).map_err(UploadError::Io)?;
-    if meta.len() != upload.size || upload.received < upload.size {
+    // The sparse temp file's logical length equals `size` even if only the tail
+    // was written, so length alone is not enough — every byte must be covered
+    // contiguously from 0, otherwise a resumable client that lost earlier
+    // chunks would install a file full of zero holes.
+    let covered = db::upload_fully_covered(&conn, id, upload.size).map_err(UploadError::Db)?;
+    if meta.len() != upload.size || !covered {
         db::set_upload_state(&conn, id, "error", "incomplete").map_err(UploadError::Db)?;
         return Err(UploadError::SizeMismatch);
+    }
+
+    if let Some(expected) = expected_hash.filter(|h| !h.is_empty()) {
+        let actual = blake3_hash_file(&upload.temp).map_err(UploadError::Io)?;
+        if !actual.eq_ignore_ascii_case(expected) {
+            db::set_upload_state(&conn, id, "error", "hash-mismatch").map_err(UploadError::Db)?;
+            return Err(UploadError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "upload hash did not match",
+            )));
+        }
     }
 
     // One fsync for the whole file, then atomic rename + parent dir sync.
@@ -190,7 +209,7 @@ pub fn complete(
             "destination exists",
         ))));
     }
-    if let Err(e) = files::install_temp(&upload.temp, &dest) {
+    if let Err(e) = files::install_temp(&upload.temp, &dest, overwrite) {
         files::note_write_failure(&conn, &upload.drive_id, &e.to_string());
         return Err(e.into());
     }
@@ -203,6 +222,7 @@ pub fn complete(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     db::delete_upload(&conn, id).map_err(UploadError::Db)?;
+    db::delete_upload_chunks(&conn, id).map_err(UploadError::Db)?;
 
     Ok(FileEntry {
         name: upload.name,
@@ -213,12 +233,28 @@ pub fn complete(
     })
 }
 
+fn blake3_hash_file(path: &Path) -> Result<String, std::io::Error> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = blake3::Hasher::new();
+    let mut buf = vec![0u8; 1024 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
 /// Cancel and remove temp data.
 pub fn cancel(db: &Arc<Mutex<Connection>>, id: &str) -> Result<(), UploadError> {
     let conn = db.lock().map_err(|_| UploadError::NotFound)?;
     let upload = load(&conn, id)?;
     let _ = std::fs::remove_file(&upload.temp);
     db::delete_upload(&conn, id).map_err(UploadError::Db)?;
+    db::delete_upload_chunks(&conn, id).map_err(UploadError::Db)?;
     Ok(())
 }
 
@@ -267,11 +303,28 @@ mod tests {
         let received = write_chunk(&db, &up.id, 0, &data1).unwrap();
         assert_eq!(received, 1000);
 
-        let entry = complete(&db, &up.id, false).unwrap();
+        let entry = complete(&db, &up.id, false, None).unwrap();
         assert_eq!(entry.size, 1000);
 
         let row = db::get_upload(&db.lock().unwrap(), &up.id).unwrap();
         assert!(row.is_none(), "session removed after completion");
+    }
+
+    #[test]
+    fn tail_only_upload_cannot_complete() {
+        // The sparse temp file's logical length matches `size` even when only
+        // the tail was written, so completion must require full coverage —
+        // otherwise a resumable client that lost earlier chunks would install
+        // a file full of zero holes.
+        let (_dir, db, drive) = setup();
+        let conn = db.lock().unwrap();
+        let up = create(&conn, &drive, "", "sparse.bin", 1000).unwrap();
+        drop(conn);
+        write_chunk(&db, &up.id, 900, &[1u8; 100]).unwrap();
+        assert!(matches!(
+            complete(&db, &up.id, false, None),
+            Err(UploadError::SizeMismatch)
+        ));
     }
 
     #[test]
@@ -282,7 +335,7 @@ mod tests {
         drop(conn);
         write_chunk(&db, &up.id, 0, &[1u8; 10]).unwrap();
         assert!(matches!(
-            complete(&db, &up.id, false),
+            complete(&db, &up.id, false, None),
             Err(UploadError::SizeMismatch)
         ));
     }

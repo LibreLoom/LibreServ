@@ -37,7 +37,14 @@ async fn status() -> Json<crate::net::NetworkStatus> {
 
 async fn wifi_status(
     State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Result<Json<crate::wifi::WifiStatus>, (StatusCode, Json<Value>)> {
+    if !network_setup_or_admin(&state, current.as_ref()) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can see the Wi-Fi settings.",
+        ));
+    }
     let provider = state.wifi.clone();
     let status = tokio::task::spawn_blocking(move || provider.status())
         .await
@@ -52,7 +59,14 @@ async fn wifi_status(
 
 async fn scan(
     State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
 ) -> Result<Json<Vec<WifiNetwork>>, (StatusCode, Json<Value>)> {
+    if !network_setup_or_admin(&state, current.as_ref()) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can scan for Wi-Fi networks.",
+        ));
+    }
     let provider = state.wifi.clone();
     let networks = tokio::task::spawn_blocking(move || provider.scan())
         .await
@@ -63,6 +77,19 @@ async fn scan(
             )
         })?;
     Ok(Json(networks.map_err(map_wifi_err)?))
+}
+
+/// Network endpoints are public only during first-run setup (no users yet);
+/// once accounts exist they are admin-only.
+fn network_setup_or_admin(
+    state: &AppState,
+    current: Option<&Extension<crate::auth::CurrentUser>>,
+) -> bool {
+    let has_users = state.auth.count_users().unwrap_or(1) > 0;
+    if !has_users {
+        return true;
+    }
+    current.map(|u| u.role == "admin").unwrap_or(false)
 }
 
 async fn connect(

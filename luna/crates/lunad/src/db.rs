@@ -44,6 +44,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS upload_chunks (
+            upload_id TEXT NOT NULL,
+            start INTEGER NOT NULL,
+            end INTEGER NOT NULL,
+            PRIMARY KEY (upload_id, start)
+        );
         CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY,
             kind TEXT NOT NULL,
@@ -243,6 +249,37 @@ pub fn set_drive_state(conn: &Connection, id: &str, state: &str) -> anyhow::Resu
         "UPDATE drives SET state = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, state, now_unix()],
     )?;
+    Ok(())
+}
+
+pub fn delete_drive(conn: &Connection, id: &str) -> anyhow::Result<()> {
+    conn.execute("DELETE FROM drives WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/// Wipe all user data and return the box to first-run state, keeping the
+/// schema. Clears users/grants/shares/device-tokens, uploads/jobs, the file
+/// index/hashes/protections/photos, drives, and resets setup + the JWT and BLE
+/// setup secrets.
+pub fn factory_reset(conn: &Connection) -> anyhow::Result<()> {
+    for table in [
+        "users",
+        "grants",
+        "shares",
+        "device_tokens",
+        "uploads",
+        "upload_chunks",
+        "jobs",
+        "index_entries",
+        "indexed_dirs",
+        "file_hashes",
+        "protections",
+        "photos",
+        "drives",
+    ] {
+        conn.execute(&format!("DELETE FROM {table}"), [])?;
+    }
+    conn.execute("DELETE FROM meta", [])?;
     Ok(())
 }
 
@@ -707,6 +744,58 @@ pub fn update_upload_received(conn: &Connection, id: &str, received: u64) -> any
     conn.execute(
         "UPDATE uploads SET received = ?2, updated_at = ?3 WHERE id = ?1",
         params![id, received as i64, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Record a covered byte range `[start, end)` for an upload. Overlapping or
+/// duplicate chunks are last-write-wins, matching the sparse-file write path.
+pub fn upsert_upload_chunk(
+    conn: &Connection,
+    upload_id: &str,
+    start: u64,
+    end: u64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO upload_chunks (upload_id, start, end) VALUES (?1, ?2, ?3)
+         ON CONFLICT(upload_id, start) DO UPDATE SET end = excluded.end",
+        params![upload_id, start as i64, end as i64],
+    )?;
+    Ok(())
+}
+
+/// All recorded covered ranges for an upload, sorted by start.
+pub fn list_upload_chunks(conn: &Connection, upload_id: &str) -> anyhow::Result<Vec<(u64, u64)>> {
+    let mut stmt =
+        conn.prepare("SELECT start, end FROM upload_chunks WHERE upload_id = ?1 ORDER BY start")?;
+    let rows = stmt.query_map(params![upload_id], |row| {
+        Ok((row.get::<_, i64>(0)? as u64, row.get::<_, i64>(1)? as u64))
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+/// True when the recorded ranges fully cover `[0, size)` with no holes.
+pub fn upload_fully_covered(conn: &Connection, upload_id: &str, size: u64) -> anyhow::Result<bool> {
+    if size == 0 {
+        return Ok(true);
+    }
+    let mut covered_end: u64 = 0;
+    for (start, end) in list_upload_chunks(conn, upload_id)? {
+        if start > covered_end {
+            return Ok(false); // gap
+        }
+        covered_end = covered_end.max(end);
+        if covered_end >= size {
+            return Ok(true);
+        }
+    }
+    Ok(covered_end >= size)
+}
+
+pub fn delete_upload_chunks(conn: &Connection, upload_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "DELETE FROM upload_chunks WHERE upload_id = ?1",
+        params![upload_id],
     )?;
     Ok(())
 }

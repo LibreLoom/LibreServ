@@ -41,9 +41,11 @@ podman run --rm -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux dnsmasq \
         dhcpcd ca-certificates ssl_client \
-        hdparm
+        hdparm \
+        chrony logrotate
 
-    # Luna never talks to NTP or package servers by default.
+    # Luna keeps its own clock in sync (chrony) so TLS certificate validation
+    # and share expiry work even if the RTC drifts. It does not pull updates.
     rm -f /rootfs/etc/apk/repositories
     ln -s /bin/busybox /rootfs/usr/bin/logger 2>/dev/null || true
 '
@@ -87,9 +89,22 @@ done
 for svc in hwclock modules sysctl hostname bootmisc syslog networking; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/boot/$svc" 2>/dev/null || true
 done
-for svc in avahi-daemon wpa_supplicant luna; do
+for svc in avahi-daemon wpa_supplicant luna crond chronyd; do
     ln -sf "/etc/init.d/$svc" "$ROOTFS/etc/runlevels/default/$svc" 2>/dev/null || true
 done
+
+# Rotate busybox syslog output so the small OS disk never fills up.
+cat > "$ROOTFS/etc/logrotate.d/luna" <<'LOGROT'
+/var/log/messages {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGROT
+chmod 644 "$ROOTFS/etc/logrotate.d/luna"
 
 # wpa_supplicant config: Luna's daemon drives it through wpa_cli at runtime.
 printf 'ctrl_interface=/run/wpa_supplicant\nupdate_config=1\n' > "$ROOTFS/etc/wpa_supplicant/wpa_supplicant.conf"
