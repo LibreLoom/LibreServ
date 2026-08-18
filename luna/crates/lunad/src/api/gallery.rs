@@ -167,6 +167,7 @@ async fn serve_thumb(path: std::path::PathBuf) -> Result<Response, (StatusCode, 
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, "image/jpeg")
         .header(axum::http::header::CONTENT_LENGTH, meta.len().to_string())
+        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(
             axum::http::header::CACHE_CONTROL,
             "public, max-age=31536000, immutable",

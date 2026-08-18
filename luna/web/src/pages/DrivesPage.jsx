@@ -7,6 +7,7 @@ import ModalCard from "../components/cards/ModalCard";
 import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
 import TextLink from "../components/ui/TextLink";
+import { useAuth } from "../context/AuthContext";
 import { getDrives, getJson, postJson } from "../lib/api";
 
 const STATE_PILLS = {
@@ -59,11 +60,14 @@ function AdoptedCard({ drive }) {
 
 export default function DrivesPage() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const detected = useQuery({
     queryKey: ["drives-detected"],
     queryFn: () => getJson("/api/v1/drives/detected"),
     refetchInterval: 5000,
+    enabled: isAdmin,
   });
   const [inspectFor, setInspectFor] = useState(null);
 
@@ -99,12 +103,16 @@ export default function DrivesPage() {
         </div>
       )}
 
-      <h2 className="font-mono text-sm text-secondary mb-4 mt-10">Drives plugged in now</h2>
-      <div className="grid gap-5 md:grid-cols-2">
-        {(detected.data || []).map((drive) => <DetectedCard key={drive.name} drive={drive} onOpen={setInspectFor} />)}
-      </div>
-      {!detected.isLoading && (detected.data || []).length === 0 && (
-        <p className="text-secondary text-sm">Nothing new plugged in.</p>
+      {isAdmin && (
+        <>
+          <h2 className="font-mono text-sm text-secondary mb-4 mt-10">Drives plugged in now</h2>
+          <div className="grid gap-5 md:grid-cols-2">
+            {(detected.data || []).map((drive) => <DetectedCard key={drive.name} drive={drive} onOpen={setInspectFor} />)}
+          </div>
+          {!detected.isLoading && (detected.data || []).length === 0 && (
+            <p className="text-secondary text-sm">Nothing new plugged in.</p>
+          )}
+        </>
       )}
 
       {inspectFor && (

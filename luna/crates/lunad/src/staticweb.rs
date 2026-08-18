@@ -20,6 +20,7 @@ pub fn handle(path: &str) -> Response<Body> {
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
                 .body(Body::from("Luna web app not built"))
                 .unwrap();
         };
@@ -42,6 +43,9 @@ pub fn handle(path: &str) -> Response<Body> {
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime)
         .header(header::CACHE_CONTROL, cache)
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(header::X_FRAME_OPTIONS, "DENY")
+        .header(header::REFERRER_POLICY, "no-referrer")
         .body(Body::from(file.contents()))
         .unwrap()
 }
@@ -51,6 +55,9 @@ fn html(file: &'static include_dir::File<'static>) -> Response<Body> {
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
         .header(header::CACHE_CONTROL, "no-cache")
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .header(header::X_FRAME_OPTIONS, "DENY")
+        .header(header::REFERRER_POLICY, "no-referrer")
         .body(Body::from(file.contents()))
         .unwrap()
 }

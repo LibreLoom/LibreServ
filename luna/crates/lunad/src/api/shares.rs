@@ -80,6 +80,15 @@ async fn create(
         .lock()
         .map_err(|_| AuthError::Unauthenticated)
         .map_err(map_err)?;
+    // A share is a public link to a folder, so the creator needs at least
+    // read access to it — otherwise any user could link out other people's
+    // drives they have never been granted.
+    if !auth::can_access(&user, &conn, &body.drive_id, &body.path, false) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "You don't have permission to share this folder.",
+        ));
+    }
     // Validate the path resolves before creating the link.
     crate::files::resolve_any(&conn, &body.drive_id, &body.path).map_err(|_| {
         json_error(
@@ -244,15 +253,21 @@ async fn serve_file(path: PathBuf) -> Result<axum::response::Response, (StatusCo
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "download".into());
+    let disposition = if crate::files::inline_safe(mime.as_ref()) {
+        "inline"
+    } else {
+        "attachment"
+    };
     let stream = tokio_util::io::ReaderStream::new(file);
     let builder = axum::response::Response::builder()
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, mime.as_ref())
         .header(axum::http::header::CONTENT_LENGTH, meta.len().to_string())
         .header(axum::http::header::CACHE_CONTROL, "private, no-store")
+        .header(axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(
             axum::http::header::CONTENT_DISPOSITION,
-            format!("inline; filename=\"{}\"", name.replace('"', "")),
+            format!("{disposition}; filename=\"{}\"", name.replace('"', "")),
         );
     let response = builder
         .body(axum::body::Body::from_stream(stream))

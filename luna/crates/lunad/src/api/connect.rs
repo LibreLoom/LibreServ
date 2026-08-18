@@ -1,4 +1,4 @@
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -30,7 +30,9 @@ async fn status(State(state): State<AppState>) -> Json<crate::connect::ConnectSt
 
 async fn activate_free(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(user)?;
     let service = state.connect.clone();
     let result = tokio::task::spawn_blocking(move || service.activate_free("Luna"))
         .await
@@ -46,8 +48,10 @@ async fn activate_free(
 
 async fn activate(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<ActivateBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(user)?;
     let service = state.connect.clone();
     let result = tokio::task::spawn_blocking(move || {
         service.activate(
@@ -68,7 +72,9 @@ async fn activate(
 
 async fn enable_tunnel(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(user)?;
     let service = state.connect.clone();
     let result = tokio::task::spawn_blocking(move || service.provision_tunnel())
         .await
@@ -84,7 +90,9 @@ async fn enable_tunnel(
 
 async fn deactivate(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(user)?;
     let service = state.connect.clone();
     tokio::task::spawn_blocking(move || service.deactivate())
         .await
@@ -96,6 +104,16 @@ async fn deactivate(
         })?
         .map_err(map_connect_err)?;
     Ok(Json(json!({ "ok": true })))
+}
+
+fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can change remote access.",
+        ));
+    }
+    Ok(())
 }
 
 fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {

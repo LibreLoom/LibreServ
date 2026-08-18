@@ -184,6 +184,20 @@ pub fn dest_dir(
     Ok(dir)
 }
 
+/// MIME types safe to render inline at the Luna origin. Everything else is
+/// forced to download so a crafted HTML/SVG/PDF/JS file sitting on a drive can
+/// never execute as a Luna page (stored XSS). `nosniff` must also be set on
+/// the response for this to hold.
+pub fn inline_safe(mime: &str) -> bool {
+    let t = mime.to_ascii_lowercase();
+    (t.starts_with("image/") && t != "image/svg+xml")
+        || t.starts_with("video/")
+        || t.starts_with("audio/")
+        || t.starts_with("font/")
+        || t == "text/plain"
+        || t == "text/csv"
+}
+
 /// Sanitize a client-provided file name to a bare, non-empty basename.
 pub fn safe_name(name: &str) -> Result<String, FilesError> {
     if name.contains(['/', '\\', '\0']) {

@@ -5,6 +5,7 @@ import TextLink from "../components/ui/TextLink";
 import Card from "../components/cards/Card";
 import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
+import { useAuth } from "../context/AuthContext";
 import { getHealth } from "../lib/api";
 
 function HealthPill({ data, isError }) {
@@ -15,6 +16,8 @@ function HealthPill({ data, isError }) {
 
 export default function LandingPage() {
   const health = useQuery({ queryKey: ["health"], queryFn: getHealth, retry: 1 });
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   return (
     <Page
@@ -50,21 +53,29 @@ export default function LandingPage() {
 
       <div className="mt-8 flex flex-wrap gap-4">
         <div className="flex flex-wrap gap-3">
-          <TextLink to="/settings/remote" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-            Remote access
-          </TextLink>
-          <TextLink to="/settings/users" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-            People
-          </TextLink>
+          {isAdmin && (
+            <TextLink to="/settings/remote" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+              Remote access
+            </TextLink>
+          )}
+          {isAdmin && (
+            <TextLink to="/settings/users" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+              People
+            </TextLink>
+          )}
           <TextLink to="/settings/shares" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
             Links
           </TextLink>
-          <TextLink to="/setup" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium bg-secondary text-primary px-4 py-2 text-sm hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-secondary motion-safe:transition-all">
-            Set up Luna
-          </TextLink>
-          <TextLink to="/settings/protect" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-            Protect a folder
-          </TextLink>
+          {isAdmin && (
+            <TextLink to="/setup" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium bg-secondary text-primary px-4 py-2 text-sm hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-secondary motion-safe:transition-all">
+              Set up Luna
+            </TextLink>
+          )}
+          {isAdmin && (
+            <TextLink to="/settings/protect" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+              Protect a folder
+            </TextLink>
+          )}
           <TextLink to="/shared" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
             Shared with me
           </TextLink>

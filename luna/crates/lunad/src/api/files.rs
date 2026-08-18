@@ -140,11 +140,12 @@ async fn content(
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| String::from("download"));
     let mime = mime_guess::from_path(&name).first_or_octet_stream();
-    let disposition = if query.download.as_deref() == Some("1") {
-        "attachment"
-    } else {
-        "inline"
-    };
+    let disposition =
+        if query.download.as_deref() == Some("1") || !files::inline_safe(mime.as_ref()) {
+            "attachment"
+        } else {
+            "inline"
+        };
 
     let mut builder = Response::builder()
         .status(status)
@@ -152,6 +153,7 @@ async fn content(
         .header(header::CONTENT_LENGTH, stream_len.to_string())
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::ETAG, etag)
+        .header(header::X_CONTENT_TYPE_OPTIONS, "nosniff")
         .header(
             header::CONTENT_DISPOSITION,
             format!("{disposition}; filename=\"{}\"", name.replace('"', "")),

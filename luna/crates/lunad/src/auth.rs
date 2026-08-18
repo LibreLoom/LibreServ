@@ -165,6 +165,25 @@ impl AuthService {
         })
     }
 
+    /// Resolve a request's credentials (Bearer/Basic token or session cookie)
+    /// to a current user. Returns `Ok(None)` when no usable credential is
+    /// present or the credential is unknown.
+    pub fn resolve_from_headers(
+        &self,
+        headers: &HeaderMap,
+    ) -> Result<Option<CurrentUser>, AuthError> {
+        let Some(raw) = token_from_headers(headers) else {
+            return Ok(None);
+        };
+        if let Ok(user) = self.verify(&raw) {
+            return Ok(Some(user));
+        }
+        if let Ok(Some((user, _))) = self.verify_device_token(&raw) {
+            return Ok(Some(user));
+        }
+        Ok(None)
+    }
+
     /// Resolve a device token (from `Authorization: Bearer <token>`). Device
     /// tokens share the same surface as session JWTs but are stored by their
     /// blake3 hash in SQLite and can be revoked without touching the user's
@@ -262,9 +281,22 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
     if let Some(auth) = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
-        && let Some(token) = auth.strip_prefix("Bearer ")
     {
-        return Some(token.to_string());
+        if let Some(token) = auth.strip_prefix("Bearer ") {
+            return Some(token.to_string());
+        }
+        // WebDAV clients (Finder, Explorer, davfs2, gio) authenticate with
+        // HTTP Basic auth. The username is ignored; the password carries the
+        // same session or device token a Bearer header would.
+        if let Some(encoded) = auth.strip_prefix("Basic ") {
+            let decoded = base64::engine::general_purpose::STANDARD
+                .decode(encoded.trim())
+                .ok()?;
+            let text = std::str::from_utf8(&decoded).ok()?;
+            let (_, password) = text.split_once(':')?;
+            return Some(password.to_string());
+        }
+        return None;
     }
     let cookie = headers.get(axum::http::header::COOKIE)?.to_str().ok()?;
     cookie.split(';').find_map(|part| {
@@ -274,31 +306,30 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Global auth guard: health, auth, setup, and the SPA shell stay public;
-/// every `/api/` data endpoint requires a valid session.
+/// every `/api/` data endpoint requires a valid session. The first-run setup
+/// wizard must reach the network endpoints before any account exists, so they
+/// stay public for exactly as long as the user table is empty.
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
-    let is_public = path == "/health"
+    let mut is_public = path == "/health"
         || path == "/api/v1/health"
         || path.starts_with("/api/v1/auth/")
         || path.starts_with("/api/v1/setup")
         || path.starts_with("/s/")
         || !path.starts_with("/api/");
+    if !is_public && path.starts_with("/api/v1/network/") {
+        let setup_mode = state.auth.count_users().unwrap_or(1) == 0;
+        is_public = setup_mode;
+    }
     if is_public {
         return next.run(req).await;
     }
     // Prefer the session JWT; fall back to a device token so the mobile and
     // desktop clients can authenticate with a revocable, long-lived token.
-    if let Some(raw) = token_from_headers(req.headers()) {
-        if let Ok(user) = state.auth.verify(&raw) {
-            let mut req = req;
-            req.extensions_mut().insert(user);
-            return next.run(req).await;
-        }
-        if let Ok(Some((user, _token_id))) = state.auth.verify_device_token(&raw) {
-            let mut req = req;
-            req.extensions_mut().insert(user);
-            return next.run(req).await;
-        }
+    if let Ok(Some(user)) = state.auth.resolve_from_headers(req.headers()) {
+        let mut req = req;
+        req.extensions_mut().insert(user);
+        return next.run(req).await;
     }
     json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response()
 }
