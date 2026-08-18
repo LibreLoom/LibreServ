@@ -85,12 +85,3 @@ func VerifyTOTP(secret, code string) bool {
 func TOTPURI(secret, account, issuer string) string {
 	return fmt.Sprintf("otpauth://totp/%s:%s?secret=%s&issuer=%s", issuer, account, secret, issuer)
 }
-
-// GenerateToken generates a random token (for sessions, API keys, etc.).
-func GenerateToken(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate token: %w", err)
-	}
-	return base32.StdEncoding.EncodeToString(b), nil
-}

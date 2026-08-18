@@ -61,7 +61,7 @@ type cloudflareRecordResponse struct {
 // The record name is the full hostname (e.g. "myserver.example.com").
 func (c *CloudflareClient) CreateRecord(apiToken, _ /* secretKey unused */, zone, name, recordType, content string, ttl int) (bool, error) {
 	if apiToken == "" {
-		return false, fmt.Errorf("Cloudflare API token is not configured")
+		return false, fmt.Errorf("cloudflare API token is not configured")
 	}
 	if zone == "" {
 		return false, fmt.Errorf("DNS zone is not configured")
@@ -105,7 +105,7 @@ func (c *CloudflareClient) CreateRecord(apiToken, _ /* secretKey unused */, zone
 		return false, fmt.Errorf("could not create DNS record at Cloudflare: %w", err)
 	}
 	if !resp.Success && len(resp.Errors) > 0 {
-		return false, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return false, fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 	return true, nil
 }
@@ -115,7 +115,7 @@ func (c *CloudflareClient) CreateRecord(apiToken, _ /* secretKey unused */, zone
 // The record is proxied (orange cloud) so Cloudflare terminates TLS at the edge.
 func (c *CloudflareClient) CreateCNAME(apiToken, zone, hostname, target string) (bool, error) {
 	if apiToken == "" {
-		return false, fmt.Errorf("Cloudflare API token is not configured")
+		return false, fmt.Errorf("cloudflare API token is not configured")
 	}
 	if zone == "" || hostname == "" || target == "" {
 		return false, fmt.Errorf("zone, hostname, and target are required")
@@ -152,7 +152,7 @@ func (c *CloudflareClient) CreateCNAME(apiToken, zone, hostname, target string) 
 		return false, fmt.Errorf("could not create CNAME record at Cloudflare: %w", err)
 	}
 	if !resp.Success && len(resp.Errors) > 0 {
-		return false, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return false, fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 	return true, nil
 }
@@ -165,7 +165,7 @@ func (c *CloudflareClient) CreateCNAME(apiToken, zone, hostname, target string) 
 // wildcard cert for Connect-managed device subdomains.
 func (c *CloudflareClient) CreateCustomHostname(apiToken, zone, hostname string) (bool, error) {
 	if apiToken == "" {
-		return false, fmt.Errorf("Cloudflare API token is not configured")
+		return false, fmt.Errorf("cloudflare API token is not configured")
 	}
 	if zone == "" || hostname == "" {
 		return false, fmt.Errorf("zone and hostname are required")
@@ -201,7 +201,7 @@ func (c *CloudflareClient) CreateCustomHostname(apiToken, zone, hostname string)
 				return true, nil
 			}
 		}
-		return false, fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+		return false, fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 	}
 	return true, nil
 }
@@ -218,9 +218,9 @@ func (c *CloudflareClient) lookupZoneID(baseURL, apiToken, zoneName string) (str
 	}
 	if !resp.Success {
 		if len(resp.Errors) > 0 {
-			return "", fmt.Errorf("Cloudflare API error: %s", resp.Errors[0].Message)
+			return "", fmt.Errorf("cloudflare API error: %s", resp.Errors[0].Message)
 		}
-		return "", fmt.Errorf("Cloudflare API returned no zones")
+		return "", fmt.Errorf("cloudflare API returned no zones")
 	}
 	if len(resp.Result) == 0 {
 		return "", fmt.Errorf("zone %q not found in Cloudflare account", zoneName)

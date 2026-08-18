@@ -61,13 +61,6 @@ func NewServer(db *sql.DB) *Server {
 	return s
 }
 
-// StopSMTP gracefully shuts down the SMTP relay server.
-func (s *Server) StopSMTP() {
-	if s.smtpSrv != nil {
-		s.smtpSrv.Stop()
-	}
-}
-
 // Router returns the chi mux for serving.
 func (s *Server) Router() *chi.Mux {
 	return s.router

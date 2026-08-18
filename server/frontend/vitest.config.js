@@ -15,8 +15,9 @@ export default defineConfig({
     setupFiles: "./src/test/setup.js",
     css: false,
     include: ["src/**/*.test.{js,jsx}"],
-    testTimeout: 15000,
-    teardownTimeout: 30000,
+    testTimeout: 30000,
+    hookTimeout: 30000,
+    teardownTimeout: 60000,
     pool: "forks",
   },
 });

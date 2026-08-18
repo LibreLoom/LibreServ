@@ -53,18 +53,9 @@ type Model struct {
 
 	selectedResult *tests.TestResult
 	scrollOffset   int
-	resultsList    []string
-	exportFormat   int
-	clipboardMsg   string
 	lastError      string
 
-	settings        Settings
-	settingsCursor  int
-	settingsInputs  map[string]string
-	settingsEditing string
-	settingsData    map[string]interface{}
-	loadingMsg      string
-	errorMsg        string
+	settings Settings
 }
 
 type Settings struct {

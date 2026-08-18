@@ -2,11 +2,31 @@ package jobqueue
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 )
+
+func newTestWebhookService() *WebhookService {
+	cfg := WebhookConfig{
+		Timeout:               30 * time.Second,
+		MaxRetries:            3,
+		RetryDelay:            1 * time.Minute,
+		AllowPrivateIPs:       true,
+		RequireHTTPS:          false,
+		MaxConcurrentWebhooks: 100,
+	}
+	return &WebhookService{
+		config:     cfg,
+		client:     &http.Client{Timeout: cfg.Timeout},
+		logger:     slog.Default().With("component", "webhook_service"),
+		deliveries: make(map[string]*WebhookDelivery),
+		stopCh:     make(chan struct{}),
+		semaphore:  make(chan struct{}, cfg.MaxConcurrentWebhooks),
+	}
+}
 
 func TestWebhookService_TriggerWebhook_Success(t *testing.T) {
 	// Create a test server that accepts webhooks
@@ -29,7 +49,7 @@ func TestWebhookService_TriggerWebhook_Success(t *testing.T) {
 	defer server.Close()
 
 	// Create webhook service
-	ws := NewWebhookService(DefaultWebhookConfig())
+	ws := newTestWebhookService()
 
 	// Create a test job
 	job := &Job{
@@ -78,7 +98,7 @@ func TestWebhookService_TriggerWebhook_Success(t *testing.T) {
 }
 
 func TestWebhookService_TriggerWebhook_NoURL(t *testing.T) {
-	ws := NewWebhookService(DefaultWebhookConfig())
+	ws := newTestWebhookService()
 
 	job := &Job{
 		ID:         "test-job-2",
@@ -99,7 +119,7 @@ func TestWebhookService_TriggerWebhook_NoURL(t *testing.T) {
 }
 
 func TestWebhookService_GetStats(t *testing.T) {
-	ws := NewWebhookService(DefaultWebhookConfig())
+	ws := newTestWebhookService()
 
 	// Create test deliveries with different statuses
 	ws.deliveries["test-1"] = &WebhookDelivery{
@@ -139,7 +159,7 @@ func TestWebhookService_GetStats(t *testing.T) {
 }
 
 func TestWebhookService_CleanupOldDeliveries(t *testing.T) {
-	ws := NewWebhookService(DefaultWebhookConfig())
+	ws := newTestWebhookService()
 
 	// Create old delivery
 	ws.deliveries["old"] = &WebhookDelivery{
@@ -163,19 +183,5 @@ func TestWebhookService_CleanupOldDeliveries(t *testing.T) {
 	}
 	if _, ok := ws.deliveries["recent"]; !ok {
 		t.Error("recent delivery should still exist")
-	}
-}
-
-func TestDefaultWebhookConfig(t *testing.T) {
-	cfg := DefaultWebhookConfig()
-
-	if cfg.Timeout != DefaultWebhookTimeout {
-		t.Errorf("expected timeout %v, got %v", DefaultWebhookTimeout, cfg.Timeout)
-	}
-	if cfg.MaxRetries != DefaultWebhookMaxRetries {
-		t.Errorf("expected max_retries %d, got %d", DefaultWebhookMaxRetries, cfg.MaxRetries)
-	}
-	if cfg.RetryDelay != DefaultWebhookRetryDelay {
-		t.Errorf("expected retry_delay %v, got %v", DefaultWebhookRetryDelay, cfg.RetryDelay)
 	}
 }

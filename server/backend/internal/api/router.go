@@ -641,10 +641,3 @@ func (s *Server) setupRoutes() {
 	s.router.Handle("/*", http.HandlerFunc(s.serveSPA))
 	s.router.NotFound(http.HandlerFunc(s.serveSPA))
 }
-
-// notImplemented is a placeholder handler for routes not yet implemented
-//
-//lint:ignore U1000 Reserved for future use
-func (s *Server) notImplemented(w http.ResponseWriter, r *http.Request) {
-	handlers.JSONError(w, http.StatusNotImplemented, "This endpoint is not yet implemented")
-}

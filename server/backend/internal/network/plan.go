@@ -218,12 +218,6 @@ func downgraded(states ...PathState) bool {
 	return false
 }
 
-// ShouldUpgrade reports whether a fallback path has proven stable enough to
-// move back to the preferred path (M consecutive successes).
-func ShouldUpgrade(state PathState) bool {
-	return state.ConsecutiveSuccesses >= UpgradeAfterSuccesses
-}
-
 func joinPorts(ports []PortNeed) string {
 	seen := map[string]bool{}
 	var parts []string

@@ -157,7 +157,3 @@ func GetTestsForProfile(profileID string) []*tests.Test {
 	}
 	return tests.DefaultRegistry.GetByIDs(profile.TestIDs)
 }
-
-func GetAllTests() []*tests.Test {
-	return tests.DefaultRegistry.List()
-}

@@ -211,31 +211,6 @@ func (s *Service) GetFallbackChain(role, tier string) ([]Model, error) {
 	return models, nil
 }
 
-// SetFallbackChain replaces the fallback chain for a role/tier.
-func (s *Service) SetFallbackChain(role, tier string, modelIDs []string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec("DELETE FROM ai_fallback_chains WHERE role = $1 AND tier = $2", role, tier)
-	if err != nil {
-		return err
-	}
-
-	for i, modelID := range modelIDs {
-		_, err = tx.Exec(
-			`INSERT INTO ai_fallback_chains (role, tier, model_id, priority) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
-			role, tier, modelID, i)
-		if err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
-}
-
 // ResolveModelForDevice returns the first available model for a device's plan tier.
 // Free plan uses "free" tier, paid plans use "paid" tier.
 func (s *Service) ResolveModelForDevice(role, planID string) (*Model, error) {

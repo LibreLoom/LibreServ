@@ -83,20 +83,6 @@ func SetAAAARecord(ctx context.Context, s libdns.RecordSetter, zone, name string
 	return nil
 }
 
-func SetTXTRecord(ctx context.Context, s libdns.RecordSetter, zone, name, value string, ttl time.Duration) error {
-	_, err := s.SetRecords(ctx, zone, []libdns.Record{
-		libdns.TXT{
-			Name: name,
-			TTL:  ttl,
-			Text: value,
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("set TXT record %q in zone %q: %w", name, zone, err)
-	}
-	return nil
-}
-
 type DNSResult struct {
 	Hostname    string   `json:"hostname"`
 	ARecords    []string `json:"a_records,omitempty"`

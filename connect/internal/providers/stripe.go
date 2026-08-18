@@ -86,18 +86,6 @@ func CreateDomainCheckoutSession(ctx context.Context, deviceID, accountID, domai
 	return s.URL, nil
 }
 
-// CancelSubscription cancels a Stripe subscription immediately.
-func CancelSubscription(ctx context.Context, subscriptionID string) error {
-	params := &stripego.SubscriptionCancelParams{}
-	params.Context = ctx
-
-	_, err := subscription.Cancel(subscriptionID, params)
-	if err != nil {
-		return fmt.Errorf("cancel subscription: %w", err)
-	}
-	return nil
-}
-
 // SetCancelAtPeriodEnd marks a Stripe subscription to cancel at the end of the
 // current billing period (true) or resumes it (false). The subscription stays
 // active until the period ends; Stripe fires customer.subscription.deleted then.

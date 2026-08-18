@@ -63,44 +63,17 @@
   --color-secondary: var(--secondary);
   --color-accent: var(--accent);
 
-  /* shadcn semantic tokens — mapped to Simplex Mono identity */
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-
   /* Status Colors - Standard colors independent of theme */
   --color-success: var(--palette-success, #22c55e);
   --color-warning: var(--palette-warning, #eab308);
   --color-error: var(--palette-error, #ef4444);
   --color-info: var(--palette-info, #3b82f6);
-  --color-destructive: var(--color-error);
-
-  /* Status Muted Colors - readable inline text regardless of theme */
-  /* color-scan: ignore-next-line */
-  --color-success-muted: #4ade80;
-  /* color-scan: ignore-next-line */
-  --color-warning-muted: #facc15;
-  /* color-scan: ignore-next-line */
-  --color-error-muted: #f87171;
-  /* color-scan: ignore-next-line */
-  --color-info-muted: #60a5fa;
 
   /* Setup Pill Shape */
   --radius-pill: 9999px;
   --radius-large-element: 24px;
   --radius-button: 9999px;
   --radius-card: 24px;
-
-  /* shadcn radius scale */
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
 
   /* M3 Motion Tokens */
   --motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
@@ -152,14 +125,6 @@ html[data-theme-transitioning] * {
   --primary: #ffffff;
   --secondary: #000000;
   --accent: #767676;
-  --radius: 1.5rem;
-  /* shadcn semantic tokens — derived from the palette so one change propagates */
-  --background: var(--primary);
-  --foreground: var(--secondary);
-  --card: var(--secondary);
-  --card-foreground: var(--primary);
-  --popover: var(--secondary);
-  --popover-foreground: var(--primary);
 }
 
 .dark {
@@ -572,15 +537,6 @@ body {
     }
 }
 
-@keyframes slide-in-from-left-2 {
-    from {
-        transform: translateX(-8px);
-    }
-    to {
-        transform: translateX(0);
-    }
-}
-
 @keyframes slide-in-from-right-2 {
     from {
         transform: translateX(8px);
@@ -602,15 +558,6 @@ body {
 @keyframes slide-in-from-top-1 {
     from {
         transform: translateY(-4px);
-    }
-    to {
-        transform: translateY(0);
-    }
-}
-
-@keyframes slide-in-from-top-2 {
-    from {
-        transform: translateY(-8px);
     }
     to {
         transform: translateY(0);
@@ -649,10 +596,6 @@ body {
     animation-name: fade-in, slide-in-from-bottom-4;
 }
 
-.slide-in-from-left-2 {
-    animation-name: fade-in, slide-in-from-left-2;
-}
-
 .slide-in-from-right-2 {
     animation-name: fade-in, slide-in-from-right-2;
 }
@@ -663,10 +606,6 @@ body {
 
 .slide-in-from-top-1 {
   animation-name: fade-in, slide-in-from-top-1;
-}
-
-.slide-in-from-top-2 {
-  animation-name: fade-in, slide-in-from-top-2;
 }
 
 .rounded-card {
@@ -781,40 +720,16 @@ body {
     }
 }
 
-/* Setup flow step transition - exit upward */
-@keyframes slide-out-to-top {
-    from {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-    to {
-        opacity: 0;
-        transform: translateY(-24px) scale(0.97);
-    }
-}
-
-.slide-out-to-top {
-    animation: slide-out-to-top 320ms cubic-bezier(0.3, 0, 0.8, 0.15) both;
-}
-
 /* Animation delay utilities for staggered entrances */
 .delay-75  { animation-delay: 75ms; }
 .delay-100 { animation-delay: 100ms; }
 .delay-150 { animation-delay: 150ms; }
 .delay-200 { animation-delay: 200ms; }
 .delay-300 { animation-delay: 300ms; }
-.delay-400 { animation-delay: 400ms; }
-.delay-500 { animation-delay: 500ms; }
-.delay-600 { animation-delay: 600ms; }
-.delay-700 { animation-delay: 700ms; }
 
 @media (prefers-reduced-motion: reduce) {
-    .slide-out-to-top {
-        animation: none !important;
-        opacity: 0;
-    }
     .delay-75, .delay-100, .delay-150, .delay-200,
-    .delay-300, .delay-400, .delay-500, .delay-600, .delay-700 {
+    .delay-300 {
         animation-delay: 0ms;
     }
 }

@@ -229,90 +229,6 @@ func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
 	return nil
 }
 
-// RunCustomAppSafely applies security hardening before running
-// Implements Recommendation #7
-func (cm *ComposeManager) RunCustomAppSafely(ctx context.Context, projectPath string) error {
-	composePath := filepath.Join(projectPath, "docker-compose.yml")
-
-	data, err := os.ReadFile(composePath)
-	if err != nil {
-		return err
-	}
-
-	var compose map[string]interface{}
-	if err := yaml.Unmarshal(data, &compose); err != nil {
-		return fmt.Errorf("invalid compose file: %w", err)
-	}
-
-	// Apply security defaults
-	if services, ok := compose["services"].(map[string]interface{}); ok {
-		for _, svc := range services {
-			if s, ok := svc.(map[string]interface{}); ok {
-				// Drop all capabilities
-				// Drop all capabilities and clear any cap_add that might re-add them
-				s["cap_drop"] = []string{"ALL"}
-				s["cap_add"] = []string{}
-
-				// Read-only filesystem
-				s["read_only"] = true
-
-				// Add tmpfs for standard writable paths when read_only is enabled
-				existingTmpfs, _ := s["tmpfs"].(map[string]interface{})
-				if existingTmpfs == nil {
-					existingTmpfs = make(map[string]interface{})
-				}
-				for _, p := range []string{"/tmp", "/run", "/var/run"} {
-					if _, exists := existingTmpfs[p]; !exists {
-						existingTmpfs[p] = ""
-					}
-				}
-				s["tmpfs"] = existingTmpfs
-
-				// No new privileges — avoid duplicating the option
-				hasNoNewPrivs := false
-				if secOpts, ok := s["security_opt"].([]interface{}); ok {
-					for _, opt := range secOpts {
-						if s, ok := opt.(string); ok && (s == "no-new-privileges:true" || s == "no-new-privileges: true") {
-							hasNoNewPrivs = true
-							break
-						}
-					}
-					if !hasNoNewPrivs {
-						s["security_opt"] = append(secOpts, "no-new-privileges:true")
-					}
-				} else if secOpts, ok := s["security_opt"].([]string); ok {
-					for _, opt := range secOpts {
-						if opt == "no-new-privileges:true" || opt == "no-new-privileges: true" {
-							hasNoNewPrivs = true
-							break
-						}
-					}
-					if !hasNoNewPrivs {
-						s["security_opt"] = append(secOpts, "no-new-privileges:true")
-					}
-				} else {
-					s["security_opt"] = []string{"no-new-privileges:true"}
-				}
-
-				// Run as host user to prevent root-owned files in volumes
-				s["user"] = fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-			}
-		}
-	}
-
-	// Write back hardened config
-	hardenedData, err := yaml.Marshal(compose)
-	if err != nil {
-		return err
-	}
-
-	if err := os.WriteFile(composePath, hardenedData, 0640); err != nil {
-		return err
-	}
-
-	return cm.Up(ctx, projectPath)
-}
-
 // ChownBindMounts re-owns all bind mount host paths to the given uid/gid using a
 // temporary Alpine container. This is necessary because container processes may write
 // files with their internal UID (e.g. dnsmasq, polkitd), making them impossible for the
@@ -359,38 +275,6 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 	return nil
 }
 
-// ChownDir runs a temporary Alpine container to recursively chown a directory to
-// the given uid/gid. This is used when no compose file is available (e.g. dev reset).
-func ChownDir(ctx context.Context, dirPath string, uid, gid int) error {
-	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		return nil
-	}
-
-	owner := fmt.Sprintf("%d:%d", uid, gid)
-
-	cmd := exec.CommandContext(ctx, runtimeBinary(), "run", "--rm",
-		"-v", dirPath+":/cleanup",
-		"alpine:latest",
-		"chown", "-R", owner, "/cleanup",
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("chown %s via alpine: %w (%s)", dirPath, err, strings.TrimSpace(string(output)))
-	}
-
-	cmd2 := exec.CommandContext(ctx, runtimeBinary(), "run", "--rm",
-		"-v", dirPath+":/cleanup",
-		"alpine:latest",
-		"chmod", "-R", "u+rw", "/cleanup",
-	)
-	output2, err2 := cmd2.CombinedOutput()
-	if err2 != nil {
-		return fmt.Errorf("chmod %s via alpine: %w (%s)", dirPath, err2, strings.TrimSpace(string(output2)))
-	}
-
-	return nil
-}
-
 // composeError translates raw compose-command output into actionable,
 // plain-language errors. Per LibreServ's PLAIN LANGUAGE convention, every
 // message explains what went wrong and what the user should do — never just a
@@ -401,13 +285,13 @@ func composeError(action string, output []byte, err error) error {
 		// The daemon socket was down when compose ran. Try to start it now so
 		// the user's next attempt (or an immediate retry) succeeds.
 		EnsureSocketRunning()
-		return fmt.Errorf("the background service that runs apps (the container daemon) is not running. LibreServ tried to start it automatically — please try again in a few seconds. If the problem persists, restart your device.")
+		return fmt.Errorf("the background service that runs apps (the container daemon) is not running. LibreServ tried to start it automatically — please try again in a few seconds. If the problem persists, restart your device")
 	}
 	if strings.Contains(outStr, "permission denied") {
-		return fmt.Errorf("LibreServ does not have permission to talk to the container daemon. This usually means the daemon socket file has the wrong owner. Try restarting your device, or ask your system administrator to check the Podman or Docker permissions for your user account.")
+		return fmt.Errorf("LibreServ does not have permission to talk to the container daemon. This usually means the daemon socket file has the wrong owner. Try restarting your device, or ask your system administrator to check the Podman or Docker permissions for your user account")
 	}
 	if strings.Contains(outStr, "unknown command \"compose\"") || strings.Contains(outStr, "looking up compose provider failed") {
-		return fmt.Errorf("the app-running helper (compose) is not installed. LibreServ needs the 'docker-compose' or 'podman-compose' add-on to start apps. Install one of these and try again.")
+		return fmt.Errorf("the app-running helper (compose) is not installed. LibreServ needs the 'docker-compose' or 'podman-compose' add-on to start apps. Install one of these and try again")
 	}
 	return fmt.Errorf("starting the app failed: %s", strings.TrimSpace(outStr))
 }
@@ -470,45 +354,6 @@ func ComposePinImageDigest(composePath string, appImage string, digest string) e
 
 	if err := os.WriteFile(composePath, pinnedData, 0600); err != nil {
 		return fmt.Errorf("failed to write compose file: %w", err)
-	}
-
-	return nil
-}
-
-// CleanupAppDataDir walks an apps data directory, finds all docker-compose.yml files,
-// chowns their bind mounts via temporary Alpine containers, then removes the directory.
-// This is used for dev reset and similar bulk cleanup scenarios.
-func CleanupAppDataDir(ctx context.Context, appsDataDir string, uid, gid int) error {
-	if _, err := os.Stat(appsDataDir); os.IsNotExist(err) {
-		return nil
-	}
-
-	entries, err := os.ReadDir(appsDataDir)
-	if err != nil {
-		return fmt.Errorf("failed to read apps data directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		instanceDir := filepath.Join(appsDataDir, entry.Name())
-		composePath := filepath.Join(instanceDir, "docker-compose.yml")
-
-		if _, err := os.Stat(composePath); err == nil {
-			if err := ChownBindMounts(ctx, composePath, uid, gid); err != nil {
-				log.Printf("Warning: failed to chown bind mounts for %s: %v", entry.Name(), err)
-			}
-		}
-	}
-
-	if err := ChownDir(ctx, appsDataDir, uid, gid); err != nil {
-		log.Printf("Warning: failed to chown apps data directory %s: %v", appsDataDir, err)
-	}
-
-	if err := os.RemoveAll(appsDataDir); err != nil {
-		return fmt.Errorf("failed to remove apps data directory: %w", err)
 	}
 
 	return nil

@@ -1005,7 +1005,7 @@ func (m Model) viewRunningDetail() string {
 	if r.Status == tests.StatusRunning {
 		elapsed := time.Since(r.StartTime)
 		b.WriteString(fmt.Sprintf("Elapsed:   %v\n", elapsed.Round(time.Second)))
-	} else if r.EndTime.IsZero() == false {
+	} else if !r.EndTime.IsZero() {
 		b.WriteString(fmt.Sprintf("Duration:  %v\n", r.Duration.Round(time.Second)))
 	}
 

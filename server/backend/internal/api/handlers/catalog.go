@@ -118,19 +118,6 @@ func (h *CatalogHandler) GetCategories(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *CatalogHandler) RefreshCatalog(w http.ResponseWriter, r *http.Request) {
-	if err := h.manager.RefreshCatalog(); err != nil {
-		JSONError(w, http.StatusInternalServerError, "We couldn't refresh the app catalog. Please try again.")
-		return
-	}
-
-	catalog := h.manager.GetCatalog()
-	JSON(w, http.StatusOK, map[string]interface{}{
-		"message": "catalog refreshed",
-		"count":   catalog.Count(),
-	})
-}
-
 func (h *CatalogHandler) GetAppFeatures(w http.ResponseWriter, r *http.Request) {
 	appID := chi.URLParam(r, "appId")
 	if appID == "" {

@@ -304,67 +304,6 @@ func (h *NetworkHandlers) TestBackend(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetRouteByApp returns the route for a specific app
-// GET /api/apps/{appID}/route
-func (h *NetworkHandlers) GetRouteByApp(w http.ResponseWriter, r *http.Request) {
-	appID := chi.URLParam(r, "appID")
-	if appID == "" {
-		JSONError(w, http.StatusBadRequest, "Please choose an app.")
-		return
-	}
-
-	route, err := h.caddyManager.GetRouteByApp(appID)
-	if err != nil {
-		JSONError(w, http.StatusNotFound, "We couldn't find a route for that app.")
-		return
-	}
-
-	JSON(w, http.StatusOK, route)
-}
-
-// ConfigureDomainRequest is the request body for domain configuration
-type ConfigureDomainRequest struct {
-	DefaultDomain string `json:"default_domain"`
-	SSLEmail      string `json:"ssl_email"`
-	AutoHTTPS     bool   `json:"auto_https"`
-}
-
-// ConfigureDomain updates the default domain configuration
-// POST /api/v1/network/domain
-func (h *NetworkHandlers) ConfigureDomain(w http.ResponseWriter, r *http.Request) {
-	var req ConfigureDomainRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
-		return
-	}
-
-	// Update Caddy manager with new defaults
-	if err := h.caddyManager.UpdateDefaults(req.DefaultDomain, req.SSLEmail, req.AutoHTTPS); err != nil {
-		JSONError(w, http.StatusInternalServerError, "We couldn't update the domain configuration. Please try again.")
-		return
-	}
-
-	JSON(w, http.StatusOK, map[string]string{
-		"status":  "configured",
-		"message": "Domain configuration updated successfully",
-	})
-}
-
-// GetDomainConfig returns the current domain configuration
-// GET /api/v1/network/domain
-func (h *NetworkHandlers) GetDomainConfig(w http.ResponseWriter, r *http.Request) {
-	cfg := h.caddyManager.Config()
-	config := map[string]interface{}{
-		"default_domain": cfg.DefaultDomain,
-		"ssl_email":      cfg.Email,
-		"auto_https":     cfg.AutoHTTPS,
-		"mode":           cfg.Mode,
-		"admin_api":      cfg.AdminAPI,
-	}
-
-	JSON(w, http.StatusOK, config)
-}
-
 // PortForwardingStatus represents the port forwarding status
 type PortForwardingStatus struct {
 	ExternalIP    string   `json:"external_ip"`

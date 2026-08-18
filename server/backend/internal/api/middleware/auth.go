@@ -31,12 +31,6 @@ type AuthConfig struct {
 	CSRFSecret  string
 }
 
-// IsDevTokenEnabled always returns false - dev tokens are disabled for security
-// Dev token functionality has been removed to prevent accidental exposure in production
-func IsDevTokenEnabled() bool {
-	return false
-}
-
 func Auth(cfg *AuthConfig) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

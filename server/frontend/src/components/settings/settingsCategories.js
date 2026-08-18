@@ -4,7 +4,7 @@ import { Settings, Palette, Shield, Info, DatabaseBackup, Globe, Bell, Plug } fr
 // so they are hidden from non-admins (seeing settings you can't change is just
 // confusing). Appearance is a client-side preference and About is read-only, so
 // both stay available to everyone.
-export const CATEGORIES = [
+const CATEGORIES = [
   { id: "external_services", label: "External Services", icon: Plug, adminOnly: true },
   { id: "general", label: "General", icon: Settings, adminOnly: true },
   { id: "appearance", label: "Appearance", icon: Palette },

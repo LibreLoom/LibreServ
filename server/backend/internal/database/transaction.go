@@ -51,41 +51,6 @@ func (d *DB) WithTransaction(ctx context.Context, fn TxFn) error {
 	return nil
 }
 
-// WithTransactionResult executes a function within a transaction and returns a result.
-// Similar to WithTransaction but allows returning a value.
-func WithTransactionResult[T any](d *DB, ctx context.Context, fn func(*sql.Tx) (T, error)) (T, error) {
-	var result T
-
-	tx, err := d.BeginTx(ctx, nil)
-	if err != nil {
-		return result, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	defer func() {
-		if p := recover(); p != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				slog.Error("failed to rollback transaction after panic", "error", rbErr)
-			}
-			panic(p)
-		}
-	}()
-
-	result, err = fn(tx)
-	if err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			slog.Error("failed to rollback transaction", "error", rbErr)
-			return result, fmt.Errorf("transaction failed: %v (rollback failed: %w)", err, rbErr)
-		}
-		return result, fmt.Errorf("transaction failed: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return result, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return result, nil
-}
-
 // TransactionalOperation represents an operation that can be part of a transaction
 type TransactionalOperation struct {
 	Name string

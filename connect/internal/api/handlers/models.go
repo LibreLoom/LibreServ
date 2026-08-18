@@ -181,25 +181,3 @@ func (h *ModelsHandler) GetFallbackChain(w http.ResponseWriter, r *http.Request)
 	}
 	JSON(w, http.StatusOK, map[string]any{"role": role, "tier": tier, "chain": chain})
 }
-
-// SetFallbackChain replaces the fallback chain for a role/tier.
-func (h *ModelsHandler) SetFallbackChain(w http.ResponseWriter, r *http.Request) {
-	role := chi.URLParam(r, "role")
-	var req struct {
-		Tier     string   `json:"tier"`
-		ModelIDs []string `json:"model_ids"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		JSONError(w, http.StatusBadRequest, "invalid request")
-		return
-	}
-	if req.Tier == "" {
-		req.Tier = "paid"
-	}
-
-	if err := h.svc.SetFallbackChain(role, req.Tier, req.ModelIDs); err != nil {
-		JSONError(w, http.StatusInternalServerError, "could not set fallback chain")
-		return
-	}
-	JSON(w, http.StatusOK, map[string]string{"message": "fallback chain updated"})
-}

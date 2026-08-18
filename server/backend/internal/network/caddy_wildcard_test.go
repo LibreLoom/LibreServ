@@ -122,26 +122,6 @@ func TestWildcardBlocksLocked(t *testing.T) {
 	}
 }
 
-func TestBaseDomain(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"app.example.com", "example.com"},
-		{"*.example.com", "example.com"},
-		{"a.b.c.example.com", "b.c.example.com"},
-		{"example.com", ""},
-		{"com", ""},
-		{"", ""},
-	}
-	for _, tt := range tests {
-		got := baseDomain(tt.input)
-		if got != tt.want {
-			t.Errorf("baseDomain(%q) = %q, want %q", tt.input, got, tt.want)
-		}
-	}
-}
-
 func TestSafeDomainDir(t *testing.T) {
 	tests := []struct {
 		domain string

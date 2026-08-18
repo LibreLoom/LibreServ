@@ -3,7 +3,6 @@ package providers
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
@@ -197,9 +196,4 @@ func (p *Provider) Setting(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-// Errorf is a convenience for plain-language errors from this package.
-func Errorf(format string, args ...any) error {
-	return fmt.Errorf(format, args...)
 }

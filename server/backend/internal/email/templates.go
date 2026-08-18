@@ -122,13 +122,6 @@ func RenderTemplateByKey(key string, data map[string]interface{}) (string, strin
 	return subject, bodyBuf.String(), nil
 }
 
-// RenderTemplateWithKey renders a template using database or default
-func RenderTemplateWithKey(key string, data map[string]interface{}) (string, string, error) {
-	// Try to get from database first (would be implemented in settings service)
-	// For now, use defaults
-	return RenderTemplateByKey(key, data)
-}
-
 // UniversalEmailTemplate is the single HTML template for ALL LibreServ emails
 // Follows the Simplex Mono design language: flat, monospace headings, sans-serif body,
 // white/black/grey palette, pill buttons, rounded cards, no shadows, no gradients.

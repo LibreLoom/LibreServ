@@ -100,15 +100,6 @@ const (
 
 // Constants for webhook configuration
 const (
-	// DefaultWebhookTimeout is the timeout for webhook HTTP requests
-	DefaultWebhookTimeout = 30 * time.Second
-
-	// DefaultWebhookMaxRetries is the maximum number of retries for failed webhook deliveries
-	DefaultWebhookMaxRetries = 3
-
-	// DefaultWebhookRetryDelay is the delay between webhook retry attempts
-	DefaultWebhookRetryDelay = 1 * time.Minute
-
 	// WebhookCleanupInterval is how often to clean up old webhook deliveries
 	WebhookCleanupInterval = 24 * time.Hour
 

@@ -69,14 +69,10 @@ func TestBuildRepoPath(t *testing.T) {
 	}
 }
 
-func TestIsAvailable(t *testing.T) {
-	_ = IsAvailable()
-}
-
 func TestFindBinary_NoCache(t *testing.T) {
 	cachedBinaryPath = ""
 	_, err := FindBinary()
-	if err != nil && !IsAvailable() {
+	if err != nil {
 		t.Log("restic not available on system, FindBinary correctly returns error")
 	}
 }

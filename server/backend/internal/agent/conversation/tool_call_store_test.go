@@ -125,54 +125,6 @@ func TestToolCallStoreUpdateResultFailed(t *testing.T) {
 	}
 }
 
-func TestToolCallStoreUpdateSnapshotID(t *testing.T) {
-	db := setupTestDB(t)
-	store := NewToolCallStore(db)
-	convID := seedConversation(t, db)
-	msgID := seedMessage(t, db, convID)
-
-	tc := &ToolCallRecord{
-		ID:             "tc_4",
-		ConversationID: convID,
-		MessageID:      msgID,
-		ToolName:       "file_write",
-		ToolArgs:       json.RawMessage(`{"path":"/etc/config.yml"}`),
-		Status:         "pending",
-		CreatedAt:      time.Now(),
-	}
-	if err := store.Insert(context.Background(), tc); err != nil {
-		t.Fatalf("Insert: %v", err)
-	}
-
-	if err := store.UpdateSnapshotID(context.Background(), "tc_4", "snap_abc123"); err != nil {
-		t.Fatalf("UpdateSnapshotID: %v", err)
-	}
-}
-
-func TestToolCallStoreUpdateApprovedBy(t *testing.T) {
-	db := setupTestDB(t)
-	store := NewToolCallStore(db)
-	convID := seedConversation(t, db)
-	msgID := seedMessage(t, db, convID)
-
-	tc := &ToolCallRecord{
-		ID:             "tc_5",
-		ConversationID: convID,
-		MessageID:      msgID,
-		ToolName:       "podman_restart",
-		ToolArgs:       json.RawMessage(`{"container":"nginx"}`),
-		Status:         "pending",
-		CreatedAt:      time.Now(),
-	}
-	if err := store.Insert(context.Background(), tc); err != nil {
-		t.Fatalf("Insert: %v", err)
-	}
-
-	if err := store.UpdateApprovedBy(context.Background(), "tc_5", "reviewer"); err != nil {
-		t.Fatalf("UpdateApprovedBy: %v", err)
-	}
-}
-
 func TestToolCallStoreListByConversation(t *testing.T) {
 	db := setupTestDB(t)
 	store := NewToolCallStore(db)

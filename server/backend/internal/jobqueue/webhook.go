@@ -65,18 +65,6 @@ type WebhookConfig struct {
 	MaxConcurrentWebhooks int
 }
 
-// DefaultWebhookConfig returns sensible defaults for webhook delivery
-func DefaultWebhookConfig() WebhookConfig {
-	return WebhookConfig{
-		Timeout:               30 * time.Second,
-		MaxRetries:            3,
-		RetryDelay:            1 * time.Minute,
-		AllowPrivateIPs:       true,  // Allow private IPs by default for development
-		RequireHTTPS:          false, // Allow HTTP by default for development
-		MaxConcurrentWebhooks: 100,   // Limit concurrent webhook deliveries to prevent OOM
-	}
-}
-
 // WebhookService handles webhook delivery with retries
 type WebhookService struct {
 	config     WebhookConfig
@@ -87,26 +75,6 @@ type WebhookService struct {
 	stopCh     chan struct{}
 	started    bool
 	semaphore  chan struct{}
-}
-
-// NewWebhookService creates a new webhook service
-func NewWebhookService(cfg WebhookConfig) *WebhookService {
-	// Use default if not set
-	maxConcurrent := cfg.MaxConcurrentWebhooks
-	if maxConcurrent <= 0 {
-		maxConcurrent = 100
-	}
-
-	return &WebhookService{
-		config: cfg,
-		client: &http.Client{
-			Timeout: cfg.Timeout,
-		},
-		logger:     slog.Default().With("component", "webhook_service"),
-		deliveries: make(map[string]*WebhookDelivery),
-		stopCh:     make(chan struct{}),
-		semaphore:  make(chan struct{}, maxConcurrent),
-	}
 }
 
 // Start begins the background cleanup goroutine

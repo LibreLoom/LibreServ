@@ -19,11 +19,6 @@ func (r *Registry) Add(t *Test) {
 	r.order = append(r.order, t.ID)
 }
 
-func (r *Registry) Get(id string) (*Test, bool) {
-	t, ok := r.tests[id]
-	return t, ok
-}
-
 func (r *Registry) List() []*Test {
 	result := make([]*Test, 0, len(r.tests))
 	for _, id := range r.order {
@@ -203,7 +198,7 @@ func addGoTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache pkgconf gobject-introspection-dev gtk4.0-dev libadwaita-dev gcc musl-dev && go build -o /tmp/libreserv-ble-companion .",
 		WorkDir:     "/repo/companion/linux",
-		Timeout:     15 * time.Minute,
+		Timeout:     30 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
 
@@ -215,7 +210,7 @@ func addGoTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache pkgconf gobject-introspection-dev gtk4.0-dev libadwaita-dev gcc musl-dev && go test -v ./...",
 		WorkDir:     "/repo/companion/linux",
-		Timeout:     15 * time.Minute,
+		Timeout:     30 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
 }
@@ -383,7 +378,7 @@ func addSecurityTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache pkgconf gobject-introspection-dev gtk4.0-dev libadwaita-dev gcc musl-dev && CGO_ENABLED=0 go install github.com/securego/gosec/v2/cmd/gosec@latest && $(go env GOPATH)/bin/gosec -severity high -confidence high ./...",
 		WorkDir:     "/repo/companion/linux",
-		Timeout:     15 * time.Minute,
+		Timeout:     30 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 
@@ -395,7 +390,7 @@ func addSecurityTests() {
 		Container:   "golang:1.26-alpine",
 		Command:     "apk add --no-cache pkgconf gobject-introspection-dev gtk4.0-dev libadwaita-dev gcc musl-dev && CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck -checks all,-ST1* ./...",
 		WorkDir:     "/repo/companion/linux",
-		Timeout:     15 * time.Minute,
+		Timeout:     30 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 }

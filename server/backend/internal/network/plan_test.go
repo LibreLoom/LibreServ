@@ -148,20 +148,6 @@ func TestPlanHysteresis(t *testing.T) {
 	}
 }
 
-// TestPlanUpgrade verifies ShouldUpgrade: a fallback path needs M consecutive
-// successes to move back to the preferred path.
-func TestPlanUpgrade(t *testing.T) {
-	if ShouldUpgrade(PathState{ConsecutiveSuccesses: 0}) {
-		t.Error("0 successes should not upgrade")
-	}
-	if ShouldUpgrade(PathState{ConsecutiveSuccesses: 1}) {
-		t.Error("1 success should not upgrade")
-	}
-	if !ShouldUpgrade(PathState{ConsecutiveSuccesses: 2}) {
-		t.Error("2 successes should upgrade")
-	}
-}
-
 // TestPlanPortCollision checks the engine surfaces both ports of a
 // tcp+udp Minecraft requirement (register #3: per-app paths with collisions).
 func TestPlanPortsPresent(t *testing.T) {

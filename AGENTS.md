@@ -61,7 +61,6 @@ LibreServ/
 │       ├── components/       # UI components
 │       └── index.css         # Theme variables + Tailwind config
 │
-├── e2e-tests/                # Playwright E2E tests
 ├── connect/                  # Cloud SaaS companion (LibreServ Connect). Independent Go 1.26 module
 │                             # with chi/v5 API, SQLite, Stripe billing. Provides external services to
 │                             # LibreServ devices: email relay, DNS/domain, cloud backups, tunnel access,
@@ -102,15 +101,6 @@ npm run typecheck                             # TypeScript checking (yes, on .js
 npm test                                      # Vitest (not Jest)
 npm run scan:colors                           # Detect hardcoded colors in UI code
 ```
-
-### E2E Tests
-```bash
-cd e2e-tests
-npm install
-npx playwright install chromium
-npm test                                      # E2E_BASE_URL defaults to http://localhost:8080
-```
-
 ### LibreServ Connect (cloud SaaS module)
 ```bash
 cd connect

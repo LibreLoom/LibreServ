@@ -17,17 +17,6 @@ func (h *ACMEHandler) backendForApp(appID string) string {
 	return ""
 }
 
-// RegisterAppBackend allows wiring appID -> backend mapping for ACME issuance.
-func (h *ACMEHandler) RegisterAppBackend(appID, backend string) {
-	if appID == "" || backend == "" {
-		return
-	}
-	h.appBackends[appID] = backend
-	if h.appManager != nil {
-		h.appManager.RegisterBackend(appID, backend)
-	}
-}
-
 // resolveBackend determines backend from request/app/routes/defaults.
 func (h *ACMEHandler) resolveBackend(req network.ACMERequest) string {
 	if req.Backend != "" {

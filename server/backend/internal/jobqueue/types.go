@@ -36,7 +36,6 @@ type JobPriority int
 
 const (
 	PriorityCritical JobPriority = 1 // Manual user requests
-	PriorityHigh     JobPriority = 3 // Revocations, validations
 	PriorityNormal   JobPriority = 5 // Standard issuance
 	PriorityLow      JobPriority = 7 // Background renewals
 	PriorityLowest   JobPriority = 9 // Maintenance tasks
@@ -260,21 +259,5 @@ func DefaultMaxRetries(jobType JobType) int {
 		return 3
 	default:
 		return 3
-	}
-}
-
-// DefaultPriority returns the default priority for a job type
-func DefaultPriority(jobType JobType) JobPriority {
-	switch jobType {
-	case JobTypeIssuance:
-		return PriorityNormal
-	case JobTypeRenewal:
-		return PriorityLow
-	case JobTypeRevocation:
-		return PriorityHigh
-	case JobTypeValidation:
-		return PriorityHigh
-	default:
-		return PriorityNormal
 	}
 }

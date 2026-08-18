@@ -62,11 +62,7 @@ const (
 	defaultSetupCheckLimit  = 60
 	defaultSetupWriteLimit  = 5
 	defaultAuthLimit        = 120
-	defaultUserLimit        = 60
-	defaultSupportLimit     = 30
-	defaultGeneralLimit     = 300
 	defaultRateLimitWindow  = time.Minute
-	defaultStrictWindow     = time.Minute
 )
 
 type RateRule struct {
@@ -90,42 +86,12 @@ type limiter struct {
 	logger        *slog.Logger
 }
 
-var (
-	globalLimiters   []*limiter
-	globalLimitersMu sync.Mutex
-)
-
-func StopAllLimiters() {
-	globalLimitersMu.Lock()
-	defer globalLimitersMu.Unlock()
-
-	for _, l := range globalLimiters {
-		l.Stop()
-	}
-	globalLimiters = nil
-}
-
 func RateLimitDefault() func(http.Handler) http.Handler {
 	rules := []RateRule{
 		{Prefix: "/api/v1/setup/complete", Limit: defaultSetupWriteLimit, Window: defaultRateLimitWindow, ByUser: false},
 		{Prefix: "/api/v1/setup/preflight", Limit: defaultSetupCheckLimit, Window: defaultRateLimitWindow, ByUser: false},
 		{Prefix: "/api/v1/setup/status", Limit: defaultSetupStatusLimit, Window: defaultRateLimitWindow, ByUser: false},
 		{Prefix: "/api/v1/auth", Limit: defaultAuthLimit, Window: defaultRateLimitWindow, ByUser: false},
-	}
-	return RateLimit(rules)
-}
-
-func RateLimitSensitive() func(http.Handler) http.Handler {
-	rules := []RateRule{
-		{Prefix: "/api/v1/users", Limit: defaultUserLimit, Window: defaultStrictWindow, ByUser: true},
-		{Prefix: "/api/v1/support", Limit: defaultSupportLimit, Window: defaultStrictWindow, ByUser: true},
-	}
-	return RateLimit(rules)
-}
-
-func RateLimitGeneral() func(http.Handler) http.Handler {
-	rules := []RateRule{
-		{Prefix: "/api/v1", Limit: defaultGeneralLimit, Window: defaultRateLimitWindow, ByUser: true},
 	}
 	return RateLimit(rules)
 }
@@ -138,10 +104,6 @@ func RateLimit(rules []RateRule) func(http.Handler) http.Handler {
 		logger:        slog.Default().With("component", "rate_limiter"),
 		cleanupTicker: time.NewTicker(5 * time.Minute),
 	}
-
-	globalLimitersMu.Lock()
-	globalLimiters = append(globalLimiters, l)
-	globalLimitersMu.Unlock()
 
 	go l.cleanupRoutine()
 
@@ -305,15 +267,6 @@ func (l *limiter) cleanupStaleEntries() {
 	removed := initialCount - len(l.data)
 	if removed > 0 {
 		l.logger.Debug("cleaned up stale rate limit entries", "removed", removed, "remaining", len(l.data))
-	}
-}
-
-func (l *limiter) Stop() {
-	select {
-	case <-l.stopCh:
-		return
-	default:
-		close(l.stopCh)
 	}
 }
 

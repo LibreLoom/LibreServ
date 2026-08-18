@@ -46,15 +46,6 @@ func (r *Registry) Get(name string) (*Tool, bool) {
 	return t, ok
 }
 
-// All returns all tools.
-func (r *Registry) All() []*Tool {
-	var out []*Tool
-	for _, t := range r.tools {
-		out = append(out, t)
-	}
-	return out
-}
-
 // ToolDefinitions returns OpenAI-format tool definitions for the provider.
 func (r *Registry) ToolDefinitions() []map[string]interface{} {
 	if r == nil {

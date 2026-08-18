@@ -660,7 +660,7 @@ func TestAppRunTest_ScriptConfigJSON(t *testing.T) {
 }
 
 func TestAppRunTest_ScriptOutputParsing(t *testing.T) {
-	executor := NewScriptExecutor(slog.Default(), nil, t.TempDir())
+	executor := NewScriptExecutorWithCatalog(slog.Default(), nil, t.TempDir(), "")
 
 	tests := []struct {
 		name    string
@@ -722,7 +722,7 @@ func TestAppRunTest_ScriptOutputParsing(t *testing.T) {
 }
 
 func TestAppRunTest_ValidateExposedInfo(t *testing.T) {
-	executor := NewScriptExecutor(slog.Default(), nil, t.TempDir())
+	executor := NewScriptExecutorWithCatalog(slog.Default(), nil, t.TempDir(), "")
 
 	raw := map[string]interface{}{
 		"valid_string":  "hello",
@@ -1225,7 +1225,7 @@ func TestAppRunTest_ScriptExecutionConfig(t *testing.T) {
 
 func TestAppRunTest_ScriptPathValidation(t *testing.T) {
 	basePath := t.TempDir()
-	executor := NewScriptExecutor(slog.Default(), nil, basePath)
+	executor := NewScriptExecutorWithCatalog(slog.Default(), nil, basePath, "")
 
 	tests := []struct {
 		name       string
