@@ -62,6 +62,7 @@ pub fn router() -> Router<AppState> {
 
 async fn list(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Vec<DriveJson>>, (StatusCode, Json<serde_json::Value>)> {
     let rows = with_db(&state.db, crate::db::list_drives).map_err(|e| {
         json_error(
@@ -69,17 +70,34 @@ async fn list(
             format!("Could not list drives. {e}"),
         )
     })?;
-    Ok(Json(rows.into_iter().map(Into::into).collect()))
+    let admin = user.role == "admin";
+    Ok(Json(
+        rows.into_iter()
+            .map(|d| {
+                let mut json: DriveJson = d.into();
+                // The OS mount path is server plumbing; regular users don't
+                // need it and it reveals the device's filesystem layout.
+                if !admin {
+                    json.mount_point = String::new();
+                }
+                json
+            })
+            .collect(),
+    ))
 }
 
-async fn detected(State(state): State<AppState>) -> Json<Vec<DetectedDriveJson>> {
+async fn detected(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Vec<DetectedDriveJson>>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(user)?;
     let mounts = std::fs::read_to_string("/proc/mounts").unwrap_or_default();
     let drives = crate::detect::scan(std::path::Path::new("/sys/block"), &mounts);
     // Idempotent reconciliation on every poll: gone -> missing, returned -> as_is.
     let _ = with_db(&state.db, |conn| {
         state.drive_manager.reconcile(conn, &drives)
     });
-    Json(
+    Ok(Json(
         drives
             .into_iter()
             .filter(|d| {
@@ -95,13 +113,15 @@ async fn detected(State(state): State<AppState>) -> Json<Vec<DetectedDriveJson>>
                 fs_type: d.fs_type,
             })
             .collect(),
-    )
+    ))
 }
 
 async fn inspect(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(name): Path<String>,
 ) -> Result<Json<InspectionJson>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(user)?;
     let device = find_device(&name).ok_or_else(|| {
         json_error(
             StatusCode::NOT_FOUND,
@@ -129,9 +149,11 @@ async fn inspect(
 
 async fn adopt(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(name): Path<String>,
     Json(body): Json<AdoptBody>,
 ) -> Result<Json<DriveJson>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(user)?;
     let label = body.label.trim().to_string();
     if label.is_empty() || label.len() > 80 {
         return Err(json_error(
@@ -159,8 +181,10 @@ async fn adopt(
 
 async fn dismiss(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(name): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(user)?;
     state.drive_manager.dismiss_foreign(&name).map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -172,8 +196,10 @@ async fn dismiss(
 
 async fn eject(
     State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(user)?;
     with_db(&state.db, |conn| state.drive_manager.eject(conn, &id)).map_err(|e| {
         json_error(
             StatusCode::BAD_REQUEST,
@@ -185,9 +211,10 @@ async fn eject(
 
 async fn drive_health(
     State(state): State<AppState>,
-    Extension(_user): Extension<crate::auth::CurrentUser>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
     Path(id): Path<String>,
 ) -> Result<Json<crate::smart::DriveHealth>, (StatusCode, Json<serde_json::Value>)> {
+    require_admin(user)?;
     let device = {
         let conn = state.db.lock().map_err(|_| {
             json_error(
@@ -216,6 +243,18 @@ fn find_device(name: &str) -> Option<crate::detect::DetectedDrive> {
     crate::detect::scan(std::path::Path::new("/sys/block"), &mounts)
         .into_iter()
         .find(|d| d.name == name && d.is_storage_candidate())
+}
+
+fn require_admin(
+    user: crate::auth::CurrentUser,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if user.role != "admin" {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can manage drives.",
+        ));
+    }
+    Ok(())
 }
 
 fn plain_adopt_error(err: &anyhow::Error) -> String {

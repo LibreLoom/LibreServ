@@ -67,8 +67,20 @@ async fn scan(
 
 async fn connect(
     State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
     Json(body): Json<ConnectBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Changing which network Luna is on is an admin action. The one exception
+    // is first-run setup: the guard lets these through while the user table is
+    // empty so the wizard can join the home network before any account exists.
+    if let Some(Extension(user)) = current
+        && user.role != "admin"
+    {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can change the Wi-Fi network.",
+        ));
+    }
     let ssid = body.ssid.trim().to_string();
     if ssid.is_empty() || ssid.len() > 64 {
         return Err(json_error(
@@ -97,7 +109,18 @@ async fn connect(
     Ok(Json(json!({ "connected": true, "ssid": ssid_out })))
 }
 
-async fn forget(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+async fn forget(
+    State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if let Some(Extension(user)) = current
+        && user.role != "admin"
+    {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can change the Wi-Fi network.",
+        ));
+    }
     let provider = state.wifi.clone();
     tokio::task::spawn_blocking(move || provider.forget())
         .await

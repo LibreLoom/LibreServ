@@ -40,29 +40,41 @@ pub fn list_drives(base_url: &str, token: &str) -> anyhow::Result<Vec<Drive>> {
 
 /// One-click mount instructions per OS. On Linux this tries `gio mount`
 /// first; on Windows/macOS it returns the native command for the user.
+///
+/// Luna asks for a username and password when a mount connects; use the same
+/// login as the web app (only an admin can mount a drive).
 pub fn mount_instructions(base_url: &str, _token: &str, drive_id: &str) -> Result<String, String> {
     let url = format!("{}/dav/{drive_id}", base_url.trim_end_matches('/'));
+    let creds = "If it asks for a username and password, use your Luna login — the admin account.";
     #[cfg(target_os = "linux")]
     {
         let status = std::process::Command::new("gio")
             .args(["mount", &url])
             .output();
         match status {
-            Ok(out) if out.status.success() => Ok("Mounted. Look in your file manager.".into()),
-            _ => Ok(format!("Luna couldn't mount automatically. Open {url} in your file manager's “Connect to Server”.")),
+            Ok(out) if out.status.success() => {
+                Ok(format!("Mounted. Look in your file manager. {creds}"))
+            }
+            _ => Ok(format!(
+                "Luna couldn't mount automatically. Open {url} in your file manager's “Connect to Server”. {creds}"
+            )),
         }
     }
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("open").arg(&url).output();
-        Ok(format!("Finder is opening {url}. Use Connect to Server if it doesn't appear."))
+        Ok(format!(
+            "Finder is opening {url}. Use Connect to Server if it doesn't appear. {creds}"
+        ))
     }
     #[cfg(target_os = "windows")]
     {
         let _ = std::process::Command::new("cmd")
             .args(["/C", "start", &url])
             .output();
-        Ok(format!("Windows is opening {url}. You can also map it as a network drive."))
+        Ok(format!(
+            "Windows is opening {url}. You can also map it as a network drive. {creds}"
+        ))
     }
 }
 
