@@ -10,13 +10,13 @@ function renderPage() {
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <AuthProvider>
+    <MemoryRouter>
       <QueryClientProvider client={client}>
-        <MemoryRouter>
+        <AuthProvider>
           <LandingPage />
-        </MemoryRouter>
+        </AuthProvider>
       </QueryClientProvider>
-    </AuthProvider>
+    </MemoryRouter>
   );
 }
 

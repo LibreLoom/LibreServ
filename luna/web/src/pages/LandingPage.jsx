@@ -4,7 +4,6 @@ import Page from "../components/ui/Page";
 import TextLink from "../components/ui/TextLink";
 import Card from "../components/cards/Card";
 import Pill from "../components/common/Pill";
-import Button from "../components/ui/Button";
 import { useAuth } from "../context/AuthContext";
 import { getHealth } from "../lib/api";
 
@@ -51,44 +50,34 @@ export default function LandingPage() {
         </Card>
       </div>
 
-      <div className="mt-8 flex flex-wrap gap-4">
-        <div className="flex flex-wrap gap-3">
-          {isAdmin && (
-            <TextLink to="/settings/remote" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-              Remote access
-            </TextLink>
-          )}
-          {isAdmin && (
-            <TextLink to="/settings/users" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-              People
-            </TextLink>
-          )}
-          <TextLink to="/settings/shares" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-            Links
+      <div className="mt-8 flex flex-wrap gap-3">
+        {isAdmin && (
+          <TextLink to="/settings/remote" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+            Remote access
           </TextLink>
-          {isAdmin && (
-            <TextLink to="/setup" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium bg-secondary text-primary px-4 py-2 text-sm hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-secondary motion-safe:transition-all">
-              Set up Luna
-            </TextLink>
-          )}
-          {isAdmin && (
-            <TextLink to="/settings/protect" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-              Protect a folder
-            </TextLink>
-          )}
-          <TextLink to="/shared" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-            Shared with me
+        )}
+        {isAdmin && (
+          <TextLink to="/settings/users" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+            People
           </TextLink>
-          <TextLink to="/gallery" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-            Photos
+        )}
+        <TextLink to="/settings/shares" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+          Links
+        </TextLink>
+        {isAdmin && (
+          <TextLink to="/settings/protect" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+            Protect a folder
           </TextLink>
-          <TextLink to="/drives" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
-            Look at drives
-          </TextLink>
-        </div>
-        <Button variant="outline" surface="primary" disabled>
-          Setup will guide you here
-        </Button>
+        )}
+        <TextLink to="/shared" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+          Shared with me
+        </TextLink>
+        <TextLink to="/gallery" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+          Photos
+        </TextLink>
+        <TextLink to="/drives" className="inline-flex items-center justify-center gap-2 rounded-pill font-medium border-2 border-secondary text-secondary px-4 py-2 text-sm hover:bg-secondary hover:text-primary motion-safe:transition-all">
+          Look at drives
+        </TextLink>
       </div>
     </Page>
   );

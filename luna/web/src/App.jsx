@@ -23,9 +23,11 @@ const queryClient = new QueryClient({
 });
 
 function RequireAuth({ children }) {
-  const { user, loading } = useAuth();
+  const { user, setup, loading } = useAuth();
   const location = useLocation();
   if (loading) return null;
+  // Not set up yet — the wizard is the only app there is.
+  if (setup && setup.setup_completed === false) return <Navigate to="/setup" replace />;
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
   return children;
 }
@@ -34,8 +36,8 @@ export default function App() {
   return (
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <BrowserRouter>
+        <BrowserRouter>
+          <AuthProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
@@ -50,8 +52,8 @@ export default function App() {
               <Route path="/settings/remote" element={<RequireAuth><RemotePage /></RequireAuth>} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
-          </BrowserRouter>
-        </AuthProvider>
+          </AuthProvider>
+        </BrowserRouter>
       </QueryClientProvider>
     </ThemeProvider>
   );

@@ -14,11 +14,13 @@ describe("DrivesPage", () => {
     }));
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
-      <AuthProvider>
+      <MemoryRouter>
         <QueryClientProvider client={client}>
-          <MemoryRouter><DrivesPage /></MemoryRouter>
+          <AuthProvider>
+            <DrivesPage />
+          </AuthProvider>
         </QueryClientProvider>
-      </AuthProvider>
+      </MemoryRouter>
     );
     expect(screen.getAllByText(/Plug a USB drive/i).length).toBeGreaterThan(0);
   });

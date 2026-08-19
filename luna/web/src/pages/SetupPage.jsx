@@ -274,7 +274,7 @@ export default function SetupPage() {
               </p>
             ) : (
               <p className="text-primary text-sm">
-                This Luna already has an account. <TextLink to="/login">Sign in</TextLink> to continue setup.
+                This Luna already has an account. <TextLink to="/login" state={{ from: "/setup" }}>Sign in</TextLink> to continue setup.
               </p>
             )}
           </div>

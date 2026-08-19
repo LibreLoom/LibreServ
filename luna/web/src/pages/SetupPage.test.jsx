@@ -17,9 +17,11 @@ describe("SetupPage", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={client}>
-        <AuthProvider>
-          <MemoryRouter><SetupPage /></MemoryRouter>
-        </AuthProvider>
+        <MemoryRouter initialEntries={["/setup"]}>
+          <AuthProvider>
+            <SetupPage />
+          </AuthProvider>
+        </MemoryRouter>
       </QueryClientProvider>
     );
     expect(screen.getAllByText(/luna.local/i).length).toBeGreaterThan(0);
