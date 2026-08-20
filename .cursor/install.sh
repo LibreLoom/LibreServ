@@ -41,7 +41,29 @@ install_go() {
 }
 install_go
 
-# ── 2. Backend (Go) ──────────────────────────────────────────────────────────
+# ── 2. Forgejo CLI (fj) ──────────────────────────────────────────────────────
+# LibreServ is developed on Forgejo (gt.plainskill.net); fj is the Forgejo CLI
+# used for issues and pull requests. Installing the binary here bakes it into the
+# baseline; the per-boot .cursor/start.sh authenticates it from the FORGEJO_TOKEN
+# secret.
+FJ_VERSION="0.6.0"
+install_fj() {
+  if command -v fj >/dev/null 2>&1; then
+    echo ">> fj already installed"
+    return
+  fi
+  echo ">> Installing fj (Forgejo CLI) ${FJ_VERSION}"
+  local tmp; tmp="$(mktemp -d)"
+  curl -fsSL -o "${tmp}/fj.tar.gz" \
+    "https://codeberg.org/forgejo-contrib/forgejo-cli/releases/download/v${FJ_VERSION}/forgejo-cli-x86_64-linux.tar.gz"
+  tar -xzf "${tmp}/fj.tar.gz" -C "${tmp}"
+  as_root install -m 0755 "${tmp}/fj" /usr/local/bin/fj
+  rm -rf "${tmp}"
+  echo ">> fj installed"
+}
+install_fj
+
+# ── 3. Backend (Go) ──────────────────────────────────────────────────────────
 echo ">> Preparing backend"
 cd "${REPO_ROOT}/server/backend"
 # The server refuses to run without a config file; seed it from the example on
@@ -55,7 +77,7 @@ go mod download
 # falls back to a tar-based backup path when restic is absent.
 make restic-fetch || echo ">> restic fetch skipped (backups will use the tar fallback)"
 
-# ── 3. Frontend (Node) ───────────────────────────────────────────────────────
+# ── 4. Frontend (Node) ───────────────────────────────────────────────────────
 echo ">> Preparing frontend"
 cd "${REPO_ROOT}/server/frontend"
 npm ci
