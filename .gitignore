@@ -105,6 +105,8 @@ libreserv.sh
 Building
 Running
 package-lock.json
+!server/frontend/package-lock.json
+!luna/web/package-lock.json
 
 # Support module binaries
 support/support-relay/relay
