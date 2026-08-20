@@ -393,6 +393,17 @@ pub fn can_access(
     })
 }
 
+/// True if the user may see anything on this drive (whole drive or a folder).
+pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
+    if user.role == "admin" {
+        return true;
+    }
+    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
+        return false;
+    };
+    grants.iter().any(|g| g.drive_id == drive_id)
+}
+
 pub fn require_admin(req: &axum::extract::Request) -> Result<&CurrentUser, AuthError> {
     let user = current_user(req).ok_or(AuthError::Unauthenticated)?;
     if user.role != "admin" {
@@ -482,6 +493,8 @@ mod tests {
             username: sam.username.clone(),
             role: "user".into(),
         };
+        assert!(has_drive_access(&sam_user, &conn, "drive-a"));
+        assert!(!has_drive_access(&sam_user, &conn, "drive-b"));
         assert!(can_access(
             &sam_user,
             &conn,
