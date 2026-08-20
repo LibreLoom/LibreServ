@@ -14,9 +14,13 @@ An Android app that connects to LibreServ over Bluetooth LE and displays the ful
 
 Requires Android Studio or Gradle command line with Android SDK 34.
 
+The Gradle wrapper (`gradlew`, `gradle/`) is generated scaffolding and is not
+checked in. Generate it by opening the `companion/android` folder in Android
+Studio (which provisions the wrapper), or run Gradle directly:
+
 ```bash
 cd companion/android
-./gradlew assembleDebug
+gradle assembleDebug
 ```
 
 The APK is output to `app/build/outputs/apk/debug/app-debug.apk`.
