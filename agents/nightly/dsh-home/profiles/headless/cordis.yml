@@ -1,0 +1,5 @@
+# dsh profile root for the nightly headless agent. The tree is composed as
+# patches: each bundle in package.json's dsh.profile.bundles, then
+# cordis.patch.yml, then any --patch overlays.
+[]
+
