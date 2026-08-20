@@ -114,16 +114,16 @@ export default function ObjectNotFound({
             <Card className="p-8 ring-2 ring-accent text-left motion-reduce:animate-none">
               <div className="flex flex-col gap-6">
                 <div>
-                  <p className="font-mono text-sm font-normal uppercase tracking-widest text-primary/70">
+                  <p className="font-mono text-sm font-normal uppercase tracking-widest text-primary">
                     Error 404
                   </p>
-                  <p id={detailsId} className="mt-3 text-primary/70 max-w-prose">
+                  <p id={detailsId} className="mt-3 text-primary max-w-prose">
                     {quip}
                   </p>
                 </div>
 
                 <div>
-                  <p className="text-sm text-primary/70">
+                  <p className="text-sm text-primary">
                     We couldn&apos;t find this {objectLabel}
                   </p>
                   <code className="mt-2 block w-full overflow-x-auto rounded-large-element bg-primary/10 p-4 font-mono text-sm text-primary">
@@ -138,7 +138,7 @@ export default function ObjectNotFound({
             <h2 className="text-xl font-mono font-normal block text-center">
               Quick Ways Out
             </h2>
-            <p className="mt-2 text-primary/70 max-w-prose block text-center">
+            <p className="mt-2 text-primary max-w-prose block text-center">
               Try a safe page or jump back to the list. The pigeon will not
               judge.
             </p>
@@ -168,7 +168,7 @@ export default function ObjectNotFound({
               <h3 className="font-mono font-normal">
                 If This Seems Wrong (and You're Probably Right)
               </h3>
-              <ul className="mt-3 list-disc pl-5 text-primary/70 space-y-2">
+              <ul className="mt-3 list-disc pl-5 text-primary space-y-2">
                 <li>Double-check the ID or slug.</li>
                 <li>Return to the list and open the item again.</li>
                 <li>If you followed a link, it might be outdated.</li>

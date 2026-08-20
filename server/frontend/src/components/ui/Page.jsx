@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import HeaderCard from "../cards/HeaderCard";
+import Card from "../cards/Card";
 
 /**
  * Page — the standard authenticated page shell.
@@ -61,9 +62,9 @@ export default function Page({
             className={headerCardClassName}
           />
           {hasLead && (
-            <div className="mt-4 text-center" data-slot="page-lead">
+            <Card className="text-center mb-4" data-slot="page-lead">
               {bottomContent}
-            </div>
+            </Card>
           )}
         </header>
       )}

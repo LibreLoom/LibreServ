@@ -7,6 +7,7 @@ import Button from "../components/ui/Button";
 import ConfirmModal from "../components/cards/ConfirmModal";
 import Table from "../components/common/Table";
 import Pill from "../components/common/Pill";
+import EmptyState from "../components/common/EmptyState";
 import StateOverlay from "../components/cards/StateOverlay";
 import api from "../lib/api";
 import { useTimeFormat } from "../hooks/useTimeFormat";
@@ -129,14 +130,12 @@ export default function UsersPage() {
 
         {error && (
           <StateOverlay kind="error">
-            <p className="text-secondary/80">Error: {error}</p>
+            <p className="text-primary">Error: {error}</p>
           </StateOverlay>
         )}
 
         {!loading && !error && users.length === 0 && (
-          <div className="mt-5 text-center">
-            <p>No users found</p>
-          </div>
+          <EmptyState className="mt-5" icon={User} title="No people yet" description="Add someone to share drives with." />
         )}
 
         {!loading && !error && users.length > 0 && (
@@ -166,7 +165,7 @@ export default function UsersPage() {
                       render: (row) => (
                         <Link
                           to={`/users/${row.id}`}
-                          className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-primary/70"
+                          className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-secondary"
                         >
                           {row.email}
                         </Link>

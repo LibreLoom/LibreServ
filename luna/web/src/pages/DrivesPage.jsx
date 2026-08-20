@@ -6,6 +6,7 @@ import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
+import EmptyState from "../components/common/EmptyState";
 import { useAuth } from "../context/AuthContext";
 import { getDrives, getJson, postJson } from "../lib/api";
 
@@ -104,12 +105,14 @@ export default function DrivesPage() {
 
       {isAdmin && (
         <>
-          <h2 className="font-mono text-sm text-secondary mb-4 mt-10">Drives plugged in now</h2>
+          <Card className="mt-10 mb-4" padding>
+            <h2 className="font-mono text-sm text-primary">Drives plugged in now</h2>
+          </Card>
           <div className="grid gap-5 md:grid-cols-2">
             {(detected.data || []).map((drive) => <DetectedCard key={drive.name} drive={drive} onOpen={setInspectFor} />)}
           </div>
           {!detected.isLoading && (detected.data || []).length === 0 && (
-            <p className="text-secondary text-sm">Nothing new plugged in.</p>
+            <EmptyState description="Nothing new plugged in." />
           )}
         </>
       )}
@@ -145,7 +148,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
             written, moved, or changed.
           </p>
           <div className="mt-4 flex gap-3">
-            <Button variant="secondary" onClick={onInspect}>Look inside</Button>
+            <Button variant="primary" onClick={onInspect}>Look inside</Button>
             <Button variant="outline" onClick={onClose}>Not now</Button>
           </div>
         </>
@@ -189,7 +192,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
               </label>
               {adoptError && <p className="text-error text-xs mt-2">{adoptError}</p>}
               <div className="mt-4 flex gap-3">
-                <Button variant="secondary" loading={adopting} onClick={() => onAdopt(label)}>
+                <Button variant="primary" loading={adopting} onClick={() => onAdopt(label)}>
                   Add this drive
                 </Button>
                 <Button variant="outline" onClick={onClose}>Not now</Button>

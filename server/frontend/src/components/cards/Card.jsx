@@ -44,6 +44,7 @@ function Card({
       : "bg-secondary text-primary";
 
   const hasHeader = title || Icon;
+  const headerBorder = surface === "primary" ? "border-secondary/10" : "border-primary/10";
 
   if (noHeightAnim) {
     return (
@@ -61,10 +62,10 @@ function Card({
         {...rest}
       >
         {hasHeader && (
-          <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
+          <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
               {Icon && <Icon size={18} className="text-accent" />}
-              {title && <h2 className="font-mono font-normal text-primary">{title}</h2>}
+              {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
           </div>
@@ -94,10 +95,10 @@ function Card({
         {...rest}
       >
         {hasHeader && (
-          <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
+          <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
               {Icon && <Icon size={18} className="text-accent" />}
-              {title && <h2 className="font-mono font-normal text-primary">{title}</h2>}
+              {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
           </div>

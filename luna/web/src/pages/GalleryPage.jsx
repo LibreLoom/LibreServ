@@ -5,6 +5,7 @@ import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import Dropdown from "../components/common/Dropdown";
+import PageNotice from "../components/common/PageNotice";
 import { getDrives, getJson, postJson } from "../lib/api";
 
 function dateLabel(ts) {
@@ -47,7 +48,7 @@ export default function GalleryPage() {
         </div>
       }
     >
-      {error && <p className="text-error text-xs mb-4">{error}</p>}
+      {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       {driveId && (gallery.data || []).length === 0 && !gallery.isLoading && (
         <Card icon={ImageIcon} title="No photos yet">
           <p className="text-primary text-sm">
@@ -55,16 +56,20 @@ export default function GalleryPage() {
             makes small previews — the originals stay exactly where they are.
           </p>
           <div className="mt-3">
-            <Button variant="secondary" loading={scan.isPending} onClick={() => scan.mutate()}>Build my gallery</Button>
+            <Button variant="primary" loading={scan.isPending} onClick={() => scan.mutate()}>Build my gallery</Button>
           </div>
         </Card>
       )}
 
       <div className="columns-2 md:columns-3 lg:columns-4 gap-4">
         {(gallery.data || []).map((photo) => (
-          <a
+          <Card
             key={`${photo.drive_id}/${photo.path}`}
-            className="block mb-4 break-inside-avoid rounded-large-element overflow-hidden bg-secondary/10"
+            as="a"
+            noHeightAnim
+            noPopIn
+            padding={false}
+            className="block mb-4 break-inside-avoid overflow-hidden motion-safe:transition-colors hover:ring-2 hover:ring-accent"
             href={`/api/v1/drives/${photo.drive_id}/files/content?path=${encodeURIComponent(photo.path)}`}
             target="_blank"
             rel="noreferrer"
@@ -72,13 +77,15 @@ export default function GalleryPage() {
             {photo.thumb ? (
               <img src={photo.thumb} alt={photo.name} loading="lazy" className="w-full block" />
             ) : (
-              <div className="h-40 flex items-center justify-center text-primary"><ImageIcon size={24} /></div>
+              <div className="h-40 flex items-center justify-center text-accent">
+                <ImageIcon size={24} aria-hidden="true" />
+              </div>
             )}
             <div className="p-2">
               <p className="text-primary font-mono text-xs truncate">{photo.name}</p>
               <p className="text-accent text-xs">{dateLabel(photo.taken_at)}</p>
             </div>
-          </a>
+          </Card>
         ))}
       </div>
     </Page>

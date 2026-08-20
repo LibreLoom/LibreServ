@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import api from "../lib/api";
 import Page from "../components/ui/Page.jsx";
+import PageNotice from "../components/common/PageNotice.jsx";
 import SettingsCard from "../components/settings/SettingsCard.jsx";
 import SettingsRow from "../components/settings/SettingsRow.jsx";
 import Button from "../components/ui/Button.jsx";
@@ -214,16 +215,12 @@ export default function TroubleshootPage() {
     <Page title="Troubleshooting">
       <div className="space-y-6">
         {issue === "connect-key" && (
-          <div
-            data-slot="troubleshoot-notice"
-            className="flex items-start gap-3 rounded-large-element border-2 border-warning/30 bg-warning/20 p-3"
-            role="status"
-          >
+          <PageNotice variant="warning" className="flex items-start gap-3">
             <CircleHelp size={18} className="text-warning shrink-0 mt-0.5" aria-hidden="true" />
-            <p className="text-sm text-secondary">
-              A Connect key didn't work. The check below shows the current state — then work through the steps to get things running again.
-            </p>
-          </div>
+            <span>
+              A Connect key didn&apos;t work. The check below shows the current state — then work through the steps to get things running again.
+            </span>
+          </PageNotice>
         )}
 
         {/* ─── Section 1: live checks ─────────────────────────────────── */}

@@ -3,6 +3,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useTheme } from "../hooks/useTheme";
 import ErrorDisplay from "../components/common/ErrorDisplay";
 import Page from "../components/ui/Page";
+import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import SettingsSidebar from "../components/settings/SettingsSidebar";
 import SettingsContent from "../components/settings/SettingsContent";
@@ -312,16 +313,18 @@ export default function SettingsPage() {
     >
       {error && (
         <div className="px-8 pt-5">
-          <ErrorDisplay message={error} onDismiss={() => setError(null)} />
-          <Button
-            variant="outline"
-            surface="primary"
-            size="sm"
-            onClick={loadData}
-            className="mt-2 font-mono"
-          >
-            Retry
-          </Button>
+          <Card>
+            <ErrorDisplay message={error} onDismiss={() => setError(null)} />
+            <Button
+              variant="outline"
+              surface="secondary"
+              size="sm"
+              onClick={loadData}
+              className="mt-2 font-mono"
+            >
+              Retry
+            </Button>
+          </Card>
         </div>
       )}
 

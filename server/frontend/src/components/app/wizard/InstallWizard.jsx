@@ -10,6 +10,8 @@ import NoDomainWarningStep from "./NoDomainWarningStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
 import Button from "../../ui/Button";
+import Card from "../../cards/Card";
+import EmptyState from "../../common/EmptyState";
 import { cn } from "@/lib/utils";
 
 /**
@@ -217,46 +219,44 @@ function InstallWizard({ appId, initialInstanceId }) {
 
   if (alreadyInstalled) {
     return (
-      <div className="text-center space-y-6 py-8">
-        <h2 className="font-mono text-2xl font-normal text-secondary">
-          Already Installed
-        </h2>
-        <p className="text-secondary/70">
-          {app?.name || appId} is already installed on your device.
-        </p>
-        <Button
-          variant="secondary"
-          surface="primary"
-          onClick={() => navigate("/apps")}
-          className="px-6"
-        >
-          Back to Apps
-        </Button>
-      </div>
+      <EmptyState
+        title="Already installed"
+        description={`${app?.name || appId} is already installed on your device.`}
+        action={
+          <Button
+            variant="secondary"
+            surface="primary"
+            onClick={() => navigate("/apps")}
+            className="px-6"
+          >
+            Back to Apps
+          </Button>
+        }
+      />
     );
   }
 
   if (error) {
     return (
-      <div className="text-center space-y-6 py-8">
-        <h2 className="font-mono text-2xl font-normal text-secondary">
-          Something went wrong
-        </h2>
-        <p className="text-secondary/70">{error}</p>
-        <Button
-          variant="secondary"
-          surface="primary"
-          onClick={() => navigate("/apps")}
-          className="px-6"
-        >
-          Back to Apps
-        </Button>
-      </div>
+      <EmptyState
+        title="Something went wrong"
+        description={error}
+        action={
+          <Button
+            variant="secondary"
+            surface="primary"
+            onClick={() => navigate("/apps")}
+            className="px-6"
+          >
+            Back to Apps
+          </Button>
+        }
+      />
     );
   }
 
   return (
-    <div className="space-y-8" data-slot="install-wizard">
+    <Card className="space-y-8" data-slot="install-wizard" noHeightAnim>
       <div className={cn("transition-all duration-300 delay-75", showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2")}>
         <WizardStepper currentStep={step} hasSubdomainStep={hasSubdomainStep} />
       </div>
@@ -342,7 +342,7 @@ function InstallWizard({ appId, initialInstanceId }) {
           </div>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 

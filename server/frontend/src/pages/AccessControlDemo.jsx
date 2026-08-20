@@ -1,6 +1,7 @@
 /* color-scan: ignore-file - demo page with mock data */
 import { useState } from "react";
 import Page from "../components/ui/Page.jsx";
+import Card from "../components/cards/Card.jsx";
 import Button from "../components/ui/Button.jsx";
 import AccessControlSection from "../components/app/AccessControlSection.jsx";
 
@@ -115,10 +116,10 @@ export default function AccessControlDemo() {
 
   return (
     <Page title="Access Control — Component Preview" className="min-h-screen">
-      <div className="mt-6 max-w-3xl" data-slot="access-control-demo">
-        <p className="text-sm text-secondary/80 mb-6">
+      <Card className="mt-6 max-w-3xl" data-slot="access-control-demo">
+        <p className="text-sm text-primary mb-6">
           This page previews the access management UI that appears in each
-          app's settings. Switch between the two access models to see how the
+          app&apos;s settings. Switch between the two access models to see how the
           panel changes.
         </p>
 
@@ -151,7 +152,7 @@ export default function AccessControlDemo() {
           accessModel={variant}
           appName={variant === "internal" ? "Nextcloud" : "ConvertX"}
         />
-      </div>
+      </Card>
     </Page>
   );
 }

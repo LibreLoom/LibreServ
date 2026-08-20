@@ -120,13 +120,13 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
   return (
     <div className="space-y-6" data-slot="subdomain-step">
       <div className="text-center space-y-2">
-        <h2 className="font-mono text-2xl font-normal text-secondary">Choose Subdomain</h2>
+        <h2 className="font-mono text-2xl font-normal text-primary">Choose Subdomain</h2>
         {noDomainConfigured ? (
-          <p className="text-secondary/70 text-sm">
+          <p className="text-primary text-sm">
             No domain configured. App will be accessible locally only.
           </p>
         ) : (
-          <p className="text-secondary/70 text-sm">
+          <p className="text-primary text-sm">
             Select a subdomain for your app. It will be accessible at{" "}
             <span className="font-mono text-accent">{subdomain}.{domain}</span>
           </p>
@@ -159,7 +159,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
             onBlur={handleBlur}
             disabled={loading}
             placeholder={suggested || "e.g., myapp"}
-            className="w-full px-4 py-3 rounded-large-element border-2 border-secondary/30 bg-primary text-secondary placeholder:text-secondary/50 font-mono text-sm focus:outline-none focus:border-accent focus-visible:ring-2 focus:ring-accent focus-visible:ring-offset-2"
+            className="w-full px-4 py-3 rounded-large-element border-2 border-secondary/30 bg-primary text-secondary placeholder:text-accent font-mono text-sm focus:outline-none focus:border-accent focus-visible:ring-2 focus:ring-accent focus-visible:ring-offset-2"
             autoComplete="off"
           />
           {subdomainError && (
@@ -168,7 +168,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
         </div>
 
         {noDomainConfigured && subdomain.trim() && (
-          <p className="text-xs text-secondary/60 font-mono">
+          <p className="text-xs text-primary font-mono">
             Accessible at: <span className="text-accent">http://localhost:PORT</span> (port assigned automatically)
           </p>
         )}
@@ -187,7 +187,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
         )}
 
         {checking && (
-          <div className="flex items-center gap-2 text-sm text-secondary/70">
+          <div className="flex items-center gap-2 text-sm text-primary">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span>Checking availability...</span>
           </div>
@@ -212,7 +212,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
         <Button
           type="button"
           variant="outline"
-          surface="primary"
+          surface="secondary"
           onClick={onBack}
           disabled={loading}
           className="px-6"
@@ -221,8 +221,7 @@ function SubdomainStep({ app, domain, onSubdomainChange, onContinue, onBack, loa
         </Button>
         <Button
           type="button"
-          variant="secondary"
-          surface="primary"
+          variant="primary"
           onClick={handleContinue}
           disabled={!isNextEnabled || loading}
           className="px-6"

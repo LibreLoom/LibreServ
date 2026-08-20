@@ -20,7 +20,7 @@ export default function LandingPage() {
       titleId="luna-title"
       rightContent={<HealthPill data={health.data} isError={health.isError} />}
       bottomContent={
-        <p className="text-secondary text-sm">
+        <p className="text-sm">
           Your files, your drives, your house. No subscription — ever.
         </p>
       }

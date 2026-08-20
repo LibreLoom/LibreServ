@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import HeaderCard from "../cards/HeaderCard";
+import Card from "../cards/Card";
 
 /**
  * Page — the standard authenticated page shell.
@@ -12,7 +13,7 @@ import HeaderCard from "../cards/HeaderCard";
  *
  * HeaderCard is always one line. `bottomContent` (taglines, leads) renders
  * BELOW the header card — never inside it as a stacked second card. Put
- * navigation in BottomNav, not in the header.
+ * navigation in the bottom Navbar, not in the header.
  *
  * @param {object} props
  * @param {import("react").ReactNode} [props.title] Page heading. Omit for pages that render their own header.
@@ -61,9 +62,9 @@ export default function Page({
             className={headerCardClassName}
           />
           {hasLead && (
-            <div className="mt-4 text-center" data-slot="page-lead">
+            <Card className="text-center mb-4" data-slot="page-lead">
               {bottomContent}
-            </div>
+            </Card>
           )}
         </header>
       )}

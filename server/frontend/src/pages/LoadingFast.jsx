@@ -24,13 +24,13 @@ function LoadingFast({
         <div
           className={cn("mb-10 text-center", !disableAnimation && "animate-fade-in-up")}
         >
-          <div className="mb-3 text-[0.65rem] font-sans font-semibold uppercase tracking-[0.3em] text-secondary/70 opacity-90">
+          <div className="mb-3 text-[0.65rem] font-sans font-semibold uppercase tracking-[0.3em] text-secondary">
             LibreServ
           </div>
           <h1 className="mb-2 text-3xl font-mono font-normal tracking-tight text-secondary sm:text-4xl">
             {heading}
           </h1>
-          <p className="font-sans text-sm text-secondary/70">{label}</p>
+          <p className="font-sans text-sm text-secondary">{label}</p>
         </div>
 
         {/* Material Design 3 Linear Progress Indicator */}

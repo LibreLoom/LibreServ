@@ -32,7 +32,7 @@ export default function RemotePage() {
 
   return (
     <Page title="Remote access" titleId="remote-title"
-      bottomContent={<p className="text-secondary text-xs">Remote access is off until you turn it on. It&apos;s free forever.</p>}
+      bottomContent={<p className="text-sm">Remote access is off until you turn it on. It&apos;s free forever.</p>}
     >
       <div className="grid gap-5 md:grid-cols-2">
         <Card icon={Globe2} title="Luna Connect" headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}>
@@ -42,7 +42,7 @@ export default function RemotePage() {
                 Your Luna is reachable anywhere at <span className="font-mono">{s.domain || "your Luna address"}</span>.
               </p>
               {!s.tunnel_active && (
-                <Button variant="secondary" loading={enable.isPending} onClick={() => enable.mutate()}>Turn tunnel on</Button>
+                <Button variant="primary" loading={enable.isPending} onClick={() => enable.mutate()}>Turn tunnel on</Button>
               )}
               <Button variant="danger" loading={off.isPending} onClick={() => off.mutate()}>Turn Luna Connect off</Button>
             </div>
@@ -52,7 +52,7 @@ export default function RemotePage() {
                 One tap. Luna gets its own free key — no account, no checkout,
                 no router changes, no ports. Free forever.
               </p>
-              <Button variant="secondary" fullWidth loading={activate.isPending} onClick={() => activate.mutate()}>
+              <Button variant="primary" fullWidth loading={activate.isPending} onClick={() => activate.mutate()}>
                 Turn Luna Connect on
               </Button>
             </div>

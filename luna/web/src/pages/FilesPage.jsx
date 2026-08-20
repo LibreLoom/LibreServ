@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Download, File as FileIcon, Folder, Pencil, Trash2, UploadCloud } from "lucide-react";
+import { Download, File as FileIcon, Folder, FolderOpen, Pencil, Trash2, UploadCloud } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
+import TextLink from "../components/ui/TextLink";
+import EmptyState from "../components/common/EmptyState";
+import PageNotice from "../components/common/PageNotice";
 import { getDrives, getJson } from "../lib/api";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
@@ -46,8 +49,6 @@ export default function FilesPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  // Folder location lives in the address bar so refresh, Back, and
-  // "Shared with me" links (`?path=`) all land on the same folder.
   const path = searchParams.get("path") || "";
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(null);
@@ -174,49 +175,47 @@ export default function FilesPage() {
       title={drive ? drive.label : "Files"}
       titleId="files-title"
     >
-      <div className="flex items-center gap-2 font-mono text-xs text-secondary mb-4">
-        <Link to={folderHref(id, "")} className="hover:text-accent">
-          {drive?.label || "Drive"}
-        </Link>
-        {path.split("/").filter(Boolean).map((segment, i, all) => (
-          <span key={`${segment}-${i}`}>
-            <span className="text-accent">/</span>
-            <Link
-              to={folderHref(id, all.slice(0, i + 1).join("/"))}
-              className="hover:text-accent"
-            >
-              {segment}
-            </Link>
-          </span>
-        ))}
-      </div>
+      <Card className="mb-4" padding>
+        <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-primary">
+          <TextLink to={folderHref(id, "")} surface="secondary">
+            {drive?.label || "Drive"}
+          </TextLink>
+          {path.split("/").filter(Boolean).map((segment, i, all) => (
+            <span key={`${segment}-${i}`} className="flex items-center gap-2">
+              <span className="text-accent">/</span>
+              <TextLink to={folderHref(id, all.slice(0, i + 1).join("/"))} surface="secondary">
+                {segment}
+              </TextLink>
+            </span>
+          ))}
+        </div>
+        {up !== null && (
+          <div className="mt-3">
+            <Button variant="outline" surface="secondary" size="sm" asChild>
+              <Link to={folderHref(id, up)}>↑ Up one folder</Link>
+            </Button>
+          </div>
+        )}
+      </Card>
 
-      {up !== null && (
-        <Button variant="outline" size="sm" className="mb-4" asChild>
-          <Link to={folderHref(id, up)}>↑ Up one folder</Link>
-        </Button>
-      )}
-
-      <div
-        className={`mb-6 rounded-large-element border-2 border-dashed p-6 text-center ${
-          dragOver ? "border-accent bg-secondary/10" : "border-secondary/30"
-        }`}
+      <Card
+        className={`mb-6 text-center border-2 border-dashed ${dragOver ? "border-accent ring-2 ring-accent" : "border-primary/30"}`}
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
       >
-        <UploadCloud size={20} className="text-accent mx-auto mb-2" />
-        <p className="text-secondary text-sm">Drop files here to put them in this folder</p>
-        <p className="text-secondary/70 text-xs mt-1">
+        <UploadCloud size={20} className="text-accent mx-auto mb-2" aria-hidden="true" />
+        <p className="text-primary text-sm">Drop files here to put them in this folder</p>
+        <p className="text-accent text-xs mt-1">
           Small files save instantly. Big files continue even if the connection blips.
         </p>
         {uploading && (
-          <p className="text-secondary text-xs mt-2">
+          <p className="text-primary text-xs mt-2">
             Saving {uploading.name}… {fmtSize(uploading.received)} of {fmtSize(uploading.size)}
           </p>
         )}
         {uploadError && <p className="text-error text-xs mt-2">{uploadError}</p>}
-      </div>
+      </Card>
 
       <div className="grid gap-3">
         {visible.map((entry) => (
@@ -225,10 +224,10 @@ export default function FilesPage() {
               {entry.kind === "dir" ? (
                 <Link
                   to={folderHref(id, joinPath(path, entry.name))}
-                  className="flex items-center gap-3 text-left flex-1 min-w-0"
+                  className="flex items-center gap-3 text-left flex-1 min-w-0 text-primary hover:text-accent motion-safe:transition-colors"
                 >
                   <Folder size={18} className="text-accent shrink-0" />
-                  <span className="text-primary font-mono text-sm truncate">{entry.name}</span>
+                  <span className="font-mono text-sm truncate">{entry.name}</span>
                 </Link>
               ) : (
                 <div className="flex items-center gap-3 text-left flex-1 min-w-0">
@@ -238,38 +237,50 @@ export default function FilesPage() {
               )}
               <span className="text-primary text-xs w-20 text-right hidden sm:block">{fmtSize(entry.size)}</span>
               <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  className="p-2 text-primary hover:text-accent"
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
                   aria-label={`Rename ${entry.name}`}
                   onClick={() => { setRenameTarget(entry); setRenameValue(entry.name); }}
                 >
                   <Pencil size={14} />
-                </button>
-                <button
-                  type="button"
-                  className="p-2 text-primary hover:text-error"
+                </Button>
+                <Button
+                  variant="ghost"
+                  surface="secondary"
+                  size="iconSm"
                   aria-label={`Move ${entry.name} to trash`}
                   onClick={() => setDeleteTarget(entry)}
                 >
                   <Trash2 size={14} />
-                </button>
+                </Button>
                 {entry.kind === "file" && (
-                  <a
-                    className="p-2 text-primary hover:text-accent"
-                    href={`/api/v1/drives/${id}/files/content?path=${encodeURIComponent(joinPath(path, entry.name))}&download=1`}
+                  <Button
+                    variant="ghost"
+                    surface="secondary"
+                    size="iconSm"
+                    asChild
                     aria-label={`Download ${entry.name}`}
                   >
-                    <Download size={14} />
-                  </a>
+                    <a href={`/api/v1/drives/${id}/files/content?path=${encodeURIComponent(joinPath(path, entry.name))}&download=1`}>
+                      <Download size={14} />
+                    </a>
+                  </Button>
                 )}
               </div>
             </div>
           </Card>
         ))}
       </div>
+
       {!files.isLoading && visible.length === 0 && (
-        <p className="text-secondary text-sm mt-4">This folder is empty. Drop files above.</p>
+        <EmptyState
+          className="mt-4"
+          icon={FolderOpen}
+          title="This folder is empty"
+          description="Drop files in the upload area above."
+        />
       )}
 
       {deleteTarget && (
@@ -295,10 +306,10 @@ export default function FilesPage() {
             maxLength={255}
             onChange={(e) => setRenameValue(e.target.value)}
           />
-          {uploadError && <p className="text-error text-xs mt-2">{uploadError}</p>}
+          {uploadError && <PageNotice variant="error" className="mt-2">{uploadError}</PageNotice>}
           <div className="mt-4 flex gap-3">
             <Button
-              variant="secondary"
+              variant="primary"
               loading={renameMutation.isPending}
               onClick={() => renameMutation.mutate({ entry: renameTarget, newName: renameValue })}
             >

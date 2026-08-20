@@ -4,8 +4,8 @@ import { ShieldCheck } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
-import Dropdown from "../components/common/Dropdown";
-import { getDrives, getJson, postJson } from "../lib/api";
+import EmptyState from "../components/common/EmptyState";
+import PageNotice from "../components/common/PageNotice";
 
 export default function ProtectionPage() {
   const queryClient = useQueryClient();
@@ -38,9 +38,9 @@ export default function ProtectionPage() {
           <input className="rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Folder path, e.g. family" value={folder} onChange={(e) => setFolder(e.target.value)} />
           <Dropdown options={(drives.data || []).map((d) => ({ value: d.id, label: d.label }))} value={target} onChange={setTarget} placeholder="Second drive" fullWidth />
         </div>
-        {error && <p className="text-error text-xs mt-2">{error}</p>}
+        {error && <PageNotice variant="error" className="mt-2">{error}</PageNotice>}
         <div className="mt-4">
-          <Button variant="secondary" loading={create.isPending} disabled={!source || !folder || !target} onClick={() => create.mutate()}>Protect this folder</Button>
+          <Button variant="primary" loading={create.isPending} disabled={!source || !folder || !target} onClick={() => create.mutate()}>Protect this folder</Button>
         </div>
       </Card>
 
@@ -56,7 +56,9 @@ export default function ProtectionPage() {
             </div>
           </Card>
         ))}
-        {(protections.data || []).length === 0 && <p className="text-secondary text-sm">Nothing protected yet.</p>}
+        {(protections.data || []).length === 0 && (
+          <EmptyState icon={ShieldCheck} title="Nothing protected yet" description="Pick a folder and a second drive above to keep a free backup copy." />
+        )}
       </div>
     </Page>
   );
