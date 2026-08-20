@@ -25,6 +25,10 @@ _write_grub_cfg() {
 	if [ ! -e "$_rootmnt/boot/$_i" ]; then
 		_i="$(basename "$(find "$_rootmnt/boot" -maxdepth 1 -name 'initramfs-*' | head -1)")"
 	fi
+	if [ -z "$_k" ] || [ "$_k" = "." ] || [ ! -e "$_rootmnt/boot/$_k" ]; then
+		echo "The Luna archive has no kernel in /boot. Refusing to write a bootloader that cannot start." >&2
+		return 1
+	fi
 	{
 		echo 'set default=0'
 		echo 'set timeout=2'
@@ -109,7 +113,9 @@ PART
 
 	echo "==> installing bootloader (BIOS and UEFI)"
 	mkdir -p "$_mnt/boot" "$_espmnt/EFI/BOOT"
-	_write_grub_cfg "$_mnt"
+	if ! _write_grub_cfg "$_mnt"; then
+		return 1
+	fi
 	_bios_ok=0
 	_efi_ok=0
 	if grub-install --target=i386-pc --boot-directory="$_mnt/boot" "$_dev"; then
