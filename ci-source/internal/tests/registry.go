@@ -43,6 +43,7 @@ func init() {
 	addFuzzTests()
 	addSecurityTests()
 	addIntegrationTests()
+	addLunaTests()
 }
 
 func addGoTests() {
@@ -56,30 +57,6 @@ func addGoTests() {
 		WorkDir:     "/repo/server/backend",
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOTOOLCHAIN=auto"},
-	})
-
-	DefaultRegistry.Add(&Test{
-		ID:          "go-ble-vet",
-		Name:        "Go BLE Vet",
-		Description: "Run go vet on BLE-tagged code",
-		Type:        TestTypeUnit,
-		Container:   "golang:1.26-alpine",
-		Command:     "go vet -tags libreserv_ble ./...",
-		WorkDir:     "/repo/server/backend",
-		Timeout:     3 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
-	})
-
-	DefaultRegistry.Add(&Test{
-		ID:          "go-ble-test",
-		Name:        "Go BLE Unit Tests",
-		Description: "Run Go unit tests with libreserv_ble build tag",
-		Type:        TestTypeUnit,
-		Container:   "golang:1.26-alpine",
-		Command:     "apk add --no-cache gcc musl-dev && CGO_ENABLED=1 go test -tags libreserv_ble -v ./internal/network/bluetooth/...",
-		WorkDir:     "/repo/server/backend",
-		Timeout:     5 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
 
 	DefaultRegistry.Add(&Test{
@@ -187,30 +164,6 @@ func addGoTests() {
 		Command:     "go build ./...",
 		WorkDir:     "/repo/connect",
 		Timeout:     3 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
-	})
-
-	DefaultRegistry.Add(&Test{
-		ID:          "companion-linux-build",
-		Name:        "Linux Companion Build",
-		Description: "Verify the Linux companion binary compiles",
-		Type:        TestTypeUnit,
-		Container:   "golang:1.26-alpine",
-		Command:     "apk add --no-cache pkgconf gobject-introspection-dev gtk4.0-dev libadwaita-dev gcc musl-dev && go build -o /tmp/libreserv-ble-companion .",
-		WorkDir:     "/repo/companion/linux",
-		Timeout:     30 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
-	})
-
-	DefaultRegistry.Add(&Test{
-		ID:          "companion-linux-test",
-		Name:        "Linux Companion Tests",
-		Description: "Run Go tests for the Linux BLE companion app",
-		Type:        TestTypeUnit,
-		Container:   "golang:1.26-alpine",
-		Command:     "apk add --no-cache pkgconf gobject-introspection-dev gtk4.0-dev libadwaita-dev gcc musl-dev && go test -v ./...",
-		WorkDir:     "/repo/companion/linux",
-		Timeout:     30 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
 }
@@ -340,7 +293,7 @@ func addSecurityTests() {
 		Description: "Run staticcheck for code quality issues",
 		Type:        TestTypeSecurity,
 		Container:   "golang:1.26-alpine",
-		Command:     "CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck -tags libreserv_ble -checks all,-ST1*,-ST1000 ./internal/... ./cmd/...",
+		Command:     "CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck -checks all,-ST1*,-ST1000 ./internal/... ./cmd/...",
 		WorkDir:     "/repo/server/backend",
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
@@ -369,30 +322,6 @@ func addSecurityTests() {
 		Timeout:     5 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
 	})
-
-	DefaultRegistry.Add(&Test{
-		ID:          "companion-linux-gosec",
-		Name:        "Linux Companion Security Scanner",
-		Description: "Scan Linux companion code for security problems",
-		Type:        TestTypeSecurity,
-		Container:   "golang:1.26-alpine",
-		Command:     "apk add --no-cache pkgconf gobject-introspection-dev gtk4.0-dev libadwaita-dev gcc musl-dev && CGO_ENABLED=0 go install github.com/securego/gosec/v2/cmd/gosec@latest && $(go env GOPATH)/bin/gosec -severity high -confidence high ./...",
-		WorkDir:     "/repo/companion/linux",
-		Timeout:     30 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
-	})
-
-	DefaultRegistry.Add(&Test{
-		ID:          "companion-linux-staticcheck",
-		Name:        "Linux Companion Static Analysis",
-		Description: "Run staticcheck on Linux companion code",
-		Type:        TestTypeSecurity,
-		Container:   "golang:1.26-alpine",
-		Command:     "apk add --no-cache pkgconf gobject-introspection-dev gtk4.0-dev libadwaita-dev gcc musl-dev && CGO_ENABLED=0 go install honnef.co/go/tools/cmd/staticcheck@latest && $(go env GOPATH)/bin/staticcheck -checks all,-ST1* ./...",
-		WorkDir:     "/repo/companion/linux",
-		Timeout:     30 * time.Minute,
-		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
-	})
 }
 
 func addIntegrationTests() {
@@ -417,5 +346,21 @@ func addIntegrationTests() {
 		Command:     "podman build --ulimit nofile=1048576:1048576 -t libreserv:test .",
 		WorkDir:     "/repo",
 		Timeout:     20 * time.Minute,
+	})
+}
+
+func addLunaTests() {
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-ci",
+		Name:        "Luna CI",
+		Description: "Run luna/ci.sh (fmt, clippy, tests, web, desktop, mobile)",
+		Type:        TestTypeUnit,
+		// Host: needs Rust 1.96, Node, and optionally the Android SDK — same
+		// toolchain the nightly image already installs. Container images for
+		// Go/frontend CI stay unchanged.
+		Container: "host",
+		Command:   "./luna/ci.sh",
+		WorkDir:   "/repo",
+		Timeout:   45 * time.Minute,
 	})
 }

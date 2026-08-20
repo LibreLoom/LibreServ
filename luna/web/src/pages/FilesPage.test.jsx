@@ -18,6 +18,15 @@ function stubFilesApi(byPath) {
     if (u.endsWith("/drives")) {
       return new Response(JSON.stringify([{ id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" }]), { status: 200, headers: { "Content-Type": "application/json" } });
     }
+    if (u.includes("/api/v1/jobs")) {
+      return new Response(JSON.stringify(byPath.__jobs || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/api/v1/search")) {
+      return new Response(JSON.stringify(byPath.__search || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/trash")) {
+      return new Response(JSON.stringify(byPath.__trash || []), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
     if (u.includes("/files?")) {
       const listing = byPath[filesPath(u)] ?? [];
       return new Response(JSON.stringify(listing), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -68,6 +77,42 @@ describe("FilesPage", () => {
       "href",
       "/drives/d1?path=album",
     );
+  });
+
+  it("opens trash and can start a restore", async () => {
+    stubFilesApi({
+      "": [],
+      __trash: [{
+        name: "171-photo.jpg",
+        original_name: "photo.jpg",
+        kind: "file",
+        size: 12,
+        path: ".luna-trash/171-photo.jpg",
+      }],
+    });
+    renderFiles("/drives/d1?view=trash");
+    expect(await screen.findByText("photo.jpg")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to files" })).toHaveAttribute("href", "/drives/d1");
+    fireEvent.click(screen.getByRole("button", { name: "Put photo.jpg back" }));
+    expect(await screen.findByRole("heading", { name: "Put this back?" })).toBeInTheDocument();
+  });
+
+  it("shows copy/move progress and cancel", async () => {
+    stubFilesApi({
+      "": [{ name: "photo.jpg", kind: "file", size: 1000, modified: 0, hidden: false }],
+      __jobs: [{
+        id: "j1",
+        kind: "copy",
+        state: "running",
+        from_path: "photo.jpg",
+        progress: 50,
+        total: 100,
+      }],
+    });
+    renderFiles();
+    expect(await screen.findByText(/Copying photo.jpg/i)).toBeInTheDocument();
+    expect(screen.getByText(/50% done/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
   });
 });
 

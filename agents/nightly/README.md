@@ -95,8 +95,9 @@ Optional: `LAST_RUN_SHA` (else read from the state volume), `REPO_URL`,
 - **dsh CLI** (`@deepseek-ai/dsh@0.1.0-rc.6`) + a headless profile
   (`dsh-home/profiles/headless`) with the Exa MCP web-search tool added, so the
   agent can search the web during dep review.
-- **Go 1.26.5** (backend, connect, ci-source, companion).
-- **Rust 1.96 + clippy + rustfmt** (luna workspace).
+- **Go 1.26.5** (backend, connect, ci-source).
+- **Rust 1.96 + clippy + rustfmt** (luna workspace). `./ci run -profile luna`
+  runs `luna/ci.sh` on the host (also included in `full` / `nightly` / `nofuzz`).
 - **Android SDK** (cmdline-tools, platform 34, build-tools 34) + OpenJDK 17
   (luna/mobile gradle tests).
 - **Docker CLI + Podman** (client side; the `./ci` runner discovers the mounted

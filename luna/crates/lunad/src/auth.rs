@@ -285,6 +285,26 @@ impl AuthService {
             .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
         db::count_users(&conn).map_err(AuthError::Db)
     }
+
+    /// Local-console recovery only: set a new password for the first admin.
+    /// Never exposed on the network.
+    pub fn reset_admin_password(&self, password: &str) -> Result<UserRow, AuthError> {
+        if password.len() < 8 {
+            return Err(AuthError::BadPassword);
+        }
+        let hash = hash_password(password)?;
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        let admin = db::first_admin(&conn)
+            .map_err(AuthError::Db)?
+            .ok_or(AuthError::Unauthenticated)?;
+        db::set_user_password_hash(&conn, &admin.id, &hash).map_err(AuthError::Db)?;
+        db::get_user(&conn, &admin.id)
+            .map_err(AuthError::Db)?
+            .ok_or(AuthError::Db(anyhow::anyhow!("admin missing after reset")))
+    }
 }
 
 pub fn session_cookie(token: &str) -> String {
@@ -475,6 +495,16 @@ mod tests {
         let current = auth.verify(&token).unwrap();
         assert_eq!(current.username, "max");
         assert!(auth.login("max", "wrong-password").is_err());
+    }
+
+    #[test]
+    fn reset_admin_password_lets_them_sign_in_again() {
+        let (_dir, auth) = service();
+        auth.register("Max", "Max", "old-password-1", "user")
+            .unwrap();
+        auth.reset_admin_password("new-password-1").unwrap();
+        assert!(auth.login("max", "old-password-1").is_err());
+        auth.login("max", "new-password-1").unwrap();
     }
 
     #[test]

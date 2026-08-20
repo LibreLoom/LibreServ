@@ -621,6 +621,20 @@ function DoneStep({ name, onGoDrives }) {
           </ul>
         </div>
 
+        <div className="mt-6 w-full bg-primary text-secondary rounded-large-element p-5 text-left animate-in fade-in duration-300 delay-300">
+          <p className="font-mono text-sm text-secondary mb-3">
+            If you forget your password
+          </p>
+          <ol className="space-y-2 text-sm text-secondary list-decimal list-inside">
+            <li>Plug a USB keyboard into Luna.</li>
+            <li>Press Esc, then type luna, then press Enter.</li>
+            <li>On the screen plugged into Luna, type a new password twice.</li>
+          </ol>
+          <p className="mt-3 text-sm text-secondary">
+            Write this down. It only works with a keyboard on the box — never from the internet.
+          </p>
+        </div>
+
         <div className="mt-8 animate-in fade-in duration-300 delay-400">
           <Button
             variant="primary"

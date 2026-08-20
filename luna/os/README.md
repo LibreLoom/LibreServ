@@ -9,7 +9,7 @@ disk both boot in either firmware mode.
 
 ```sh
 # 1. Build the musl daemon (host or inside Alpine):
-#    cargo build --release --features ble -p lunad
+#    cargo build --release -p lunad
 #    or set LUNAD_BIN=/path/to/lunad
 
 # 2. Rootfs (needs Podman)
@@ -38,3 +38,29 @@ old 64-bit CPUs without SSE4.2 are a later ISO, not this one.
 
 Quick-start card addresses: `luna.local`, `http://luna`,
 and direct-cable `http://169.254.42.42`.
+
+## Photo previews (HEIC)
+
+Phone backups are often HEIC. The daemon stays a musl Rust binary and does **not**
+link `libheif`. The OS image installs Alpine `libheif` + `libheif-tools`
+(`heif-dec` / `heif-convert`) so Luna can make JPEG previews. Capture dates are
+read from EXIF inside the file (JPEG APP1 or the HEIF `Exif` item). Originals
+are never rewritten.
+
+If you build a custom rootfs without those packages, HEIC files still appear in
+the gallery when they have EXIF, but previews stay empty until `heif-dec` is
+installed.
+
+## Software updates (no re-flash)
+
+Lunad looks at Forgejo tags that start with `luna-` (for example `luna-0.2.0`)
+on `LibreLoom/LibreServ`. Release assets:
+
+- `lunad-linux-amd64` (or `lunad-linux-arm64`)
+- `SHA256SUMS.txt` (required — install refuses a missing or mismatched checksum)
+
+An admin taps **Install update** in Settings. That replaces `/usr/local/bin/lunad`
+and exits so OpenRC restarts the daemon. A new OS image is only needed for a
+full re-flash, not for ordinary lunad updates.
+
+Env overrides: `LUNA_UPDATES_API`, `LUNA_UPDATES_OWNER`, `LUNA_UPDATES_REPO`.

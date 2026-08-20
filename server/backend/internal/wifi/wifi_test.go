@@ -1,6 +1,7 @@
 package wifi
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -17,5 +18,18 @@ func TestParseScanResults(t *testing.T) {
 	}
 	if networks[1].SSID != "Coffee Shop" || networks[1].Encrypted {
 		t.Fatalf("bad second network: %+v", networks[1])
+	}
+}
+
+func TestHostapdConfigIsOpenLibreServSetup(t *testing.T) {
+	cfg := HostapdConfig("wlan0")
+	if !strings.Contains(cfg, "interface=wlan0") {
+		t.Fatalf("missing interface: %s", cfg)
+	}
+	if !strings.Contains(cfg, "ssid="+SetupSSID) {
+		t.Fatalf("missing ssid: %s", cfg)
+	}
+	if strings.Contains(cfg, "wpa_passphrase") {
+		t.Fatal("setup hotspot must be open so a phone can join without a password")
 	}
 }

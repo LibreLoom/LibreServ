@@ -1,4 +1,4 @@
-//! Setup hotspot (AP mode): the iOS-safe, no-Ethernet, no-BLE fallback.
+//! Setup hotspot (AP mode): how a phone reaches Luna when there is no cable.
 //!
 //! When Luna boots with no network connection and setup isn't finished, it
 //! briefly broadcasts an open network named "Luna Setup". Any phone can join,

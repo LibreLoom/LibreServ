@@ -168,6 +168,19 @@ mod tests {
         assert_eq!(drives.len(), 1);
         assert_eq!(drives[0].id, "a");
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        drop(handle); // detached; test process exit cleans it up
+        drop(handle);
+    }
+
+    #[test]
+    fn soak_fake_luna_api_repeated_login_and_drives() {
+        let (base, handle, stop) = spawn_server();
+        for _ in 0..25 {
+            let token = login(&base, "max", "hunter22hunter").unwrap();
+            assert_eq!(token, "tok-123");
+            let drives = list_drives(&base, &token).unwrap();
+            assert_eq!(drives[0].label, "Photos Drive");
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        drop(handle);
     }
 }

@@ -39,10 +39,11 @@ podman run --rm -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
         alpine-base openrc linux-lts \
-        avahi wpa_supplicant hostapd bluez \
+        avahi wpa_supplicant hostapd \
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux dnsmasq \
         dhcpcd ca-certificates ssl_client \
+        libheif libheif-tools \
         hdparm \
         chrony logrotate
 

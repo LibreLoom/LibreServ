@@ -21,7 +21,7 @@ worth shipping. If nothing needs doing, say so and exit. Never manufacture work.
 ## The repo is a multi-codebase monorepo — DISCOVER, never assume
 
 This repo contains several independent codebases: the `server/` Go backend +
-React frontend, the `connect/` Go module, `companion/` BLE apps, `ci-source/`
+React frontend, the `connect/` Go module, `ci-source/`
 Go CI tooling, `e2e-tests/` Playwright, and `luna/` (a Rust workspace with
 `crates/`, a Tauri desktop app, an npm `web/`, and an Android Gradle `mobile/`).
 **This list will grow.** You must NOT rely on a fixed list of manifests, CI
@@ -51,7 +51,7 @@ generated output). Every example below is illustrative, never exhaustive.
 ### 1. Baseline
 Discover every CI/test entrypoint in the tree and run the full suite on clean
 `origin/main` BEFORE changing anything. Discovery: top-level and per-codebase
-`ci.sh` / CI scripts (e.g. `./ci run -profile nightly`, `luna/ci.sh`), Makefile
+`ci.sh` / CI scripts (e.g. `./ci run -profile nightly`, `./ci run -profile luna`, `luna/ci.sh`), Makefile
 test targets, and standard toolchain commands (`go test ./...`, `npm test`,
 `cargo test --workspace`, `./gradlew testDebugUnitTest`, Playwright) for any
 codebase with no dedicated script. Record results per codebase. If anything is
@@ -93,8 +93,7 @@ otherwise flag with a diagnosis (see ground rule 4).
 - Review commits since the last run (use `LAST_RUN_SHA`, else the last 24h on
   `origin/main`).
 - Discover every doc in the tree: `docs/`, root `.md` files, `AGENTS.md`, and
-  per-codebase docs (`connect/*.md`, `luna/` README/PROGRESS files,
-  `companion/*/README.md`, …). Exclude generated/vendored docs.
+  per-codebase docs (`connect/*.md`, `luna/` README/PROGRESS files, …). Exclude generated/vendored docs.
 - For every changed symbol / endpoint / config key / Makefile target / CI script,
   check whether any doc references it and whether the reference is still true.
   Fix stale docs in the same commits as the code that invalidated them.

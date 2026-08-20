@@ -16,6 +16,7 @@ import UsersPage from "./pages/UsersPage";
 import SetupPage from "./pages/SetupPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProtectionPage from "./pages/ProtectionPage";
+import SettingsPage from "./pages/SettingsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -64,6 +65,7 @@ export default function App() {
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/settings/protect" element={<ProtectionPage />} />
                 <Route path="/settings/remote" element={<RemotePage />} />
+                <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

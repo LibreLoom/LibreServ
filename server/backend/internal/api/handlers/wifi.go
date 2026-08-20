@@ -33,12 +33,13 @@ type wifiStatusResponse struct {
 	IPAddress         string `json:"ip_address,omitempty"`
 	State             string `json:"state"`
 	EthernetConnected bool   `json:"ethernet_connected"`
+	SetupHotspot      string `json:"setup_hotspot,omitempty"`
 }
 
 // status returns the provider status merged with the Ethernet carrier state.
 func (h *WifiHandler) status() wifiStatusResponse {
 	st, _ := h.provider.Status()
-	return wifiStatusResponse{
+	resp := wifiStatusResponse{
 		Available:         st.Available,
 		Connected:         st.Connected,
 		SSID:              st.SSID,
@@ -46,6 +47,10 @@ func (h *WifiHandler) status() wifiStatusResponse {
 		State:             st.State,
 		EthernetConnected: wifi.EthernetConnected(),
 	}
+	if p := wifi.ActivePortal(); p != nil && p.Running() {
+		resp.SetupHotspot = wifi.SetupSSID
+	}
+	return resp
 }
 
 // GetStatus handles GET /network/wifi/status.
@@ -55,6 +60,10 @@ func (h *WifiHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 
 // Scan handles GET /network/wifi/scan.
 func (h *WifiHandler) Scan(w http.ResponseWriter, r *http.Request) {
+	if p := wifi.ActivePortal(); p != nil && p.Running() {
+		JSON(w, http.StatusOK, map[string]interface{}{"networks": p.CachedScan(), "available": true})
+		return
+	}
 	networks, err := h.provider.Scan()
 	if err != nil {
 		// Still return an empty list with a 200 — the UI shows a plain
@@ -97,8 +106,19 @@ func (h *WifiHandler) Connect(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "Pick a network to connect to.")
 		return
 	}
+	portal := wifi.ActivePortal()
+	if portal != nil && portal.Running() {
+		if err := portal.Stop(); err != nil {
+			slog.Warn("setup hotspot stop before wifi join failed", "error", err)
+		}
+	}
 	if err := h.provider.Connect(req.SSID, req.Passphrase); err != nil {
 		slog.Warn("wifi connect failed", "ssid", req.SSID, "error", err)
+		if portal != nil {
+			if startErr := portal.Start(); startErr != nil {
+				slog.Warn("setup hotspot restart after failed join", "error", startErr)
+			}
+		}
 		JSONError(w, http.StatusBadRequest, wifiConnectMessage(err))
 		return
 	}
