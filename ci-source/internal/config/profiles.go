@@ -127,6 +127,20 @@ var Profiles = map[string]*Profile{
 		Description: "All Connect module tests (6 tests)",
 		TestIDs:     []string{"connect-fmt", "connect-vet", "connect-test", "connect-build", "connect-gosec", "connect-staticcheck"},
 	},
+	"nightly": {
+		ID:          "nightly",
+		Name:        "Nightly",
+		Description: "Gate for the nightly maintenance agent - everything except fuzz and the companion-linux GTK4 suite (heavy, not touched by nightly maintenance)",
+		TestIDs: []string{
+			"go-fmt", "go-vet", "go-test", "go-race", "go-build", "go-rollback-test",
+			"go-ble-vet", "go-ble-test",
+			"frontend-lint", "frontend-test", "frontend-build", "frontend-typecheck", "frontend-colors",
+			"govulncheck", "gosec", "staticcheck",
+			"connect-gosec", "connect-staticcheck",
+			"coverage", "podman-build",
+			"connect-fmt", "connect-vet", "connect-test", "connect-build",
+		},
+	},
 	"companion": {
 		ID:          "companion",
 		Name:        "Companion",
@@ -141,7 +155,7 @@ func GetProfile(id string) *Profile {
 
 func ListProfiles() []*Profile {
 	result := make([]*Profile, 0, len(Profiles))
-	order := []string{"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz", "connect", "companion", "full"}
+	order := []string{"quick", "backend", "frontend", "deep", "security", "fuzz", "nofuzz", "connect", "companion", "nightly", "full"}
 	for _, id := range order {
 		if p, ok := Profiles[id]; ok {
 			result = append(result, p)
