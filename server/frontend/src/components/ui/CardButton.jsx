@@ -8,11 +8,11 @@ const variants = {
     "bg-secondary text-primary hover:bg-primary hover:text-secondary hover:ring-secondary mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
   danger:
     "bg-accent text-primary hover:bg-primary hover:text-accent hover:ring-accent mt-0 py-4 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
-  nav: "text-secondary hover:bg-secondary/10 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+  nav: "text-primary hover:bg-primary/10 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
 };
 
 const activeVariants = {
-  nav: "bg-secondary text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+  nav: "bg-primary text-secondary focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
 };
 
 const alignments = {

@@ -6,8 +6,9 @@ import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
+import EmptyState from "../components/common/EmptyState";
+import PageNotice from "../components/common/PageNotice";
 import Dropdown from "../components/common/Dropdown";
-import TextLink from "../components/ui/TextLink";
 import { getDrives, getJson, postJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
@@ -57,14 +58,20 @@ export default function UsersPage() {
   });
 
   if (user?.role !== "admin") {
-    return <Page title="People"><p className="text-secondary text-sm">Only an admin can manage people.</p></Page>;
+    return (
+      <Page title="People">
+        <Card padding>
+          <p className="text-primary text-sm">Only an admin can manage people.</p>
+        </Card>
+      </Page>
+    );
   }
 
   return (
-    <Page title="People" titleId="people-title" leftContent={<TextLink to="/">← Home</TextLink>}
-      rightContent={<Button size="sm" variant="secondary" onClick={() => { setError(null); setCreating(true); }}><UserPlus size={14} /> Add person</Button>}
+    <Page title="People" titleId="people-title"
+      rightContent={<Button size="sm" variant="primary" onClick={() => { setError(null); setCreating(true); }}><UserPlus size={14} /> Add person</Button>}
     >
-      {error && <p className="text-error text-xs mb-4">{error}</p>}
+      {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-4 md:grid-cols-2">
         {(users.data || []).map((u) => (
           <Card key={u.id} title={u.display_name} headerActions={<Pill variant={u.role === "admin" ? "info" : "success"}>{u.role}</Pill>}>
@@ -123,7 +130,7 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
         <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
         <input type="password" className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Password (8+ characters)" value={password} onChange={(e) => setPassword(e.target.value)} />
         <div className="flex gap-3">
-          <Button variant="secondary" loading={busy} onClick={() => onSubmit({ username, display_name: displayName, password, role: "user" })}>Add person</Button>
+          <Button variant="primary" loading={busy} onClick={() => onSubmit({ username, display_name: displayName, password, role: "user" })}>Add person</Button>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
         </div>
       </div>
@@ -147,7 +154,7 @@ function GrantForm({ drives, onGrant, busy }) {
       />
       <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Folder (leave empty for the whole drive)" value={path} onChange={(e) => setPath(e.target.value)} />
       <Dropdown options={[{ value: "read", label: "Can look" }, { value: "write", label: "Can add and change" }]} value={permission} onChange={setPermission} fullWidth />
-      <Button variant="secondary" fullWidth loading={busy} disabled={!driveId} onClick={() => onGrant({ drive_id: driveId, path, permission })}>
+      <Button variant="primary" fullWidth loading={busy} disabled={!driveId} onClick={() => onGrant({ drive_id: driveId, path, permission })}>
         <Plus size={14} /> Grant access
       </Button>
     </div>

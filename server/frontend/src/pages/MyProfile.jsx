@@ -100,11 +100,11 @@ export default function MyProfile() {
         <Card title="Profile">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-primary/80 text-sm">Username</span>
+              <span className="text-primary text-sm">Username</span>
               <span className="font-medium text-primary">{me?.username}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-primary/80 text-sm">Role</span>
+              <span className="text-primary text-sm">Role</span>
               <Pill variant={me?.role === "admin" ? "accent" : "default"}>
                 {me?.role}
               </Pill>

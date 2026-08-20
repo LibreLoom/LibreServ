@@ -38,10 +38,24 @@ struct RenameBody {
     new_name: String,
 }
 
+#[derive(Deserialize)]
+struct RestoreBody {
+    path: String,
+    dest: String,
+}
+
+#[derive(Deserialize)]
+struct PurgeBody {
+    path: String,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/drives/{id}/files", get(list).delete(delete_entry))
         .route("/api/v1/drives/{id}/files/rename", post(rename_entry))
+        .route("/api/v1/drives/{id}/files/restore", post(restore_entry))
+        .route("/api/v1/drives/{id}/files/purge", post(purge_entry))
+        .route("/api/v1/drives/{id}/trash", get(list_trash))
         .route("/api/v1/drives/{id}/files/content", get(content))
         .route(
             "/api/v1/drives/{id}/files/upload",
@@ -199,6 +213,72 @@ async fn rename_entry(
         FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
             StatusCode::CONFLICT,
             "A file with this name is already here. Choose another name.",
+        ),
+        other => map_files_err(other),
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn list_trash(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<Value>>, (StatusCode, Json<Value>)> {
+    check_access(&state, &user, &id, ".luna-trash", false)?;
+    let entries = with_db(&state, |conn| files::list_trash(conn, &id)).map_err(map_files_err)?;
+    Ok(Json(
+        entries
+            .into_iter()
+            .map(|e| {
+                json!({
+                    "name": e.name,
+                    "kind": e.kind,
+                    "size": e.size,
+                    "modified": e.modified,
+                    "path": format!(".luna-trash/{}", e.name),
+                    "original_name": files::original_name_from_trash(&e.name),
+                })
+            })
+            .collect(),
+    ))
+}
+
+async fn restore_entry(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+    Json(body): Json<RestoreBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    check_access(&state, &user, &id, &body.path, true)?;
+    check_access(&state, &user, &id, &body.dest, true)?;
+    with_db(&state, |conn| {
+        files::restore_from_trash(conn, &id, &body.path, &body.dest)
+    })
+    .map_err(|e| match e {
+        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::AlreadyExists => json_error(
+            StatusCode::CONFLICT,
+            "A file with this name is already there. Choose another name.",
+        ),
+        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna can only put files back from the trash on this drive.",
+        ),
+        other => map_files_err(other),
+    })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn purge_entry(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Path(id): Path<String>,
+    Json(body): Json<PurgeBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    check_access(&state, &user, &id, &body.path, true)?;
+    with_db(&state, |conn| files::purge_trash(conn, &id, &body.path)).map_err(|e| match e {
+        FilesError::Io(ref io) if io.kind() == std::io::ErrorKind::InvalidInput => json_error(
+            StatusCode::BAD_REQUEST,
+            "Luna only permanently removes files that are already in the trash.",
         ),
         other => map_files_err(other),
     })?;

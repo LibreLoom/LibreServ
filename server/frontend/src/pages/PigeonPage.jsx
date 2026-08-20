@@ -10,7 +10,7 @@ export default function PigeonPage() {
       title="A Wild Pigeon Appears"
       headerClassName="mb-10"
       bottomContent={
-        <p className="text-lg text-primary font-semibold">
+        <p className="text-lg font-semibold">
           You followed the clipboard. The pigeon was waiting.
         </p>
       }

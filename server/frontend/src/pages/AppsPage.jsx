@@ -5,6 +5,7 @@ import Card from "../components/cards/Card";
 import Dropdown from "../components/common/Dropdown";
 import Button from "../components/ui/Button";
 import AppIcon from "../components/common/AppIcon";
+import EmptyState from "../components/common/EmptyState";
 import StateOverlay from "../components/cards/StateOverlay";
 import { Search, Download, Check, Settings, ExternalLink } from "lucide-react";
 import LayeredPill from "../components/ui/LayeredPill";
@@ -52,12 +53,12 @@ function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index
         </div>
       </div>
 
-      <p className="text-sm text-primary/70 mt-3 line-clamp-2">
+      <p className="text-sm text-primary mt-3 line-clamp-2">
         {app.description}
       </p>
 
       {app.category && (
-        <span className="mt-2 self-start px-2 py-1 rounded-large-element bg-secondary/10 text-xs font-mono text-primary/50 capitalize">
+        <span className="mt-2 self-start px-2 py-1 rounded-large-element bg-primary/10 text-xs font-mono text-primary capitalize">
           {app.category}
         </span>
       )}
@@ -68,7 +69,7 @@ function AppCatalogCard({ app, isInstalled, instance, onInstall, onManage, index
         <Button
           variant="primary"
           fullWidth
-          className="mt-4 hover:bg-primary hover:text-secondary hover:ring-2 hover:ring-accent"
+          className="mt-4"
           onClick={() => onInstall(app.id)}
         >
           <Download size={16} />
@@ -152,17 +153,19 @@ export default function AppsPage() {
   if (error) {
     return (
       <Page title="Apps" titleId="apps-title">
-        <div className="mt-8 text-center">
-          <p className="text-secondary/70">Failed to load app catalog. Please try again.</p>
-          <Button
-            variant="secondary"
-            surface="primary"
-            className="mt-4"
-            onClick={() => window.location.reload()}
-          >
-            Try Again
-          </Button>
-        </div>
+        <EmptyState
+          title="Couldn't load apps"
+          description="Failed to load the app catalog. Please try again."
+          action={
+            <Button
+              variant="secondary"
+              surface="primary"
+              onClick={() => window.location.reload()}
+            >
+              Try Again
+            </Button>
+          }
+        />
       </Page>
     );
   }
@@ -178,18 +181,19 @@ export default function AppsPage() {
         <StateOverlay message="Loading apps..." />
       )}
 
-      <div className="mt-5 flex items-center bg-secondary text-primary rounded-pill whitespace-nowrap">
-        <div className="relative flex-1 min-w-0">
+      <div className="mt-5 flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 whitespace-nowrap border-2 border-primary/20 focus-within:border-accent transition-colors">
+        <div className="relative flex-1 min-w-0 bg-primary text-secondary rounded-pill">
           <Search
             size={18}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-primary/40 pointer-events-none"
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
           />
           <input
             type="text"
             placeholder="Search apps..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-11 pr-3 py-2.5 bg-transparent text-primary placeholder:text-primary/50 focus:outline-none no-focus-outline font-mono text-sm"
+            aria-label="Search apps"
+            className="w-full pl-11 pr-3 py-2.5 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm"
           />
         </div>
 
@@ -217,13 +221,16 @@ export default function AppsPage() {
       </div>
 
       {filteredCatalog.length === 0 && !loading && (
-        <div className="mt-12 text-center">
-          <p className="text-secondary/70">
-            {searchQuery || selectedCategory
+        <EmptyState
+          className="mt-12"
+          icon={Search}
+          title={searchQuery || selectedCategory ? "No matches" : "No apps yet"}
+          description={
+            searchQuery || selectedCategory
               ? "No apps match your search."
-              : "No apps available."}
-          </p>
-        </div>
+              : "No apps are available to install right now."
+          }
+        />
       )}
       {filteredCatalog.length > 0 && (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

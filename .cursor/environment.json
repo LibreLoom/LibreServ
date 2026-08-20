@@ -1,0 +1,33 @@
+{
+  "name": "LibreServ",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "backend",
+      "command": "cd server/backend && make run",
+      "description": "LibreServ Go API server on http://localhost:8080 (LIBRESERV_INSECURE_DEV=true). Serves the REST API and, when built, the web UI."
+    },
+    {
+      "name": "frontend",
+      "command": "cd server/frontend && npm run dev",
+      "description": "Vite dev server for the React UI on http://localhost:3000. Proxies /api and /health to the backend on port 8080."
+    },
+    {
+      "name": "luna-backend",
+      "command": "cd luna && make dev-daemon",
+      "description": "Luna lunad API server on http://localhost:8090 (LUNA_DATA_DIR=luna/dev). Serves the REST API and, when built, the Luna web UI."
+    },
+    {
+      "name": "luna-frontend",
+      "command": "cd luna/web && npm run dev",
+      "description": "Vite dev server for the Luna React UI on http://localhost:3001. Proxies /api and /health to lunad on port 8090."
+    }
+  ],
+  "ports": [
+    { "name": "backend api", "port": 8080 },
+    { "name": "frontend dev server", "port": 3000 },
+    { "name": "luna backend api", "port": 8090 },
+    { "name": "luna frontend dev server", "port": 3001 }
+  ]
+}

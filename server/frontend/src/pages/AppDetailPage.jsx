@@ -71,27 +71,27 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
         </div>
 
         <div className="space-y-2">
-          <p className="text-sm text-primary/70">
+          <p className="text-sm text-primary">
             The following will be deleted:
           </p>
           <ul className="text-sm space-y-1 ml-4">
             <li className="flex items-center gap-2">
-              <Folder size={14} className="text-primary/50" />
+              <Folder size={14} className="text-accent" />
               <span>The app's data and saved files</span>
             </li>
             <li className="flex items-center gap-2">
-              <Server size={14} className="text-primary/50" />
+              <Server size={14} className="text-accent" />
               <span>Configuration files</span>
             </li>
             <li className="flex items-center gap-2">
-              <Activity size={14} className="text-primary/50" />
+              <Activity size={14} className="text-accent" />
               <span>The app's program files</span>
             </li>
           </ul>
         </div>
 
         <div>
-          <label className="text-sm text-primary/70 block mb-2">
+          <label className="text-sm text-primary block mb-2">
             Type <strong className="text-primary">{appName}</strong> to confirm:
           </label>
            <input
@@ -99,7 +99,7 @@ function UninstallConfirmModal({ app, onConfirm, onCancel, isUninstalling }) {
              value={typedName}
              onChange={(e) => setTypedName(e.target.value)}
              placeholder={`Type "${appName}"`}
-             className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary/60 focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
+             className="w-full px-4 py-2 border-2 rounded-pill bg-primary text-secondary placeholder:text-secondary focus:ring-2 focus:ring-accent focus:ring-offset-2 border-primary/30 focus:border-accent"
              disabled={isUninstalling}
              autoFocus
            />
@@ -243,24 +243,24 @@ export default function AppDetailPage() {
   const getStatusColor = (status) => {
     switch (status) {
       case "running":
-        return "text-primary";
+        return "text-success";
       case "stopped":
-        return "text-primary/60";
+        return "text-warning";
       case "error":
-        return "text-primary";
+        return "text-error";
       default:
-        return "text-primary/50";
+        return "text-accent";
     }
   };
 
   const getHealthColor = (health) => {
     switch (health) {
       case "healthy":
-        return "text-primary";
+        return "text-success";
       case "unhealthy":
-        return "text-primary";
+        return "text-error";
       default:
-        return "text-primary/50";
+        return "text-accent";
     }
   };
 
@@ -271,7 +271,7 @@ export default function AppDetailPage() {
       case "unhealthy":
         return <XCircle className="text-error" size={20} />;
       default:
-        return <Activity className="text-primary/50" size={20} />;
+        return <Activity className="text-accent" size={20} />;
     }
   };
 
@@ -301,7 +301,7 @@ export default function AppDetailPage() {
 
       {error && !notFound && (
         <StateOverlay kind="error">
-          <p className="text-secondary/80">Error: {error.message}</p>
+          <p className="text-primary">Error: {error.message}</p>
         </StateOverlay>
       )}
 
@@ -360,16 +360,16 @@ export default function AppDetailPage() {
             <section className="mb-8">
               <Card surface="primary">
                 <div className="flex items-center gap-2 mb-6">
-                  <Server size={20} className="text-secondary/70" />
+                  <Server size={20} className="text-secondary" />
                   <h2 className="text-2xl font-mono font-normal">Resource Usage</h2>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <Cpu size={24} className="text-secondary/70" />
+                      <Cpu size={24} className="text-secondary" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-secondary/80 font-bold">
+                      <p className="text-xs font-mono uppercase tracking-wider text-secondary font-bold">
                         CPU
                       </p>
                       <p className="text-xl font-mono">
@@ -379,10 +379,10 @@ export default function AppDetailPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <Activity size={24} className="text-secondary/70" />
+                      <Activity size={24} className="text-secondary" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-secondary/80 font-bold">
+                      <p className="text-xs font-mono uppercase tracking-wider text-secondary font-bold">
                         Memory
                       </p>
                       <p className="text-xl font-mono">
@@ -392,10 +392,10 @@ export default function AppDetailPage() {
                   </div>
                   <div className="flex items-center gap-4">
                     <div className="p-3 rounded-full bg-secondary/20">
-                      <HardDrive size={24} className="text-secondary/70" />
+                      <HardDrive size={24} className="text-secondary" />
                     </div>
                     <div>
-                      <p className="text-xs font-mono uppercase tracking-wider text-secondary/80 font-bold">
+                      <p className="text-xs font-mono uppercase tracking-wider text-secondary font-bold">
                         Network
                       </p>
                       <p className="text-xl font-mono">
@@ -413,24 +413,24 @@ export default function AppDetailPage() {
               <Card surface="primary" className="border-accent">
                 <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  <ArrowUpCircle size={32} className="text-secondary/70" />
+                  <ArrowUpCircle size={32} className="text-secondary" />
                   <div>
                     <h2 className="text-xl font-mono font-normal">Update Available</h2>
-                    <p className="text-sm text-secondary/70">
+                    <p className="text-sm text-secondary">
                       {availableUpdate.current_version} to {availableUpdate.latest_version}
                     </p>
                     {availableUpdate.needs_config && availableUpdate.needs_config_reason && (
-                      <p className="text-sm text-secondary/60 mt-1">
+                      <p className="text-sm text-secondary mt-1">
                         Needs setup: {availableUpdate.needs_config_reason}
                       </p>
                     )}
                     {availableUpdate.compose_template_changed && (
-                      <p className="text-sm text-secondary/60 mt-1">
+                      <p className="text-sm text-secondary mt-1">
                         This update includes configuration changes.
                       </p>
                     )}
                     {!availableUpdate.digest_tracking_enabled && (
-                      <p className="text-sm text-secondary/60 mt-1">
+                      <p className="text-sm text-secondary mt-1">
                         Updating will enable security verification for this app.
                       </p>
                     )}
@@ -453,7 +453,7 @@ export default function AppDetailPage() {
           <section>
             <Card surface="primary">
               <div className="flex items-center gap-2 mb-6">
-                <Settings size={20} className="text-secondary/70" />
+                <Settings size={20} className="text-secondary" />
                 <h2 className="text-2xl font-mono font-normal">Control</h2>
               </div>
 
@@ -511,13 +511,13 @@ export default function AppDetailPage() {
             <section className="mt-8">
               <Card surface="primary">
                 <div className="flex items-center gap-2 mb-6">
-                  <Wrench size={20} className="text-secondary/70" />
+                  <Wrench size={20} className="text-secondary" />
                   <h2 className="text-2xl font-mono font-normal">Actions</h2>
                 </div>
 
                 {actionsLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 size={24} className="animate-spin text-secondary/70" />
+                    <Loader2 size={24} className="animate-spin text-secondary" />
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

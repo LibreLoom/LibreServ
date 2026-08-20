@@ -47,8 +47,31 @@ pub fn list_drives(base_url: &str, token: &str) -> anyhow::Result<Vec<Drive>> {
 ///
 /// Luna asks for a username and password when a mount connects; use the same
 /// login as the web app (only an admin can mount a drive).
-pub fn mount_instructions(base_url: &str, _token: &str, drive_id: &str) -> Result<String, String> {
+fn dav_mount_url(base_url: &str, drive_id: &str) -> Result<String, String> {
+    if drive_id.is_empty()
+        || !drive_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("That drive name is not valid.".to_string());
+    }
+    let parsed = url::Url::parse(base_url).map_err(|_| "Invalid Luna address.".to_string())?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err("Luna address must be http:// or https://".to_string());
+    }
+    if parsed.host_str().is_none() {
+        return Err("Invalid Luna address.".to_string());
+    }
     let url = format!("{}/dav/{drive_id}", base_url.trim_end_matches('/'));
+    let opened = url::Url::parse(&url).map_err(|_| "Invalid Luna address.".to_string())?;
+    if opened.scheme() != "http" && opened.scheme() != "https" {
+        return Err("Luna address must be http:// or https://".to_string());
+    }
+    Ok(url)
+}
+
+pub fn mount_instructions(base_url: &str, _token: &str, drive_id: &str) -> Result<String, String> {
+    let url = dav_mount_url(base_url, drive_id)?;
     let creds = "If it asks for a username and password, use your Luna login — the admin account.";
     #[cfg(target_os = "linux")]
     {
@@ -73,8 +96,9 @@ pub fn mount_instructions(base_url: &str, _token: &str, drive_id: &str) -> Resul
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = std::process::Command::new("cmd")
-            .args(["/C", "start", &url])
+        // rundll32 avoids cmd.exe parsing of & | in the URL.
+        let _ = std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", &url])
             .output();
         Ok(format!(
             "Windows is opening {url}. You can also map it as a network drive. {creds}"
@@ -128,6 +152,14 @@ mod tests {
     }
 
     #[test]
+    fn dav_mount_url_rejects_shell_metacharacters() {
+        assert!(dav_mount_url("http://luna.local", "photos").is_ok());
+        assert!(dav_mount_url("javascript:alert(1)", "photos").is_err());
+        assert!(dav_mount_url("http://luna.local", "a/../../etc").is_err());
+        assert!(dav_mount_url("http://luna.local", "a&calc.exe").is_err());
+    }
+
+    #[test]
     fn login_and_drive_list_speak_the_luna_api() {
         let (base, handle, stop) = spawn_server();
         let token = login(&base, "max", "hunter22hunter").unwrap();
@@ -136,6 +168,19 @@ mod tests {
         assert_eq!(drives.len(), 1);
         assert_eq!(drives[0].id, "a");
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
-        drop(handle); // detached; test process exit cleans it up
+        drop(handle);
+    }
+
+    #[test]
+    fn soak_fake_luna_api_repeated_login_and_drives() {
+        let (base, handle, stop) = spawn_server();
+        for _ in 0..25 {
+            let token = login(&base, "max", "hunter22hunter").unwrap();
+            assert_eq!(token, "tok-123");
+            let drives = list_drives(&base, &token).unwrap();
+            assert_eq!(drives[0].label, "Photos Drive");
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        drop(handle);
     }
 }

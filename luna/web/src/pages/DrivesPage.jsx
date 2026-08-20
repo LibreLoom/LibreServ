@@ -6,9 +6,10 @@ import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
-import TextLink from "../components/ui/TextLink";
+import EmptyState from "../components/common/EmptyState";
 import { useAuth } from "../context/AuthContext";
 import { getDrives, getJson, postJson } from "../lib/api";
+import { describeDriveHealth } from "../lib/driveHealth";
 
 const STATE_PILLS = {
   as_is: "success",
@@ -42,13 +43,27 @@ function DetectedCard({ drive, onOpen }) {
   );
 }
 
-function AdoptedCard({ drive }) {
+function AdoptedCard({ drive, showHealth }) {
   const state = STATE_PILLS[drive.state] || "info";
+  const health = useQuery({
+    queryKey: ["drive-health", drive.id],
+    queryFn: () => getJson(`/api/v1/drives/${drive.id}/health`),
+    enabled: !!showHealth,
+    retry: false,
+  });
+  const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
+
   return (
-    <Card icon={HardDrive} title={drive.label} headerActions={<Pill variant={state}>{drive.state}</Pill>}>
+    <Card icon={HardDrive} title={drive.label} headerActions={<Pill variant={state}>{plainDriveState(drive.state)}</Pill>}>
       <p className="text-primary text-sm">
         Connected as {drive.device} · {drive.fs_type || "drive"}
       </p>
+      {copy && (
+        <div className="mt-3">
+          <Pill variant={copy.pill}>{copy.title}</Pill>
+          <p className="text-primary text-xs mt-2">{copy.detail}</p>
+        </div>
+      )}
       <div className="mt-3">
         <Button size="sm" variant="outline" asChild>
           <a href={`/drives/${drive.id}`}>Open files</a>
@@ -56,6 +71,15 @@ function AdoptedCard({ drive }) {
       </div>
     </Card>
   );
+}
+
+function plainDriveState(state) {
+  if (state === "as_is") return "Ready";
+  if (state === "readonly") return "Read only";
+  if (state === "missing") return "Unplugged";
+  if (state === "ejected") return "Ejected";
+  if (state === "failed") return "Problem";
+  return state;
 }
 
 export default function DrivesPage() {
@@ -87,7 +111,7 @@ export default function DrivesPage() {
   const adoptError = adopt.isError ? String(adopt.error) : null;
 
   return (
-    <Page title="Drives" titleId="drives-title" bottomContent={<TextLink to="/">← Back home</TextLink>}>
+    <Page title="Drives" titleId="drives-title">
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
@@ -99,18 +123,22 @@ export default function DrivesPage() {
 
       {(drives.data || []).length > 0 && (
         <div className="grid gap-5 md:grid-cols-2 mb-6">
-          {drives.data.map((drive) => <AdoptedCard key={drive.id} drive={drive} />)}
+          {drives.data.map((drive) => (
+            <AdoptedCard key={drive.id} drive={drive} showHealth={isAdmin} />
+          ))}
         </div>
       )}
 
       {isAdmin && (
         <>
-          <h2 className="font-mono text-sm text-secondary mb-4 mt-10">Drives plugged in now</h2>
+          <h2 className="font-mono text-sm text-secondary mt-10 mb-4">
+            Drives plugged in now
+          </h2>
           <div className="grid gap-5 md:grid-cols-2">
             {(detected.data || []).map((drive) => <DetectedCard key={drive.name} drive={drive} onOpen={setInspectFor} />)}
           </div>
           {!detected.isLoading && (detected.data || []).length === 0 && (
-            <p className="text-secondary text-sm">Nothing new plugged in.</p>
+            <EmptyState description="Nothing new plugged in." />
           )}
         </>
       )}
@@ -146,7 +174,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
             written, moved, or changed.
           </p>
           <div className="mt-4 flex gap-3">
-            <Button variant="secondary" onClick={onInspect}>Look inside</Button>
+            <Button variant="primary" onClick={onInspect}>Look inside</Button>
             <Button variant="outline" onClick={onClose}>Not now</Button>
           </div>
         </>
@@ -190,7 +218,7 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
               </label>
               {adoptError && <p className="text-error text-xs mt-2">{adoptError}</p>}
               <div className="mt-4 flex gap-3">
-                <Button variant="secondary" loading={adopting} onClick={() => onAdopt(label)}>
+                <Button variant="primary" loading={adopting} onClick={() => onAdopt(label)}>
                   Add this drive
                 </Button>
                 <Button variant="outline" onClick={onClose}>Not now</Button>

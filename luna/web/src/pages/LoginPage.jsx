@@ -1,74 +1,176 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import Page from "../components/ui/Page";
-import Card from "../components/cards/Card";
-import Button from "../components/ui/Button";
-import TextLink from "../components/ui/TextLink";
 import { useAuth } from "../context/AuthContext";
+import { login as loginQuips } from "../assets/greetings";
+import Card from "../components/cards/Card";
+import StepTransition from "../components/common/StepTransition";
+import Button from "../components/ui/Button";
+import FormInput from "../components/common/forms/FormInput";
+
+const LOGIN_STEPS = ["form"];
+
+function getLoginQuip() {
+  const hoursSinceEpoch = Math.floor(Date.now() / 43200000);
+  return loginQuips[hoursSinceEpoch % loginQuips.length];
+}
 
 export default function LoginPage() {
-  const { login, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorStatus, setErrorStatus] = useState(null);
 
-  async function submit(event) {
-    event.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      await login(username.trim(), password);
-      navigate(location.state?.from?.pathname || "/", { replace: true });
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setBusy(false);
+  const { login } = useAuth();
+  const loginQuip = useMemo(() => getLoginQuip(), []);
+
+  // Where to send the user after a successful login — the page they were
+  // trying to reach, or home.
+  const returnTo = location.state?.from?.pathname || "/";
+
+  function calculateErrorHTML() {
+    if (errorStatus === 401) {
+      return (
+        <p>
+          It seems that your username or password might be incorrect.
+          Double-check to make sure they're right!
+        </p>
+      );
+    } else if (errorStatus === 429) {
+      return (
+        <p>
+          Please wait a bit before trying again. If you can't remember your
+          password, feel free to contact support!
+        </p>
+      );
+    } else if (errorStatus === 500) {
+      return (
+        <p>
+          Wait up! If you just rebooted, updated, or simply turned on your
+          Luna, it may still be starting up. <br />
+          <br />
+          If this issue has been happening repeatedly, try rebooting your
+          Luna (it's not super intuitive for this error, but trust us, it
+          can help). <br />
+          <br /> If you've rebooted your Luna and continue encountering
+          this issue, try contacting support for assistance.
+        </p>
+      );
+    } else if (errorStatus === "NetworkError") {
+      return (
+        <p>
+          Check your device's connection to the internet. (Not Luna's,
+          but this device's!) <br />
+          <br />
+          If you're absolutely sure that you are connected to the internet,
+          please try rebooting your Luna. <br />
+          <br />
+          If you've both rebooted your Luna and have ensured that your
+          device is connected to the internet, please reach out to support for
+          assistance.{" "}
+        </p>
+      );
     }
-  }
-
-  if (user) {
     return (
-      <Page title="You're signed in" titleId="login-title">
-        <TextLink to="/">Open Luna</TextLink>
-      </Page>
+      <p>
+        We've encountered an unidentified error while trying to log in.
+        <br />
+        <br />
+        If you're having this issue repeatedly, start by rebooting your
+        Luna. If that fails, feel free to contact support to help resolve
+        this issue, we're always happy to help!
+      </p>
     );
   }
 
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!username || !password || loading) return;
+    setLoading(true);
+    try {
+      await login(username.trim(), password);
+      navigate(returnTo, { replace: true });
+    } catch (err) {
+      setErrorStatus(err.status || "NetworkError");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <Page title="Welcome back" titleId="login-title">
-      <Card noPopIn noHeightAnim className="max-w-md">
-        <form onSubmit={submit} className="space-y-4">
-          <label className="block">
-            <span className="text-primary text-xs">Username</span>
-            <input
-              className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              value={username}
-              autoComplete="username"
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </label>
-          <label className="block">
-            <span className="text-primary text-xs">Password</span>
-            <input
-              type="password"
-              className="mt-2 w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
-              value={password}
-              autoComplete="current-password"
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-          {error && <p className="text-error text-xs">{error}</p>}
-          <Button type="submit" variant="secondary" fullWidth loading={busy}>
-            Sign in
-          </Button>
-        </form>
-      </Card>
-      <p className="text-secondary text-xs mt-4">
-        First time here? <TextLink to="/setup">Set up Luna</TextLink>
-      </p>
-    </Page>
+    <main
+      data-slot="login-page"
+      className="fixed inset-0 grid place-items-center bg-primary px-4"
+      id="main-content"
+      tabIndex={-1}
+    >
+      <div className="w-full max-w-lg rounded-large-element">
+        <Card surface="secondary" padding={false}>
+          <div className="p-8">
+            <span className="text-primary font-mono text-2xl block text-center">
+              Luna
+            </span>
+            <div className="bg-accent p-px rounded-pill mt-6 mb-4"></div>
+            <StepTransition step="form" order={LOGIN_STEPS}>
+              <span className="text-primary font-mono text-xl font-normal block text-center">
+                Hey there! Log in to continue.
+              </span>
+              <p className="text-primary/80 text-sm text-center mt-2">{loginQuip}</p>
+              <form
+                onSubmit={handleSubmit}
+                aria-busy={loading}
+                className="flex flex-col mt-6 rounded-large-element p-4 bg-primary text-secondary"
+              >
+                <FormInput
+                  label="Username"
+                  name="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="e.g. admin"
+                  autoComplete="username"
+                  surface="primary"
+                  aria-invalid={Boolean(errorStatus)}
+                  aria-describedby={errorStatus ? "login-error" : undefined}
+                />
+                <FormInput
+                  label="Password"
+                  name="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="e.g. hunter2"
+                  autoComplete="current-password"
+                  surface="primary"
+                  aria-invalid={Boolean(errorStatus)}
+                  aria-describedby={errorStatus ? "login-error" : undefined}
+                />
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  surface="primary"
+                  fullWidth
+                  loading={loading}
+                  className="mt-6"
+                >
+                  Login
+                </Button>
+                <div
+                  className={
+                    "text-secondary/80 overflow-hidden transition-all duration-300 ease-in-out " +
+                    (errorStatus ? "mt-4 max-h-96 opacity-100" : "max-h-0 opacity-0")
+                  }
+                  role="alert"
+                  aria-live="assertive"
+                  id="login-error"
+                >
+                  {errorStatus && calculateErrorHTML()}
+                </div>
+              </form>
+            </StepTransition>
+          </div>
+        </Card>
+      </div>
+    </main>
   );
 }

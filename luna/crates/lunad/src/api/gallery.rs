@@ -11,7 +11,8 @@ use crate::api::response::json_error;
 
 #[derive(Deserialize)]
 struct GalleryQuery {
-    drive_id: String,
+    #[serde(default)]
+    drive_id: Option<String>,
     limit: Option<u32>,
     offset: Option<u32>,
 }
@@ -22,9 +23,10 @@ struct ThumbQuery {
     path: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct ScanBody {
-    drive_id: String,
+    #[serde(default)]
+    drive_id: Option<String>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -45,21 +47,27 @@ async fn timeline(
             "Luna's index is busy. Try again.",
         )
     })?;
-    if !crate::auth::can_access(&user, &conn, &query.drive_id, "", false) {
-        return Err(json_error(
-            StatusCode::FORBIDDEN,
-            "You don't have permission to view this drive.",
-        ));
+    if let Some(drive_id) = query.drive_id.as_deref() {
+        if !crate::auth::has_drive_access(&user, &conn, drive_id) {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "You don't have permission to view this drive.",
+            ));
+        }
     }
     let limit = query.limit.unwrap_or(200).clamp(1, 1000);
     let offset = query.offset.unwrap_or(0);
-    let photos =
-        crate::gallery::list_photos(&conn, &query.drive_id, limit, offset).map_err(|_| {
+    let photos = crate::gallery::list_photos(&conn, query.drive_id.as_deref(), limit, offset)
+        .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't open the gallery.",
             )
         })?;
+    let photos = photos
+        .into_iter()
+        .filter(|photo| crate::auth::can_access(&user, &conn, &photo.drive_id, &photo.path, false))
+        .collect();
     Ok(Json(photos))
 }
 
@@ -68,36 +76,53 @@ async fn scan(
     Extension(user): Extension<crate::auth::CurrentUser>,
     Json(body): Json<ScanBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    {
+    let drive_ids = {
         let conn = state.db.lock().map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna's index is busy. Try again.",
             )
         })?;
-        if !crate::auth::can_access(&user, &conn, &body.drive_id, "", false) {
-            return Err(json_error(
-                StatusCode::FORBIDDEN,
-                "You don't have permission to view this drive.",
-            ));
+        if let Some(drive_id) = body.drive_id.as_deref() {
+            if !crate::auth::has_drive_access(&user, &conn, drive_id) {
+                return Err(json_error(
+                    StatusCode::FORBIDDEN,
+                    "You don't have permission to view this drive.",
+                ));
+            }
+            vec![drive_id.to_string()]
+        } else {
+            crate::db::list_drives(&conn)
+                .map_err(|_| {
+                    json_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Luna couldn't list your drives.",
+                    )
+                })?
+                .into_iter()
+                .filter(|drive| crate::auth::has_drive_access(&user, &conn, &drive.id))
+                .map(|drive| drive.id)
+                .collect::<Vec<_>>()
         }
-    }
+    };
     let db = state.db.clone();
     let thumb_dir = state.thumb_dir.clone();
     tokio::task::spawn_blocking(move || {
         let conn = db.lock().unwrap();
-        let Some(drive) = crate::db::get_drive(&conn, &body.drive_id).unwrap_or(None) else {
-            return;
-        };
-        if drive.state != "as_is" || drive.mount_point.is_empty() {
-            return;
+        for drive_id in drive_ids {
+            let Some(drive) = crate::db::get_drive(&conn, &drive_id).unwrap_or(None) else {
+                continue;
+            };
+            if drive.state != "as_is" || drive.mount_point.is_empty() {
+                continue;
+            }
+            let _ = crate::gallery::scan_drive(
+                &conn,
+                &drive.id,
+                std::path::Path::new(&drive.mount_point),
+                &thumb_dir,
+            );
         }
-        let _ = crate::gallery::scan_drive(
-            &conn,
-            &drive.id,
-            std::path::Path::new(&drive.mount_point),
-            &thumb_dir,
-        );
     });
     Ok(Json(
         json!({ "started": true, "message": "Luna is building your photo gallery in the background." }),

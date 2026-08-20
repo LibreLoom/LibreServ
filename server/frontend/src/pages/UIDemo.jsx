@@ -74,11 +74,9 @@ export default function UIDemo() {
 
   return (
     <main className="bg-primary text-secondary min-h-screen px-6 md:px-10 pt-6 pb-32" data-slot="uidemo">
-      <HeaderCard
-        title="Design System"
-        bottomContent={
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <p className="text-sm text-primary/80 text-center sm:text-left">
+      <HeaderCard title="Design System" />
+      <div className="mt-4 mb-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-sm text-secondary text-center sm:text-left">
               A reference surface for the standardized LibreServ UI primitives.
               Toggle the theme to verify contrast in both modes.
             </p>
@@ -119,9 +117,7 @@ export default function UIDemo() {
                 System
               </Button>
             </div>
-          </div>
-        }
-      />
+      </div>
 
       <div className="mt-10 max-w-6xl mx-auto space-y-16">
         {/* Typography */}

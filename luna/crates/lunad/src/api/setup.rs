@@ -79,17 +79,7 @@ async fn save_setup(
         setup.name = name;
     }
     if let Some(done) = body.setup_completed {
-        let was_completed = setup.setup_completed;
         setup.setup_completed = done;
-        // Rotate the BLE setup code the moment setup finishes. The old code was
-        // displayed/printed for first-run pairing; once the device is configured
-        // a fresh code must be used, so a leaked old code can't keep granting
-        // BLE transport access forever.
-        if done && !was_completed {
-            let fresh = uuid::Uuid::new_v4().simple().to_string()[..8].to_uppercase();
-            crate::db::set_meta(&conn, "ble_setup_code", &fresh)
-                .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, format!("{e}")))?;
-        }
     }
 
     let raw = serde_json::to_string(&setup).map_err(|_| {

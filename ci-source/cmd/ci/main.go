@@ -79,6 +79,7 @@ Examples:
   ci                           # Launch TUI
   ci run -profile quick        # Run quick profile
   ci run -tests go-test,go-vet # Run specific tests
+  ci run -profile luna         # Luna (luna/ci.sh on the host)
   ci run -profile full         # Run full profile
   ci list                      # List all tests
   ci profiles                  # List all profiles`)

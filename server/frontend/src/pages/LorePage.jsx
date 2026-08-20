@@ -30,8 +30,8 @@ export default function LorePage() {
       title="Lore"
       padded={false}
       headerClassName="px-8 mb-10"
-      bottomContent={
-        <p className="text-lg text-primary font-semibold">
+        bottomContent={
+        <p className="text-lg font-semibold">
           You found the lore page!
         </p>
       }

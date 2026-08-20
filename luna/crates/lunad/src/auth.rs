@@ -285,6 +285,26 @@ impl AuthService {
             .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
         db::count_users(&conn).map_err(AuthError::Db)
     }
+
+    /// Local-console recovery only: set a new password for the first admin.
+    /// Never exposed on the network.
+    pub fn reset_admin_password(&self, password: &str) -> Result<UserRow, AuthError> {
+        if password.len() < 8 {
+            return Err(AuthError::BadPassword);
+        }
+        let hash = hash_password(password)?;
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        let admin = db::first_admin(&conn)
+            .map_err(AuthError::Db)?
+            .ok_or(AuthError::Unauthenticated)?;
+        db::set_user_password_hash(&conn, &admin.id, &hash).map_err(AuthError::Db)?;
+        db::get_user(&conn, &admin.id)
+            .map_err(AuthError::Db)?
+            .ok_or(AuthError::Db(anyhow::anyhow!("admin missing after reset")))
+    }
 }
 
 pub fn session_cookie(token: &str) -> String {
@@ -325,6 +345,12 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
 /// every `/api/` data endpoint requires a valid session. The first-run setup
 /// wizard must reach the network endpoints before any account exists, so they
 /// stay public for exactly as long as the user table is empty.
+///
+/// A valid session (cookie, Bearer, or device token) is resolved and attached
+/// to the request even on public paths. Without that, `/api/v1/auth/me` can
+/// never report an existing session — it always reads an empty extension —
+/// and the web UI loses the sign-in state on every refresh of the auth
+/// context (after finishing setup, and after every login).
 pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     let mut is_public = path == "/health"
@@ -337,14 +363,18 @@ pub async fn guard(State(state): State<AppState>, req: Request, next: Next) -> R
         let setup_mode = state.auth.count_users().unwrap_or(1) == 0;
         is_public = setup_mode;
     }
+
+    // Prefer the session JWT; fall back to a device token so the mobile and
+    // desktop clients can authenticate with a revocable, long-lived token.
+    let mut req = req;
+    if let Ok(Some(user)) = state.auth.resolve_from_headers(req.headers()) {
+        req.extensions_mut().insert(user);
+    }
+
     if is_public {
         return next.run(req).await;
     }
-    // Prefer the session JWT; fall back to a device token so the mobile and
-    // desktop clients can authenticate with a revocable, long-lived token.
-    if let Ok(Some(user)) = state.auth.resolve_from_headers(req.headers()) {
-        let mut req = req;
-        req.extensions_mut().insert(user);
+    if req.extensions().get::<CurrentUser>().is_some() {
         return next.run(req).await;
     }
     json_error(StatusCode::UNAUTHORIZED, "Sign in to Luna first.").into_response()
@@ -381,6 +411,17 @@ pub fn can_access(
         }
         g.path.is_empty() || path == g.path || path.starts_with(&format!("{}/", g.path))
     })
+}
+
+/// True if the user may see anything on this drive (whole drive or a folder).
+pub fn has_drive_access(user: &CurrentUser, conn: &Connection, drive_id: &str) -> bool {
+    if user.role == "admin" {
+        return true;
+    }
+    let Ok(grants) = db::list_grants_for_user(conn, &user.id) else {
+        return false;
+    };
+    grants.iter().any(|g| g.drive_id == drive_id)
 }
 
 pub fn require_admin(req: &axum::extract::Request) -> Result<&CurrentUser, AuthError> {
@@ -457,6 +498,16 @@ mod tests {
     }
 
     #[test]
+    fn reset_admin_password_lets_them_sign_in_again() {
+        let (_dir, auth) = service();
+        auth.register("Max", "Max", "old-password-1", "user")
+            .unwrap();
+        auth.reset_admin_password("new-password-1").unwrap();
+        assert!(auth.login("max", "old-password-1").is_err());
+        auth.login("max", "new-password-1").unwrap();
+    }
+
+    #[test]
     fn grants_scope_access_by_folder() {
         let (dir, auth) = service();
         let admin = auth
@@ -472,6 +523,8 @@ mod tests {
             username: sam.username.clone(),
             role: "user".into(),
         };
+        assert!(has_drive_access(&sam_user, &conn, "drive-a"));
+        assert!(!has_drive_access(&sam_user, &conn, "drive-b"));
         assert!(can_access(
             &sam_user,
             &conn,
@@ -543,5 +596,193 @@ mod tests {
             Err(AuthError::Taken)
         ));
         assert!(auth.register("x", "Bad", "hunter22hunter", "user").is_err());
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    //! Regression tests: the guard must attach a valid session to the request
+    //! even on public paths, so `/api/v1/auth/me` can report who is signed in.
+    //! (Before the fix, `me` always returned null, and the web UI lost its
+    //! sign-in state after finishing setup and after every login.)
+
+    use super::guard;
+    use crate::api;
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::{Method, Request as HttpReq};
+    use tower::ServiceExt;
+
+    const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 7)),
+        54321,
+    );
+
+    fn test_app() -> (tempfile::TempDir, axum::Router) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = crate::AppState::new(conn, drive_manager);
+        let app = api::router()
+            .layer(axum::middleware::from_fn_with_state(state.clone(), guard))
+            .with_state(state);
+        (dir, app)
+    }
+
+    fn req(method: Method, uri: &str, body: Option<&str>, cookie: Option<&str>) -> HttpReq<Body> {
+        let mut builder = HttpReq::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(c) = cookie {
+            builder = builder.header("cookie", c);
+        }
+        let mut http = builder
+            .body(Body::from(body.map(|b| b.to_string()).unwrap_or_default()))
+            .unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
+        app.clone().oneshot(r).await.unwrap()
+    }
+
+    async fn text(res: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    fn session_cookie(res: &axum::response::Response) -> String {
+        res.headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn me_reports_the_signed_in_session() {
+        let (_dir, app) = test_app();
+
+        // No session -> null.
+        let res = call(&app, req(Method::GET, "/api/v1/auth/me", None, None)).await;
+        assert_eq!(res.status(), 200);
+        assert_eq!(text(res).await, "null");
+
+        // Create the first account (setup mode) and log in.
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                Some(r#"{"username":"max","display_name":"Max","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "register failed: {}", text(res).await);
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/login",
+                Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200, "login failed: {}", text(res).await);
+        let cookie = session_cookie(&res);
+
+        // The session must be visible to /auth/me — this is what keeps the
+        // web UI signed in after setup and across page reloads.
+        let res = call(
+            &app,
+            req(Method::GET, "/api/v1/auth/me", None, Some(&cookie)),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let v: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+        assert_eq!(v["username"], "max");
+        assert_eq!(v["role"], "admin");
+    }
+
+    #[tokio::test]
+    async fn adding_users_requires_a_signed_in_admin() {
+        let (_dir, app) = test_app();
+
+        // First account is open (setup mode), then log in.
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/login",
+                Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        let cookie = session_cookie(&res);
+
+        // Anonymous second account -> sign in first.
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                Some(r#"{"username":"sam","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 401);
+
+        // A signed-in admin can add a household member.
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                Some(r#"{"username":"sam","password":"hunter22hunter"}"#),
+                Some(&cookie),
+            ),
+        )
+        .await;
+        assert_eq!(
+            res.status(),
+            200,
+            "admin register failed: {}",
+            text(res).await
+        );
+        let v: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+        assert_eq!(v["role"], "user");
+    }
+
+    #[tokio::test]
+    async fn data_endpoints_still_require_a_session() {
+        let (_dir, app) = test_app();
+        let res = call(&app, req(Method::GET, "/api/v1/users", None, None)).await;
+        assert_eq!(res.status(), 401);
     }
 }

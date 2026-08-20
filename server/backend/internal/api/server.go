@@ -251,6 +251,11 @@ func NewServer(cfg ServerConfig) *Server {
 		logger.Warn("Static assets directory missing", "source", staticSource, "error", err)
 	}
 
+	// Initialize the DNS provider manager before anything that consumes it.
+	// The DDNS loop calls into it on a timer, so it must be non-nil here;
+	// setupRoutes() (which also references it) reuses this same instance.
+	server.dnsProviderMgr = network.NewDNSProviderManager(cfg.DB)
+
 	// Initialize DDNS auto-update service
 	server.ddnsService = network.NewDDNSService(cfg.DB, server.dnsProviderMgr, cfg.AuditService)
 

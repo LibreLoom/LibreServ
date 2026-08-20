@@ -3,6 +3,7 @@ import { FolderOpen } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Pill from "../components/common/Pill";
+import EmptyState from "../components/common/EmptyState";
 import TextLink from "../components/ui/TextLink";
 import { getJson } from "../lib/api";
 
@@ -10,7 +11,7 @@ export default function SharedPage() {
   const access = useQuery({ queryKey: ["my-access"], queryFn: () => getJson("/api/v1/me/access") });
 
   return (
-    <Page title="Shared with me" titleId="shared-title" leftContent={<TextLink to="/">← Home</TextLink>}>
+    <Page title="Shared with me" titleId="shared-title">
       <div className="grid gap-4 md:grid-cols-2">
         {(access.data || []).map((grant) => (
           <Card key={grant.id} icon={FolderOpen} title={grant.drive_label}>
@@ -21,13 +22,17 @@ export default function SharedPage() {
               <Pill variant={grant.permission === "write" ? "success" : "info"}>
                 {grant.permission === "write" ? "Can add and change" : "Can look"}
               </Pill>
-              <TextLink to={`/drives/${grant.drive_id}?path=${encodeURIComponent(grant.path)}`}>Open</TextLink>
+              <TextLink surface="secondary" to={`/drives/${grant.drive_id}?path=${encodeURIComponent(grant.path)}`}>Open</TextLink>
             </div>
           </Card>
         ))}
       </div>
       {!access.isLoading && (access.data || []).length === 0 && (
-        <p className="text-secondary text-sm">Nothing has been shared with you yet.</p>
+        <EmptyState
+          icon={FolderOpen}
+          title="Nothing shared yet"
+          description="When someone shares a folder with you, it will show up here."
+        />
       )}
     </Page>
   );

@@ -44,6 +44,11 @@ function Card({
       : "bg-secondary text-primary";
 
   const hasHeader = title || Icon;
+  const headerBorder = surface === "primary" ? "border-secondary/10" : "border-primary/10";
+  // Custom radius (HeaderCard's rounded-pill) must replace the default card
+  // curve. Tailwind does not treat rounded-pill as conflicting with
+  // rounded-large-element, so skip the default when className sets one.
+  const hasCustomRadius = /\brounded-/.test(className);
 
   if (noHeightAnim) {
     return (
@@ -51,20 +56,20 @@ function Card({
         data-slot="card"
         data-surface={surface}
         className={cn(
-          "rounded-large-element",
+          !hasCustomRadius && "rounded-large-element",
           surfaceClasses,
           padding && "p-5",
           animationClass,
-          className
+          className,
         )}
         onAnimationEnd={onAnimationEnd}
         {...rest}
       >
         {hasHeader && (
-          <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
+          <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
               {Icon && <Icon size={18} className="text-accent" />}
-              {title && <h2 className="font-mono font-normal text-primary">{title}</h2>}
+              {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
           </div>
@@ -74,30 +79,39 @@ function Card({
     );
   }
 
+  // Layout (margins, extra radius like HeaderCard's rounded-pill) lives on the
+  // overflow clip. The inner surface has no second radius — two matching
+  // rounded-large-element curves plus overflow-hidden paint dark crescent
+  // bites at the corners, worse when className margins inset the fill.
+  //
+  // pop-in MUST live on this clip, not the fill. The fill is a square; if it
+  // scales inside a rounded overflow box, corners look 90° until the
+  // animation ends and the clip radius shows through.
   return (
     <div
       ref={outerRef}
-      className="overflow-hidden rounded-large-element transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      data-slot="card-clip"
+      className={cn(
+        "overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]",
+        !hasCustomRadius && "rounded-large-element",
+        animationClass,
+        className,
+      )}
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      onAnimationEnd={onAnimationEnd}
     >
       <As
         ref={innerRef}
         data-slot="card"
         data-surface={surface}
-        className={cn(
-          "rounded-large-element",
-          surfaceClasses,
-          animationClass,
-          className
-        )}
-        onAnimationEnd={onAnimationEnd}
+        className={surfaceClasses}
         {...rest}
       >
         {hasHeader && (
-          <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10">
+          <div className={cn("flex items-center justify-between px-4 py-3 border-b", headerBorder)}>
             <div className="flex items-center gap-2">
               {Icon && <Icon size={18} className="text-accent" />}
-              {title && <h2 className="font-mono font-normal text-primary">{title}</h2>}
+              {title && <h2 className="font-mono font-normal">{title}</h2>}
             </div>
             {headerActions && <div className="flex items-center gap-2">{headerActions}</div>}
           </div>

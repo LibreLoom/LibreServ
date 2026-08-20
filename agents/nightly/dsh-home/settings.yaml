@@ -1,0 +1,49 @@
+# dsh settings for the nightly agent (DSH_HOME=/opt/dsh).
+# Mirrors the host's settings.yaml shape: `llm-pi-ai` provider section with
+# apiKeyEnv (API key comes from the AI_PROXY_API_KEY env var, never stored),
+# plus the default agent model used by the headless runner.
+#
+# Models: plainskill-coder (default agent model) and plainskill-flash.
+# Both are OpenAI-compatible via ai-proxy (https://ai.plainskill.net/v1).
+# Routing (2026-08-20): hyper primary (deepseek-v4-flash-0731) → airouter
+# fallback. Hyper handles the nightly agent's subagent concurrency (4+
+# parallel) — airouter's 3-parallel limit caused 429s that killed runs.
+# Limits reflect hyper's capacity: 1048576 ctx / 384000 max tokens,
+# reasoning levels none/low/medium/high/max/xhigh.
+
+llm-pi-ai:
+  providers:
+    ai-proxy:
+      displayName: ai-proxy
+      apiKeyEnv: AI_PROXY_API_KEY
+      api: openai-completions
+      baseURL: https://ai.plainskill.net/v1
+      models:
+        - id: plainskill-coder
+          contextWindow: 1048576
+          maxTokens: 384000
+          reasoningEfforts:
+            off: null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+        - id: plainskill-flash
+          contextWindow: 1048576
+          maxTokens: 384000
+          reasoningEfforts:
+            off: null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
+
+agent-default-model:
+  provider: ai-proxy
+  model: plainskill-coder
+  reasoningEffort: high
+
+agent-presets:
+  default: code

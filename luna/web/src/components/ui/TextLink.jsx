@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
  * @param {"primary"|"secondary"} [props.surface] Surface the link sits on. Default "primary".
  * @param {string} [props.className]
  * @param {import("react").ReactNode} [props.children]
+ * @param {object} [props.state]   Router state for the destination (passed straight to Link).
  * @param {object} [props.rest]
  */
 export default function TextLink({
