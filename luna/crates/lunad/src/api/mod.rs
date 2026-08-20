@@ -10,6 +10,7 @@ pub mod response;
 pub mod search;
 pub mod setup;
 pub mod shares;
+pub mod updates;
 pub mod users;
 
 use axum::Router;
@@ -39,4 +40,5 @@ pub fn router() -> Router<AppState> {
         .merge(gallery::router())
         .merge(uploads::router())
         .merge(jobs::router())
+        .merge(updates::router())
 }

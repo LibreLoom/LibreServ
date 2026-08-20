@@ -72,7 +72,10 @@ export default function GalleryPage() {
       {looking && photos.length === 0 && !noDrives && (
         <Card icon={ImageIcon} title="Looking through your drives">
           <p className="text-primary text-sm">
-            Luna is gathering photos from every drive you can see. The originals stay where they are.
+            Luna builds the gallery in the background. It reads your photos
+            from every drive you can see (including phone HEIC files), makes
+            small previews, and sorts them by the date they were taken when
+            the photo has that date. Originals stay exactly where they are.
           </p>
         </Card>
       )}

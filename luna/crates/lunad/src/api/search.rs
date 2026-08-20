@@ -52,6 +52,9 @@ async fn search(
         } else {
             format!("{parent}/{name}")
         };
+        if full == ".luna-trash" || full.starts_with(".luna-trash/") {
+            continue;
+        }
         if crate::auth::can_access(&user, &conn, &drive_id, &full, false) {
             out.push(json!({ "drive_id": drive_id, "path": full, "name": name }));
         }
@@ -190,11 +193,8 @@ async fn factory_reset(
             "Luna couldn't finish the reset. Try again.",
         )
     })?;
-    // Regenerate the JWT signing secret and a fresh BLE setup code for the new
-    // first-run.
+    // Regenerate the JWT signing secret for the new first-run.
     let _ = crate::auth::AuthService::ensure_secret(&conn);
-    let fresh = uuid::Uuid::new_v4().simple().to_string()[..8].to_uppercase();
-    let _ = crate::db::set_meta(&conn, "ble_setup_code", &fresh);
     Ok(Json(
         json!({ "ok": true, "message": "Luna has been reset. Set it up again from the start." }),
     ))

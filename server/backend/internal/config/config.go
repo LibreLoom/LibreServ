@@ -221,11 +221,10 @@ type Notifications struct {
 
 // NetworkConfig holds reverse proxy settings (Caddy), mDNS, and tunnel.
 type NetworkConfig struct {
-	Caddy     CaddyConfig     `mapstructure:"caddy" yaml:"caddy"`
-	MDNS      MDNSConfig      `mapstructure:"mdns" yaml:"mdns"`
-	ACME      ACMEConfig      `mapstructure:"acme" yaml:"acme"`
-	Tunnel    TunnelConfig    `mapstructure:"tunnel" yaml:"tunnel"`
-	Bluetooth BluetoothConfig `mapstructure:"bluetooth" yaml:"bluetooth"`
+	Caddy  CaddyConfig  `mapstructure:"caddy" yaml:"caddy"`
+	MDNS   MDNSConfig   `mapstructure:"mdns" yaml:"mdns"`
+	ACME   ACMEConfig   `mapstructure:"acme" yaml:"acme"`
+	Tunnel TunnelConfig `mapstructure:"tunnel" yaml:"tunnel"`
 }
 
 // MDNSConfig holds mDNS advertisement settings.
@@ -238,11 +237,6 @@ type TunnelConfig struct {
 	Provider string `mapstructure:"provider" yaml:"provider"`
 	Token    string `mapstructure:"token" yaml:"token"`
 	Enabled  bool   `mapstructure:"enabled" yaml:"enabled"`
-}
-
-// BluetoothConfig holds BLE peripheral settings for the companion app.
-type BluetoothConfig struct {
-	Enabled bool `mapstructure:"enabled" yaml:"enabled"`
 }
 
 // ACMEConfig defines ACME-related settings.
@@ -335,7 +329,6 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("network.caddy.logging.output", "stdout")
 	v.SetDefault("network.caddy.logging.format", "console")
 	v.SetDefault("network.mdns.enabled", true)
-	v.SetDefault("network.bluetooth.enabled", true)
 
 	v.SetDefault("support.inference_base_url", "https://api.routing.run/v1")
 

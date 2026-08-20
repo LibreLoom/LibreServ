@@ -6,7 +6,7 @@ RESTIC_DIR := OS/bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME ?=
 GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
-BUILD_TAGS ?= libreserv_ble
+BUILD_TAGS ?=
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 
@@ -31,20 +31,6 @@ run: build
 		exit 1; \
 	fi
 	@echo ">> Running $(APP_NAME)"
-	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) serve --config ./configs/libreserv.yaml
-
-ble-build:
-	@echo ">> Building backend with BLE support"
-	@mkdir -p $(BIN_DIR)
-	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags "libreserv_ble" $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
-
-ble-run: ble-build
-	@if [ ! -f ./configs/libreserv.yaml ]; then \
-		echo "Error: ./configs/libreserv.yaml not found. Copy it from the example:"; \
-		echo "  cp configs/libreserv.yaml.example configs/libreserv.yaml"; \
-		exit 1; \
-	fi
-	@echo ">> Running $(APP_NAME) with BLE"
 	@LIBRESERV_INSECURE_DEV=true ./$(BIN_DIR)/$(APP_NAME) serve --config ./configs/libreserv.yaml
 
 frontend:
@@ -85,7 +71,7 @@ test-coverage:
 
 FMT_SOURCES := $(shell find . -name '*.go' -not -path './.cache/*' -not -path './vendor/*' -not -path './dev/*' 2>/dev/null)
 GO_PKGS := ./cmd/... ./internal/...
-GO_ALL_PKGS := ./cmd/... ./internal/... ../../ci-source/... ../../connect/... ../../companion/linux/...
+GO_ALL_PKGS := ./cmd/... ./internal/... ../../ci-source/... ../../connect/...
 
 fmt-check:
 	@echo ">> Checking format"
@@ -110,16 +96,12 @@ gosec:
 	@cd ../../ci-source && gosec -severity high ./...
 	@echo ">> Running gosec (connect)"
 	@cd ../../connect && gosec -severity high ./...
-	@echo ">> Running gosec (companion/linux)"
-	@cd ../../companion/linux && gosec -severity high ./...
 
 staticcheck:
 	@echo ">> Running staticcheck"
-	@staticcheck -tags libreserv_ble -checks all,-ST1*,-ST1000 $(GO_PKGS)
+	@staticcheck -checks all,-ST1*,-ST1000 $(GO_PKGS)
 	@echo ">> Running staticcheck (connect)"
 	@cd ../../connect && staticcheck -checks all,-ST1*,-ST1000 ./internal/... ./cmd/...
-	@echo ">> Running staticcheck (companion/linux)"
-	@cd ../../companion/linux && staticcheck -checks all,-ST1* ./...
 
 security: govulncheck gosec staticcheck
 

@@ -1,6 +1,7 @@
 //! Photo gallery: scans drives for images, generates thumbnails, and serves a
-//! timeline. Pure-Rust `image` crate; HEIC/AVIF are listed but not thumbnailed
-//! until libvips lands on Luna OS.
+//! timeline. JPEG/PNG/GIF use the pure-Rust `image` crate. HEIC/HEIF thumbs use
+//! an embedded JPEG when present, otherwise Alpine `libheif-tools` (`heif-dec`).
+//! Capture dates come from EXIF, not file mtime. Originals are never rewritten.
 
 use std::path::{Path, PathBuf};
 
@@ -9,9 +10,7 @@ use rusqlite::{Connection, params};
 use serde::Serialize;
 
 const THUMB_MAX: u32 = 400;
-const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif"];
-// Bounds for decoding a photo into a thumbnail. A tiny crafted file declaring
-// huge dimensions must not make the daemon allocate unbounded memory.
+const IMAGE_EXTS: &[&str] = &["jpg", "jpeg", "png", "gif", "heic", "heif", "hif"];
 const MAX_IMAGE_DIM: u32 = 16_384;
 const MAX_DECODE_BYTES: u64 = 512 * 1024 * 1024;
 
@@ -87,6 +86,7 @@ pub fn scan_drive(
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                 .map(|d| d.as_secs() as i64)
                 .unwrap_or(0);
+            let taken_at = crate::exif::capture_unix(&path_buf).unwrap_or(mtime);
 
             let mut width = 0;
             let mut height = 0;
@@ -105,18 +105,17 @@ pub fn scan_drive(
                     }
                 }
                 Err(_) => {
-                    // Broken/unsupported image: still list it so the user can
-                    // download the original; thumbnailing failed safely.
                     report.found += 1;
                     report.failed += 1;
                 }
             }
 
             conn.execute(
-                "INSERT INTO photos (drive_id, path, name, size, mtime, width, height, thumb)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                "INSERT INTO photos (drive_id, path, name, size, mtime, taken_at, width, height, thumb)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                  ON CONFLICT(drive_id, path) DO UPDATE SET
                    size = excluded.size, mtime = excluded.mtime,
+                   taken_at = excluded.taken_at,
                    width = excluded.width, height = excluded.height, thumb = excluded.thumb",
                 params![
                     drive_id,
@@ -124,6 +123,7 @@ pub fn scan_drive(
                     name,
                     meta.len() as i64,
                     mtime,
+                    taken_at,
                     width as i64,
                     height as i64,
                     thumb
@@ -139,8 +139,29 @@ pub fn ensure_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)>
     if dest.exists() {
         return Ok((0, 0, false));
     }
-    // Cap the decoded image so a decompression-bomb / huge-dimension file
-    // cannot exhaust memory on the 4GB box.
+    if crate::heif::is_heif(src) {
+        return ensure_heif_thumb(src, dest);
+    }
+    decode_and_save_thumb(src, dest)
+}
+
+fn ensure_heif_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
+    let bytes = std::fs::read(src)?;
+    if let Some(jpeg) = crate::heif::jpeg_item_from_heif(&bytes) {
+        let work = dest.with_extension("src.jpg");
+        std::fs::write(&work, jpeg)?;
+        let result = decode_and_save_thumb(&work, dest);
+        let _ = std::fs::remove_file(&work);
+        return result;
+    }
+    let decoded = dest.with_extension("heic-src.jpg");
+    crate::heif::decode_heif_to_jpeg(src, &decoded)?;
+    let result = decode_and_save_thumb(&decoded, dest);
+    let _ = std::fs::remove_file(&decoded);
+    result
+}
+
+fn decode_and_save_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)> {
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_DIM);
     limits.max_image_height = Some(MAX_IMAGE_DIM);
@@ -177,20 +198,21 @@ pub fn list_photos(
             thumb: row.get(7)?,
         })
     };
+    let sort_expr = "COALESCE(NULLIF(taken_at, 0), mtime)";
     let photos = if let Some(drive_id) = drive_id {
-        let mut stmt = conn.prepare(
-            "SELECT drive_id, path, name, size, mtime, width, height, thumb
+        let mut stmt = conn.prepare(&format!(
+            "SELECT drive_id, path, name, size, {sort_expr}, width, height, thumb
              FROM photos WHERE drive_id = ?1
-             ORDER BY mtime DESC, path LIMIT ?2 OFFSET ?3",
-        )?;
+             ORDER BY {sort_expr} DESC, path LIMIT ?2 OFFSET ?3"
+        ))?;
         let rows = stmt.query_map(params![drive_id, limit as i64, offset as i64], map_row)?;
         rows.collect::<Result<Vec<_>, _>>()?
     } else {
-        let mut stmt = conn.prepare(
-            "SELECT drive_id, path, name, size, mtime, width, height, thumb
+        let mut stmt = conn.prepare(&format!(
+            "SELECT drive_id, path, name, size, {sort_expr}, width, height, thumb
              FROM photos
-             ORDER BY mtime DESC, path LIMIT ?1 OFFSET ?2",
-        )?;
+             ORDER BY {sort_expr} DESC, path LIMIT ?1 OFFSET ?2"
+        ))?;
         let rows = stmt.query_map(params![limit as i64, offset as i64], map_row)?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
@@ -234,6 +256,7 @@ mod tests {
     fn image_extension_detection() {
         assert!(is_image(Path::new("photo.JPG")));
         assert!(is_image(Path::new("a/b/photo.png")));
+        assert!(is_image(Path::new("IMG_0001.HEIC")));
         assert!(!is_image(Path::new("video.mp4")));
     }
 
@@ -262,5 +285,40 @@ mod tests {
         let one = list_photos(&conn, Some("drive-b"), 10, 0).unwrap();
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].drive_id, "drive-b");
+    }
+
+    #[test]
+    fn scan_sorts_by_exif_not_mtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let photos_dir = dir.path().join("photos");
+        std::fs::create_dir(&photos_dir).unwrap();
+        let recent = photos_dir.join("recent.png");
+        let dated = photos_dir.join("from-phone.jpg");
+        std::fs::write(
+            &dated,
+            crate::exif::jpeg_with_datetime_original("2010:01:01 00:00:00"),
+        )
+        .unwrap();
+        let png = image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]));
+        png.save(&recent).unwrap();
+
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE photos (
+                drive_id TEXT, path TEXT, name TEXT, size INTEGER, mtime INTEGER,
+                taken_at INTEGER NOT NULL DEFAULT 0, width INTEGER, height INTEGER, thumb TEXT,
+                PRIMARY KEY (drive_id, path))",
+        )
+        .unwrap();
+        let thumbs = dir.path().join("thumbs");
+        scan_drive(&db, "d1", &photos_dir, &thumbs).unwrap();
+        let photos = list_photos(&db, Some("d1"), 10, 0).unwrap();
+        assert_eq!(photos.len(), 2);
+        assert_eq!(photos[0].name, "recent.png");
+        assert_eq!(photos[1].name, "from-phone.jpg");
+        assert_eq!(
+            photos[1].taken_at,
+            crate::exif::parse_exif_datetime("2010:01:01 00:00:00").unwrap()
+        );
     }
 }

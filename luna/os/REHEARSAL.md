@@ -7,7 +7,7 @@ support call later.
 ## 0. Materials (per unit)
 - 1× x86_64 PC to flash (mini PC, Wyse 3040, or similar) + its PSU
 - 1× USB stick for the rapidinstall ISO (8 GB is plenty)
-- 1× qualified USB Wi-Fi dongle + 1× qualified USB BLE dongle when the box has no radio (see hardware/QUALIFICATION.md)
+- 1× qualified USB Wi-Fi dongle when the box has no radio (see hardware/QUALIFICATION.md)
 - Ethernet cable + printed quick-start card (luna.local / http://luna / 169.254.42.42 / app)
 
 ## 1. Flash
