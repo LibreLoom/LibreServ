@@ -83,6 +83,10 @@ function Card({
   // overflow clip. The inner surface has no second radius — two matching
   // rounded-large-element curves plus overflow-hidden paint dark crescent
   // bites at the corners, worse when className margins inset the fill.
+  //
+  // pop-in MUST live on this clip, not the fill. The fill is a square; if it
+  // scales inside a rounded overflow box, corners look 90° until the
+  // animation ends and the clip radius shows through.
   return (
     <div
       ref={outerRef}
@@ -90,16 +94,17 @@ function Card({
       className={cn(
         "overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]",
         !hasCustomRadius && "rounded-large-element",
+        animationClass,
         className,
       )}
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
+      onAnimationEnd={onAnimationEnd}
     >
       <As
         ref={innerRef}
         data-slot="card"
         data-surface={surface}
-        className={cn(surfaceClasses, animationClass)}
-        onAnimationEnd={onAnimationEnd}
+        className={surfaceClasses}
         {...rest}
       >
         {hasHeader && (
