@@ -140,7 +140,7 @@ export default function Dashboard() {
           />
         </div>
 
-        <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-6 content-start order-2 md:order-1">
+        <div className="flex-1 grid grid-cols-1 xl:grid-cols-2 gap-6 content-start has-[[data-slot=no-apps-card]]:content-stretch order-2 md:order-1">
           <AppCards />
         </div>
       </section>
