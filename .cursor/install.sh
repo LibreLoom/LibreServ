@@ -5,7 +5,7 @@
 # checkout. Prepares the backend (Go 1.26 + config + modules), LibreServ
 # frontend (Node deps + build), and Luna (Rust 1.96 + lunad build + web deps).
 # No long-running processes are started here — the dev servers live in the
-# environment's `terminals`.
+# environment's `terminals` (LibreServ :8080/:3000, Luna :8090/:3001).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
