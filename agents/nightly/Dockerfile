@@ -33,6 +33,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       openssh-client time \
     && rm -rf /var/lib/apt/lists/*
 
+# ---- podman registry config (short-name resolution for podman build) ----
+COPY nightly/registries.conf /etc/containers/registries.conf.d/atlas-nightly.conf
+
 # ---- Go 1.26 (backend, connect, ci-source, companion) ----
 ARG GO_VERSION=1.26.5
 ENV GOTOOLCHAIN=local
