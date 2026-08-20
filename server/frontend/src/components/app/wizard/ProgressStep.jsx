@@ -303,18 +303,19 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
         </div>
 
         <div className="space-y-2">
-          <h2 className="font-mono text-2xl font-normal text-primary text-balance">
+          <h2 className="font-mono text-2xl font-normal text-secondary text-balance">
             Installation Failed
           </h2>
-          <p className="text-primary">{errorSummary}</p>
-          <p className="mx-auto max-w-md text-sm leading-relaxed text-primary text-pretty">
+          <p className="text-secondary">{errorSummary}</p>
+          <p className="mx-auto max-w-md text-sm leading-relaxed text-secondary text-pretty">
             {errorHint}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Button
-            variant="primary"
+            variant="secondary"
+            surface="primary"
             size="lg"
             onClick={() => window.location.reload()}
             className="font-mono"
@@ -377,7 +378,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
                   surface="primary"
                   size="sm"
                   onClick={handleCopyError}
-                  className="text-primary"
+                  className="text-secondary"
                 >
                   {copied ? (
                     <>
@@ -412,10 +413,10 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
         ) : (
           <TypewriterLoader message="Installing..." size="lg" />
         )}
-        <h2 className="font-mono text-2xl font-normal text-primary">
+        <h2 className="font-mono text-2xl font-normal text-secondary">
           {isComplete ? "Almost Ready!" : ""}
         </h2>
-        <p className="text-primary">
+        <p className="text-secondary/70">
           {isComplete
             ? "Your app is starting up. This won't take long."
             : "Please wait while we set things up. You can leave this page; installation will continue in the background."}
@@ -453,7 +454,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               <span
                 className={cn(
                   "font-mono text-sm",
-                  isDone ? "text-primary" : isCurrent ? "text-primary" : "text-accent"
+                  isDone ? "text-secondary" : isCurrent ? "text-secondary" : "text-secondary/50"
                 )}
               >
                 {phase.label}
@@ -485,10 +486,10 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
             />
             <span className="relative flex items-center justify-between gap-4">
               <span className="space-y-1">
-                <span className={cn("block text-sm motion-safe:transition-colors", detailsOpen ? "text-primary" : "text-primary")}>
+                <span className={cn("block text-sm motion-safe:transition-colors", detailsOpen ? "text-primary" : "text-secondary")}>
                   {detailsOpen ? "Installation output is open" : "View installation output"}
                 </span>
-                <span className={cn("block text-xs motion-safe:transition-colors", detailsOpen ? "text-primary/70" : "text-primary")}>
+                <span className={cn("block text-xs motion-safe:transition-colors", detailsOpen ? "text-primary/70" : "text-secondary/60")}>
                   Live logs from image pull, setup, and startup checks.
                 </span>
               </span>
@@ -512,11 +513,11 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               <div className="mb-3 flex items-center justify-between gap-3 border-b border-secondary/10 pb-3">
                 <div>
                   <p className="font-mono text-sm text-secondary">Live installation output</p>
-                  <p className="text-xs text-primary">Helpful if setup stalls or you need details for debugging.</p>
+                  <p className="text-xs text-secondary/55">Helpful if setup stalls or you need details for debugging.</p>
                 </div>
                 <button
                   onClick={handleCopyStream}
-                  className="inline-flex items-center gap-1 rounded-pill border border-secondary/12 bg-secondary/6 px-3 py-1.5 text-xs text-primary motion-safe:transition-colors hover:text-secondary"
+                  className="inline-flex items-center gap-1 rounded-pill border border-secondary/12 bg-secondary/6 px-3 py-1.5 text-xs text-secondary/60 motion-safe:transition-colors hover:text-secondary"
                 >
                   {streamCopied ? (
                     <>
@@ -533,7 +534,7 @@ function ProgressStep({ instanceId, onComplete, hasDomain = false }) {
               </div>
                 <pre
                   ref={streamOutputRef}
-                  className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-large-element bg-secondary/5 px-4 py-3 font-mono text-xs leading-6 text-primary"
+                  className="max-h-44 overflow-auto whitespace-pre-wrap break-words rounded-large-element bg-secondary/5 px-4 py-3 font-mono text-xs leading-6 text-secondary/72"
                 >
                   {streamLines.join("")}
                 </pre>

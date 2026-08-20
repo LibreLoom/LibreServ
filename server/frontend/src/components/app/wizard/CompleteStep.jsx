@@ -22,10 +22,10 @@ function CompleteStep({ app, instance, onDone }) {
     <div className="space-y-6" data-slot="complete-step">
       <div className="text-center space-y-4">
         <CheckCircle className="mx-auto text-accent" size={48} />
-        <h2 className="font-mono text-2xl font-normal text-primary">
+        <h2 className="font-mono text-2xl font-normal text-secondary">
           Installation Complete!
         </h2>
-        <p className="text-primary">
+        <p className="text-secondary/70">
           {app?.name || "Your app"} is ready to use.
         </p>
       </div>
@@ -38,12 +38,12 @@ function CompleteStep({ app, instance, onDone }) {
             </svg>
             <div>
               <h3 className="font-mono text-sm font-medium text-secondary">Domain Ready</h3>
-              <p className="text-xs text-primary">Your app is accessible on the web</p>
+              <p className="text-xs text-secondary/70">Your app is accessible on the web</p>
             </div>
           </div>
 
           <div className="bg-primary/5 rounded-pill px-4 py-3">
-            <div className="text-xs font-mono text-accent uppercase tracking-wide mb-2">Access URL</div>
+            <div className="text-xs font-mono text-secondary/50 uppercase tracking-wide mb-2">Access URL</div>
             <div className="font-mono text-xl text-accent break-all">
               {subdomain}.{domain}
             </div>
@@ -67,10 +67,10 @@ function CompleteStep({ app, instance, onDone }) {
               onClick={() => handleCopy(generatedPassword)}
               aria-label="Copy password"
             >
-              {copied ? <Check size={18} className="text-primary" /> : <Copy size={18} />}
+              {copied ? <Check size={18} className="text-secondary" /> : <Copy size={18} />}
             </Button>
           </div>
-          <p className="text-xs text-primary mt-2">
+          <p className="text-xs text-secondary/70 mt-2">
             Save this password. You'll need it to log in.
           </p>
         </div>
@@ -78,7 +78,7 @@ function CompleteStep({ app, instance, onDone }) {
 
       <div className="flex flex-col sm:flex-row justify-center gap-3 pt-4">
         {appUrl && (
-          <Button asChild variant="primary" className="px-6 font-mono">
+          <Button asChild variant="secondary" surface="primary" className="px-6 font-mono">
             <a href={appUrl} target="_blank" rel="noopener noreferrer">
               Open App
               <ExternalLink size={16} />
@@ -87,7 +87,7 @@ function CompleteStep({ app, instance, onDone }) {
         )}
         <Button
           variant="outline"
-          surface="secondary"
+          surface="primary"
           onClick={onDone}
           className="px-6"
         >

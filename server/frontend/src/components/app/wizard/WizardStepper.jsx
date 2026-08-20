@@ -40,7 +40,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
                     "flex h-8 w-8 items-center justify-center rounded-full font-mono text-sm motion-safe:transition-all",
                     isComplete && "bg-secondary text-primary",
                     !isComplete && isActive && "bg-secondary text-primary ring-2 ring-secondary ring-offset-2 ring-offset-primary",
-                    !isComplete && !isActive && "bg-secondary/50 text-accent border-2 border-secondary/30"
+                    !isComplete && !isActive && "bg-secondary/50 text-secondary/50 border-2 border-secondary/30"
                   )}
                   aria-current={isActive ? "step" : undefined}
                 >
@@ -53,7 +53,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
                 <span
                   className={cn(
                     "hidden sm:block font-mono text-sm",
-                    isActive ? "text-primary" : "text-accent"
+                    isActive ? "text-secondary" : "text-secondary/50"
                   )}
                 >
                   {step.label}
