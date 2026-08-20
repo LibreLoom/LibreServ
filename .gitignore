@@ -68,6 +68,10 @@ connect/configs/connect.yaml
 .claude/
 .codex/
 .cursor/
+# Keep the Cloud Agent environment definition tracked (repo-managed environment).
+!.cursor/
+!.cursor/environment.json
+!.cursor/install.sh
 .catalyst-code/
 .fleet/
 .vscode-server/
