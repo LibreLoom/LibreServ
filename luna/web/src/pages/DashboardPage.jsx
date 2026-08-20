@@ -174,8 +174,7 @@ export default function DashboardPage() {
       serverUptime: Number(seconds) || 0,
       fetchTime: Date.now(),
     };
-    setDisplayUptime(getDisplayUptime());
-  }, [health.data?.uptime_seconds, getDisplayUptime]);
+  }, [health.data?.uptime_seconds]);
 
   useEffect(() => {
     const interval = setInterval(() => {
