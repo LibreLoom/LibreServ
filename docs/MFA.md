@@ -1,9 +1,8 @@
 # MFA / Two-Factor Authentication — Design & Contract
 
 Shared contract for the MFA build. All agents (backend-core, backend-webauthn,
-frontend) build against this so there's no drift. See SECURITY.md → Threat Model
-for *why* (WAN-accessible by design; MFA is the primary login defense, chosen
-over captcha).
+frontend) build against this so there's no drift. LibreServ is WAN-accessible
+by design; MFA is the primary login defense, chosen over captcha.
 
 ## Requirements (from product)
 - **Required for admins.** A user with the `admin` role must have ≥1 enabled MFA
