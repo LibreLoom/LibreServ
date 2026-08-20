@@ -161,16 +161,11 @@ pub fn ensure_thumb(src: &Path, dest: &Path) -> anyhow::Result<(u32, u32, bool)>
 
 pub fn list_photos(
     conn: &Connection,
-    drive_id: &str,
+    drive_id: Option<&str>,
     limit: u32,
     offset: u32,
 ) -> anyhow::Result<Vec<Photo>> {
-    let mut stmt = conn.prepare(
-        "SELECT drive_id, path, name, size, mtime, width, height, thumb
-         FROM photos WHERE drive_id = ?1
-         ORDER BY mtime DESC, path LIMIT ?2 OFFSET ?3",
-    )?;
-    let rows = stmt.query_map(params![drive_id, limit as i64, offset as i64], |row| {
+    let map_row = |row: &rusqlite::Row<'_>| {
         Ok(Photo {
             drive_id: row.get(0)?,
             path: row.get(1)?,
@@ -181,8 +176,25 @@ pub fn list_photos(
             height: row.get::<_, i64>(6)? as u32,
             thumb: row.get(7)?,
         })
-    })?;
-    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    };
+    let photos = if let Some(drive_id) = drive_id {
+        let mut stmt = conn.prepare(
+            "SELECT drive_id, path, name, size, mtime, width, height, thumb
+             FROM photos WHERE drive_id = ?1
+             ORDER BY mtime DESC, path LIMIT ?2 OFFSET ?3",
+        )?;
+        let rows = stmt.query_map(params![drive_id, limit as i64, offset as i64], map_row)?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT drive_id, path, name, size, mtime, width, height, thumb
+             FROM photos
+             ORDER BY mtime DESC, path LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map(params![limit as i64, offset as i64], map_row)?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    Ok(photos)
 }
 
 fn urlencode(input: &str) -> String {
@@ -223,5 +235,32 @@ mod tests {
         assert!(is_image(Path::new("photo.JPG")));
         assert!(is_image(Path::new("a/b/photo.png")));
         assert!(!is_image(Path::new("video.mp4")));
+    }
+
+    fn insert_photo(conn: &Connection, drive_id: &str, path: &str, mtime: i64) {
+        conn.execute(
+            "INSERT INTO photos (drive_id, path, name, size, mtime, width, height, thumb)
+             VALUES (?1, ?2, ?3, 1, ?4, 0, 0, '')",
+            params![drive_id, path, path, mtime],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn list_photos_all_drives_or_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        insert_photo(&conn, "drive-a", "a.jpg", 20);
+        insert_photo(&conn, "drive-b", "b.jpg", 10);
+
+        let all = list_photos(&conn, None, 10, 0).unwrap();
+        assert_eq!(
+            all.iter().map(|p| p.path.as_str()).collect::<Vec<_>>(),
+            vec!["a.jpg", "b.jpg"]
+        );
+
+        let one = list_photos(&conn, Some("drive-b"), 10, 0).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].drive_id, "drive-b");
     }
 }

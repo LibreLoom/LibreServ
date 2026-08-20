@@ -105,9 +105,9 @@ export default function DrivesPage() {
 
       {isAdmin && (
         <>
-          <Card className="mt-10 mb-4" padding>
-            <h2 className="font-mono text-sm text-primary">Drives plugged in now</h2>
-          </Card>
+          <h2 className="font-mono text-sm text-secondary mt-10 mb-4">
+            Drives plugged in now
+          </h2>
           <div className="grid gap-5 md:grid-cols-2">
             {(detected.data || []).map((drive) => <DetectedCard key={drive.name} drive={drive} onOpen={setInspectFor} />)}
           </div>
