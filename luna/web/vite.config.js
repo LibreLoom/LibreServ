@@ -28,7 +28,7 @@ export default defineConfig({
     cssMinify: true,
   },
   server: {
-    port: 3000,
+    port: Number(process.env.VITE_DEV_PORT) || 3001,
     strictPort: true,
     host: "0.0.0.0",
     open: false,
