@@ -5,7 +5,6 @@ import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
-import TextLink from "../components/ui/TextLink";
 import { getJson, postJson } from "../lib/api";
 
 export default function RemotePage() {
@@ -32,8 +31,8 @@ export default function RemotePage() {
   const s = status.data || { enabled: false };
 
   return (
-    <Page title="Remote access" titleId="remote-title" leftContent={<TextLink to="/">← Home</TextLink>}
-      bottomContent={<p className="text-secondary text-xs mt-2">Remote access is off until you turn it on. It's free forever.</p>}
+    <Page title="Remote access" titleId="remote-title"
+      bottomContent={<p className="text-secondary text-xs">Remote access is off until you turn it on. It&apos;s free forever.</p>}
     >
       <div className="grid gap-5 md:grid-cols-2">
         <Card icon={Globe2} title="Luna Connect" headerActions={s.enabled ? <Pill variant="success">On</Pill> : <Pill variant="warning">Off</Pill>}>

@@ -100,18 +100,18 @@ export default function ObjectNotFound({
 
       <div className="mx-auto w-full max-w-5xl">
         <div className="grid gap-8 items-start lg:grid-cols-2">
-          <HeaderCard
-            title={`${titleLabel} Not Found`}
-            align="center"
-            dynamicRounding={false}
-             className="p-8 ring-2 ring-accent text-center motion-reduce:animate-none"
-            leftContent={
-              <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center shrink-0">
-                <SearchX size={30} aria-hidden="true" />
-              </div>
-            }
-            bottomContentClassName="text-left"
-            bottomContent={
+          <div className="space-y-4">
+            <HeaderCard
+              title={`${titleLabel} Not Found`}
+              dynamicRounding={false}
+              className="p-8 ring-2 ring-accent text-center motion-reduce:animate-none"
+              leftContent={
+                <div className="h-16 w-16 rounded-pill bg-primary text-secondary flex items-center justify-center shrink-0">
+                  <SearchX size={30} aria-hidden="true" />
+                </div>
+              }
+            />
+            <Card className="p-8 ring-2 ring-accent text-left motion-reduce:animate-none">
               <div className="flex flex-col gap-6">
                 <div>
                   <p className="font-mono text-sm font-normal uppercase tracking-widest text-primary/70">
@@ -124,15 +124,15 @@ export default function ObjectNotFound({
 
                 <div>
                   <p className="text-sm text-primary/70">
-                    We couldn't find this {objectLabel}
+                    We couldn&apos;t find this {objectLabel}
                   </p>
                   <code className="mt-2 block w-full overflow-x-auto rounded-large-element bg-primary/10 p-4 font-mono text-sm text-primary">
                     {attemptedLabel}
                   </code>
                 </div>
               </div>
-            }
-          />
+            </Card>
+          </div>
 
            <Card className="p-8 ring-2 ring-accent text-left motion-reduce:animate-none">
             <h2 className="text-xl font-mono font-normal block text-center">

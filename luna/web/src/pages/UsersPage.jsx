@@ -7,7 +7,6 @@ import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
 import Dropdown from "../components/common/Dropdown";
-import TextLink from "../components/ui/TextLink";
 import { getDrives, getJson, postJson } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 
@@ -61,7 +60,7 @@ export default function UsersPage() {
   }
 
   return (
-    <Page title="People" titleId="people-title" leftContent={<TextLink to="/">← Home</TextLink>}
+    <Page title="People" titleId="people-title"
       rightContent={<Button size="sm" variant="secondary" onClick={() => { setError(null); setCreating(true); }}><UserPlus size={14} /> Add person</Button>}
     >
       {error && <p className="text-error text-xs mb-4">{error}</p>}

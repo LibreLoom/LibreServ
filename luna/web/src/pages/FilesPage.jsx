@@ -1,12 +1,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Download, File as FileIcon, Folder, Pencil, Trash2, UploadCloud } from "lucide-react";
+import { Download, File as FileIcon, Folder, Pencil, Trash2, UploadCloud } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
-import TextLink from "../components/ui/TextLink";
 import { getDrives, getJson } from "../lib/api";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
@@ -174,7 +173,6 @@ export default function FilesPage() {
     <Page
       title={drive ? drive.label : "Files"}
       titleId="files-title"
-      leftContent={<TextLink to="/drives"><ArrowLeft size={16} className="inline mr-1" />Drives</TextLink>}
     >
       <div className="flex items-center gap-2 font-mono text-xs text-secondary mb-4">
         <Link to={folderHref(id, "")} className="hover:text-accent">

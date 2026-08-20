@@ -6,7 +6,6 @@ import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Pill from "../components/common/Pill";
 import Button from "../components/ui/Button";
-import TextLink from "../components/ui/TextLink";
 import { useAuth } from "../context/AuthContext";
 import { getDrives, getJson, postJson } from "../lib/api";
 
@@ -87,7 +86,7 @@ export default function DrivesPage() {
   const adoptError = adopt.isError ? String(adopt.error) : null;
 
   return (
-    <Page title="Drives" titleId="drives-title" bottomContent={<TextLink to="/">← Back home</TextLink>}>
+    <Page title="Drives" titleId="drives-title">
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">

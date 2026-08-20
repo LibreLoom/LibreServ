@@ -32,6 +32,11 @@ describe("NetworkStep", () => {
     return { onContinue };
   };
 
+  const openWifiModal = async () => {
+    await userEvent.click(await screen.findByRole("button", { name: /^connect to wi-fi$/i }));
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+  };
+
   it("lets the user continue by cable, with Wi-Fi staying an optional extra", async () => {
     mockApi.mockImplementation((path) => {
       if (path === "/setup/wifi/status") {
@@ -55,7 +60,7 @@ describe("NetworkStep", () => {
     expect(onContinue).toHaveBeenCalledTimes(1);
   });
 
-  it("does not offer Continue while offline and shows the Wi-Fi picker", async () => {
+  it("does not offer Continue while offline and opens Wi-Fi in a modal", async () => {
     mockApi.mockImplementation((path) => {
       if (path === "/setup/wifi/status") {
         return Promise.resolve(json({ available: true, connected: false, ethernet_connected: false }));
@@ -75,11 +80,13 @@ describe("NetworkStep", () => {
     // Board shows both paths as not connected.
     expect(await screen.findByText("Not plugged in")).toBeTruthy();
     expect(screen.getByText("Not connected")).toBeTruthy();
-    // The picker is visible, and the connect button waits for a selection.
+    // Picker stays in the modal — not inline on the step.
+    expect(screen.queryByText("Home Wi-Fi")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^continue$/i })).toBeNull();
+
+    await openWifiModal();
     expect(await screen.findByText("Home Wi-Fi")).toBeTruthy();
     expect(screen.getByRole("button", { name: /pick a network above/i })).toBeDisabled();
-    // No exit while offline — no Continue, no skip.
-    expect(screen.queryByRole("button", { name: /^continue$/i })).toBeNull();
   });
 
   it("connects to a network, flips the board, and then offers Continue", async () => {
@@ -108,13 +115,15 @@ describe("NetworkStep", () => {
 
     const { onContinue } = mount();
 
+    await openWifiModal();
     const network = await screen.findByRole("button", { name: /home wi-fi/i });
     await userEvent.click(network);
     await userEvent.type(await screen.findByPlaceholderText("Wi-Fi password"), "secret");
     await userEvent.click(screen.getByRole("button", { name: /connect to home wi-fi/i }));
 
-    // The board flips to connected and the single exit appears.
+    // The board flips to connected, the modal closes, and the single exit appears.
     expect(await screen.findByText("Connected to Home Wi-Fi")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     const cont = await screen.findByRole("button", { name: /^continue$/i });
     await userEvent.click(cont);
     expect(onContinue).toHaveBeenCalledTimes(1);
@@ -135,12 +144,12 @@ describe("NetworkStep", () => {
 
     expect(await screen.findByText("Not available")).toBeTruthy();
     expect(await screen.findByText(/plug a cable into the back of libreserv/i)).toBeTruthy();
-    // No picker and no exit — only the cable gets the device online.
-    expect(screen.queryByText(/pick your home wi-fi/i)).toBeNull();
+    // No modal entry and no exit — only the cable gets the device online.
+    expect(screen.queryByRole("button", { name: /^connect to wi-fi$/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^continue$/i })).toBeNull();
   });
 
-  it("opens and closes the optional Wi-Fi panel while online by cable", async () => {
+  it("opens and closes the optional Wi-Fi modal while online by cable", async () => {
     mockApi.mockImplementation((path) => {
       if (path === "/setup/wifi/status") {
         return Promise.resolve(json({ available: true, connected: false, ethernet_connected: true }));
@@ -158,11 +167,12 @@ describe("NetworkStep", () => {
 
     const link = await screen.findByRole("button", { name: /also connect wi-fi \(optional\)/i });
     // Hidden until the user asks for it.
-    expect(screen.queryByText(/pick your home wi-fi/i)).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
     await userEvent.click(link);
+    expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(await screen.findByText("Home Wi-Fi")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: /hide wi-fi/i }));
-    await waitFor(() => expect(screen.queryByText(/pick your home wi-fi/i)).toBeNull());
+    await userEvent.click(screen.getByRole("button", { name: /^close$/i }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("surfaces a plain-language error on a wrong password", async () => {
@@ -184,11 +194,14 @@ describe("NetworkStep", () => {
 
     mount();
 
+    await openWifiModal();
     const network = await screen.findByRole("button", { name: /home wi-fi/i });
     await userEvent.click(network);
     await userEvent.type(await screen.findByPlaceholderText("Wi-Fi password"), "wrong");
     await userEvent.click(screen.getByRole("button", { name: /connect to home wi-fi/i }));
 
     expect(await screen.findByText(/that password didn't work/i)).toBeTruthy();
+    // Modal stays open so the user can try again.
+    expect(screen.getByRole("dialog")).toBeTruthy();
   });
 });
