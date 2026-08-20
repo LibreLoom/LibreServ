@@ -71,7 +71,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openjdk-17-jdk-
 # The CLI's own deps include @deepseek-ai/dsh-base and dsh-headless bundles;
 # profile package.json references resolve from the global install (profiles need
 # no per-profile node_modules, matching the host's headless profile layout).
-RUN npm install -g --no-fund --no-audit @deepseek-ai/dsh@0.1.0-rc.6
+RUN npm install -g --no-fund --no-audit @deepseek-ai/dsh@0.1.0-rc.8
 RUN dsh --version
 
 # ---- agent home + headless profile ----
