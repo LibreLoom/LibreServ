@@ -7,7 +7,7 @@ import Navbar from "./components/ui/Navbar";
 import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
 import GalleryPage from "./pages/GalleryPage";
-import LandingPage from "./pages/LandingPage";
+import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
 import RemotePage from "./pages/RemotePage";
 import SharedPage from "./pages/SharedPage";
@@ -55,7 +55,7 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
               <Route element={<AppShell />}>
-                <Route path="/" element={<LandingPage />} />
+                <Route path="/" element={<DashboardPage />} />
                 <Route path="/drives" element={<DrivesPage />} />
                 <Route path="/drives/:id" element={<FilesPage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
