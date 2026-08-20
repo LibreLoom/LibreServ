@@ -168,8 +168,13 @@ fi
 echo "==> starting ${MODE} run"
 status=1
 for attempt in 1 2 3; do
-  "${RUNTIME}" run "${ARGS[@]}" "${IMAGE}"
-  status=$?
+  # `cmd || status=$?` — NOT bare `cmd; status=$?` — is required under
+  # `set -e`: a bare failing command exits the script before the
+  # assignment, killing the retry. The `||` right side sees cmd's real
+  # exit status (unlike `if ! cmd`, whose `$?` in the branch is 0).
+  # status MUST be reset first: the `||` branch only runs on failure.
+  status=0
+  "${RUNTIME}" run "${ARGS[@]}" "${IMAGE}" || status=$?
   if [[ ${status} -eq 0 ]]; then break; fi
   if [[ ${attempt} -lt 3 ]]; then
     echo "==> run failed (exit ${status}), retrying (${attempt}/2) after 30s..."
