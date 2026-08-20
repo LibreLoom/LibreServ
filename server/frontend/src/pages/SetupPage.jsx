@@ -5,7 +5,7 @@ import { Check, X, AlertCircle, Loader2, ArrowRight, Eye, EyeOff, ShieldCheck } 
 import PropTypes from "prop-types";
 import api from "../lib/api";
 import ExternalServicesStep from "../components/setup/ExternalServicesStep";
-import WifiStep from "../components/setup/WifiStep";
+import NetworkStep from "../components/setup/NetworkStep";
 import PreflightRemediation from "../components/setup/PreflightRemediation";
 import { summarizeError } from "../lib/preflight-errors";
 import useSetupProgress from "../hooks/useSetupProgress";
@@ -22,7 +22,7 @@ const STEP = {
   SETUP_CODE:  "setup_code",
   WELCOME:      "welcome",
   PREFLIGHT:   "preflight",
-  WIFI:        "wifi",
+  NETWORK:     "network",
   ACCOUNT:     "account",
   EXTERNAL_SERVICES: "external_services",
   MFA:         "mfa",
@@ -91,29 +91,37 @@ SetupCard.propTypes = {
 };
 
 // ─── Step progress dots (on the card, so use primary colors) ─────────────────
-const VISIBLE_STEPS = [STEP.WELCOME, STEP.PREFLIGHT, STEP.WIFI, STEP.ACCOUNT, STEP.EXTERNAL_SERVICES, STEP.MFA, STEP.COMPLETE];
+// The shared indicator across both products: a plain row of dots where the
+// active dot smoothly stretches into a wider pill (transition-all — no
+// entrance cascade, no breathe), plus the "N / M" step counter on the right.
+const VISIBLE_STEPS = [
+  { id: STEP.WELCOME,           label: "Welcome" },
+  { id: STEP.PREFLIGHT,         label: "System check" },
+  { id: STEP.NETWORK,          label: "Network" },
+  { id: STEP.ACCOUNT,           label: "Account" },
+  { id: STEP.EXTERNAL_SERVICES, label: "Connect" },
+  { id: STEP.MFA,               label: "MFA" },
+  { id: STEP.COMPLETE,          label: "Done" },
+];
 
 function StepDots({ current }) {
-  const idx = VISIBLE_STEPS.indexOf(current);
+  const idx = VISIBLE_STEPS.findIndex((s) => s.id === current);
   if (idx < 0) return null;
   return (
     <div className="flex items-center gap-2 mb-8">
       {VISIBLE_STEPS.map((s, i) => (
         <div
-          key={s}
-          // Stagger the cascade by dot index; the active dot also delays its
-          // breathe until after the entrance has landed (comma value #2).
-          style={{
-            animationDelay: i === idx ? `${i * 60}ms, ${i * 60 + 320}ms` : `${i * 60}ms`,
-          }}
+          key={s.id}
           className={cn(
             "rounded-full motion-safe:transition-all motion-safe:duration-300",
             i === idx
-              ? "w-5 h-2 bg-primary animate-step-dot-current"
+              ? "w-5 h-2 bg-primary"
               : i < idx
-                ? "w-2 h-2 bg-primary/40 animate-step-dot-in"
-                : "w-2 h-2 bg-primary/15 animate-step-dot-in"
+                ? "w-2 h-2 bg-primary/40"
+                : "w-2 h-2 bg-primary/15"
           )}
+          title={s.label}
+          aria-label={s.label}
         />
       ))}
       <span className="ml-auto text-[11px] font-mono tracking-wider text-primary/30 animate-in fade-in duration-300">
@@ -250,32 +258,33 @@ SetupCodeStep.propTypes = {
 };
 
 // ─── STEP: Welcome ────────────────────────────────────────────────────────────
+// Content-only: SetupPage renders ONE persistent shell (SetupShell + SetupCard
+// with the dots header) around the current step, so the card and the dot row
+// survive step changes and the active dot's width smoothly transitions.
 function WelcomeStep({ onBegin }) {
   return (
-    <SetupShell>
-      <SetupCard className="flex flex-col items-center text-center">
-        <div className="mb-10">
-          <LogoMark size={120} />
-        </div>
+    <div className="flex flex-col items-center text-center">
+      <div className="mb-10">
+        <LogoMark size={120} />
+      </div>
 
-        <h1 className="font-mono text-5xl font-normal text-primary tracking-tight mb-4">
-          Welcome.
-        </h1>
+      <h1 className="font-mono text-5xl font-normal text-primary tracking-tight mb-4">
+        Welcome.
+      </h1>
 
-        <p className="text-primary/68 text-xl leading-[1.65] mb-12 max-w-[22rem]">
-          Let&rsquo;s get LibreServ set up for you.
-        </p>
+      <p className="text-primary/68 text-xl leading-[1.65] mb-12 max-w-[22rem]">
+        Let&rsquo;s get LibreServ set up for you.
+      </p>
 
-        <Button
-          variant="primary"
-          onClick={onBegin}
-          className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
-        >
-          Begin Setup
-          <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
-        </Button>
-      </SetupCard>
-    </SetupShell>
+      <Button
+        variant="primary"
+        onClick={onBegin}
+        className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+      >
+        Begin Setup
+        <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
+      </Button>
+    </div>
   );
 }
 WelcomeStep.propTypes = {
@@ -430,10 +439,8 @@ function PreflightStep({ onPass }) {
   }, [checkEntries, hasCheckResults]);
 
   return (
-    <SetupShell>
-      <SetupCard className="" header={<StepDots current={STEP.PREFLIGHT} />}>
-        
-        {/* Header */}
+    <>
+      {/* Header */}
         <div className="mb-7">
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             System check
@@ -547,8 +554,7 @@ function PreflightStep({ onPass }) {
             </Button>
           )}
         </div>
-      </SetupCard>
-    </SetupShell>
+    </>
   );
 }
 PreflightStep.propTypes = {
@@ -669,10 +675,8 @@ function AccountStep({ onSuccess, onError }) {
   };
 
   return (
-    <SetupShell>
-      <SetupCard className="" header={<StepDots current={STEP.ACCOUNT} />}>
-        
-        {/* Header */}
+    <>
+      {/* Header */}
         <div className="mb-8">
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             Create your account
@@ -830,8 +834,7 @@ function AccountStep({ onSuccess, onError }) {
             </Button>
           </div>
         </form>
-      </SetupCard>
-    </SetupShell>
+    </>
   );
 }
 AccountStep.propTypes = {
@@ -842,26 +845,23 @@ AccountStep.propTypes = {
 // ─── STEP: Complete ───────────────────────────────────────────────────────────
 function CompleteStep() {
   return (
-    <SetupShell>
-      <SetupCard className="flex flex-col items-center text-center" header={<StepDots current={STEP.COMPLETE} />}>
-        
-        {/* Check circle */}
-        <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
-          <Check className="w-7 h-7 text-primary" strokeWidth={1.5} />
-        </div>
+    <div className="flex flex-col items-center text-center">
+      {/* Check circle */}
+      <div className="mb-7 w-16 h-16 rounded-full border border-primary/20 flex items-center justify-center animate-in fade-in duration-300">
+        <Check className="w-7 h-7 text-primary" strokeWidth={1.5} />
+      </div>
 
-        <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
-          All done.
-        </h2>
-        <p className="text-primary/50 text-sm animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
-          Taking you to your dashboard&hellip;
-        </p>
+      <h2 className="font-mono text-3xl font-normal text-primary tracking-tight mb-3 animate-in fade-in slide-in-from-bottom-2 duration-300 delay-100">
+        All done.
+      </h2>
+      <p className="text-primary/50 text-sm animate-in fade-in slide-in-from-bottom-2 duration-300 delay-200">
+        Taking you to your dashboard&hellip;
+      </p>
 
-        <div className="mt-8 animate-in fade-in duration-300 delay-300">
-          <Loader2 className="w-5 h-5 animate-spin text-primary/25" />
-        </div>
-      </SetupCard>
-    </SetupShell>
+      <div className="mt-8 animate-in fade-in duration-300 delay-300">
+        <Loader2 className="w-5 h-5 animate-spin text-primary/25" />
+      </div>
+    </div>
   );
 }
 
@@ -900,32 +900,29 @@ ErrorStep.propTypes = { message: PropTypes.string };
 function MfaStep({ onComplete, onSessionExpired }) {
   const [mfaPhase, setMfaPhase] = useState("choose");
   return (
-    <SetupShell>
-      <SetupCard className="" header={<StepDots current={STEP.MFA} />}>
-
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-primary/60" />
-            </div>
-            <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
-              Enable MFA
-            </h2>
+    <>
+      <div className="mb-8">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full border border-primary/15 flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5 text-primary/60" />
           </div>
-          {mfaPhase === "choose" && (
-            <p className="text-primary/50 text-sm leading-relaxed">
-              Two-factor authentication asks for a second check at sign-in — not just your password. As an admin, your account is at higher risk, so you need at least one method before you can finish setup.
-            </p>
-          )}
+          <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
+            Enable MFA
+          </h2>
         </div>
+        {mfaPhase === "choose" && (
+          <p className="text-primary/50 text-sm leading-relaxed">
+            Two-factor authentication asks for a second check at sign-in — not just your password. As an admin, your account is at higher risk, so you need at least one method before you can finish setup.
+          </p>
+        )}
+      </div>
 
-        <MfaSetupWizard
-          onComplete={onComplete}
-          onSessionExpired={onSessionExpired}
-          onPhaseChange={setMfaPhase}
-        />
-      </SetupCard>
-    </SetupShell>
+      <MfaSetupWizard
+        onComplete={onComplete}
+        onSessionExpired={onSessionExpired}
+        onPhaseChange={setMfaPhase}
+      />
+    </>
   );
 }
 MfaStep.propTypes = {
@@ -942,7 +939,7 @@ const STEP_ORDER = [
   STEP.SETUP_CODE,
   STEP.WELCOME,
   STEP.PREFLIGHT,
-  STEP.WIFI,
+  STEP.NETWORK,
   STEP.ACCOUNT,
   STEP.EXTERNAL_SERVICES,
   STEP.MFA,
@@ -1055,8 +1052,12 @@ export default function SetupPage() {
 
         const saved = data.progress;
         if (saved && saved.current_step && saved.current_step !== "welcome") {
-          const step = saved.current_step;
+          let step = saved.current_step;
           const savedData = saved.step_data || {};
+
+          // Legacy: the network step was once keyed "wifi" — remap to the
+          // current key so a saved wizard resumes on the network step.
+          if (step === "wifi") step = STEP.NETWORK;
 
           if (step === STEP.ACCOUNT) {
             if (savedData.account_completed) {
@@ -1112,16 +1113,13 @@ export default function SetupPage() {
 
   const handlePreflightPass = useCallback(() => {
     const data = { ...(progressRef.current.stepData || {}), preflight_passed: true };
-    advanceStep(STEP.WIFI, "", data);
+    advanceStep(STEP.NETWORK, "", data);
   }, [advanceStep]);
 
-  const handleWifiConnected = useCallback(() => {
-    const data = { ...(progressRef.current.stepData || {}), wifi_connected: true };
-    advanceStep(STEP.ACCOUNT, "", data);
-  }, [advanceStep]);
-
-  const handleWifiSkip = useCallback(() => {
-    const data = { ...(progressRef.current.stepData || {}), wifi_skipped: true };
+  // The network step has a single exit: the device is online (by cable,
+  // Wi-Fi, or both). There is no "skip" — being offline can't advance.
+  const handleNetworkContinue = useCallback(() => {
+    const data = { ...(progressRef.current.stepData || {}), network_connected: true };
     advanceStep(STEP.ACCOUNT, "", data);
   }, [advanceStep]);
 
@@ -1242,31 +1240,31 @@ export default function SetupPage() {
     return <ErrorStep message={error ?? "An unexpected error occurred."} />;
   }
 
-  let renderedStep;
+  // SETUP_CODE renders its own shell (entry screen, no dots). Everything
+  // else below shares ONE persistent shell, so the card and the dot row
+  // survive step changes — that's what lets the active dot's width smoothly
+  // transition and the card resize smoothly between steps.
   if (step === STEP.SETUP_CODE) {
-    renderedStep = <SetupCodeStep onCodeVerified={handleCodeVerified} />;
-  } else if (step === STEP.WELCOME) {
+    return (
+      <StepTransitionProvider stepKey={step} direction={animationDirection}>
+        <SetupCodeStep onCodeVerified={handleCodeVerified} />
+      </StepTransitionProvider>
+    );
+  }
+
+  let renderedStep;
+  if (step === STEP.WELCOME) {
     renderedStep = <WelcomeStep onBegin={handleBegin} />;
   } else if (step === STEP.PREFLIGHT) {
     renderedStep = <PreflightStep onPass={handlePreflightPass} />;
-  } else if (step === STEP.WIFI) {
-    renderedStep = (
-      <SetupShell>
-        <SetupCard className="" header={<StepDots current={STEP.WIFI} />}>
-          <WifiStep onConnected={handleWifiConnected} onSkipWifi={handleWifiSkip} />
-        </SetupCard>
-      </SetupShell>
-    );
+  } else if (step === STEP.NETWORK) {
+    renderedStep = <NetworkStep name="LibreServ" onContinue={handleNetworkContinue} />;
   } else if (step === STEP.EXTERNAL_SERVICES) {
     renderedStep = (
-      <SetupShell>
-        <SetupCard className="" header={<StepDots current={STEP.EXTERNAL_SERVICES} />}>
-          <ExternalServicesStep
-            onActivate={handleConnectActivate}
-            onSkip={handleExternalServicesSkip}
-          />
-        </SetupCard>
-      </SetupShell>
+      <ExternalServicesStep
+        onActivate={handleConnectActivate}
+        onSkip={handleExternalServicesSkip}
+      />
     );
   } else if (step === STEP.MFA) {
     renderedStep = (
@@ -1286,9 +1284,20 @@ export default function SetupPage() {
     renderedStep = <CompleteStep />;
   }
 
+  // One persistent shell for the wizard's main steps. Because the
+  // SetupShell + SetupCard (and thus the dot row in the header) survive step
+  // changes, the active dot's width smoothly transitions (transition-all) and
+  // the card resizes smoothly (useAnimatedHeight) as you move between steps —
+  // only the inner content remounts and slides. Welcome shows no dots;
+  // CREATING is a transient sub-state of the account step that isn't in
+  // VISIBLE_STEPS, so the dots hide while the button reads "Creating account…".
   return (
     <StepTransitionProvider stepKey={step} direction={animationDirection}>
-      {renderedStep}
+      <SetupShell>
+        <SetupCard header={step === STEP.WELCOME ? null : <StepDots current={step} />}>
+          {renderedStep}
+        </SetupCard>
+      </SetupShell>
     </StepTransitionProvider>
   );
 }
