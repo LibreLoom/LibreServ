@@ -2,6 +2,10 @@
 # Mirrors the host's settings.yaml shape: `llm-pi-ai` provider section with
 # apiKeyEnv (API key comes from the AI_PROXY_API_KEY env var, never stored),
 # plus the default agent model used by the headless runner.
+#
+# Models: plainskill-coder (default agent model) and plainskill-flash.
+# Both are OpenAI-compatible via ai-proxy (https://ai.plainskill.net/v1),
+# 1M context window, 384K max tokens, reasoning effort param supported.
 
 llm-pi-ai:
   providers:
@@ -11,26 +15,30 @@ llm-pi-ai:
       api: openai-completions
       baseURL: https://ai.plainskill.net/v1
       models:
-        - id: hyper-deepseek-v4-flash-0731
-          contextWindow: 750000
+        - id: plainskill-coder
+          contextWindow: 1000000
           maxTokens: 384000
-          reasoningEfforts:
-            low: low
-            high: high
-            xhigh: xhigh
-        - id: crof-deepseek-v4-flash-0731
-          contextWindow: 750000
-          maxTokens: 131072
           reasoningEfforts:
             off: null
             low: low
             medium: medium
             high: high
             max: max
+            xhigh: xhigh
+        - id: plainskill-flash
+          contextWindow: 1000000
+          maxTokens: 384000
+          reasoningEfforts:
+            off: null
+            low: low
+            medium: medium
+            high: high
+            max: max
+            xhigh: xhigh
 
 agent-default-model:
   provider: ai-proxy
-  model: hyper-deepseek-v4-flash-0731
+  model: plainskill-coder
   reasoningEffort: high
 
 agent-presets:
