@@ -114,7 +114,11 @@ fn mtime(meta: &std::fs::Metadata) -> i64 {
 
 fn copy_atomic(src: &Path, dest: &Path) -> anyhow::Result<()> {
     let mut input = std::fs::File::open(src)?;
-    let tmp = dest.with_extension("part");
+    let tmp = {
+        let mut s = dest.as_os_str().to_owned();
+        s.push(".part");
+        std::path::PathBuf::from(s)
+    };
     let mut output = std::fs::OpenOptions::new()
         .write(true)
         .create(true)

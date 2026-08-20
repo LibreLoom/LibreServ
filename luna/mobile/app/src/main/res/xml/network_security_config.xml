@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">luna.local</domain>
+        <domain includeSubdomains="false">luna.home</domain>
+        <domain includeSubdomains="false">169.254.42.42</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

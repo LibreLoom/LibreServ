@@ -87,7 +87,11 @@ pub fn fresh_entries(
 }
 
 pub fn search(conn: &Connection, query: &str) -> anyhow::Result<Vec<(String, String, String)>> {
-    let pattern = format!("%{query}%");
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{escaped}%");
     let mut stmt = conn.prepare(
         "SELECT drive_id, parent, name FROM index_entries
          WHERE name LIKE ?1 ESCAPE '\\'
