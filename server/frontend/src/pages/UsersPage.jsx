@@ -165,7 +165,7 @@ export default function UsersPage() {
                       render: (row) => (
                         <Link
                           to={`/users/${row.id}`}
-                          className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-secondary"
+                          className="inline-flex items-center px-2.5 py-1 rounded-pill bg-primary/10 text-sm text-primary"
                         >
                           {row.email}
                         </Link>
