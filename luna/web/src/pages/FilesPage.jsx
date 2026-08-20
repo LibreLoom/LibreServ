@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Download, File as FileIcon, Folder, Pencil, Trash2, UploadCloud } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
@@ -29,6 +29,11 @@ function parentPath(path) {
   return idx < 0 ? "" : path.slice(0, idx);
 }
 
+function folderHref(driveId, folderPath) {
+  if (!folderPath) return `/drives/${driveId}`;
+  return `/drives/${driveId}?path=${encodeURIComponent(folderPath)}`;
+}
+
 async function parseError(res) {
   try {
     const data = await res.json();
@@ -42,7 +47,9 @@ export default function FilesPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [path, setPath] = useState(searchParams.get("path") || "");
+  // Folder location lives in the address bar so refresh, Back, and
+  // "Shared with me" links (`?path=`) all land on the same folder.
+  const path = searchParams.get("path") || "";
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(null);
   const [uploadError, setUploadError] = useState(null);
@@ -170,26 +177,25 @@ export default function FilesPage() {
       leftContent={<TextLink to="/drives"><ArrowLeft size={16} className="inline mr-1" />Drives</TextLink>}
     >
       <div className="flex items-center gap-2 font-mono text-xs text-secondary mb-4">
-        <button type="button" className="hover:text-accent" onClick={() => setPath("")}>
+        <Link to={folderHref(id, "")} className="hover:text-accent">
           {drive?.label || "Drive"}
-        </button>
+        </Link>
         {path.split("/").filter(Boolean).map((segment, i, all) => (
           <span key={`${segment}-${i}`}>
             <span className="text-accent">/</span>
-            <button
-              type="button"
+            <Link
+              to={folderHref(id, all.slice(0, i + 1).join("/"))}
               className="hover:text-accent"
-              onClick={() => setPath(all.slice(0, i + 1).join("/"))}
             >
               {segment}
-            </button>
+            </Link>
           </span>
         ))}
       </div>
 
       {up !== null && (
-        <Button variant="outline" size="sm" className="mb-4" onClick={() => setPath(up)}>
-          ↑ Up one folder
+        <Button variant="outline" size="sm" className="mb-4" asChild>
+          <Link to={folderHref(id, up)}>↑ Up one folder</Link>
         </Button>
       )}
 
@@ -218,19 +224,20 @@ export default function FilesPage() {
         {visible.map((entry) => (
           <Card key={entry.name} padding={false} noPopIn noHeightAnim>
             <div className="flex items-center justify-between p-4 gap-2">
-              <button
-                type="button"
-                className="flex items-center gap-3 text-left flex-1 min-w-0"
-                onClick={() => entry.kind === "dir" && setPath(joinPath(path, entry.name))}
-                disabled={entry.kind !== "dir"}
-              >
-                {entry.kind === "dir" ? (
+              {entry.kind === "dir" ? (
+                <Link
+                  to={folderHref(id, joinPath(path, entry.name))}
+                  className="flex items-center gap-3 text-left flex-1 min-w-0"
+                >
                   <Folder size={18} className="text-accent shrink-0" />
-                ) : (
+                  <span className="text-primary font-mono text-sm truncate">{entry.name}</span>
+                </Link>
+              ) : (
+                <div className="flex items-center gap-3 text-left flex-1 min-w-0">
                   <FileIcon size={18} className="text-accent shrink-0" />
-                )}
-                <span className="text-primary font-mono text-sm truncate">{entry.name}</span>
-              </button>
+                  <span className="text-primary font-mono text-sm truncate">{entry.name}</span>
+                </div>
+              )}
               <span className="text-primary text-xs w-20 text-right hidden sm:block">{fmtSize(entry.size)}</span>
               <div className="flex items-center gap-1">
                 <button
