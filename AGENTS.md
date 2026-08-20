@@ -124,7 +124,9 @@ go build -o libreserv-ble-companion           # Requires BlueZ, GTK4, libadwaita
 Android app (Kotlin + Gradle):
 ```bash
 cd companion/android
-./gradlew assembleDebug                     # Requires Android SDK 34
+gradle assembleDebug                         # Requires Android SDK 34
+# (the Gradle wrapper scaffold is generated/untracked; open in Android Studio
+#  to provision `./gradlew`, or use the `gradle` command directly)
 # APK → app/build/outputs/apk/debug/app-debug.apk
 ```
 

@@ -134,7 +134,7 @@ describe("AppsPage", () => {
     vi.mocked(useCatalog).mockReturnValue(/** @type {any} */({ data: [], isLoading: false, error: new Error("fail") }));
     vi.mocked(useApps).mockReturnValue(/** @type {any} */({ data: [], isLoading: false, error: null }));
     renderWithProviders(<AppsPage />);
-    expect(screen.getByText("Failed to load app catalog. Please try again.")).toBeInTheDocument();
+    expect(screen.getByText("Failed to load the app catalog. Please try again.")).toBeInTheDocument();
   });
 
   it("shows loading overlay when data is loading", () => {
