@@ -36,7 +36,9 @@ else
 fi
 
 echo "==> os scripts"
-sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh
+sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/rapidinstall.sh \
+	os/lib/disk.sh os/lib/flash-disk.sh os/lib/disk_test.sh os/iso/init
+sh os/lib/disk_test.sh
 
 echo "==> desktop core"
 (

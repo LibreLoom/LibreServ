@@ -130,7 +130,9 @@
 - [x] `os/make-image.sh`: raw 1.2 GB ext4 image labeled LUNA from the rootfs
       (verified: debugfs shows /usr/local/bin/lunad + hostname)
 - [x] `os/flash.sh`: whole-disk-only, double confirmation, MBR + ext4 +
-      extract + extlinux bootloader install
+      extract + extlinux bootloader install (SATA/NVMe **and** eMMC `mmcblk*p1`)
+- [x] Rapidinstall ISO: `os/make-iso.sh` BIOS-hybrid USB image; live installer
+      picks non-USB eMMC, never flashes the stick it booted from
 - [x] `os/REHEARSAL.md`: 5-unit rehearsal checklist (materials, flash, first
       boot, setup, storage safety, links, remote, reliability, ship)
 - [x] Built rootfs booted in a container: lunad served /health

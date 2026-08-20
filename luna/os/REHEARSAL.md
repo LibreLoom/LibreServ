@@ -5,19 +5,21 @@ not market demand. Do not skip a step to save time; a skipped step is a
 support call later.
 
 ## 0. Materials (per unit)
-- 1× Dell Wyse 5020 (Dx0Q) + 19V PSU (5.5/2.5mm)
-- 1× internal SATA SSD (16 GB is plenty)
+- 1× Dell Wyse 5020 (Dx0Q) + 19V PSU (5.5/2.5mm) — OS lives on the internal eMMC
+- 1× USB stick for the rapidinstall ISO (8 GB is plenty)
 - 1× qualified USB Wi-Fi dongle + 1× qualified USB BLE dongle (see hardware/QUALIFICATION.md)
 - Ethernet cable + printed quick-start card (luna.local / http://luna / 169.254.42.42 / app)
 
 ## 1. Flash
-- [ ] SSD attached to a Linux workstation as /dev/sdX (check `lsblk` twice)
 - [ ] `os/build-rootfs.sh` produced `os/dist/luna-rootfs-x86_64.tar.gz`
-- [ ] `os/flash.sh /dev/sdX` completed and printed "done"
-- [ ] `e2fsck -f /dev/sdX1` is clean
+- [ ] `os/make-iso.sh` produced `os/dist/luna-rapidinstall-x86_64.iso`
+- [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the thin client's eMMC
+- [ ] Thin client boots the USB; installer shows built-in storage `/dev/mmcblk0`
+- [ ] Typed `install luna`; installer finished; USB removed; reboot from eMMC
+- [ ] `e2fsck -f /dev/mmcblk0p1` is clean if checked from a live USB afterwards
 
 ## 2. First boot
-- [ ] Install SSD, power on; front LED is lit; no smoke
+- [ ] Power on from eMMC; front LED is lit; no smoke
 - [ ] `ping luna.local` answers from the LAN
 - [ ] `http://luna.local` opens the setup wizard
 - [ ] Direct-cable test: laptop Ethernet → Luna, browse `http://169.254.42.42`

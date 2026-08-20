@@ -4,7 +4,7 @@ PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon dev-web lint clean
+.PHONY: web build test run dev dev-daemon dev-web lint clean iso
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -42,6 +42,9 @@ lint:
 	cargo fmt --check
 	cargo clippy --workspace -- -D warnings
 	cd web && npm run lint
+
+iso:
+	./os/make-iso.sh
 
 clean:
 	cargo clean
