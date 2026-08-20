@@ -12,7 +12,7 @@ apk add --no-cache linux-lts busybox util-linux e2fsprogs syslinux xorriso cpio 
 	--repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VERSION}/main" \
 	--repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VERSION}/community"
 # grub's post-install probe fails on overlayfs; we only need the binaries.
-apk add --no-cache --no-scripts grub grub-efi \
+apk add --no-cache --no-scripts grub grub-efi grub-bios \
 	--repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VERSION}/main" \
 	--repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VERSION}/community"
 
@@ -34,7 +34,7 @@ apk add --root "$IRD" --initdb --no-scripts --keys-dir /etc/apk/keys --arch "$AR
 apk add --root "$IRD" --no-scripts --keys-dir /etc/apk/keys --arch "$ARCH" \
 	--repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VERSION}/main" \
 	--repository "https://dl-cdn.alpinelinux.org/alpine/${ALPINE_VERSION}/community" \
-	grub grub-efi
+	grub grub-efi grub-bios
 
 mkdir -p "$IRD/lib/modules/$KVER"
 if [ -d "/lib/modules/$KVER" ]; then
@@ -42,7 +42,7 @@ if [ -d "/lib/modules/$KVER" ]; then
 	for sub in kernel/drivers/usb kernel/drivers/mmc kernel/drivers/scsi \
 		kernel/drivers/ata kernel/drivers/nvme kernel/drivers/cdrom \
 		kernel/drivers/block kernel/drivers/pinctrl kernel/drivers/acpi \
-		kernel/drivers/platform kernel/drivers/net/phy \
+		kernel/drivers/platform kernel/drivers/net/phy kernel/drivers/virtio \
 		kernel/fs/isofs kernel/fs/ext4 kernel/fs/jbd2 kernel/fs/nls kernel/fs/fat \
 		kernel/fs/vfat kernel/lib; do
 		if [ -d "/lib/modules/$KVER/$sub" ]; then

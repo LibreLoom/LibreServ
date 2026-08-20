@@ -1,7 +1,8 @@
 #!/bin/sh
-# Write Luna OS onto a whole disk: GPT + ESP (FAT) + root (ext4) + GRUB EFI.
-# Wyse 3040 is UEFI (including some Cherry Trail 32-bit firmware).
-# Used by flash.sh (workstation) and rapidinstall.sh (live ISO).
+# Write Luna OS onto a whole disk so it can start on ordinary x86_64 machines:
+# BIOS (mini PCs, older boxes) and UEFI (Wyse 3040, modern mini PCs).
+# GPT: 1 MiB bios_grub + ESP + ext4 root. GRUB is installed for i386-pc and
+# x86_64-efi (--removable, no NVRAM). At least one of those must succeed.
 
 _wait_block() {
 	_path="$1"
@@ -44,7 +45,7 @@ flash_luna_disk() {
 	_tarball="$2"
 
 	if ! is_whole_disk "$_dev"; then
-		echo "Luna only flashes a whole disk (for example /dev/mmcblk0 or /dev/sda), not a partition." >&2
+		echo "Luna only flashes a whole disk (for example /dev/sda, /dev/nvme0n1, or /dev/mmcblk0), not a partition." >&2
 		return 2
 	fi
 	if is_emmc_aux "$_dev"; then
@@ -64,28 +65,31 @@ flash_luna_disk() {
 		return 2
 	fi
 	if ! command -v grub-install >/dev/null 2>&1; then
-		echo "This environment is missing GRUB. Boot the rapidinstall ISO on the thin client instead." >&2
+		echo "This environment is missing GRUB. Boot the rapidinstall ISO instead." >&2
 		return 1
 	fi
 
+	_bios="$(partition_bios_grub "$_dev")"
 	_esp="$(partition_esp "$_dev")"
 	_root="$(partition_root "$_dev")"
 
-	echo "==> partitioning $_dev (GPT, UEFI)"
+	echo "==> partitioning $_dev (GPT, BIOS + UEFI)"
+	# bios_grub: GRUB's core.img on BIOS machines. ESP: UEFI. Root: Luna.
 	sfdisk --wipe always "$_dev" <<PART
 label: gpt
 unit: sectors
 first-lba: 2048
 
-start=2048, size=262144, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=ESP, bootable
+start=2048, size=2048, type=21686148-6449-6E6F-744E-656564454649, name=BIOSGRUB
+size=262144, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=ESP, bootable
 type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=LUNA
 PART
 	sleep 1
 	if command -v partprobe >/dev/null 2>&1; then
 		partprobe "$_dev" 2>/dev/null || true
 	fi
-	if ! _wait_block "$_esp" || ! _wait_block "$_root"; then
-		echo "The new partitions $_esp / $_root never appeared. Stopped before erasing further." >&2
+	if ! _wait_block "$_bios" || ! _wait_block "$_esp" || ! _wait_block "$_root"; then
+		echo "The new partitions never appeared. Stopped before erasing further." >&2
 		return 1
 	fi
 
@@ -103,15 +107,25 @@ PART
 	echo "==> extracting Luna OS"
 	tar -xzf "$_tarball" -C "$_mnt"
 
-	echo "==> installing UEFI bootloader"
+	echo "==> installing bootloader (BIOS and UEFI)"
 	mkdir -p "$_mnt/boot" "$_espmnt/EFI/BOOT"
 	_write_grub_cfg "$_mnt"
-	grub-install --target=x86_64-efi --efi-directory="$_espmnt" \
-		--boot-directory="$_mnt/boot" --removable --no-nvram "$_dev" || true
+	_bios_ok=0
+	_efi_ok=0
+	if grub-install --target=i386-pc --boot-directory="$_mnt/boot" "$_dev"; then
+		_bios_ok=1
+	fi
+	if grub-install --target=x86_64-efi --efi-directory="$_espmnt" \
+		--boot-directory="$_mnt/boot" --removable --no-nvram "$_dev"; then
+		_efi_ok=1
+	fi
 	grub-install --target=i386-efi --efi-directory="$_espmnt" \
 		--boot-directory="$_mnt/boot" --removable --no-nvram "$_dev" 2>/dev/null || true
-	if [ ! -f "$_espmnt/EFI/BOOT/BOOTX64.EFI" ] && [ ! -f "$_espmnt/EFI/BOOT/BOOTIA32.EFI" ]; then
-		echo "GRUB did not install an EFI boot file. This computer would not start after reboot." >&2
+	if [ -f "$_espmnt/EFI/BOOT/BOOTX64.EFI" ] || [ -f "$_espmnt/EFI/BOOT/BOOTIA32.EFI" ]; then
+		_efi_ok=1
+	fi
+	if [ "$_bios_ok" -eq 0 ] && [ "$_efi_ok" -eq 0 ]; then
+		echo "GRUB could not install a BIOS or UEFI bootloader. This computer would not start after reboot." >&2
 		return 1
 	fi
 	cp "$_mnt/boot/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub.cfg" 2>/dev/null || true
@@ -122,5 +136,6 @@ PART
 	umount "$_mnt"
 	rmdir "$_espmnt" "$_mnt" 2>/dev/null || true
 	trap - EXIT INT
-	echo "done. Remove the USB stick and reboot this computer to start Luna."
+	echo "done. Remove the USB stick (if you used one) and reboot to start Luna."
+	echo "If the computer talks about 'secure boot', turn that off in the firmware menu."
 }

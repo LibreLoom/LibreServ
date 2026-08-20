@@ -50,4 +50,4 @@ podman run --rm \
 
 printf 'built %s\n' "$ISO"
 printf 'Write to USB: dd if=%s of=/dev/sdX bs=4M status=progress conv=fsync\n' "$ISO"
-printf 'Boot the Wyse 3040 from USB (UEFI). Installer targets eMMC.\n'
+printf 'Boot any x86_64 PC from USB (BIOS or UEFI; Secure Boot off).\n'

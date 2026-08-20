@@ -129,11 +129,10 @@
       luna-net-fallback (169.254.42.42 direct-cable), musl release lunad
 - [x] `os/make-image.sh`: raw 1.2 GB ext4 image labeled LUNA from the rootfs
       (verified: debugfs shows /usr/local/bin/lunad + hostname)
-- [x] `os/flash.sh`: whole-disk-only, double confirmation, GPT ESP+root +
-      GRUB EFI (SATA/NVMe **and** eMMC `mmcblk0p1`/`p2`)
-- [x] Rapidinstall ISO: `os/make-iso.sh` UEFI+BIOS hybrid USB image (GRUB
-      BOOTX64/BOOTIA32); live installer flashes GPT ESP+root on eMMC, never
-      the stick it booted from. Target: Wyse 3040.
+- [x] `os/flash.sh`: whole-disk-only, GPT bios_grub+ESP+root, GRUB BIOS+UEFI
+- [x] Rapidinstall ISO: `os/make-iso.sh` UEFI+BIOS hybrid USB; flashed disk is
+      GPT bios_grub+ESP+root with GRUB i386-pc and x86_64-efi so mini PCs,
+      Wyse 3040, and other x86_64 boxes can boot. Secure Boot must be off.
 - [x] `os/REHEARSAL.md`: 5-unit rehearsal checklist (materials, flash, first
       boot, setup, storage safety, links, remote, reliability, ship)
 - [x] Built rootfs booted in a container: lunad served /health

@@ -39,17 +39,19 @@ assert_false is_whole_disk /dev/mmcblk0p1
 assert_false is_whole_disk /dev/mmcblk0boot0
 assert_false is_whole_disk /dev/nvme0n1p1
 
-assert_eq "$(partition_node /dev/sda)" /dev/sda1 "sda ESP"
-assert_eq "$(partition_esp /dev/mmcblk0)" /dev/mmcblk0p1 "eMMC ESP"
-assert_eq "$(partition_root /dev/mmcblk0)" /dev/mmcblk0p2 "eMMC root"
-assert_eq "$(partition_root /dev/nvme0n1)" /dev/nvme0n1p2 "nvme root"
-assert_eq "$(partition_node /dev/nvme0n1)" /dev/nvme0n1p1 "nvme ESP"
+assert_eq "$(partition_bios_grub /dev/sda)" /dev/sda1 "sda BIOS GRUB"
+assert_eq "$(partition_esp /dev/sda)" /dev/sda2 "sda ESP"
+assert_eq "$(partition_root /dev/sda)" /dev/sda3 "sda root"
+assert_eq "$(partition_esp /dev/mmcblk0)" /dev/mmcblk0p2 "eMMC ESP"
+assert_eq "$(partition_root /dev/mmcblk0)" /dev/mmcblk0p3 "eMMC root"
+assert_eq "$(partition_bios_grub /dev/nvme0n1)" /dev/nvme0n1p1 "nvme BIOS GRUB"
+assert_eq "$(partition_root /dev/nvme0n1)" /dev/nvme0n1p3 "nvme root"
 
 assert_eq "$(whole_disk_of /dev/sda)" /dev/sda "sda disk"
 assert_eq "$(whole_disk_of /dev/sda1)" /dev/sda "sda1 parent"
 assert_eq "$(whole_disk_of /dev/mmcblk0)" /dev/mmcblk0 "mmc disk"
-assert_eq "$(whole_disk_of /dev/mmcblk0p1)" /dev/mmcblk0 "mmc ESP parent"
-assert_eq "$(whole_disk_of /dev/mmcblk0p2)" /dev/mmcblk0 "mmc root parent"
+assert_eq "$(whole_disk_of /dev/mmcblk0p2)" /dev/mmcblk0 "mmc ESP parent"
+assert_eq "$(whole_disk_of /dev/mmcblk0p3)" /dev/mmcblk0 "mmc root parent"
 assert_eq "$(whole_disk_of /dev/nvme0n1p1)" /dev/nvme0n1 "nvme partition parent"
 
 assert_true is_emmc_aux /dev/mmcblk0boot0

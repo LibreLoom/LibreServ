@@ -12,8 +12,6 @@ HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 
 ARCH="${ARCH:-x86_64}"
 TARBALL="${LUNA_ROOTFS:-$HERE/luna-rootfs-$ARCH.tar.gz}"
-MBR="${LUNA_MBR_BIN:-$HERE/mbr.bin}"
-[ -f "$MBR" ] || MBR=/usr/share/syslinux/mbr.bin
 
 discover_install_disk() {
 	_src="${LUNA_INSTALL_MEDIA:-}"
@@ -111,8 +109,10 @@ fi
 
 echo
 echo "Luna rapidinstall"
+echo "Works on ordinary 64-bit PCs: BIOS or UEFI, SATA, NVMe, or eMMC."
 echo "This computer's built-in storage will be erased and Luna will be installed."
 echo "The USB stick you booted from is left alone. Extra USB drives are left alone."
+echo "If the firmware has Secure Boot, turn it off before rebooting into Luna."
 echo
 
 TARGET="${LUNA_TARGET:-}"
@@ -125,7 +125,7 @@ if [ -n "$TARGET" ]; then
 else
 	echo "Luna could not pick built-in storage automatically."
 	print_disks
-	printf "Type the whole disk to install to (for example /dev/mmcblk0): "
+	printf "Type the whole disk to install to (for example /dev/sda or /dev/nvme0n1): "
 	read -r TARGET
 fi
 
@@ -148,4 +148,4 @@ if [ "$CONFIRM" != "install luna" ]; then
 	exit 1
 fi
 
-flash_luna_disk "$TARGET" "$TARBALL" "$MBR"
+flash_luna_disk "$TARGET" "$TARBALL"

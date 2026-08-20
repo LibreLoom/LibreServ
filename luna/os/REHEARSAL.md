@@ -5,18 +5,19 @@ not market demand. Do not skip a step to save time; a skipped step is a
 support call later.
 
 ## 0. Materials (per unit)
-- 1× Dell Wyse 3040 + 12V PSU — OS lives on the internal eMMC (UEFI)
+- 1× x86_64 PC to flash (mini PC, Wyse 3040, or similar) + its PSU
 - 1× USB stick for the rapidinstall ISO (8 GB is plenty)
-- 1× qualified USB Wi-Fi dongle + 1× qualified USB BLE dongle (see hardware/QUALIFICATION.md)
+- 1× qualified USB Wi-Fi dongle + 1× qualified USB BLE dongle when the box has no radio (see hardware/QUALIFICATION.md)
 - Ethernet cable + printed quick-start card (luna.local / http://luna / 169.254.42.42 / app)
 
 ## 1. Flash
 - [ ] `os/build-rootfs.sh` produced `os/dist/luna-rootfs-x86_64.tar.gz`
 - [ ] `os/make-iso.sh` produced `os/dist/luna-rapidinstall-x86_64.iso`
-- [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the thin client's eMMC
-- [ ] Thin client boots the USB in **UEFI** mode; installer shows `/dev/mmcblk0`
-- [ ] Typed `install luna`; installer finished; USB removed; reboot from eMMC
-- [ ] `e2fsck -f /dev/mmcblk0p2` is clean if checked from a live USB afterwards
+- [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the target disk
+- [ ] PC boots the USB (BIOS or UEFI; Secure Boot off)
+- [ ] Installer shows built-in storage (`/dev/sda`, `/dev/nvme0n1`, or `/dev/mmcblk0`)
+- [ ] Typed `install luna`; installer finished; USB removed; reboot from internal disk
+- [ ] `e2fsck -f` on the Luna root partition (`…p3` / `sda3`) is clean if checked afterwards
 
 ## 2. First boot
 - [ ] Power on from eMMC; front LED is lit; no smoke
