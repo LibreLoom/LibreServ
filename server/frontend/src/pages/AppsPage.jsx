@@ -181,44 +181,48 @@ export default function AppsPage() {
         <StateOverlay message="Loading apps..." />
       )}
 
-      <div className="mt-5 flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 whitespace-nowrap border-2 border-primary/20 focus-within:border-accent transition-colors">
-        <div className="relative flex-1 min-w-0 bg-primary text-secondary rounded-pill">
-          <Search
-            size={18}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
-          />
-          <input
-            type="text"
-            placeholder="Search apps..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Search apps"
-            className="w-full pl-11 pr-3 py-2.5 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm"
-          />
-        </div>
-
-        {categories.length > 1 && (
-          <div className="pr-1.5 py-1 shrink-0">
-            <Dropdown
-              ghost
-              value={selectedCategory}
-              onChange={setSelectedCategory}
-              placeholder="All Categories"
-              options={[
-                { value: "", label: "All Categories" },
-                ...categories.map((cat) => {
-                  const LABELS = { ai: "AI", seo: "SEO" };
-                  return {
-                    value: cat,
-                    label: LABELS[cat] || (cat.charAt(0).toUpperCase() + cat.slice(1)),
-                  };
-                }),
-              ]}
-              className="shrink-0"
+      {/* Nothing to search when the catalog is empty — but keep the bar
+          up when a query simply has no matches, so it can be cleared. */}
+      {catalog.length > 0 && (
+        <div className="mt-5 flex items-center gap-1 bg-secondary text-primary rounded-pill p-1 whitespace-nowrap border-2 border-primary/20 focus-within:border-accent transition-colors">
+          <div className="relative flex-1 min-w-0 bg-primary text-secondary rounded-pill">
+            <Search
+              size={18}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-accent pointer-events-none"
+            />
+            <input
+              type="text"
+              placeholder="Search apps..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search apps"
+              className="w-full pl-11 pr-3 py-2.5 bg-transparent text-secondary placeholder:text-accent focus:outline-none no-focus-outline font-mono text-sm"
             />
           </div>
-        )}
-      </div>
+
+          {categories.length > 1 && (
+            <div className="pr-1.5 py-1 shrink-0">
+              <Dropdown
+                ghost
+                value={selectedCategory}
+                onChange={setSelectedCategory}
+                placeholder="All Categories"
+                options={[
+                  { value: "", label: "All Categories" },
+                  ...categories.map((cat) => {
+                    const LABELS = { ai: "AI", seo: "SEO" };
+                    return {
+                      value: cat,
+                      label: LABELS[cat] || (cat.charAt(0).toUpperCase() + cat.slice(1)),
+                    };
+                  }),
+                ]}
+                className="shrink-0"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {filteredCatalog.length === 0 && !loading && (
         <EmptyState
