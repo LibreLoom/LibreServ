@@ -10,7 +10,6 @@ import NoDomainWarningStep from "./NoDomainWarningStep";
 import ProgressStep from "./ProgressStep";
 import CompleteStep from "./CompleteStep";
 import Button from "../../ui/Button";
-import Card from "../../cards/Card";
 import EmptyState from "../../common/EmptyState";
 import { cn } from "@/lib/utils";
 
@@ -256,7 +255,7 @@ function InstallWizard({ appId, initialInstanceId }) {
   }
 
   return (
-    <Card className="space-y-8" data-slot="install-wizard" noHeightAnim>
+    <div className="space-y-8" data-slot="install-wizard">
       <div className={cn("transition-all duration-300 delay-75", showWizard ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2")}>
         <WizardStepper currentStep={step} hasSubdomainStep={hasSubdomainStep} />
       </div>
@@ -342,7 +341,7 @@ function InstallWizard({ appId, initialInstanceId }) {
           </div>
         )}
       </div>
-    </Card>
+    </div>
   );
 }
 

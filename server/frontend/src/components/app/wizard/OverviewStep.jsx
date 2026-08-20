@@ -41,7 +41,7 @@ const ACCESS_MODEL_INFO = {
 function RequirementBadge({ icon: Icon, label, value, warning }) {
   return (
     <div
-      className={cn("flex items-center gap-2 px-3 py-2 rounded-large-element", warning ? "bg-warning/20 text-primary border border-warning/30" : "bg-primary/10 text-primary")}
+      className={cn("flex items-center gap-2 px-3 py-2 rounded-large-element", warning ? "bg-secondary/20 text-secondary" : "bg-secondary/10 text-secondary")}
     >
       <Icon size={16} aria-hidden="true" />
       <span className="text-xs font-mono">{label}:</span>
@@ -56,7 +56,7 @@ function FeatureWarning({ info }) {
 
   const Icon = info.icon;
   const bgColor =
-    info.variant === "warning" ? "bg-warning/20 border-warning/30" : "bg-primary/10 border-primary/20";
+    info.variant === "warning" ? "bg-secondary/20 border-secondary/50" : "bg-secondary/10 border-secondary/30";
 
   return (
     <div
@@ -65,14 +65,14 @@ function FeatureWarning({ info }) {
     >
       <Icon
         size={20}
-        className={info.variant === "warning" ? "text-primary" : "text-primary"}
+        className={info.variant === "warning" ? "text-secondary" : "text-secondary/70"}
         aria-hidden="true"
       />
       <div>
-        <p className="font-mono text-sm font-medium text-primary">
+        <p className="font-mono text-sm font-medium text-secondary">
           {info.label}
         </p>
-        <p className="text-sm text-primary mt-1">{info.message}</p>
+        <p className="text-sm text-secondary/70 mt-1">{info.message}</p>
       </div>
     </div>
   );
@@ -91,10 +91,10 @@ function OverviewStep({ app, features, onContinue, onBack }) {
             <AppIcon appId={app.id} size={64} className="text-primary" />
           </Card>
         )}
-        <h2 className="font-mono text-2xl font-normal text-primary">
+        <h2 className="font-mono text-2xl font-normal text-secondary">
           Install {app?.name || "App"}
         </h2>
-        <p className="text-primary max-w-md mx-auto">
+        <p className="text-secondary/70 max-w-md mx-auto">
           {app?.description || "Set up this application on your LibreServ device."}
         </p>
       </div>
@@ -107,7 +107,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
 
       {(requirements.min_ram || requirements.min_cpu || requirements.min_disk) && (
         <div className="space-y-2">
-          <p className="text-xs font-mono text-primary text-center uppercase tracking-wide">
+          <p className="text-xs font-mono text-secondary/70 text-center uppercase tracking-wide">
             Requirements
           </p>
           <div className="flex flex-wrap justify-center gap-2">
@@ -132,7 +132,7 @@ function OverviewStep({ app, features, onContinue, onBack }) {
         <Button
           type="button"
           variant="outline"
-          surface="secondary"
+          surface="primary"
           onClick={onBack}
           className="px-6"
         >
@@ -140,7 +140,8 @@ function OverviewStep({ app, features, onContinue, onBack }) {
         </Button>
         <Button
           type="button"
-          variant="primary"
+          variant="secondary"
+          surface="primary"
           onClick={onContinue}
           className="px-6"
         >
