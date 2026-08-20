@@ -127,6 +127,12 @@ fi
 # ---- compose container args ----
 ARGS=(
   --rm
+  # --privileged: the podman-build CI test runs `podman build` INSIDE this
+  # container (Container: "host" in ci-source). Rootless podman cannot clone
+  # user namespaces without CAP_SYS_ADMIN — without --privileged it fails
+  # with "cannot clone: Operation not permitted". --privileged is the
+  # standard way to run podman-in-docker (verified 2026-08-20).
+  --privileged
   -e "FORGEJO_TOKEN=${FORGEJO_TOKEN}"
   -e "AI_PROXY_API_KEY=${AI_PROXY_API_KEY}"
   -e "REPO_URL=${REPO_URL}"
