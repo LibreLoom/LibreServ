@@ -112,11 +112,12 @@ const AppCard = memo(AppCardInner);
 
 function NoAppsCard() {
   return (
-    <div className="xl:col-span-2">
+    <div className="xl:col-span-2 h-full">
       <Card
         noPopIn
+        noHeightAnim
         padding={false}
-        className="flex flex-col items-center text-center py-12 px-6"
+        className="h-full flex flex-col items-center justify-center text-center py-12 px-6"
         data-slot="no-apps-card"
       >
         <div

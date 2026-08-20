@@ -21,22 +21,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 echo "==> cargo test"
 cargo test --workspace
 
-# The shipped Luna OS build enables the `ble` (BlueZ GATT) feature; it must
-# compile and lint clean too, not just the default build. It needs the dbus
-# dev headers, so skip with a warning on hosts that lack them (e.g. a bare CI
-# container) rather than failing the whole run.
-if pkg-config --exists dbus-1 2>/dev/null; then
-  echo "==> cargo clippy (ble feature)"
-  cargo clippy -p lunad --features ble --all-targets -- -D warnings
-
-  echo "==> cargo test (ble feature)"
-  cargo test -p lunad --features ble
-else
-  echo "==> skipping ble-feature checks (dbus-1 dev headers not installed)"
-fi
-
 echo "==> os scripts"
-sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh
+sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/rapidinstall.sh \
+	os/lib/disk.sh os/lib/flash-disk.sh os/lib/disk_test.sh os/iso/init \
+	os/iso/build-live.sh os/iso/build-xorriso.sh
+sh os/lib/disk_test.sh
 
 echo "==> desktop core"
 (

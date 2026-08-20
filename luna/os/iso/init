@@ -1,0 +1,50 @@
+#!/bin/sh
+# Initramfs entry for the Luna rapidinstall ISO.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev 2>/dev/null || mount -t tmpfs dev /dev
+mkdir -p /dev/pts /src /tmp
+ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
+
+if [ -d /lib/modules ]; then
+	for m in isofs iso9660 sr_mod usb-common usbcore ehci-hcd ehci-pci xhci-hcd xhci-pci \
+		usb-storage uas mmc_core mmc_block sdhci sdhci-pci sdhci-acpi \
+		pinctrl-intel pinctrl-cherryview pwm-lpss pwm-lpss-pci \
+		ahci sd_mod nvme virtio virtio_pci virtio_blk virtio_scsi \
+		ext4 fat vfat nls_cp437 crc32c_generic crc32c; do
+		modprobe "$m" 2>/dev/null || true
+	done
+fi
+
+i=0
+SRCDEV=""
+while [ "$i" -lt 40 ]; do
+	SRCDEV="$(blkid -L LUNAINST 2>/dev/null || true)"
+	if [ -n "$SRCDEV" ]; then
+		break
+	fi
+	sleep 1
+	i=$((i + 1))
+done
+if [ -z "$SRCDEV" ]; then
+	for c in /dev/sr0 /dev/sda /dev/sdb /dev/sdc /dev/sda1 /dev/sdb1 /dev/sdc1; do
+		if mount -o ro "$c" /src 2>/dev/null; then
+			if [ -f /src/rapidinstall.sh ]; then
+				SRCDEV="$c"
+				break
+			fi
+			umount /src 2>/dev/null || true
+		fi
+	done
+else
+	mount -o ro "$SRCDEV" /src
+fi
+
+if [ ! -f /src/rapidinstall.sh ]; then
+	echo "Luna installer USB not found. Dropping to a shell."
+	exec setsid cttyhack sh
+fi
+export LUNA_INSTALL_MEDIA="$SRCDEV"
+cd /src
+exec /bin/sh /src/rapidinstall.sh

@@ -148,6 +148,7 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
         );",
     )?;
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
+    ensure_column(&conn, "photos", "taken_at", "INTEGER NOT NULL DEFAULT 0")?;
     Ok(conn)
 }
 
@@ -475,6 +476,38 @@ pub fn delete_user(conn: &Connection, id: &str) -> anyhow::Result<()> {
     conn.execute("DELETE FROM grants WHERE user_id = ?1", params![id])?;
     conn.execute("DELETE FROM users WHERE id = ?1", params![id])?;
     Ok(())
+}
+
+pub fn set_user_password_hash(
+    conn: &Connection,
+    id: &str,
+    password_hash: &str,
+) -> anyhow::Result<()> {
+    let now = now_unix();
+    let n = conn.execute(
+        "UPDATE users SET password_hash = ?1, updated_at = ?2 WHERE id = ?3",
+        params![password_hash, now, id],
+    )?;
+    if n == 0 {
+        anyhow::bail!("user not found");
+    }
+    Ok(())
+}
+
+pub fn first_admin(conn: &Connection) -> anyhow::Result<Option<UserRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, username, display_name, password_hash, role FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1",
+    )?;
+    let mut rows = stmt.query_map([], |row| {
+        Ok(UserRow {
+            id: row.get(0)?,
+            username: row.get(1)?,
+            display_name: row.get(2)?,
+            password_hash: row.get(3)?,
+            role: row.get(4)?,
+        })
+    })?;
+    Ok(rows.next().transpose()?)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

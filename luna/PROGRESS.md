@@ -11,8 +11,8 @@
       immutable cache headers for hashed assets
 - [x] `ci.sh`: cargo fmt/clippy/test + web install/build/test/lint/typecheck (all green)
 - [x] Hardware qualification checklist written (`hardware/QUALIFICATION.md`)
-- [ ] Physically qualify Wi-Fi + BLE dongles on a Wyse 5020 and lock the BOM
-- [ ] Wire `ci.sh` into the repo's `./ci` runner
+- [ ] Physically qualify a Wi-Fi dongle (AP + station) on a Wyse 3040 and lock the BOM
+- [x] Wire `ci.sh` into the repo's `./ci` runner (`./ci run -profile luna`; also in full/nightly/nofuzz)
 
 ## M1 — Safe drive handling (IN PROGRESS)
 - [x] Drive lifecycle states in `luna-core` (`unknown/foreign/as_is/readonly/missing/ejected/failed`)
@@ -55,11 +55,7 @@
 - [x] Setup wizard UI (/setup): welcome with the four discovery paths, connection
       check (Ethernet optional/required logic), Wi-Fi scan + password + connect,
       name Luna, done → drives
-- [x] BLE protocol core (byte-compatible with LibreServ's HTTP-over-GATT): same
-      UUIDs, JSON shapes, auth-code flow, 300-byte base64 chunking, pending
-      reassembly + timeout sweep; executes against Luna's own router
-- [x] BlueZ (bluer) GATT peripheral transport on Luna OS (done in M11)
-- [x] LibreServ: Wi-Fi wizard step after Welcome/Preflight + BLE shipped as the default build
+- [x] LibreServ: Wi-Fi wizard step after Welcome/Preflight; offline setup uses an open "LibreServ Setup" access point
 
 ## M4 — Users, grants, shares (IN PROGRESS)
 - [x] Argon2 password hashing, JWT sessions (HttpOnly cookie + Bearer), first
@@ -87,9 +83,7 @@
 - [x] Auto-issue free Luna Connect keys (done in M11: POST /api/v1/luna/free-key)
 
 ## M6 — Luna Mobile (IN PROGRESS)
-- [x] Android project at `luna/mobile` forked from the LibreServ companion:
-      same BLE service UUIDs and HTTP-over-GATT proxy protocol, so one app
-      sets up Luna AND LibreServ; accepts 6- and 8-character setup codes
+- [x] Android project at `luna/mobile` (photo backup over the home network)
 - [x] Photo backup: native login screen stores a Luna JWT, WorkManager
       periodic worker (unmetered Wi-Fi + charging), MediaStore query since
       last backup, chunked uploads through Luna's resumable upload API to
@@ -123,18 +117,20 @@
 
 ## M8 — OS image + flash pipeline (DONE first pass)
 - [x] `os/build-rootfs.sh`: Alpine 3.24 rootfs via podman/apk (alpine-base,
-      openrc, avahi, wpa_supplicant, hostapd, bluez, e2fsprogs, exfatprogs,
+      openrc, avahi, wpa_supplicant, hostapd, e2fsprogs, exfatprogs,
       ntfs-3g-progs, smartmontools, syslinux, dhcpcd, util-linux), OpenRC
       services for sysinit/boot/default (lunad, avahi, wpa_supplicant),
       luna-net-fallback (169.254.42.42 direct-cable), musl release lunad
 - [x] `os/make-image.sh`: raw 1.2 GB ext4 image labeled LUNA from the rootfs
       (verified: debugfs shows /usr/local/bin/lunad + hostname)
-- [x] `os/flash.sh`: whole-disk-only, double confirmation, MBR + ext4 +
-      extract + extlinux bootloader install
+- [x] `os/flash.sh`: whole-disk-only, GPT bios_grub+ESP+root, GRUB BIOS+UEFI
+- [x] Rapidinstall ISO: `os/make-iso.sh` UEFI+BIOS hybrid USB; flashed disk is
+      GPT bios_grub+ESP+root with GRUB i386-pc and x86_64-efi so mini PCs,
+      Wyse 3040, and other x86_64 boxes can boot. Secure Boot must be off.
 - [x] `os/REHEARSAL.md`: 5-unit rehearsal checklist (materials, flash, first
       boot, setup, storage safety, links, remote, reliability, ship)
 - [x] Built rootfs booted in a container: lunad served /health
-- [ ] Flash a physical Wyse 5020 with `os/flash.sh` and run the rehearsal
+- [ ] Flash a physical Wyse 3040 with the rapidinstall ISO and run the rehearsal
 
 ## M9 — Luna Desktop (DONE first pass)
 - [x] Tauri 2 app at `luna/desktop` (Linux build verified; same code compiles
@@ -146,7 +142,7 @@
       Windows start/network-drive instructions
 - [x] `cargo test` green (HTTP client integration against a fake Luna API);
       `npm run build` green; `tauri build --no-bundle` produced a 13MB binary
-- [x] Tray icon/status + installer configuration (done in M11; final bundling runs per-platform)
+- [x] Tray icon/status + installer configuration (done in M11; Linux `make desktop-bundle` for deb/AppImage; macOS/Windows signing not required)
 - [ ] Real-machine mount/backup soak test
 
 ## M10 — Photo gallery (DONE first pass)
@@ -158,18 +154,19 @@
       (timeline, grant-checked), GET /api/v1/gallery/thumb (lazy + cached)
 - [x] Photos page (/gallery): drive picker, masonry grid, lazy images, links
       to originals
-- [ ] libvips/HEIC path + EXIF dates/albums/face search (future polish)
+- [x] HEIC/HEIF listing + EXIF capture dates for timeline sort (JPEG APP1 and
+      HEIF `Exif` item). Thumbs: embedded JPEG when present, else Alpine
+      `libheif-tools` (`heif-dec`). Originals untouched. Face search / albums not in this pass.
 
 ## M11 — Polish (IN PROGRESS)
-- [x] BlueZ BLE transport (feature `ble`): bluer GATT server advertising the
-      LibreServ-compatible UUIDs, write callbacks into BleCore, notification
-      sessions; `cargo check/clippy --features ble` green
 - [x] "Shared with me" view (/shared): lists the current user's grants with
       drive labels and opens FilesPage at the granted path (`?path=`)
-- [x] OS build documented for `--features ble`; rootfs already ships bluez
+- [x] OS build uses the default lunad binary (no BLE feature); rootfs ships hostapd+dnsmasq for setup AP
 - [x] AP-mode hotspot software: auto-starts open "Luna Setup" when no Ethernet/Wi-Fi and setup incomplete, stops when connected/setup done; hostapd+dnsmasq config; API start/stop/status; hardware qualification still pending
 - [x] Desktop tray icon (show/quit menu, left-click opens, tray-enabled release binary built); installer targets configured (deb/appimage/msi/dmg) — final bundling runs per-platform
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI
 - [x] Free one-tap Connect keys: Connect endpoint `/api/v1/luna/free-key` mints a free-plan account+key per Luna (10/hour/IP); Luna Remote page is now one tap with no key entry
-- [ ] Physical 5-unit rehearsal on Wyse 5020 hardware
+- [x] Locked-out admin recovery: USB keyboard sequence (Esc, then type `luna`, then Enter) on the appliance; TTY password reset; rate-limited; documented on setup done + Settings
+- [x] Software updates: Forgejo `luna-*` releases, SHA-256 verified `lunad-*` binary, tap-to-install in Settings (no silent apply)
+- [ ] Physical 5-unit rehearsal on Wyse 3040 hardware

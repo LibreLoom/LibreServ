@@ -301,6 +301,125 @@ pub fn delete_to_trash(
         .into_owned())
 }
 
+fn is_in_trash(rel: &str) -> bool {
+    rel == ".luna-trash" || rel.starts_with(".luna-trash/")
+}
+
+/// Best-effort original name: trash files are `{unix}-{name}` or `{unix}-{n}-{name}`.
+pub fn original_name_from_trash(trash_name: &str) -> String {
+    let Some((first, rest)) = trash_name.split_once('-') else {
+        return trash_name.to_string();
+    };
+    if !first.chars().all(|c| c.is_ascii_digit()) {
+        return trash_name.to_string();
+    }
+    if let Some((maybe_n, original)) = rest.split_once('-')
+        && maybe_n.chars().all(|c| c.is_ascii_digit())
+        && !maybe_n.is_empty()
+    {
+        return original.to_string();
+    }
+    rest.to_string()
+}
+
+/// List items sitting in `.luna-trash` on this drive.
+pub fn list_trash(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+) -> Result<Vec<FileEntry>, FilesError> {
+    let drive = drive_root(conn, drive_id)?;
+    let trash = PathBuf::from(&drive.mount_point).join(".luna-trash");
+    if !trash.exists() {
+        return Ok(Vec::new());
+    }
+    read_dir_entries(&trash)
+}
+
+/// Move an item out of `.luna-trash` onto the same drive (atomic rename).
+/// `dest_rel` is the destination path including the restored file name.
+pub fn restore_from_trash(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    trash_rel: &str,
+    dest_rel: &str,
+) -> Result<(), FilesError> {
+    if !is_in_trash(trash_rel) || trash_rel == ".luna-trash" {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a trash item",
+        )));
+    }
+    if is_in_trash(dest_rel) {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "cannot restore into trash",
+        )));
+    }
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let src = resolve_child(&root, trash_rel)?;
+    // Destination does not exist yet, so jail the parent (which must) and join
+    // a safe file name. resolve_child() requires an existing path.
+    let dest_path = Path::new(dest_rel);
+    let dest_name = dest_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| {
+            FilesError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid restore name",
+            ))
+        })?;
+    let dest_name = safe_name(dest_name)?;
+    let parent_rel = dest_path
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let parent = if parent_rel.is_empty() || parent_rel == "." {
+        resolve_child(&root, "")?
+    } else {
+        resolve_child(&root, &parent_rel)?
+    };
+    let dest = parent.join(&dest_name);
+    if dest.exists() {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "destination exists",
+        )));
+    }
+    std::fs::rename(&src, &dest).map_err(FilesError::Io)?;
+    if let Some(parent) = dest.parent()
+        && let Ok(dir) = std::fs::File::open(parent)
+    {
+        let _ = dir.sync_all();
+    }
+    Ok(())
+}
+
+/// Permanently remove one item that is already in `.luna-trash`.
+pub fn purge_trash(
+    conn: &rusqlite::Connection,
+    drive_id: &str,
+    trash_rel: &str,
+) -> Result<(), FilesError> {
+    if !is_in_trash(trash_rel) || trash_rel == ".luna-trash" {
+        return Err(FilesError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "not a trash item",
+        )));
+    }
+    let drive = drive_root(conn, drive_id)?;
+    let root = PathBuf::from(&drive.mount_point);
+    let path = resolve_child(&root, trash_rel)?;
+    let meta = std::fs::symlink_metadata(&path).map_err(FilesError::Io)?;
+    if meta.is_dir() {
+        std::fs::remove_dir_all(&path).map_err(FilesError::Io)?;
+    } else {
+        std::fs::remove_file(&path).map_err(FilesError::Io)?;
+    }
+    Ok(())
+}
+
 /// Rename a file or folder within its current directory. Never overwrites.
 pub fn rename(
     conn: &rusqlite::Connection,
@@ -405,6 +524,52 @@ mod tests {
         assert!(trash_rel.starts_with(".luna-trash/"));
         assert!(!root.join("renamed.txt").exists());
         assert!(root.join(&trash_rel).exists());
+
+        restore_from_trash(&conn, &id, &trash_rel, "back.txt").unwrap();
+        assert!(root.join("back.txt").exists());
+        assert!(!root.join(&trash_rel).exists());
+        assert_eq!(std::fs::read(root.join("back.txt")).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn restore_is_same_drive_and_never_overwrites() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        std::fs::write(root.join("a.txt"), b"a").unwrap();
+        std::fs::write(root.join("taken.txt"), b"taken").unwrap();
+        let trash_rel = delete_to_trash(&conn, &id, "a.txt").unwrap();
+        assert!(restore_from_trash(&conn, &id, &trash_rel, "taken.txt").is_err());
+        assert!(root.join(&trash_rel).exists());
+        assert_eq!(std::fs::read(root.join("taken.txt")).unwrap(), b"taken");
+    }
+
+    #[test]
+    fn purge_only_touches_trash() {
+        let (_dir, conn, id) = drive_dir();
+        let root = std::path::Path::new(&db::get_drive(&conn, &id).unwrap().unwrap().mount_point)
+            .to_path_buf();
+        std::fs::write(root.join("keep.txt"), b"keep").unwrap();
+        assert!(purge_trash(&conn, &id, "keep.txt").is_err());
+        assert!(root.join("keep.txt").exists());
+
+        let trash_rel = delete_to_trash(&conn, &id, "keep.txt").unwrap();
+        purge_trash(&conn, &id, &trash_rel).unwrap();
+        assert!(!root.join(&trash_rel).exists());
+        assert!(list_trash(&conn, &id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn original_name_from_trash_strips_nonce() {
+        assert_eq!(
+            original_name_from_trash("1710000000-photo.jpg"),
+            "photo.jpg"
+        );
+        assert_eq!(
+            original_name_from_trash("1710000000-2-photo.jpg"),
+            "photo.jpg"
+        );
+        assert_eq!(original_name_from_trash("plain"), "plain");
     }
 
     #[test]

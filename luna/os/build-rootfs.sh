@@ -6,7 +6,9 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-ALPINE_IMAGE="${ALPINE_IMAGE:-docker.io/library/alpine:latest}"
+ALPINE_IMAGE="${ALPINE_IMAGE:-docker.io/library/alpine:3.24}"
+# Pinned for reproducibility; override with digest in CI if needed (e.g. alpine:3.24@sha256:...).
+case "$ALPINE_IMAGE" in *:latest) echo "ALPINE_IMAGE must be pinned (e.g. 3.24), got $ALPINE_IMAGE" >&2; exit 1;; esac
 ALPINE_VERSION="${ALPINE_VERSION:-v3.24}"
 ARCH="${ARCH:-x86_64}"
 WORK="$ROOT/os/work"
@@ -36,18 +38,27 @@ podman run --rm -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
-        alpine-base openrc \
-        avahi wpa_supplicant hostapd bluez \
+        alpine-base openrc linux-lts \
+        avahi wpa_supplicant hostapd \
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux dnsmasq \
         dhcpcd ca-certificates ssl_client \
+        libheif libheif-tools \
         hdparm \
         chrony logrotate
+
+    mkdir -p /rootfs/proc /rootfs/sys /rootfs/dev
+    mount -t proc proc /rootfs/proc
+    mount -t sysfs sys /rootfs/sys
+    mount --bind /dev /rootfs/dev
+    chroot /rootfs /sbin/mkinitfs || true
+    umount /rootfs/dev /rootfs/sys /rootfs/proc
 
     # Luna keeps its own clock in sync (chrony) so TLS certificate validation
     # and share expiry work even if the RTC drifts. It does not pull updates.
     rm -f /rootfs/etc/apk/repositories
     ln -s /bin/busybox /rootfs/usr/bin/logger 2>/dev/null || true
+    apk info --root /rootfs -v | sort > /rootfs/etc/apk-manifest.txt
 '
 
 # Lay down Luna OS config (owned files, no secrets).
@@ -115,6 +126,7 @@ install -m 0755 "$BIN" "$ROOTFS/usr/local/bin/lunad"
 mkdir -p "$ROOTFS/var/lib/luna"
 
 # Tar inside the container so suid files (e.g. busybox bbsuid) are readable.
+# GNU tar (not BusyBox) for --sort=name / --mtime so the archive is deterministic.
 podman run --rm -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" \
-    sh -euc "tar -C /rootfs -czf /out/luna-rootfs-$ARCH.tar.gz ."
+    sh -euc "apk add --no-cache tar >/dev/null && tar --sort=name --mtime=@946684800 --owner=0 --group=0 --numeric-owner -C /rootfs -czf /out/luna-rootfs-$ARCH.tar.gz ."
 printf 'built %s\n' "$OUT/luna-rootfs-$ARCH.tar.gz"

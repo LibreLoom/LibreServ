@@ -4,7 +4,7 @@ PORT ?= 8090
 DATA_DIR ?= $(ROOT)/dev
 MAKEFLAGS += --no-print-directory
 
-.PHONY: web build test run dev dev-daemon dev-web lint clean
+.PHONY: web build test run dev dev-daemon dev-web lint clean iso desktop desktop-bundle desktop-dev
 
 web:
 	cd web && npm install --no-audit --no-fund
@@ -43,6 +43,22 @@ lint:
 	cargo clippy --workspace -- -D warnings
 	cd web && npm run lint
 
+iso:
+	./os/make-iso.sh
+
 clean:
 	cargo clean
 	rm -rf web/node_modules web/dist crates/lunad/web/dist
+
+# Linux desktop: one command for a bundled .deb + AppImage. No Apple/Windows
+# signing. Needs webkitgtk and the Tauri Linux deps (see desktop/README.md).
+desktop-dev:
+	cd desktop && npm install --no-audit --no-fund && npm run tauri -- dev
+
+desktop:
+	cd desktop && npm install --no-audit --no-fund
+	cd desktop/src-tauri && cargo test
+	cd desktop && npm run tauri -- build --no-bundle
+
+desktop-bundle: desktop
+	cd desktop && npm run tauri -- build --bundles deb,appimage

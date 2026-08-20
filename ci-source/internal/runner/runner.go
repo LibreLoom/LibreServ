@@ -265,6 +265,15 @@ func (r *Runner) runHostTest(ctx context.Context, t *tests.Test) *tests.TestResu
 
 	cmd := exec.CommandContext(testCtx, "sh", "-c", t.Command)
 	cmd.Dir = r.repoPath
+	if t.WorkDir != "" {
+		if rel, ok := strings.CutPrefix(t.WorkDir, "/repo"); ok {
+			cmd.Dir = filepath.Join(r.repoPath, strings.TrimPrefix(rel, "/"))
+		} else if filepath.IsAbs(t.WorkDir) {
+			cmd.Dir = t.WorkDir
+		} else {
+			cmd.Dir = filepath.Join(r.repoPath, t.WorkDir)
+		}
+	}
 	cmd.Env = append(os.Environ(), t.Env...)
 
 	out, err := cmd.CombinedOutput()
@@ -1046,14 +1055,11 @@ func findRepoRoot() (string, error) {
 			if _, err := os.Stat(filepath.Join(dir, "connect")); err == nil {
 				return dir, nil
 			}
-			if _, err := os.Stat(filepath.Join(dir, "companion")); err == nil {
-				return dir, nil
-			}
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", fmt.Errorf("could not find repo root (looked for server/ and connect/ or companion/ dirs)")
+			return "", fmt.Errorf("could not find repo root (looked for server/ and connect/ dirs)")
 		}
 		dir = parent
 	}

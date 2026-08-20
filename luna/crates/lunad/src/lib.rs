@@ -1,15 +1,15 @@
 pub mod api;
 pub mod auth;
-pub mod ble;
-pub mod ble_bluez;
 pub mod config;
 pub mod connect;
 pub mod dav;
 pub mod db;
 pub mod detect;
 pub mod drives;
+pub mod exif;
 pub mod files;
 pub mod gallery;
+pub mod heif;
 pub mod hotspot;
 pub mod index;
 pub mod jobs;
@@ -17,9 +17,11 @@ pub mod mount;
 pub mod net;
 pub mod protect;
 pub mod rate_limit;
+pub mod recovery;
 pub mod scrub;
 pub mod smart;
 pub mod staticweb;
+pub mod updates;
 pub mod uploads;
 pub mod wifi;
 
@@ -46,6 +48,7 @@ pub struct AppState {
     pub share_limiter: Arc<crate::rate_limit::RateLimiter>,
     pub thumb_dir: std::path::PathBuf,
     pub hotspot: std::sync::Arc<Mutex<Option<crate::hotspot::CommandHotspot>>>,
+    pub updates: std::sync::Arc<crate::updates::UpdateService>,
 }
 
 impl AppState {
@@ -83,6 +86,7 @@ impl AppState {
             )),
             thumb_dir: std::path::PathBuf::from("/var/lib/luna/thumbs"),
             hotspot: Arc::new(Mutex::new(None)),
+            updates: Arc::new(crate::updates::UpdateService::from_env()),
         }
     }
 
@@ -98,6 +102,11 @@ impl AppState {
 
     pub fn with_thumb_dir(mut self, thumb_dir: std::path::PathBuf) -> Self {
         self.thumb_dir = thumb_dir;
+        self
+    }
+
+    pub fn with_updates(mut self, updates: Arc<crate::updates::UpdateService>) -> Self {
+        self.updates = updates;
         self
     }
 

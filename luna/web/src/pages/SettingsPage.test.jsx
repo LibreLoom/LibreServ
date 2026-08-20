@@ -1,0 +1,36 @@
+import { describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
+import { AuthProvider } from "../context/AuthContext";
+import SettingsPage, { RECOVERY_CARD } from "./SettingsPage";
+
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <AuthProvider>
+          <SettingsPage />
+        </AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+describe("SettingsPage", () => {
+  it("prints the keyboard recovery card in plain language", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const u = String(url);
+      if (u.includes("/auth/me")) return new Response(JSON.stringify({ id: "1", username: "max", role: "admin" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/api/v1/setup")) return new Response(JSON.stringify({ name: "Luna", setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/system/updates")) return new Response(JSON.stringify({ current_version: "0.1.0", latest_version: "luna-0.1.0", update_available: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response("{}", { status: 404 });
+    }));
+    renderPage();
+    expect(await screen.findByRole("heading", { name: RECOVERY_CARD.title })).toBeTruthy();
+    expect(screen.getByText(/Plug a USB keyboard into Luna/i)).toBeTruthy();
+    expect(screen.getByText(/Press Esc, then type luna, then press Enter/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Check for updates/i })).toBeTruthy();
+  });
+});

@@ -7,7 +7,7 @@ import Navbar from "./components/ui/Navbar";
 import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
 import GalleryPage from "./pages/GalleryPage";
-import LandingPage from "./pages/LandingPage";
+import DashboardPage from "./pages/DashboardPage";
 import LoginPage from "./pages/LoginPage";
 import RemotePage from "./pages/RemotePage";
 import SharedPage from "./pages/SharedPage";
@@ -16,6 +16,7 @@ import UsersPage from "./pages/UsersPage";
 import SetupPage from "./pages/SetupPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProtectionPage from "./pages/ProtectionPage";
+import SettingsPage from "./pages/SettingsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -55,7 +56,7 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
               <Route element={<AppShell />}>
-                <Route path="/" element={<LandingPage />} />
+                <Route path="/" element={<DashboardPage />} />
                 <Route path="/drives" element={<DrivesPage />} />
                 <Route path="/drives/:id" element={<FilesPage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
@@ -64,6 +65,7 @@ export default function App() {
                 <Route path="/shared" element={<SharedPage />} />
                 <Route path="/settings/protect" element={<ProtectionPage />} />
                 <Route path="/settings/remote" element={<RemotePage />} />
+                <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>

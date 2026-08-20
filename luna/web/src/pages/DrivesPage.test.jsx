@@ -5,23 +5,83 @@ import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
 import DrivesPage from "./DrivesPage";
 
+function stubDrivesApi(extra = {}) {
+  vi.stubGlobal("fetch", vi.fn(async (url) => {
+    const u = String(url);
+    if (extra.fetch) {
+      const hit = extra.fetch(u);
+      if (hit) return hit;
+    }
+    if (u.endsWith("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+      return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.endsWith("/setup") || u.endsWith("/api/v1/setup")) {
+      return new Response(JSON.stringify({ setup_completed: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (u.endsWith("/drives")) {
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.endsWith("/drives/detected")) {
+      return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return new Response("{}", { status: 500 });
+  }));
+}
+
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <AuthProvider>
+          <DrivesPage />
+        </AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
+  );
+}
+
 describe("DrivesPage", () => {
   it("tells the user nothing is touched until they choose", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url) => {
-      if (String(url).endsWith("/drives")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
-      if (String(url).endsWith("/drives/detected")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
-      return new Response("{}", { status: 500 });
-    }));
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <MemoryRouter>
-        <QueryClientProvider client={client}>
-          <AuthProvider>
-            <DrivesPage />
-          </AuthProvider>
-        </QueryClientProvider>
-      </MemoryRouter>
-    );
+    stubDrivesApi();
+    renderPage();
     expect(screen.getAllByText(/Plug a USB drive/i).length).toBeGreaterThan(0);
+  });
+
+  it("uses a page heading for plugged-in drives, not a stacked title card", async () => {
+    stubDrivesApi();
+    renderPage();
+    const heading = await screen.findByRole("heading", { name: /Drives plugged in now/i, level: 2 });
+    expect(heading.tagName).toBe("H2");
+    expect(heading.closest("[data-slot=card]")).toBeNull();
+    expect(await screen.findByText(/Nothing new plugged in/i)).toBeInTheDocument();
+  });
+
+  it("shows plain-language drive health for an admin", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives")) {
+          return new Response(JSON.stringify([{
+            id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (u.includes("/health")) {
+          return new Response(JSON.stringify({
+            available: true, overall: "passed", temperature_c: 31, reallocated_sectors: 0,
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    expect(await screen.findByText(/Looking healthy/i)).toBeInTheDocument();
+    expect(screen.getByText(/31°C/)).toBeInTheDocument();
+    expect(screen.queryByText(/smartctl/i)).not.toBeInTheDocument();
   });
 });

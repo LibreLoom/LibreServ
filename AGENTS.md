@@ -6,6 +6,7 @@
 |---------|-------------|
 | `./ci` | Interactive CI runner (auto-builds if needed) |
 | `./ci run -profile full` | Run full CI suite non-interactively |
+| `./ci run -profile luna` | Luna only (`luna/ci.sh`: Rust, web, desktop, mobile) |
 | `cd server/backend && make lint` | Format check + vet Go code |
 | `cd server/frontend && npm run lint && npm run typecheck` | Lint + typecheck frontend |
 
@@ -65,10 +66,6 @@ LibreServ/
 │                             # with chi/v5 API, SQLite, Stripe billing. Provides external services to
 │                             # LibreServ devices: email relay, DNS/domain, cloud backups, tunnel access,
 │                             # AI inference, and human support. Has its own configs, admin API, and device API.
-├── companion/                # BLE companion apps for accessing LibreServ when Wi-Fi is unavailable.
-│                             # Both proxy HTTP over BLE to load the full Web UI.
-│                             #   linux/   — Go + GTK4/libadwaita desktop app (opens browser via local proxy)
-│                             #   android/ — Kotlin Android app (embedded WebView via local proxy)
 ├── ci-source/                # Custom CI runner source (binaries gitignored; ./ci launcher auto-rebuilds)
 ```
 
@@ -111,33 +108,6 @@ make test                                     # Unit tests
 make lint                                     # gofmt + go vet
 ```
 Env prefix: `CONNECT_` (viper), e.g. `CONNECT_SERVER_PORT`, `CONNECT_AUTH_ADMIN_TOKEN_SECRET`.
-
-### BLE Companion Apps
-Linux desktop app (Go + GTK4/libadwaita):
-```bash
-cd companion/linux
-go mod tidy
-go build -o libreserv-ble-companion           # Requires BlueZ, GTK4, libadwaita
-./libreserv-ble-companion
-```
-
-Android app (Kotlin + Gradle):
-```bash
-cd companion/android
-gradle assembleDebug                         # Requires Android SDK 34
-# (the Gradle wrapper scaffold is generated/untracked; open in Android Studio
-#  to provision `./gradlew`, or use the `gradle` command directly)
-# APK → app/build/outputs/apk/debug/app-debug.apk
-```
-
-### Backend with BLE support
-The backend BLE GATT peripheral is compiled only with the `libreserv_ble` build tag.
-```bash
-cd server/backend
-make ble-build                                # Build with BLE support
-make ble-run                                  # Build + run with BLE
-```
-When BLE is enabled, a companion app can connect over Bluetooth LE and proxy HTTP requests to access the Web UI without Wi-Fi.
 
 ---
 
@@ -289,7 +259,7 @@ rm -rf server/backend/dev/data server/backend/dev/apps server/backend/dev/logs
 - **CI:** `./ci` is a custom Go binary that runs tests in containers via **Podman** (not Docker). The runner connects to Podman's Docker-compatible socket (rootless `$XDG_RUNTIME_DIR/podman/podman.sock`, then rootful, then Docker fallback) and starts `systemctl --user start podman.socket` if needed. Bind mounts use the `:z` SELinux relabel (required by Podman rootless on this SELinux-enforcing host). The `./ci` launcher builds `ci-source/bin/ci-<os>-<arch>` from source and **auto-rebuilds it when any `ci-source/*.go` is newer than the binary** — the binaries are gitignored, so edits to `ci-source/` are picked up automatically on the next `./ci` run. To prebuild all platforms locally, run `ci-source/build.sh` (Windows: `ci-source/build.ps1`). E2E (Playwright) tests are **removed** for now — they'll be re-added with broader coverage later. The `podman-build` test uses `Container: "host"` (runs `podman build` on the host, not in a container — SELinux blocks mounting the podman socket into a container). No GitHub Actions — all CI is local.
 - **No `libreserv.sh`** in repo — use `make run` from `server/backend/` for development instead
 - **Connect module:** `gt.plainskill.net/LibreLoom/LibreServConnect` — independent Go module in `connect/`. It has its own chi/v5 router, SQLite database, config (env prefix `CONNECT_`), and admin/device APIs. Not part of the main backend binary.
-- **BLE proxy:** `internal/network/bluetooth/` implements a GATT peripheral that proxies HTTP over BLE. Compiled only with the `libreserv_ble` build tag (see `make ble-build`). The `companion/` apps connect to this service.
+- **Setup hotspot:** If setup isn't finished and there's no cable or home Wi-Fi, LibreServ briefly broadcasts an open network named "LibreServ Setup" (`internal/wifi` hostapd+dnsmasq). A phone joins that network, opens the wizard, and the hotspot stops once the box is online.
 
 ## Frontend Components
 

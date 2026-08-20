@@ -106,7 +106,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             placeholder="Minimum 12 characters (letters and numbers)"
             className={cn(
               "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
-              errors.newPassword && "border-accent",
+              errors.newPassword && "border-error",
               !errors.newPassword && "border-primary/30 focus:border-accent",
             )}
             disabled={loading}
@@ -115,7 +115,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           />
         </div>
         {errors.newPassword && (
-          <p id="new-password-error" className="text-secondary/80 text-xs mt-1 px-5">
+          <p id="new-password-error" className="text-error text-xs mt-1 px-5 animate-fade-in-up">
             {errors.newPassword}
           </p>
         )}
@@ -142,7 +142,7 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
             placeholder="Re-enter the new password"
             className={cn(
               "w-full pl-11 pr-4 py-2 border-2 rounded-pill focus-visible:ring-2 focus:ring-accent focus:ring-offset-2",
-              errors.confirm && "border-accent",
+              errors.confirm && "border-error",
               !errors.confirm && "border-primary/30 focus:border-accent",
             )}
             disabled={loading}
@@ -151,14 +151,14 @@ export default function SetPasswordForm({ user, onSuccess, onCancel }) {
           />
         </div>
         {errors.confirm && (
-          <p id="confirm-password-error" className="text-secondary/80 text-xs mt-1 px-5">
+          <p id="confirm-password-error" className="text-error text-xs mt-1 px-5 animate-fade-in-up">
             {errors.confirm}
           </p>
         )}
       </div>
 
       {errors.form && (
-        <div className="bg-accent/10 border border-accent/50 rounded-pill px-4 py-2 text-secondary/80 text-sm text-center">
+        <div className="bg-error/10 border border-error/30 rounded-pill px-4 py-2 text-error text-sm text-center">
           {errors.form}
         </div>
       )}

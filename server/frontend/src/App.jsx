@@ -45,7 +45,8 @@ function DataPage({ children }) {
 export default function App() {
   return (
     <ErrorBoundary>
-      <Agentation />
+      {/* Dev-only annotation toolbar; tree-shaken out of production builds. */}
+      {import.meta.env.DEV && <Agentation />}
       <Suspense fallback={<LoadingFast />}>
         <Routes>
           {/* App shell routes: gated by auth to keep public access minimal. */}

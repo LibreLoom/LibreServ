@@ -11,11 +11,11 @@
   },
   "app": {
     "windows": [{ "title": "Luna Desktop", "width": 900, "height": 700 }],
-    "security": { "csp": null }
+    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://luna.local http://luna.home http://169.254.42.42 http://127.0.0.1:* http://localhost:* http://* https:" }
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage", "msi", "dmg"],
+    "targets": ["deb", "appimage"],
     "icon": ["icons/icon.png"]
   }
 }

@@ -28,7 +28,6 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/logger"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/monitoring"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/network"
-	"gt.plainskill.net/LibreLoom/LibreServ/internal/network/bluetooth"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/notify"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/oidc"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/podman"
@@ -38,6 +37,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/storage/restic"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/system"
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/wifi"
 )
 
 func main() {
@@ -516,36 +516,38 @@ func main() {
 		}
 	})
 
-	bluetooth.SetRouter(server.Router())
-	bleSvc := bluetooth.NewService("", slog.Default())
-	if cfg.Network.Bluetooth.Enabled {
-		setupCode, err := setupService.SetupToken(context.Background())
-		if err != nil {
-			slog.Warn("failed to retrieve setup code, skipping bluetooth", "error", err)
-		} else {
-			bleSvc = bluetooth.NewService(setupCode, slog.Default())
-			if err := bleSvc.Start(); err != nil {
-				slog.Warn("failed to start bluetooth service", "error", err)
-			}
-		}
-		// BLE is a setup bootstrap, not a permanent radio. Once setup is
-		// complete the phone has been handed off to LAN, so stop advertising
-		// the setup GATT service to save power and surface. A later factory
-		// reset restarts BLE on the next process start.
-		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					if setupService.IsComplete(context.Background()) {
-						bleSvc.Stop()
-						slog.Info("bluetooth bootstrap stopped: setup complete")
-						return
-					}
+	var setupPortal *wifi.SetupPortal
+	if !setupService.IsComplete(context.Background()) {
+		wifiProvider := wifi.Auto()
+		st, _ := wifiProvider.Status()
+		if !wifi.EthernetConnected() && !st.Connected {
+			if iface := wifi.FindWirelessInterface(); iface != "" {
+				nets, _ := wifiProvider.Scan()
+				runDir := filepath.Join(filepath.Dir(cfg.Database.Path), "run")
+				portal := wifi.NewSetupPortal(iface, runDir)
+				portal.SetCache(nets)
+				if err := portal.Start(); err != nil {
+					slog.Warn("setup hotspot unavailable", "error", err)
+				} else {
+					setupPortal = portal
+					wifi.SetActivePortal(portal)
+					slog.Info("setup hotspot active", "ssid", wifi.SetupSSID)
+					go func() {
+						ticker := time.NewTicker(30 * time.Second)
+						defer ticker.Stop()
+						for range ticker.C {
+							st, _ := wifiProvider.Status()
+							if setupService.IsComplete(context.Background()) || wifi.EthernetConnected() || st.Connected {
+								_ = portal.Stop()
+								wifi.SetActivePortal(nil)
+								slog.Info("setup hotspot stopped")
+								return
+							}
+						}
+					}()
 				}
 			}
-		}()
+		}
 	}
 
 	errCh := make(chan error, 1)
@@ -591,7 +593,9 @@ func main() {
 		if mdnsService != nil {
 			mdnsService.Stop()
 		}
-		bleSvc.Stop()
+		if setupPortal != nil {
+			_ = setupPortal.Stop()
+		}
 
 		// Re-execute the current binary
 		execPath, _ := os.Executable()
@@ -608,7 +612,9 @@ func main() {
 	if mdnsService != nil {
 		mdnsService.Stop()
 	}
-	bleSvc.Stop()
+	if setupPortal != nil {
+		_ = setupPortal.Stop()
+	}
 	_ = runtimeClient.Close()
 }
 
