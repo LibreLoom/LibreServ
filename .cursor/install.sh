@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Cloud Agent install step for LibreServ.
+# Cloud Agent install step for LibreServ + Luna.
 #
 # Idempotent: safe to run repeatedly and against a cached/partially prepared
-# checkout. Prepares the backend (Go 1.26 + config + modules) and frontend
-# (Node deps + build). No long-running processes are started here — the dev
-# servers live in the environment's `terminals`.
+# checkout. Prepares the backend (Go 1.26 + config + modules), LibreServ
+# frontend (Node deps + build), and Luna (Rust 1.96 + lunad build + web deps).
+# No long-running processes are started here — the dev servers live in the
+# environment's `terminals`.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GO_VERSION="1.26.6"
+RUST_VERSION="1.96.0"
 
 # Run a command with root privileges whether or not we already are root.
 as_root() {
@@ -63,7 +65,37 @@ install_fj() {
 }
 install_fj
 
-# ── 3. Backend (Go) ──────────────────────────────────────────────────────────
+# ── 3. Rust toolchain (Luna) ─────────────────────────────────────────────────
+# Luna requires Rust 1.96 with edition 2024 (see luna/Cargo.toml). The default
+# Cloud Agent image ships an older toolchain, so install 1.96 via rustup and
+# expose cargo/rustc on PATH for every future shell.
+install_rust() {
+  export RUSTUP_HOME="${RUSTUP_HOME:-/usr/local/rustup}"
+  export CARGO_HOME="${CARGO_HOME:-/usr/local/cargo}"
+
+  if ! command -v rustup >/dev/null 2>&1; then
+    echo ">> Installing rustup (default toolchain ${RUST_VERSION})"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --no-modify-path --default-toolchain "${RUST_VERSION}"
+  fi
+
+  # shellcheck disable=SC1091
+  [ -f "${CARGO_HOME}/env" ] && source "${CARGO_HOME}/env"
+
+  echo ">> Ensuring Rust ${RUST_VERSION}"
+  rustup install "${RUST_VERSION}"
+  rustup default "${RUST_VERSION}"
+
+  as_root ln -sf "${CARGO_HOME}/bin/cargo" /usr/local/bin/cargo
+  as_root ln -sf "${CARGO_HOME}/bin/rustc" /usr/local/bin/rustc
+  as_root ln -sf "${CARGO_HOME}/bin/rustup" /usr/local/bin/rustup
+
+  rustc --version
+  cargo --version
+}
+install_rust
+
+# ── 4. Backend (Go) ──────────────────────────────────────────────────────────
 echo ">> Preparing backend"
 cd "${REPO_ROOT}/server/backend"
 # The server refuses to run without a config file; seed it from the example on
@@ -77,7 +109,7 @@ go mod download
 # falls back to a tar-based backup path when restic is absent.
 make restic-fetch || echo ">> restic fetch skipped (backups will use the tar fallback)"
 
-# ── 4. Frontend (Node) ───────────────────────────────────────────────────────
+# ── 5. Frontend (Node) ───────────────────────────────────────────────────────
 echo ">> Preparing frontend"
 cd "${REPO_ROOT}/server/frontend"
 npm ci
@@ -86,4 +118,11 @@ npm ci
 # the Vite dev server from the `terminals` config.
 npm run build
 
-echo ">> LibreServ install complete"
+# ── 6. Luna (Rust daemon + web) ───────────────────────────────────────────────
+echo ">> Preparing Luna"
+cd "${REPO_ROOT}/luna/web"
+npm ci
+cd "${REPO_ROOT}/luna"
+make build-daemon
+
+echo ">> LibreServ + Luna install complete"
