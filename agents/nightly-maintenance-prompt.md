@@ -109,12 +109,12 @@ otherwise flag with a diagnosis (see ground rule 4).
   fabricate documentation.
 
 ### 5. Fresh-eyes review
-Before opening the PR, have a second fresh agent (no shared context with you)
+Before opening ANY PR, have a second fresh agent (no shared context with you)
 review your complete diff. Fix or justify everything it flags. Anything it flags
 in the auth/security/UI space goes into the PR as a flagged item — never merged
 silently.
 
-### 6. One PR
+### 6. Maintenance PR (one)
 - Branch: `chore/nightly-YYYY-MM-DD` (or `fix/...` if fixes dominate).
 - Commit subject: conventional, e.g. `chore(maintenance): nightly deps, docs, test fixes`.
 - Open the PR via the Forgejo API using `FORGEJO_TOKEN`.
@@ -125,12 +125,45 @@ silently.
   - Every flagged code finding (auth/security/UI, new deps, major versions) with
     diagnosis.
   - Docs changes and which commits they correspond to.
-- If nothing changed: do NOT open a PR. Log "no changes" and exit.
+- If nothing changed: do NOT open a maintenance PR. Log "no changes" and exit.
+
+### 7. Issue-driven suggestion PRs (NEW — one per actionable issue)
+After the maintenance PR (or instead of it if there was nothing to ship), scan
+the repo's open issues and create merge-ready suggestion PRs for them.
+
+- Fetch open issues: `GET /api/v1/repos/{owner}/{repo}/issues?state=open&type=issues`
+  (type=issues EXCLUDES pull requests). For each, check:
+  - Is it a PR (has `pull_request` field)? Skip.
+  - Is it already addressed by an open PR? Check open PRs for one whose title or
+    body references the issue number (`Closes #N`, `Fixes #N`, `#N`). Skip if so.
+  - Is it actionable and mechanically safe to fix? Bugs, typos, clear test
+    failures, missing validation, obvious logic errors → candidate. Feature
+    requests, design questions, vague reports, or anything requiring auth/
+    security/storage/migration/UI redesign → NOT a candidate; log it as
+    "flagged, needs human" with a one-line reason.
+- For each candidate, in priority order (oldest first, up to 3 per run):
+  - Create a branch: `fix/issue-<N>-<slug>` from `origin/main`.
+  - Reproduce/understand the issue: read the relevant code, write or run a test
+    that demonstrates it if feasible.
+  - Implement the minimal fix. Follow ground rule 3 (mechanical only; no auth/
+    security/storage/migration/UI changes — those are flagged, not fixed).
+  - Run the `nightly` profile gate (or the affected codebase's suite) and ensure
+    green. Never weaken a test.
+  - Have the fresh-eyes subagent review the diff (Step 5 applies).
+  - Commit conventionally: `fix(scope): <what and why>`.
+  - Push the branch and open a PR via the Forgejo API. PR body MUST include:
+    - `Closes #<N>` (so Forgejo auto-closes the issue on merge).
+    - The issue summary and the root cause you found.
+    - The fix approach and why it's merge-ready.
+    - Test results proving the fix (and that nothing regressed).
+    - Anything you could NOT fix (flagged for human).
+- If an issue cannot be confidently fixed, do NOT open a PR for it — log it
+  clearly so a human can pick it up.
 
 ## Exit criteria
-At most one PR (or none), green test suites, working tree left clean,
-`FORGEJO_TOKEN` never committed or logged, all flagged items explicitly listed in
-the PR body.
+At most one maintenance PR (or none) PLUS up to 3 issue-suggestion PRs (or
+none), all green test suites, working tree left clean, `FORGEJO_TOKEN` never
+committed or logged, all flagged items explicitly listed in the PR bodies.
 
 ---
 
