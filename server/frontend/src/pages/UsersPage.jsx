@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { User, Shield, Trash2, Settings, Plus } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import Card from "../components/cards/Card";
 import Page from "../components/ui/Page";
 import Button from "../components/ui/Button";
@@ -39,6 +39,7 @@ function formatLastLogin(dateString, _unused) {
 }
 
 export default function UsersPage() {
+  const navigate = useNavigate();
   const { use12HourTime } = useTimeFormat();
   const { me } = useAuth();
   const isAdmin = me?.role === "admin";
@@ -192,6 +193,7 @@ export default function UsersPage() {
                       align: "center",
                       srOnly: true,
                       width: "w-24",
+                      noRowClick: true,
                       render: (row) => (
                         <span className="flex items-center justify-center gap-1">
                           <Button
@@ -220,6 +222,7 @@ export default function UsersPage() {
                   ]}
                   data={users}
                   rowKey="id"
+                  onRowClick={(row) => navigate(`/users/${row.id}`)}
                 />
               </div>
             </Card>
