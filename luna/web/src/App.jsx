@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "./context/ThemeContext";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import Navbar from "./components/ui/Navbar";
 import DrivesPage from "./pages/DrivesPage";
 import FilesPage from "./pages/FilesPage";
 import GalleryPage from "./pages/GalleryPage";
@@ -32,6 +33,18 @@ function RequireAuth({ children }) {
   return children;
 }
 
+/** Authenticated chrome: page content + fixed bottom navbar. */
+function AppShell() {
+  return (
+    <RequireAuth>
+      <div data-slot="app-shell" className="min-h-screen bg-primary text-secondary">
+        <Outlet />
+        <Navbar />
+      </div>
+    </RequireAuth>
+  );
+}
+
 export default function App() {
   return (
     <ThemeProvider>
@@ -41,15 +54,17 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
-              <Route path="/" element={<RequireAuth><LandingPage /></RequireAuth>} />
-              <Route path="/drives" element={<RequireAuth><DrivesPage /></RequireAuth>} />
-              <Route path="/drives/:id" element={<RequireAuth><FilesPage /></RequireAuth>} />
-              <Route path="/gallery" element={<RequireAuth><GalleryPage /></RequireAuth>} />
-              <Route path="/settings/users" element={<RequireAuth><UsersPage /></RequireAuth>} />
-              <Route path="/settings/shares" element={<RequireAuth><SharesPage /></RequireAuth>} />
-              <Route path="/shared" element={<RequireAuth><SharedPage /></RequireAuth>} />
-              <Route path="/settings/protect" element={<RequireAuth><ProtectionPage /></RequireAuth>} />
-              <Route path="/settings/remote" element={<RequireAuth><RemotePage /></RequireAuth>} />
+              <Route element={<AppShell />}>
+                <Route path="/" element={<LandingPage />} />
+                <Route path="/drives" element={<DrivesPage />} />
+                <Route path="/drives/:id" element={<FilesPage />} />
+                <Route path="/gallery" element={<GalleryPage />} />
+                <Route path="/settings/users" element={<UsersPage />} />
+                <Route path="/settings/shares" element={<SharesPage />} />
+                <Route path="/shared" element={<SharedPage />} />
+                <Route path="/settings/protect" element={<ProtectionPage />} />
+                <Route path="/settings/remote" element={<RemotePage />} />
+              </Route>
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </AuthProvider>

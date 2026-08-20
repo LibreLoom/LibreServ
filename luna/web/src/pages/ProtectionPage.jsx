@@ -5,7 +5,6 @@ import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import Dropdown from "../components/common/Dropdown";
-import TextLink from "../components/ui/TextLink";
 import { getDrives, getJson, postJson } from "../lib/api";
 
 export default function ProtectionPage() {
@@ -28,7 +27,7 @@ export default function ProtectionPage() {
   });
 
   return (
-    <Page title="Protect a folder" titleId="protect-title" leftContent={<TextLink to="/">← Home</TextLink>}>
+    <Page title="Protect a folder" titleId="protect-title">
       <Card icon={ShieldCheck} title="A free second copy">
         <p className="text-primary text-sm">
           Choose a folder and a second drive. Luna keeps a copy there, always

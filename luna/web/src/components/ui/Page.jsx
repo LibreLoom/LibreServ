@@ -10,12 +10,16 @@ import HeaderCard from "../cards/HeaderCard";
  * optional HeaderCard. Use this on every routed page so the base text color
  * is always correct and the boilerplate isn't hand-copied.
  *
+ * HeaderCard is always one line. `bottomContent` (taglines, leads) renders
+ * BELOW the header card — never inside it as a stacked second card. Put
+ * navigation in BottomNav, not in the header.
+ *
  * @param {object} props
  * @param {import("react").ReactNode} [props.title] Page heading. Omit for pages that render their own header.
  * @param {string} [props.titleId] id for aria-labelledby (defaults to a derived slug).
- * @param {import("react").ReactNode} [props.leftContent]
- * @param {import("react").ReactNode} [props.rightContent]
- * @param {import("react").ReactNode} [props.bottomContent]
+ * @param {import("react").ReactNode} [props.leftContent] Same-row header chrome only (icons/status). Not for nav.
+ * @param {import("react").ReactNode} [props.rightContent] Same-row header chrome only. Not for nav.
+ * @param {import("react").ReactNode} [props.bottomContent] Lead/tagline below the header card (not inside it).
  * @param {string} [props.headerClassName] Margin/spacing for the header wrapper. Default "mb-8".
  * @param {string} [props.headerCardClassName] Extra classes passed to the HeaderCard itself (e.g. "group").
  * @param {boolean} [props.padded] Whether to apply horizontal page padding (px-8). Default true. Set false for full-bleed pages that pad inner sections themselves.
@@ -35,6 +39,10 @@ export default function Page({
   children,
 }) {
   const id = titleId || (title ? "main-content-title" : undefined);
+  const hasLead =
+    bottomContent != null &&
+    (typeof bottomContent !== "string" || bottomContent.trim().length > 0);
+
   return (
     <main
       data-slot="page"
@@ -44,15 +52,19 @@ export default function Page({
       tabIndex={-1}
     >
       {title && (
-        <header className={headerClassName}>
+        <header className={cn(headerClassName, hasLead && "mb-4")}>
           <HeaderCard
             id={id}
             title={title}
             leftContent={leftContent}
             rightContent={rightContent}
-            bottomContent={bottomContent}
             className={headerCardClassName}
           />
+          {hasLead && (
+            <div className="mt-4 text-center" data-slot="page-lead">
+              {bottomContent}
+            </div>
+          )}
         </header>
       )}
       {children}

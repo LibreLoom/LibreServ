@@ -10,7 +10,7 @@ export default function SharedPage() {
   const access = useQuery({ queryKey: ["my-access"], queryFn: () => getJson("/api/v1/me/access") });
 
   return (
-    <Page title="Shared with me" titleId="shared-title" leftContent={<TextLink to="/">← Home</TextLink>}>
+    <Page title="Shared with me" titleId="shared-title">
       <div className="grid gap-4 md:grid-cols-2">
         {(access.data || []).map((grant) => (
           <Card key={grant.id} icon={FolderOpen} title={grant.drive_label}>

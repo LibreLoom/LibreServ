@@ -6,7 +6,6 @@ import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Dropdown from "../components/common/Dropdown";
-import TextLink from "../components/ui/TextLink";
 import { getDrives, getJson, postJson } from "../lib/api";
 
 async function del(path) {
@@ -28,7 +27,7 @@ export default function SharesPage() {
   });
 
   return (
-    <Page title="Links" titleId="shares-title" leftContent={<TextLink to="/">← Home</TextLink>}
+    <Page title="Links" titleId="shares-title"
       rightContent={<Button size="sm" variant="secondary" onClick={() => { setError(null); setCreating(true); }}><Link2 size={14} /> Share something</Button>}
     >
       {error && <p className="text-error text-xs mb-4">{error}</p>}

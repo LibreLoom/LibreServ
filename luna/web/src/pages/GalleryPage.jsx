@@ -5,7 +5,6 @@ import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import Dropdown from "../components/common/Dropdown";
-import TextLink from "../components/ui/TextLink";
 import { getDrives, getJson, postJson } from "../lib/api";
 
 function dateLabel(ts) {
@@ -35,7 +34,7 @@ export default function GalleryPage() {
   });
 
   return (
-    <Page title="Photos" titleId="gallery-title" leftContent={<TextLink to="/">← Home</TextLink>}
+    <Page title="Photos" titleId="gallery-title"
       rightContent={
         <div className="w-56">
           <Dropdown
