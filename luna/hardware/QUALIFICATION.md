@@ -1,7 +1,8 @@
 # Luna hardware qualification — Wi-Fi & Bluetooth (BOM lock)
 
-The Dell Wyse 5020 has no Wi-Fi or Bluetooth. Batch 1 adds two USB 2.0
-dongles; both USB 3.0 ports remain dedicated to storage drives.
+The Dell Wyse 3040 has no usable onboard Wi-Fi/Bluetooth for Luna's setup
+path. Batch 1 adds two USB 2.0 dongles; USB 3.0 ports remain dedicated to
+storage drives.
 
 ## Requirements
 - Works on Alpine (musl) with in-tree or distro-packaged firmware, **no
@@ -31,6 +32,6 @@ dongles; both USB 3.0 ports remain dedicated to storage drives.
 7. Soak: 24 h connected, <1% packet loss, no USB reset storms in dmesg.
 
 ## Decision
-- Lock the BOM only after both dongles pass 1-7 on a real Wyse 5020.
+- Lock the BOM only after both dongles pass 1-7 on a real Wyse 3040.
 - If no AP-capable Wi-Fi candidate passes, Batch 1 ships with Ethernet cable
   as the iOS setup path and AP mode is re-evaluated next hardware revision.

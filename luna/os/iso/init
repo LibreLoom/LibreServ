@@ -10,7 +10,8 @@ ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
 if [ -d /lib/modules ]; then
 	for m in isofs iso9660 sr_mod usb-common usbcore ehci-hcd ehci-pci xhci-hcd xhci-pci \
 		usb-storage uas mmc_core mmc_block sdhci sdhci-pci sdhci-acpi \
-		ahci sd_mod nvme ext4 crc32c_generic crc32c; do
+		pinctrl-intel pinctrl-cherryview pwm-lpss pwm-lpss-pci \
+		ahci sd_mod nvme ext4 fat vfat nls_cp437 crc32c_generic crc32c; do
 		modprobe "$m" 2>/dev/null || true
 	done
 fi

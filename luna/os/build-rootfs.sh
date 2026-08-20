@@ -36,13 +36,20 @@ podman run --rm -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
-        alpine-base openrc \
+        alpine-base openrc linux-lts \
         avahi wpa_supplicant hostapd bluez \
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux dnsmasq \
         dhcpcd ca-certificates ssl_client \
         hdparm \
         chrony logrotate
+
+    mkdir -p /rootfs/proc /rootfs/sys /rootfs/dev
+    mount -t proc proc /rootfs/proc
+    mount -t sysfs sys /rootfs/sys
+    mount --bind /dev /rootfs/dev
+    chroot /rootfs /sbin/mkinitfs || true
+    umount /rootfs/dev /rootfs/sys /rootfs/proc
 
     # Luna keeps its own clock in sync (chrony) so TLS certificate validation
     # and share expiry work even if the RTC drifts. It does not pull updates.

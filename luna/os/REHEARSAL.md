@@ -5,7 +5,7 @@ not market demand. Do not skip a step to save time; a skipped step is a
 support call later.
 
 ## 0. Materials (per unit)
-- 1× Dell Wyse 5020 (Dx0Q) + 19V PSU (5.5/2.5mm) — OS lives on the internal eMMC
+- 1× Dell Wyse 3040 + 12V PSU — OS lives on the internal eMMC (UEFI)
 - 1× USB stick for the rapidinstall ISO (8 GB is plenty)
 - 1× qualified USB Wi-Fi dongle + 1× qualified USB BLE dongle (see hardware/QUALIFICATION.md)
 - Ethernet cable + printed quick-start card (luna.local / http://luna / 169.254.42.42 / app)
@@ -14,9 +14,9 @@ support call later.
 - [ ] `os/build-rootfs.sh` produced `os/dist/luna-rootfs-x86_64.tar.gz`
 - [ ] `os/make-iso.sh` produced `os/dist/luna-rapidinstall-x86_64.iso`
 - [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the thin client's eMMC
-- [ ] Thin client boots the USB; installer shows built-in storage `/dev/mmcblk0`
+- [ ] Thin client boots the USB in **UEFI** mode; installer shows `/dev/mmcblk0`
 - [ ] Typed `install luna`; installer finished; USB removed; reboot from eMMC
-- [ ] `e2fsck -f /dev/mmcblk0p1` is clean if checked from a live USB afterwards
+- [ ] `e2fsck -f /dev/mmcblk0p2` is clean if checked from a live USB afterwards
 
 ## 2. First boot
 - [ ] Power on from eMMC; front LED is lit; no smoke

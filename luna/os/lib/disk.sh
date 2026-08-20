@@ -1,7 +1,7 @@
 #!/bin/sh
 # Whole-disk helpers for Luna's flash tools.
-# Thin clients boot from eMMC (/dev/mmcblk0, partitions mmcblk0p1) — not a
-# pullable SATA SSD. USB install media must never be the flash target.
+# Thin clients boot from eMMC (/dev/mmcblk0). GPT layout is ESP (p1) + root (p2).
+# USB install media must never be the flash target.
 
 # True for a whole disk we are willing to consider flashing.
 is_whole_disk() {
@@ -13,12 +13,21 @@ is_whole_disk() {
 	esac
 }
 
-# First partition node for a whole disk (p-suffix for nvme/mmc).
+# Partition node: $2 is the index (1 = ESP, 2 = root).
 partition_node() {
+	_idx="${2:-1}"
 	case "$1" in
-	/dev/nvme* | /dev/mmcblk*) printf '%sp1\n' "$1" ;;
-	*) printf '%s1\n' "$1" ;;
+	/dev/nvme* | /dev/mmcblk*) printf '%sp%s\n' "$1" "$_idx" ;;
+	*) printf '%s%s\n' "$1" "$_idx" ;;
 	esac
+}
+
+partition_esp() {
+	partition_node "$1" 1
+}
+
+partition_root() {
+	partition_node "$1" 2
 }
 
 block_name() {

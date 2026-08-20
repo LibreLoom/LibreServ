@@ -3,7 +3,7 @@
 #
 # Workstation: pull a SATA/NVMe drive and pass /dev/sdX.
 # Thin client: boot the rapidinstall ISO instead — eMMC is /dev/mmcblk0
-# and is not meant to be removed.
+# (UEFI GPT: ESP + root) and is not meant to be removed.
 set -eu
 
 if [ "$#" -ne 1 ]; then

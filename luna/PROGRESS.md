@@ -11,7 +11,7 @@
       immutable cache headers for hashed assets
 - [x] `ci.sh`: cargo fmt/clippy/test + web install/build/test/lint/typecheck (all green)
 - [x] Hardware qualification checklist written (`hardware/QUALIFICATION.md`)
-- [ ] Physically qualify Wi-Fi + BLE dongles on a Wyse 5020 and lock the BOM
+- [ ] Physically qualify Wi-Fi + BLE dongles on a Wyse 3040 and lock the BOM
 - [ ] Wire `ci.sh` into the repo's `./ci` runner
 
 ## M1 — Safe drive handling (IN PROGRESS)
@@ -129,14 +129,15 @@
       luna-net-fallback (169.254.42.42 direct-cable), musl release lunad
 - [x] `os/make-image.sh`: raw 1.2 GB ext4 image labeled LUNA from the rootfs
       (verified: debugfs shows /usr/local/bin/lunad + hostname)
-- [x] `os/flash.sh`: whole-disk-only, double confirmation, MBR + ext4 +
-      extract + extlinux bootloader install (SATA/NVMe **and** eMMC `mmcblk*p1`)
-- [x] Rapidinstall ISO: `os/make-iso.sh` BIOS-hybrid USB image; live installer
-      picks non-USB eMMC, never flashes the stick it booted from
+- [x] `os/flash.sh`: whole-disk-only, double confirmation, GPT ESP+root +
+      GRUB EFI (SATA/NVMe **and** eMMC `mmcblk0p1`/`p2`)
+- [x] Rapidinstall ISO: `os/make-iso.sh` UEFI+BIOS hybrid USB image (GRUB
+      BOOTX64/BOOTIA32); live installer flashes GPT ESP+root on eMMC, never
+      the stick it booted from. Target: Wyse 3040.
 - [x] `os/REHEARSAL.md`: 5-unit rehearsal checklist (materials, flash, first
       boot, setup, storage safety, links, remote, reliability, ship)
 - [x] Built rootfs booted in a container: lunad served /health
-- [ ] Flash a physical Wyse 5020 with `os/flash.sh` and run the rehearsal
+- [ ] Flash a physical Wyse 3040 with the rapidinstall ISO and run the rehearsal
 
 ## M9 — Luna Desktop (DONE first pass)
 - [x] Tauri 2 app at `luna/desktop` (Linux build verified; same code compiles
@@ -174,4 +175,4 @@
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI
 - [x] Free one-tap Connect keys: Connect endpoint `/api/v1/luna/free-key` mints a free-plan account+key per Luna (10/hour/IP); Luna Remote page is now one tap with no key entry
-- [ ] Physical 5-unit rehearsal on Wyse 5020 hardware
+- [ ] Physical 5-unit rehearsal on Wyse 3040 hardware
