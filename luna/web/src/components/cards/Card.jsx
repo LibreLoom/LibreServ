@@ -45,6 +45,10 @@ function Card({
 
   const hasHeader = title || Icon;
   const headerBorder = surface === "primary" ? "border-secondary/10" : "border-primary/10";
+  // Custom radius (HeaderCard's rounded-pill) must replace the default card
+  // curve. Tailwind does not treat rounded-pill as conflicting with
+  // rounded-large-element, so skip the default when className sets one.
+  const hasCustomRadius = /\brounded-/.test(className);
 
   if (noHeightAnim) {
     return (
@@ -52,11 +56,11 @@ function Card({
         data-slot="card"
         data-surface={surface}
         className={cn(
-          "rounded-large-element",
+          !hasCustomRadius && "rounded-large-element",
           surfaceClasses,
           padding && "p-5",
           animationClass,
-          className
+          className,
         )}
         onAnimationEnd={onAnimationEnd}
         {...rest}
@@ -75,22 +79,26 @@ function Card({
     );
   }
 
+  // Layout (margins, extra radius like HeaderCard's rounded-pill) lives on the
+  // overflow clip. The inner surface has no second radius — two matching
+  // rounded-large-element curves plus overflow-hidden paint dark crescent
+  // bites at the corners, worse when className margins inset the fill.
   return (
     <div
       ref={outerRef}
-      className="overflow-hidden rounded-large-element transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]"
+      data-slot="card-clip"
+      className={cn(
+        "overflow-hidden transition-[height] ease-[var(--motion-easing-emphasized-decelerate)]",
+        !hasCustomRadius && "rounded-large-element",
+        className,
+      )}
       style={{ transitionDuration: "var(--motion-duration-medium2)" }}
     >
       <As
         ref={innerRef}
         data-slot="card"
         data-surface={surface}
-        className={cn(
-          "rounded-large-element",
-          surfaceClasses,
-          animationClass,
-          className
-        )}
+        className={cn(surfaceClasses, animationClass)}
         onAnimationEnd={onAnimationEnd}
         {...rest}
       >
