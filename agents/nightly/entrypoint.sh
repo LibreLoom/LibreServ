@@ -19,6 +19,12 @@ STATE_DIR="${STATE_DIR:-/state}"
 CLONE_DIR="${CLONE_DIR:-/work/repo}"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 
+# Rootful podman needs /run/containers for its runRoot (storage). /run is
+# tmpfs and wiped on container start, so create it here. Without this,
+# `podman build` (the podman-build CI test) fails with
+# "mkdir /run/containers: permission denied".
+mkdir -p /run/containers
+
 echo "==> nightly agent run ${RUN_ID}"
 echo "==> repo: ${REPO_URL}"
 
