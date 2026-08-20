@@ -53,13 +53,6 @@ function formatUptime(seconds) {
   return parts.join(" ") || "0 secs";
 }
 
-function clamp01(value) {
-  if (!Number.isFinite(value)) return 0;
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
-}
-
 export default function Dashboard() {
   const greeting = useMemo(() => getGreeting(), []);
   const { data: user } = useUser();
@@ -98,22 +91,12 @@ export default function Dashboard() {
 
   const stressIndex = useMemo(() => {
     if (!resources) return 0;
-    return totalResourceUsage({
-      cpu: clamp01(Number(resources.cpu)),
-      ram: clamp01(Number(resources.ram)),
-      disk: clamp01(Number(resources.disk)),
-      net: clamp01(Number(resources.net)),
-    });
+    return totalResourceUsage(resources);
   }, [resources]);
 
   const stressBreakdown = useMemo(() => {
     if (!resources) return [];
-    return getBreakdownItems({
-      cpu: clamp01(Number(resources.cpu)),
-      ram: clamp01(Number(resources.ram)),
-      disk: clamp01(Number(resources.disk)),
-      net: clamp01(Number(resources.net)),
-    });
+    return getBreakdownItems(resources);
   }, [resources]);
 
   const greetingBase = greeting.endsWith(", ")
