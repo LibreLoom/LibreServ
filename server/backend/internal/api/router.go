@@ -80,8 +80,12 @@ func (s *Server) setupRoutes() {
 		networkHandler = handlers.NewNetworkHandlers(s.caddyManager, s.appManager).WithACME(acmeHandler)
 	}
 
-	// Initialize DNS provider manager
-	s.dnsProviderMgr = network.NewDNSProviderManager(s.db)
+	// Initialize DNS provider manager. NewServer already creates this before
+	// the DDNS service (which holds a reference); reuse that instance so the
+	// DDNS loop and the HTTP handlers share one manager.
+	if s.dnsProviderMgr == nil {
+		s.dnsProviderMgr = network.NewDNSProviderManager(s.db)
+	}
 
 	// Initialize setup handler with all required dependencies
 	setupHandler := handlers.NewSetupHandler(s.authService, s.setupService, s.runtimeClient, s.dnsProviderMgr, s.acmeManager, s.caddyManager, s.settingsService)
