@@ -96,7 +96,9 @@ export default function MyProfile() {
 
   return (
     <Page title="My Account" titleId="profile-title" headerClassName="mb-6" data-slot="my-profile">
-      <div className="max-w-lg mx-auto space-y-6">
+      {/* One column while the cards still fill the width; two once there is
+          room, so a wide screen isn't ~900px of empty margin. */}
+      <div className="mx-auto grid max-w-lg grid-cols-1 items-start gap-6 xl:max-w-5xl xl:grid-cols-2">
         <Card title="Profile">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
