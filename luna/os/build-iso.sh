@@ -16,6 +16,11 @@ if ! rustup target list --installed | grep -qx "$MUSL_TARGET"; then
 	rustup target add "$MUSL_TARGET"
 fi
 
+if command -v musl-gcc >/dev/null 2>&1; then
+	export CC_x86_64_unknown_linux_musl=musl-gcc
+	export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+fi
+
 echo "==> lunad ($MUSL_TARGET release)"
 cargo build --release -p lunad --target "$MUSL_TARGET"
 export LUNAD_BIN="$ROOT/target/${MUSL_TARGET}/release/lunad"
