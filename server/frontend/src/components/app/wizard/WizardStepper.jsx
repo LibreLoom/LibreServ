@@ -39,7 +39,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
                   className={cn(
                     "flex h-8 w-8 items-center justify-center rounded-full font-mono text-sm motion-safe:transition-all duration-300 ease-in-out",
                     isComplete && "bg-secondary text-primary scale-100",
-                    !isComplete && isActive && "bg-secondary text-primary ring-2 ring-secondary ring-offset-4 ring-offset-primary scale-110",
+                    !isComplete && isActive && "bg-secondary text-primary ring-2 ring-secondary ring-offset-2 ring-offset-primary scale-110",
                     !isComplete && !isActive && "bg-secondary/50 text-secondary/50 border-2 border-secondary/30 scale-100"
                   )}
                   aria-current={isActive ? "step" : undefined}
@@ -80,7 +80,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
               {!isLast && (
                 <div
                   className={cn(
-                    "mx-2 sm:mx-4 h-0.5 w-4 sm:w-8 motion-safe:transition-all motion-safe:duration-500 ease-in-out",
+                    "mx-4 sm:mx-6 h-0.5 w-4 sm:w-8 motion-safe:transition-all motion-safe:duration-500 ease-in-out",
                     step.id < currentStep ? "bg-secondary" : "bg-secondary/30"
                   )}
                   aria-hidden="true"
