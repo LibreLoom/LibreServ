@@ -80,8 +80,10 @@ install_podman() {
   else
     echo ">> Installing Podman"
     as_root apt-get update -qq
-    as_root DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-      podman podman-compose uidmap slirp4netns fuse-overlayfs catatonit
+    # force-confold: fuse3 asks about /etc/fuse.conf on Cloud Agent images.
+    as_root env DEBIAN_FRONTEND=noninteractive \
+      apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef \
+      install -y -qq podman podman-compose uidmap slirp4netns fuse-overlayfs catatonit
   fi
 
   # So later shells (and ./ci) find the Docker-compatible API socket.
