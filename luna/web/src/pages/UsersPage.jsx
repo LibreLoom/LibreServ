@@ -6,7 +6,6 @@ import Card from "../components/cards/Card";
 import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
-import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import Dropdown from "../components/common/Dropdown";
 import { getDrives, getJson, postJson } from "../lib/api";

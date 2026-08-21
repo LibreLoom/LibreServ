@@ -19,7 +19,7 @@ import { useAnimatedHeight } from "../../hooks/useAnimatedHeight";
  * @property {Record<string, any>} [rest] Additional props spread onto the rendered element (for `as` consumers).
  */
 
-/** @param {CardProps} props */
+/** @param {CardProps & Record<string, any>} props */
 function Card({
   children,
   className = "",

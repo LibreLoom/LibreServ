@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cable, Eye, EyeOff, Wifi } from "lucide-react";
 import Card from "../cards/Card";
@@ -50,10 +50,6 @@ export default function WifiCard() {
     setError("");
   }, []);
 
-  useEffect(() => {
-    if (wifiConnected && open) close();
-  }, [wifiConnected, open, close]);
-
   async function connect() {
     if (!selected) {
       setError("Pick your home network first.");
@@ -65,6 +61,7 @@ export default function WifiCard() {
       await postJson("/api/v1/network/wifi/connect", { ssid: selected, password });
       queryClient.invalidateQueries({ queryKey: ["wifi-status"] });
       queryClient.invalidateQueries({ queryKey: ["network-status"] });
+      close();
     } catch (err) {
       setError(apiErrorMessage(err, "Couldn't join that network. Check the password on your internet box."));
     } finally {

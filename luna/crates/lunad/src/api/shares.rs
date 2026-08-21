@@ -348,7 +348,10 @@ async fn serve_file(
 /// Join a path under the shared root. Rejects `..` and absolute paths so a
 /// public link cannot walk the rest of the drive.
 fn child_under_share(share_path: &str, rel: &str) -> Option<String> {
-    let extra = rel.trim().trim_start_matches('/');
+    let extra = rel.trim();
+    if extra.starts_with('/') {
+        return None;
+    }
     if extra.is_empty() {
         return Some(share_path.trim_start_matches('/').to_string());
     }

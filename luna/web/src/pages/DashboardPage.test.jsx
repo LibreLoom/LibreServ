@@ -13,6 +13,18 @@ function jsonResponse(body, status = 200) {
   });
 }
 
+/**
+ * @param {object} [opts]
+ * @param {string} [opts.username]
+ * @param {string} [opts.role]
+ * @param {number} [opts.uptime]
+ * @param {any} [opts.drives]
+ * @param {any} [opts.detected]
+ * @param {any} [opts.network]
+ * @param {any} [opts.connect]
+ * @param {any} [opts.jobs]
+ * @param {any} [opts.access]
+ */
 function stubFetch({
   username = "max",
   role = "admin",
@@ -20,6 +32,7 @@ function stubFetch({
   drives = [{ id: "d1", label: "Family photos", state: "as_is", device: "sda1", fs_type: "exfat" }],
   detected = [],
   network = { ethernet_connected: true, wifi_connected: false, has_default_route: true },
+  /** @type {any} */
   connect = { enabled: true, tunnel_active: true, domain: "luna.example" },
   jobs = [],
   access = [],

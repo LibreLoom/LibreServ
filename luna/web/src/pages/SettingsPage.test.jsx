@@ -3,17 +3,20 @@ import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
+import { ThemeProvider } from "../context/ThemeContext";
 import SettingsPage, { RECOVERY_CARD } from "./SettingsPage";
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <MemoryRouter>
-      <QueryClientProvider client={client}>
-        <AuthProvider>
-          <SettingsPage />
-        </AuthProvider>
-      </QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={client}>
+          <AuthProvider>
+            <SettingsPage />
+          </AuthProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
     </MemoryRouter>,
   );
 }

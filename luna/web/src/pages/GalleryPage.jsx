@@ -24,7 +24,6 @@ export default function GalleryPage() {
   const gallery = useQuery({
     queryKey: ["gallery"],
     queryFn: () => getJson("/api/v1/gallery"),
-    refetchInterval: scan.isPending ? 2000 : false,
   });
 
   const scan = useMutation({
@@ -34,6 +33,18 @@ export default function GalleryPage() {
     },
     onError: (err) => setError(String(err.message || err)),
   });
+
+  useEffect(() => {
+    if (!scan.isPending && !scan.isSuccess) return undefined;
+    const id = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["gallery"] });
+    }, 2000);
+    const stop = setTimeout(() => clearInterval(id), 20_000);
+    return () => {
+      clearInterval(id);
+      clearTimeout(stop);
+    };
+  }, [scan.isPending, scan.isSuccess, queryClient]);
 
   const driveList = drives.data || [];
   const photos = gallery.data || [];

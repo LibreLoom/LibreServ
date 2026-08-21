@@ -12,6 +12,8 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useHapticsEnabled, setHapticsEnabled } from "../utils/haptics";
 
+/* eslint-disable react-refresh/only-export-components -- recovery copy is shared with tests */
+
 /** Keep in lockstep with lunad `recovery::CARD_*` — printed-card copy. */
 export const RECOVERY_CARD = {
   title: "If you forget your password",
@@ -55,7 +57,7 @@ export default function SettingsPage() {
     queryFn: () => getJson("/api/v1/device-tokens"),
   });
   const createToken = useMutation({
-    mutationFn: (name) => postJson("/api/v1/device-tokens", { name }),
+    mutationFn: () => postJson("/api/v1/device-tokens", { name: tokenName.trim() }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setNewToken(data);
@@ -214,7 +216,7 @@ export default function SettingsPage() {
               variant="primary"
               loading={createToken.isPending}
               disabled={!tokenName.trim()}
-              onClick={() => createToken.mutate(tokenName.trim())}
+              onClick={() => createToken.mutate()}
             >
               Create access token
             </Button>
