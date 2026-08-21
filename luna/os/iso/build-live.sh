@@ -44,6 +44,9 @@ if [ -d "/lib/modules/$KVER" ]; then
 		kernel/drivers/ata kernel/drivers/nvme kernel/drivers/cdrom \
 		kernel/drivers/block kernel/drivers/pinctrl kernel/drivers/acpi \
 		kernel/drivers/platform kernel/drivers/net/phy kernel/drivers/virtio \
+		kernel/drivers/pwm kernel/drivers/leds kernel/drivers/mfd \
+		kernel/drivers/phy kernel/drivers/gpio kernel/drivers/i2c \
+		kernel/drivers/extcon \
 		kernel/fs/isofs kernel/fs/ext4 kernel/fs/jbd2 kernel/fs/nls kernel/fs/fat \
 		kernel/fs/vfat kernel/lib; do
 		if [ -d "/lib/modules/$KVER/$sub" ]; then
@@ -63,6 +66,12 @@ mkdir -p "$IRD/bin" "$IRD/sbin" "$IRD/usr/bin" "$IRD/usr/sbin"
 # symlink targets like /tmp/initrd/bin/busybox, which do not exist at boot.
 if [ -x "$IRD/bin/busybox" ]; then
 	for a in $("$IRD/bin/busybox" --list); do
+		# Keep kmod's gzip-capable modprobe; BusyBox would shadow it.
+		case "$a" in
+		modprobe | insmod | rmmod | depmod | lsmod | modinfo)
+			continue
+			;;
+		esac
 		ln -sf busybox "$IRD/bin/$a"
 	done
 	ln -sf busybox "$IRD/bin/sh"
