@@ -50,11 +50,14 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         chrony logrotate
 
     mkdir -p /rootfs/proc /rootfs/sys /rootfs/dev
-    mount -t proc proc /rootfs/proc
-    mount -t sysfs sys /rootfs/sys
-    mount --bind /dev /rootfs/dev
-    chroot /rootfs /sbin/mkinitfs || true
-    umount /rootfs/dev /rootfs/sys /rootfs/proc
+    # linux-lts apk trigger already ran mkinitfs. The extra chroot pass
+    # needs proc/sys/dev mounts, which rootless Podman often cannot grant.
+    if mount -t proc proc /rootfs/proc 2>/dev/null; then
+        mount -t sysfs sys /rootfs/sys 2>/dev/null || true
+        mount --bind /dev /rootfs/dev 2>/dev/null || true
+        chroot /rootfs /sbin/mkinitfs || true
+        umount /rootfs/dev /rootfs/sys /rootfs/proc 2>/dev/null || true
+    fi
 
     # Luna keeps its own clock in sync (chrony) so TLS certificate validation
     # and share expiry work even if the RTC drifts. It does not pull updates.

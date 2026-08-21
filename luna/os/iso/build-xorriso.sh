@@ -9,6 +9,7 @@ MBR=/usr/share/syslinux/isohdpfx.bin
 
 xorriso -as mkisofs \
 	-o "/out/luna-rapidinstall-${ARCH}.iso" \
+	-R -J \
 	-V LUNAINST \
 	-isohybrid-mbr "$MBR" \
 	-c isolinux/boot.cat \

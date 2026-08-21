@@ -25,6 +25,7 @@ rm -rf "$WORK"
 mkdir -p "$ISOROOT/boot" "$ISOROOT/isolinux" "$ISOROOT/lib" "$OUT"
 
 cp "$ROOT/os/iso/init" "$WORK/init"
+cp "$ROOT/os/iso/find-media.sh" "$WORK/find-media.sh"
 cp "$ROOT/os/iso/isolinux.cfg" "$ISOROOT/isolinux/isolinux.cfg"
 cp "$ROOT/os/iso/build-live.sh" "$WORK/build-live.sh"
 cp "$ROOT/os/iso/build-xorriso.sh" "$WORK/build-xorriso.sh"
@@ -39,6 +40,7 @@ podman run --rm --privileged \
 	-e ARCH="$ARCH" \
 	-v "$ISOROOT:/iso:z" \
 	-v "$WORK/init:/init.in:ro,z" \
+	-v "$WORK/find-media.sh:/find-media.sh:ro,z" \
 	-v "$WORK/build-live.sh:/build-live.sh:ro,z" \
 	"$ALPINE_IMAGE" sh /build-live.sh
 

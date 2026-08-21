@@ -24,8 +24,9 @@ cargo test --workspace
 echo "==> os scripts"
 sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-iso.sh os/rapidinstall.sh \
 	os/lib/disk.sh os/lib/flash-disk.sh os/lib/disk_test.sh os/lib/alpine-image.sh os/iso/init \
-	os/iso/build-live.sh os/iso/build-xorriso.sh
+	os/iso/find-media.sh os/iso/find-media_test.sh os/iso/build-live.sh os/iso/build-xorriso.sh
 sh os/lib/disk_test.sh
+sh os/iso/find-media_test.sh
 for f in os/make-iso.sh os/build-rootfs.sh os/make-image.sh; do
 	grep -q 'os/lib/alpine-image.sh' "$f" || {
 		echo "$f must source os/lib/alpine-image.sh" >&2
