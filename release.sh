@@ -653,22 +653,49 @@ upload_assets() {
         log_info "Uploading $file..."
         
         FILE_SIZE=$(du -h "$BUILD_DIR/$file" | cut -f1)
-        MAX_TIME=300
-        if [[ "$file" == *.iso ]]; then
-            MAX_TIME=3600
+        BYTES=$(stat -c%s "$BUILD_DIR/$file")
+        ASSET_URL="$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file"
+
+        # curl --data-binary loads the whole file; stream large ISOs instead.
+        if [ "$BYTES" -gt 83886080 ]; then
+            HTTP_CODE=$(python3 - "$ASSET_URL" "$BUILD_DIR/$file" "$FORGEJO_TOKEN" <<'PY'
+import os, sys, urllib.request
+url, path, token = sys.argv[1], sys.argv[2], sys.argv[3]
+size = os.path.getsize(path)
+req = urllib.request.Request(url, data=open(path, "rb"), method="POST")
+req.add_header("Authorization", "token " + token)
+req.add_header("Content-Type", "application/octet-stream")
+req.add_header("Content-Length", str(size))
+try:
+    with urllib.request.urlopen(req, timeout=7200) as resp:
+        print(resp.status)
+except Exception as e:
+    code = getattr(e, "code", 0)
+    body = ""
+    if hasattr(e, "read"):
+        body = e.read().decode("utf-8", "replace")[:500]
+    sys.stderr.write(f"{type(e).__name__}: {e}\n{body}\n")
+    print(code or 0)
+    sys.exit(1)
+PY
+)
+            CURL_EXIT=$?
+            RESPONSE_BODY=""
+            MAX_TIME=7200
+        else
+            MAX_TIME=300
+            UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" \
+                --connect-timeout 30 \
+                --max-time "$MAX_TIME" \
+                -X POST \
+                -H "Authorization: token $FORGEJO_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"$BUILD_DIR/$file" \
+                "$ASSET_URL" 2>&1)
+            CURL_EXIT=$?
+            HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
+            RESPONSE_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
         fi
-        
-        # Upload with timeout
-        UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" \
-            --connect-timeout 30 \
-            --max-time "$MAX_TIME" \
-            -X POST \
-            -H "Authorization: token $FORGEJO_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @"$BUILD_DIR/$file" \
-            "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file" 2>&1)
-        
-        CURL_EXIT=$?
         
         if [ $CURL_EXIT -ne 0 ]; then
             log_error "curl failed with exit code $CURL_EXIT"
@@ -741,9 +768,11 @@ cleanup() {
     
     # Always clean on error
     if [ $EXIT_CODE -ne 0 ]; then
-        if [ -d "$BUILD_DIR" ]; then
+        if [ -d "$BUILD_DIR" ] && [ "$PRESERVE_BUILD" != true ]; then
             log_warn "Cleaning up build directory after error..."
             rm -rf "$BUILD_DIR"
+        elif [ -d "$BUILD_DIR" ]; then
+            log_warn "Keeping release-build/ after error (--keep-build)"
         fi
         return
     fi
