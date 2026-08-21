@@ -130,6 +130,22 @@ describe("AppsPage", () => {
     expect(screen.getByText("No apps match your search.")).toBeInTheDocument();
   });
 
+  it("hides the search bar when the catalog is empty", () => {
+    vi.mocked(useCatalog).mockReturnValue(/** @type {any} */({ data: [], isLoading: false, error: null }));
+    vi.mocked(useApps).mockReturnValue(/** @type {any} */({ data: [], isLoading: false, error: null }));
+    renderWithProviders(<AppsPage />);
+    expect(screen.queryByPlaceholderText("Search apps...")).not.toBeInTheDocument();
+    expect(screen.getByText("No apps yet")).toBeInTheDocument();
+  });
+
+  it("keeps the search bar when a query has no matches", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AppsPage />);
+    const searchInput = screen.getByPlaceholderText("Search apps...");
+    await user.type(searchInput, "xyznonexistent");
+    expect(screen.getByPlaceholderText("Search apps...")).toBeInTheDocument();
+  });
+
   it("shows error state when catalog fails to load", () => {
     vi.mocked(useCatalog).mockReturnValue(/** @type {any} */({ data: [], isLoading: false, error: new Error("fail") }));
     vi.mocked(useApps).mockReturnValue(/** @type {any} */({ data: [], isLoading: false, error: null }));

@@ -34,7 +34,14 @@ export function useAnimatedHeight() {
     if (!outer || !inner) return;
 
     const applyHeight = () => {
-      outer.style.height = inner.offsetHeight + "px";
+      // offsetHeight excludes the inner element's own margins, but those
+      // margins still occupy space inside the clipped outer box — so a Card
+      // given a margin class (EmptyState's `mt-12`, say) puts that margin on
+      // the inner element and gets exactly that many pixels shaved off its
+      // bottom. Add the vertical margins back so the outer box fits content.
+      const { marginTop, marginBottom } = getComputedStyle(inner);
+      const margins = (parseFloat(marginTop) || 0) + (parseFloat(marginBottom) || 0);
+      outer.style.height = inner.offsetHeight + margins + "px";
     };
 
     const ro = new ResizeObserver(applyHeight);

@@ -12,8 +12,8 @@ const ALIGN = {
   right: "text-right",
 };
 
-/** @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string }} _ */
-export default function Table({ columns, data, rowKey, scrollable, maxHeight, className = "", headClassName = "text-secondary" }) {
+/** @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void }} _ */
+export default function Table({ columns, data, rowKey, scrollable, maxHeight, className = "", headClassName = "text-secondary", onRowClick }) {
   const wrapperStyle = scrollable ? { maxHeight: maxHeight || "24rem" } : undefined;
 
   return (
@@ -37,7 +37,19 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
             {data.map((row, rowIndex) => {
               const key = rowKey ? row[rowKey] : rowIndex;
               return (
-                <tr key={key} className="group transition-colors">
+                <tr
+                  key={key}
+                  className={cn("group transition-colors", onRowClick && "cursor-pointer")}
+                  onClick={
+                    onRowClick
+                      ? () => {
+                          // Don't hijack a click that was really a text selection.
+                          if (window.getSelection()?.toString()) return;
+                          onRowClick(row, rowIndex);
+                        }
+                      : undefined
+                  }
+                >
                   {columns.map((col, colIndex) => {
                     const isFirst = colIndex === 0;
                     const isLast = colIndex === columns.length - 1;
@@ -47,6 +59,7 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
                       isLast ? CELL_LAST : "",
                       !isFirst && !isLast ? CELL_MIDDLE : "",
                       col.hidden ? `hidden ${col.hidden}:table-cell` : "",
+                      onRowClick ? "group-hover:bg-secondary/90" : "",
                     ].filter(Boolean).join(" ");
 
                     const content = col.render
@@ -54,7 +67,11 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
                       : row[col.key];
 
                     return (
-                      <td key={col.key} className={cn(cellClasses)}>
+                      <td
+                        key={col.key}
+                        className={cn(cellClasses)}
+                        onClick={col.noRowClick ? (e) => e.stopPropagation() : undefined}
+                      >
                         {content}
                       </td>
                     );
@@ -79,6 +96,7 @@ Table.propTypes = {
       align: PropTypes.oneOf(["left", "center", "right"]),
       width: PropTypes.string,
       srOnly: PropTypes.bool,
+      noRowClick: PropTypes.bool,
     })
   ).isRequired,
   data: PropTypes.array.isRequired,
@@ -87,4 +105,5 @@ Table.propTypes = {
   maxHeight: PropTypes.string,
   className: PropTypes.string,
   headClassName: PropTypes.string,
+  onRowClick: PropTypes.func,
 };
