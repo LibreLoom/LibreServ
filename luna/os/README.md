@@ -56,8 +56,9 @@ installed.
 
 ## Software updates (no re-flash)
 
-Lunad looks at Forgejo tags that start with `luna-` (for example `luna-0.2.0`)
-on `LibreLoom/LibreServ`. Release assets:
+Lunad looks at Forgejo tags that start with `luna-v` (for example `luna-v0.2.0`)
+on `LibreLoom/LibreServ`. LibreServ releases stay on `v*` (for example `v0.0.13`)
+and are ignored by the Luna updater. Release assets:
 
 - `lunad-linux-amd64` (or `lunad-linux-arm64`)
 - `SHA256SUMS.txt` (required — install refuses a missing or mismatched checksum)

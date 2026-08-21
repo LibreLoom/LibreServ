@@ -151,7 +151,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_uses_fake_forgejo_and_filters_luna_tags() {
-        let body = br#"[{"tag_name":"v9.0.0","body":"libreserv","html_url":"x","prerelease":false,"draft":false},{"tag_name":"luna-0.9.0","body":"hello luna","html_url":"https://example.test/luna-0.9.0","prerelease":false,"draft":false}]"#;
+        let body = br#"[{"tag_name":"v9.0.0","body":"libreserv","html_url":"x","prerelease":false,"draft":false},{"tag_name":"luna-v0.9.0","body":"hello luna","html_url":"https://example.test/luna-v0.9.0","prerelease":false,"draft":false}]"#;
         let (router, token) = app(body);
         let response = router
             .oneshot(
@@ -168,7 +168,7 @@ mod tests {
             .await
             .unwrap();
         let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(v["latest_version"], "luna-0.9.0");
+        assert_eq!(v["latest_version"], "luna-v0.9.0");
         assert_eq!(v["update_available"], true);
     }
 }

@@ -16,6 +16,7 @@ YES=false
 SKIP_CI=false
 WITH_ISO=false
 PUBLISH=false
+LUNA_RELEASE=false
 VERSION_TAG=""
 NOTES_FILE=""
 
@@ -51,6 +52,11 @@ while [ $# -gt 0 ]; do
             WITH_ISO=true
             shift
             ;;
+        --luna)
+            LUNA_RELEASE=true
+            WITH_ISO=true
+            shift
+            ;;
         --publish)
             PUBLISH=true
             shift
@@ -64,7 +70,7 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force] [--pre-release] [--yes] [--version vX.Y.Z] [--notes-file PATH] [--with-iso] [--publish] [--skip-ci]"
+            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force] [--pre-release] [--yes] [--version vX.Y.Z] [--notes-file PATH] [--luna] [--with-iso] [--publish] [--skip-ci]"
             echo ""
             echo "Options:"
             echo "  --dry-run      Build binaries and release notes, but skip Forgejo API calls"
@@ -74,7 +80,8 @@ while [ $# -gt 0 ]; do
             echo "  --yes, -y      Non-interactive: no prompts (uses FORGEJO_TOKEN from the environment)"
             echo "  --version TAG  Version tag (e.g. v0.0.13); required with --yes"
             echo "  --notes-file   Release notes markdown file; with --yes, generated if omitted"
-            echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso"
+            echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO"
+            echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso (implied by --luna)"
             echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
             echo "  --skip-ci      Do not run ./ci (still allowed for pre-releases)"
             echo "  --help, -h     Show this help message"
@@ -163,7 +170,7 @@ prompt_version() {
             log_error "Invalid version format. Use semantic versioning: v1.0.0 or v1.0.0-beta.1"
             exit 1
         fi
-        log_info "Version tag: $VERSION_TAG"
+        log_info "Version: $VERSION_TAG"
     else
         if [ "$YES" = true ]; then
             log_error "--version is required with --yes"
@@ -177,6 +184,11 @@ prompt_version() {
             fi
             break
         done
+    fi
+
+    if [ "$LUNA_RELEASE" = true ]; then
+        VERSION_TAG="luna-${VERSION_TAG}"
+        log_info "Luna Forgejo tag: $VERSION_TAG (stable unless --pre-release)"
     fi
     
     # Ask if this is a pre-release
@@ -299,6 +311,44 @@ build_binaries() {
     rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
     
+    if [ "$LUNA_RELEASE" = true ]; then
+        log_info "Building Luna rapidinstall ISO (musl lunad + rootfs + xorriso)..."
+        if ! command -v podman >/dev/null 2>&1; then
+            log_error "Podman is required for Luna ISO releases"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        chmod +x luna/os/build-iso.sh
+        if ! (cd luna && ./os/build-iso.sh); then
+            log_error "ISO build failed"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        ISO_SRC="luna/os/dist/luna-rapidinstall-x86_64.iso"
+        if [ ! -f "$ISO_SRC" ]; then
+            log_error "ISO missing at $ISO_SRC"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        cp "$ISO_SRC" "$BUILD_DIR/luna-rapidinstall-x86_64.iso"
+        LUNAD_MUSL="luna/target/x86_64-unknown-linux-musl/release/lunad"
+        if [ ! -x "$LUNAD_MUSL" ]; then
+            log_error "missing musl lunad at $LUNAD_MUSL"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        cp "$LUNAD_MUSL" "$BUILD_DIR/lunad-linux-amd64"
+
+        log_info "Generating SHA256 checksums..."
+        cd "$BUILD_DIR"
+        sha256sum lunad-linux-amd64 luna-rapidinstall-x86_64.iso > SHA256SUMS.txt
+        cd ..
+        log_info "Luna assets built successfully"
+        echo ""
+        ls -lh "$BUILD_DIR"
+        return
+    fi
+    
     # Build frontend first
     log_info "Building frontend..."
     cd server/backend
@@ -380,43 +430,11 @@ build_binaries() {
     fi
     rm -f server/backend/OS/bin/restic
     cd ../..
-
-    if [ "$WITH_ISO" = true ]; then
-        log_info "Building Luna rapidinstall ISO (musl lunad + rootfs + xorriso)..."
-        if ! command -v podman >/dev/null 2>&1; then
-            log_error "Podman is required for --with-iso"
-            rm -rf "$BUILD_DIR"
-            exit 1
-        fi
-        chmod +x luna/os/build-iso.sh
-        if ! (cd luna && ./os/build-iso.sh); then
-            log_error "ISO build failed"
-            rm -rf "$BUILD_DIR"
-            exit 1
-        fi
-        ISO_SRC="luna/os/dist/luna-rapidinstall-x86_64.iso"
-        if [ ! -f "$ISO_SRC" ]; then
-            log_error "ISO missing at $ISO_SRC"
-            rm -rf "$BUILD_DIR"
-            exit 1
-        fi
-        cp "$ISO_SRC" "$BUILD_DIR/luna-rapidinstall-x86_64.iso"
-        LUNAD_MUSL="luna/target/x86_64-unknown-linux-musl/release/lunad"
-        if [ -x "$LUNAD_MUSL" ]; then
-            cp "$LUNAD_MUSL" "$BUILD_DIR/lunad-linux-amd64"
-        fi
-    fi
     
     # Generate checksums
     log_info "Generating SHA256 checksums..."
     cd "$BUILD_DIR"
     sha256sum libreserv-linux-amd64 libreserv-linux-arm64 > SHA256SUMS.txt
-    if [ -f luna-rapidinstall-x86_64.iso ]; then
-        sha256sum luna-rapidinstall-x86_64.iso >> SHA256SUMS.txt
-    fi
-    if [ -f lunad-linux-amd64 ]; then
-        sha256sum lunad-linux-amd64 >> SHA256SUMS.txt
-    fi
     cd ..
     
     log_info "Binaries built successfully"
@@ -439,7 +457,11 @@ create_release_notes() {
         return
     fi
 
-    LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+    if [ "$LUNA_RELEASE" = true ]; then
+        LAST_TAG=$(git describe --tags --abbrev=0 --match 'luna-v*' 2>/dev/null || true)
+    else
+        LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+    fi
     COMMITS=""
     if [ -n "$LAST_TAG" ]; then
         COMMITS=$(git log --oneline --decorate --no-merges "${LAST_TAG}..HEAD" 2>/dev/null || true)
@@ -637,9 +659,10 @@ upload_assets() {
     ls -lh "$BUILD_DIR"
     echo ""
     
-    REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt)
-    if [ "$WITH_ISO" = true ]; then
-        REQUIRED_ASSETS+=(luna-rapidinstall-x86_64.iso lunad-linux-amd64)
+    if [ "$LUNA_RELEASE" = true ]; then
+        REQUIRED_ASSETS=(lunad-linux-amd64 luna-rapidinstall-x86_64.iso SHA256SUMS.txt)
+    else
+        REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt)
     fi
 
     for file in "${REQUIRED_ASSETS[@]}"; do

@@ -1,8 +1,9 @@
-//! Software updates from Forgejo `luna-*` releases.
+//! Software updates from Forgejo `luna-v*` releases.
 //!
-//! Tags look like `luna-0.2.0`. Assets follow LibreServ's checksum file:
+//! Tags look like `luna-v0.2.0`. LibreServ stays on `v*`. Assets:
 //! `lunad-linux-amd64` plus `SHA256SUMS.txt`. Apply is tap-to-update only —
-//! never silent. Checksum mismatch refuses the install.
+//! never silent. Checksum mismatch refuses the install. Draft and prerelease
+//! tags are ignored.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -15,7 +16,7 @@ use sha2::{Digest, Sha256};
 const DEFAULT_API: &str = "https://gt.plainskill.net/api/v1";
 const DEFAULT_OWNER: &str = "LibreLoom";
 const DEFAULT_REPO: &str = "LibreServ";
-const TAG_PREFIX: &str = "luna-";
+const TAG_PREFIX: &str = "luna-v";
 
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum UpdateError {
@@ -354,7 +355,7 @@ mod tests {
         let api = "http://forgejo.test/api/v1";
         let list = format!("{api}/repos/LibreLoom/LibreServ/releases?limit=50");
         let sums =
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-0.2.0/SHA256SUMS.txt";
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt";
         let bin = binary_name();
         let payload = b"fake-lunad-bytes";
         let sum = {
@@ -367,7 +368,7 @@ mod tests {
             list,
             (
                 200,
-                json_releases(&["v1.9.0", "luna-0.1.0", "luna-0.2.0", "connect-2.0.0"]),
+                json_releases(&["v1.9.0", "luna-v0.1.0", "luna-v0.2.0", "connect-2.0.0"]),
             ),
         );
         map.insert(
@@ -384,7 +385,7 @@ mod tests {
             "LibreServ".into(),
         );
         let info = svc.check("0.1.0", true).unwrap();
-        assert_eq!(info.latest_version, "luna-0.2.0");
+        assert_eq!(info.latest_version, "luna-v0.2.0");
         assert!(info.update_available);
         assert_eq!(info.checksum, sum);
     }
@@ -410,15 +411,15 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             format!("{api}/repos/LibreLoom/LibreServ/releases?limit=50"),
-            (200, json_releases(&["luna-0.2.0"])),
+            (200, json_releases(&["luna-v0.2.0"])),
         );
         map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-0.2.0/SHA256SUMS.txt"
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
                 .into(),
             (200, format!("{sum}  {bin}\n").into_bytes()),
         );
         map.insert(
-            format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-0.2.0/{bin}"),
+            format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{bin}"),
             (200, payload.to_vec()),
         );
         let svc = UpdateService::new(
@@ -439,15 +440,15 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             format!("{api}/repos/LibreLoom/LibreServ/releases?limit=50"),
-            (200, json_releases(&["luna-0.2.0"])),
+            (200, json_releases(&["luna-v0.2.0"])),
         );
         map.insert(
-            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-0.2.0/SHA256SUMS.txt"
+            "http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/SHA256SUMS.txt"
                 .into(),
             (200, format!("deadbeef  {bin}\n").into_bytes()),
         );
         map.insert(
-            format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-0.2.0/{bin}"),
+            format!("http://forgejo.test/LibreLoom/LibreServ/releases/download/luna-v0.2.0/{bin}"),
             (200, b"tampered".to_vec()),
         );
         let svc = UpdateService::new(
@@ -464,9 +465,9 @@ mod tests {
 
     #[test]
     fn prerelease_luna_tags_are_skipped() {
-        let raw = br#"[{"tag_name":"luna-9.0.0","body":"","html_url":"","prerelease":true,"draft":false},{"tag_name":"luna-0.3.0","body":"ok","html_url":"u","prerelease":false,"draft":false}]"#;
+        let raw = br#"[{"tag_name":"luna-v9.0.0","body":"","html_url":"","prerelease":true,"draft":false},{"tag_name":"luna-v0.3.0","body":"ok","html_url":"u","prerelease":false,"draft":false},{"tag_name":"v0.4.0","body":"libreserv","html_url":"","prerelease":false,"draft":false},{"tag_name":"luna-0.9.0","body":"old prefix","html_url":"","prerelease":false,"draft":false}]"#;
         let releases: Vec<ForgejoRelease> = serde_json::from_slice(raw).unwrap();
         let latest = pick_latest_luna(&releases).unwrap();
-        assert_eq!(latest.tag_name, "luna-0.3.0");
+        assert_eq!(latest.tag_name, "luna-v0.3.0");
     }
 }

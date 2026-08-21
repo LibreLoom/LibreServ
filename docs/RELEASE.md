@@ -22,8 +22,10 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 ./release.sh --keep-build # Keep release-build/ directory after completion
 ./release.sh --force      # Auto-delete existing release with same tag (no prompt)
 ./release.sh --pre-release # Mark release as pre-release/unstable (beta, rc, alpha)
-./release.sh --yes --version v0.0.13 --pre-release --with-iso --publish --skip-ci
-# Non-interactive: FORGEJO_TOKEN from the environment; optional --notes-file
+./release.sh --yes --version v0.0.13 --pre-release --publish --skip-ci
+# LibreServ tag v0.0.13
+./release.sh --yes --version v0.0.13 --luna --publish --skip-ci
+# Luna tag luna-v0.0.13 (stable; lunad + ISO). The updater ignores prereleases and v* tags.
 ```
 
 If a release with the same tag already exists, the script will:
@@ -53,7 +55,7 @@ The script will guide you through:
 ### 3. Verify Release
 
 After creation, verify:
-- [ ] All assets uploaded (2 binaries + SHA256SUMS.txt; plus ISO when `--with-iso`)
+- [ ] LibreServ `v*`: 2 binaries + SHA256SUMS.txt. Luna `luna-v*`: lunad + ISO + SHA256SUMS.txt.
 - [ ] Release notes are formatted correctly
 - [ ] Tag matches version in notes
 
