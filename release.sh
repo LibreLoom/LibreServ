@@ -576,7 +576,7 @@ create_draft_release() {
         -H "Content-Type: application/json" \
         -d "{
             \"tag_name\": \"$VERSION_TAG\",
-            \"name\": \"Release $VERSION_TAG\",
+            \"name\": \"$VERSION_TAG\",
             \"body\": \"\",
             \"draft\": true,
             \"prerelease\": $PRERELEASE_FLAG

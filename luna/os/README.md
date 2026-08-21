@@ -61,6 +61,7 @@ on `LibreLoom/LibreServ`. LibreServ releases stay on `v*` (for example `v0.0.13`
 and are ignored by the Luna updater. Release assets:
 
 - `lunad-linux-amd64` (or `lunad-linux-arm64`)
+- `luna-rapidinstall-x86_64.iso` on OS cuts
 - `SHA256SUMS.txt` (required — install refuses a missing or mismatched checksum)
 
 An admin taps **Install update** in Settings. That replaces `/usr/local/bin/lunad`
