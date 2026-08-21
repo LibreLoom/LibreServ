@@ -12,10 +12,17 @@ DRY_RUN=false
 PRESERVE_BUILD=false
 FORCE=false
 PRERELEASE=false
+YES=false
+SKIP_CI=false
+WITH_ISO=false
+PUBLISH=false
+LUNA_RELEASE=false
+VERSION_TAG=""
+NOTES_FILE=""
 
 # Parse arguments
-for arg in "$@"; do
-    case $arg in
+while [ $# -gt 0 ]; do
+    case $1 in
         --dry-run)
             DRY_RUN=true
             PRESERVE_BUILD=true
@@ -33,16 +40,56 @@ for arg in "$@"; do
             PRERELEASE=true
             shift
             ;;
+        --yes|-y)
+            YES=true
+            shift
+            ;;
+        --skip-ci)
+            SKIP_CI=true
+            shift
+            ;;
+        --with-iso)
+            WITH_ISO=true
+            shift
+            ;;
+        --luna)
+            LUNA_RELEASE=true
+            WITH_ISO=true
+            shift
+            ;;
+        --publish)
+            PUBLISH=true
+            shift
+            ;;
+        --version)
+            VERSION_TAG="$2"
+            shift 2
+            ;;
+        --notes-file)
+            NOTES_FILE="$2"
+            shift 2
+            ;;
         --help|-h)
-            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force] [--pre-release]"
+            echo "Usage: ./release.sh [--dry-run] [--keep-build] [--force] [--pre-release] [--yes] [--version vX.Y.Z] [--notes-file PATH] [--luna] [--with-iso] [--publish] [--skip-ci]"
             echo ""
             echo "Options:"
             echo "  --dry-run      Build binaries and release notes, but skip Forgejo API calls"
             echo "  --keep-build   Keep release-build/ directory after completion"
             echo "  --force        Delete existing release with same tag and recreate"
             echo "  --pre-release  Mark release as pre-release/unstable (beta, rc, etc.)"
+            echo "  --yes, -y      Non-interactive: no prompts (uses FORGEJO_TOKEN from the environment)"
+            echo "  --version TAG  Version tag (e.g. v0.0.13); required with --yes"
+            echo "  --notes-file   Release notes markdown file; with --yes, generated if omitted"
+            echo "  --luna         Luna release: tag luna-vX.Y.Z (stable by default), lunad + ISO"
+            echo "  --with-iso     Also build and upload luna-rapidinstall-x86_64.iso (implied by --luna)"
+            echo "  --publish      Publish immediately (with --yes, skip the publish prompt)"
+            echo "  --skip-ci      Do not run ./ci (still allowed for pre-releases)"
             echo "  --help, -h     Show this help message"
             exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 1
             ;;
     esac
 done
@@ -67,6 +114,12 @@ print_banner() {
 
 # Prompt for Forgejo token
 prompt_token() {
+    if [ -n "${FORGEJO_TOKEN:-}" ]; then
+        log_info "Using FORGEJO_TOKEN from the environment"
+    elif [ "$YES" = true ]; then
+        log_error "FORGEJO_TOKEN must be set in the environment when using --yes"
+        exit 1
+    else
     echo ""
     log_step "Forgejo API Token Required"
     echo ""
@@ -89,6 +142,7 @@ prompt_token() {
         fi
         break
     done
+    fi
     
     # Validate token by making a test API call
     log_info "Validating token..."
@@ -110,18 +164,35 @@ prompt_version() {
     echo ""
     log_step "Version Tag"
     echo ""
-    
-    while true; do
-        read -p "Enter version tag (e.g., v1.0.0): " VERSION_TAG
-        if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+
+    if [ -n "$VERSION_TAG" ]; then
+        if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
             log_error "Invalid version format. Use semantic versioning: v1.0.0 or v1.0.0-beta.1"
-            continue
+            exit 1
         fi
-        break
-    done
+        log_info "Version: $VERSION_TAG"
+    else
+        if [ "$YES" = true ]; then
+            log_error "--version is required with --yes"
+            exit 1
+        fi
+        while true; do
+            read -p "Enter version tag (e.g., v1.0.0): " VERSION_TAG
+            if [[ ! "$VERSION_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+                log_error "Invalid version format. Use semantic versioning: v1.0.0 or v1.0.0-beta.1"
+                continue
+            fi
+            break
+        done
+    fi
+
+    if [ "$LUNA_RELEASE" = true ]; then
+        VERSION_TAG="luna-${VERSION_TAG}"
+        log_info "Luna Forgejo tag: $VERSION_TAG (stable unless --pre-release)"
+    fi
     
     # Ask if this is a pre-release
-    if [ "$PRERELEASE" = false ]; then
+    if [ "$PRERELEASE" = false ] && [ "$YES" != true ]; then
         echo ""
         echo "Is this a pre-release (beta, rc, alpha)?"
         echo "Pre-releases are marked as 'unstable' and won't be offered as latest."
@@ -150,9 +221,13 @@ check_git_status() {
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
     if [ "$CURRENT_BRANCH" != "main" ]; then
         log_warn "Not on main branch (current: $CURRENT_BRANCH)"
-        read -p "Continue anyway? (y/N): " confirm
-        if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-            exit 1
+        if [ "$YES" = true ]; then
+            log_info "Continuing anyway (--yes)"
+        else
+            read -p "Continue anyway? (y/N): " confirm
+            if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+                exit 1
+            fi
         fi
     fi
     
@@ -201,12 +276,18 @@ run_ci() {
         exit 1
     fi
     
-    echo "The CI suite takes 5-15 minutes to run."
-    echo ""
-    read -p "Run full CI suite before release? (Y/n): " run_ci
-    if [ "$run_ci" = "n" ] || [ "$run_ci" = "N" ]; then
-        log_warn "Skipping CI suite - ensure tests pass manually!"
+    if [ "$SKIP_CI" = true ]; then
+        log_warn "Skipping CI suite (--skip-ci)"
         return
+    fi
+    if [ "$YES" != true ]; then
+        echo "The CI suite takes 5-15 minutes to run."
+        echo ""
+        read -p "Run full CI suite before release? (Y/n): " run_ci
+        if [ "$run_ci" = "n" ] || [ "$run_ci" = "N" ]; then
+            log_warn "Skipping CI suite - ensure tests pass manually!"
+            return
+        fi
     fi
     
     log_info "Running full CI profile (this may take a while)..."
@@ -229,6 +310,44 @@ build_binaries() {
     BUILD_DIR=$(pwd)/release-build
     rm -rf "$BUILD_DIR"
     mkdir -p "$BUILD_DIR"
+    
+    if [ "$LUNA_RELEASE" = true ]; then
+        log_info "Building Luna rapidinstall ISO (musl lunad + rootfs + xorriso)..."
+        if ! command -v podman >/dev/null 2>&1; then
+            log_error "Podman is required for Luna ISO releases"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        chmod +x luna/os/build-iso.sh
+        if ! (cd luna && ./os/build-iso.sh); then
+            log_error "ISO build failed"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        ISO_SRC="luna/os/dist/luna-rapidinstall-x86_64.iso"
+        if [ ! -f "$ISO_SRC" ]; then
+            log_error "ISO missing at $ISO_SRC"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        cp "$ISO_SRC" "$BUILD_DIR/luna-rapidinstall-x86_64.iso"
+        LUNAD_MUSL="luna/target/x86_64-unknown-linux-musl/release/lunad"
+        if [ ! -x "$LUNAD_MUSL" ]; then
+            log_error "missing musl lunad at $LUNAD_MUSL"
+            rm -rf "$BUILD_DIR"
+            exit 1
+        fi
+        cp "$LUNAD_MUSL" "$BUILD_DIR/lunad-linux-amd64"
+
+        log_info "Generating SHA256 checksums..."
+        cd "$BUILD_DIR"
+        sha256sum lunad-linux-amd64 luna-rapidinstall-x86_64.iso > SHA256SUMS.txt
+        cd ..
+        log_info "Luna assets built successfully"
+        echo ""
+        ls -lh "$BUILD_DIR"
+        return
+    fi
     
     # Build frontend first
     log_info "Building frontend..."
@@ -323,18 +442,74 @@ build_binaries() {
     ls -lh "$BUILD_DIR"
 }
 
-# Create release notes in editor
+# Create release notes in editor or from a file / git log
 create_release_notes() {
     log_step "Create Release Notes"
     echo ""
+
+    if [ -n "$NOTES_FILE" ]; then
+        if [ ! -f "$NOTES_FILE" ]; then
+            log_error "Notes file not found: $NOTES_FILE"
+            exit 1
+        fi
+        RELEASE_NOTES=$(cat "$NOTES_FILE")
+        log_info "Using release notes from $NOTES_FILE"
+        return
+    fi
+
+    if [ "$LUNA_RELEASE" = true ]; then
+        LAST_TAG=$(git describe --tags --abbrev=0 --match 'luna-v*' 2>/dev/null || true)
+    else
+        LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+    fi
+    COMMITS=""
+    if [ -n "$LAST_TAG" ]; then
+        COMMITS=$(git log --oneline --decorate --no-merges "${LAST_TAG}..HEAD" 2>/dev/null || true)
+    else
+        COMMITS=$(git log --oneline --decorate --no-merges -20 2>/dev/null || true)
+    fi
+
+    if [ "$YES" = true ]; then
+        RELEASE_NOTES="$(cat <<EOF
+## What's Changed
+
+Pre-release ${VERSION_TAG}. Automated cut for the Luna rapidinstall ISO rehearsal on a mini PC.
+
+## New Features
+
+- Luna rapidinstall ISO is pinned to Alpine 3.24 (same as the rootfs).
+- ISO build now emits 32-bit UEFI GRUB when Alpine ships i386-efi modules.
+- \`./os/build-iso.sh\` builds the web UI, musl lunad, rootfs, and hybrid ISO in one step.
+- \`./release.sh --with-iso\` attaches \`luna-rapidinstall-x86_64.iso\` (and musl \`lunad-linux-amd64\`) to the Forgejo release.
+
+## Bug Fixes
+
+- ISO builder no longer defaults to \`alpine:latest\`.
+
+## Breaking Changes
+
+None.
+
+## Upgrade Notes
+
+Flash \`luna-rapidinstall-x86_64.iso\` to a USB stick, boot the mini PC with Secure Boot off, and type \`install luna\` when the installer names the built-in disk.
+
+## Commits Since Last Release
+
+${COMMITS:-"(No commits found)"}
+EOF
+)"
+        log_info "Generated release notes (--yes)"
+        return
+    fi
+
     echo "Opening editor for release notes..."
     echo "Write your changelog, then save and close the editor."
     echo ""
     
-    NOTES_FILE=$(mktemp)
+    TMP_NOTES=$(mktemp)
     
-    # Add template
-    cat > "$NOTES_FILE" << 'TEMPLATE'
+    cat > "$TMP_NOTES" << 'TEMPLATE'
 ## What's Changed
 
 ## New Features
@@ -347,18 +522,16 @@ create_release_notes() {
 
 TEMPLATE
     
-    # Add recent commits
-    echo "" >> "$NOTES_FILE"
-    echo "## Commits Since Last Release" >> "$NOTES_FILE"
-    echo "" >> "$NOTES_FILE"
-    git log --oneline --decorate --no-merges -20 >> "$NOTES_FILE" 2>/dev/null || echo "(No commits found)" >> "$NOTES_FILE"
+    echo "" >> "$TMP_NOTES"
+    echo "## Commits Since Last Release" >> "$TMP_NOTES"
+    echo "" >> "$TMP_NOTES"
+    echo "${COMMITS:-"(No commits found)"}" >> "$TMP_NOTES"
     
-    # Open editor
     EDITOR="${EDITOR:-nano}"
-    $EDITOR "$NOTES_FILE"
+    $EDITOR "$TMP_NOTES"
     
-    RELEASE_NOTES=$(cat "$NOTES_FILE")
-    rm -f "$NOTES_FILE"
+    RELEASE_NOTES=$(cat "$TMP_NOTES")
+    rm -f "$TMP_NOTES"
     
     if [ -z "$RELEASE_NOTES" ]; then
         log_error "Release notes cannot be empty"
@@ -403,7 +576,7 @@ create_draft_release() {
         -H "Content-Type: application/json" \
         -d "{
             \"tag_name\": \"$VERSION_TAG\",
-            \"name\": \"Release $VERSION_TAG\",
+            \"name\": \"$VERSION_TAG\",
             \"body\": \"\",
             \"draft\": true,
             \"prerelease\": $PRERELEASE_FLAG
@@ -444,13 +617,20 @@ update_release_with_notes() {
     log_step "Updating Release Notes"
     echo ""
     
-    ESCAPED_NOTES=$(echo "$RELEASE_NOTES" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-    
-    HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
-        -H "Authorization: token $FORGEJO_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{\"body\": \"$ESCAPED_NOTES\"}" \
-        "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
+    if command -v jq >/dev/null 2>&1; then
+        HTTP_RESPONSE=$(jq -n --arg body "$RELEASE_NOTES" '{body: $body}' | curl -s -w "\n%{http_code}" -X PATCH \
+            -H "Authorization: token $FORGEJO_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d @- \
+            "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
+    else
+        ESCAPED_NOTES=$(echo "$RELEASE_NOTES" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+        HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" -X PATCH \
+            -H "Authorization: token $FORGEJO_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"body\": \"$ESCAPED_NOTES\"}" \
+            "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID")
+    fi
     
     HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
     
@@ -479,30 +659,66 @@ upload_assets() {
     ls -lh "$BUILD_DIR"
     echo ""
     
-    # Verify all files exist before uploading
-    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
+    if [ "$LUNA_RELEASE" = true ]; then
+        REQUIRED_ASSETS=(lunad-linux-amd64 luna-rapidinstall-x86_64.iso SHA256SUMS.txt)
+    else
+        REQUIRED_ASSETS=(libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt)
+    fi
+
+    for file in "${REQUIRED_ASSETS[@]}"; do
         if [ ! -f "$BUILD_DIR/$file" ]; then
             log_error "Missing file: $BUILD_DIR/$file"
             exit 1
         fi
     done
     
-    for file in libreserv-linux-amd64 libreserv-linux-arm64 SHA256SUMS.txt; do
+    for file in "${REQUIRED_ASSETS[@]}"; do
         log_info "Uploading $file..."
         
         FILE_SIZE=$(du -h "$BUILD_DIR/$file" | cut -f1)
-        
-        # Upload with timeout
-        UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" \
-            --connect-timeout 30 \
-            --max-time 300 \
-            -X POST \
-            -H "Authorization: token $FORGEJO_TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @"$BUILD_DIR/$file" \
-            "$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file" 2>&1)
-        
-        CURL_EXIT=$?
+        BYTES=$(stat -c%s "$BUILD_DIR/$file")
+        ASSET_URL="$FORGEJO_INSTANCE/api/v1/repos/$REPO_OWNER/$REPO_NAME/releases/$RELEASE_ID/assets?name=$file"
+
+        # curl --data-binary loads the whole file; stream large ISOs instead.
+        if [ "$BYTES" -gt 83886080 ]; then
+            HTTP_CODE=$(python3 - "$ASSET_URL" "$BUILD_DIR/$file" "$FORGEJO_TOKEN" <<'PY'
+import os, sys, urllib.request
+url, path, token = sys.argv[1], sys.argv[2], sys.argv[3]
+size = os.path.getsize(path)
+req = urllib.request.Request(url, data=open(path, "rb"), method="POST")
+req.add_header("Authorization", "token " + token)
+req.add_header("Content-Type", "application/octet-stream")
+req.add_header("Content-Length", str(size))
+try:
+    with urllib.request.urlopen(req, timeout=7200) as resp:
+        print(resp.status)
+except Exception as e:
+    code = getattr(e, "code", 0)
+    body = ""
+    if hasattr(e, "read"):
+        body = e.read().decode("utf-8", "replace")[:500]
+    sys.stderr.write(f"{type(e).__name__}: {e}\n{body}\n")
+    print(code or 0)
+    sys.exit(1)
+PY
+)
+            CURL_EXIT=$?
+            RESPONSE_BODY=""
+            MAX_TIME=7200
+        else
+            MAX_TIME=300
+            UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" \
+                --connect-timeout 30 \
+                --max-time "$MAX_TIME" \
+                -X POST \
+                -H "Authorization: token $FORGEJO_TOKEN" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"$BUILD_DIR/$file" \
+                "$ASSET_URL" 2>&1)
+            CURL_EXIT=$?
+            HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
+            RESPONSE_BODY=$(echo "$UPLOAD_RESPONSE" | sed '$d')
+        fi
         
         if [ $CURL_EXIT -ne 0 ]; then
             log_error "curl failed with exit code $CURL_EXIT"
@@ -532,7 +748,15 @@ publish_release() {
     echo ""
     echo "Release URL: ${FORGEJO_INSTANCE}/${REPO_OWNER}/${REPO_NAME}/releases/tag/${VERSION_TAG}"
     echo ""
-    read -p "Publish now? (y/N): " confirm
+    if [ "$YES" = true ]; then
+        if [ "$PUBLISH" = true ]; then
+            confirm=y
+        else
+            confirm=n
+        fi
+    else
+        read -p "Publish now? (y/N): " confirm
+    fi
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         log_info "Publishing release..."
         
@@ -567,9 +791,11 @@ cleanup() {
     
     # Always clean on error
     if [ $EXIT_CODE -ne 0 ]; then
-        if [ -d "$BUILD_DIR" ]; then
+        if [ -d "$BUILD_DIR" ] && [ "$PRESERVE_BUILD" != true ]; then
             log_warn "Cleaning up build directory after error..."
             rm -rf "$BUILD_DIR"
+        elif [ -d "$BUILD_DIR" ]; then
+            log_warn "Keeping release-build/ after error (--keep-build)"
         fi
         return
     fi
@@ -619,13 +845,18 @@ main() {
     # Clean up any stale build artifacts from previous runs
     if [ -d "./release-build" ]; then
         log_warn "Found stale release-build/ directory from previous run"
-        read -p "Clean it up and continue? (Y/n): " confirm
-        if [ "$confirm" != "n" ] && [ "$confirm" != "N" ]; then
+        if [ "$YES" = true ]; then
             rm -rf "./release-build"
             log_info "Cleaned up stale build directory"
         else
-            log_error "Please remove ./release-build manually and re-run"
-            exit 1
+            read -p "Clean it up and continue? (Y/n): " confirm
+            if [ "$confirm" != "n" ] && [ "$confirm" != "N" ]; then
+                rm -rf "./release-build"
+                log_info "Cleaned up stale build directory"
+            else
+                log_error "Please remove ./release-build manually and re-run"
+                exit 1
+            fi
         fi
     fi
     
@@ -637,10 +868,14 @@ main() {
     echo ""
     log_info "Ready to create release $VERSION_TAG"
     echo ""
-    read -p "Continue? (y/N): " confirm
-    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
-        log_info "Aborted"
-        exit 0
+    if [ "$YES" = true ]; then
+        log_info "Continuing (--yes)"
+    else
+        read -p "Continue? (y/N): " confirm
+        if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+            log_info "Aborted"
+            exit 0
+        fi
     fi
     
     run_ci
@@ -674,9 +909,6 @@ main() {
     create_release_notes
     update_release_with_notes
     
-    echo ""
-    echo "DEBUG: About to upload assets"
-    echo "DEBUG: RELEASE_ID = $RELEASE_ID"
     echo ""
     
     upload_assets

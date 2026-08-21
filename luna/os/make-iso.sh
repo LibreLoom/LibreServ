@@ -1,12 +1,13 @@
 #!/bin/sh
-# Build a UEFI+BIOS hybrid rapidinstall ISO for Wyse 3040-class thin clients.
-# Boot the USB; the installer writes Luna to eMMC (/dev/mmcblk0), not the stick.
+# Build a UEFI+BIOS hybrid rapidinstall ISO for ordinary x86_64 PCs.
+# Boot the USB; the installer writes Luna to built-in storage, never the stick.
 #
 # Needs: rootfs tarball from build-rootfs.sh, Podman.
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-ALPINE_IMAGE="${ALPINE_IMAGE:-docker.io/library/alpine:latest}"
+# shellcheck source=lib/alpine-image.sh
+. "$ROOT/os/lib/alpine-image.sh"
 ALPINE_VERSION="${ALPINE_VERSION:-v3.24}"
 ARCH="${ARCH:-x86_64}"
 OUT="$ROOT/os/dist"
@@ -34,7 +35,7 @@ cp "$ROOT/os/lib/flash-disk.sh" "$ISOROOT/lib/flash-disk.sh"
 chmod +x "$ISOROOT/rapidinstall.sh" "$WORK/init" "$WORK/build-live.sh" "$WORK/build-xorriso.sh"
 cp "$TARBALL" "$ISOROOT/luna-rootfs-$ARCH.tar.gz"
 
-podman run --rm \
+podman run --rm --privileged \
 	-e ALPINE_VERSION="$ALPINE_VERSION" \
 	-e ARCH="$ARCH" \
 	-v "$ISOROOT:/iso:z" \
@@ -43,7 +44,7 @@ podman run --rm \
 	-v "$WORK/build-live.sh:/build-live.sh:ro,z" \
 	"$ALPINE_IMAGE" sh /build-live.sh
 
-podman run --rm \
+podman run --rm --privileged \
 	-e ARCH="$ARCH" \
 	-v "$ISOROOT:/iso:z" \
 	-v "$OUT:/out:z" \

@@ -46,6 +46,10 @@ export const api = {
     body: JSON.stringify({ source: source || "" }),
   }),
   getVerificationStatus: () => request("/portal/verification-status"),
+  updateEmail: (email, source) => request("/portal/account/email", {
+    method: "POST",
+    body: JSON.stringify({ email, source: source || "" }),
+  }),
   getMe: () => request("/portal/me"),
   setup2FA: () => request("/portal/2fa/setup", { method: "POST" }),
   verify2FA: (code) => request("/portal/2fa/verify", {

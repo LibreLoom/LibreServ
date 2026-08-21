@@ -95,6 +95,9 @@ server/backend/libreserv
 
 # Local build scratch
 .build-tmp/
+luna/os/dist/
+luna/os/work/
+release-build/
 
 # @trafficcone's gosh darned stuffs :)
 server/backend/backend.pid

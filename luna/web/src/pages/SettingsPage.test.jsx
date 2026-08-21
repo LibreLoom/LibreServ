@@ -27,7 +27,7 @@ describe("SettingsPage", () => {
       const u = String(url);
       if (u.includes("/auth/me")) return new Response(JSON.stringify({ id: "1", username: "max", role: "admin" }), { status: 200, headers: { "Content-Type": "application/json" } });
       if (u.includes("/api/v1/setup")) return new Response(JSON.stringify({ name: "Luna", setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
-      if (u.includes("/system/updates")) return new Response(JSON.stringify({ current_version: "0.1.0", latest_version: "luna-0.1.0", update_available: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/system/updates")) return new Response(JSON.stringify({ current_version: "0.1.0", latest_version: "luna-v0.1.0", update_available: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       if (u.includes("/device-tokens")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
       if (u.includes("/network/")) return new Response(JSON.stringify({ connected: false, available: true, ethernet_connected: true, wifi_connected: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       return new Response("{}", { status: 404 });

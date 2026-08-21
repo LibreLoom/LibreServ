@@ -170,5 +170,5 @@
 - [x] Free one-tap Connect keys: Connect endpoint `/api/v1/luna/free-key` mints a free-plan account+key per Luna (10/hour/IP); Luna Remote page is now one tap with no key entry
       TODO(luna-connect-rebuild): rate-limit must use real RemoteAddr when Connect is rebuilt — not X-Forwarded-For. Do not change the current limiter now.
 - [x] Locked-out admin recovery: USB keyboard sequence (Esc, then type `luna`, then Enter) on the appliance; TTY password reset; rate-limited; documented on setup done + Settings
-- [x] Software updates: Forgejo `luna-*` releases, SHA-256 verified `lunad-*` binary, tap-to-install in Settings (no silent apply)
+- [x] Software updates: Forgejo `luna-v*` releases, SHA-256 verified `lunad-*` binary, tap-to-install in Settings (no silent apply)
 - [ ] Physical 5-unit rehearsal on Wyse 3040 hardware

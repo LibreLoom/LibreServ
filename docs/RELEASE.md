@@ -2,7 +2,37 @@
 
 ## Overview
 
-LibreServ releases are created manually using the `./release.sh` script. This ensures quality control and allows for careful review before publishing.
+LibreServ, Luna, and Connect share one Forgejo repo (`LibreLoom/LibreServ`) and **must not share tags**.
+
+## Tag, title, and asset conventions
+
+The Forgejo **tag** and **release title** are the same string. Never prefix titles with "Release" or "Luna".
+
+| Product | Tag / title | Stable? | Assets (only these) |
+|---------|-------------|---------|---------------------|
+| LibreServ | `vMAJOR.MINOR.PATCH` e.g. `v0.0.13` | yes (unless `--pre-release`) | `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt` |
+| Luna | `luna-vMAJOR.MINOR.PATCH` e.g. `luna-v0.0.13` | yes (updater skips prereleases) | `lunad-linux-amd64`, `lunad-linux-arm64` when built, `luna-rapidinstall-x86_64.iso` when this is an OS cut, `SHA256SUMS.txt` |
+| Connect | `connect-vMAJOR.MINOR.PATCH` | separate module | Connect's own binaries |
+
+`SHA256SUMS.txt` uses GNU `sha256sum` lines: `<hash><two spaces><filename>`.
+
+LibreServ `install.sh` and the in-app updater only consume **`v*`** tags. Luna's updater only consumes **stable `luna-v*`** tags. Mixing assets across those tags breaks both.
+
+## Creating a Release
+
+Use `./release.sh`. Do not attach Luna files to a `v*` release or LibreServ binaries to a `luna-v*` release.
+
+```bash
+./release.sh              # Interactive LibreServ v* cut
+./release.sh --dry-run    # Build binaries only, skip Forgejo API calls (keeps build dir)
+./release.sh --keep-build # Keep release-build/ directory after completion
+./release.sh --force      # Auto-delete existing release with same tag (no prompt)
+./release.sh --pre-release # Mark as pre-release (install.sh and updaters skip these)
+./release.sh --yes --version v0.0.13 --publish
+# → tag + title v0.0.13, LibreServ linux amd64/arm64 + SHA256SUMS.txt
+./release.sh --yes --version v0.0.13 --luna --publish
+# → tag + title luna-v0.0.13, lunad + ISO + SHA256SUMS.txt
+```
 
 ## Prerequisites
 
@@ -12,17 +42,9 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 - Node.js 20+ installed locally (for frontend build)
 - Podman installed (for CI tests)
 
-## Creating a Release
+## Release script details
 
-### 1. Run the Release Script
-
-```bash
-./release.sh              # Full release process
-./release.sh --dry-run    # Build binaries only, skip Forgejo API calls (keeps build dir)
-./release.sh --keep-build # Keep release-build/ directory after completion
-./release.sh --force      # Auto-delete existing release with same tag (no prompt)
-./release.sh --pre-release # Mark release as pre-release/unstable (beta, rc, alpha)
-```
+### 1. Existing tags
 
 If a release with the same tag already exists, the script will:
 1. Show the existing release URL
@@ -51,9 +73,10 @@ The script will guide you through:
 ### 3. Verify Release
 
 After creation, verify:
-- [ ] All assets uploaded (2 binaries + SHA256SUMS.txt)
+- [ ] Tag equals the release title (`v0.0.13` or `luna-v0.0.13`)
+- [ ] LibreServ `v*`: `libreserv-linux-amd64`, `libreserv-linux-arm64`, `SHA256SUMS.txt` only
+- [ ] Luna `luna-v*`: `lunad-linux-*`, ISO when shipping OS, `SHA256SUMS.txt` only
 - [ ] Release notes are formatted correctly
-- [ ] Tag matches version in notes
 
 ## Manual Token Creation
 
@@ -210,7 +233,7 @@ After publishing:
 Currently manual by design. Future automation may include:
 - Automated changelog generation
 - GitHub Actions / Forgejo Actions workflow
-- Automatic ISO building for appliance releases
+- Automatic ISO building for appliance releases (`./release.sh --with-iso`)
 
 ---
 
