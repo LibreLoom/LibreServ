@@ -39,7 +39,8 @@ apk add --root "$IRD" --no-scripts --keys-dir /etc/apk/keys --arch "$ARCH" \
 mkdir -p "$IRD/lib/modules/$KVER"
 if [ -d "/lib/modules/$KVER" ]; then
 	cp -a /lib/modules/"$KVER"/modules.* "$IRD/lib/modules/$KVER/" 2>/dev/null || true
-	for sub in kernel/drivers/usb kernel/drivers/mmc kernel/drivers/scsi \
+	for sub in kernel/drivers/usb kernel/drivers/hid kernel/drivers/input \
+		kernel/drivers/serio kernel/drivers/mmc kernel/drivers/scsi \
 		kernel/drivers/ata kernel/drivers/nvme kernel/drivers/cdrom \
 		kernel/drivers/block kernel/drivers/pinctrl kernel/drivers/acpi \
 		kernel/drivers/platform kernel/drivers/net/phy kernel/drivers/virtio \
@@ -56,9 +57,19 @@ fi
 cp /init.in "$IRD/init"
 cp /find-media.sh "$IRD/find-media.sh"
 chmod +x "$IRD/init"
-mkdir -p "$IRD/bin"
-if [ -f "$IRD/bin/busybox" ]; then
+mkdir -p "$IRD/bin" "$IRD/sbin" "$IRD/usr/bin" "$IRD/usr/sbin"
+# apk --no-scripts skips busybox post-install, so no applet links (mkdir, sleep, awk…).
+if [ -x "$IRD/bin/busybox" ]; then
+	"$IRD/bin/busybox" --install -s "$IRD/bin" 2>/dev/null || true
+	chroot "$IRD" /bin/busybox --install -s 2>/dev/null || true
 	ln -sf busybox "$IRD/bin/sh"
+	for a in mkdir sleep awk sed grep sort basename ls cat echo mount umount \
+		ln setsid cttyhack mdev true false printf head tr cut wc rm cp mv \
+		chmod chown blkid lsblk; do
+		if [ ! -e "$IRD/bin/$a" ] && [ ! -e "$IRD/usr/bin/$a" ] && [ ! -e "$IRD/sbin/$a" ]; then
+			ln -sf busybox "$IRD/bin/$a"
+		fi
+	done
 fi
 
 (cd "$IRD" && find . | cpio -o -H newc) | gzip -9 >/iso/boot/initramfs
@@ -87,7 +98,7 @@ fi
 if [ ! -e /boot/vmlinuz ]; then
 	set root=(hd0)
 fi
-linux /boot/vmlinuz quiet
+linux /boot/vmlinuz quiet console=tty0
 initrd /boot/initramfs
 boot
 CFG

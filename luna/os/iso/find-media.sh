@@ -17,7 +17,7 @@ luna_block_candidates() {
 	_part=""
 	for _p in "$_root"/*; do
 		[ -e "$_p" ] || continue
-		_n="$(basename "$_p")"
+		_n="${_p##*/}"
 		case "$_n" in
 		loop* | ram* | zram* | dm-* | md* | fd*)
 			continue

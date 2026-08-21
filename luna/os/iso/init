@@ -1,6 +1,9 @@
 #!/bin/sh
 # Initramfs entry for the Luna rapidinstall ISO.
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+if [ -x /bin/busybox ]; then
+	/bin/busybox --install -s 2>/dev/null || true
+fi
 mount -t proc proc /proc
 mount -t sysfs sys /sys
 mount -t devtmpfs dev /dev 2>/dev/null || mount -t tmpfs dev /dev
@@ -16,12 +19,14 @@ load_modules() {
 	fi
 	for m in isofs iso9660 sr_mod cdrom usb-common usbcore ehci-hcd ehci-pci \
 		xhci-hcd xhci-pci xhci-pci-renesas usb-storage uas \
+		hid hid-generic usbhid evdev atkbd i8042 serio libps2 \
 		mmc_core mmc_block sdhci sdhci-pci sdhci-acpi \
 		pinctrl-intel pinctrl-cherryview pwm-lpss pwm-lpss-pci \
 		ahci sd_mod nvme virtio virtio_pci virtio_blk virtio_scsi \
 		ext4 fat vfat nls_cp437 crc32c_generic crc32c; do
 		modprobe "$m" 2>/dev/null || true
 	done
+	mdev -s 2>/dev/null || true
 }
 
 load_modules
@@ -50,4 +55,5 @@ if [ ! -f /src/rapidinstall.sh ]; then
 fi
 export LUNA_INSTALL_MEDIA="$SRCDEV"
 cd /src
-exec /bin/sh /src/rapidinstall.sh
+# cttyhack attaches the keyboard/console so "type install luna" works.
+exec setsid cttyhack /bin/sh /src/rapidinstall.sh
