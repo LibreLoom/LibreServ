@@ -1,12 +1,13 @@
 use argon2::password_hash::rand_core::RngCore;
 use axum::extract::{Extension, Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get};
 use axum::{Json, Router};
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::path::{Component, Path as FsPath};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -24,6 +25,10 @@ struct CreateShare {
 #[derive(Deserialize)]
 struct PublicQuery {
     password: Option<String>,
+    /// Path relative to the shared file or folder (never `..`).
+    path: Option<String>,
+    /// Force a file download even when the browser asked for a web page.
+    download: Option<u8>,
 }
 
 pub fn router() -> Router<AppState> {
@@ -43,6 +48,7 @@ async fn list(
         .map_err(|_| AuthError::Unauthenticated)
         .map_err(map_err)?;
     let shares = crate::db::list_shares(&conn).map_err(|e| map_err(AuthError::Db(e)))?;
+    let drives = crate::db::list_drives(&conn).map_err(|e| map_err(AuthError::Db(e)))?;
     let shares = if user.role == "admin" {
         shares
     } else {
@@ -55,9 +61,15 @@ async fn list(
         shares
             .into_iter()
             .map(|s| {
+                let drive_label = drives
+                    .iter()
+                    .find(|d| d.id == s.drive_id)
+                    .map(|d| d.label.clone())
+                    .unwrap_or_else(|| s.drive_id.clone());
                 json!({
                     "id": s.id,
                     "drive_id": s.drive_id,
+                    "drive_label": drive_label,
                     "path": s.path,
                     "has_password": !s.password_hash.is_empty(),
                     "expires_at": s.expires_at,
@@ -150,14 +162,21 @@ async fn remove(
     Ok(Json(json!({ "ok": true })))
 }
 
-/// Public share access. `GET /s/{token}` for folders lists entries; for files
-/// it streams the content. Optional password via `?password=...`.
+/// Public share access. Browsers opening `/s/{token}` get the Luna page so a
+/// household member sees files and a password box — not a raw data dump.
+/// Apps and the page itself send `Accept: application/json` (or `download=1`)
+/// to list a folder or stream a file. Optional password via `?password=...`.
+/// Optional `path=` walks inside a shared folder.
 async fn public(
     State(state): State<AppState>,
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Path(token): Path<String>,
     Query(query): Query<PublicQuery>,
+    headers: HeaderMap,
 ) -> axum::response::Response {
+    if prefers_html(&headers) && query.download.unwrap_or(0) == 0 {
+        return crate::staticweb::handle("");
+    }
     let result: Result<axum::response::Response, (StatusCode, Json<Value>)> =
         public_inner(state, addr.ip().to_string(), token, query).await;
     match result {
@@ -174,7 +193,7 @@ async fn public_inner(
 ) -> Result<axum::response::Response, (StatusCode, Json<Value>)> {
     // Keep the SQLite lock scoped to this block: the file-streaming await
     // below must not hold a MutexGuard across an await point.
-    let (_, meta, drive_id, path_label, entries) = {
+    let (meta, drive_id, path_label, entries) = {
         let conn = state
             .db
             .lock()
@@ -212,15 +231,23 @@ async fn public_inner(
             })?;
         }
 
-        let (path, meta) =
-            crate::files::resolve_any(&conn, &share.drive_id, &share.path).map_err(|_| {
+        let rel = child_under_share(&share.path, query.path.as_deref().unwrap_or("")).ok_or_else(
+            || {
+                json_error(
+                    StatusCode::BAD_REQUEST,
+                    "That folder isn't part of this shared link.",
+                )
+            },
+        )?;
+        let (_resolved, meta) =
+            crate::files::resolve_any(&conn, &share.drive_id, &rel).map_err(|_| {
                 json_error(
                     StatusCode::NOT_FOUND,
                     "The shared files aren't available right now.",
                 )
             })?;
         let entries = if meta.is_dir() {
-            crate::files::list_dir(&conn, &share.drive_id, &share.path).map_err(|_| {
+            crate::files::list_dir(&conn, &share.drive_id, &rel).map_err(|_| {
                 json_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Luna couldn't open this folder.",
@@ -229,13 +256,14 @@ async fn public_inner(
         } else {
             Vec::new()
         };
-        (path, meta, share.drive_id, share.path, entries)
+        (meta, share.drive_id, rel, entries)
     };
 
     if meta.is_file() {
         return serve_file(&state, &drive_id, &path_label).await;
     }
     Ok(Json(json!({
+        "kind": "folder",
         "drive_id": drive_id,
         "path": path_label,
         "entries": entries.into_iter().filter(|e| !e.hidden).collect::<Vec<_>>(),
@@ -317,6 +345,49 @@ async fn serve_file(
     Ok(response)
 }
 
+/// Join a path under the shared root. Rejects `..` and absolute paths so a
+/// public link cannot walk the rest of the drive.
+fn child_under_share(share_path: &str, rel: &str) -> Option<String> {
+    let extra = rel.trim();
+    if extra.starts_with('/') {
+        return None;
+    }
+    if extra.is_empty() {
+        return Some(share_path.trim_start_matches('/').to_string());
+    }
+    let requested = FsPath::new(extra);
+    if requested.is_absolute() {
+        return None;
+    }
+    for component in requested.components() {
+        if matches!(
+            component,
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir
+        ) {
+            return None;
+        }
+    }
+    if share_path.is_empty() {
+        Some(extra.to_string())
+    } else {
+        Some(format!("{}/{}", share_path.trim_end_matches('/'), extra))
+    }
+}
+
+fn prefers_html(headers: &HeaderMap) -> bool {
+    let accept = headers
+        .get(header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let html = accept.find("text/html");
+    let json = accept.find("application/json");
+    match (html, json) {
+        (Some(h), Some(j)) => h < j,
+        (Some(_), None) => true,
+        _ => false,
+    }
+}
+
 fn generate_token() -> String {
     let mut bytes = [0u8; 24];
     argon2::password_hash::rand_core::OsRng.fill_bytes(&mut bytes);
@@ -333,5 +404,35 @@ fn map_err(err: AuthError) -> (StatusCode, Json<Value>) {
             StatusCode::INTERNAL_SERVER_ERROR,
             "Luna couldn't finish that. Try again.",
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn child_under_share_stays_inside_the_shared_folder() {
+        assert_eq!(
+            child_under_share("photos/summer", "beach.jpg").as_deref(),
+            Some("photos/summer/beach.jpg")
+        );
+        assert_eq!(child_under_share("photos", "").as_deref(), Some("photos"));
+        assert_eq!(child_under_share("", "a/b").as_deref(), Some("a/b"));
+        assert!(child_under_share("photos", "../etc").is_none());
+        assert!(child_under_share("photos", "/etc/passwd").is_none());
+    }
+
+    #[test]
+    fn prefers_html_follows_accept_order() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT,
+            HeaderValue::from_static("text/html,application/xhtml+xml,application/json"),
+        );
+        assert!(prefers_html(&headers));
+        headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+        assert!(!prefers_html(&headers));
     }
 }

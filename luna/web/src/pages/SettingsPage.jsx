@@ -1,13 +1,18 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Keyboard, Smartphone, LogOut } from "lucide-react";
+import { Download, Keyboard, Smartphone, LogOut, Palette, FolderOpen } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import Pill from "../components/common/Pill";
 import PageNotice from "../components/common/PageNotice";
-import { getJson, postJson } from "../lib/api";
+import WifiCard from "../components/settings/WifiCard";
+import { getJson, postJson, apiErrorMessage } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
+import { useHapticsEnabled, setHapticsEnabled } from "../utils/haptics";
+
+/* eslint-disable react-refresh/only-export-components -- recovery copy is shared with tests */
 
 /** Keep in lockstep with lunad `recovery::CARD_*` — printed-card copy. */
 export const RECOVERY_CARD = {
@@ -21,10 +26,13 @@ export const RECOVERY_CARD = {
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const hapticsOn = useHapticsEnabled();
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [tokenName, setTokenName] = useState("");
   const [newToken, setNewToken] = useState(null);
+  const [copiedToken, setCopiedToken] = useState(false);
   const updates = useQuery({
     queryKey: ["system-updates"],
     queryFn: () => getJson("/api/v1/system/updates"),
@@ -37,11 +45,11 @@ export default function SettingsPage() {
       queryClient.setQueryData(["system-updates"], data);
       setError(null);
     },
-    onError: (err) => setError(String(err)),
+    onError: (err) => setError(apiErrorMessage(err)),
   });
   const apply = useMutation({
     mutationFn: () => postJson("/api/v1/system/updates/apply", {}),
-    onError: (err) => setError(String(err)),
+    onError: (err) => setError(apiErrorMessage(err)),
   });
 
   const tokens = useQuery({
@@ -49,24 +57,24 @@ export default function SettingsPage() {
     queryFn: () => getJson("/api/v1/device-tokens"),
   });
   const createToken = useMutation({
-    mutationFn: (name) => postJson("/api/v1/device-tokens", { name }),
+    mutationFn: () => postJson("/api/v1/device-tokens", { name: tokenName.trim() }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
       setNewToken(data);
       setTokenName("");
       setError(null);
     },
-    onError: (err) => setError(String(err)),
+    onError: (err) => setError(apiErrorMessage(err)),
   });
   const signOutBrowsers = useMutation({
     mutationFn: () => postJson("/api/v1/auth/revoke-sessions", {}),
     onSuccess: () => { window.location.href = "/login"; },
-    onError: (err) => setError(String(err)),
+    onError: (err) => setError(apiErrorMessage(err)),
   });
   const stopBackups = useMutation({
     mutationFn: () => postJson("/api/v1/auth/revoke-devices", {}),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["device-tokens"] }); setError(null); setNewToken(null); },
-    onError: (err) => setError(String(err)),
+    onError: (err) => setError(apiErrorMessage(err)),
   });
   const revokeOne = useMutation({
     mutationFn: async (id) => {
@@ -77,7 +85,7 @@ export default function SettingsPage() {
       }
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["device-tokens"] }),
-    onError: (err) => setError(String(err)),
+    onError: (err) => setError(apiErrorMessage(err)),
   });
 
   const info = updates.data || {};
@@ -90,6 +98,51 @@ export default function SettingsPage() {
     >
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-5 md:grid-cols-2">
+        <Card icon={Palette} title="Look and feel">
+          <p className="text-primary text-sm">
+            Light, dark, or match this device. Vibration on taps is optional.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[
+              { value: "system", label: "Match device" },
+              { value: "light", label: "Light" },
+              { value: "dark", label: "Dark" },
+            ].map((opt) => (
+              <Button
+                key={opt.value}
+                size="sm"
+                variant={theme === opt.value ? "primary" : "outline"}
+                onClick={() => setTheme(opt.value)}
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </div>
+          <div className="mt-4">
+            <Button
+              size="sm"
+              variant={hapticsOn ? "primary" : "outline"}
+              onClick={() => setHapticsEnabled(!hapticsOn)}
+            >
+              {hapticsOn ? "Vibration on" : "Vibration off"}
+            </Button>
+          </div>
+        </Card>
+
+        {user?.role === "admin" && <WifiCard />}
+
+        <Card icon={FolderOpen} title="Phones and computers">
+          <p className="text-primary text-sm">
+            Phone photos: install the Luna app from the same place you downloaded
+            Luna, sign in with your household username, and turn photo backup on.
+            Photos save on Wi-Fi while the phone charges, into a folder named Phone Backup.
+          </p>
+          <p className="text-primary text-sm mt-3">
+            Computers: use the Luna Desktop app, or open a drive as a folder with
+            the steps on the Files page. Create an access token below first — that
+            is the password Finder or Explorer will ask for.
+          </p>
+        </Card>
         <Card icon={Keyboard} title={RECOVERY_CARD.title}>
           <ol className="space-y-2 text-sm text-primary list-decimal list-inside">
             {RECOVERY_CARD.steps.map((step) => (
@@ -163,7 +216,7 @@ export default function SettingsPage() {
               variant="primary"
               loading={createToken.isPending}
               disabled={!tokenName.trim()}
-              onClick={() => createToken.mutate(tokenName.trim())}
+              onClick={() => createToken.mutate()}
             >
               Create access token
             </Button>
@@ -175,6 +228,21 @@ export default function SettingsPage() {
                 asks to open your files as a folder.
               </p>
               <p className="mt-2 text-sm font-mono break-all">{newToken.token}</p>
+              <Button
+                size="sm"
+                variant="primary"
+                className="mt-3"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(newToken.token);
+                    setCopiedToken(true);
+                  } catch {
+                    setCopiedToken(false);
+                  }
+                }}
+              >
+                {copiedToken ? "Copied" : "Copy token"}
+              </Button>
             </div>
           )}
         </Card>
