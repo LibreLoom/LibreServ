@@ -313,6 +313,12 @@ No remaining open questions.
 
 ---
 
+## Luna Connect rebuild (TODO)
+
+When Luna Connect is rebuilt as a separate app, rate-limit free-key (and similar) issuance using the real TCP `RemoteAddr`, not a client-supplied `X-Forwarded-For`. Do not change the current Connect limiter as a product change now.
+
+---
+
 ## 9. Glossary
 
 | Term | Meaning |

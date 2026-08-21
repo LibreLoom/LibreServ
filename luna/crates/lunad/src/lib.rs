@@ -49,6 +49,8 @@ pub struct AppState {
     pub thumb_dir: std::path::PathBuf,
     pub hotspot: std::sync::Arc<Mutex<Option<crate::hotspot::CommandHotspot>>>,
     pub updates: std::sync::Arc<crate::updates::UpdateService>,
+    pub last_io_activity: std::sync::Arc<std::sync::atomic::AtomicI64>,
+    pub scrub_running: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl AppState {
@@ -87,6 +89,8 @@ impl AppState {
             thumb_dir: std::path::PathBuf::from("/var/lib/luna/thumbs"),
             hotspot: Arc::new(Mutex::new(None)),
             updates: Arc::new(crate::updates::UpdateService::from_env()),
+            last_io_activity: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+            scrub_running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -112,5 +116,10 @@ impl AppState {
 
     pub fn set_hotspot(&self, hotspot: crate::hotspot::CommandHotspot) {
         *self.hotspot.lock().unwrap() = Some(hotspot);
+    }
+
+    pub fn touch_io_activity(&self) {
+        self.last_io_activity
+            .store(crate::db::now_unix(), std::sync::atomic::Ordering::Relaxed);
     }
 }

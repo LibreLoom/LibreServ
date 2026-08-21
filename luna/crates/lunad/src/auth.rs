@@ -30,6 +30,9 @@ pub struct Claims {
     pub username: String,
     pub role: String,
     pub exp: i64,
+    /// Bumped in SQLite to invalidate every browser session for that person.
+    #[serde(default)]
+    pub tv: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,10 +161,20 @@ impl AuthService {
             &jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256),
         )
         .map_err(|e| AuthError::Token(e.to_string()))?;
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        let Some(row) = db::get_user(&conn, &data.claims.sub).map_err(AuthError::Db)? else {
+            return Err(AuthError::Unauthenticated);
+        };
+        if row.token_version != data.claims.tv {
+            return Err(AuthError::Unauthenticated);
+        }
         Ok(CurrentUser {
-            id: data.claims.sub,
-            username: data.claims.username,
-            role: data.claims.role,
+            id: row.id,
+            username: row.username,
+            role: row.role,
         })
     }
 
@@ -176,23 +189,7 @@ impl AuthService {
             return Ok(None);
         };
         if let Ok(user) = self.verify(&raw) {
-            // Re-check every session JWT against the DB so a deleted user loses
-            // access immediately (not after their 30-day token expires) and a
-            // role change takes effect without waiting for re-login.
-            let conn = self
-                .db
-                .lock()
-                .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
-            return Ok(
-                match db::get_user(&conn, &user.id).map_err(AuthError::Db)? {
-                    Some(row) => Some(CurrentUser {
-                        id: row.id,
-                        username: row.username,
-                        role: row.role,
-                    }),
-                    None => None,
-                },
-            );
+            return Ok(Some(user));
         }
         if let Ok(Some((user, _))) = self.verify_device_token(&raw) {
             return Ok(Some(user));
@@ -244,6 +241,7 @@ impl AuthService {
             username: user.username.clone(),
             role: user.role.clone(),
             exp: now + SESSION_TTL_SECONDS,
+            tv: user.token_version,
         };
         jsonwebtoken::encode(
             &jsonwebtoken::Header::default(),
@@ -286,6 +284,25 @@ impl AuthService {
         db::count_users(&conn).map_err(AuthError::Db)
     }
 
+    /// Sign out every browser for this person. This device's cookie is still
+    /// cleared separately. Device tokens (phones/computers) are not touched.
+    pub fn revoke_sessions(&self, user_id: &str) -> Result<(), AuthError> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        db::bump_user_token_version(&conn, user_id).map_err(AuthError::Db)
+    }
+
+    /// Stop every phone and computer backup token for this person.
+    pub fn revoke_all_device_tokens(&self, user_id: &str) -> Result<(), AuthError> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| AuthError::Db(anyhow::anyhow!("db busy")))?;
+        db::revoke_device_tokens_for_user(&conn, user_id).map_err(AuthError::Db)
+    }
+
     /// Local-console recovery only: set a new password for the first admin.
     /// Never exposed on the network.
     pub fn reset_admin_password(&self, password: &str) -> Result<UserRow, AuthError> {
@@ -301,16 +318,47 @@ impl AuthService {
             .map_err(AuthError::Db)?
             .ok_or(AuthError::Unauthenticated)?;
         db::set_user_password_hash(&conn, &admin.id, &hash).map_err(AuthError::Db)?;
+        // Forgotten password: any stolen browser session or phone backup
+        // token for this admin must stop working.
+        db::bump_user_token_version(&conn, &admin.id).map_err(AuthError::Db)?;
+        db::revoke_device_tokens_for_user(&conn, &admin.id).map_err(AuthError::Db)?;
         db::get_user(&conn, &admin.id)
             .map_err(AuthError::Db)?
             .ok_or(AuthError::Db(anyhow::anyhow!("admin missing after reset")))
     }
 }
 
-pub fn session_cookie(token: &str) -> String {
+/// `Secure` only when this request is HTTPS (or a proxy says so). LAN HTTP
+/// must keep working — never set Secure on every cookie.
+pub fn request_is_https(headers: &HeaderMap) -> bool {
+    if let Some(proto) = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+    {
+        let first = proto.split(',').next().unwrap_or("").trim();
+        if first.eq_ignore_ascii_case("https") {
+            return true;
+        }
+    }
+    headers
+        .get("forwarded")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.split(';')
+                .any(|part| part.trim().eq_ignore_ascii_case("proto=https"))
+        })
+}
+
+pub fn session_cookie(token: &str, secure: bool) -> String {
+    let secure_flag = if secure { "; Secure" } else { "" };
     format!(
-        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_TTL_SECONDS}"
+        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={SESSION_TTL_SECONDS}{secure_flag}"
     )
+}
+
+pub fn clear_session_cookie(secure: bool) -> String {
+    let secure_flag = if secure { "; Secure" } else { "" };
+    format!("{SESSION_COOKIE}=; Path=/; HttpOnly; Max-Age=0{secure_flag}")
 }
 
 pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
@@ -321,16 +369,22 @@ pub fn token_from_headers(headers: &HeaderMap) -> Option<String> {
         if let Some(token) = auth.strip_prefix("Bearer ") {
             return Some(token.to_string());
         }
-        // WebDAV clients (Finder, Explorer, davfs2, gio) authenticate with
-        // HTTP Basic auth. The username is ignored; the password carries the
-        // same session or device token a Bearer header would.
+        // WebDAV clients (Finder, Explorer, davfs2, gio) use HTTP Basic.
+        // Password is a session JWT or device token — never the household
+        // password. If the password is empty, the username may be the token.
         if let Some(encoded) = auth.strip_prefix("Basic ") {
             let decoded = base64::engine::general_purpose::STANDARD
                 .decode(encoded.trim())
                 .ok()?;
             let text = std::str::from_utf8(&decoded).ok()?;
-            let (_, password) = text.split_once(':')?;
-            return Some(password.to_string());
+            let (user, password) = text.split_once(':')?;
+            if !password.is_empty() {
+                return Some(password.to_string());
+            }
+            if !user.is_empty() {
+                return Some(user.to_string());
+            }
+            return None;
         }
         return None;
     }
@@ -587,6 +641,67 @@ mod tests {
     }
 
     #[test]
+    fn bumping_token_version_invalidates_browser_sessions_only() {
+        let (_dir, auth) = service();
+        let max = auth
+            .register("Max", "Max", "hunter22hunter", "user")
+            .unwrap();
+        let (_, session) = auth.login("max", "hunter22hunter").unwrap();
+        assert!(auth.verify(&session).is_ok());
+
+        let device_raw = "phone-token-keep";
+        {
+            let conn = auth.db.lock().unwrap();
+            crate::db::insert_device_token(
+                &conn,
+                "dt-keep",
+                &max.id,
+                "Phone",
+                &hash_device_token(device_raw),
+            )
+            .unwrap();
+            crate::db::bump_user_token_version(&conn, &max.id).unwrap();
+        }
+        assert!(auth.verify(&session).is_err());
+        assert!(auth.verify_device_token(device_raw).unwrap().is_some());
+
+        let (_, session2) = auth.login("max", "hunter22hunter").unwrap();
+        assert!(auth.verify(&session2).is_ok());
+    }
+
+    #[test]
+    fn https_proxy_sets_secure_cookie_http_does_not() {
+        let mut https = HeaderMap::new();
+        https.insert("x-forwarded-proto", "https".parse().unwrap());
+        assert!(request_is_https(&https));
+        assert!(session_cookie("t", true).contains("Secure"));
+        assert!(!session_cookie("t", false).contains("Secure"));
+    }
+
+    #[test]
+    fn basic_auth_reads_token_from_password_or_username() {
+        fn header(user: &str, password: &str) -> HeaderMap {
+            let encoded =
+                base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
+            let mut h = HeaderMap::new();
+            h.insert(
+                axum::http::header::AUTHORIZATION,
+                format!("Basic {encoded}").parse().unwrap(),
+            );
+            h
+        }
+        assert_eq!(
+            token_from_headers(&header("max", "device-token-abc")).as_deref(),
+            Some("device-token-abc")
+        );
+        assert_eq!(
+            token_from_headers(&header("device-token-abc", "")).as_deref(),
+            Some("device-token-abc")
+        );
+        assert!(token_from_headers(&header("", "")).is_none());
+    }
+
+    #[test]
     fn username_is_normalized_and_unique() {
         let (_dir, auth) = service();
         auth.register("Max", "Max", "hunter22hunter", "user")
@@ -703,6 +818,15 @@ mod guard_tests {
         .await;
         assert_eq!(res.status(), 200, "login failed: {}", text(res).await);
         let cookie = session_cookie(&res);
+        let v: serde_json::Value = serde_json::from_str(&text(res).await).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["username"], "max");
+        assert_eq!(v["role"], "admin");
+        assert!(v.get("id").and_then(|x| x.as_str()).is_some());
+        assert!(
+            v.get("token").is_none(),
+            "login JSON must not include a session JWT; the session is the cookie"
+        );
 
         // The session must be visible to /auth/me — this is what keeps the
         // web UI signed in after setup and across page reloads.
@@ -784,5 +908,53 @@ mod guard_tests {
         let (_dir, app) = test_app();
         let res = call(&app, req(Method::GET, "/api/v1/users", None, None)).await;
         assert_eq!(res.status(), 401);
+    }
+
+    #[tokio::test]
+    async fn setup_post_requires_admin_once_an_account_exists() {
+        let (_dir, app) = test_app();
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"name":"Kitchen"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(
+            res.status(),
+            200,
+            "first-run setup is open: {}",
+            text(res).await
+        );
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/auth/register",
+                Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        let res = call(
+            &app,
+            req(
+                Method::POST,
+                "/api/v1/setup",
+                Some(r#"{"setup_completed":false}"#),
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 401);
+
+        let get = call(&app, req(Method::GET, "/api/v1/setup", None, None)).await;
+        assert_eq!(get.status(), 200);
     }
 }

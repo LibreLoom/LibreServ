@@ -71,6 +71,7 @@ export function AuthProvider({ children }) {
   }, [refresh]);
 
   const login = useCallback(async (username, password) => {
+    // Cookie session only — login JSON has no JWT. fetch uses credentials: include.
     const me = await postJson("/api/v1/auth/login", { username, password });
     setUser(me);
     return me;

@@ -107,4 +107,10 @@ describe("DashboardPage", () => {
     expect(await screen.findByText(/New drive plugged in/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Look inside/i })).toHaveAttribute("href", "/drives");
   });
+
+  it("loads network status for a household member, not only an admin", async () => {
+    stubFetch({ username: "sam", role: "user", connect: 403 });
+    renderPage();
+    expect(await screen.findByText(/On this network/i)).toBeInTheDocument();
+  });
 });

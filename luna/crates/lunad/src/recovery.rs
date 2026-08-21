@@ -425,6 +425,7 @@ mod tests {
         ));
         auth.register("Max", "Max", "old-password-1", "user")
             .unwrap();
+        let old_session = auth.login("max", "old-password-1").unwrap().1;
 
         let prompt = ScriptedPrompt {
             password: "brand-new-9".into(),
@@ -432,6 +433,10 @@ mod tests {
         };
         let t0 = Instant::now();
         run_loop(auth.clone(), seq().into_iter(), prompt, || t0);
+        assert!(
+            auth.verify(&old_session).is_err(),
+            "USB recovery must kill stolen browser sessions"
+        );
         auth.login("max", "brand-new-9").unwrap();
         assert!(auth.login("max", "old-password-1").is_err());
     }

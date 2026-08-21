@@ -32,22 +32,30 @@ object BackupPrefs {
     }
 
     fun token(context: Context): String? = prefs(context).getString("token", null)
+    fun tokenId(context: Context): String? = prefs(context).getString("token_id", null)
     fun deviceName(context: Context): String? = prefs(context).getString("device_name", null)
     fun baseUrl(context: Context): String? = prefs(context).getString("base_url", null)
     fun lastBackupAt(context: Context): Long = prefs(context).getLong("last_backup_at", 0L)
 
-    fun saveSession(context: Context, baseUrl: String, token: String, deviceName: String? = null) {
+    fun saveSession(
+        context: Context,
+        baseUrl: String,
+        token: String,
+        deviceName: String? = null,
+        tokenId: String? = null,
+    ) {
         prefs(context).edit()
             .putString("base_url", baseUrl)
             .putString("token", token)
             .apply {
                 if (deviceName != null) putString("device_name", deviceName)
+                if (tokenId != null) putString("token_id", tokenId)
                 apply()
             }
     }
 
     fun clearToken(context: Context) {
-        prefs(context).edit().remove("token").remove("device_name").apply()
+        prefs(context).edit().remove("token").remove("token_id").remove("device_name").apply()
     }
 
     fun markBackedUp(context: Context, time: Long) {

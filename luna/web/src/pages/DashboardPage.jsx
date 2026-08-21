@@ -140,8 +140,7 @@ export default function DashboardPage() {
   });
   const network = useQuery({
     queryKey: ["network-status"],
-    queryFn: () => getJsonSkipForbidden("/api/v1/network/status"),
-    enabled: isAdmin,
+    queryFn: () => getJson("/api/v1/network/status"),
   });
   const connect = useQuery({
     queryKey: ["connect-status"],

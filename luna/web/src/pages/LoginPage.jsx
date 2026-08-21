@@ -40,8 +40,9 @@ export default function LoginPage() {
     } else if (errorStatus === 429) {
       return (
         <p>
-          Please wait a bit before trying again. If you can't remember your
-          password, feel free to contact support!
+          Too many tries from this device. Wait a few minutes. If you forgot
+          the password, plug a USB keyboard into Luna, press Esc, type luna,
+          press Enter, and set a new password on the screen plugged into Luna.
         </p>
       );
     } else if (errorStatus === 500) {
@@ -105,6 +106,7 @@ export default function LoginPage() {
       id="main-content"
       tabIndex={-1}
     >
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className="w-full max-w-lg rounded-large-element">
         <Card surface="secondary" padding={false}>
           <div className="p-8">

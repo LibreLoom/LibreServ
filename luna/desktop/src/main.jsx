@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
+import "./index.css";
 
 function App() {
   const [baseUrl, setBaseUrl] = useState("http://luna.local");
@@ -10,12 +11,15 @@ function App() {
   const [driveId, setDriveId] = useState("");
   const [drives, setDrives] = useState([]);
   const [status, setStatus] = useState("");
+  const [accessToken, setAccessToken] = useState("");
 
   async function login() {
     try {
-      setStatus(await invoke("login", { baseUrl, username, password }));
+      const message = await invoke("login", { baseUrl, username, password });
+      setStatus(message);
+      const tokenLine = String(message).split("\n")[1] || "";
+      setAccessToken(tokenLine.trim());
       setDrives(await invoke("list_drives", { baseUrl }));
-      setStatus("Signed in. Pick a folder and drive, then start backup.");
     } catch (e) { setStatus(String(e)); }
   }
   async function pickFolder() {
@@ -24,33 +28,44 @@ function App() {
   async function start() {
     try { setStatus(await invoke("start_backup", { baseUrl, folder, driveId, remotePath: "Desktop Backup" })); } catch (e) { setStatus(String(e)); }
   }
+  async function stop() {
+    try { setStatus(await invoke("stop_backup")); } catch (e) { setStatus(String(e)); }
+  }
   async function mount() {
     try { setStatus(await invoke("mount_drive", { baseUrl, driveId })); } catch (e) { setStatus(String(e)); }
   }
 
   return (
-    <main style={{ fontFamily: "monospace", padding: 24 }}>
+    <main className="page">
       <h1>Luna Desktop</h1>
-      <p>Folder backup + one-click mounts. No subscription, ever.</p>
-      <div>
-        <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Luna address" />
-        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
-        <button onClick={login}>Sign in</button>
+      <p className="hint">Folder backup and one-click mounts. Sign in once; Luna keeps an access token so you never put your household password in Finder or Explorer.</p>
+      <div className="card">
+        <div className="row">
+          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="Luna address" />
+          <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Household password (sign-in only)" />
+          <button type="button" onClick={login}>Sign in</button>
+        </div>
+        {accessToken && (
+          <p className="token">Access token (use this as the folder-mount password): {accessToken}</p>
+        )}
       </div>
-      <div>
-        <button onClick={pickFolder}>Choose folder</button>
-        <span>{folder}</span>
+      <div className="card">
+        <div className="row">
+          <button type="button" onClick={pickFolder}>Choose folder</button>
+          <span>{folder}</span>
+        </div>
+        <div className="row">
+          <select value={driveId} onChange={(e) => setDriveId(e.target.value)}>
+            <option value="">Choose drive</option>
+            {drives.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+          </select>
+          <button type="button" onClick={start}>Start backup</button>
+          <button type="button" onClick={stop}>Stop backup</button>
+          <button type="button" onClick={mount}>Open as folder</button>
+        </div>
       </div>
-      <div>
-        <select value={driveId} onChange={(e) => setDriveId(e.target.value)}>
-          <option value="">Choose drive</option>
-          {drives.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-        </select>
-        <button onClick={start}>Start backup</button>
-        <button onClick={mount}>Open as folder</button>
-      </div>
-      <p>{status}</p>
+      <p className="hint">{status}</p>
     </main>
   );
 }

@@ -2,9 +2,10 @@ package net.plainskill.luna
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URL
 
 /**
@@ -21,34 +22,51 @@ object LunaApi {
     /** A named token the server tracks so it can be revoked separately from the password. */
     class DeviceToken(val id: String, val token: String)
 
-    fun login(baseUrl: String, username: String, password: String): String {
+    /**
+     * Sign in with a one-shot cookie session, mint a long-lived access token,
+     * then drop the cookie session. Only the access token is kept.
+     */
+    fun mintAccessToken(baseUrl: String, username: String, password: String, name: String): DeviceToken {
+        val cookie = loginSessionCookie(baseUrl, username, password)
+        val device = createDeviceToken(baseUrl, cookie, name)
+        try {
+            post(baseUrl, "/api/v1/auth/logout", "", bearer = null, cookie = cookie)
+        } catch (_: Exception) {
+            // Cookie session is unused after mint; ignore logout failures.
+        }
+        return device
+    }
+
+    fun loginSessionCookie(baseUrl: String, username: String, password: String): String {
         val body = JSONObject().apply {
             put("username", username)
             put("password", password)
         }
-        val json = post(baseUrl, "/api/v1/auth/login", body.toString(), null)
-        return json.optString("token").ifEmpty { throw ApiException(401, "No session token in reply") }
+        val bytes = body.toString().toByteArray(Charsets.UTF_8)
+        val extra = mapOf("Content-Type" to "application/json")
+        val result = exchange(baseUrl, "/api/v1/auth/login", "POST", null, bytes, extra, null)
+        if (result.code !in 200..299) throw ApiException(result.code, result.errorText())
+        return parseLunaSessionCookie(result.setCookie)
+            ?: throw ApiException(401, "Luna did not set a session cookie")
     }
 
-    fun createDeviceToken(baseUrl: String, token: String, name: String): DeviceToken {
+    fun createDeviceToken(baseUrl: String, cookie: String, name: String): DeviceToken {
         val body = JSONObject().apply { put("name", name) }
-        val json = post(baseUrl, "/api/v1/device-tokens", body.toString(), token)
+        val json = post(baseUrl, "/api/v1/device-tokens", body.toString(), bearer = null, cookie = cookie)
         val id = json.optString("id").ifEmpty { throw ApiException(500, "No device-token id in reply") }
         val raw = json.optString("token").ifEmpty { throw ApiException(500, "No device-token value in reply") }
         return DeviceToken(id, raw)
     }
 
+    fun parseLunaSessionCookie(setCookie: String?): String? {
+        if (setCookie.isNullOrBlank()) return null
+        val pair = setCookie.split(';').first().trim()
+        return if (pair.startsWith("luna_session=")) pair else null
+    }
+
     fun revokeToken(baseUrl: String, sessionToken: String, deviceId: String): Boolean {
-        val conn = open(baseUrl, "/api/v1/device-tokens/$deviceId", sessionToken)
-        try {
-            conn.requestMethod = "DELETE"
-            conn.connectTimeout = 15000
-            conn.readTimeout = 30000
-            val code = conn.responseCode
-            return code in 200..299
-        } finally {
-            conn.disconnect()
-        }
+        val result = exchange(baseUrl, "/api/v1/device-tokens/$deviceId", "DELETE", sessionToken, null, null)
+        return result.code in 200..299
     }
 
     fun firstDriveId(baseUrl: String, token: String): String {
@@ -58,15 +76,9 @@ object LunaApi {
     }
 
     private fun getArray(baseUrl: String, path: String, token: String): JSONArray {
-        val conn = open(baseUrl, path, token)
-        try {
-            conn.requestMethod = "GET"
-            val code = conn.responseCode
-            if (code !in 200..299) throw ApiException(code, readError(conn))
-            return JSONArray(conn.inputStream.readText())
-        } finally {
-            conn.disconnect()
-        }
+        val result = exchange(baseUrl, path, "GET", token, null, null)
+        if (result.code !in 200..299) throw ApiException(result.code, result.errorText())
+        return JSONArray(String(result.body, Charsets.UTF_8))
     }
 
     fun createUpload(baseUrl: String, token: String, driveId: String, destPath: String, name: String, size: Long): String {
@@ -81,17 +93,12 @@ object LunaApi {
     }
 
     fun putChunk(baseUrl: String, token: String, uploadId: String, start: Long, data: ByteArray, total: Long) {
-        val conn = open(baseUrl, "/api/v1/uploads/$uploadId", token)
-        try {
-            conn.requestMethod = "PUT"
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "application/octet-stream")
-            conn.setRequestProperty("Content-Range", "bytes $start-${start + data.size - 1}/$total")
-            conn.outputStream.use { it.write(data) }
-            if (conn.responseCode !in 200..299) throw ApiException(conn.responseCode, readError(conn))
-        } finally {
-            conn.disconnect()
-        }
+        val extra = mapOf(
+            "Content-Type" to "application/octet-stream",
+            "Content-Range" to "bytes $start-${start + data.size - 1}/$total",
+        )
+        val result = exchange(baseUrl, "/api/v1/uploads/$uploadId", "PUT", token, data, extra)
+        if (result.code !in 200..299) throw ApiException(result.code, result.errorText())
     }
 
     fun completeUpload(baseUrl: String, token: String, uploadId: String) {
@@ -112,44 +119,118 @@ object LunaApi {
         completeUpload(baseUrl, token, uploadId)
     }
 
-    private fun open(baseUrl: String, path: String, token: String?): HttpURLConnection {
-        val url = URL(baseUrl.trimEnd('/') + path)
-        val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 15000
-        conn.readTimeout = 60000
-        conn.setRequestProperty("Accept", "application/json")
-        if (token != null) conn.setRequestProperty("Authorization", "Bearer $token")
-        return conn
+    private data class HttpResult(val code: Int, val body: ByteArray, val setCookie: String? = null) {
+        fun errorText(): String {
+            val text = String(body, Charsets.UTF_8)
+            return try { JSONObject(text).optString("error") } catch (_: Exception) {
+                text.ifBlank { "Request failed ($code)" }
+            }
+        }
     }
 
-    private fun post(baseUrl: String, path: String, body: String, token: String?): JSONObject {
-        val conn = open(baseUrl, path, token)
+    private fun exchange(
+        baseUrl: String,
+        path: String,
+        method: String,
+        token: String?,
+        body: ByteArray?,
+        extraHeaders: Map<String, String>?,
+        cookie: String? = null,
+    ): HttpResult {
+        val url = URL(baseUrl.trimEnd('/') + path)
+        val headers = linkedMapOf(
+            "Accept" to "application/json",
+        )
+        if (token != null) headers["Authorization"] = "Bearer $token"
+        if (cookie != null) headers["Cookie"] = cookie
+        extraHeaders?.forEach { (k, v) -> headers[k] = v }
+        if (url.protocol == "http" && PrivateLan.allowsCleartext(url.host)) {
+            return socketHttp(url, method, headers, body)
+        }
+        val conn = url.openConnection() as HttpURLConnection
         try {
-            conn.requestMethod = "POST"
-            conn.doOutput = true
-            conn.setRequestProperty("Content-Type", "application/json")
-            if (body.isNotEmpty()) conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            conn.connectTimeout = 15000
+            conn.readTimeout = 60000
+            conn.requestMethod = method
+            headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            if (body != null) {
+                conn.doOutput = true
+                conn.outputStream.use { it.write(body) }
+            }
             val code = conn.responseCode
-            if (code !in 200..299) throw ApiException(code, readError(conn))
-            val text = conn.inputStream.readText()
-            return if (text.isBlank()) JSONObject() else JSONObject(text)
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            val bytes = stream?.readBytes() ?: ByteArray(0)
+            val setCookie = conn.headerFields?.entries
+                ?.firstOrNull { it.key.equals("Set-Cookie", ignoreCase = true) }
+                ?.value
+                ?.firstOrNull()
+            return HttpResult(code, bytes, setCookie)
         } finally {
             conn.disconnect()
         }
     }
 
-    private fun readError(conn: HttpURLConnection): String {
-        return try {
-            val stream = conn.errorStream ?: return "Request failed (${conn.responseCode})"
-            val text = stream.readText()
-            try { JSONObject(text).optString("error") } catch (_: Exception) { text }
-        } catch (_: Exception) {
-            "Request failed (${conn.responseCode})"
+    private fun socketHttp(
+        url: URL,
+        method: String,
+        headers: Map<String, String>,
+        body: ByteArray?,
+    ): HttpResult {
+        val port = if (url.port == -1) 80 else url.port
+        Socket().use { sock ->
+            sock.connect(InetSocketAddress(url.host, port), 15000)
+            sock.soTimeout = 60000
+            val path = if (url.file.isNullOrEmpty()) "/" else url.file
+            val hdr = StringBuilder()
+            headers.forEach { (k, v) -> hdr.append("$k: $v\r\n") }
+            if (body != null) hdr.append("Content-Length: ${body.size}\r\n")
+            val hostHeader = if (url.port == -1) url.host else "${url.host}:${url.port}"
+            val req = "$method $path HTTP/1.1\r\nHost: $hostHeader\r\nConnection: close\r\n$hdr\r\n"
+            val out = sock.getOutputStream()
+            out.write(req.toByteArray(Charsets.ISO_8859_1))
+            if (body != null) out.write(body)
+            out.flush()
+            val raw = sock.getInputStream().readBytes()
+            val split = indexOfHeaderEnd(raw)
+            val head = String(raw, 0, split.coerceAtLeast(0), Charsets.ISO_8859_1)
+            val rest = if (split >= 0) raw.copyOfRange(split + 4, raw.size) else ByteArray(0)
+            val status = head.lineSequence().firstOrNull()
+                ?.split(' ')
+                ?.getOrNull(1)
+                ?.toIntOrNull() ?: 0
+            val setCookie = head.lineSequence()
+                .firstOrNull { it.startsWith("Set-Cookie:", ignoreCase = true) }
+                ?.substringAfter(':')
+                ?.trim()
+            return HttpResult(status, rest, setCookie)
         }
     }
 
-    private fun InputStream.readText(): String = ByteArrayOutputStream().use { out ->
-        use { copyTo(out) }
-        out.toString("UTF-8")
+    private fun indexOfHeaderEnd(raw: ByteArray): Int {
+        var i = 0
+        while (i + 3 < raw.size) {
+            if (raw[i] == '\r'.code.toByte() && raw[i + 1] == '\n'.code.toByte()
+                && raw[i + 2] == '\r'.code.toByte() && raw[i + 3] == '\n'.code.toByte()
+            ) {
+                return i
+            }
+            i++
+        }
+        return -1
+    }
+
+    private fun post(
+        baseUrl: String,
+        path: String,
+        body: String,
+        bearer: String?,
+        cookie: String? = null,
+    ): JSONObject {
+        val bytes = if (body.isEmpty()) null else body.toByteArray(Charsets.UTF_8)
+        val extra = mapOf("Content-Type" to "application/json")
+        val result = exchange(baseUrl, path, "POST", bearer, bytes, extra, cookie)
+        if (result.code !in 200..299) throw ApiException(result.code, result.errorText())
+        val text = String(result.body, Charsets.UTF_8)
+        return if (text.isBlank()) JSONObject() else JSONObject(text)
     }
 }

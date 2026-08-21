@@ -194,6 +194,24 @@ async fn hotspot_start(
             "This Luna's Wi-Fi adapter can't create a hotspot.",
         ));
     };
+    let setup_done = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|conn| crate::db::get_meta(&conn, "setup").ok().flatten())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
+        .unwrap_or(false);
+    if !crate::hotspot::should_start_setup_hotspot(
+        setup_done,
+        status.ethernet_connected,
+        status.wifi_connected,
+    ) {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "The setup network is only for first setup, when this Luna is not on your home network yet.",
+        ));
+    }
     let hotspot = crate::hotspot::CommandHotspot::new(iface, std::path::Path::new("/run/luna"));
     hotspot
         .start()

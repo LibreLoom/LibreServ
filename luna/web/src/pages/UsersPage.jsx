@@ -61,7 +61,10 @@ export default function UsersPage() {
     return (
       <Page title="People">
         <Card padding>
-          <p className="text-primary text-sm">Only an admin can manage people.</p>
+          <p className="text-primary text-sm">
+            This screen is for the person who takes care of this Luna. Ask them
+            if you need someone added or removed.
+          </p>
         </Card>
       </Page>
     );

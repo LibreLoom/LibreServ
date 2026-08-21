@@ -175,6 +175,97 @@ pub fn scrub_drive(conn: &Connection, drive_id: &str, root: &Path) -> anyhow::Re
     Ok(report)
 }
 
+pub const PERIODIC_IDLE_SECS: i64 = 30 * 60;
+pub const PERIODIC_MIN_GAP_SECS: i64 = 20 * 60 * 60;
+
+/// Quiet hours: 1 AM through 5 AM local time.
+pub fn in_night_window(local_hour: u32) -> bool {
+    (1..5).contains(&local_hour)
+}
+
+pub fn should_run_periodic(
+    running: bool,
+    local_hour: u32,
+    last_run_unix: Option<i64>,
+    last_activity_unix: i64,
+    now_unix: i64,
+) -> bool {
+    if running {
+        return false;
+    }
+    if !in_night_window(local_hour) {
+        return false;
+    }
+    if let Some(last) = last_run_unix
+        && now_unix.saturating_sub(last) < PERIODIC_MIN_GAP_SECS
+    {
+        return false;
+    }
+    if last_activity_unix > 0 && now_unix.saturating_sub(last_activity_unix) < PERIODIC_IDLE_SECS {
+        return false;
+    }
+    true
+}
+
+pub fn local_hour_now() -> u32 {
+    let unix = db::now_unix();
+    let mut tm = unsafe { std::mem::zeroed::<LibcTm>() };
+    let p = unsafe { localtime_r(&unix, &mut tm) };
+    if p.is_null() {
+        return 0;
+    }
+    tm.tm_hour.clamp(0, 23) as u32
+}
+
+#[repr(C)]
+struct LibcTm {
+    tm_sec: i32,
+    tm_min: i32,
+    tm_hour: i32,
+    tm_mday: i32,
+    tm_mon: i32,
+    tm_year: i32,
+    tm_wday: i32,
+    tm_yday: i32,
+    tm_isdst: i32,
+    tm_gmtoff: i64,
+    tm_zone: *const i8,
+}
+
+unsafe extern "C" {
+    fn localtime_r(timep: *const i64, result: *mut LibcTm) -> *mut LibcTm;
+}
+
+pub fn scrub_all_drives(conn: &Connection) -> anyhow::Result<ScrubReport> {
+    let drives = db::list_drives(conn).unwrap_or_default();
+    let mut total = ScrubReport {
+        files_checked: 0,
+        files_hashed: 0,
+        mismatches: 0,
+        bytes_hashed: 0,
+    };
+    for drive in drives {
+        if drive.state != "as_is" || drive.mount_point.is_empty() {
+            continue;
+        }
+        let root = std::path::PathBuf::from(&drive.mount_point);
+        if let Ok(report) = hash_drive(conn, &drive.id, &root) {
+            total.files_hashed += report.files_hashed;
+            total.bytes_hashed += report.bytes_hashed;
+        }
+        if let Ok(report) = scrub_drive(conn, &drive.id, &root) {
+            total.files_checked += report.files_checked;
+            total.mismatches += report.mismatches;
+        }
+    }
+    let _ = db::set_meta(
+        conn,
+        "last_scrub_report",
+        &serde_json::to_string(&total).unwrap_or_default(),
+    );
+    Ok(total)
+}
+
 fn get_hash(conn: &Connection, drive_id: &str, path: &str) -> anyhow::Result<Option<(u64, i64)>> {
     let mut stmt =
         conn.prepare("SELECT size, mtime FROM file_hashes WHERE drive_id = ?1 AND path = ?2")?;
@@ -234,5 +325,21 @@ mod tests {
             second.files_hashed, 0,
             "an unchanged file must not be re-hashed/overwritten: {second:?}"
         );
+    }
+
+    #[test]
+    fn periodic_scrub_only_runs_in_the_quiet_window_when_idle() {
+        assert!(!should_run_periodic(true, 2, None, 0, 1_000));
+        assert!(!should_run_periodic(false, 14, None, 0, 1_000));
+        assert!(should_run_periodic(false, 2, None, 0, 1_000));
+        assert!(!should_run_periodic(false, 2, None, 990, 1_000));
+        assert!(!should_run_periodic(false, 2, Some(1_000 - 60), 0, 1_000));
+        assert!(should_run_periodic(
+            false,
+            3,
+            Some(1_000 - PERIODIC_MIN_GAP_SECS - 1),
+            0,
+            1_000
+        ));
     }
 }

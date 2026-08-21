@@ -108,7 +108,8 @@
 - [x] SMART drive health (`GET /api/v1/drives/{id}/health`): smartctl optional,
       parses overall status/model/serial/temperature/reallocated sectors
 - [x] Periodic checksum scrub: blake3 file hashes in SQLite, hash-on-first-run,
-      re-verify on demand (`POST /api/v1/system/scrub`), mismatches reported
+      re-verify on demand (`POST /api/v1/system/scrub`), and a quiet-hours
+      worker (local 01:00–05:00, skip if busy or already running, persist last run)
 - [x] Automatic writability probe every 15 min: create/write/fsync/delete;
       failures transition the drive to `readonly`, never `failed`
 - [x] Login/register rate limiting (10 per 5 min per IP, plain-language 429)
@@ -167,6 +168,7 @@
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI
 - [x] Free one-tap Connect keys: Connect endpoint `/api/v1/luna/free-key` mints a free-plan account+key per Luna (10/hour/IP); Luna Remote page is now one tap with no key entry
+      TODO(luna-connect-rebuild): rate-limit must use real RemoteAddr when Connect is rebuilt — not X-Forwarded-For. Do not change the current limiter now.
 - [x] Locked-out admin recovery: USB keyboard sequence (Esc, then type `luna`, then Enter) on the appliance; TTY password reset; rate-limited; documented on setup done + Settings
 - [x] Software updates: Forgejo `luna-*` releases, SHA-256 verified `lunad-*` binary, tap-to-install in Settings (no silent apply)
 - [ ] Physical 5-unit rehearsal on Wyse 3040 hardware

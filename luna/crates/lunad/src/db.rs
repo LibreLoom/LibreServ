@@ -149,6 +149,12 @@ pub fn open(path: &Path) -> anyhow::Result<Connection> {
     )?;
     ensure_column(&conn, "drives", "mount_point", "TEXT NOT NULL DEFAULT ''")?;
     ensure_column(&conn, "photos", "taken_at", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(
+        &conn,
+        "users",
+        "token_version",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     Ok(conn)
 }
 
@@ -401,6 +407,18 @@ pub struct UserRow {
     pub display_name: String,
     pub password_hash: String,
     pub role: String,
+    pub token_version: i64,
+}
+
+fn user_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserRow> {
+    Ok(UserRow {
+        id: row.get(0)?,
+        username: row.get(1)?,
+        display_name: row.get(2)?,
+        password_hash: row.get(3)?,
+        role: row.get(4)?,
+        token_version: row.get(5)?,
+    })
 }
 
 pub fn insert_user(
@@ -422,49 +440,25 @@ pub fn insert_user(
 
 pub fn get_user_by_username(conn: &Connection, username: &str) -> anyhow::Result<Option<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role FROM users WHERE username = ?1",
+        "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE username = ?1",
     )?;
-    let mut rows = stmt.query_map(params![username], |row| {
-        Ok(UserRow {
-            id: row.get(0)?,
-            username: row.get(1)?,
-            display_name: row.get(2)?,
-            password_hash: row.get(3)?,
-            role: row.get(4)?,
-        })
-    })?;
+    let mut rows = stmt.query_map(params![username], user_from_row)?;
     Ok(rows.next().transpose()?)
 }
 
 pub fn get_user(conn: &Connection, id: &str) -> anyhow::Result<Option<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role FROM users WHERE id = ?1",
+        "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE id = ?1",
     )?;
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(UserRow {
-            id: row.get(0)?,
-            username: row.get(1)?,
-            display_name: row.get(2)?,
-            password_hash: row.get(3)?,
-            role: row.get(4)?,
-        })
-    })?;
+    let mut rows = stmt.query_map(params![id], user_from_row)?;
     Ok(rows.next().transpose()?)
 }
 
 pub fn list_users(conn: &Connection) -> anyhow::Result<Vec<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role FROM users ORDER BY username",
+        "SELECT id, username, display_name, password_hash, role, token_version FROM users ORDER BY username",
     )?;
-    let rows = stmt.query_map([], |row| {
-        Ok(UserRow {
-            id: row.get(0)?,
-            username: row.get(1)?,
-            display_name: row.get(2)?,
-            password_hash: row.get(3)?,
-            role: row.get(4)?,
-        })
-    })?;
+    let rows = stmt.query_map([], user_from_row)?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
@@ -496,18 +490,28 @@ pub fn set_user_password_hash(
 
 pub fn first_admin(conn: &Connection) -> anyhow::Result<Option<UserRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, username, display_name, password_hash, role FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1",
+        "SELECT id, username, display_name, password_hash, role, token_version FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1",
     )?;
-    let mut rows = stmt.query_map([], |row| {
-        Ok(UserRow {
-            id: row.get(0)?,
-            username: row.get(1)?,
-            display_name: row.get(2)?,
-            password_hash: row.get(3)?,
-            role: row.get(4)?,
-        })
-    })?;
+    let mut rows = stmt.query_map([], user_from_row)?;
     Ok(rows.next().transpose()?)
+}
+
+/// Invalidate every browser session JWT for this person. Device tokens are
+/// unchanged (those have their own revoke path).
+pub fn bump_user_token_version(conn: &Connection, user_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE users SET token_version = token_version + 1, updated_at = ?2 WHERE id = ?1",
+        params![user_id, now_unix()],
+    )?;
+    Ok(())
+}
+
+pub fn revoke_device_tokens_for_user(conn: &Connection, user_id: &str) -> anyhow::Result<()> {
+    conn.execute(
+        "UPDATE device_tokens SET revoked_at = ?2 WHERE user_id = ?1 AND revoked_at IS NULL",
+        params![user_id, now_unix()],
+    )?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
