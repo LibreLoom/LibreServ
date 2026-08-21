@@ -16,6 +16,9 @@ disk both boot in either firmware mode.
 ./os/build-rootfs.sh                  # → os/dist/luna-rootfs-x86_64.tar.gz
 
 # 3. Rapidinstall ISO (`dd` to a USB stick)
+#    One-shot (web UI + musl lunad + rootfs + ISO):
+./os/build-iso.sh                     # → os/dist/luna-rapidinstall-x86_64.iso
+#    Or after a rootfs already exists:
 ./os/make-iso.sh                      # → os/dist/luna-rapidinstall-x86_64.iso
 #    dd if=os/dist/luna-rapidinstall-x86_64.iso of=/dev/sdX bs=4M conv=fsync
 #    Boot the PC from that USB (BIOS or UEFI; turn Secure Boot off).

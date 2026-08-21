@@ -6,9 +6,9 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-ALPINE_IMAGE="${ALPINE_IMAGE:-docker.io/library/alpine:3.24}"
+# shellcheck source=lib/alpine-image.sh
+. "$ROOT/os/lib/alpine-image.sh"
 # Pinned for reproducibility; override with digest in CI if needed (e.g. alpine:3.24@sha256:...).
-case "$ALPINE_IMAGE" in *:latest) echo "ALPINE_IMAGE must be pinned (e.g. 3.24), got $ALPINE_IMAGE" >&2; exit 1;; esac
 ALPINE_VERSION="${ALPINE_VERSION:-v3.24}"
 ARCH="${ARCH:-x86_64}"
 WORK="$ROOT/os/work"

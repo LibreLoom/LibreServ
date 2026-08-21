@@ -1,12 +1,13 @@
 #!/bin/sh
-# Build a UEFI+BIOS hybrid rapidinstall ISO for Wyse 3040-class thin clients.
-# Boot the USB; the installer writes Luna to eMMC (/dev/mmcblk0), not the stick.
+# Build a UEFI+BIOS hybrid rapidinstall ISO for ordinary x86_64 PCs.
+# Boot the USB; the installer writes Luna to built-in storage, never the stick.
 #
 # Needs: rootfs tarball from build-rootfs.sh, Podman.
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
-ALPINE_IMAGE="${ALPINE_IMAGE:-docker.io/library/alpine:latest}"
+# shellcheck source=lib/alpine-image.sh
+. "$ROOT/os/lib/alpine-image.sh"
 ALPINE_VERSION="${ALPINE_VERSION:-v3.24}"
 ARCH="${ARCH:-x86_64}"
 OUT="$ROOT/os/dist"

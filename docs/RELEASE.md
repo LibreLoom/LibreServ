@@ -22,6 +22,8 @@ LibreServ releases are created manually using the `./release.sh` script. This en
 ./release.sh --keep-build # Keep release-build/ directory after completion
 ./release.sh --force      # Auto-delete existing release with same tag (no prompt)
 ./release.sh --pre-release # Mark release as pre-release/unstable (beta, rc, alpha)
+./release.sh --yes --version v0.0.13 --pre-release --with-iso --publish --skip-ci
+# Non-interactive: FORGEJO_TOKEN from the environment; optional --notes-file
 ```
 
 If a release with the same tag already exists, the script will:
@@ -51,7 +53,7 @@ The script will guide you through:
 ### 3. Verify Release
 
 After creation, verify:
-- [ ] All assets uploaded (2 binaries + SHA256SUMS.txt)
+- [ ] All assets uploaded (2 binaries + SHA256SUMS.txt; plus ISO when `--with-iso`)
 - [ ] Release notes are formatted correctly
 - [ ] Tag matches version in notes
 
@@ -210,7 +212,7 @@ After publishing:
 Currently manual by design. Future automation may include:
 - Automated changelog generation
 - GitHub Actions / Forgejo Actions workflow
-- Automatic ISO building for appliance releases
+- Automatic ISO building for appliance releases (`./release.sh --with-iso`)
 
 ---
 

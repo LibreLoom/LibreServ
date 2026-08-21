@@ -44,7 +44,7 @@ lint:
 	cd web && npm run lint
 
 iso:
-	./os/make-iso.sh
+	./os/build-iso.sh
 
 clean:
 	cargo clean

@@ -85,6 +85,17 @@ grub-mkstandalone -O x86_64-efi -o /tmp/BOOTX64.EFI \
 	--install-modules="$GRUB_MODS" --locales="" --fonts="" \
 	"boot/grub/grub.cfg=/iso/boot/grub/grub.cfg"
 
+# 32-bit UEFI (Cherry Trail / some Wyse 3040 firmware). Skip if this Alpine
+# image has no i386-efi GRUB modules.
+if [ -d /usr/lib/grub/i386-efi ]; then
+	echo "==> GRUB i386-efi"
+	grub-mkstandalone -O i386-efi -o /tmp/BOOTIA32.EFI \
+		--install-modules="$GRUB_MODS" --locales="" --fonts="" \
+		"boot/grub/grub.cfg=/iso/boot/grub/grub.cfg"
+else
+	echo "note: no /usr/lib/grub/i386-efi — ISO is x86_64 UEFI + BIOS only"
+fi
+
 # EFI System partition image El Torito boots from.
 dd if=/dev/zero of=/iso/boot/grub/efi.img bs=1M count=8 status=none
 mkfs.vfat -n LUNAUEFI /iso/boot/grub/efi.img >/dev/null

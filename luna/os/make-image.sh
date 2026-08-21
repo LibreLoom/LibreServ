@@ -7,9 +7,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ROOTFS="$ROOT/os/work/rootfs"
 OUT="$ROOT/os/dist"
 IMAGE="$OUT/luna-os-x86_64.img"
-ALPINE_IMAGE="${ALPINE_IMAGE:-docker.io/library/alpine:3.24}"
-# Pinned for reproducibility; override with digest for supply-chain pinning.
-case "$ALPINE_IMAGE" in *:latest) echo "ALPINE_IMAGE must be pinned (e.g. 3.24), got $ALPINE_IMAGE" >&2; exit 1;; esac
+# shellcheck source=lib/alpine-image.sh
+. "$ROOT/os/lib/alpine-image.sh"
 SIZE_MB="${SIZE_MB:-1200}"
 
 [ -d "$ROOTFS" ] || { echo "missing $ROOTFS — run os/build-rootfs.sh first" >&2; exit 2; }
