@@ -37,24 +37,41 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
               <div className="flex items-center gap-2">
                 <div
                   className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-full font-mono text-sm motion-safe:transition-all",
-                    isComplete && "bg-secondary text-primary",
-                    !isComplete && isActive && "bg-secondary text-primary ring-2 ring-secondary ring-offset-2 ring-offset-primary",
-                    !isComplete && !isActive && "bg-secondary/50 text-secondary/50 border-2 border-secondary/30"
+                    "flex h-8 w-8 items-center justify-center rounded-full font-mono text-sm motion-safe:transition-all duration-300 ease-in-out",
+                    isComplete && "bg-secondary text-primary scale-100",
+                    !isComplete && isActive && "bg-secondary text-primary ring-2 ring-secondary ring-offset-2 ring-offset-primary scale-110",
+                    !isComplete && !isActive && "bg-secondary/50 text-secondary/50 border-2 border-secondary/30 scale-100"
                   )}
                   aria-current={isActive ? "step" : undefined}
+                  style={{
+                    transitionDelay: isActive ? '100ms' : '0ms'
+                  }}
                 >
                   {isComplete ? (
-                    <Check size={16} aria-hidden="true" />
+                    <Check 
+                      size={16} 
+                      aria-hidden="true"
+                      className="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-0 motion-safe:duration-200"
+                    />
                   ) : (
-                    index + 1
+                    <span className={cn(
+                      "motion-safe:transition-transform motion-safe:duration-200",
+                      isActive && "scale-110"
+                    )}>
+                      {index + 1}
+                    </span>
                   )}
                 </div>
                 <span
                   className={cn(
-                    "hidden sm:block font-mono text-sm",
-                    isActive ? "text-secondary" : "text-secondary/50"
+                    "hidden sm:block font-mono text-sm motion-safe:transition-all motion-safe:duration-300 ease-in-out",
+                    isActive 
+                      ? "text-secondary opacity-100 translate-x-0" 
+                      : "text-secondary/50 opacity-70"
                   )}
+                  style={{
+                    transitionDelay: isActive ? '150ms' : '0ms'
+                  }}
                 >
                   {step.label}
                 </span>
@@ -63,7 +80,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
               {!isLast && (
                 <div
                   className={cn(
-                    "mx-2 sm:mx-4 h-0.5 w-4 sm:w-8",
+                    "mx-2 sm:mx-4 h-0.5 w-4 sm:w-8 motion-safe:transition-all motion-safe:duration-500 ease-in-out",
                     step.id < currentStep ? "bg-secondary" : "bg-secondary/30"
                   )}
                   aria-hidden="true"
