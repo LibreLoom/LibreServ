@@ -31,7 +31,7 @@ export default function SharedPage() {
         <EmptyState
           icon={FolderOpen}
           title="Nothing shared yet"
-          description="When someone shares a folder with you, it will show up here."
+        description="When the person who takes care of this Luna shares a folder with you in People, it will show up here. Ask them if you expected to see something."
         />
       )}
     </Page>

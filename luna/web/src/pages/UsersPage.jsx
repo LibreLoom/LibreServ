@@ -38,8 +38,12 @@ export default function UsersPage() {
 
   const createMutation = useMutation({
     mutationFn: (body) => postJson("/api/v1/users", body),
-    onSuccess: () => { setCreating(false); queryClient.invalidateQueries({ queryKey: ["users"] }); },
-    onError: (err) => setError(String(err)),
+    onSuccess: (created) => {
+      setCreating(false);
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      if (created?.id) setSelected(created);
+    },
+    onError: (err) => setError(String(err.message || err)),
   });
   const deleteMutation = useMutation({
     mutationFn: (id) => del(`/api/v1/users/${id}`),
@@ -77,8 +81,13 @@ export default function UsersPage() {
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-4 md:grid-cols-2">
         {(users.data || []).map((u) => (
-          <Card key={u.id} title={u.display_name} headerActions={<Pill variant={u.role === "admin" ? "info" : "success"}>{u.role}</Pill>}>
+          <Card key={u.id} title={u.display_name} headerActions={<Pill variant={u.role === "admin" ? "info" : "success"}>{u.role === "admin" ? "Takes care of Luna" : "Household"}</Pill>}>
             <p className="text-primary text-sm font-mono">{u.username}</p>
+            <p className="text-primary text-xs mt-1">
+              {u.role === "admin"
+                ? "Takes care of this Luna"
+                : "Household member — they need folder access before they can see files."}
+            </p>
             <div className="mt-3 flex gap-2">
               <Button size="sm" variant="outline" onClick={() => { setSelected(u); setError(null); }}>Access</Button>
               <Button size="sm" variant="danger" disabled={u.id === user.id} onClick={() => deleteMutation.mutate(u.id)}>
@@ -100,14 +109,21 @@ export default function UsersPage() {
       {selected && (
         <ModalCard title={`Access for ${selected.display_name}`} onClose={() => setSelected(null)}>
           <div className="space-y-2 max-h-64 overflow-y-auto">
-            {(grants.data || []).filter((g) => g.user_id === selected.id).map((g) => (
+            {(grants.data || []).filter((g) => g.user_id === selected.id).map((g) => {
+              const driveName = (drives.data || []).find((d) => d.id === g.drive_id)?.label || g.drive_id;
+              return (
               <div key={g.id} className="flex items-center justify-between rounded-large-element border border-primary/20 p-3">
-                <span className="text-primary text-xs font-mono">{g.drive_id}{g.path ? `/${g.path}` : " (whole drive)"} · {g.permission}</span>
+                <span className="text-primary text-xs font-mono">
+                  {driveName}{g.path ? `/${g.path}` : " (whole drive)"} · {g.permission === "write" ? "can add and change" : "can look"}
+                </span>
                 <Button size="iconSm" variant="danger" onClick={() => revokeMutation.mutate(g.id)}><Trash2 size={12} /></Button>
               </div>
-            ))}
+              );
+            })}
             {(grants.data || []).filter((g) => g.user_id === selected.id).length === 0 && (
-              <p className="text-primary text-xs">No access yet.</p>
+              <p className="text-primary text-sm">
+                They cannot see any files yet. Choose a drive below, then Grant access.
+              </p>
             )}
           </div>
           <GrantForm
@@ -128,6 +144,9 @@ function CreateUserModal({ onClose, onSubmit, busy }) {
   const [password, setPassword] = useState("");
   return (
     <ModalCard title="Add a person" onClose={onClose}>
+      <p className="text-primary text-sm mb-3">
+        They sign in with the username you chose. Next, give them access to a drive or folder.
+      </p>
       <div className="space-y-3">
         <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Their name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
         <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -147,7 +166,9 @@ function GrantForm({ drives, onGrant, busy }) {
   const [permission, setPermission] = useState("read");
   return (
     <div className="mt-4 border-t border-primary/10 pt-4 space-y-3">
-      <p className="font-mono text-xs text-primary">Grant access</p>
+      <p className="text-primary text-sm">
+        Choose what they can open. Type the folder the way it looks on Files, or leave it empty for the whole drive.
+      </p>
       <Dropdown
         options={drives.map((d) => ({ value: d.id, label: d.label }))}
         value={driveId}

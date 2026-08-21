@@ -7,6 +7,7 @@ import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
+import TextLink from "../components/ui/TextLink";
 import { getDrives, getJson, postJson } from "../lib/api";
 
 function dateLabel(ts) {
@@ -23,14 +24,15 @@ export default function GalleryPage() {
   const gallery = useQuery({
     queryKey: ["gallery"],
     queryFn: () => getJson("/api/v1/gallery"),
+    refetchInterval: scan.isPending ? 2000 : false,
   });
 
   const scan = useMutation({
     mutationFn: () => postJson("/api/v1/gallery/scan", {}),
     onSuccess: () => {
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["gallery"] }), 1500);
+      queryClient.invalidateQueries({ queryKey: ["gallery"] });
     },
-    onError: (err) => setError(String(err)),
+    onError: (err) => setError(String(err.message || err)),
   });
 
   const driveList = drives.data || [];
@@ -97,26 +99,37 @@ export default function GalleryPage() {
         {photos.map((photo) => (
           <Card
             key={`${photo.drive_id}/${photo.path}`}
-            as="a"
             noHeightAnim
             noPopIn
             padding={false}
-            className="block mb-4 break-inside-avoid overflow-hidden motion-safe:transition-colors hover:ring-2 hover:ring-accent"
-            href={`/api/v1/drives/${photo.drive_id}/files/content?path=${encodeURIComponent(photo.path)}`}
-            target="_blank"
-            rel="noreferrer"
+            className="mb-4 break-inside-avoid overflow-hidden"
           >
-            {photo.thumb ? (
-              <img src={photo.thumb} alt={photo.name} loading="lazy" className="w-full block" />
-            ) : (
-              <div className="h-40 flex items-center justify-center text-primary">
-                <ImageIcon size={24} aria-hidden="true" />
-              </div>
-            )}
+            <a
+              href={`/api/v1/drives/${photo.drive_id}/files/content?path=${encodeURIComponent(photo.path)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="block motion-safe:transition-colors hover:opacity-95"
+            >
+              {photo.thumb ? (
+                <img src={photo.thumb} alt={photo.name} loading="lazy" className="w-full block" />
+              ) : (
+                <div className="h-40 flex items-center justify-center text-primary">
+                  <ImageIcon size={24} aria-hidden="true" />
+                </div>
+              )}
+            </a>
             <div className="p-2">
               <p className="text-primary font-mono text-xs truncate">{photo.name}</p>
               <p className="text-primary text-xs">
                 {[driveLabel(photo.drive_id), dateLabel(photo.taken_at)].filter(Boolean).join(" · ")}
+              </p>
+              <p className="mt-1">
+                <TextLink
+                  surface="secondary"
+                  to={`/drives/${photo.drive_id}?path=${encodeURIComponent((photo.path || "").split("/").slice(0, -1).join("/"))}`}
+                >
+                  Open folder
+                </TextLink>
               </p>
             </div>
           </Card>

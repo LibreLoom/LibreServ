@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { HardDrive, PlugZap, TriangleAlert } from "lucide-react";
+import { HardDrive, PlugZap, TriangleAlert, ListChecks } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Page from "../components/ui/Page.jsx";
 import Card from "../components/cards/Card.jsx";
@@ -332,6 +332,34 @@ export default function DashboardPage() {
                 </Button>
               }
             />
+          )}
+
+          {isAdmin && (
+            <Card icon={ListChecks} title="What to do next">
+              <ol className="space-y-3 text-sm text-primary list-decimal list-inside">
+                <li>
+                  Plug in a USB drive, then open Drives and tap Look inside.
+                  {" "}
+                  <TextLink surface="secondary" to="/drives">Open Drives</TextLink>
+                </li>
+                <li>
+                  Add the people in your house so each person has their own sign-in.
+                  {" "}
+                  <TextLink surface="secondary" to="/settings/users">People</TextLink>
+                </li>
+                <li>
+                  On a phone: install the Luna app and turn on photo backup. On a computer:
+                  Settings has the steps to open a drive as a folder.
+                  {" "}
+                  <TextLink surface="secondary" to="/settings">Settings</TextLink>
+                </li>
+                <li>
+                  If you want Luna from away from home, turn on remote access. It is free.
+                  {" "}
+                  <TextLink surface="secondary" to="/settings/remote">Remote access</TextLink>
+                </li>
+              </ol>
+            </Card>
           )}
 
           {!isAdmin && grants.length > 0 && (

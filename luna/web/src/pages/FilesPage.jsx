@@ -22,7 +22,10 @@ import Dropdown from "../components/common/Dropdown";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
 import HouseholdSearch from "../components/files/HouseholdSearch";
+import ComputerMountHelp from "../components/files/ComputerMountHelp";
+import CreateShareModal from "../components/files/CreateShareModal";
 import { getDrives, getJson, postJson } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 
 const CHUNK_SIZE = 8 * 1024 * 1024;
 const MULTIPART_LIMIT = 32 * 1024 * 1024;
@@ -81,7 +84,9 @@ export default function FilesPage() {
   const [restoreTarget, setRestoreTarget] = useState(null);
   const [restoreName, setRestoreName] = useState("");
   const [purgeTarget, setPurgeTarget] = useState(null);
+  const [sharing, setSharing] = useState(false);
   const filePicker = useRef(null);
+  const { user } = useAuth();
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const drive = (drives.data || []).find((d) => d.id === id);
@@ -327,9 +332,14 @@ export default function FilesPage() {
               <Link to={`/drives/${id}`}>Back to files</Link>
             </Button>
           ) : (
-            <Button variant="outline" surface="secondary" size="sm" asChild>
-              <Link to={`/drives/${id}?view=trash`}>Open trash</Link>
-            </Button>
+            <>
+              <Button variant="outline" surface="secondary" size="sm" asChild>
+                <Link to={`/drives/${id}?view=trash`}>Open trash</Link>
+              </Button>
+              <Button variant="outline" surface="secondary" size="sm" onClick={() => setSharing(true)}>
+                Share this folder
+              </Button>
+            </>
           )}
         </div>
       </Card>
@@ -375,6 +385,12 @@ export default function FilesPage() {
           )}
           {uploadError && <p className="text-error text-xs mt-2">{uploadError}</p>}
         </Card>
+      )}
+
+      {!inTrash && user?.role === "admin" && drive && (
+        <div className="mb-6">
+          <ComputerMountHelp driveId={id} driveLabel={drive.label} />
+        </div>
       )}
 
       {inTrash && uploadError && <PageNotice variant="error" className="mb-4">{uploadError}</PageNotice>}
@@ -635,6 +651,16 @@ export default function FilesPage() {
             <Button variant="outline" onClick={() => setPurgeTarget(null)}>Keep in trash</Button>
           </div>
         </ModalCard>
+      )}
+      {sharing && (
+        <CreateShareModal
+          drives={drives.data || []}
+          initialDriveId={id}
+          initialPath={path}
+          onClose={() => setSharing(false)}
+          onError={(msg) => setUploadError(msg)}
+          onDone={() => setSharing(false)}
+        />
       )}
     </Page>
   );

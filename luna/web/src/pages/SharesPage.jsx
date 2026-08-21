@@ -3,17 +3,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Trash2 } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
-import ModalCard from "../components/cards/ModalCard";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/common/EmptyState";
 import PageNotice from "../components/common/PageNotice";
-import Dropdown from "../components/common/Dropdown";
-import { getDrives, getJson, postJson } from "../lib/api";
+import CreateShareModal from "../components/files/CreateShareModal";
+import { getDrives, getJson, deleteJson, apiErrorMessage } from "../lib/api";
 
-async function del(path) {
-  const res = await fetch(path, { method: "DELETE", credentials: "include" });
-  if (!res.ok) throw new Error("Couldn't remove it");
-  return res.json();
+function expiryLabel(expiresAt) {
+  if (!expiresAt) return "never expires";
+  const when = new Date(expiresAt * 1000);
+  if (Number.isNaN(when.getTime())) return "expires";
+  return `expires ${when.toLocaleDateString()}`;
 }
 
 export default function SharesPage() {
@@ -24,75 +24,74 @@ export default function SharesPage() {
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
 
   const revoke = useMutation({
-    mutationFn: (id) => del(`/api/v1/shares/${id}`),
+    mutationFn: (id) => deleteJson(`/api/v1/shares/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shares"] }),
+    onError: (err) => setError(apiErrorMessage(err, "Couldn't remove that link.")),
   });
 
   return (
-    <Page title="Links" titleId="shares-title"
+    <Page
+      title="Links"
+      titleId="shares-title"
+      bottomContent={<p className="text-sm">Send a link so someone can download files without a Luna account. You can add a password and an expiry date.</p>}
       rightContent={<Button size="sm" variant="primary" onClick={() => { setError(null); setCreating(true); }}><Link2 size={14} /> Share something</Button>}
     >
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-4">
-        {(shares.data || []).map((s) => (
-          <Card key={s.id} padding={false} noPopIn noHeightAnim>
-            <div className="flex items-center justify-between p-4">
-              <div>
-                <p className="text-primary font-mono text-sm">{s.drive_id}{s.path ? `/${s.path}` : ""}</p>
-                <p className="text-accent text-xs mt-1">
-                  {s.has_password ? "Password protected" : "Anyone with the link"} · {s.expires_at ? "expires" : "never expires"}
-                </p>
+        {(shares.data || []).map((s) => {
+          const remembered = (() => {
+            try { return sessionStorage.getItem(`luna-share-${s.id}`); } catch { return null; }
+          })();
+          const driveName = s.drive_label || (drives.data || []).find((d) => d.id === s.drive_id)?.label || "Drive";
+          return (
+            <Card key={s.id} padding={false} noPopIn noHeightAnim>
+              <div className="flex items-center justify-between p-4 gap-3">
+                <div className="min-w-0">
+                  <p className="text-primary font-mono text-sm truncate">
+                    {driveName}{s.path ? ` / ${s.path}` : " (whole drive)"}
+                  </p>
+                  <p className="text-primary text-xs mt-1">
+                    {s.has_password ? "Password protected" : "Anyone with the link"} · {expiryLabel(s.expires_at)}
+                  </p>
+                  {remembered ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-2"
+                      onClick={() => navigator.clipboard.writeText(remembered)}
+                    >
+                      Copy address
+                    </Button>
+                  ) : (
+                    <p className="text-primary text-xs mt-2">
+                      Luna showed this address once when you made it. If you lost it, make a new link.
+                    </p>
+                  )}
+                </div>
+                <Button size="iconSm" variant="danger" onClick={() => revoke.mutate(s.id)} aria-label="Remove this link">
+                  <Trash2 size={12} />
+                </Button>
               </div>
-              <Button size="iconSm" variant="danger" onClick={() => revoke.mutate(s.id)}><Trash2 size={12} /></Button>
-            </div>
-          </Card>
-        ))}
+            </Card>
+          );
+        })}
         {(shares.data || []).length === 0 && (
-          <EmptyState icon={Link2} title="No links yet" description="Create a link to share a file or folder." />
+          <EmptyState
+            icon={Link2}
+            title="No links yet"
+            description="Share a file or folder from Files, or tap Share something. The other person opens the address in a browser — they do not need a Luna account."
+          />
         )}
       </div>
 
-      {creating && <CreateShareModal drives={drives.data || []} onClose={() => setCreating(false)} onError={setError} onDone={() => { setCreating(false); queryClient.invalidateQueries({ queryKey: ["shares"] }); }} />}
+      {creating && (
+        <CreateShareModal
+          drives={drives.data || []}
+          onClose={() => setCreating(false)}
+          onError={setError}
+          onDone={() => { setCreating(false); queryClient.invalidateQueries({ queryKey: ["shares"] }); }}
+        />
+      )}
     </Page>
-  );
-}
-
-function CreateShareModal({ drives, onClose, onError, onDone }) {
-  const [driveId, setDriveId] = useState("");
-  const [path, setPath] = useState("");
-  const [password, setPassword] = useState("");
-  const [days, setDays] = useState("30");
-  const [result, setResult] = useState(null);
-  const mutation = useMutation({
-    mutationFn: (/** @type {any} */ body) => postJson("/api/v1/shares", body),
-    onSuccess: (data) => setResult(data),
-    onError: (err) => onError(String(err)),
-  });
-
-  if (result) {
-    return (
-      <ModalCard title="Link ready" onClose={onDone}>
-        <p className="text-primary text-sm">Share this address:</p>
-        <div className="mt-3 flex items-center gap-2">
-          <input readOnly className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" value={window.location.origin + result.url} onFocus={(e) => e.target.select()} />
-          <Button size="sm" variant="primary" onClick={() => navigator.clipboard.writeText(window.location.origin + result.url)}>Copy</Button>
-        </div>
-        <div className="mt-4 flex gap-3"><Button variant="outline" onClick={onDone}>Done</Button></div>
-      </ModalCard>
-    );
-  }
-
-  return (
-    <ModalCard title="Share something" onClose={onClose}>
-      <div className="space-y-3">
-        <Dropdown options={drives.map((d) => ({ value: d.id, label: d.label }))} value={driveId} onChange={setDriveId} placeholder="Choose a drive" fullWidth />
-        <input className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="File or folder path, e.g. photos/summer" value={path} onChange={(e) => setPath(e.target.value)} />
-        <input type="password" className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm" placeholder="Password (optional)" value={password} onChange={(e) => setPassword(e.target.value)} />
-        <Dropdown options={[{ value: "7", label: "Expires in 7 days" }, { value: "30", label: "Expires in 30 days" }, { value: "365", label: "Expires in a year" }, { value: "", label: "Never expires" }]} value={days} onChange={setDays} fullWidth />
-        <Button variant="primary" fullWidth loading={mutation.isPending} disabled={!driveId || !path} onClick={() => mutation.mutate({ drive_id: driveId, path, password: password || undefined, expires_in_days: days ? Number(days) : undefined })}>
-          Create link
-        </Button>
-      </div>
-    </ModalCard>
   );
 }
