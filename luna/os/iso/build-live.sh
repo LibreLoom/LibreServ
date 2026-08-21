@@ -54,6 +54,7 @@ if [ -d "/lib/modules/$KVER" ]; then
 fi
 
 cp /init.in "$IRD/init"
+cp /find-media.sh "$IRD/find-media.sh"
 chmod +x "$IRD/init"
 mkdir -p "$IRD/bin"
 if [ -f "$IRD/bin/busybox" ]; then
@@ -73,14 +74,26 @@ cp /usr/share/syslinux/mbr.bin /iso/mbr.bin 2>/dev/null || true
 
 # UEFI: standalone GRUB (x64 + ia32 for Cherry Trail 32-bit firmware).
 cat >/iso/boot/grub/grub.cfg <<'CFG'
-set timeout=2
+insmod iso9660
+insmod fat
+insmod part_gpt
+insmod part_msdos
+insmod search
+insmod linux
 search --file --set=root /boot/vmlinuz
+if [ ! -e /boot/vmlinuz ]; then
+	set root=(cd0)
+fi
+if [ ! -e /boot/vmlinuz ]; then
+	set root=(hd0)
+fi
 linux /boot/vmlinuz quiet
 initrd /boot/initramfs
+boot
 CFG
 
 echo "==> GRUB EFI"
-GRUB_MODS="iso9660 fat ext2 part_gpt part_msdos normal linux configfile search search_fs_file echo gzio"
+GRUB_MODS="iso9660 fat ext2 part_gpt part_msdos normal linux configfile search search_fs_file echo gzio boot test"
 grub-mkstandalone -O x86_64-efi -o /tmp/BOOTX64.EFI \
 	--install-modules="$GRUB_MODS" --locales="" --fonts="" \
 	"boot/grub/grub.cfg=/iso/boot/grub/grub.cfg"

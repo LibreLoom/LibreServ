@@ -7,42 +7,45 @@ mount -t devtmpfs dev /dev 2>/dev/null || mount -t tmpfs dev /dev
 mkdir -p /dev/pts /src /tmp
 ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
 
-if [ -d /lib/modules ]; then
-	for m in isofs iso9660 sr_mod usb-common usbcore ehci-hcd ehci-pci xhci-hcd xhci-pci \
-		usb-storage uas mmc_core mmc_block sdhci sdhci-pci sdhci-acpi \
+# shellcheck disable=SC1091
+. /find-media.sh
+
+load_modules() {
+	if [ ! -d /lib/modules ]; then
+		return 0
+	fi
+	for m in isofs iso9660 sr_mod cdrom usb-common usbcore ehci-hcd ehci-pci \
+		xhci-hcd xhci-pci xhci-pci-renesas usb-storage uas \
+		mmc_core mmc_block sdhci sdhci-pci sdhci-acpi \
 		pinctrl-intel pinctrl-cherryview pwm-lpss pwm-lpss-pci \
 		ahci sd_mod nvme virtio virtio_pci virtio_blk virtio_scsi \
 		ext4 fat vfat nls_cp437 crc32c_generic crc32c; do
 		modprobe "$m" 2>/dev/null || true
 	done
-fi
+}
 
-i=0
+load_modules
+
 SRCDEV=""
+i=0
 while [ "$i" -lt 40 ]; do
-	SRCDEV="$(blkid -L LUNAINST 2>/dev/null || true)"
-	if [ -n "$SRCDEV" ]; then
+	if SRCDEV="$(luna_find_install_media /src)"; then
 		break
 	fi
+	SRCDEV=""
 	sleep 1
 	i=$((i + 1))
+	load_modules
 done
-if [ -z "$SRCDEV" ]; then
-	for c in /dev/sr0 /dev/sda /dev/sdb /dev/sdc /dev/sda1 /dev/sdb1 /dev/sdc1; do
-		if mount -o ro "$c" /src 2>/dev/null; then
-			if [ -f /src/rapidinstall.sh ]; then
-				SRCDEV="$c"
-				break
-			fi
-			umount /src 2>/dev/null || true
-		fi
-	done
-else
-	mount -o ro "$SRCDEV" /src
-fi
 
 if [ ! -f /src/rapidinstall.sh ]; then
-	echo "Luna installer USB not found. Dropping to a shell."
+	echo "Could not find the Luna installer files on the USB stick."
+	echo "Devices Luna can see:"
+	ls /sys/class/block 2>/dev/null || true
+	if command -v blkid >/dev/null 2>&1; then
+		blkid || true
+	fi
+	echo "Dropping to a shell."
 	exec setsid cttyhack sh
 fi
 export LUNA_INSTALL_MEDIA="$SRCDEV"

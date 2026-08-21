@@ -24,8 +24,9 @@ cargo test --workspace
 echo "==> os scripts"
 sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/rapidinstall.sh \
 	os/lib/disk.sh os/lib/flash-disk.sh os/lib/disk_test.sh os/iso/init \
-	os/iso/build-live.sh os/iso/build-xorriso.sh
+	os/iso/find-media.sh os/iso/find-media_test.sh os/iso/build-live.sh os/iso/build-xorriso.sh
 sh os/lib/disk_test.sh
+sh os/iso/find-media_test.sh
 
 echo "==> desktop core"
 (

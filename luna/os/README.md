@@ -19,6 +19,8 @@ disk both boot in either firmware mode.
 ./os/make-iso.sh                      # → os/dist/luna-rapidinstall-x86_64.iso
 #    dd if=os/dist/luna-rapidinstall-x86_64.iso of=/dev/sdX bs=4M conv=fsync
 #    Boot the PC from that USB (BIOS or UEFI; turn Secure Boot off).
+#    GRUB should load Linux on its own. You should see "Luna rapidinstall"
+#    and be asked to type  install luna  — not a grub> prompt.
 #    The installer picks built-in storage, asks you to type  install luna
 #    and never erases the USB stick.
 
