@@ -58,18 +58,14 @@ cp /init.in "$IRD/init"
 cp /find-media.sh "$IRD/find-media.sh"
 chmod +x "$IRD/init"
 mkdir -p "$IRD/bin" "$IRD/sbin" "$IRD/usr/bin" "$IRD/usr/sbin"
-# apk --no-scripts skips busybox post-install, so no applet links (mkdir, sleep, awk…).
+# apk --no-scripts skips busybox post-install. Do not run
+# `busybox --install DIR` from outside the initrd: it writes absolute
+# symlink targets like /tmp/initrd/bin/busybox, which do not exist at boot.
 if [ -x "$IRD/bin/busybox" ]; then
-	"$IRD/bin/busybox" --install -s "$IRD/bin" 2>/dev/null || true
-	chroot "$IRD" /bin/busybox --install -s 2>/dev/null || true
-	ln -sf busybox "$IRD/bin/sh"
-	for a in mkdir sleep awk sed grep sort basename ls cat echo mount umount \
-		ln setsid cttyhack mdev true false printf head tr cut wc rm cp mv \
-		chmod chown blkid lsblk; do
-		if [ ! -e "$IRD/bin/$a" ] && [ ! -e "$IRD/usr/bin/$a" ] && [ ! -e "$IRD/sbin/$a" ]; then
-			ln -sf busybox "$IRD/bin/$a"
-		fi
+	for a in $("$IRD/bin/busybox" --list); do
+		ln -sf busybox "$IRD/bin/$a"
 	done
+	ln -sf busybox "$IRD/bin/sh"
 fi
 
 (cd "$IRD" && find . | cpio -o -H newc) | gzip -9 >/iso/boot/initramfs

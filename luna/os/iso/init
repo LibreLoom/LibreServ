@@ -1,14 +1,15 @@
-#!/bin/sh
+#!/bin/busybox sh
 # Initramfs entry for the Luna rapidinstall ISO.
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-if [ -x /bin/busybox ]; then
-	/bin/busybox --install -s 2>/dev/null || true
-fi
-mount -t proc proc /proc
-mount -t sysfs sys /sys
-mount -t devtmpfs dev /dev 2>/dev/null || mount -t tmpfs dev /dev
-mkdir -p /dev/pts /src /tmp
-ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
+# Invoke applets through /bin/busybox so dangling install-time symlinks cannot
+# take PID 1 down.
+BB=/bin/busybox
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+$BB --install -s 2>/dev/null || true
+$BB mount -t proc proc /proc
+$BB mount -t sysfs sys /sys
+$BB mount -t devtmpfs dev /dev 2>/dev/null || $BB mount -t tmpfs dev /dev
+$BB mkdir -p /dev/pts /src /tmp
+$BB ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
 
 # shellcheck disable=SC1091
 . /find-media.sh
@@ -26,7 +27,7 @@ load_modules() {
 		ext4 fat vfat nls_cp437 crc32c_generic crc32c; do
 		modprobe "$m" 2>/dev/null || true
 	done
-	mdev -s 2>/dev/null || true
+	$BB mdev -s 2>/dev/null || true
 }
 
 load_modules
@@ -38,22 +39,28 @@ while [ "$i" -lt 40 ]; do
 		break
 	fi
 	SRCDEV=""
-	sleep 1
+	$BB sleep 1
 	i=$((i + 1))
 	load_modules
 done
 
+run_console() {
+	if $BB --list 2>/dev/null | $BB grep -q '^cttyhack$'; then
+		exec $BB setsid $BB cttyhack $BB sh "$@"
+	fi
+	exec $BB setsid $BB sh -c 'exec /bin/busybox sh "$@"' _ "$@" <>/dev/console 2>&1
+}
+
 if [ ! -f /src/rapidinstall.sh ]; then
 	echo "Could not find the Luna installer files on the USB stick."
 	echo "Devices Luna can see:"
-	ls /sys/class/block 2>/dev/null || true
+	$BB ls /sys/class/block 2>/dev/null || true
 	if command -v blkid >/dev/null 2>&1; then
 		blkid || true
 	fi
 	echo "Dropping to a shell."
-	exec setsid cttyhack sh
+	run_console
 fi
 export LUNA_INSTALL_MEDIA="$SRCDEV"
 cd /src
-# cttyhack attaches the keyboard/console so "type install luna" works.
-exec setsid cttyhack /bin/sh /src/rapidinstall.sh
+run_console /src/rapidinstall.sh

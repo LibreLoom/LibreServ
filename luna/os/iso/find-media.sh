@@ -4,6 +4,14 @@
 # while the installer files live on ISO9660 on the whole disk (label LUNAINST).
 # GRUB may have booted that volume as (cd0); Linux then sees /dev/sdX, not a CD.
 
+luna_cmd() {
+	if [ -x /bin/busybox ]; then
+		/bin/busybox "$@"
+	else
+		"$@"
+	fi
+}
+
 luna_dir_has_installer() {
 	[ -f "$1/rapidinstall.sh" ] || [ -f "$1/RAPIDINSTALL.SH" ] || [ -f "$1/rapidins.sh" ]
 }
@@ -37,32 +45,32 @@ luna_block_candidates() {
 	done
 	# shellcheck disable=SC2086
 	{
-		printf '%s\n' $_sr | awk 'NF' | sort
-		printf '%s\n' $_whole | awk 'NF' | sort
-		printf '%s\n' $_part | awk 'NF' | sort
+		printf '%s\n' $_sr | luna_cmd awk 'NF' | luna_cmd sort
+		printf '%s\n' $_whole | luna_cmd awk 'NF' | luna_cmd sort
+		printf '%s\n' $_part | luna_cmd awk 'NF' | luna_cmd sort
 	}
 }
 
 luna_mount_installer() {
 	_dev="$1"
 	_mnt="$2"
-	umount "$_mnt" 2>/dev/null || true
-	mkdir -p "$_mnt"
-	if ! mount -t iso9660 -o ro "$_dev" "$_mnt" 2>/dev/null; then
-		if ! mount -o ro "$_dev" "$_mnt" 2>/dev/null; then
+	luna_cmd umount "$_mnt" 2>/dev/null || true
+	luna_cmd mkdir -p "$_mnt"
+	if ! luna_cmd mount -t iso9660 -o ro "$_dev" "$_mnt" 2>/dev/null; then
+		if ! luna_cmd mount -o ro "$_dev" "$_mnt" 2>/dev/null; then
 			return 1
 		fi
 	fi
 	if luna_dir_has_installer "$_mnt"; then
 		return 0
 	fi
-	umount "$_mnt" 2>/dev/null || true
+	luna_cmd umount "$_mnt" 2>/dev/null || true
 	return 1
 }
 
 luna_find_install_media() {
 	_mnt="$1"
-	mkdir -p "$_mnt"
+	luna_cmd mkdir -p "$_mnt"
 	if command -v blkid >/dev/null 2>&1; then
 		_lab="$(blkid -L LUNAINST 2>/dev/null || true)"
 		if [ -n "$_lab" ] && luna_mount_installer "$_lab" "$_mnt"; then
