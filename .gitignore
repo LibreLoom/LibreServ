@@ -82,6 +82,7 @@ connect/configs/connect.yaml
 # Temp
 tmp/
 *.swp
+*.kate-swp
 *.tar.gz
 # Build output
 /libreserv
