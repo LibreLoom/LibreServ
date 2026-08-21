@@ -1,5 +1,5 @@
 use axum::extract::{ConnectInfo, Extension, Request, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -28,6 +28,8 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/auth/register", post(register))
         .route("/api/v1/auth/login", post(login))
         .route("/api/v1/auth/logout", post(logout))
+        .route("/api/v1/auth/revoke-sessions", post(revoke_sessions))
+        .route("/api/v1/auth/revoke-devices", post(revoke_devices))
         .route("/api/v1/auth/me", get(me))
         .route("/api/v1/auth/status", get(status))
 }
@@ -79,6 +81,7 @@ async fn register(
 async fn login(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<LoginBody>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     if !state.login_limiter.allow(&addr.ip().to_string()) {
@@ -91,8 +94,7 @@ async fn login(
         .auth
         .login(&body.username, &body.password)
         .map_err(map_auth_err)?;
-    let cookie = auth::session_cookie(&token);
-    let bearer = token.clone();
+    let cookie = auth::session_cookie(&token, auth::request_is_https(&headers));
     Ok((
         StatusCode::OK,
         [
@@ -100,26 +102,72 @@ async fn login(
             (header::CACHE_CONTROL, "no-store".to_string()),
         ],
         Json(json!({
+            "ok": true,
             "id": user.id,
             "username": user.username,
             "display_name": user.display_name,
             "role": user.role,
-            "token": bearer,
         })),
     )
         .into_response())
 }
 
-async fn logout() -> Response {
+async fn logout(headers: HeaderMap) -> Response {
     (
         StatusCode::OK,
         [(
             header::SET_COOKIE,
-            format!("{}=; Path=/; HttpOnly; Max-Age=0", auth::SESSION_COOKIE),
+            auth::clear_session_cookie(auth::request_is_https(&headers)),
         )],
         Json(json!({ "ok": true })),
     )
         .into_response()
+}
+
+async fn revoke_sessions(
+    State(state): State<AppState>,
+    current: Option<Extension<CurrentUser>>,
+    headers: HeaderMap,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let Some(Extension(user)) = current else {
+        return Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "Sign in to Luna first.",
+        ));
+    };
+    state.auth.revoke_sessions(&user.id).map_err(map_auth_err)?;
+    Ok((
+        StatusCode::OK,
+        [(
+            header::SET_COOKIE,
+            auth::clear_session_cookie(auth::request_is_https(&headers)),
+        )],
+        Json(json!({
+            "ok": true,
+            "message": "Every browser is signed out. Sign in again on this one if you still need it.",
+        })),
+    )
+        .into_response())
+}
+
+async fn revoke_devices(
+    State(state): State<AppState>,
+    current: Option<Extension<CurrentUser>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let Some(Extension(user)) = current else {
+        return Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "Sign in to Luna first.",
+        ));
+    };
+    state
+        .auth
+        .revoke_all_device_tokens(&user.id)
+        .map_err(map_auth_err)?;
+    Ok(Json(json!({
+        "ok": true,
+        "message": "Phones and computers must set up backup again.",
+    })))
 }
 
 async fn me(req: Request) -> Json<Value> {

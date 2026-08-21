@@ -53,6 +53,7 @@ describe("FilesPage", () => {
     });
     renderFiles();
     expect(screen.getAllByText(/Drop files here/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Choose files/i })).toBeInTheDocument();
     expect(await screen.findByText(/photo.jpg/i)).toBeInTheDocument();
   });
 

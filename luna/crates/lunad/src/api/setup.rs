@@ -1,4 +1,4 @@
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -55,8 +55,25 @@ async fn get_setup(
 
 async fn save_setup(
     State(state): State<AppState>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
     Json(body): Json<SaveBody>,
 ) -> Result<Json<SetupState>, (StatusCode, Json<Value>)> {
+    let has_users = state.auth.count_users().unwrap_or(0) > 0;
+    if has_users {
+        let Some(Extension(user)) = current else {
+            return Err(json_error(
+                StatusCode::UNAUTHORIZED,
+                "Sign in to Luna first.",
+            ));
+        };
+        if user.role != "admin" {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Only the person who takes care of this Luna can change setup.",
+            ));
+        }
+    }
+
     let conn = state.db.lock().map_err(|_| {
         json_error(
             StatusCode::INTERNAL_SERVER_ERROR,

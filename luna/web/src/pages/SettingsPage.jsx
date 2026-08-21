@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Keyboard } from "lucide-react";
+import { Download, Keyboard, Smartphone, LogOut } from "lucide-react";
 import Page from "../components/ui/Page";
 import Card from "../components/cards/Card";
 import Button from "../components/ui/Button";
@@ -23,6 +23,8 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
+  const [tokenName, setTokenName] = useState("");
+  const [newToken, setNewToken] = useState(null);
   const updates = useQuery({
     queryKey: ["system-updates"],
     queryFn: () => getJson("/api/v1/system/updates"),
@@ -39,6 +41,42 @@ export default function SettingsPage() {
   });
   const apply = useMutation({
     mutationFn: () => postJson("/api/v1/system/updates/apply", {}),
+    onError: (err) => setError(String(err)),
+  });
+
+  const tokens = useQuery({
+    queryKey: ["device-tokens"],
+    queryFn: () => getJson("/api/v1/device-tokens"),
+  });
+  const createToken = useMutation({
+    mutationFn: (name) => postJson("/api/v1/device-tokens", { name }),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["device-tokens"] });
+      setNewToken(data);
+      setTokenName("");
+      setError(null);
+    },
+    onError: (err) => setError(String(err)),
+  });
+  const signOutBrowsers = useMutation({
+    mutationFn: () => postJson("/api/v1/auth/revoke-sessions", {}),
+    onSuccess: () => { window.location.href = "/login"; },
+    onError: (err) => setError(String(err)),
+  });
+  const stopBackups = useMutation({
+    mutationFn: () => postJson("/api/v1/auth/revoke-devices", {}),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["device-tokens"] }); setError(null); setNewToken(null); },
+    onError: (err) => setError(String(err)),
+  });
+  const revokeOne = useMutation({
+    mutationFn: async (id) => {
+      const res = await fetch(`/api/v1/device-tokens/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Couldn't stop this app");
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["device-tokens"] }),
     onError: (err) => setError(String(err)),
   });
 
@@ -61,6 +99,84 @@ export default function SettingsPage() {
           <p className="mt-4 text-sm text-primary">
             This only works with a keyboard plugged into Luna. Nobody can reset the password over the internet.
           </p>
+        </Card>
+
+        <Card icon={LogOut} title="Who is signed in">
+          <p className="text-primary text-sm">
+            Signing out on this screen only leaves this browser. Use the
+            buttons below if a phone, computer, or helper&apos;s tool should no longer reach your files.
+          </p>
+          <div className="mt-4 flex flex-col gap-3">
+            <div>
+              <Button variant="accent" loading={signOutBrowsers.isPending} onClick={() => signOutBrowsers.mutate()}>
+                Sign out every browser
+              </Button>
+              <p className="text-primary text-xs mt-2">
+                Use this if you signed in on a computer you don&apos;t trust anymore. Every
+                browser must type the password again. Phone apps and helper tools keep working.
+              </p>
+            </div>
+            <div>
+              <Button variant="accent" loading={stopBackups.isPending} onClick={() => stopBackups.mutate()}>
+                Stop apps and helper tools
+              </Button>
+              <p className="text-primary text-xs mt-2">
+                Use this if a phone or laptop was lost, or a helper should no longer reach Luna.
+                Those apps must sign in again. Browsers stay signed in.
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card icon={Smartphone} title="Apps and helper tools">
+          <p className="text-primary text-sm">
+            A computer or phone app, or a tool a helper set up, can keep working without typing
+            your household password each time. Folder mounts (Finder, Explorer) use this access
+            token as the password — never the household password. Only an admin can mount the
+            whole drive as a folder.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {(tokens.data || []).map((t) => (
+              <li key={t.id} className="flex items-center justify-between gap-2">
+                <span className="text-primary text-sm font-mono truncate">{t.name}</span>
+                <Button size="sm" variant="outline" loading={revokeOne.isPending} onClick={() => revokeOne.mutate(t.id)}>
+                  Stop this app
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {(tokens.data || []).length === 0 && (
+            <p className="text-primary text-sm mt-2">No apps or helper tools are set up yet.</p>
+          )}
+          <div className="mt-4 flex flex-col gap-2">
+            <label className="text-primary text-sm" htmlFor="token-name">
+              Name this app so you can recognize it later
+            </label>
+            <input
+              id="token-name"
+              className="w-full rounded-pill bg-primary text-secondary border-2 border-secondary/30 px-4 py-2 text-sm"
+              placeholder="Kitchen Mac, photo backup, helper script"
+              value={tokenName}
+              onChange={(e) => setTokenName(e.target.value)}
+            />
+            <Button
+              variant="primary"
+              loading={createToken.isPending}
+              disabled={!tokenName.trim()}
+              onClick={() => createToken.mutate(tokenName.trim())}
+            >
+              Create access token
+            </Button>
+          </div>
+          {newToken?.token && (
+            <div className="mt-4 rounded-large-element bg-primary text-secondary p-4">
+              <p className="text-sm">
+                Copy this now. Luna will not show it again. Use it as the password when a computer
+                asks to open your files as a folder.
+              </p>
+              <p className="mt-2 text-sm font-mono break-all">{newToken.token}</p>
+            </div>
+          )}
         </Card>
 
         {user?.role === "admin" && (

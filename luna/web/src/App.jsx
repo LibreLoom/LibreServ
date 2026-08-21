@@ -17,6 +17,7 @@ import SetupPage from "./pages/SetupPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProtectionPage from "./pages/ProtectionPage";
 import SettingsPage from "./pages/SettingsPage";
+import RequireAdmin from "./components/auth/RequireAdmin";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,7 @@ function AppShell() {
   return (
     <RequireAuth>
       <div data-slot="app-shell" className="min-h-screen bg-primary text-secondary">
+        <a href="#main-content" className="skip-link">Skip to main content</a>
         <Outlet />
         <Navbar />
       </div>
@@ -60,11 +62,11 @@ export default function App() {
                 <Route path="/drives" element={<DrivesPage />} />
                 <Route path="/drives/:id" element={<FilesPage />} />
                 <Route path="/gallery" element={<GalleryPage />} />
-                <Route path="/settings/users" element={<UsersPage />} />
+                <Route path="/settings/users" element={<RequireAdmin><UsersPage /></RequireAdmin>} />
                 <Route path="/settings/shares" element={<SharesPage />} />
                 <Route path="/shared" element={<SharedPage />} />
-                <Route path="/settings/protect" element={<ProtectionPage />} />
-                <Route path="/settings/remote" element={<RemotePage />} />
+                <Route path="/settings/protect" element={<RequireAdmin><ProtectionPage /></RequireAdmin>} />
+                <Route path="/settings/remote" element={<RequireAdmin><RemotePage /></RequireAdmin>} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<NotFoundPage />} />

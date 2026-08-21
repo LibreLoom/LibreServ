@@ -1,9 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!--
+      Public internet: HTTPS only (base-config false).
+      Household LAN: Android cannot match CIDR in this file, so LunaApi talks
+      HTTP over a raw socket for RFC1918 / loopback / link-local IPs.
+      Named local hosts still use this domain-config.
+    -->
     <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">local</domain>
+        <domain includeSubdomains="true">lan</domain>
+        <domain includeSubdomains="true">home</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.42.0.1</domain>
+        <domain includeSubdomains="false">169.254.42.42</domain>
         <domain includeSubdomains="false">luna.local</domain>
         <domain includeSubdomains="false">luna.home</domain>
-        <domain includeSubdomains="false">169.254.42.42</domain>
     </domain-config>
     <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

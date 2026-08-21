@@ -81,7 +81,7 @@ impl CommandHotspot {
             .args(["addr", "add", HOTSPOT_IP, "dev", &self.interface])
             .output();
 
-        let dnsmasq = std::process::Command::new("dnsmasq")
+        let mut dnsmasq = std::process::Command::new("dnsmasq")
             .args([
                 "--no-resolv",
                 "--no-poll",
@@ -93,8 +93,7 @@ impl CommandHotspot {
             ])
             .spawn()
             .map_err(HotspotError::Io)?;
-        // Daemonize dnsmasq via double-fork is distro-specific; simplest is
-        // background spawn. Track nothing: the hotspot stops when Luna stops.
+        let _ = std::fs::write(self.dnsmasq_pid_path(), dnsmasq.id().to_string());
         let _ = dnsmasq;
         Ok(())
     }
@@ -105,6 +104,11 @@ impl CommandHotspot {
             let _ = std::process::Command::new("kill").arg(pid.trim()).output();
             let _ = std::fs::remove_file(&pid_path);
         }
+        let dns_pid = self.dnsmasq_pid_path();
+        if let Ok(pid) = std::fs::read_to_string(&dns_pid) {
+            let _ = std::process::Command::new("kill").arg(pid.trim()).output();
+            let _ = std::fs::remove_file(&dns_pid);
+        }
         let _ = std::process::Command::new("ip")
             .args(["addr", "del", HOTSPOT_IP, "dev", &self.interface])
             .output();
@@ -114,6 +118,20 @@ impl CommandHotspot {
     fn pid_path(&self) -> PathBuf {
         self.run_dir.join("luna-setup-hostapd.pid")
     }
+
+    fn dnsmasq_pid_path(&self) -> PathBuf {
+        self.run_dir.join("luna-setup-dnsmasq.pid")
+    }
+}
+
+/// Open setup AP only while setup is unfinished and there is no cable or
+/// home Wi-Fi. Never start it just because Wi-Fi is down after setup.
+pub fn should_start_setup_hotspot(
+    setup_completed: bool,
+    ethernet_connected: bool,
+    wifi_connected: bool,
+) -> bool {
+    !setup_completed && !ethernet_connected && !wifi_connected
 }
 
 pub fn hostapd_config(interface: &str) -> String {
@@ -132,5 +150,23 @@ mod tests {
         assert!(cfg.contains("interface=wlan0"));
         assert!(cfg.contains("ssid=Luna Setup"));
         assert!(!cfg.contains("wpa_passphrase"), "setup hotspot is open");
+    }
+
+    #[test]
+    fn setup_hotspot_starts_only_without_uplink_and_unfinished_setup() {
+        assert!(should_start_setup_hotspot(false, false, false));
+        assert!(!should_start_setup_hotspot(true, false, false));
+        assert!(!should_start_setup_hotspot(false, true, false));
+        assert!(!should_start_setup_hotspot(false, false, true));
+    }
+
+    #[test]
+    fn stop_records_a_dnsmasq_pid_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let hs = CommandHotspot::new("wlan0", dir.path());
+        assert_eq!(
+            hs.dnsmasq_pid_path(),
+            dir.path().join("luna-setup-dnsmasq.pid")
+        );
     }
 }

@@ -125,35 +125,21 @@ async fn start_scrub(
             "Only an admin can do that.",
         ));
     }
+    if state
+        .scrub_running
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        return Err(json_error(
+            StatusCode::CONFLICT,
+            "Luna is already checking files. Try again later.",
+        ));
+    }
     let db = state.db.clone();
+    let flag = state.scrub_running.clone();
     tokio::task::spawn_blocking(move || {
         let conn = db.lock().unwrap();
-        let drives = crate::db::list_drives(&conn).unwrap_or_default();
-        let mut total = crate::scrub::ScrubReport {
-            files_checked: 0,
-            files_hashed: 0,
-            mismatches: 0,
-            bytes_hashed: 0,
-        };
-        for drive in drives {
-            if drive.state != "as_is" || drive.mount_point.is_empty() {
-                continue;
-            }
-            let root = std::path::PathBuf::from(&drive.mount_point);
-            if let Ok(report) = crate::scrub::hash_drive(&conn, &drive.id, &root) {
-                total.files_hashed += report.files_hashed;
-                total.bytes_hashed += report.bytes_hashed;
-            }
-            if let Ok(report) = crate::scrub::scrub_drive(&conn, &drive.id, &root) {
-                total.files_checked += report.files_checked;
-                total.mismatches += report.mismatches;
-            }
-        }
-        let _ = crate::db::set_meta(
-            &conn,
-            "last_scrub_report",
-            &serde_json::to_string(&total).unwrap_or_default(),
-        );
+        let _ = crate::scrub::scrub_all_drives(&conn);
+        flag.store(false, std::sync::atomic::Ordering::SeqCst);
     });
     Ok(Json(
         json!({ "started": true, "message": "Luna is checking your files in the background." }),

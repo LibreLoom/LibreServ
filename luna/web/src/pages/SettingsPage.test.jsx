@@ -25,6 +25,7 @@ describe("SettingsPage", () => {
       if (u.includes("/auth/me")) return new Response(JSON.stringify({ id: "1", username: "max", role: "admin" }), { status: 200, headers: { "Content-Type": "application/json" } });
       if (u.includes("/api/v1/setup")) return new Response(JSON.stringify({ name: "Luna", setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
       if (u.includes("/system/updates")) return new Response(JSON.stringify({ current_version: "0.1.0", latest_version: "luna-0.1.0", update_available: false }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (u.includes("/device-tokens")) return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
       return new Response("{}", { status: 404 });
     }));
     renderPage();
@@ -32,5 +33,9 @@ describe("SettingsPage", () => {
     expect(screen.getByText(/Plug a USB keyboard into Luna/i)).toBeTruthy();
     expect(screen.getByText(/Press Esc, then type luna, then press Enter/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Check for updates/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Sign out every browser/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Stop apps and helper tools/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Create access token/i })).toBeTruthy();
+    expect(screen.getByText(/computer or phone app, or a tool a helper set up/i)).toBeTruthy();
   });
 });

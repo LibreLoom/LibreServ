@@ -1,9 +1,9 @@
-//! Revocable device tokens (the "app password" for Luna Mobile / Luna Desktop).
+//! Revocable access tokens for apps, desktop, WebDAV, and helper scripts.
 //!
-//! A device token is a random 256-bit bearer token scoped to one user. It is
-//! stored only as a blake3 hash, is name-able ("Samsung phone", "Nix box"),
-//! and can be revoked independently of the user's password. It replaces the
-//! practice of storing a raw session JWT on a phone/laptop indefinitely.
+//! One token kind: a random 256-bit bearer token scoped to one user. It is
+//! stored only as a blake3 hash, is name-able ("Samsung phone", "kitchen Mac"),
+//! and can be revoked independently of the user's password. The same token
+//! works for file sync, WebDAV mounts, and the rest of the Luna API.
 
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -81,6 +81,7 @@ export default function FilesPage() {
   const [restoreTarget, setRestoreTarget] = useState(null);
   const [restoreName, setRestoreName] = useState("");
   const [purgeTarget, setPurgeTarget] = useState(null);
+  const filePicker = useRef(null);
 
   const drives = useQuery({ queryKey: ["drives"], queryFn: getDrives });
   const drive = (drives.data || []).find((d) => d.id === id);
@@ -345,6 +346,28 @@ export default function FilesPage() {
           <p className="text-accent text-xs mt-1">
             Small files save instantly. Big files continue even if the connection blips.
           </p>
+          <div className="mt-4">
+            <input
+              ref={filePicker}
+              type="file"
+              multiple
+              className="sr-only"
+              onChange={async (e) => {
+                const files = [...(e.target.files || [])];
+                e.target.value = "";
+                for (const file of files) {
+                  await uploadOne(file);
+                }
+              }}
+            />
+            <Button
+              variant="primary"
+              type="button"
+              onClick={() => filePicker.current?.click()}
+            >
+              Choose files
+            </Button>
+          </div>
           {uploading && (
             <p className="text-primary text-xs mt-2">
               Saving {uploading.name}… {fmtSize(uploading.received)} of {fmtSize(uploading.size)}

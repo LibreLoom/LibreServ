@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 class BackupActivity : AppCompatActivity() {
-    private val notificationsCode = 1001
+    private val activatePermsCode = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +72,7 @@ class BackupActivity : AppCompatActivity() {
                 status.text = "Give this phone a name so you can recognize it later."
                 return@setOnClickListener
             }
+            requestActivatePermissions()
             save.isEnabled = false
             status.text = "Signing in…"
             thread {
@@ -85,14 +86,27 @@ class BackupActivity : AppCompatActivity() {
         }
 
         turnOff.setOnClickListener {
-            if (Build.VERSION.SDK_INT >= 33 &&
-                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS), notificationsCode)
-                return@setOnClickListener
-            }
             deactivate()
+        }
+    }
+
+    private fun requestActivatePermissions() {
+        val needed = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES)
+                != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.READ_MEDIA_IMAGES)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
+            != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        if (needed.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, needed.toTypedArray(), activatePermsCode)
         }
     }
 
@@ -104,15 +118,8 @@ class BackupActivity : AppCompatActivity() {
         name: String,
     ) {
         try {
-            val session = LunaApi.login(url, username, password)
-            val device = LunaApi.createDeviceToken(url, session, name)
-            BackupPrefs.saveSession(this, url, device.token, name)
-            try {
-                LunaApi.revokeToken(url, session, device.id)
-            } catch (_: Exception) {
-                // The device token is the durable credential; the temporary
-                // session cookie will expire on its own.
-            }
+            val device = LunaApi.mintAccessToken(url, username, password, name)
+            BackupPrefs.saveSession(this, url, device.token, name, device.id)
             scheduleWorker()
 
             val notifier = BackupNotifications(this)
@@ -144,6 +151,14 @@ class BackupActivity : AppCompatActivity() {
     }
 
     private fun deactivate() {
+        val url = BackupPrefs.baseUrl(this)
+        val token = BackupPrefs.token(this)
+        val id = BackupPrefs.tokenId(this)
+        if (url != null && token != null && id != null) {
+            thread {
+                try { LunaApi.revokeToken(url, token, id) } catch (_: Exception) { }
+            }
+        }
         BackupPrefs.clearToken(this)
         WorkManager.getInstance(this).cancelUniqueWork("luna-photo-backup")
         BackupNotifications(this).showStopped()

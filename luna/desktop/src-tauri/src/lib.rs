@@ -6,6 +6,7 @@ use tauri::State;
 
 pub struct Session {
     token: Mutex<Option<String>>,
+    username: Mutex<Option<String>>,
     backup: Mutex<Option<backup::BackupHandle>>,
 }
 
@@ -17,8 +18,11 @@ fn login(
     state: State<Session>,
 ) -> Result<String, String> {
     let token = luna::login(&base_url, &username, &password).map_err(|e| e.to_string())?;
-    *state.token.lock().unwrap() = Some(token);
-    Ok("Signed in.".into())
+    *state.token.lock().unwrap() = Some(token.clone());
+    *state.username.lock().unwrap() = Some(username);
+    Ok(format!(
+        "Signed in. Folder mounts use this access token as the password — not your household password:\n{token}"
+    ))
 }
 
 #[tauri::command]
@@ -33,10 +37,14 @@ fn list_drives(base_url: String, state: State<Session>) -> Result<Vec<luna::Driv
 }
 
 #[tauri::command]
-fn pick_folder() -> Result<String, String> {
-    // The dialog plugin is available through the frontend plugin API; this
-    // command is the backend fallback used by older frontends.
-    Err("Use the Choose folder button in the window.".into())
+fn pick_folder(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .file()
+        .set_title("Choose a folder to back up")
+        .blocking_pick_folder()
+        .map(|path| path.to_string())
+        .ok_or_else(|| "No folder chosen.".into())
 }
 
 #[tauri::command]
@@ -85,7 +93,13 @@ fn mount_drive(
         .unwrap()
         .clone()
         .ok_or("Sign in first.")?;
-    luna::mount_instructions(&base_url, &token, &drive_id)
+    let username = state
+        .username
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or("Sign in first.")?;
+    luna::mount_instructions(&base_url, &token, &username, &drive_id)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -94,6 +108,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Session {
             token: Mutex::new(None),
+            username: Mutex::new(None),
             backup: Mutex::new(None),
         })
         .setup(|app| {

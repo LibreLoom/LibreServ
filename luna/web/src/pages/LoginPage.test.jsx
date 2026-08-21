@@ -71,4 +71,28 @@ describe("LoginPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Login" }));
     expect(await screen.findByText(/username or password might be incorrect/i)).toBeInTheDocument();
   });
+
+  it("explains a lockout with keyboard recovery, not support", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url, options = {}) => {
+      const u = String(url);
+      if (u.endsWith("/api/v1/auth/me")) return new Response("null", { status: 401 });
+      if (u.endsWith("/api/v1/setup")) {
+        return new Response(JSON.stringify({ name: "Luna", setup_completed: true }), {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (u.endsWith("/api/v1/auth/login") && options.method === "POST") {
+        return new Response(JSON.stringify({ error: "Too many tries." }), {
+          status: 429, headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    renderLogin();
+    fireEvent.change(screen.getByLabelText("Username", { selector: "input" }), { target: { value: "max" } });
+    fireEvent.change(screen.getByLabelText("Password", { selector: "input" }), { target: { value: "wrong" } });
+    fireEvent.click(screen.getByRole("button", { name: "Login" }));
+    expect(await screen.findByText(/plug a USB keyboard into Luna/i)).toBeInTheDocument();
+    expect(screen.queryByText(/contact support/i)).not.toBeInTheDocument();
+  });
 });

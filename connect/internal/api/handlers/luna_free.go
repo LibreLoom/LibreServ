@@ -38,6 +38,11 @@ func NewLunaFreeHandler(db *sql.DB) *LunaFreeHandler {
 
 // Create issues a free key. Rate limited per client IP (10/hour) because
 // every request creates database rows.
+//
+// TODO(luna-connect-rebuild): when Luna Connect is rebuilt as its own app,
+// rate-limit using the real RemoteAddr (or a trusted hop's address), not a
+// client-supplied X-Forwarded-For. Do not change this limiter as a product
+// feature now.
 func (h *LunaFreeHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if !h.allow(clientIP(r)) {
 		JSONError(w, http.StatusTooManyRequests, "Luna Connect free keys are limited to a few per hour. Try again later.")

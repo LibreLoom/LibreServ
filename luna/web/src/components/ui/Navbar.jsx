@@ -403,15 +403,6 @@ export default function Navbar() {
                   {isAdmin && (
                     <>
                       <NavLink
-                        to="/settings"
-                        role="menuitem"
-                        className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
-                        onClick={() => setIsUserMenuOpen(false)}
-                      >
-                        <SlidersHorizontal size={16} aria-hidden="true" />
-                        <span className="text-sm font-semibold">Settings</span>
-                      </NavLink>
-                      <NavLink
                         to="/settings/users"
                         role="menuitem"
                         className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
@@ -440,6 +431,15 @@ export default function Navbar() {
                       </NavLink>
                     </>
                   )}
+                  <NavLink
+                    to="/settings"
+                    role="menuitem"
+                    className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
+                    onClick={() => setIsUserMenuOpen(false)}
+                  >
+                    <SlidersHorizontal size={16} aria-hidden="true" />
+                    <span className="text-sm font-semibold">Settings</span>
+                  </NavLink>
                   <button
                     type="button"
                     role="menuitem"
@@ -516,10 +516,6 @@ export default function Navbar() {
             {isAdmin && (
               <>
                 <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
-                <NavLink to="/settings" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
-                  <SlidersHorizontal size={18} aria-hidden="true" />
-                  <span>Settings</span>
-                </NavLink>
                 <NavLink to="/settings/users" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
                   <Users size={18} aria-hidden="true" />
                   <span>People</span>
@@ -534,6 +530,11 @@ export default function Navbar() {
                 </NavLink>
               </>
             )}
+            <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
+            <NavLink to="/settings" className={mobileMenuItemClasses} onClick={closeMobileMenu}>
+              <SlidersHorizontal size={18} aria-hidden="true" />
+              <span>Settings</span>
+            </NavLink>
             <div className="mx-4 my-1 h-px bg-accent" aria-hidden="true" />
             <button
               type="button"

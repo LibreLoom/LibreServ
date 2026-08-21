@@ -5,10 +5,11 @@
 //! never address anything outside that drive.
 //!
 //! DAV hands out the whole drive with read/write access, so unlike the
-//! grant-scoped file API it is limited to authenticated admins. Clients can
-//! authenticate with a session cookie, `Authorization: Bearer <token>`, a
-//! device token, or HTTP Basic auth — either the user's real username +
-//! password (how Finder/Explorer/davfs2 prompt) or a token as the password.
+//! grant-scoped file API it is limited to authenticated admins. Clients
+//! authenticate with a session cookie, `Authorization: Bearer <token>`, or
+//! HTTP Basic where the password is a session JWT or a device token (the
+//! same long-lived access token apps mint after login). The household
+//! password is not accepted here.
 
 use axum::Router;
 use axum::extract::{Path, Request, State};
@@ -21,7 +22,7 @@ use dav_server::localfs::LocalFs;
 
 use crate::AppState;
 use crate::api::response::json_error;
-use crate::auth::{self, CurrentUser};
+use crate::auth::CurrentUser;
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -63,14 +64,12 @@ fn require_dav_admin(
     state: &AppState,
     req: &Request,
 ) -> Result<(), (StatusCode, axum::Json<serde_json::Value>)> {
-    // 1) A session JWT or device token (cookie, Bearer, or Basic-with-token).
     if let Ok(Some(user)) = state.auth.resolve_from_headers(req.headers()) {
         return require_admin_role(user);
     }
-    // 2) The user's real username + password over Basic (what OS WebDAV
-    //    clients send when the OS prompts for credentials). Rate-limited so a
-    //    brute force over the unthrottled WebDAV surface can't hammer passwords.
-    if let Some((username, password)) = basic_credentials(req.headers()) {
+    // Failed Basic (household password, unknown token, empty) is rate-limited
+    // so a WebDAV prompt cannot hammer guesses. Missing credentials just 401.
+    if basic_credentials_present(req.headers()) {
         let ip = req
             .extensions()
             .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
@@ -82,36 +81,10 @@ fn require_dav_admin(
                 "Too many tries. Wait a few minutes and try again.",
             ));
         }
-        let conn = state.db.lock().map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna's index is busy. Try again.",
-            )
-        })?;
-        let Ok(Some(user)) = crate::db::get_user_by_username(&conn, &username) else {
-            return Err(json_error(
-                StatusCode::UNAUTHORIZED,
-                "That username or password is wrong.",
-            ));
-        };
-        let parsed =
-            argon2::password_hash::PasswordHash::new(&user.password_hash).map_err(|_| {
-                json_error(
-                    StatusCode::UNAUTHORIZED,
-                    "That username or password is wrong.",
-                )
-            })?;
-        if auth::verify_password_hash(&password, &parsed).is_ok() {
-            return require_admin_role(CurrentUser {
-                id: user.id,
-                username: user.username,
-                role: user.role,
-            });
-        }
     }
     Err(json_error(
         StatusCode::UNAUTHORIZED,
-        "Sign in to Luna first.",
+        "Use your Luna username and an access token as the password. Your household password will not work here.",
     ))
 }
 
@@ -127,7 +100,15 @@ fn require_admin_role(
     Ok(())
 }
 
-/// Decode `Authorization: Basic base64(username:password)`.
+fn basic_credentials_present(headers: &HeaderMap) -> bool {
+    headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("Basic "))
+}
+
+/// Decode `Authorization: Basic base64(username:password)` (tests / diagnostics).
+#[cfg(test)]
 fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
     let encoded = headers
         .get(axum::http::header::AUTHORIZATION)?
@@ -139,7 +120,7 @@ fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
         .ok()?;
     let text = std::str::from_utf8(&decoded).ok()?;
     let (user, password) = text.split_once(':')?;
-    Some((user.trim().to_lowercase(), password.to_string()))
+    Some((user.to_string(), password.to_string()))
 }
 
 fn dav_handler_for(
@@ -188,5 +169,224 @@ fn dav_handler_for(
 pub fn drop_cached_handler(state: &AppState, drive_id: &str) {
     if let Ok(mut cache) = state.dav_handlers.lock() {
         cache.remove(drive_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api;
+    use crate::auth::hash_device_token;
+    use crate::drives::DriveManager;
+    use crate::mount::shared_mock;
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::{Method, Request as HttpReq};
+    use tower::ServiceExt;
+
+    const CLIENT: std::net::SocketAddr = std::net::SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 8)),
+        54321,
+    );
+
+    fn test_app(mount: &std::path::Path) -> (tempfile::TempDir, axum::Router) {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
+        crate::db::upsert_drive(
+            &conn,
+            "photos",
+            "Photos",
+            "as_is",
+            "ext4",
+            "sda",
+            mount.to_str().unwrap(),
+        )
+        .unwrap();
+        let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
+        let state = crate::AppState::new(conn, drive_manager);
+        let app = api::router()
+            .merge(router())
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::auth::guard,
+            ))
+            .with_state(state);
+        (dir, app)
+    }
+
+    fn req(method: Method, uri: &str, auth: Option<&str>) -> HttpReq<Body> {
+        let mut builder = HttpReq::builder().method(method).uri(uri);
+        if let Some(a) = auth {
+            builder = builder.header("authorization", a);
+        }
+        let mut http = builder.body(Body::empty()).unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    fn basic(user: &str, password: &str) -> String {
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
+        format!("Basic {encoded}")
+    }
+
+    async fn call(app: &axum::Router, r: HttpReq<Body>) -> axum::response::Response {
+        app.clone().oneshot(r).await.unwrap()
+    }
+
+    fn json_req(
+        method: Method,
+        uri: &str,
+        body: &'static str,
+        cookie: Option<&str>,
+    ) -> HttpReq<Body> {
+        let mut builder = HttpReq::builder()
+            .method(method)
+            .uri(uri)
+            .header("content-type", "application/json");
+        if let Some(c) = cookie {
+            builder = builder.header("cookie", c);
+        }
+        let mut http = builder.body(Body::from(body)).unwrap();
+        http.extensions_mut().insert(ConnectInfo(CLIENT));
+        http
+    }
+
+    async fn setup_admin_and_token(app: &axum::Router) -> String {
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/register",
+                r#"{"username":"max","display_name":"Max","password":"hunter22hunter"}"#,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/auth/login",
+                r#"{"username":"max","password":"hunter22hunter"}"#,
+                None,
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let cookie = res
+            .headers()
+            .get("set-cookie")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|c| c.split(';').next())
+            .expect("login must Set-Cookie luna_session")
+            .to_string();
+        assert!(cookie.starts_with("luna_session="));
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            v.get("token").is_none(),
+            "login JSON must not include a session JWT"
+        );
+
+        let res = call(
+            app,
+            json_req(
+                Method::POST,
+                "/api/v1/device-tokens",
+                r#"{"name":"Finder on the kitchen Mac"}"#,
+                Some(&cookie),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), 200);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        v["token"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn dav_accepts_device_token_as_basic_password() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let token = setup_admin_and_token(&app).await;
+
+        let res = call(
+            &app,
+            req(Method::GET, "/dav/photos/", Some(&basic("max", &token))),
+        )
+        .await;
+        assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+        assert_ne!(res.status(), StatusCode::FORBIDDEN);
+        assert!(
+            res.status().is_success() || res.status() == StatusCode::METHOD_NOT_ALLOWED,
+            "unexpected status {}",
+            res.status()
+        );
+    }
+
+    #[tokio::test]
+    async fn dav_rejects_household_password() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let _token = setup_admin_and_token(&app).await;
+
+        let res = call(
+            &app,
+            req(
+                Method::GET,
+                "/dav/photos/",
+                Some(&basic("max", "hunter22hunter")),
+            ),
+        )
+        .await;
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            text.contains("access token"),
+            "plain-language token hint: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn dav_accepts_token_as_username_with_empty_password() {
+        let mount = tempfile::tempdir().unwrap();
+        let (_dir, app) = test_app(mount.path());
+        let token = setup_admin_and_token(&app).await;
+
+        let res = call(
+            &app,
+            req(Method::GET, "/dav/photos/", Some(&basic(&token, ""))),
+        )
+        .await;
+        assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+        assert_ne!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn hashed_device_token_is_not_the_household_password() {
+        assert_ne!(hash_device_token("hunter22hunter"), hash_device_token(""));
+    }
+
+    #[test]
+    fn basic_split_keeps_token_case() {
+        let mut h = HeaderMap::new();
+        let encoded = base64::engine::general_purpose::STANDARD.encode("Max:AbC");
+        h.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Basic {encoded}").parse().unwrap(),
+        );
+        let (u, p) = basic_credentials(&h).unwrap();
+        assert_eq!(u, "Max");
+        assert_eq!(p, "AbC");
     }
 }

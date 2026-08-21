@@ -70,9 +70,19 @@ async fn main() -> anyhow::Result<()> {
             .ok();
     }
 
-    if !net.ethernet_connected
-        && !net.wifi_connected
-        && let Some(iface) = net.wifi_interface.clone()
+    let setup_done = state
+        .db
+        .lock()
+        .ok()
+        .and_then(|conn| lunad::db::get_meta(&conn, "setup").ok().flatten())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
+        .unwrap_or(false);
+    if lunad::hotspot::should_start_setup_hotspot(
+        setup_done,
+        net.ethernet_connected,
+        net.wifi_connected,
+    ) && let Some(iface) = net.wifi_interface.clone()
     {
         let hotspot = lunad::hotspot::CommandHotspot::new(iface, &cfg.data_dir.join("run"));
         match hotspot.start() {
@@ -107,6 +117,51 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let scrub_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10 * 60));
+        loop {
+            ticker.tick().await;
+            let hour = lunad::scrub::local_hour_now();
+            let now = lunad::db::now_unix();
+            let last_run = scrub_state
+                .db
+                .lock()
+                .ok()
+                .and_then(|conn| {
+                    lunad::db::get_meta(&conn, "last_periodic_scrub_at")
+                        .ok()
+                        .flatten()
+                })
+                .and_then(|raw| raw.parse::<i64>().ok());
+            let last_activity = scrub_state
+                .last_io_activity
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let running = scrub_state
+                .scrub_running
+                .load(std::sync::atomic::Ordering::SeqCst);
+            if !lunad::scrub::should_run_periodic(running, hour, last_run, last_activity, now) {
+                continue;
+            }
+            if scrub_state
+                .scrub_running
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                continue;
+            }
+            let db = scrub_state.db.clone();
+            let flag = scrub_state.scrub_running.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(conn) = db.lock() {
+                    let _ = lunad::scrub::scrub_all_drives(&conn);
+                    let _ = lunad::db::set_meta(&conn, "last_periodic_scrub_at", &now.to_string());
+                }
+                flag.store(false, std::sync::atomic::Ordering::SeqCst);
+            })
+            .await;
+        }
+    });
+
     let hotspot_db = state.db.clone();
     let hotspot_state = state.clone();
     tokio::spawn(async move {
@@ -118,7 +173,7 @@ async fn main() -> anyhow::Result<()> {
             let setup_done = hotspot_db
                 .lock()
                 .ok()
-                .and_then(|conn| crate::db::get_meta(&conn, "setup").ok().flatten())
+                .and_then(|conn| lunad::db::get_meta(&conn, "setup").ok().flatten())
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
                 .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
                 .unwrap_or(false);
@@ -131,10 +186,15 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let protected_api = api::router().layer(axum::middleware::from_fn_with_state(
-        state.clone(),
-        lunad::auth::guard,
-    ));
+    let protected_api = api::router()
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            lunad::auth::guard,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            touch_io_activity,
+        ));
     let app = axum::Router::new()
         .merge(protected_api)
         .merge(lunad::dav::router())
@@ -153,6 +213,21 @@ async fn main() -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await?;
     Ok(())
+}
+
+async fn touch_io_activity(
+    axum::extract::State(state): axum::extract::State<lunad::AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = req.uri().path();
+    if path.contains("/files")
+        || path.starts_with("/api/v1/uploads")
+        || path.starts_with("/api/v1/jobs")
+    {
+        state.touch_io_activity();
+    }
+    next.run(req).await
 }
 
 async fn shutdown_signal() {
