@@ -37,10 +37,11 @@ import { copyToClipboard } from "../../utils/clipboard";
 export default function MfaCard({ onMethodEnabled, onComplete, embedded = false } = {}) {
   const { me, request } = useAuth();
   const { addToast } = useToast();
-  const { availability } = useMfaAvailability();
+  const { availability, loading: loadingAvailability } = useMfaAvailability();
   const [methods, setMethods] = useState(/** @type {Array<object>} */ ([]));
   const [loadingMethods, setLoadingMethods] = useState(true);
   const [remainingRecovery, setRemainingRecovery] = useState(null);
+  const [loadedRecovery, setLoadedRecovery] = useState(false);
   const [enrolling, setEnrolling] = useState(null); // type being enrolled
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(null); // string[] once
   const [copied, setCopied] = useState(false);
@@ -76,6 +77,8 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
       setRemainingRecovery(typeof data.remaining === "number" ? data.remaining : null);
     } catch {
       // Non-fatal — recovery panel just hides the count.
+    } finally {
+      setLoadedRecovery(true);
     }
   }, [request]);
 
@@ -83,6 +86,18 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
     loadMethods();
     loadRecoveryRemaining();
   }, [loadMethods, loadRecoveryRemaining]);
+
+  // Availability, methods and the recovery count all land separately, and each
+  // one changes the card's height. Letting them arrive mid-pop-in made the card
+  // collapse ~300px and then bounce back 50px while it was still fading in, so
+  // hold the entrance until all three have settled. Latched: a later reload
+  // (after enrolling or removing a method) must not yank the card back out.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    if (!entered && !loadingMethods && !loadingAvailability && loadedRecovery) {
+      setEntered(true);
+    }
+  }, [entered, loadingMethods, loadingAvailability, loadedRecovery]);
 
   const enabled = methods.filter((m) => m.enabled);
   const hasAny = enabled.length > 0;
@@ -335,6 +350,11 @@ export default function MfaCard({ onMethodEnabled, onComplete, embedded = false 
     );
 
   if (embedded) return body;
+  // Nothing to show until the data settles — mounting the Card only then means
+  // useAnimatedHeight snaps straight to the final height (auto -> px does not
+  // transition) and pop-in runs once, at the size the card will keep.
+  if (!entered) return null;
+
   return <Card title="Two-Factor Authentication">{body}</Card>;
 }
 
