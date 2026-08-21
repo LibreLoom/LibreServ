@@ -94,6 +94,7 @@ function ForgotPasswordModal({ isOpen, onClose }) {
 }
 
 export default function Login({ embedded = false, returnTo = "/", onLoginSuccess, notice, noticeDetail }) {
+  const { addToast } = useToast();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [username, setUsername] = useState("");
@@ -221,6 +222,9 @@ export default function Login({ embedded = false, returnTo = "/", onLoginSuccess
         setMfa({ mfaToken: result.mfaToken, methods: result.methods, email: result.email });
         setLoading(false);
       } else {
+        // MfaChallenge raises this itself on its own success paths, so only
+        // the direct (no second factor) sign-in needs it here.
+        addToast({ type: "success", message: "Signed in." });
         completeLogin();
       }
     } catch (err) {
