@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"strconv"
 	"strings"
 	"sync"
@@ -263,6 +264,92 @@ func (h *PortalHandler) GetVerificationStatus(w http.ResponseWriter, r *http.Req
 	}
 
 	JSON(w, http.StatusOK, map[string]any{"email_verified": verified})
+}
+
+// UpdateEmail changes the email address of an authenticated but not-yet-
+// verified account and sends a fresh verification link. This covers the
+// onboarding typo case: the account row already exists once registration
+// runs, so going "back" in the wizard cannot fix a mistyped address. Once
+// an address is verified it can no longer be changed here.
+func (h *PortalHandler) UpdateEmail(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Email  string `json:"email"`
+		Source string `json:"source"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		JSONError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	req.Email = strings.TrimSpace(req.Email)
+	addr, err := mail.ParseAddress(req.Email)
+	if err != nil || addr.Address != req.Email {
+		JSONError(w, http.StatusBadRequest, "That email address doesn't look right. Check it for typos and try again.")
+		return
+	}
+
+	accountID := middleware.GetCustomerDeviceID(r.Context())
+
+	var (
+		currentEmail string
+		verified     bool
+	)
+	err = h.db.QueryRowContext(r.Context(),
+		"SELECT email, email_verified FROM customer_accounts WHERE id = $1", accountID).
+		Scan(&currentEmail, &verified)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not find account")
+		return
+	}
+	if verified {
+		JSONError(w, http.StatusBadRequest, "Your email is already verified — sign in with it instead.")
+		return
+	}
+	if strings.EqualFold(currentEmail, req.Email) {
+		JSONError(w, http.StatusBadRequest, "That's already the address on your account. Check your inbox (and spam folder), or resend the email below.")
+		return
+	}
+
+	// Changing the email triggers a send, so share the per-account email budget.
+	if !h.emailRateLimitOK(accountID) {
+		JSONError(w, http.StatusTooManyRequests, "Too many emails sent. Wait a minute and try again.")
+		return
+	}
+
+	// Friendly uniqueness check before hitting the UNIQUE constraint.
+	var otherID string
+	err = h.db.QueryRowContext(r.Context(),
+		"SELECT id FROM customer_accounts WHERE lower(email) = lower($1) AND id != $2",
+		req.Email, accountID).Scan(&otherID)
+	if err == nil {
+		JSONError(w, http.StatusConflict, "An account with this email already exists. Try signing in instead.")
+		return
+	} else if err != sql.ErrNoRows {
+		JSONError(w, http.StatusInternalServerError, "could not update email")
+		return
+	}
+
+	if _, err := h.db.ExecContext(r.Context(),
+		"UPDATE customer_accounts SET email = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+		req.Email, accountID); err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not update email")
+		return
+	}
+
+	token, err := h.createEmailVerificationToken(r.Context(), accountID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "could not generate verification email")
+		return
+	}
+	if err := h.sendVerificationEmailSync(req.Email, token, req.Source); err != nil {
+		slog.Error("failed to send verification email", "error", err, "account", accountID)
+		JSONError(w, http.StatusInternalServerError, "We saved your new email but couldn't send the verification link. Use \"resend the email\" below in a moment.")
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]any{
+		"message": "Verification email sent to your new address.",
+		"email":   req.Email,
+	})
 }
 
 // GetMe returns the authenticated account's profile. Used by the portal SPA to
