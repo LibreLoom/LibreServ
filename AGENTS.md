@@ -188,16 +188,13 @@ Before ANY UI work:
 - No `.gz` pre-compression needed — Vite build already generates `.gz` alongside files; backend serves them when client sends `Accept-Encoding: gzip`
 
 ### Git
-- Hosting: Forgejo at https://gt.plainskill.net (not GitHub; migrated from Gitea, same host)
-- **Always use Forgejo, not the GitHub mirror.** GitHub (`github.com/LibreLoom/LibreServ`) is a read-only mirror. Push branches and open PRs on Forgejo.
-- In the Cloud Agent environment, `.cursor/start.sh` already points `origin` at Forgejo (the GitHub mirror is kept as the `github` remote) and authenticates the `fj` CLI from the `FORGEJO_TOKEN` secret. So `git push`/`git pull` go to Forgejo by default.
-- Use the `fj` CLI (Forgejo CLI) for issues/PRs, e.g. `fj -H gt.plainskill.net pr create ...` / `pr view` / `pr edit` (it infers the repo from `origin`; `-H` selects the instance). Do not use Cursor's GitHub PR tooling for this repo.
+- Two-way sync is enabled between Forgejo, GitHub, and GitLab; the same commits show up on all of them.
 - Conventional commits: `feat(scope): description`, `fix(scope): description`
 - Branch naming: `task/T{id}-{desc}`, `fix/{desc}`, `feat/{desc}`
 
 ### Cursor Cloud environment
 - `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
-- Forgejo git + `fj` auth are wired per-boot by `.cursor/start.sh` and require the `FORGEJO_TOKEN` secret. Without it, git stays on the GitHub remote and `fj` is unauthenticated.
+- `.cursor/start.sh` authenticates `fj` from the `FORGEJO_TOKEN` secret for Forgejo comments and issues. Without the secret, `fj` stays unauthenticated. Git remotes are left as Cursor provisioned them.
 
 ---
 
