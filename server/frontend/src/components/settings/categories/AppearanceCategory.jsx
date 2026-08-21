@@ -59,7 +59,15 @@ function ColorInput({ label, value, onChange, description }) {
           type="color"
           value={value || "#000000"}
           onChange={handleColorPickerChange}
-          className="w-8 h-8 rounded-large-element cursor-pointer border border-primary/20 bg-transparent"
+          // The browser paints the swatch as a square inside the input, so a
+          // rounded input alone leaves the corners poking out. Round the swatch
+          // itself (and drop its default padding/border) to match.
+          className={cn(
+            "w-8 h-8 p-0 rounded-full cursor-pointer border border-primary/20 bg-transparent appearance-none overflow-hidden",
+            "[&::-webkit-color-swatch-wrapper]:p-0",
+            "[&::-webkit-color-swatch]:border-0 [&::-webkit-color-swatch]:rounded-full",
+            "[&::-moz-color-swatch]:border-0 [&::-moz-color-swatch]:rounded-full",
+          )}
           aria-label={`Choose ${label} color`}
         />
         <input
