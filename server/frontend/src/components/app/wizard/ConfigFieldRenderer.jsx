@@ -145,7 +145,7 @@ const inputBaseClasses = `
       )}
 
       {field.type !== "boolean" && field.description && (
-        <p className={cn("text-xs", mutedTextColor)}>{field.description}</p>
+        <p className={cn("text-xs translate-x-5", mutedTextColor)}>{field.description}</p>
       )}
 
       {renderInput()}
