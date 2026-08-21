@@ -58,6 +58,10 @@ export function AuthProvider({ children }) {
     setAccount((a) => (a ? { ...a, email_verified: true } : a));
   }, []);
 
+  const updateAccountEmail = useCallback((email) => {
+    setAccount((a) => (a ? { ...a, email } : a));
+  }, []);
+
   useEffect(() => {
     // Session restore: a token exists but the account object is empty
     // (page reload). Fetch the profile so pages can render account state.
@@ -82,7 +86,7 @@ export function AuthProvider({ children }) {
   }, [isAuthenticated, account]);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, account, login, register, logout, loading, markEmailVerified }}>
+    <AuthContext.Provider value={{ isAuthenticated, account, login, register, logout, loading, markEmailVerified, updateAccountEmail }}>
       {children}
     </AuthContext.Provider>
   );

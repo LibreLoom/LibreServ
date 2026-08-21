@@ -128,6 +128,7 @@ func (s *Server) setupRoutes() {
 			r.Post("/resend-verification", portal.ResendVerification)
 			r.Get("/verification-status", portal.GetVerificationStatus)
 			r.Get("/me", portal.GetMe)
+			r.Post("/account/email", portal.UpdateEmail)
 
 			// Everything below requires a verified email — no account
 			// activity is allowed until the address is confirmed.

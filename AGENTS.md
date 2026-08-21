@@ -193,7 +193,7 @@ Before ANY UI work:
 - Branch naming: `task/T{id}-{desc}`, `fix/{desc}`, `feat/{desc}`
 
 ### Cursor Cloud environment
-- `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
+- `.cursor/environment.json` + `.cursor/install.sh` provision the dev stack automatically: Go 1.26 (the repo needs it; the base image ships older Go), Podman + `podman-compose` (CI and app runtime tests; `start.sh` starts the API socket because Cloud Agents often have no user systemd bus), backend config/modules/restic, frontend deps + build, Rust 1.96 + Luna lunad/web deps, and the `fj` CLI. `terminals` run LibreServ backend (`make run`, `:8080`) and Vite (`npm run dev`, `:3000`), plus Luna lunad (`make dev-daemon`, `:8090`) and Luna Vite (`npm run dev`, `:3001`).
 - `.cursor/start.sh` authenticates `fj` from the `FORGEJO_TOKEN` secret for Forgejo comments and issues. Without the secret, `fj` stays unauthenticated. Git remotes are left as Cursor provisioned them.
 
 ---

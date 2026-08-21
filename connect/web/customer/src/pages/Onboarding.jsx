@@ -430,7 +430,7 @@ const RESEND_COOLDOWN = 45;
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const { login, register, loading: authLoading, account, markEmailVerified } = useAuth();
+  const { isAuthenticated, login, register, loading: authLoading, account, markEmailVerified, updateAccountEmail } = useAuth();
   const saved = useRef(loadProgress());
   const [step, setStep] = useState(saved.current?.step || 0);
   const [direction, setDirection] = useState("right"); // "right" | "left"
@@ -598,6 +598,21 @@ export default function Onboarding() {
         goNext();
       }
     } catch (err) {
+      // The user went Back from the verify step (typo fix) and re-submitted.
+      // The account already exists — update its address instead of failing.
+      if (!isLoginMode && isAuthenticated && /already exists/i.test(err.message || "")) {
+        try {
+          if (email.trim().toLowerCase() !== account?.email?.toLowerCase()) {
+            await api.updateEmail(email.trim(), "onboarding");
+            updateAccountEmail(email.trim());
+          }
+          goNext();
+          return;
+        } catch (fixErr) {
+          setError(fixErr.message || "Could not update your email. Try again in a moment.");
+          return;
+        }
+      }
       setError(err.message || "Could not sign in. Check your details and try again.");
     }
   };
@@ -683,11 +698,18 @@ export default function Onboarding() {
   const handleBack = step === 0 ? goBack : goPrev;
 
   // Reset the account substep flow when leaving/re-entering the account step.
+  // Coming back from the verify step (typo fix) jumps straight to the email
+  // question — that's why the user went back.
   const prevStepRef = useRef(step);
   useEffect(() => {
     if (prevStepRef.current === step) return;
+    const cameFrom = prevStepRef.current;
     prevStepRef.current = step;
-    if (step === 1) { setAuthSubStep(0); setAuthSubDir("right"); }
+    if (step === 1) {
+      setAuthSubStep(cameFrom === 2 ? Math.max(authFields.length - 2, 0) : 0);
+      setAuthSubDir(cameFrom === 2 ? "left" : "right");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   // ===== Step Renderers =====
@@ -955,9 +977,24 @@ export default function Onboarding() {
             Waiting for verification…
           </div>
 
-          <Button size="lg" className="w-full" onClick={handleManualCheck} loading={checkingVerification}>
-            I've clicked the link — check again
-          </Button>
+          <div className="flex items-center gap-3">
+            {/* Circular back chevron — same pattern as the account substeps.
+                Going back re-opens the account form; re-submitting there
+                updates the existing account instead of failing (handleAuth). */}
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              onClick={goPrev}
+              aria-label="Go back"
+              className="shrink-0"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <Button size="lg" className="flex-1" onClick={handleManualCheck} loading={checkingVerification}>
+              Check again
+            </Button>
+          </div>
 
           <p className="text-center text-sm text-muted-foreground">
             {resendState === "sent" ? (
@@ -1207,9 +1244,9 @@ export default function Onboarding() {
         </div>
       </div>
 
-      {/* The verify step is a one-way gate — the account stays locked until
-          the email link is clicked, so going back re-opens an account form
-          for an account that already exists. No Back button on this step. */}
+      {/* Verify handles back navigation inline (circular chevron beside the
+          action button); the account step re-submit updates the existing
+          account — see handleAuth. */}
       {step > 0 && step < STEPS.length && STEPS[step].id !== "verify" && (
         <div className="px-4 pb-8 flex justify-center">
           <Button variant="outline" onClick={handleBack}>

@@ -1,14 +1,55 @@
 #!/usr/bin/env bash
-# Cloud Agent per-boot Forgejo CLI auth for LibreServ.
+# Cloud Agent per-boot setup for LibreServ.
 #
-# Does not change git remotes. Cursor keeps the default remote for whichever
-# host the agent spawned from. This only authenticates fj (installed by
-# install.sh) and ensures the wrapper pins Forgejo host/repo for comments
-# and issues.
+# Starts the Podman API socket (needed even when systemd user bus is missing),
+# then authenticates fj for Forgejo comments/issues. Does not change git remotes;
+# Cursor keeps the default remote for whichever host the agent spawned from.
 #
-# Requires the FORGEJO_TOKEN secret (Cursor Secrets panel). Without it this is
-# a clean no-op so the environment still starts normally.
+# Forgejo auth requires the FORGEJO_TOKEN secret (Cursor Secrets panel). Without
+# it, fj stays unauthenticated; Podman still starts.
 set -euo pipefail
+
+# ── Podman API socket (always; independent of Forgejo) ───────────────────────
+# Cloud Agent images often have no user systemd bus, so `systemctl --user
+# start podman.socket` fails. Fall back to `podman system service`.
+start_podman() {
+  if ! command -v podman >/dev/null 2>&1; then
+    echo ">> podman not installed — skip socket (install.sh should have added it)"
+    return 0
+  fi
+
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  mkdir -p "${XDG_RUNTIME_DIR}/podman" 2>/dev/null \
+    || sudo mkdir -p "${XDG_RUNTIME_DIR}/podman"
+  sudo chown "$(id -u):$(id -g)" "${XDG_RUNTIME_DIR}" "${XDG_RUNTIME_DIR}/podman" 2>/dev/null || true
+
+  local sock="${XDG_RUNTIME_DIR}/podman/podman.sock"
+  export DOCKER_HOST="unix://${sock}"
+
+  if [ -S "${sock}" ]; then
+    echo ">> Podman socket already up: ${sock}"
+    return 0
+  fi
+
+  if systemctl --user start podman.socket >/dev/null 2>&1; then
+    echo ">> Started podman.socket via user systemd"
+    return 0
+  fi
+
+  echo ">> Starting podman system service on ${sock}"
+  nohup podman system service --time=0 "unix://${sock}" \
+    >/tmp/podman-system-service.log 2>&1 &
+  local i
+  for i in $(seq 1 25); do
+    if [ -S "${sock}" ]; then
+      echo ">> Podman socket ready: ${sock}"
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo ">> Podman socket did not appear (see /tmp/podman-system-service.log)"
+}
+start_podman
 
 FORGE_HOST="gt.plainskill.net"
 
