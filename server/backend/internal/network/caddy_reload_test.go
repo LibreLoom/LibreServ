@@ -42,7 +42,7 @@ func TestCaddyManagerReloadAdminAPIRetriesThenSucceeds(t *testing.T) {
 
 	cm := NewCaddyManager(db, CaddyConfig{
 		Mode:       "enabled",
-		AdminAPI:   "http://caddy.test",
+		AdminAPI:   "http://127.0.0.1:2019",
 		ConfigPath: tmp.Name(),
 		Reload: CaddyReloadConfig{
 			Retries:        3,

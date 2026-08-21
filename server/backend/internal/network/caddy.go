@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1007,6 +1008,36 @@ func (cm *CaddyManager) validateConfigLocked() error {
 	return nil
 }
 
+// isLoopbackAdminAPI reports whether the admin API URL is bound to loopback only.
+// SECURITY FIX (audit #8): Caddy Admin API has no auth. If it were bound to
+// 0.0.0.0:2019 or a podman-bridge-reachable IP, any container could POST
+// /load and replace the reverse proxy. We enforce loopback so only host
+// processes can reach it. Operators needing remote admin must explicitly
+// configure 127.0.0.1:2019 and use SSH tunneling.
+func isLoopbackAdminAPI(adminAPI string) bool {
+	if adminAPI == "" {
+		return true
+	}
+	host := adminAPI
+	// Strip scheme if present (http://host:port)
+	if idx := strings.Index(host, "://"); idx != -1 {
+		host = host[idx+3:]
+	}
+	if idx := strings.Index(host, "/"); idx != -1 {
+		host = host[:idx]
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "127.0.1.1" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
+}
+
 // reloadCaddy reloads Caddy configuration
 func (cm *CaddyManager) reloadCaddy() error {
 	start := time.Now()
@@ -1055,6 +1086,13 @@ func (cm *CaddyManager) reloadCaddy() error {
 	jitter := cm.config.Reload.JitterFraction
 	if jitter < 0 {
 		jitter = 0
+	}
+
+	// SECURITY FIX (audit #8): reject non-loopback AdminAPI — it would be reachable
+	// from containers via the Podman bridge (172.17.0.1) and allow host proxy takeover.
+	if cm.config.AdminAPI != "" && !isLoopbackAdminAPI(cm.config.AdminAPI) {
+		slog.Warn("caddy admin API is not loopback — refusing to use non-loopback admin endpoint", "admin_api", cm.config.AdminAPI)
+		return fmt.Errorf("caddy admin_api must be loopback (127.0.0.1:2019 or localhost:2019), got %s — containers could otherwise reach the unauthenticated admin API", cm.config.AdminAPI)
 	}
 
 	// Try admin API first

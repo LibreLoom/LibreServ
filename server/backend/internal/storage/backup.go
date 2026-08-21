@@ -485,6 +485,13 @@ func (s *BackupService) CreateDownloadArchive(ctx context.Context, backupID stri
 		return "", nil, fmt.Errorf("restic restore: %w", err)
 	}
 
+	// SECURITY FIX (audit #4): validate restored tree before archiving — a
+	// crafted snapshot could contain symlinks that escape the temp dir.
+	if err := validateRestoredTree(tmpRestoreDir); err != nil {
+		os.RemoveAll(tmpRestoreDir)
+		return "", nil, fmt.Errorf("restored tree validation failed: %w", err)
+	}
+
 	archiveFile, err := os.CreateTemp("", "libreserv-download-*.tar.gz")
 	if err != nil {
 		os.RemoveAll(tmpRestoreDir)
