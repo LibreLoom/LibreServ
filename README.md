@@ -1,127 +1,50 @@
 # LibreServ
 
-Taking back your privacy shouldn't require a degree in networking. LibreServ is on a mission to decouple your data from large companies like Google and Microsoft by creating a home server experience that is powerful enough for experts, yet simple enough for everyone else.
+A home server that is powerful enough for experts and simple enough for everyone else. The goal is to keep your data off Google and Microsoft without needing a degree in networking.
 
-## Target Audience
-
-General users. No person who isn't completely uninitiated in terms of tech shouldn't be able to use LibreServ.
-
-The primary method of delivery for LibreServ will likely be via hardware with the software pre-installed.
+LibreServ is meant to ship on hardware with the software already installed. **99% of users should never need a terminal.**
 
 ## Status
-- In active development
-- Backend is Go; Frontend is React/Vite. Reverse proxy is Caddy. Database is SQLite. Apps run via Podman.
 
-## Goals
-- 99% of users shouldn't need a terminal; actions should be reversible and plain-language.
-- Ship opinionated defaults for Caddy/HTTPS, monitoring, backups, and a small curated app set (quality over quantity).
+Active development. Go backend, React/Vite frontend, Caddy reverse proxy, SQLite, apps via Podman.
 
-## MVP Definition
-
-LibreServ has achieved MVP when a non-technical user can walk the whole critical path without a terminal — set up, install an app, back it up, and restore it. The live checklist lives in [GOALS.md](GOALS.md); keep it as the single source of truth rather than duplicating status here.
-
----
+MVP is a non-technical user walking setup → install an app → backup → restore without a terminal. Live checklist: [GOALS.md](GOALS.md).
 
 ## What's here
-- **Backend** (`server/backend`): API server, app installer/manager, monitoring, backups, support session tooling.
-- **Frontend** (`server/frontend`): Vite/React source (not built by default). Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
-- **App catalog**: App templates are loaded from disk via the catalog path (`apps/` directory). The curated catalog (nextcloud, searxng, ollama, convertx, motioneye, homeassistant, librechat) will be distributed as a separate repo — see [GOALS.md](GOALS.md).
-- **CI**: `./ci` runs backend vet/tests and frontend lint/build.
 
-## Contributing
+- **Backend** (`server/backend`) — API, app lifecycle, monitoring, backups
+- **Frontend** (`server/frontend`) — Vite/React; production build goes in `server/backend/OS/dist/` (gitignored)
+- **App catalog** — templates from `apps/` on disk; curated apps will live in a separate repo ([GOALS.md](GOALS.md))
+- **CI** — `./ci` (backend tests + frontend lint/build)
 
-See [GOALS.md](GOALS.md) for what we're building and what's left, and [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. Contributors with push access can push to `main`; everyone else opens a PR.
+## Install (from a release)
 
-## Quick start
-
-### Install from release (one command)
-
-**Quick install (prompts for version):**
 ```bash
 curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/branch/main/install.sh -o install.sh && sudo bash install.sh && rm install.sh
 ```
 
-**Specific version (non-interactive):**
+For a specific tag (non-interactive), use `/raw/tag/<version>/install.sh` instead. [Releases](https://gt.plainskill.net/LibreLoom/LibreServ/releases).
+
+## Development
+
 ```bash
-curl -fsSL https://gt.plainskill.net/LibreLoom/LibreServ/raw/tag/<version>/install.sh -o install.sh && sudo bash install.sh && rm install.sh
+# Terminal 1
+cd server/backend && make run
+
+# Terminal 2
+cd server/frontend && npm install && npm run dev
 ```
 
-*Replace `<version>` with the desired tag (e.g., `v0.0.0`). See [releases](https://gt.plainskill.net/LibreLoom/LibreServ/releases) for available versions.*
+First-time admin (dev, no UI): `cd server/backend && ./setup-admin.sh` (`admin` / `hunter2hunter2`).
 
-### Development setup
-```bash
-# Terminal 1: Start backend
-cd server/backend
-make run
+Embedded release binary: `cd server/backend && make frontend-build && BUILD_TAGS=embedfront make build`.
 
-# Terminal 2: Start frontend
-cd server/frontend
-npm install
-npm run dev
-```
+Needs: Podman + `podman-compose`. Copy `configs/libreserv.yaml.example` → `configs/libreserv.yaml`. Empty JWT/CSRF secrets are generated and written to the config file; if the file is read-only, set `LIBRESERV_AUTH_JWT_SECRET` and `LIBRESERV_AUTH_CSRF_SECRET`. Caddy/HTTPS details: [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md).
 
-## Frontend build
-Build output should be copied/served from `server/backend/OS/dist/` (ignored in git).
-If `.gz` assets exist alongside files in `OS/dist`, LibreServ will serve them when clients send `Accept-Encoding: gzip`.
-For embedded release binaries, build with:
-```bash
-cd server/backend
-make frontend-build
-BUILD_TAGS=embedfront make build
-```
+## Contributing
 
-## To setup login
-
-### Using setup-admin.sh (for development)
-If running the backend directly without the frontend:
-```bash
-cd server/backend
-./setup-admin.sh
-```
-This will create an admin user with username `admin` and password `hunter2hunter2`.
-
-Or manually via API:
-```bash
-# Complete initial setup
-curl -X POST http://localhost:8080/api/v1/setup/complete \
-  -H "Content-Type: application/json" \
-  -d '{"admin_username":"admin","admin_password":"hunter2hunter2","admin_email":"admin@example.com"}'
-
-# Then login
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"hunter2hunter2"}'
-```
-
-## To run backend
-```bash
-cd server/backend
-make run
-```
-
-## To run frontend
-```bash
-cd server/frontend
-npm run dev
-```
-
-## Notes
-- Caddy must be installed/configured if you want automatic HTTPS; otherwise set `network.caddy.mode` to `noop` or `disabled`.
-- Caddy reloads via Admin API use retries/backoff (see `network.caddy.reload.*` in `server/backend/configs/libreserv.yaml`).
-- ACME issuance is tracked via jobs: `POST /api/v1/network/acme/request`, then poll `GET /api/v1/network/acme/status?domain=...` (or `GET /api/v1/network/acme/jobs/{jobID}`).
-- Podman must be installed with `podman-compose`.
-- Secrets (JWT/CSRF) policy:
-  - If `auth.jwt_secret` and `auth.csrf_secret` are set (via config file or env), LibreServ uses them as-is.
-  - If either secret is missing at startup, LibreServ will generate secure values and **persist them to the config file**.
-- If the config file path is **read-only**, startup fails fast with a clear error; in that case set env vars:
-    - `LIBRESERV_AUTH_JWT_SECRET`
-    - `LIBRESERV_AUTH_CSRF_SECRET`
-
-## Contribute / Support
-- Issues and PRs welcome. CI runs Go vet/tests and frontend lint/build.
-- See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow.
-- See [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for development setup and testing.
-- Donate: https://ko-fi.com/libreloom
+[GOALS.md](GOALS.md) is what we are building. [CONTRIBUTING.md](CONTRIBUTING.md) is the workflow. Push access → `main`; otherwise open a PR. Donate: https://ko-fi.com/libreloom
 
 ## License
-AGPL 3.0. See LICENSE.
+
+AGPL 3.0. See [LICENSE](LICENSE).
