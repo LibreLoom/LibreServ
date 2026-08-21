@@ -39,7 +39,7 @@ function WizardStepper({ currentStep, hasSubdomainStep }) {
                   className={cn(
                     "flex h-8 w-8 items-center justify-center rounded-full font-mono text-sm motion-safe:transition-all duration-300 ease-in-out",
                     isComplete && "bg-secondary text-primary scale-100",
-                    !isComplete && isActive && "bg-secondary text-primary ring-2 ring-secondary ring-offset-2 ring-offset-primary scale-110",
+                    !isComplete && isActive && "bg-secondary text-primary scale-110",
                     !isComplete && !isActive && "bg-secondary/50 text-secondary/50 border-2 border-secondary/30 scale-100"
                   )}
                   aria-current={isActive ? "step" : undefined}
