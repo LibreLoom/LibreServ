@@ -225,7 +225,7 @@ func (a *ACMEManager) issueExternalDNS01(ctx context.Context, domain, email stri
 		cfg.DataPath = "./data/acme"
 	}
 	if cfg.ContainerImage == "" {
-		cfg.ContainerImage = "goacme/lego:latest"
+		cfg.ContainerImage = "goacme/lego:v4.20.2"
 	}
 	if cfg.KeyType == "" {
 		cfg.KeyType = "rsa2048"

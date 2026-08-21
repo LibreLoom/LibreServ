@@ -133,8 +133,8 @@ export default function App() {
           <Route path="/reset-password" element={<ResetPassword />} />
           {/* Invitation onboarding — public, reached via an invite link. */}
           <Route path="/invite/:token" element={<InviteeOnboardingPage />} />
-          <Route path="/access-control-demo" element={<AccessControlDemo />} />
-          <Route path="/ui-demo" element={<UIDemo />} />
+          {import.meta.env.DEV && <Route path="/access-control-demo" element={<AccessControlDemo />} />}
+          {import.meta.env.DEV && <Route path="/ui-demo" element={<UIDemo />} />}
           {/* Fallback for unknown routes. */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

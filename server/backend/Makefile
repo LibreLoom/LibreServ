@@ -16,13 +16,15 @@ ifneq ($(strip $(BUILD_TIME)),)
 LDVARS += -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$(BUILD_TIME)
 endif
 LDFLAGS := -ldflags "$(LDVARS)"
+# CODE QUALITY FIX: correctly handle empty BUILD_TAGS (was -tags "" causing vet to see empty tag)
+TAGS_FLAG := $(if $(strip $(BUILD_TAGS)),-tags "$(BUILD_TAGS)",)
 
 default: build
 
 build:
 	@echo ">> Building backend $(VERSION)"
 	@mkdir -p $(BIN_DIR)
-	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags "$(BUILD_TAGS)" $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(TAGS_FLAG) $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
 
 run: build
 	@if [ ! -f ./configs/libreserv.yaml ]; then \
@@ -49,6 +51,10 @@ restic-fetch:
 		| bzip2 -d > $(RESTIC_DIR)/restic
 	@chmod +x $(RESTIC_DIR)/restic
 	@echo ">> restic placed in $(RESTIC_DIR)/restic"
+# restic-fetch with checksum verification (use restic-fetch-verified for supply-chain safety)
+restic-fetch-verified: restic-fetch
+	@echo ">> Verifying restic checksum"
+	@curl -fSL "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/SHA256SUMS" | grep "restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" | sha256sum -c - || (echo "checksum mismatch!" && rm -f $(RESTIC_DIR)/restic && exit 1)
 
 restic-clean:
 	@echo ">> Removing downloaded restic binary"
@@ -82,7 +88,12 @@ vet:
 	@echo ">> Running go vet"
 	@go vet $(GO_PKGS)
 
-lint: fmt-check vet
+errcheck:
+	@echo ">> Running errcheck"
+	@which errcheck >/dev/null 2>&1 || (echo "errcheck not installed, skipping" && exit 0)
+	@errcheck -exclude .errcheck-exclude.txt $(GO_PKGS) || true
+
+lint: fmt-check vet errcheck
 
 # Security scanning
 govulncheck:

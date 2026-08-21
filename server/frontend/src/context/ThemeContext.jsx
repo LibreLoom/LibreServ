@@ -119,14 +119,6 @@ export function ThemeProvider({ children }) {
     root.style.setProperty("--secondary", target.secondary);
     root.style.setProperty("--accent", target.accent);
 
-    // Set shadcn semantic tokens inline (instant swap, not animated by @property)
-    root.style.setProperty("--background", target.primary);
-    root.style.setProperty("--foreground", target.secondary);
-    root.style.setProperty("--card", target.secondary);
-    root.style.setProperty("--card-foreground", target.primary);
-    root.style.setProperty("--popover", target.secondary);
-    root.style.setProperty("--popover-foreground", target.primary);
-
     let rafId;
     if ("noThemeTransition" in root.dataset) {
       rafId = requestAnimationFrame(() => {

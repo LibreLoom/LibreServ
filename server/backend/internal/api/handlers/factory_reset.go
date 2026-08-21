@@ -80,9 +80,7 @@ func (h *FactoryResetHandler) FactoryReset(w http.ResponseWriter, r *http.Reques
 			"notifications":          true,
 			"dns_providers":          true,
 			"ddns_config":            true,
-			"backup_repositories":    true,
-			"support_sessions":       true,
-			"support_session_audits": true,
+			"backup_repositories": true,
 		}
 
 		rows, err := tx.Query(`

@@ -64,10 +64,9 @@
   --color-accent: var(--accent);
 
   /* Status Colors - Standard colors independent of theme */
-  --color-success: var(--palette-success, #22c55e);
-  --color-warning: var(--palette-warning, #eab308);
-  --color-error: var(--palette-error, #ef4444);
-  --color-info: var(--palette-info, #3b82f6);
+  --color-success: #22c55e;
+  --color-warning: #eab308;
+  --color-error: #ef4444;
 
   /* Setup Pill Shape */
   --radius-pill: 9999px;
