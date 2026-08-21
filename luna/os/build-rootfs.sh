@@ -34,7 +34,9 @@ rm -rf "$WORK"
 mkdir -p "$ROOTFS" "$OUT"
 
 # Assemble the root filesystem inside Alpine's own apk.
-podman run --rm -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
+# --privileged is required so mkinitfs can mount proc/sys/dev in the chroot
+# (rootless Podman otherwise returns "mount: permission denied").
+podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
@@ -127,6 +129,6 @@ mkdir -p "$ROOTFS/var/lib/luna"
 
 # Tar inside the container so suid files (e.g. busybox bbsuid) are readable.
 # GNU tar (not BusyBox) for --sort=name / --mtime so the archive is deterministic.
-podman run --rm -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" \
+podman run --rm --privileged -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" \
     sh -euc "apk add --no-cache tar >/dev/null && tar --sort=name --mtime=@946684800 --owner=0 --group=0 --numeric-owner -C /rootfs -czf /out/luna-rootfs-$ARCH.tar.gz ."
 printf 'built %s\n' "$OUT/luna-rootfs-$ARCH.tar.gz"

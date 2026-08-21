@@ -34,7 +34,7 @@ cp "$ROOT/os/lib/flash-disk.sh" "$ISOROOT/lib/flash-disk.sh"
 chmod +x "$ISOROOT/rapidinstall.sh" "$WORK/init" "$WORK/build-live.sh" "$WORK/build-xorriso.sh"
 cp "$TARBALL" "$ISOROOT/luna-rootfs-$ARCH.tar.gz"
 
-podman run --rm \
+podman run --rm --privileged \
 	-e ALPINE_VERSION="$ALPINE_VERSION" \
 	-e ARCH="$ARCH" \
 	-v "$ISOROOT:/iso:z" \
@@ -42,7 +42,7 @@ podman run --rm \
 	-v "$WORK/build-live.sh:/build-live.sh:ro,z" \
 	"$ALPINE_IMAGE" sh /build-live.sh
 
-podman run --rm \
+podman run --rm --privileged \
 	-e ARCH="$ARCH" \
 	-v "$ISOROOT:/iso:z" \
 	-v "$OUT:/out:z" \

@@ -15,7 +15,7 @@ SIZE_MB="${SIZE_MB:-1200}"
 mkdir -p "$OUT"
 rm -f "$IMAGE"
 
-podman run --rm -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" sh -euc "apk add --no-cache e2fsprogs >/dev/null &&
+podman run --rm --privileged -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" sh -euc "apk add --no-cache e2fsprogs >/dev/null &&
     truncate -s ${SIZE_MB}M /out/luna-os-x86_64.img
     mkfs.ext4 -F -L LUNA -E hash_seed=42 -d /rootfs /out/luna-os-x86_64.img
 "
