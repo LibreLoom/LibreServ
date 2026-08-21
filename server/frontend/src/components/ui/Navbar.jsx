@@ -75,6 +75,7 @@ function getSnapPosition(x, y, windowWidth, windowHeight) {
 
 export default function Navbar() {
   const { me: user, logout } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
@@ -375,16 +376,18 @@ export default function Navbar() {
                 <div
                   className={cn("bg-secondary", "text-primary", "rounded-large-element", "ring-2", "ring-accent", "px-4", "py-3", "flex", "flex-col", "gap-2", "min-w-48", "translate-y-2", isUserMenuOpen && "translate-y-0", TRANSITION.full)}
                 >
+                  {isAdmin && (
+                    <NavLink
+                      to="/users"
+                      role="menuitem"
+                      className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
+                    >
+                      <Users size={16} aria-hidden="true" />
+                      <span className="text-sm font-semibold">Manage Users</span>
+                    </NavLink>
+                  )}
                   <NavLink
-                    to="/users"
-                    role="menuitem"
-                    className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
-                  >
-                    <Users size={16} aria-hidden="true" />
-                    <span className="text-sm font-semibold">Manage Users</span>
-                  </NavLink>
-                  <NavLink
-                    to={`/users/${user?.id || ""}`}
+                    to={isAdmin ? `/users/${user?.id || ""}` : "/users"}
                     role="menuitem"
                     className={cn(menuItemClasses, "hover:bg-primary", "hover:text-secondary")}
                   >
