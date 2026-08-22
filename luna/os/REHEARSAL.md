@@ -16,7 +16,7 @@ support call later.
 - [ ] ISO written to USB (`dd … of=/dev/sdX`); USB is **not** the target disk
 - [ ] PC boots the USB (BIOS or UEFI; Secure Boot off)
 - [ ] Installer shows built-in storage (`/dev/sda`, `/dev/nvme0n1`, or `/dev/mmcblk0`)
-- [ ] Typed `install luna`; installer finished; USB removed; reboot from internal disk
+- [ ] Waited 5s (or pressed a number to pick another disk); installer finished; USB removed; reboot from internal disk
 - [ ] `e2fsck -f` on the Luna root partition (`…p3` / `sda3`) is clean if checked afterwards
 
 ## 2. First boot

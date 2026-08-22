@@ -19,8 +19,9 @@ disk both boot in either firmware mode.
 ./os/make-iso.sh                      # → os/dist/luna-rapidinstall-x86_64.iso
 #    dd if=os/dist/luna-rapidinstall-x86_64.iso of=/dev/sdX bs=4M conv=fsync
 #    Boot the PC from that USB (BIOS or UEFI; turn Secure Boot off).
-#    The installer picks built-in storage, asks you to type  install luna
-#    and never erases the USB stick.
+#    The installer picks the smallest non-USB disk and starts after 5s
+#    (press a key to pick another disk from a numbered list). It never
+#    erases the USB stick.
 
 # Optional: raw ext4 image (workstation / VM)
 ./os/make-image.sh                    # → os/dist/luna-os-x86_64.img

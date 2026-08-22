@@ -1,6 +1,7 @@
 #!/bin/sh
-# Rapidinstall: run from the live ISO. Picks the thin client's built-in
-# storage (usually eMMC at /dev/mmcblk0), never the USB this image booted from.
+# Rapidinstall: run from the live ISO. Picks the smallest non-USB disk
+# (built-in eMMC, SATA, or NVMe). USB sticks, including the one this
+# image booted from, are never chosen automatically.
 
 set -eu
 
@@ -43,39 +44,87 @@ skip_disk() {
 	return 1
 }
 
+disk_sectors() {
+	_szf="/sys/block/$(block_name "$1")/size"
+	if [ -f "$_szf" ]; then
+		cat "$_szf"
+		return
+	fi
+	printf '0'
+}
+
+# Smallest whole disk that is not USB, not the installer media, and not
+# a special eMMC boot chip. One non-USB → that disk. Several → smallest.
 pick_builtin() {
-	_mmc=""
-	_mmc_count=0
-	_other=""
-	_other_count=0
+	_best=""
+	_best_sz=""
 	for _d in $(list_block_disks); do
 		is_whole_disk "$_d" || continue
 		skip_disk "$_d" && continue
 		[ -b "$_d" ] || continue
-		case "$_d" in
-		/dev/mmcblk*)
-			_mmc_count=$((_mmc_count + 1))
-			[ -z "$_mmc" ] && _mmc="$_d"
-			;;
-		*)
-			_other_count=$((_other_count + 1))
-			[ -z "$_other" ] && _other="$_d"
+		_sz="$(disk_sectors "$_d")"
+		[ "$_sz" -gt 0 ] 2>/dev/null || continue
+		if [ -z "$_best" ] || [ "$_sz" -lt "$_best_sz" ]; then
+			_best="$_d"
+			_best_sz="$_sz"
+		fi
+	done
+	[ -n "$_best" ] || return 1
+	printf '%s\n' "$_best"
+}
+
+drain_stdin() {
+	while IFS= read -r -t 0 -n 1 _; do
+		:
+	done
+}
+
+list_candidates() {
+	for _d in $(list_block_disks); do
+		is_whole_disk "$_d" || continue
+		skip_disk "$_d" && continue
+		[ -b "$_d" ] || continue
+		printf '%s\n' "$_d"
+	done
+}
+
+# Numbered list; one keypress (1–9). Sets TARGET.
+prompt_target() {
+	_list="$(list_candidates)"
+	if [ -z "$_list" ]; then
+		echo "Luna cannot see a built-in disk to install to." >&2
+		print_disks
+		exit 2
+	fi
+	echo
+	echo "Press a number to choose the disk Luna will erase:"
+	_n=0
+	while IFS= read -r _d; do
+		[ -n "$_d" ] || continue
+		_n=$((_n + 1))
+		echo "  $_n) $_d ($(size_hint "$_d"))"
+	done <<EOF
+$_list
+EOF
+	print_disks
+	printf "Number: "
+	while :; do
+		if ! IFS= read -r -n 1 _k; then
+			echo >&2
+			exit 1
+		fi
+		echo
+		drain_stdin
+		case "$_k" in
+		[1-9])
+			TARGET="$(printf '%s\n' "$_list" | awk -v n="$_k" 'NR == n { print; exit }')"
+			if [ -n "$TARGET" ]; then
+				return 0
+			fi
 			;;
 		esac
+		printf "Not a listed number. Try again: "
 	done
-	if [ "$_mmc_count" -eq 1 ]; then
-		printf '%s\n' "$_mmc"
-		return 0
-	fi
-	if [ "$_mmc_count" -gt 1 ]; then
-		printf '%s\n' "$_mmc"
-		return 0
-	fi
-	if [ "$_other_count" -eq 1 ]; then
-		printf '%s\n' "$_other"
-		return 0
-	fi
-	return 1
 }
 
 print_disks() {
@@ -112,21 +161,32 @@ echo "Luna rapidinstall"
 echo "Works on ordinary 64-bit PCs: BIOS or UEFI, SATA, NVMe, or eMMC."
 echo "This computer's built-in storage will be erased and Luna will be installed."
 echo "The USB stick you booted from is left alone. Extra USB drives are left alone."
+echo "If several built-in disks are present, Luna picks the smallest."
 echo "If the firmware has Secure Boot, turn it off before rebooting into Luna."
 echo
 
 TARGET="${LUNA_TARGET:-}"
-if [ -z "$TARGET" ]; then
+_forced_target=0
+if [ -n "$TARGET" ]; then
+	_forced_target=1
+else
 	TARGET="$(pick_builtin || true)"
 fi
 
-if [ -n "$TARGET" ]; then
-	echo "Built-in storage: $TARGET ($(size_hint "$TARGET"))."
-else
+if [ -n "$TARGET" ] && [ "$_forced_target" -eq 0 ]; then
+	echo "Installing to $TARGET ($(size_hint "$TARGET"))."
+	echo "Do nothing for 5 seconds to continue. Press any key to pick another disk."
+	if [ -t 0 ] && IFS= read -r -t 5 -n 1 _; then
+		echo
+		drain_stdin
+		TARGET=""
+		prompt_target
+	else
+		echo
+	fi
+elif [ -z "$TARGET" ]; then
 	echo "Luna could not pick built-in storage automatically."
-	print_disks
-	printf "Type the whole disk to install to (for example /dev/sda or /dev/nvme0n1): "
-	read -r TARGET
+	prompt_target
 fi
 
 if ! is_whole_disk "$TARGET"; then
@@ -139,13 +199,5 @@ if skip_disk "$TARGET"; then
 	exit 2
 fi
 
-print_disks
-echo "Type  install luna  to erase $TARGET and continue."
-printf "> "
-read -r CONFIRM
-if [ "$CONFIRM" != "install luna" ]; then
-	echo "cancelled"
-	exit 1
-fi
-
+echo "Erasing $TARGET and installing Luna."
 flash_luna_disk "$TARGET" "$TARBALL"
