@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-accent: #767676;
+  --color-success: #2f6f4e;
+  --color-error: #a33b3b;
+  --radius-pill: 9999px;
+  --radius-large-element: 24px;
+  --font-mono: FreeMono, ui-monospace, "Courier New", monospace;
+}
+
+:root {
+  --primary: #ffffff;
+  --secondary: #111111;
+}
+
+.dark {
+  --primary: #000000;
+  --secondary: #ffffff;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Noto Sans", system-ui, sans-serif;
+  background: var(--primary);
+  color: var(--secondary);
+}
+
+h1, h2, .font-mono {
+  font-family: var(--font-mono);
+}

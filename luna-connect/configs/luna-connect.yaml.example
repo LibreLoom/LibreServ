@@ -1,0 +1,29 @@
+server:
+  address: "0.0.0.0"
+  port: 8092
+  base_url: "https://connect.luna.libreserv.org"
+  public_zone: "luna.servers.libreloom.org"
+  admin_token: ""
+
+database:
+  path: "dev/luna-connect.db"
+
+data_dir: "dev/data"
+
+cloudflare:
+  account_id: ""
+  api_token: ""
+  zone_id: ""
+
+stripe:
+  secret_key: ""
+  webhook_secret: ""
+  price_id: ""
+  enabled: false
+
+backup:
+  # Local disk when empty. Set B2 keys for production object storage.
+  driver: "local"
+  b2_account_id: ""
+  b2_application_key: ""
+  bucket: "luna-connect-backups"
