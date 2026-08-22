@@ -40,6 +40,10 @@ network:
     caddy:
         mode: enabled
         admin_api: 127.0.0.1:2019
+        # If you run LibreServ behind a reverse proxy, set LIBRESERV_TRUSTED_PROXIES
+        # (environment variable, comma-separated CIDRs or IPs, e.g. "127.0.0.1,::1")
+        # so X-Forwarded-For is honored only from those sources. The default trusts
+        # loopback only — anything else lets clients spoof their IP for rate limits.
         config_path: ./dev/caddy/Caddyfile
         certs_path: ./dev/caddy/certs
         default_domain: ""

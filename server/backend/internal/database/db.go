@@ -55,11 +55,17 @@ func Open(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
 	}
 
-	// CODE QUALITY FIX: SQLite must use a single connection when using modernc.org/sqlite
-	// with WAL. Without this, concurrent writers from jobqueue/scheduler/HTTP handlers
-	// race and return SQLITE_BUSY after busy_timeout. See audit finding #2.
+	// PERFORMANCE TRADEOFF (audit finding #2, deliberate): a single open
+	// connection serializes reads AND writes. WAL mode's usual benefit —
+	// concurrent readers alongside one writer — is given up here to eliminate
+	// SQLITE_BUSY errors from concurrent writers (jobqueue/scheduler vs HTTP
+	// handlers) that modernc.org/sqlite surfaces even after busy_timeout.
+	// Acceptable for this workload because queries are short and local; if
+	// dashboard polling or backups ever stall behind writes, revisit with a
+	// writer-isolation approach rather than simply raising MaxOpenConns.
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
+	// 0 = connections live forever; already the sql.DB default, kept explicit.
 	sqlDB.SetConnMaxLifetime(0)
 
 	return &DB{

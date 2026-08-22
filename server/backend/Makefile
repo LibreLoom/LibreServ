@@ -51,10 +51,24 @@ restic-fetch:
 		| bzip2 -d > $(RESTIC_DIR)/restic
 	@chmod +x $(RESTIC_DIR)/restic
 	@echo ">> restic placed in $(RESTIC_DIR)/restic"
-# restic-fetch with checksum verification (use restic-fetch-verified for supply-chain safety)
-restic-fetch-verified: restic-fetch
-	@echo ">> Verifying restic checksum"
-	@curl -fSL "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/SHA256SUMS" | grep "restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" | sha256sum -c - || (echo "checksum mismatch!" && rm -f $(RESTIC_DIR)/restic && exit 1)
+# restic-fetch with checksum verification (use restic-fetch-verified for supply-chain safety).
+# The checksum MUST be verified against the downloaded .bz2 archive BEFORE
+# decompressing — verifying after would either checksum a file that no longer
+# exists or checksum the wrong bytes entirely.
+restic-fetch-verified:
+	@echo ">> Downloading restic $(RESTIC_VERSION) for $(GOOS)/$(GOARCH) with checksum verification"
+	@mkdir -p $(RESTIC_DIR)
+	@cd $(RESTIC_DIR) && \
+	curl -fSL -o restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 \
+		"https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" && \
+	curl -fSL "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/SHA256SUMS" \
+		| grep "restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" > SHA256SUMS.tmp && \
+	sha256sum -c SHA256SUMS.tmp || \
+		{ echo "checksum mismatch!"; rm -f restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 SHA256SUMS.tmp; exit 1; }
+	@bzip2 -dc $(RESTIC_DIR)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 > $(RESTIC_DIR)/restic
+	@rm -f $(RESTIC_DIR)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 $(RESTIC_DIR)/SHA256SUMS.tmp
+	@chmod +x $(RESTIC_DIR)/restic
+	@echo ">> verified restic placed in $(RESTIC_DIR)/restic"
 
 restic-clean:
 	@echo ">> Removing downloaded restic binary"
@@ -90,8 +104,9 @@ vet:
 
 errcheck:
 	@echo ">> Running errcheck"
-	@which errcheck >/dev/null 2>&1 || (echo "errcheck not installed, skipping" && exit 0)
-	@errcheck -exclude .errcheck-exclude.txt $(GO_PKGS) || true
+	@command -v errcheck >/dev/null 2>&1 || \
+		{ echo "errcheck not installed — install it with: go install github.com/kisielk/errcheck@latest"; exit 1; }
+	@errcheck $(GO_PKGS)
 
 lint: fmt-check vet errcheck
 
