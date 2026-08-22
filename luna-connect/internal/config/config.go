@@ -24,6 +24,7 @@ type ServerConfig struct {
 	BaseURL    string `mapstructure:"base_url"`
 	PublicZone string `mapstructure:"public_zone"`
 	AdminToken string `mapstructure:"admin_token"`
+	WebDir     string `mapstructure:"web_dir"`
 }
 
 type DatabaseConfig struct {
@@ -71,6 +72,7 @@ func setDefaults() {
 	viper.SetDefault("database.path", "dev/luna-connect.db")
 	viper.SetDefault("data_dir", "dev/data")
 	viper.SetDefault("backup.driver", "local")
+	viper.SetDefault("server.web_dir", "web/dist")
 }
 
 func (c CloudflareConfig) Ready() bool {

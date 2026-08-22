@@ -20,6 +20,26 @@ Env prefix: `LUNACONNECT_` (viper), e.g. `LUNACONNECT_SERVER_PORT`.
 
 Without Cloudflare or Stripe keys, register still assigns a hostname and “add a card” works in local-dev mode so Luna can unlock backups against disk storage.
 
+## Deploy (ZDU)
+
+Same blue/green pattern as LibreServ Connect: two systemd instances behind Caddy, `/healthz` drain, shared SQLite + object dir.
+
+```bash
+# once on the box
+sudo bash luna-connect/deploy/setup.sh
+# merge deploy/Caddyfile.conf into /etc/caddy/Caddyfile, then:
+sudo caddy reload --config /etc/caddy/Caddyfile
+
+# later
+./luna-connect/deploy/deploy.sh --head
+# or after tagging: git tag luna-connect-v0.1.0 && git push --tags
+# ./luna-connect/deploy/deploy.sh
+```
+
+Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db`. Host: `connect.luna.libreserv.org`.
+
+Fill Cloudflare and Stripe in both `/etc/luna-connect/luna-connect-{a,b}.yaml`, then restart both units.
+
 ## Tests
 
 ```bash

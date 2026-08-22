@@ -70,6 +70,7 @@ func (s *Server) routes() {
 		r.Group(func(r chi.Router) {
 			r.Use(acct.AccountAuth)
 			r.Get("/account/me", acct.Me)
+			r.Post("/account/logout", acct.Logout)
 			r.Get("/billing/usage", acct.Usage)
 			r.Post("/billing/attach-card", acct.AttachCard)
 			r.Post("/account/pair", acct.Pair)
@@ -105,7 +106,10 @@ func (s *Server) routes() {
 }
 
 func (s *Server) mountWeb(r *chi.Mux) {
-	dir := "web/dist"
+	dir := config.C.Server.WebDir
+	if dir == "" {
+		dir = "web/dist"
+	}
 	if _, err := os.Stat(dir); err != nil {
 		return
 	}

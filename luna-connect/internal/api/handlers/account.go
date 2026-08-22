@@ -142,6 +142,16 @@ func (h AccountHandler) Pair(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]any{"ok": true, "device_id": id})
 }
 
+func (h AccountHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie("luna_connect_session"); err == nil {
+		_, _ = h.DB.Exec(`DELETE FROM sessions WHERE token_hash = ?`, security.HashToken(c.Value))
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: "luna_connect_session", Value: "", Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
+	JSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (h AccountHandler) Devices(w http.ResponseWriter, r *http.Request) {
 	acct, ok := AccountFrom(r.Context())
 	if !ok {

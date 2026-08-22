@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { BackupsTab } from "./App.jsx";
+import { BackupsTab } from "./pages/BackupsPage.jsx";
+
+function wrap(ui) {
+  return render(ui);
+}
 
 describe("Cloud backups tab", () => {
   it("asks for a card when backups are locked", () => {
-    render(
+    wrap(
       <BackupsTab
         me={{ has_card: false }}
         objects={[]}
@@ -20,7 +24,7 @@ describe("Cloud backups tab", () => {
   });
 
   it("lists files when unlocked", () => {
-    render(
+    wrap(
       <BackupsTab
         me={{ has_card: true, estimated_month: 3.5 }}
         objects={[{ device_id: "d1", relative_path: "Photos/a.jpg" }]}

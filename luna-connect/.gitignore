@@ -2,4 +2,5 @@ bin/
 dev/
 web/node_modules/
 web/dist/
+web/package-lock.json
 configs/luna-connect.yaml

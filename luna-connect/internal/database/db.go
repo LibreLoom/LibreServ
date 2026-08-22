@@ -13,11 +13,13 @@ func Open(path string) (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil && filepath.Dir(path) != "." {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
+	// WAL + busy timeout so two ZDU instances can share one file.
+	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(8)
+	db.SetMaxIdleConns(4)
 	return db, nil
 }
 

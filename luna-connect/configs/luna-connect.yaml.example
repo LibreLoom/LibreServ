@@ -4,6 +4,7 @@ server:
   base_url: "https://connect.luna.libreserv.org"
   public_zone: "luna.servers.libreloom.org"
   admin_token: ""
+  web_dir: "web/dist"
 
 database:
   path: "dev/luna-connect.db"

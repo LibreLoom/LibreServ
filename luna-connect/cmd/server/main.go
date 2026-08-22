@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/api"
@@ -15,7 +20,33 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildTime = "unknown"
+)
+
 func main() {
+	healthFlag := flag.Bool("health", false, "run health check against this process port and exit")
+	flag.Parse()
+
+	if *healthFlag {
+		port := 8101
+		if p := os.Getenv("LUNACONNECT_SERVER_PORT"); p != "" {
+			fmt.Sscanf(p, "%d", &port)
+		}
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Get("http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(port)) + "/healthz")
+		if err != nil {
+			os.Exit(1)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	cfgPath := os.Getenv("LUNACONNECT_CONFIG")
 	if cfgPath == "" {
 		cfgPath = "configs/luna-connect.yaml"
@@ -60,7 +91,6 @@ func main() {
 
 	srv := api.NewServer(db, st)
 	bind := net.JoinHostPort(config.C.Server.Address, strconv.Itoa(config.C.Server.Port))
-	slog.Info("luna connect starting", "addr", bind)
 	httpServer := &http.Server{
 		Addr:              bind,
 		Handler:           srv.Router(),
@@ -69,8 +99,24 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	if err := httpServer.ListenAndServe(); err != nil {
-		slog.Error("server", "error", err)
-		os.Exit(1)
+
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info("luna connect starting", "addr", bind, "version", version, "commit", gitCommit, "built", buildTime)
+		errCh <- httpServer.ListenAndServe()
+	}()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	select {
+	case err := <-errCh:
+		if err != nil && err != http.ErrServerClosed {
+			slog.Error("server", "error", err)
+			os.Exit(1)
+		}
+	case <-sig:
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(ctx)
 	}
 }
