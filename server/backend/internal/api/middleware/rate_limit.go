@@ -102,6 +102,24 @@ func RateLimitDefault() func(http.Handler) http.Handler {
 	return RateLimit(rules)
 }
 
+// activeLimiters tracks every limiter created by RateLimit so their cleanup
+// goroutines can be stopped on server shutdown.
+var (
+	activeLimitersMu sync.Mutex
+	activeLimiters   []*limiter
+)
+
+// StopRateLimiters stops all rate-limiter background goroutines created by
+// RateLimit/RateLimitDefault. Call once from server shutdown.
+func StopRateLimiters() {
+	activeLimitersMu.Lock()
+	defer activeLimitersMu.Unlock()
+	for _, l := range activeLimiters {
+		l.Stop()
+	}
+	activeLimiters = nil
+}
+
 func RateLimit(rules []RateRule) func(http.Handler) http.Handler {
 	l := &limiter{
 		rules:         rules,
@@ -110,6 +128,10 @@ func RateLimit(rules []RateRule) func(http.Handler) http.Handler {
 		logger:        slog.Default().With("component", "rate_limiter"),
 		cleanupTicker: time.NewTicker(5 * time.Minute),
 	}
+
+	activeLimitersMu.Lock()
+	activeLimiters = append(activeLimiters, l)
+	activeLimitersMu.Unlock()
 
 	go l.cleanupRoutine()
 

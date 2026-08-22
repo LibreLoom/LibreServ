@@ -442,32 +442,13 @@ func validateRestoredTree(root string) error {
 			walkErr = err
 			return nil
 		}
-		// Reject symlink entries that escape the restore root.
+		// Reject ALL symlinks outright. Even an in-root link is a TOCTOU hazard:
+		// a later os.Rename of a path through this link would follow it. The
+		// escape-resolution logic below was removed because it was dead code —
+		// every symlink reaches this rejection regardless of where it points.
 		if info.Mode()&os.ModeSymlink != 0 {
-			target, err := os.Readlink(path)
-			if err != nil {
-				return fmt.Errorf("read symlink %s: %w", path, err)
-			}
-			if !filepath.IsAbs(target) {
-				target = filepath.Join(filepath.Dir(path), target)
-			}
-			absTarget, err := filepath.Abs(filepath.Clean(target))
-			if err != nil {
-				return fmt.Errorf("resolve symlink target %s: %w", path, err)
-			}
-			// Also resolve the link target's directory via EvalSymlinks if it exists.
-			if _, statErr := os.Lstat(absTarget); statErr == nil {
-				if eval, evalErr := filepath.EvalSymlinks(absTarget); evalErr == nil {
-					absTarget = eval
-				}
-			}
-			if !strings.HasPrefix(absTarget, absRoot+string(filepath.Separator)) && absTarget != absRoot {
-				return fmt.Errorf("symlink escapes restore root: %s -> %s", path, absTarget)
-			}
-			// Symlinks inside the tree are allowed only if they stay inside root — but we still
-			// reject them at restore time to avoid TOCTOU via later Rename following the link.
-			// The caller can opt to skip symlinks; here we reject them outright.
-			return fmt.Errorf("restored tree contains symlink: %s -> %s (rejected)", path, target)
+			target, _ := os.Readlink(path)
+			return fmt.Errorf("restored tree contains symlink (rejected): %s -> %s", path, target)
 		}
 		rel, err := filepath.Rel(absRoot, path)
 		if err != nil {
