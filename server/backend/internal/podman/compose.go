@@ -75,17 +75,24 @@ func isSafeBindMountPath(hostPath string) bool {
 	if clean == "/" || clean == "." {
 		return false
 	}
-	// Denylist critical host prefixes — allow only app-namespaced mounts.
-	deniedPrefixes := []string{"/etc", "/root", "/usr", "/boot", "/dev", "/proc", "/sys"}
+	deniedPrefixes := []string{"/etc", "/root", "/usr", "/boot", "/dev", "/proc", "/sys", "/home", "/opt", "/tmp", "/var/log", "/var/run", "/var/tmp"}
 	for _, p := range deniedPrefixes {
 		if clean == p || strings.HasPrefix(clean, p+"/") {
 			return false
 		}
 	}
-	// /var/lib is allowed only for the LibreServ app tree; other subpaths denied.
-	if strings.HasPrefix(clean, "/var/lib") && !strings.HasPrefix(clean, "/var/lib/libreserv") && !strings.HasPrefix(clean, "/var/lib/docker") && !strings.HasPrefix(clean, "/var/tmp") {
-		// Allow /var/lib/libreserv/* only; otherwise treat as suspicious but not hard-deny
-		// to keep dev-friendly. Log warning at call site instead.
+	lower := strings.ToLower(clean)
+	if strings.Contains(lower, "shadow") || strings.Contains(lower, "passwd") || strings.Contains(lower, ".ssh") {
+		return false
+	}
+	if strings.HasPrefix(clean, "/var/lib") {
+		if strings.HasPrefix(clean, "/var/lib/libreserv") || strings.HasPrefix(clean, "/var/lib/docker") {
+			return true
+		}
+		return false
+	}
+	if clean == "/var" || strings.HasPrefix(clean, "/var/") {
+		return false
 	}
 	return true
 }
@@ -97,10 +104,11 @@ func extractBindMountPaths(composePath string) ([]string, error) {
 		return nil, fmt.Errorf("failed to read compose file: %w", err)
 	}
 
-	// Expand ${VAR:-default} style env references before YAML parsing so
-	// attackers cannot bypass path checks via ${DATA:-/etc}/shadow tricks.
-	// Use os.ExpandEnv which handles $var and ${var}.
-	data = []byte(os.ExpandEnv(string(data)))
+	// Intentionally do NOT expand host environment variables. Compose handles
+	// ${VAR} / ${VAR:-default} interpolation at runtime; expanding os.Getenv
+	// here would leak host secrets into the parsed file and mishandle
+	// ${DATA:-/etc}/shadow (Go's ExpandEnv only handles $VAR/${VAR} and would
+	// turn it into /shadow, bypassing denylist checks).
 
 	var compose map[string]interface{}
 	if err := yaml.Unmarshal(data, &compose); err != nil {
@@ -295,15 +303,27 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 			continue
 		}
 		// Try host chown first — avoids pulling any image and runs without container.
-		if err := filepath.Walk(hostPath, func(p string, info os.FileInfo, walkErr error) error {
+		hostChownFailed := false
+		_ = filepath.Walk(hostPath, func(p string, info os.FileInfo, walkErr error) error {
 			if walkErr != nil {
+				hostChownFailed = true
 				return nil
 			}
-			// Best-effort host chown; continue on error.
-			_ = os.Chown(p, uid, gid)
+			if info != nil && info.Mode()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if fi, err := os.Lstat(p); err != nil {
+				hostChownFailed = true
+				return nil
+			} else if fi.Mode()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if err := os.Chown(p, uid, gid); err != nil {
+				hostChownFailed = true
+			}
 			return nil
-		}); err == nil {
-			// Host walk succeeded — try chmod via host file mode as well.
+		})
+		if !hostChownFailed {
 			_ = filepath.Walk(hostPath, func(p string, info os.FileInfo, walkErr error) error {
 				if walkErr != nil || info == nil {
 					return nil
