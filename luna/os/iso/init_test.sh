@@ -25,7 +25,8 @@ assert_file_lacks() {
 }
 
 assert_file_has "$HERE/init" 'setsid -c' "init must take the console with setsid -c (Alpine busybox has no cttyhack)"
-assert_file_has "$HERE/init" '/bin/kmod' "init must load modules with kmod, not BusyBox modprobe"
+assert_file_has "$HERE/init" '/sbin/modprobe' "init must load modules via kmod's modprobe symlink, not BusyBox"
+assert_file_lacks "$HERE/init" '/bin/kmod modprobe "$@"' "init must not call kmod as a multi-call binary (prints help on stdout)"
 assert_file_has "$HERE/init" 'usbhid' "init must load usbhid"
 assert_file_has "$HERE/init" 'hid-logitech-dj' "init must load Logitech unifying HID (common mini-PC wireless keyboards)"
 assert_file_lacks "$HERE/init" 'busybox --install' "init must not run busybox --install (it overwrites kmod)"
