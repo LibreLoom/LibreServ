@@ -42,7 +42,7 @@ support call later.
 - [ ] Public link with password works; wrong password is refused
 
 ## 6. Remote access
-- [ ] Luna Connect activates with a free key and serves the device URL
+- [ ] Luna Connect assigns {name}.luna.servers.libreloom.org and serves the device URL
 - [ ] Turn off → URL stops; turn on again → URL returns
 
 ## 7. Reliability

@@ -313,9 +313,9 @@ No remaining open questions.
 
 ---
 
-## Luna Connect rebuild (TODO)
+## Luna Connect rebuild
 
-When Luna Connect is rebuilt as a separate app, rate-limit free-key (and similar) issuance using the real TCP `RemoteAddr`, not a client-supplied `X-Forwarded-For`. Do not change the current Connect limiter as a product change now.
+Done as a split: Luna Connect lives in `luna-connect/` (own app at `connect.luna.libreserv.org`). LibreServ Connect no longer mints Luna free keys.
 
 ---
 

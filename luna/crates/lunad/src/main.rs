@@ -117,6 +117,26 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let backup_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(120));
+        loop {
+            ticker.tick().await;
+            let last = backup_state
+                .last_io_activity
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let now = lunad::db::now_unix();
+            let connect = backup_state.connect.clone();
+            let db = backup_state.db.clone();
+            let _ = tokio::task::spawn_blocking(move || {
+                if let Ok(conn) = db.lock() {
+                    lunad::cloud_backup::tick(&connect, last, now, &conn);
+                }
+            })
+            .await;
+        }
+    });
+
     let scrub_state = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(10 * 60));

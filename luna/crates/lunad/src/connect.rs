@@ -1,24 +1,22 @@
-//! LibreServ Connect client — Luna's one-tap, free-forever remote access.
+//! Luna Connect client — free address plus optional billed spare copies.
 //!
-//! Luna never opens ports or runs a tunnel daemon. When the user turns remote
-//! access on, Luna activates a Connect key and asks Connect to provision the
-//! `tunnel` service; the edge serves HTTPS at the assigned domain. All state
-//! (including the bearer key) lives in a root-only 0600 file.
+//! Default cloud: `https://connect.luna.libreserv.org`.
+//! Device address: `{name}.luna.servers.libreloom.org` via cloudflared.
 
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
-const DEFAULT_CONNECT_URL: &str = "https://connect.libreloom.org";
+const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreserv.org";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
     #[error("Connect couldn't be reached. Check your internet connection and try again.")]
     Unreachable,
-    #[error("That Connect key didn't work. Check it and try again.")]
-    BadKey,
-    #[error("Connect is already in use. Turn it off and try again.")]
+    #[error("That name is already in use. Pick another.")]
     Conflict,
     #[error("{0}")]
     Other(String),
@@ -28,16 +26,20 @@ pub enum ConnectError {
 pub struct ConnectStatus {
     pub enabled: bool,
     pub base_url: String,
-    pub key_masked: String,
-    pub device_id: Option<String>,
-    pub device_name: Option<String>,
+    pub hostname: Option<String>,
     pub domain: Option<String>,
+    pub subdomain: Option<String>,
     pub tunnel_active: bool,
+    pub backup_unlocked: bool,
+    pub pairing_code: Option<String>,
+    pub paired: bool,
+    pub backup_sources: Vec<Value>,
 }
 
 pub struct ConnectService {
     state_path: PathBuf,
     base_url: String,
+    child: Arc<Mutex<Option<Child>>>,
 }
 
 impl ConnectService {
@@ -47,124 +49,285 @@ impl ConnectService {
             base_url: base_url
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
+            child: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn status(&self) -> ConnectStatus {
         let state = self.load();
         let enabled = state
-            .get("connect_key")
+            .get("device_token")
             .and_then(|v| v.as_str())
             .is_some_and(|k| !k.is_empty());
-        let key = state
-            .get("connect_key")
+        let hostname = state
+            .get("hostname")
             .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let activation = state.get("activation");
-        let tunnel = state.get("tunnel");
+            .map(String::from);
+        let tunnel_active = self.tunnel_running()
+            || state
+                .get("tunnel_active")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
         ConnectStatus {
             enabled,
             base_url: self.base_url.clone(),
-            key_masked: mask_key(key),
-            device_id: activation
-                .and_then(|a| a.get("device_id"))
+            domain: hostname.clone(),
+            hostname: hostname.clone(),
+            subdomain: state
+                .get("subdomain")
                 .and_then(|v| v.as_str())
                 .map(String::from),
-            device_name: activation
-                .and_then(|a| a.get("device_name"))
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            domain: tunnel
-                .and_then(|t| t.get("domain"))
-                .or_else(|| activation.and_then(|a| a.get("domain")))
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            tunnel_active: tunnel
-                .and_then(|t| t.get("active"))
+            tunnel_active,
+            backup_unlocked: state
+                .get("backup_unlocked")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
+            pairing_code: state
+                .get("pairing_code")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            paired: state
+                .get("paired")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            backup_sources: state
+                .get("backup_sources")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default(),
         }
     }
 
-    /// One-tap activation: ask Connect for a free Luna key (no account, no
-    /// checkout), then activate and provision the tunnel in one step.
-    pub fn activate_free(&self, device_name: &str) -> Result<Value, ConnectError> {
-        let free: Value = self.call_json(
-            "POST",
-            "/api/v1/luna/free-key",
-            None,
-            Some(json!({ "device_name": device_name })),
-        )?;
-        let key = free
-            .get("connect_key")
+    pub fn enable(&self, subdomain: &str, local_port: u16) -> Result<Value, ConnectError> {
+        if self.status().enabled {
+            return Err(ConnectError::Conflict);
+        }
+        let body = json!({
+            "device_name": "Luna",
+            "subdomain": subdomain,
+            "local_port": local_port,
+        });
+        let created = self.call_json("POST", "/api/v1/register", None, Some(body))?;
+        let token = created
+            .get("device_token")
             .and_then(|v| v.as_str())
-            .ok_or(ConnectError::Other(
-                "Connect did not return a free key.".into(),
-            ))?;
-        self.activate(key, device_name)
-    }
-
-    pub fn activate(&self, key: &str, device_name: &str) -> Result<Value, ConnectError> {
-        let key = key.trim();
-        if key.is_empty() {
-            return Err(ConnectError::BadKey);
-        }
-        let activation = self.call_json(
-            "POST",
-            "/api/v1/activate",
-            Some(key),
-            Some(json!({ "connect_key": key, "device_name": device_name })),
-        )?;
-        let tunnel = self.call_json(
-            "POST",
-            "/api/v1/services/provision",
-            Some(key),
-            Some(json!({ "service": "tunnel" })),
-        )?;
-
-        let state = json!({
+            .ok_or_else(|| {
+                ConnectError::Other("Connect did not finish setting up this Luna.".into())
+            })?;
+        let hostname = created
+            .get("hostname")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let tunnel_token = created
+            .get("tunnel_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let mut state = json!({
             "base_url": self.base_url,
-            "connect_key": key,
-            "device_name": device_name,
-            "activation": activation,
-            "tunnel": tunnel,
+            "device_token": token,
+            "hostname": hostname,
+            "subdomain": created.get("subdomain").cloned().unwrap_or(json!(subdomain)),
+            "tunnel_token": tunnel_token,
+            "backup_sources": [],
         });
         self.save(&state)?;
-
-        let mut out = state.clone();
-        if let Some(obj) = out.as_object_mut() {
-            obj.remove("connect_key");
-            obj.insert("key_masked".into(), json!(mask_key(key)));
-        }
-        Ok(out)
+        let _ = self.refresh_remote(&mut state);
+        self.save(&state)?;
+        let _ = self.ensure_tunnel();
+        Ok(json!({
+            "hostname": hostname,
+            "subdomain": subdomain,
+        }))
     }
 
-    pub fn provision_tunnel(&self) -> Result<Value, ConnectError> {
-        let mut state = self.load();
-        let key = state
-            .get("connect_key")
-            .and_then(|v| v.as_str())
-            .filter(|k| !k.is_empty())
-            .ok_or(ConnectError::BadKey)?;
-        let tunnel = self.call_json(
+    pub fn set_domain(&self, subdomain: &str) -> Result<Value, ConnectError> {
+        let token = self.token()?;
+        let changed = self.call_json(
             "POST",
-            "/api/v1/services/provision",
-            Some(key),
-            Some(json!({ "service": "tunnel" })),
+            "/api/v1/domain",
+            Some(&token),
+            Some(json!({ "subdomain": subdomain })),
         )?;
-        state["tunnel"] = tunnel.clone();
+        let mut state = self.load();
+        if let Some(h) = changed.get("hostname") {
+            state["hostname"] = h.clone();
+        }
+        if let Some(s) = changed.get("subdomain") {
+            state["subdomain"] = s.clone();
+        }
+        if let Some(t) = changed.get("tunnel_token") {
+            state["tunnel_token"] = t.clone();
+        }
         self.save(&state)?;
-        Ok(tunnel)
+        Ok(changed)
     }
 
     pub fn deactivate(&self) -> Result<(), ConnectError> {
-        let state = self.load();
-        if let Some(key) = state.get("connect_key").and_then(|v| v.as_str()) {
-            // Best-effort remote deactivation; local state is cleared either way.
-            let _ = self.call_json("POST", "/api/v1/deactivate", Some(key), None);
+        if let Ok(token) = self.token() {
+            let _ = self.call_json("POST", "/api/v1/unregister", Some(&token), None);
         }
+        self.stop_tunnel();
         let _ = std::fs::remove_file(&self.state_path);
         Ok(())
+    }
+
+    pub fn pairing_code(&self) -> Result<String, ConnectError> {
+        let token = self.token()?;
+        let v = self.call_json("POST", "/api/v1/pairing-code", Some(&token), None)?;
+        let code = v
+            .get("pairing_code")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .to_string();
+        let mut state = self.load();
+        state["pairing_code"] = json!(code);
+        self.save(&state)?;
+        Ok(code)
+    }
+
+    pub fn set_backup_sources(&self, sources: Vec<Value>) -> Result<(), ConnectError> {
+        let mut state = self.load();
+        state["backup_sources"] = json!(sources);
+        self.save(&state)
+    }
+
+    pub fn refresh_remote(&self, state: &mut Value) -> Result<(), ConnectError> {
+        let token = state
+            .get("device_token")
+            .and_then(|v| v.as_str())
+            .ok_or(ConnectError::Other("Connect is not turned on.".into()))?;
+        let remote = self.call_json("GET", "/api/v1/status", Some(token), None)?;
+        if let Some(h) = remote.get("hostname") {
+            state["hostname"] = h.clone();
+        }
+        state["backup_unlocked"] = json!(
+            remote
+                .get("backup_unlocked")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        );
+        state["paired"] = json!(
+            remote
+                .get("paired")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        );
+        if let Some(c) = remote.get("pairing_code") {
+            state["pairing_code"] = c.clone();
+        }
+        Ok(())
+    }
+
+    pub fn sync_status_from_cloud(&self) {
+        let mut state = self.load();
+        if self.refresh_remote(&mut state).is_ok() {
+            let _ = self.save(&state);
+        }
+        let _ = self.ensure_tunnel();
+    }
+
+    pub fn token(&self) -> Result<String, ConnectError> {
+        self.load()
+            .get("device_token")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| ConnectError::Other("Connect is not turned on.".into()))
+    }
+
+    pub fn put_backup_object(&self, rel: &str, bytes: &[u8]) -> Result<(), ConnectError> {
+        let token = self.token()?;
+        let url = format!(
+            "{}/api/v1/backup/objects/{}",
+            self.base_url.trim_end_matches('/'),
+            rel.trim_start_matches('/')
+        );
+        let result = ureq::put(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .send(bytes);
+        result.map(|_| ()).map_err(map_transport_error)
+    }
+
+    pub fn delete_backup_object(&self, rel: &str) -> Result<(), ConnectError> {
+        let token = self.token()?;
+        let url = format!(
+            "{}/api/v1/backup/objects/{}",
+            self.base_url.trim_end_matches('/'),
+            rel.trim_start_matches('/')
+        );
+        ureq::delete(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .call()
+            .map(|_| ())
+            .map_err(map_transport_error)
+    }
+
+    pub fn backup_sources(&self) -> Vec<Value> {
+        self.load()
+            .get("backup_sources")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn backup_unlocked(&self) -> bool {
+        self.load()
+            .get("backup_unlocked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    fn ensure_tunnel(&self) -> Result<(), ConnectError> {
+        if self.tunnel_running() {
+            return Ok(());
+        }
+        let token = self
+            .load()
+            .get("tunnel_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        if token.is_empty() || token.starts_with("mock-") {
+            let mut state = self.load();
+            state["tunnel_active"] = json!(true);
+            return self.save(&state);
+        }
+        let child = Command::new("cloudflared")
+            .args(["tunnel", "run", "--token", &token])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|_| {
+                ConnectError::Other(
+                    "Luna couldn't start the protected connection. Install cloudflared or try again."
+                        .into(),
+                )
+            })?;
+        *self.child.lock().unwrap() = Some(child);
+        Ok(())
+    }
+
+    fn stop_tunnel(&self) {
+        if let Some(mut child) = self.child.lock().unwrap().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    fn tunnel_running(&self) -> bool {
+        let mut g = self.child.lock().unwrap();
+        if let Some(child) = g.as_mut() {
+            match child.try_wait() {
+                Ok(None) => true,
+                _ => {
+                    *g = None;
+                    false
+                }
+            }
+        } else {
+            false
+        }
     }
 
     fn call_json(
@@ -175,17 +338,28 @@ impl ConnectService {
         body: Option<Value>,
     ) -> Result<Value, ConnectError> {
         let url = format!("{}{}", self.base_url.trim_end_matches('/'), path);
-        let result = match method {
-            "GET" => ureq::get(&url).call(),
-            "POST" => {
+        let auth = key.map(|k| format!("Bearer {k}"));
+        let result = match (method, body) {
+            ("GET", _) => {
+                let mut req = ureq::get(&url);
+                if let Some(a) = auth {
+                    req = req.header("Authorization", a);
+                }
+                req.call()
+            }
+            ("POST", Some(body)) => {
                 let mut req = ureq::post(&url);
-                if let Some(key) = key {
-                    req = req.header("Authorization", format!("Bearer {key}"));
+                if let Some(a) = auth {
+                    req = req.header("Authorization", a);
                 }
-                match body {
-                    Some(body) => req.send_json(body),
-                    None => req.send_empty(),
+                req.send_json(body)
+            }
+            ("POST", None) => {
+                let mut req = ureq::post(&url);
+                if let Some(a) = auth {
+                    req = req.header("Authorization", a);
                 }
+                req.send(&[] as &[u8])
             }
             _ => return Err(ConnectError::Other("unsupported method".into())),
         };
@@ -203,7 +377,7 @@ impl ConnectService {
             .unwrap_or_else(|| json!({ "base_url": self.base_url }))
     }
 
-    fn save(&self, state: &Value) -> Result<(), ConnectError> {
+    pub(crate) fn save(&self, state: &Value) -> Result<(), ConnectError> {
         if let Some(parent) = self.state_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -220,45 +394,55 @@ impl ConnectService {
     }
 }
 
-fn mask_key(key: &str) -> String {
-    if key.len() <= 8 {
-        return "••••••••".to_string();
-    }
-    format!("{}••••", &key[..4])
-}
-
 fn map_transport_error(err: ureq::Error) -> ConnectError {
     match err {
-        ureq::Error::StatusCode(401) | ureq::Error::StatusCode(403) => ConnectError::BadKey,
         ureq::Error::StatusCode(409) => ConnectError::Conflict,
         _ => ConnectError::Unreachable,
     }
 }
 
+/// True when the box has been quiet long enough to upload spare copies.
+pub fn is_idle(last_io_unix: i64, now_unix: i64) -> bool {
+    now_unix.saturating_sub(last_io_unix) >= 30
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::routing::post;
+    use axum::routing::{get, post};
     use axum::{Json, Router};
 
     async fn test_server() -> (u16, tokio::task::JoinHandle<()>) {
         let app = Router::new()
             .route(
-                "/api/v1/luna/free-key",
+                "/api/v1/register",
                 post(|Json(_): Json<Value>| async {
-                    Json(json!({ "connect_key": "free-key-123" }))
+                    Json(json!({
+                        "device_token": "tok-1",
+                        "hostname": "photos.luna.servers.libreloom.org",
+                        "subdomain": "photos",
+                        "tunnel_token": "mock-token"
+                    }))
                 }),
             )
             .route(
-                "/api/v1/activate",
-                post(|Json(_): Json<Value>| async {
-                    Json(json!({ "device_id": "dev-luna-1", "device_name": "Luna" }))
+                "/api/v1/status",
+                get(|| async {
+                    Json(json!({
+                        "hostname": "photos.luna.servers.libreloom.org",
+                        "backup_unlocked": false,
+                        "paired": false
+                    }))
                 }),
             )
             .route(
-                "/api/v1/services/provision",
-                post(|Json(_): Json<Value>| async {
-                    Json(json!({ "active": true, "domain": "luna.free.servers.libreloom.org" }))
+                "/api/v1/domain",
+                post(|Json(body): Json<Value>| async move {
+                    let sub = body.get("subdomain").and_then(|v| v.as_str()).unwrap_or("");
+                    Json(json!({
+                        "hostname": format!("{sub}.luna.servers.libreloom.org"),
+                        "subdomain": sub
+                    }))
                 }),
             );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -268,40 +452,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn activate_free_gets_key_then_provisions() {
+    async fn enable_registers_and_hides_token() {
         let (port, server) = test_server().await;
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some(format!("http://127.0.0.1:{port}")));
-        let result = tokio::task::spawn_blocking(move || service.activate_free("Luna"))
+        let result = tokio::task::spawn_blocking(move || service.enable("photos", 8090))
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(result["tunnel"]["active"], true);
-        assert!(result.get("key_masked").is_some());
+        assert_eq!(result["hostname"], "photos.luna.servers.libreloom.org");
+        let raw = std::fs::read_to_string(dir.path().join("connect.json")).unwrap();
+        assert!(raw.contains("tok-1"));
         server.abort();
     }
 
     #[tokio::test]
-    async fn activate_provisions_tunnel_and_hides_key() {
+    async fn set_domain_updates_hostname() {
         let (port, server) = test_server().await;
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some(format!("http://127.0.0.1:{port}")));
-        let result =
-            tokio::task::spawn_blocking(move || service.activate("free-key-123", "Kitchen Luna"))
-                .await
-                .unwrap()
-                .unwrap();
-        assert!(result.get("tunnel").unwrap()["active"].as_bool().unwrap());
-        assert!(result.get("key_masked").is_some());
-        assert!(result.get("connect_key").is_none());
-
-        let raw = std::fs::read_to_string(dir.path().join("connect.json")).unwrap();
-        assert!(
-            raw.contains("free-key-123"),
-            "key must persist for device auth"
-        );
-        assert!(raw.contains("Kitchen Luna"));
+        tokio::task::spawn_blocking({
+            let service = ConnectService::new(dir.path(), Some(format!("http://127.0.0.1:{port}")));
+            move || service.enable("photos", 8090)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        let changed = tokio::task::spawn_blocking(move || service.set_domain("kitchen"))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(changed["hostname"], "kitchen.luna.servers.libreloom.org");
         server.abort();
+    }
+
+    #[test]
+    fn idle_requires_quiet_window() {
+        assert!(!is_idle(100, 110));
+        assert!(is_idle(100, 140));
     }
 
     #[cfg(unix)]
@@ -310,8 +498,8 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.save(&json!({ "connect_key": "secret" })).unwrap();
-        let mode = std::fs::metadata(service.state_path)
+        service.save(&json!({ "device_token": "secret" })).unwrap();
+        let mode = std::fs::metadata(dir.path().join("connect.json"))
             .unwrap()
             .permissions()
             .mode();
