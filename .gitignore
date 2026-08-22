@@ -146,3 +146,6 @@ connect/configs/connect.yaml
 .reasonix/
 .shots
 .chromium-profile
+
+# Local T3 Code project config
+t3.json
