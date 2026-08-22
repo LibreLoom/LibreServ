@@ -7,6 +7,7 @@ import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { Sun, Moon } from "lucide-react";
+import { BrandMark } from "../components/BrandMark.jsx";
 
 export default function Register() {
   const { register } = useAuth();
@@ -44,6 +45,7 @@ export default function Register() {
       </button>
       <Card className="w-full max-w-md animate-pop-in">
         <CardHeader className="text-center">
+          <BrandMark className="mx-auto mb-3 h-12 w-12" />
           <CardTitle className="text-3xl">Create your account</CardTitle>
           <CardDescription>Then pair your Luna. The address is free. Spare copies cost $7 per terabyte each month.</CardDescription>
         </CardHeader>

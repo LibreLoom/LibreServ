@@ -4,6 +4,7 @@ import { useTheme } from "../context/ThemeContext.jsx";
 import { Button } from "./ui/button.jsx";
 import { Separator } from "./ui/separator.jsx";
 import { HardDrive, Cloud, LogOut, Sun, Moon } from "lucide-react";
+import { BrandMark } from "./BrandMark.jsx";
 
 const navItems = [
   { to: "/", label: "Your Luna", icon: HardDrive },
@@ -19,7 +20,7 @@ export function Layout({ children }) {
     <div className="flex min-h-screen bg-background text-foreground">
       <aside className="fixed inset-y-0 left-0 z-20 flex w-64 flex-col border-r border-border bg-card">
         <div className="flex h-16 items-center gap-2 px-6">
-          <div className="h-8 w-8 rounded-pill bg-primary" />
+          <BrandMark className="h-8 w-8" />
           <span className="font-mono text-lg">Luna Connect</span>
         </div>
         <Separator />

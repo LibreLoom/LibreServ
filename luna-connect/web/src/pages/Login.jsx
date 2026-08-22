@@ -7,6 +7,7 @@ import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { Sun, Moon } from "lucide-react";
+import { BrandMark } from "../components/BrandMark.jsx";
 
 export default function Login() {
   const { login } = useAuth();
@@ -44,6 +45,7 @@ export default function Login() {
       </button>
       <Card className="w-full max-w-md animate-pop-in">
         <CardHeader className="text-center">
+          <BrandMark className="mx-auto mb-3 h-12 w-12" />
           <CardTitle className="text-3xl">Luna Connect</CardTitle>
           <CardDescription>Sign in to pair your Luna and keep a spare copy of files off-site.</CardDescription>
         </CardHeader>
