@@ -1,5 +1,6 @@
 pub mod api;
 pub mod auth;
+pub mod cloud_backup;
 pub mod config;
 pub mod connect;
 pub mod dav;

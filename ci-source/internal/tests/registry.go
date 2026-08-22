@@ -166,6 +166,54 @@ func addGoTests() {
 		Timeout:     3 * time.Minute,
 		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
 	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-fmt",
+		Name:        "Luna Connect Go Format Check",
+		Description: "Check that Luna Connect Go files are properly formatted",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "UNFMT=$(gofmt -l $(find . -name '*.go' | grep -v vendor)); test -z \"$UNFMT\" || (echo 'Files need formatting:' && echo \"$UNFMT\" && exit 1)",
+		WorkDir:     "/repo/luna-connect",
+		Timeout:     1 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-vet",
+		Name:        "Luna Connect Go Vet",
+		Description: "Run go vet on Luna Connect code",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "go vet ./...",
+		WorkDir:     "/repo/luna-connect",
+		Timeout:     3 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-test",
+		Name:        "Luna Connect Unit Tests",
+		Description: "Run all Luna Connect Go unit tests",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "go test -v ./...",
+		WorkDir:     "/repo/luna-connect",
+		Timeout:     5 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache", "GOTOOLCHAIN=auto"},
+	})
+
+	DefaultRegistry.Add(&Test{
+		ID:          "luna-connect-build",
+		Name:        "Luna Connect Build",
+		Description: "Verify that Luna Connect compiles successfully",
+		Type:        TestTypeUnit,
+		Container:   "golang:1.26-alpine",
+		Command:     "go build ./...",
+		WorkDir:     "/repo/luna-connect",
+		Timeout:     3 * time.Minute,
+		Env:         []string{"GOCACHE=/cache/gocache", "GOMODCACHE=/cache/gomodcache"},
+	})
 }
 
 func addFrontendTests() {

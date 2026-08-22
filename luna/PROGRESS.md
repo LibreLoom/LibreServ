@@ -75,12 +75,10 @@
 - [x] "Shared with me" view for non-admin users (done in M11, /shared)
 
 ## M5 — Remote access (IN PROGRESS)
-- [x] Connect client (ureq + rustls): activate key, provision tunnel, status,
-      deactivate; state in 0600 root-only connect.json; key masked in API
-- [x] Connect API: GET status, POST activate, POST tunnel/enable, POST deactivate
-- [x] Remote access UI (/settings/remote): Luna Connect on/off + key entry,
-      tunnel enable, port-forward + Tailscale/WireGuard plain-language paths
-- [x] Auto-issue free Luna Connect keys (done in M11: POST /api/v1/luna/free-key)
+- [x] Connect client talks to Luna Connect (`connect.luna.libreserv.org`): register name, change domain, pairing code, cloudflared, idle spare-copy sync
+- [x] Connect API: GET status, POST enable/domain/deactivate/pairing-code/backup-sources
+- [x] Remote access UI: pick/change `{name}.luna.servers.libreloom.org` plus Tailscale/port-forward alternatives
+- [x] Luna Connect is its own app (`luna-connect/`): pick/change `{name}.luna.servers.libreloom.org`, Cloudflare Tunnel on the device, billed spare copies at $7/TB/month
 
 ## M6 — Luna Mobile (IN PROGRESS)
 - [x] Android project at `luna/mobile` (photo backup over the home network)
@@ -167,8 +165,7 @@
 - [x] Desktop tray icon (show/quit menu, left-click opens, tray-enabled release binary built); installer targets configured (deb/appimage/msi/dmg) — final bundling runs per-platform
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI
-- [x] Free one-tap Connect keys: Connect endpoint `/api/v1/luna/free-key` mints a free-plan account+key per Luna (10/hour/IP); Luna Remote page is now one tap with no key entry
-      TODO(luna-connect-rebuild): rate-limit must use real RemoteAddr when Connect is rebuilt — not X-Forwarded-For. Do not change the current limiter now.
+- [x] Luna Connect split: device registers a name at connect.luna.libreserv.org; LibreServ Connect no longer issues Luna keys
 - [x] Locked-out admin recovery: USB keyboard sequence (Esc, then type `luna`, then Enter) on the appliance; TTY password reset; rate-limited; documented on setup done + Settings
 - [x] Software updates: Forgejo `luna-v*` releases, SHA-256 verified `lunad-*` binary, tap-to-install in Settings (no silent apply)
 - [ ] Physical 5-unit rehearsal on Wyse 3040 hardware

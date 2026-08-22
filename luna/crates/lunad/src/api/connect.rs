@@ -10,31 +10,45 @@ use crate::api::response::json_error;
 use crate::connect::ConnectError;
 
 #[derive(Deserialize)]
-struct ActivateBody {
-    connect_key: String,
-    device_name: Option<String>,
+struct EnableBody {
+    subdomain: String,
+}
+
+#[derive(Deserialize)]
+struct DomainBody {
+    subdomain: String,
+}
+
+#[derive(Deserialize)]
+struct SourcesBody {
+    sources: Vec<Value>,
 }
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/connect/status", get(status))
-        .route("/api/v1/connect/activate-free", post(activate_free))
-        .route("/api/v1/connect/activate", post(activate))
-        .route("/api/v1/connect/tunnel/enable", post(enable_tunnel))
+        .route("/api/v1/connect/enable", post(enable))
+        .route("/api/v1/connect/domain", post(set_domain))
         .route("/api/v1/connect/deactivate", post(deactivate))
+        .route("/api/v1/connect/pairing-code", post(pairing_code))
+        .route("/api/v1/connect/backup-sources", post(set_sources))
 }
 
 async fn status(State(state): State<AppState>) -> Json<crate::connect::ConnectStatus> {
+    let connect = state.connect.clone();
+    let _ = tokio::task::spawn_blocking(move || connect.sync_status_from_cloud()).await;
     Json(state.connect.status())
 }
 
-async fn activate_free(
+async fn enable(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<EnableBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(user)?;
     let service = state.connect.clone();
-    let result = tokio::task::spawn_blocking(move || service.activate_free("Luna"))
+    let port = 8090u16;
+    let result = tokio::task::spawn_blocking(move || service.enable(&body.subdomain, port))
         .await
         .map_err(|_| {
             json_error(
@@ -46,37 +60,14 @@ async fn activate_free(
     Ok(Json(result))
 }
 
-async fn activate(
+async fn set_domain(
     State(state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
-    Json(body): Json<ActivateBody>,
+    Json(body): Json<DomainBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     require_admin(user)?;
     let service = state.connect.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        service.activate(
-            &body.connect_key,
-            body.device_name.as_deref().unwrap_or("Luna"),
-        )
-    })
-    .await
-    .map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't reach Connect.",
-        )
-    })?
-    .map_err(map_connect_err)?;
-    Ok(Json(result))
-}
-
-async fn enable_tunnel(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    require_admin(user)?;
-    let service = state.connect.clone();
-    let result = tokio::task::spawn_blocking(move || service.provision_tunnel())
+    let result = tokio::task::spawn_blocking(move || service.set_domain(&body.subdomain))
         .await
         .map_err(|_| {
             json_error(
@@ -106,6 +97,43 @@ async fn deactivate(
     Ok(Json(json!({ "ok": true })))
 }
 
+async fn pairing_code(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(user)?;
+    let service = state.connect.clone();
+    let code = tokio::task::spawn_blocking(move || service.pairing_code())
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't get a pairing code.",
+            )
+        })?
+        .map_err(map_connect_err)?;
+    Ok(Json(json!({ "pairing_code": code })))
+}
+
+async fn set_sources(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+    Json(body): Json<SourcesBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(user)?;
+    let service = state.connect.clone();
+    tokio::task::spawn_blocking(move || service.set_backup_sources(body.sources))
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't save those folders.",
+            )
+        })?
+        .map_err(map_connect_err)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 fn require_admin(user: crate::auth::CurrentUser) -> Result<(), (StatusCode, Json<Value>)> {
     if user.role != "admin" {
         return Err(json_error(
@@ -122,17 +150,10 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
             StatusCode::BAD_GATEWAY,
             "Connect couldn't be reached. Check your internet connection and try again.",
         ),
-        ConnectError::BadKey => json_error(
-            StatusCode::UNAUTHORIZED,
-            "That Connect key didn't work. Check it and try again.",
-        ),
         ConnectError::Conflict => json_error(
             StatusCode::CONFLICT,
-            "Connect is already in use. Turn it off and try again.",
+            "That name is already in use, or Connect is already on. Pick another name or turn it off first.",
         ),
-        ConnectError::Other(_) => json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Luna couldn't finish that. Try again.",
-        ),
+        ConnectError::Other(msg) => json_error(StatusCode::INTERNAL_SERVER_ERROR, msg),
     }
 }

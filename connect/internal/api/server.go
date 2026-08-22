@@ -84,8 +84,6 @@ func (s *Server) setupRoutes() {
 		// No auth required for activate/info
 		r.Post("/activate", handlers.NewDeviceHandler(s.db).Activate)
 		r.Get("/info", handlers.NewProvisionHandler(s.db).Info)
-		r.Post("/luna/free-key", handlers.NewLunaFreeHandler(s.db).Create)
-
 		// Device auth required for everything else
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.DeviceAuth(s.db))
