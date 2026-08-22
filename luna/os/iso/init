@@ -19,14 +19,13 @@ fi
 . /find-media.sh
 
 luna_modprobe() {
-	# Prefer kmod. BusyBox modprobe is on PATH first after applet links
-	# and does not reliably load Alpine's gzip-compressed modules.
-	if [ -x /bin/kmod ]; then
-		/bin/kmod modprobe "$@" 2>/dev/null || true
-	elif [ -x /sbin/modprobe ]; then
-		/sbin/modprobe "$@" 2>/dev/null || true
+	# Alpine kmod only implements modprobe when invoked via the /sbin/modprobe
+	# symlink (argv[0]); `/bin/kmod modprobe` prints help to stdout every time.
+	# BusyBox modprobe on PATH does not load gzip-compressed .ko.gz modules.
+	if [ -x /sbin/modprobe ]; then
+		/sbin/modprobe "$@" >/dev/null 2>&1 || true
 	else
-		$BB modprobe "$@" 2>/dev/null || true
+		$BB modprobe "$@" >/dev/null 2>&1 || true
 	fi
 }
 
