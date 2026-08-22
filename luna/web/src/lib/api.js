@@ -14,6 +14,18 @@ export async function postJson(path, body, options = {}) {
   });
 }
 
+export async function deleteJson(path, options = {}) {
+  return request(path, { ...options, method: "DELETE" });
+}
+
+/** Plain-language message from a failed request (never "Error: ..."). */
+export function apiErrorMessage(err, fallback = "Luna couldn't do that. Try again.") {
+  if (!err) return fallback;
+  if (err instanceof ApiError && err.message) return err.message;
+  const raw = String(err.message || err);
+  return raw.replace(/^Error:\s*/i, "") || fallback;
+}
+
 async function request(path, options = {}) {
   const res = await fetch(path, {
     credentials: "include",

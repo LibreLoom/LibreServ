@@ -13,7 +13,7 @@ const ALIGN = {
 };
 
 /** @param {{ columns: any, data: any, rowKey: any, scrollable?: any, maxHeight?: any, className?: string, headClassName?: string, onRowClick?: (row: any, rowIndex: number) => void }} _ */
-export default function Table({ columns, data, rowKey, scrollable, maxHeight, className = "", headClassName = "text-secondary", onRowClick }) {
+export default function Table({ columns, data, rowKey, scrollable, maxHeight, className = "", headClassName = "text-accent", onRowClick }) {
   const wrapperStyle = scrollable ? { maxHeight: maxHeight || "24rem" } : undefined;
 
   return (
@@ -26,7 +26,14 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
                 <th
                   key={col.key}
                   scope="col"
-                  className={cn(`${ALIGN[col.align] || ALIGN.left} px-3 py-1.5 text-xs font-medium ${headClassName}`, col.hidden ? `hidden ${col.hidden}:table-cell` : "", col.width || "")}
+                  className={cn(
+                    // Column labels use the same eyebrow the dashboard stat
+                    // cards and MfaCard sections use: mono, uppercase, tracked
+                    // out and quiet, so the row pills stay the loud element.
+                    `${ALIGN[col.align] || ALIGN.left} px-3 pt-0.5 pb-2.5 font-mono whitespace-nowrap text-[15px] font-normal uppercase tracking-[0.14em] ${headClassName}`,
+                    col.hidden ? `hidden ${col.hidden}:table-cell` : "",
+                    col.width || "",
+                  )}
                 >
                   {col.srOnly ? <span className="sr-only">{col.label}</span> : col.label}
                 </th>
@@ -39,7 +46,11 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
               return (
                 <tr
                   key={key}
-                  className={cn("group transition-colors", onRowClick && "cursor-pointer")}
+                  className={cn(
+                    "group",
+                    onRowClick &&
+                      "cursor-pointer motion-safe:transition-[translate] duration-200 ease-[var(--motion-easing-standard)] hover:motion-safe:translate-x-0.5 active:motion-safe:translate-x-0",
+                  )}
                   onClick={
                     onRowClick
                       ? () => {
@@ -59,7 +70,15 @@ export default function Table({ columns, data, rowKey, scrollable, maxHeight, cl
                       isLast ? CELL_LAST : "",
                       !isFirst && !isLast ? CELL_MIDDLE : "",
                       col.hidden ? `hidden ${col.hidden}:table-cell` : "",
-                      onRowClick ? "group-hover:bg-secondary/90" : "",
+                      // The tint has to live on the cells — that is where
+                      // bg-secondary is, and a transition on the <tr> would never
+                      // fire for it. It has to be OPAQUE: a translucent fill is
+                      // painted per cell, so at the fractional offsets the row
+                      // passes through mid-slide the shared edges blend twice and
+                      // show as vertical hairlines between the cells.
+                      onRowClick
+                        ? "motion-safe:transition-[background-color] duration-200 ease-[var(--motion-easing-standard)] group-hover:bg-[color-mix(in_oklab,var(--secondary)_85%,var(--primary))]"
+                        : "",
                     ].filter(Boolean).join(" ");
 
                     const content = col.render

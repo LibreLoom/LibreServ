@@ -43,6 +43,34 @@ func TestCheckForUpdates_NoReleases(t *testing.T) {
 	}
 }
 
+func TestCheckForUpdates_IgnoresLunaAndConnectTags(t *testing.T) {
+	releases := []forgejoRelease{
+		{TagName: "luna-v9.9.9", Prerelease: false},
+		{TagName: "connect-v8.0.0", Prerelease: false},
+		{TagName: "v0.0.99", Prerelease: true},
+		{TagName: "v2.0.0", Prerelease: false},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(releases)
+	}))
+	defer server.Close()
+
+	checker := newTestChecker(server.URL)
+
+	info, err := checker.CheckForUpdates("1.0.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !info.UpdateAvailable {
+		t.Error("expected update available from v2.0.0")
+	}
+	if info.LatestVersion != "v2.0.0" {
+		t.Errorf("latest version = %q, want v2.0.0", info.LatestVersion)
+	}
+}
+
 func TestCheckForUpdates_UpdateAvailable(t *testing.T) {
 	release := forgejoRelease{
 		TagName:     "v2.0.0",

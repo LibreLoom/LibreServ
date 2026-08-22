@@ -17,6 +17,7 @@ import SetupPage from "./pages/SetupPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import ProtectionPage from "./pages/ProtectionPage";
 import SettingsPage from "./pages/SettingsPage";
+import PublicSharePage from "./pages/PublicSharePage";
 import RequireAdmin from "./components/auth/RequireAdmin";
 
 const queryClient = new QueryClient({
@@ -57,6 +58,7 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/setup" element={<SetupPage />} />
+              <Route path="/s/:token" element={<PublicSharePage />} />
               <Route element={<AppShell />}>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/drives" element={<DrivesPage />} />

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -154,7 +155,7 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 		c.cacheMu.RUnlock()
 	}
 
-	url := fmt.Sprintf("%s/repos/%s/%s/releases?limit=1", c.baseURL, c.cfg.Owner, c.cfg.Repo)
+	url := fmt.Sprintf("%s/repos/%s/%s/releases?limit=50", c.baseURL, c.cfg.Owner, c.cfg.Repo)
 
 	resp, err := c.client.Get(url)
 	if err != nil {
@@ -184,7 +185,19 @@ func (c *UpdateChecker) CheckForUpdates(currentVersion string, forceRefresh ...b
 		return info, nil
 	}
 
-	latest := releases[0]
+	latest, ok := latestLibreServRelease(releases)
+	if !ok {
+		info := &UpdateInfo{
+			CurrentVersion:  currentVersion,
+			LatestVersion:   currentVersion,
+			UpdateAvailable: false,
+		}
+		c.cacheMu.Lock()
+		c.cachedInfo[cacheKey] = info
+		c.cacheTimestamp[cacheKey] = time.Now()
+		c.cacheMu.Unlock()
+		return info, nil
+	}
 	latestTag := strings.TrimPrefix(latest.TagName, "v")
 	currentTag := strings.TrimPrefix(currentVersion, "v")
 
@@ -387,6 +400,29 @@ type forgejoRelease struct {
 	Body        string    `json:"body"`
 	PublishedAt time.Time `json:"published_at"`
 	HTMLURL     string    `json:"html_url"`
+	Prerelease  bool      `json:"prerelease"`
+	Draft       bool      `json:"draft"`
+}
+
+// libreservTag matches LibreServ tags only: v1.2.3 (optional -prerelease suffix).
+// Luna uses luna-v*; Connect uses connect-v*. Those must never be treated as
+// LibreServ updates.
+var libreservTag = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$`)
+
+func isLibreServTag(tag string) bool {
+	return libreservTag.MatchString(tag)
+}
+
+func latestLibreServRelease(releases []forgejoRelease) (forgejoRelease, bool) {
+	for _, r := range releases {
+		if r.Draft || r.Prerelease {
+			continue
+		}
+		if isLibreServTag(r.TagName) {
+			return r, true
+		}
+	}
+	return forgejoRelease{}, false
 }
 
 // saveUpdateState persists update state to disk with secure permissions

@@ -16,9 +16,14 @@ disk both boot in either firmware mode.
 ./os/build-rootfs.sh                  # → os/dist/luna-rootfs-x86_64.tar.gz
 
 # 3. Rapidinstall ISO (`dd` to a USB stick)
+#    One-shot (web UI + musl lunad + rootfs + ISO):
+./os/build-iso.sh                     # → os/dist/luna-rapidinstall-x86_64.iso
+#    Or after a rootfs already exists:
 ./os/make-iso.sh                      # → os/dist/luna-rapidinstall-x86_64.iso
 #    dd if=os/dist/luna-rapidinstall-x86_64.iso of=/dev/sdX bs=4M conv=fsync
 #    Boot the PC from that USB (BIOS or UEFI; turn Secure Boot off).
+#    GRUB should load Linux on its own. You should see "Luna rapidinstall"
+#    — not a grub> prompt.
 #    The installer picks the smallest non-USB disk and starts after 5s
 #    (press a key to pick another disk from a numbered list). It never
 #    erases the USB stick.
@@ -54,10 +59,12 @@ installed.
 
 ## Software updates (no re-flash)
 
-Lunad looks at Forgejo tags that start with `luna-` (for example `luna-0.2.0`)
-on `LibreLoom/LibreServ`. Release assets:
+Lunad looks at Forgejo tags that start with `luna-v` (for example `luna-v0.2.0`)
+on `LibreLoom/LibreServ`. LibreServ releases stay on `v*` (for example `v0.0.13`)
+and are ignored by the Luna updater. Release assets:
 
 - `lunad-linux-amd64` (or `lunad-linux-arm64`)
+- `luna-rapidinstall-x86_64.iso` on OS cuts
 - `SHA256SUMS.txt` (required — install refuses a missing or mismatched checksum)
 
 An admin taps **Install update** in Settings. That replaces `/usr/local/bin/lunad`

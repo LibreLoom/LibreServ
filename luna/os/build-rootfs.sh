@@ -6,9 +6,9 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-ALPINE_IMAGE="${ALPINE_IMAGE:-docker.io/library/alpine:3.24}"
+# shellcheck source=lib/alpine-image.sh
+. "$ROOT/os/lib/alpine-image.sh"
 # Pinned for reproducibility; override with digest in CI if needed (e.g. alpine:3.24@sha256:...).
-case "$ALPINE_IMAGE" in *:latest) echo "ALPINE_IMAGE must be pinned (e.g. 3.24), got $ALPINE_IMAGE" >&2; exit 1;; esac
 ALPINE_VERSION="${ALPINE_VERSION:-v3.24}"
 ARCH="${ARCH:-x86_64}"
 WORK="$ROOT/os/work"
@@ -34,7 +34,9 @@ rm -rf "$WORK"
 mkdir -p "$ROOTFS" "$OUT"
 
 # Assemble the root filesystem inside Alpine's own apk.
-podman run --rm -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
+# --privileged is required so mkinitfs can mount proc/sys/dev in the chroot
+# (rootless Podman otherwise returns "mount: permission denied").
+podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
     apk add --root /rootfs --initdb --keys-dir /etc/apk/keys --arch '"$ARCH"' \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
@@ -48,11 +50,14 @@ podman run --rm -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         chrony logrotate
 
     mkdir -p /rootfs/proc /rootfs/sys /rootfs/dev
-    mount -t proc proc /rootfs/proc
-    mount -t sysfs sys /rootfs/sys
-    mount --bind /dev /rootfs/dev
-    chroot /rootfs /sbin/mkinitfs || true
-    umount /rootfs/dev /rootfs/sys /rootfs/proc
+    # linux-lts apk trigger already ran mkinitfs. The extra chroot pass
+    # needs proc/sys/dev mounts, which rootless Podman often cannot grant.
+    if mount -t proc proc /rootfs/proc 2>/dev/null; then
+        mount -t sysfs sys /rootfs/sys 2>/dev/null || true
+        mount --bind /dev /rootfs/dev 2>/dev/null || true
+        chroot /rootfs /sbin/mkinitfs || true
+        umount /rootfs/dev /rootfs/sys /rootfs/proc 2>/dev/null || true
+    fi
 
     # Luna keeps its own clock in sync (chrony) so TLS certificate validation
     # and share expiry work even if the RTC drifts. It does not pull updates.
@@ -127,6 +132,6 @@ mkdir -p "$ROOTFS/var/lib/luna"
 
 # Tar inside the container so suid files (e.g. busybox bbsuid) are readable.
 # GNU tar (not BusyBox) for --sort=name / --mtime so the archive is deterministic.
-podman run --rm -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" \
+podman run --rm --privileged -v "$ROOTFS:/rootfs:z" -v "$OUT:/out:z" "$ALPINE_IMAGE" \
     sh -euc "apk add --no-cache tar >/dev/null && tar --sort=name --mtime=@946684800 --owner=0 --group=0 --numeric-owner -C /rootfs -czf /out/luna-rootfs-$ARCH.tar.gz ."
 printf 'built %s\n' "$OUT/luna-rootfs-$ARCH.tar.gz"

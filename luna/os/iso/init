@@ -1,50 +1,97 @@
-#!/bin/sh
+#!/bin/busybox sh
 # Initramfs entry for the Luna rapidinstall ISO.
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-mount -t proc proc /proc
-mount -t sysfs sys /sys
-mount -t devtmpfs dev /dev 2>/dev/null || mount -t tmpfs dev /dev
-mkdir -p /dev/pts /src /tmp
-ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
+# Invoke applets through /bin/busybox so dangling install-time symlinks cannot
+# take PID 1 down.
+BB=/bin/busybox
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+# Do not install BusyBox applets at boot: that replaces kmod's modprobe
+# and gzipped Alpine modules (.ko.gz) then fail to load.
+$BB mount -t proc proc /proc
+$BB mount -t sysfs sys /sys
+$BB mount -t devtmpfs dev /dev 2>/dev/null || $BB mount -t tmpfs dev /dev
+$BB mkdir -p /dev/pts /src /tmp /run
+$BB ln -sf /proc/self/fd /dev/fd 2>/dev/null || true
+if [ -e /proc/sys/kernel/hotplug ]; then
+	echo /bin/mdev >/proc/sys/kernel/hotplug 2>/dev/null || true
+fi
 
-if [ -d /lib/modules ]; then
-	for m in isofs iso9660 sr_mod usb-common usbcore ehci-hcd ehci-pci xhci-hcd xhci-pci \
-		usb-storage uas mmc_core mmc_block sdhci sdhci-pci sdhci-acpi \
-		pinctrl-intel pinctrl-cherryview pwm-lpss pwm-lpss-pci \
+# shellcheck disable=SC1091
+. /find-media.sh
+
+luna_modprobe() {
+	# Prefer kmod. BusyBox modprobe is on PATH first after applet links
+	# and does not reliably load Alpine's gzip-compressed modules.
+	if [ -x /bin/kmod ]; then
+		/bin/kmod modprobe "$@" 2>/dev/null || true
+	elif [ -x /sbin/modprobe ]; then
+		/sbin/modprobe "$@" 2>/dev/null || true
+	else
+		$BB modprobe "$@" 2>/dev/null || true
+	fi
+}
+
+load_modules() {
+	if [ ! -d /lib/modules ]; then
+		return 0
+	fi
+	# USB host first so the stick and the keyboard can enumerate, then HID.
+	for m in isofs iso9660 sr_mod cdrom usb-common usbcore \
+		ehci-hcd ehci-pci ohci-hcd ohci-pci uhci-hcd \
+		xhci-hcd xhci-pci xhci-pci-renesas xhci-plat-hcd \
+		dwc3 dwc3-pci \
+		intel-lpss intel-lpss-pci mfd-core \
+		usb-storage uas \
+		hid hid-generic usbhid evdev ff-memless led-class \
+		hid-logitech hid-logitech-dj hid-logitech-hidpp \
+		hid-apple hid-cherry hid-microsoft hid-lenovo hid-corsair \
+		atkbd i8042 serio libps2 \
+		i2c-core i2c-hid i2c-hid-acpi i2c-i801 i2c-designware-core i2c-designware-pci \
+		mmc_core mmc_block sdhci sdhci-pci sdhci-acpi \
+		pinctrl-intel pinctrl-cherryview pwm-lpss pwm-lpss-pci pwm-lpss-platform \
 		ahci sd_mod nvme virtio virtio_pci virtio_blk virtio_scsi \
 		ext4 fat vfat nls_cp437 crc32c_generic crc32c; do
-		modprobe "$m" 2>/dev/null || true
+		luna_modprobe "$m"
 	done
-fi
+	$BB mdev -s 2>/dev/null || true
+}
 
-i=0
+load_modules
+
 SRCDEV=""
+i=0
 while [ "$i" -lt 40 ]; do
-	SRCDEV="$(blkid -L LUNAINST 2>/dev/null || true)"
-	if [ -n "$SRCDEV" ]; then
+	if SRCDEV="$(luna_find_install_media /src)"; then
 		break
 	fi
-	sleep 1
+	SRCDEV=""
+	$BB sleep 1
 	i=$((i + 1))
+	load_modules
 done
-if [ -z "$SRCDEV" ]; then
-	for c in /dev/sr0 /dev/sda /dev/sdb /dev/sdc /dev/sda1 /dev/sdb1 /dev/sdc1; do
-		if mount -o ro "$c" /src 2>/dev/null; then
-			if [ -f /src/rapidinstall.sh ]; then
-				SRCDEV="$c"
-				break
-			fi
-			umount /src 2>/dev/null || true
-		fi
-	done
-else
-	mount -o ro "$SRCDEV" /src
-fi
+
+# Alpine's busybox has no cttyhack. `setsid -c` makes stdin the controlling
+# terminal so USB keyboard input reaches `read` in rapidinstall.sh.
+run_console() {
+	_con=/dev/console
+	if [ -e /dev/tty0 ]; then
+		_con=/dev/tty0
+	fi
+	if $BB setsid -c $BB true <>"$_con" 2>/dev/null; then
+		exec $BB setsid -c $BB sh "$@" <>"$_con" 2>&1
+	fi
+	exec $BB sh "$@" <>"$_con" 2>&1
+}
 
 if [ ! -f /src/rapidinstall.sh ]; then
-	echo "Luna installer USB not found. Dropping to a shell."
-	exec setsid cttyhack sh
+	echo "Could not find the Luna installer files on the USB stick."
+	echo "Devices Luna can see:"
+	$BB ls /sys/class/block 2>/dev/null || true
+	if command -v blkid >/dev/null 2>&1; then
+		blkid || true
+	fi
+	echo "Dropping to a shell."
+	run_console
 fi
 export LUNA_INSTALL_MEDIA="$SRCDEV"
 cd /src
-exec /bin/sh /src/rapidinstall.sh
+run_console /src/rapidinstall.sh

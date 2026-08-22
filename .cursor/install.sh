@@ -3,7 +3,8 @@
 #
 # Idempotent: safe to run repeatedly and against a cached/partially prepared
 # checkout. Prepares the backend (Go 1.26 + config + modules), LibreServ
-# frontend (Node deps + build), and Luna (Rust 1.96 + lunad build + web deps).
+# frontend (Node deps + build), Luna (Rust 1.96 + lunad build + web deps),
+# and Podman (CI + app-runtime tests; the API socket is started in start.sh).
 # No long-running processes are started here — the dev servers live in the
 # environment's `terminals` (LibreServ :8080/:3000, Luna :8090/:3001).
 set -euo pipefail
@@ -45,13 +46,16 @@ install_go
 
 # ── 2. Forgejo CLI (fj) ──────────────────────────────────────────────────────
 # LibreServ is developed on Forgejo (gt.plainskill.net); fj is the Forgejo CLI
-# used for issues and pull requests. Installing the binary here bakes it into the
+# used for issues and comments. Installing the binary here bakes it into the
 # baseline; the per-boot .cursor/start.sh authenticates it from the FORGEJO_TOKEN
-# secret.
+# secret. Git remotes are left as Cursor provisioned them.
 FJ_VERSION="0.6.0"
 install_fj() {
-  if command -v fj >/dev/null 2>&1; then
+  local real="/usr/local/libexec/fj"
+  local wrapper="${REPO_ROOT}/.cursor/fj-wrapper.sh"
+  if [ -x "${real}" ] && [ -x /usr/local/bin/fj ]; then
     echo ">> fj already installed"
+    as_root install -m 0755 "${wrapper}" /usr/local/bin/fj
     return
   fi
   echo ">> Installing fj (Forgejo CLI) ${FJ_VERSION}"
@@ -59,13 +63,52 @@ install_fj() {
   curl -fsSL -o "${tmp}/fj.tar.gz" \
     "https://codeberg.org/forgejo-contrib/forgejo-cli/releases/download/v${FJ_VERSION}/forgejo-cli-x86_64-linux.tar.gz"
   tar -xzf "${tmp}/fj.tar.gz" -C "${tmp}"
-  as_root install -m 0755 "${tmp}/fj" /usr/local/bin/fj
+  as_root mkdir -p /usr/local/libexec
+  if [ -x /usr/local/bin/fj ] && [ ! -x "${real}" ]; then
+    as_root mv /usr/local/bin/fj "${real}"
+  fi
+  as_root install -m 0755 "${tmp}/fj" "${real}"
   rm -rf "${tmp}"
+  as_root install -m 0755 "${wrapper}" /usr/local/bin/fj
   echo ">> fj installed"
 }
 install_fj
 
-# ── 3. Rust toolchain (Luna) ─────────────────────────────────────────────────
+# ── 3. Podman ────────────────────────────────────────────────────────────────
+# LibreServ CI (`./ci`) and app runtime tests need Podman, not Docker. The
+# default Cloud Agent image does not ship it. Install the CLI + compose helper
+# and rootless extras; the per-boot start.sh brings up the API socket.
+install_podman() {
+  export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+  as_root mkdir -p "${XDG_RUNTIME_DIR}"
+  as_root chown "$(id -u):$(id -g)" "${XDG_RUNTIME_DIR}" || true
+
+  if command -v podman >/dev/null 2>&1; then
+    echo ">> Podman already installed: $(podman --version)"
+  else
+    echo ">> Installing Podman"
+    as_root apt-get update -qq
+    # force-confold: fuse3 asks about /etc/fuse.conf on Cloud Agent images.
+    as_root env DEBIAN_FRONTEND=noninteractive \
+      apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef \
+      install -y -qq podman podman-compose uidmap slirp4netns fuse-overlayfs catatonit
+  fi
+
+  # So later shells (and ./ci) find the Docker-compatible API socket.
+  as_root tee /etc/profile.d/libreserv-podman.sh >/dev/null <<'EOF'
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export DOCKER_HOST="unix://${XDG_RUNTIME_DIR}/podman/podman.sock"
+EOF
+  as_root chmod 0644 /etc/profile.d/libreserv-podman.sh
+  # shellcheck disable=SC1091
+  . /etc/profile.d/libreserv-podman.sh
+
+  podman --version
+  podman compose version 2>/dev/null || podman-compose --version 2>/dev/null || true
+}
+install_podman
+
+# ── 4. Rust toolchain (Luna) ─────────────────────────────────────────────────
 # Luna requires Rust 1.96 with edition 2024 (see luna/Cargo.toml). The default
 # Cloud Agent image ships an older toolchain, so install 1.96 via rustup and
 # expose cargo/rustc on PATH for every future shell.
@@ -95,7 +138,7 @@ install_rust() {
 }
 install_rust
 
-# ── 4. Backend (Go) ──────────────────────────────────────────────────────────
+# ── 5. Backend (Go) ──────────────────────────────────────────────────────────
 echo ">> Preparing backend"
 cd "${REPO_ROOT}/server/backend"
 # The server refuses to run without a config file; seed it from the example on
@@ -109,7 +152,7 @@ go mod download
 # falls back to a tar-based backup path when restic is absent.
 make restic-fetch || echo ">> restic fetch skipped (backups will use the tar fallback)"
 
-# ── 5. Frontend (Node) ───────────────────────────────────────────────────────
+# ── 6. Frontend (Node) ───────────────────────────────────────────────────────
 echo ">> Preparing frontend"
 cd "${REPO_ROOT}/server/frontend"
 npm ci
@@ -118,7 +161,7 @@ npm ci
 # the Vite dev server from the `terminals` config.
 npm run build
 
-# ── 6. Luna (Rust daemon + web) ───────────────────────────────────────────────
+# ── 7. Luna (Rust daemon + web) ───────────────────────────────────────────────
 echo ">> Preparing Luna"
 cd "${REPO_ROOT}/luna/web"
 npm ci

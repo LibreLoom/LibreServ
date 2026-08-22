@@ -22,10 +22,22 @@ echo "==> cargo test"
 cargo test --workspace
 
 echo "==> os scripts"
-sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/rapidinstall.sh \
-	os/lib/disk.sh os/lib/flash-disk.sh os/lib/disk_test.sh os/iso/init \
-	os/iso/build-live.sh os/iso/build-xorriso.sh
+sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-iso.sh os/rapidinstall.sh \
+	os/lib/disk.sh os/lib/flash-disk.sh os/lib/disk_test.sh os/lib/alpine-image.sh os/iso/init \
+	os/iso/find-media.sh os/iso/find-media_test.sh os/iso/init_test.sh os/iso/build-live.sh os/iso/build-xorriso.sh
 sh os/lib/disk_test.sh
+sh os/iso/find-media_test.sh
+sh os/iso/init_test.sh
+for f in os/make-iso.sh os/build-rootfs.sh os/make-image.sh; do
+	grep -q 'os/lib/alpine-image.sh' "$f" || {
+		echo "$f must source os/lib/alpine-image.sh" >&2
+		exit 1
+	}
+done
+if grep -q 'alpine:latest' os/make-iso.sh os/build-rootfs.sh os/make-image.sh os/lib/alpine-image.sh; then
+	echo "OS image scripts must not default to alpine:latest" >&2
+	exit 1
+fi
 
 echo "==> desktop core"
 (

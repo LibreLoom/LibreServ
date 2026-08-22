@@ -26,7 +26,7 @@ function sizeLabel(bytes) {
   return `${gb.toFixed(0)} GB`;
 }
 
-function DetectedCard({ drive, onOpen }) {
+function DetectedCard({ drive, onOpen, onIgnore }) {
   return (
     <Card icon={HardDrive} title={drive.model || `Drive ${drive.name}`} headerActions={
       <Button size="sm" variant="outline" onClick={() => onOpen(drive)}>
@@ -36,27 +36,31 @@ function DetectedCard({ drive, onOpen }) {
       <p className="text-primary text-sm">
         {sizeLabel(drive.size_bytes) || "A new drive"} · found on {drive.name}
       </p>
-      <p className="text-accent text-xs mt-2">
-        Luna hasn&apos;t changed anything on this drive.
+      <p className="text-primary text-sm mt-2">
+        Luna hasn&apos;t changed anything on this drive. Look inside first, then add it if you want Luna to use it.
       </p>
+      <div className="mt-3">
+        <Button size="sm" variant="ghost" onClick={() => onIgnore(drive)}>Ignore for now</Button>
+      </div>
     </Card>
   );
 }
 
-function AdoptedCard({ drive, showHealth }) {
+function AdoptedCard({ drive, showHealth, onEject, ejecting }) {
   const state = STATE_PILLS[drive.state] || "info";
   const health = useQuery({
     queryKey: ["drive-health", drive.id],
     queryFn: () => getJson(`/api/v1/drives/${drive.id}/health`),
-    enabled: !!showHealth,
+    enabled: !!showHealth && drive.state === "as_is",
     retry: false,
   });
   const copy = showHealth && health.data ? describeDriveHealth(health.data) : null;
+  const nextStep = driveNextStep(drive);
 
   return (
     <Card icon={HardDrive} title={drive.label} headerActions={<Pill variant={state}>{plainDriveState(drive.state)}</Pill>}>
       <p className="text-primary text-sm">
-        Connected as {drive.device} · {drive.fs_type || "drive"}
+        {nextStep}
       </p>
       {copy && (
         <div className="mt-3">
@@ -64,13 +68,36 @@ function AdoptedCard({ drive, showHealth }) {
           <p className="text-primary text-xs mt-2">{copy.detail}</p>
         </div>
       )}
-      <div className="mt-3">
-        <Button size="sm" variant="outline" asChild>
-          <a href={`/drives/${drive.id}`}>Open files</a>
-        </Button>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {(drive.state === "as_is" || drive.state === "readonly") && (
+          <Button size="sm" variant="primary" asChild>
+            <a href={`/drives/${drive.id}`}>Open files</a>
+          </Button>
+        )}
+        {showHealth && (drive.state === "as_is" || drive.state === "readonly") && (
+          <Button size="sm" variant="outline" loading={ejecting} onClick={() => onEject(drive)}>
+            Eject safely
+          </Button>
+        )}
       </div>
     </Card>
   );
+}
+
+function driveNextStep(drive) {
+  if (drive.state === "missing") {
+    return "This drive is unplugged. Plug it back into a USB port on Luna. Nothing on it changes while it is away.";
+  }
+  if (drive.state === "ejected") {
+    return "You ejected this drive. Plug it back in when you want the files again. Luna will notice it on its own.";
+  }
+  if (drive.state === "failed") {
+    return "This drive ran into a problem. Copy important files off it if you can, then try another drive.";
+  }
+  if (drive.state === "readonly") {
+    return "Luna can look at files but cannot save new ones here. The drive may be full or write-protected.";
+  }
+  return `Connected as ${drive.device} · ${drive.fs_type || "drive"}`;
 }
 
 function plainDriveState(state) {
@@ -94,6 +121,7 @@ export default function DrivesPage() {
     enabled: isAdmin,
   });
   const [inspectFor, setInspectFor] = useState(null);
+  const [ejectError, setEjectError] = useState(null);
 
   const inspect = useMutation({
     mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.name}/inspect`, {}),
@@ -108,10 +136,26 @@ export default function DrivesPage() {
     },
   });
 
-  const adoptError = adopt.isError ? String(adopt.error) : null;
+  const dismiss = useMutation({
+    mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.name}/dismiss`, {}),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["drives-detected"] }),
+  });
+
+  const eject = useMutation({
+    mutationFn: (/** @type {any} */ drive) => postJson(`/api/v1/drives/${drive.id}/eject`, {}),
+    onSuccess: () => {
+      setEjectError(null);
+      queryClient.invalidateQueries({ queryKey: ["drives"] });
+      queryClient.invalidateQueries({ queryKey: ["drives-detected"] });
+    },
+    onError: (err) => setEjectError(String(err.message || err)),
+  });
+
+  const adoptError = adopt.isError ? String(adopt.error?.message || adopt.error) : null;
 
   return (
     <Page title="Drives" titleId="drives-title">
+      {ejectError && <p className="text-error text-sm mb-4">{ejectError}</p>}
       {(drives.data || []).length === 0 && (
         <Card icon={PlugZap} title="No drives yet" className="mb-6">
           <p className="text-primary text-sm">
@@ -124,7 +168,13 @@ export default function DrivesPage() {
       {(drives.data || []).length > 0 && (
         <div className="grid gap-5 md:grid-cols-2 mb-6">
           {drives.data.map((drive) => (
-            <AdoptedCard key={drive.id} drive={drive} showHealth={isAdmin} />
+            <AdoptedCard
+              key={drive.id}
+              drive={drive}
+              showHealth={isAdmin}
+              onEject={(d) => eject.mutate(d)}
+              ejecting={eject.isPending}
+            />
           ))}
         </div>
       )}
@@ -135,10 +185,17 @@ export default function DrivesPage() {
             Drives plugged in now
           </h2>
           <div className="grid gap-5 md:grid-cols-2">
-            {(detected.data || []).map((drive) => <DetectedCard key={drive.name} drive={drive} onOpen={setInspectFor} />)}
+            {(detected.data || []).map((drive) => (
+              <DetectedCard
+                key={drive.name}
+                drive={drive}
+                onOpen={(d) => { inspect.reset(); setInspectFor(d); }}
+                onIgnore={(d) => dismiss.mutate(d)}
+              />
+            ))}
           </div>
           {!detected.isLoading && (detected.data || []).length === 0 && (
-            <EmptyState description="Nothing new plugged in." />
+            <EmptyState description="Nothing new plugged in. Plug a USB drive into Luna, then tap Look inside." />
           )}
         </>
       )}
@@ -163,7 +220,7 @@ export default function DrivesPage() {
 function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdopt, adoptError, adopting }) {
   const [label, setLabel] = useState(drive.model || "My Drive");
   const needsInspect = !result && !loading && !error;
-  const readyToAdopt = result && !result.has_marker;
+  const canAdopt = Boolean(result);
 
   return (
     <ModalCard onClose={onClose} title={`Look inside ${drive.model || drive.name}`}>
@@ -195,18 +252,22 @@ function InspectModal({ drive, result, loading, error, onClose, onInspect, onAdo
             We found {result.folders} folders and {result.files} files on this
             drive{result.unreadable > 0 ? ` (${result.unreadable} could not be read)` : ""}.
           </p>
-          {result.has_marker && (
-            <p className="text-accent text-sm mt-2">This drive already belongs to a Luna.</p>
+          {result.has_marker ? (
+            <p className="text-primary text-sm mt-2">
+              This drive was used with a Luna before. Add it here to keep using the
+              files. Luna only updates its tiny sticker file.
+            </p>
+          ) : (
+            <div className="mt-4 flex items-center gap-3">
+              <TriangleAlert size={18} className="text-warning shrink-0" />
+              <p className="text-primary text-xs">
+                Adding it only writes one tiny <span className="font-mono">.luna</span> marker
+                file at the top of the drive. Your files are untouched.
+              </p>
+            </div>
           )}
-          {readyToAdopt && (
+          {canAdopt && (
             <>
-              <div className="mt-4 flex items-center gap-3">
-                <TriangleAlert size={18} className="text-warning shrink-0" />
-                <p className="text-primary text-xs">
-                  Adding it only writes one tiny <span className="font-mono">.luna</span> marker
-                  file at the top of the drive. Your files are untouched.
-                </p>
-              </div>
               <label className="block mt-4">
                 <span className="text-primary text-xs">What should Luna call this drive?</span>
                 <input

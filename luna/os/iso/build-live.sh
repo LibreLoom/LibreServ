@@ -39,10 +39,14 @@ apk add --root "$IRD" --no-scripts --keys-dir /etc/apk/keys --arch "$ARCH" \
 mkdir -p "$IRD/lib/modules/$KVER"
 if [ -d "/lib/modules/$KVER" ]; then
 	cp -a /lib/modules/"$KVER"/modules.* "$IRD/lib/modules/$KVER/" 2>/dev/null || true
-	for sub in kernel/drivers/usb kernel/drivers/mmc kernel/drivers/scsi \
+	for sub in kernel/drivers/usb kernel/drivers/hid kernel/drivers/input \
+		kernel/drivers/serio kernel/drivers/mmc kernel/drivers/scsi \
 		kernel/drivers/ata kernel/drivers/nvme kernel/drivers/cdrom \
 		kernel/drivers/block kernel/drivers/pinctrl kernel/drivers/acpi \
 		kernel/drivers/platform kernel/drivers/net/phy kernel/drivers/virtio \
+		kernel/drivers/pwm kernel/drivers/leds kernel/drivers/mfd \
+		kernel/drivers/phy kernel/drivers/gpio kernel/drivers/i2c \
+		kernel/drivers/extcon \
 		kernel/fs/isofs kernel/fs/ext4 kernel/fs/jbd2 kernel/fs/nls kernel/fs/fat \
 		kernel/fs/vfat kernel/lib; do
 		if [ -d "/lib/modules/$KVER/$sub" ]; then
@@ -54,9 +58,22 @@ if [ -d "/lib/modules/$KVER" ]; then
 fi
 
 cp /init.in "$IRD/init"
+cp /find-media.sh "$IRD/find-media.sh"
 chmod +x "$IRD/init"
-mkdir -p "$IRD/bin"
-if [ -f "$IRD/bin/busybox" ]; then
+mkdir -p "$IRD/bin" "$IRD/sbin" "$IRD/usr/bin" "$IRD/usr/sbin"
+# apk --no-scripts skips busybox post-install. Do not run
+# `busybox --install DIR` from outside the initrd: it writes absolute
+# symlink targets like /tmp/initrd/bin/busybox, which do not exist at boot.
+if [ -x "$IRD/bin/busybox" ]; then
+	for a in $("$IRD/bin/busybox" --list); do
+		# Keep kmod's gzip-capable modprobe; BusyBox would shadow it.
+		case "$a" in
+		modprobe | insmod | rmmod | depmod | lsmod | modinfo)
+			continue
+			;;
+		esac
+		ln -sf busybox "$IRD/bin/$a"
+	done
 	ln -sf busybox "$IRD/bin/sh"
 fi
 
@@ -73,17 +90,40 @@ cp /usr/share/syslinux/mbr.bin /iso/mbr.bin 2>/dev/null || true
 
 # UEFI: standalone GRUB (x64 + ia32 for Cherry Trail 32-bit firmware).
 cat >/iso/boot/grub/grub.cfg <<'CFG'
-set timeout=2
+insmod iso9660
+insmod fat
+insmod part_gpt
+insmod part_msdos
+insmod search
+insmod linux
 search --file --set=root /boot/vmlinuz
-linux /boot/vmlinuz quiet
+if [ ! -e /boot/vmlinuz ]; then
+	set root=(cd0)
+fi
+if [ ! -e /boot/vmlinuz ]; then
+	set root=(hd0)
+fi
+linux /boot/vmlinuz quiet console=tty0
 initrd /boot/initramfs
+boot
 CFG
 
 echo "==> GRUB EFI"
-GRUB_MODS="iso9660 fat ext2 part_gpt part_msdos normal linux configfile search search_fs_file echo gzio"
+GRUB_MODS="iso9660 fat ext2 part_gpt part_msdos normal linux configfile search search_fs_file echo gzio boot test"
 grub-mkstandalone -O x86_64-efi -o /tmp/BOOTX64.EFI \
 	--install-modules="$GRUB_MODS" --locales="" --fonts="" \
 	"boot/grub/grub.cfg=/iso/boot/grub/grub.cfg"
+
+# 32-bit UEFI (Cherry Trail / some Wyse 3040 firmware). Skip if this Alpine
+# image has no i386-efi GRUB modules.
+if [ -d /usr/lib/grub/i386-efi ]; then
+	echo "==> GRUB i386-efi"
+	grub-mkstandalone -O i386-efi -o /tmp/BOOTIA32.EFI \
+		--install-modules="$GRUB_MODS" --locales="" --fonts="" \
+		"boot/grub/grub.cfg=/iso/boot/grub/grub.cfg"
+else
+	echo "note: no /usr/lib/grub/i386-efi — ISO is x86_64 UEFI + BIOS only"
+fi
 
 # EFI System partition image El Torito boots from.
 dd if=/dev/zero of=/iso/boot/grub/efi.img bs=1M count=8 status=none

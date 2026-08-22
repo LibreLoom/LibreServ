@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { AuthProvider } from "../context/AuthContext";
 import FilesPage from "./FilesPage";
 
 function filesPath(url) {
@@ -17,6 +18,12 @@ function stubFilesApi(byPath) {
     const u = String(url);
     if (u.endsWith("/drives")) {
       return new Response(JSON.stringify([{ id: "d1", label: "Photos Drive", state: "as_is", fs_type: "ext4", device: "sdz", mount_point: "/x" }]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/auth/me") || u.endsWith("/api/v1/auth/me")) {
+      return new Response(JSON.stringify({ id: "1", role: "admin", username: "admin" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (u.includes("/setup")) {
+      return new Response(JSON.stringify({ setup_completed: true }), { status: 200, headers: { "Content-Type": "application/json" } });
     }
     if (u.includes("/api/v1/jobs")) {
       return new Response(JSON.stringify(byPath.__jobs || []), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -40,7 +47,9 @@ function renderFiles(path = "/drives/d1") {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
-        <Routes><Route path="/drives/:id" element={<FilesPage />} /></Routes>
+        <AuthProvider>
+          <Routes><Route path="/drives/:id" element={<FilesPage />} /></Routes>
+        </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>
   );

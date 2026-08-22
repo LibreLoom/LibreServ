@@ -289,11 +289,11 @@ prompt_version() {
     fi
 }
 
-# Get latest release version
+# Get latest LibreServ release (tag vX.Y.Z only — skip luna-v* and connect-v*)
 get_latest_release() {
     log_info "Fetching latest release information..."
     local response
-    response=$(curl -sf "${FORGEJO_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=1&sort=created&direction=desc") || {
+    response=$(curl -sf "${FORGEJO_URL}/api/v1/repos/${GITHUB_REPO}/releases?limit=50&sort=created&direction=desc") || {
         log_error "Failed to fetch releases from Forgejo API"
         exit 1
     }
@@ -304,13 +304,25 @@ get_latest_release() {
     fi
 
     if command -v jq >/dev/null 2>&1; then
-        LATEST_RELEASE=$(echo "$response" | jq -r '.[0].tag_name // empty')
+        LATEST_RELEASE=$(echo "$response" | jq -r '[.[] | select(.draft == false and .prerelease == false and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+")))] | .[0].tag_name // empty')
+    elif command -v python3 >/dev/null 2>&1; then
+        LATEST_RELEASE=$(printf '%s' "$response" | python3 -c '
+import json, re, sys
+pat = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$")
+for r in json.load(sys.stdin):
+    if r.get("draft") or r.get("prerelease"):
+        continue
+    t = r.get("tag_name") or ""
+    if pat.match(t):
+        print(t)
+        break
+')
     else
-        LATEST_RELEASE=$(echo "$response" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
+        LATEST_RELEASE=$(echo "$response" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"v[0-9][^"]*"' | head -1 | cut -d'"' -f4)
     fi
 
     if [ -z "$LATEST_RELEASE" ]; then
-        log_error "Could not parse release version from API response"
+        log_error "Could not parse a LibreServ v* release from the API"
         log_error "Response: $response"
         exit 1
     fi
