@@ -3,6 +3,7 @@ pub mod auth;
 pub mod cloud_backup;
 pub mod config;
 pub mod connect;
+pub mod console;
 pub mod dav;
 pub mod db;
 pub mod detect;

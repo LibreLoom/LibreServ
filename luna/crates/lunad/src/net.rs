@@ -42,7 +42,9 @@ pub fn read_status(sys_net: &Path, proc_route: &str) -> NetworkStatus {
         if name == "lo" || name == "lo0" {
             continue;
         }
-        let wireless = dir.join("wireless").exists();
+        // cfg80211 (Intel iwlwifi, mt76, …) exposes phy80211; older WEXT
+        // drivers expose wireless. Alpine's wpa_supplicant checks both.
+        let wireless = is_wireless(&dir);
         let carrier = read_trimmed(&dir.join("carrier")).as_deref() == Some("1");
         let operstate = read_trimmed(&dir.join("operstate")).unwrap_or_default();
         interfaces.push(InterfaceStatus {
@@ -100,6 +102,10 @@ pub fn default_route(proc_route: &str) -> Option<String> {
     None
 }
 
+fn is_wireless(iface_dir: &Path) -> bool {
+    iface_dir.join("wireless").exists() || iface_dir.join("phy80211").exists()
+}
+
 fn read_trimmed(path: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(path).ok()?;
     let t = raw.trim();
@@ -147,6 +153,27 @@ mod tests {
             default_route("Iface\tDestination\neth0\t00000000\n").as_deref(),
             Some("eth0")
         );
+    }
+
+    #[test]
+    fn detects_cfg80211_wifi_via_phy80211() {
+        let root = tempfile::tempdir().unwrap();
+        let net = root.path().join("sys/class/net");
+        let eth = net.join("enp0s31f6");
+        fs::create_dir_all(&eth).unwrap();
+        fs::write(eth.join("carrier"), "1").unwrap();
+        fs::write(eth.join("operstate"), "up").unwrap();
+        let wlan = net.join("wlp2s0");
+        fs::create_dir_all(&wlan).unwrap();
+        fs::write(wlan.join("carrier"), "0").unwrap();
+        fs::write(wlan.join("operstate"), "down").unwrap();
+        // Intel iwlwifi: phy80211 only, no legacy wireless/ node.
+        fs::create_dir_all(wlan.join("phy80211")).unwrap();
+
+        let status = read_status(&net, "Iface\tDestination\n");
+        assert!(status.ethernet_connected);
+        assert_eq!(status.wifi_interface.as_deref(), Some("wlp2s0"));
+        assert!(!status.wifi_connected);
     }
 
     #[test]
