@@ -39,7 +39,13 @@ assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-install
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/start.sh" '/run/live/medium/luna' "start.sh must read installer from live medium"
 assert_file_has "$OSROOT/debian-live/config/hooks/0100-luna-installer.hook.chroot" 'mask getty.target' "hook must disable getty login target"
 assert_file_lacks "$OSROOT/debian-live/config/includes.chroot/etc/systemd/system/luna-installer.service" 'rapidinstall' "systemd installer unit must not ship with init= path"
-assert_file_has "$OSROOT/rapidinstall.sh" 'timeout 5' "rapidinstall must not use bash-only read -t"
+assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/init.sh" 'network-up.sh' "custom init must start DHCP"
+assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/network-up.sh" 'dhclient' "network-up must try DHCP"
+assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'isc-dhcp-client' "live ISO must ship DHCP client"
+assert_file_has "$OSROOT/rapidinstall.sh" 'show_access_instructions' "rapidinstall must show how to reach Luna"
+assert_file_has "$OSROOT/rapidinstall.sh" 'luna.local' "access instructions must mention luna.local"
+assert_file_has "$OSROOT/lib/flash-disk.sh" 'search_fs_uuid' "installed GRUB must search root by UUID"
+assert_file_has "$OSROOT/lib/flash-disk.sh" 'EFI/BOOT/grub/grub.cfg' "UEFI GRUB must chain from ESP"
 assert_file_has "$OSROOT/iso/stage-debian-live.sh" 'includes.binary/luna' "stage script must place payload on ISO"
 
 if [ "$fail" -ne 0 ]; then

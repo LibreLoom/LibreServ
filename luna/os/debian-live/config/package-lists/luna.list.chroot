@@ -19,6 +19,8 @@ tar
 gzip
 util-linux
 fdisk
+iproute2
+isc-dhcp-client
 console-setup
 keyboard-configuration
 firmware-linux-free
