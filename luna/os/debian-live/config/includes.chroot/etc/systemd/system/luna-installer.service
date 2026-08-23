@@ -1,7 +1,8 @@
 [Unit]
 Description=Luna rapidinstall
 Documentation=https://gt.plainskill.net/LibreLoom/LibreServ
-After=live-config.service live-boot.service local-fs.target
+After=live-boot.service local-fs.target
+Wants=live-boot.service
 ConditionPathExists=/usr/lib/luna-installer/start.sh
 
 [Service]
