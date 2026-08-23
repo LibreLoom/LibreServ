@@ -1,11 +1,11 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"runtime"
 	"time"
 
+	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/response"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/database"
 )
 
@@ -118,16 +118,9 @@ func (h *HealthHandler) Version(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// JSON writes a JSON response
-func JSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		http.Error(w, `{"error": "Failed to encode response"}`, http.StatusInternalServerError)
-	}
-}
-
-// JSONError writes a JSON error response
-func JSONError(w http.ResponseWriter, status int, message string) {
-	JSON(w, status, map[string]string{"error": message})
-}
+// JSON and JSONError are aliases to the canonical helpers in internal/api/response
+// to avoid duplication. Deprecated: import response directly.
+var (
+	JSON      = response.JSON
+	JSONError = response.JSONError
+)

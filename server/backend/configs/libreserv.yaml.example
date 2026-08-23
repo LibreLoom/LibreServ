@@ -6,12 +6,7 @@ database:
     path: ./dev/data/libreserv.db
 auth:
     jwt_secret: ""
-    secret_file: ""
     csrf_secret: ""
-    # allow_registration controls whether anyone can create an account.
-    # Keep this off for private or admin-managed servers. (Public self-signup is
-    # removed; admins invite users via POST /users/invites instead.)
-    allow_registration: false
     mfa:
         # AES-GCM key wrapping TOTP secrets at rest. Empty -> auto-generated +
         # persisted on first run (must stay stable or enrolled TOTP methods
@@ -37,11 +32,6 @@ runtime:
         port: 0
         use_tls: false
         cert_path: ""
-    ssh:
-        host: ""
-        user: ""
-        key_path: ""
-    timeout: 30s
     binary: podman
 logging:
     level: info
@@ -49,7 +39,11 @@ logging:
 network:
     caddy:
         mode: enabled
-        admin_api: localhost:2019
+        admin_api: 127.0.0.1:2019
+        # If you run LibreServ behind a reverse proxy, set LIBRESERV_TRUSTED_PROXIES
+        # (environment variable, comma-separated CIDRs or IPs, e.g. "127.0.0.1,::1")
+        # so X-Forwarded-For is honored only from those sources. The default trusts
+        # loopback only — anything else lets clients spoof their IP for rate limits.
         config_path: ./dev/caddy/Caddyfile
         certs_path: ./dev/caddy/certs
         default_domain: ""
@@ -68,9 +62,6 @@ network:
             level: ""
     mdns:
         enabled: true
-    upnp:
-        enabled: false
-        timeout: 5
     tunnel:
         provider: ""
         token: ""
@@ -88,14 +79,8 @@ network:
             ca_dir_url: ""
             key_type: ""
             certs_path: ""
-    dns:
-        provider: ""
-        api_token: ""
 cors:
     allowed_origins: []
-license:
-    entitlement_file: ""
-    public_key_file: ""
 smtp:
     host: ""
     port: 587
@@ -116,23 +101,7 @@ updates:
     owner: libreloom
     repo: libreserv
 support:
-    # server_url: the LibreServ support service that provides AI inference and billing.
-    # Your server connects to this for AI capabilities — the inference API key is held
-    # by the support service, never on your machine.
-    server_url: "https://support.serv.libreloom.org"
-    # device_token: authenticates your server to the support service.
-    # Your administrator provides this when setting up your subscription.
-    device_token: ""
-    # device_id: a unique name for this server, used to identify your subscription
-    # and track credit usage. Must match what the support service has on file.
-    device_id: ""
-    # inference_base_url: only used for BYOK (Bring Your Own Key) mode.
-    # When using the shared support service, this is ignored.
     inference_base_url: "https://api.routing.run/v1"
-    # billing_mode: how credit costs are calculated.
-    #   "token"  — cost based on token usage (for token-billed providers)
-    #   "request" — flat cost per request (for request-billed providers like routing.run)
-    billing_mode: "token"
     agent:
         # main_model: the AI model used for agent conversations.
         # When using LibreServ Connect, available models are fetched live.

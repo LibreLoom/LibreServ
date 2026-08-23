@@ -16,13 +16,15 @@ ifneq ($(strip $(BUILD_TIME)),)
 LDVARS += -X gt.plainskill.net/LibreLoom/LibreServ/internal/api/handlers.BuildTime=$(BUILD_TIME)
 endif
 LDFLAGS := -ldflags "$(LDVARS)"
+# CODE QUALITY FIX: correctly handle empty BUILD_TAGS (was -tags "" causing vet to see empty tag)
+TAGS_FLAG := $(if $(strip $(BUILD_TAGS)),-tags "$(BUILD_TAGS)",)
 
 default: build
 
 build:
 	@echo ">> Building backend $(VERSION)"
 	@mkdir -p $(BIN_DIR)
-	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -tags "$(BUILD_TAGS)" $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
+	@GOOS=$(GOOS) GOARCH=$(GOARCH) go build $(TAGS_FLAG) $(LDFLAGS) -o $(BIN_DIR)/$(APP_NAME) ./cmd/libreserv
 
 run: build
 	@if [ ! -f ./configs/libreserv.yaml ]; then \
@@ -49,6 +51,24 @@ restic-fetch:
 		| bzip2 -d > $(RESTIC_DIR)/restic
 	@chmod +x $(RESTIC_DIR)/restic
 	@echo ">> restic placed in $(RESTIC_DIR)/restic"
+# restic-fetch with checksum verification (use restic-fetch-verified for supply-chain safety).
+# The checksum MUST be verified against the downloaded .bz2 archive BEFORE
+# decompressing — verifying after would either checksum a file that no longer
+# exists or checksum the wrong bytes entirely.
+restic-fetch-verified:
+	@echo ">> Downloading restic $(RESTIC_VERSION) for $(GOOS)/$(GOARCH) with checksum verification"
+	@mkdir -p $(RESTIC_DIR)
+	@cd $(RESTIC_DIR) && \
+	curl -fSL -o restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 \
+		"https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" && \
+	curl -fSL "https://github.com/restic/restic/releases/download/v$(RESTIC_VERSION)/SHA256SUMS" \
+		| grep "restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2" > SHA256SUMS.tmp && \
+	sha256sum -c SHA256SUMS.tmp || \
+		{ echo "checksum mismatch!"; rm -f restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 SHA256SUMS.tmp; exit 1; }
+	@bzip2 -dc $(RESTIC_DIR)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 > $(RESTIC_DIR)/restic
+	@rm -f $(RESTIC_DIR)/restic_$(RESTIC_VERSION)_$(GOOS)_$(GOARCH).bz2 $(RESTIC_DIR)/SHA256SUMS.tmp
+	@chmod +x $(RESTIC_DIR)/restic
+	@echo ">> verified restic placed in $(RESTIC_DIR)/restic"
 
 restic-clean:
 	@echo ">> Removing downloaded restic binary"

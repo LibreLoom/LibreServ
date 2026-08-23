@@ -59,8 +59,8 @@ func TestValidateRestoredTreeAcceptsCleanTree(t *testing.T) {
 func TestIsSafeRestoreDestination(t *testing.T) {
 	parent := t.TempDir()
 	cases := []struct {
-		dst   string
-		ok    bool
+		dst string
+		ok  bool
 	}{
 		{filepath.Join(parent, "child"), true},
 		{filepath.Join(parent, "sub", "grandchild"), true},

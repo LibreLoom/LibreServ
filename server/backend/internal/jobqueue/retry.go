@@ -2,7 +2,7 @@ package jobqueue
 
 import (
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 )
 
@@ -39,9 +39,15 @@ func CalculateNextRetry(createdAt time.Time, retryCount int, config RetryConfig)
 		backoff = float64(config.MaxBackoff)
 	}
 
-	// Add jitter to prevent thundering herd
+	// Add jitter to prevent thundering herd. Uses math/rand/v2 global which is
+	// concurrency-safe via per-goroutine state (unlike math/rand global with
+	// hidden mutex contention). Deterministic jitter was previously caused by
+	// unseeded global source (always seed 1 in tests).
 	jitter := backoff * config.JitterFactor * (rand.Float64()*2 - 1) // ±JitterFactor
 	backoff += jitter
+	if backoff < 0 {
+		backoff = 0
+	}
 
 	return time.Now().Add(time.Duration(backoff))
 }
