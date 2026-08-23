@@ -232,7 +232,12 @@ if skip_disk "$TARGET"; then
 fi
 
 echo "Erasing $TARGET and installing Luna."
-flash_luna_disk "$TARGET" "$TARBALL"
+if ! flash_luna_disk "$TARGET" "$TARBALL"; then
+	echo
+	echo "Install failed. The disk may be half-written — do not reboot into it yet."
+	echo "Fix the error above, or re-run from the USB stick."
+	exit 1
+fi
 echo
 echo "Installation complete. Remove the USB stick if you used one."
 echo "Luna will reboot and show how to connect on the screen and in your browser."
