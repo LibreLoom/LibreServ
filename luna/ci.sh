@@ -27,6 +27,7 @@ sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-is
 	os/lib/alpine-image.sh \
 	os/iso/find-media.sh os/iso/find-media_test.sh \
 	os/iso/stage-debian-live.sh os/iso/build-debian-live.sh os/iso/wait-iso-build.sh \
+	os/iso/add-uefi-boot.sh \
 	os/debian-live/debian_live_test.sh os/rootfs_test.sh
 sh os/lib/disk_test.sh
 sh os/iso/find-media_test.sh
