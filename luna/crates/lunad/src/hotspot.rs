@@ -6,11 +6,15 @@
 //! as soon as a real connection exists or setup completes.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::Serialize;
 
+use crate::wifi::WifiNetwork;
+
 pub const SETUP_SSID: &str = "Luna Setup";
-const HOTSPOT_IP: &str = "10.42.0.1/24";
+const HOTSPOT_IP: &str = "10.42.0.1";
+const HOTSPOT_CIDR: &str = "10.42.0.1/24";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct HotspotStatus {
@@ -33,6 +37,7 @@ pub enum HotspotError {
 pub struct CommandHotspot {
     interface: String,
     run_dir: PathBuf,
+    scan_cache: Mutex<Vec<WifiNetwork>>,
 }
 
 impl CommandHotspot {
@@ -40,7 +45,16 @@ impl CommandHotspot {
         Self {
             interface: interface.into(),
             run_dir: run_dir.to_path_buf(),
+            scan_cache: Mutex::new(Vec::new()),
         }
+    }
+
+    pub fn set_cache(&self, networks: Vec<WifiNetwork>) {
+        *self.scan_cache.lock().unwrap() = networks;
+    }
+
+    pub fn cached_scan(&self) -> Vec<WifiNetwork> {
+        self.scan_cache.lock().unwrap().clone()
     }
 
     pub fn status(&self) -> HotspotStatus {
@@ -58,6 +72,7 @@ impl CommandHotspot {
         if self.status().running {
             return Ok(());
         }
+        pause_wpa_supplicant();
         std::fs::create_dir_all(&self.run_dir).map_err(HotspotError::Io)?;
         let conf = self.run_dir.join("luna-setup-hostapd.conf");
         std::fs::write(&conf, hostapd_config(&self.interface)).map_err(HotspotError::Io)?;
@@ -72,29 +87,35 @@ impl CommandHotspot {
             .output()
             .map_err(HotspotError::Io)?;
         if !hostapd.status.success() {
+            resume_wpa_supplicant();
             return Err(HotspotError::Tool(
                 String::from_utf8_lossy(&hostapd.stderr).trim().into(),
             ));
         }
 
         let _ = std::process::Command::new("ip")
-            .args(["addr", "add", HOTSPOT_IP, "dev", &self.interface])
+            .args(["addr", "add", HOTSPOT_CIDR, "dev", &self.interface])
             .output();
 
-        let mut dnsmasq = std::process::Command::new("dnsmasq")
+        let _dnsmasq = std::process::Command::new("dnsmasq")
             .args([
                 "--no-resolv",
                 "--no-poll",
+                "--bind-interfaces",
+                &format!("--listen-address={HOTSPOT_IP}"),
                 "--dhcp-range=10.42.0.50,10.42.0.150,12h",
+                &format!("--dhcp-option=option:router,{HOTSPOT_IP}"),
                 "--interface",
                 &self.interface,
                 "--except-interface=lo",
-                "-k",
+                &format!("--address=/#/{HOTSPOT_IP}"),
+                &format!("--pid-file={}", self.dnsmasq_pid_path().display()),
             ])
             .spawn()
-            .map_err(HotspotError::Io)?;
-        let _ = std::fs::write(self.dnsmasq_pid_path(), dnsmasq.id().to_string());
-        let _ = dnsmasq;
+            .map_err(|e| {
+                let _ = self.stop();
+                HotspotError::Io(e)
+            })?;
         Ok(())
     }
 
@@ -110,8 +131,9 @@ impl CommandHotspot {
             let _ = std::fs::remove_file(&dns_pid);
         }
         let _ = std::process::Command::new("ip")
-            .args(["addr", "del", HOTSPOT_IP, "dev", &self.interface])
+            .args(["addr", "del", HOTSPOT_CIDR, "dev", &self.interface])
             .output();
+        resume_wpa_supplicant();
         Ok(())
     }
 
@@ -140,6 +162,25 @@ pub fn hostapd_config(interface: &str) -> String {
     )
 }
 
+fn pause_wpa_supplicant() {
+    let _ = std::process::Command::new("rc-service")
+        .args(["wpa_supplicant", "stop"])
+        .output();
+}
+
+fn resume_wpa_supplicant() {
+    let _ = std::process::Command::new("rc-service")
+        .args(["wpa_supplicant", "start"])
+        .output();
+}
+
+/// True when wpa_supplicant reports a completed association to a home network.
+pub fn wifi_uplink_connected(wifi: &dyn crate::wifi::WifiProvider) -> bool {
+    wifi.status()
+        .map(|st| st.connected)
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +199,18 @@ mod tests {
         assert!(!should_start_setup_hotspot(true, false, false));
         assert!(!should_start_setup_hotspot(false, true, false));
         assert!(!should_start_setup_hotspot(false, false, true));
+    }
+
+    #[test]
+    fn cached_scan_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let hs = CommandHotspot::new("wlan0", dir.path());
+        hs.set_cache(vec![crate::wifi::WifiNetwork {
+            ssid: "Home".into(),
+            signal: -42,
+            encrypted: true,
+        }]);
+        assert_eq!(hs.cached_scan().len(), 1);
     }
 
     #[test]

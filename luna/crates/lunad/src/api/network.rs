@@ -67,6 +67,11 @@ async fn scan(
             "Only an admin can scan for Wi-Fi networks.",
         ));
     }
+    if let Some(hotspot) = state.hotspot.lock().unwrap().as_ref()
+        && hotspot.status().running
+    {
+        return Ok(Json(hotspot.cached_scan()));
+    }
     let provider = state.wifi.clone();
     let networks = tokio::task::spawn_blocking(move || provider.scan())
         .await
@@ -122,17 +127,27 @@ async fn connect(
             "That Wi-Fi password is too long to be right.",
         ));
     }
+    let paused_hotspot = state.hotspot.lock().unwrap().take();
+    if let Some(ref hotspot) = paused_hotspot {
+        let _ = hotspot.stop();
+    }
     let provider = state.wifi.clone();
     let ssid_out = ssid.clone();
-    tokio::task::spawn_blocking(move || provider.connect(&ssid, &password))
+    let connect_result = tokio::task::spawn_blocking(move || provider.connect(&ssid, &password))
         .await
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Luna couldn't connect to Wi-Fi.",
             )
-        })?
-        .map_err(map_wifi_err)?;
+        })?;
+    if let Err(err) = connect_result.map_err(map_wifi_err) {
+        if let Some(hotspot) = paused_hotspot {
+            let _ = hotspot.start();
+            state.set_hotspot(hotspot);
+        }
+        return Err(err);
+    }
     Ok(Json(json!({ "connected": true, "ssid": ssid_out })))
 }
 
@@ -205,7 +220,7 @@ async fn hotspot_start(
     if !crate::hotspot::should_start_setup_hotspot(
         setup_done,
         status.ethernet_connected,
-        status.wifi_connected,
+        crate::hotspot::wifi_uplink_connected(state.wifi.as_ref()),
     ) {
         return Err(json_error(
             StatusCode::CONFLICT,
