@@ -36,11 +36,15 @@ function renderSetup() {
 }
 
 describe("SetupPage", () => {
-  it("opens on welcome with the logo, tagline, and begin button", async () => {
+  it("opens on welcome with the logo, tagline, discovery paths, and begin button", async () => {
     vi.stubGlobal("fetch", stubFetch());
     renderSetup();
     expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
     expect(screen.getByText(/Your files, your drives, your house/i)).toBeTruthy();
+    expect(screen.getByText("luna.local")).toBeTruthy();
+    expect(screen.getByText("http://luna")).toBeTruthy();
+    expect(screen.getByText("http://169.254.42.42")).toBeTruthy();
+    expect(screen.getByText(/Luna Setup/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Begin Setup/i })).toBeTruthy();
   });
 

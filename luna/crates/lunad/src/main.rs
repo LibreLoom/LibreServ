@@ -78,6 +78,12 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
         .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
         .unwrap_or(false);
+    if !setup_done {
+        std::thread::Builder::new()
+            .name("luna-console-help".into())
+            .spawn(lunad::console::print_setup_connection_help)
+            .ok();
+    }
     if lunad::hotspot::should_start_setup_hotspot(
         setup_done,
         net.ethernet_connected,

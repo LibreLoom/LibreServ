@@ -42,11 +42,12 @@ assert_file_lacks "$OSROOT/debian-live/config/includes.chroot/etc/systemd/system
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/init.sh" 'network-up.sh' "custom init must start DHCP"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/network-up.sh" 'dhclient' "network-up must try DHCP"
 assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'isc-dhcp-client' "live ISO must ship DHCP client"
-assert_file_has "$OSROOT/rapidinstall.sh" 'show_access_instructions' "rapidinstall must show how to reach Luna"
-assert_file_has "$OSROOT/rapidinstall.sh" 'luna.local' "access instructions must mention luna.local"
+assert_file_lacks "$OSROOT/rapidinstall.sh" 'show_access_instructions' "rapidinstall must not print connection help"
+assert_file_has "$OSROOT/rapidinstall.sh" 'Press any key to pick another disk' "rapidinstall must offer a 5s disk override"
+assert_file_has "$OSROOT/rapidinstall.sh" 'timeout 5' "rapidinstall must not use bash-only read -t"
+assert_file_has "$OSROOT/../crates/lunad/src/console.rs" 'print_setup_connection_help' "installed Luna must print connection help on console"
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'search_fs_uuid' "installed GRUB must search root by UUID"
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'EFI/BOOT/grub/grub.cfg' "UEFI GRUB must chain from ESP"
-assert_file_has "$OSROOT/rapidinstall.sh" 'timeout 5' "rapidinstall must not use bash-only read -t"
 assert_file_has "$OSROOT/iso/stage-debian-live.sh" 'includes.binary/luna' "stage script must place payload on ISO"
 
 if [ "$fail" -ne 0 ]; then
