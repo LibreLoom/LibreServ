@@ -79,6 +79,7 @@ if ! lb config >>"$LOG" 2>&1; then
 fi
 
 echo "==> lb build" | tee -a "$LOG"
+rm -f binary.hybrid.iso chroot/binary.hybrid.iso
 # Detach from controlling tty so job-control SIGSTOP cannot freeze apt in chroot.
 _lb_ok=0
 if setsid lb build >>"$LOG" 2>&1; then

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Last live-config component: hand tty1 to rapidinstall (no login prompt).
+# Safety net if luna-installer.service did not take tty1 before getty.
 . /lib/live/config.sh
 
 Init() {
@@ -7,7 +7,6 @@ Init() {
 }
 
 _take_tty1() {
-	# Generators may recreate getty@tty1 under /run despite /etc masks.
 	systemctl stop 'getty@tty1.service' 2>/dev/null || true
 	systemctl mask 'getty@tty1.service' 2>/dev/null || true
 	rm -f /run/systemd/generator/getty.target.wants/getty@tty1.service
@@ -17,13 +16,16 @@ _take_tty1() {
 }
 
 Config() {
+	if [ -f /var/lib/live/config/luna-installer ]; then
+		return 0
+	fi
 	_take_tty1
 	if [ ! -x /usr/lib/luna-installer/start.sh ]; then
 		echo "Luna installer missing." >&2
 		return 1
 	fi
-	# openvt attaches a controlling terminal on tty1 for rapidinstall.
-	openvt -c 1 -f -s -w -- /usr/lib/luna-installer/start.sh
+	chvt 1 2>/dev/null || true
+	/usr/lib/luna-installer/start.sh </dev/tty1 >/dev/tty1 2>&1
 	touch /var/lib/live/config/luna-installer
 }
 

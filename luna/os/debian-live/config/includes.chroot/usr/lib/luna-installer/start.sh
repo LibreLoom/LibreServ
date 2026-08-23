@@ -70,4 +70,5 @@ if [ -t 0 ] && command -v stty >/dev/null 2>&1; then
 fi
 
 cd "$DIR"
+touch /var/lib/live/config/luna-installer 2>/dev/null || mkdir -p /var/lib/live/config && touch /var/lib/live/config/luna-installer
 exec ./rapidinstall.sh

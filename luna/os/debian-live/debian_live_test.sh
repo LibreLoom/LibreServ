@@ -36,10 +36,11 @@ assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'fir
 assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'grub-efi-amd64-bin' "Debian live must ship UEFI GRUB"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/start.sh" 'rapidinstall.sh' "start.sh must exec rapidinstall"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/start.sh" '/run/live/medium/luna' "start.sh must read installer from live medium"
-assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/live/config/9999-luna-installer" 'openvt' "live-config must launch installer on tty1"
-assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/live/config/9999-luna-installer" 'getty@tty1' "live-config must keep getty off tty1"
-assert_file_has "$OSROOT/debian-live/config/hooks/0100-luna-installer.hook.chroot" 'mask getty@tty1' "hook must mask tty1 getty at build time"
-assert_file_lacks "$OSROOT/debian-live/config/includes.chroot/etc/systemd/system/luna-installer.service" 'rapidinstall' "standalone installer unit must not ship"
+assert_file_has "$OSROOT/debian-live/config/includes.chroot/etc/systemd/system/luna-installer.service" 'Before=getty.target' "installer must start before getty"
+assert_file_has "$OSROOT/debian-live/config/includes.chroot/etc/systemd/system/luna-installer.service" 'start.sh' "installer unit must run start.sh"
+assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/live/config/9999-luna-installer" 'getty@tty1' "live-config fallback must keep getty off tty1"
+assert_file_has "$OSROOT/debian-live/config/hooks/0100-luna-installer.hook.chroot" 'enable luna-installer.service' "hook must enable installer unit"
+assert_file_has "$OSROOT/rapidinstall.sh" 'timeout 5' "rapidinstall must not use bash-only read -t"
 assert_file_has "$OSROOT/iso/stage-debian-live.sh" 'includes.binary/luna' "stage script must place payload on ISO"
 
 if [ "$fail" -ne 0 ]; then

@@ -176,7 +176,17 @@ fi
 if [ -n "$TARGET" ] && [ "$_forced_target" -eq 0 ]; then
 	echo "Installing to $TARGET ($(size_hint "$TARGET"))."
 	echo "Do nothing for 5 seconds to continue. Press any key to pick another disk."
-	if [ -t 0 ] && IFS= read -r -t 5 -n 1 _; then
+	_picked_other=0
+	if [ -t 0 ]; then
+		if command -v timeout >/dev/null 2>&1; then
+			if timeout 5 sh -c 'IFS= read -r -n 1 _ </dev/tty'; then
+				_picked_other=1
+			fi
+		elif IFS= read -r -n 1 _; then
+			_picked_other=1
+		fi
+	fi
+	if [ "$_picked_other" -eq 1 ]; then
 		echo
 		drain_stdin
 		TARGET=""

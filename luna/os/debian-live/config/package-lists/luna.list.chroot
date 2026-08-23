@@ -11,6 +11,7 @@ librsvg2-bin
 grub-pc-bin
 grub-efi-amd64-bin
 grub-common
+grub-pc
 parted
 e2fsprogs
 dosfstools
