@@ -125,7 +125,7 @@ export default function RemotePage() {
             <li className="flex items-start gap-2">
               <KeyRound size={14} className="text-accent mt-1 shrink-0" />
               <span>
-                Port forwarding: in your internet box, send web traffic (ports 80 and 443) to Luna. Then open Luna at your home&apos;s public number. Your browser may warn about the certificate — that is expected for a numbered address.
+                Port forwarding: in your internet box, send web traffic (ports 80 and 443) to Luna. Then open Luna at your home&apos;s public internet address. Your browser may warn about the certificate — that is expected for a numbered internet address.
               </span>
             </li>
           </ul>
