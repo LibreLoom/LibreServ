@@ -1,0 +1,22 @@
+[Unit]
+Description=Luna rapidinstall
+Documentation=https://gt.plainskill.net/LibreLoom/LibreServ
+After=live-config.service local-fs.target
+Before=getty.target
+Conflicts=getty@tty1.service
+ConditionPathExists=/usr/lib/luna-installer/start.sh
+
+[Service]
+Type=exec
+ExecStart=/usr/lib/luna-installer/start.sh
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+IgnoreSIGPIPE=no
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

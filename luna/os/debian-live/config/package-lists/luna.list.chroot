@@ -1,0 +1,24 @@
+# Minimal Debian live environment for Luna rapidinstall.
+live-boot
+live-config
+live-config-systemd
+systemd
+udev
+kmod
+isolinux
+syslinux-common
+librsvg2-bin
+grub-pc-bin
+grub-efi-amd64-bin
+grub-common
+parted
+e2fsprogs
+dosfstools
+tar
+gzip
+util-linux
+fdisk
+console-setup
+keyboard-configuration
+firmware-linux-free
+firmware-linux-nonfree

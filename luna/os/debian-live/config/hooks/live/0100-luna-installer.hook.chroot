@@ -1,0 +1,11 @@
+#!/bin/bash
+# Enable the Luna installer on tty1 and keep the live image minimal.
+set -e
+
+chmod +x /usr/lib/luna-installer/start.sh
+
+systemctl enable luna-installer.service
+systemctl mask getty@tty1.service
+
+# No desktop, no network requirement for install.
+systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true

@@ -16,6 +16,8 @@ disk both boot in either firmware mode.
 ./os/build-rootfs.sh                  # → os/dist/luna-rootfs-x86_64.tar.gz
 
 # 3. Rapidinstall ISO (`dd` to a USB stick)
+#    Debian live boots the installer (keyboard, NVMe, firmware); it writes the
+#    Alpine Luna rootfs to built-in storage.
 #    One-shot (web UI + musl lunad + rootfs + ISO):
 ./os/build-iso.sh                     # → os/dist/luna-rapidinstall-x86_64.iso
 #    Or after a rootfs already exists:
@@ -39,8 +41,9 @@ Installed layout (GPT): 1 MiB BIOS GRUB partition, EFI System partition,
 then Luna root (`LABEL=LUNA`). GRUB is installed for `i386-pc` and
 `x86_64-efi`.
 
-This kernel is Alpine 3.24 **x86_64** (x86-64-v2). 32-bit-only PCs and very
-old 64-bit CPUs without SSE4.2 are a later ISO, not this one.
+This kernel is Alpine 3.24 **x86_64** (x86-64-v2) on the **installed** system. The
+rapidinstall USB boots a pinned **Debian 12 live** image for reliable hardware
+support, then flashes the Alpine rootfs above.
 
 Quick-start card addresses: `luna.local`, `http://luna`,
 and direct-cable `http://169.254.42.42`.
