@@ -45,7 +45,7 @@ export default function Register() {
       <Card className="w-full max-w-md animate-pop-in">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl">Create your account</CardTitle>
-          <CardDescription>Pair your Luna so you can open it away from home. The address is free. A spare copy of files off-site is optional and costs $7 per terabyte each month.</CardDescription>
+          <CardDescription>You will be able to open your Luna when you are away. Keeping a spare copy of your files here is optional and costs $7 per terabyte each month.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

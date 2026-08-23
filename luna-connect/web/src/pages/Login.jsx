@@ -45,7 +45,7 @@ export default function Login() {
       <Card className="w-full max-w-md animate-pop-in">
         <CardHeader className="text-center">
           <CardTitle className="text-3xl">Luna Connect</CardTitle>
-          <CardDescription>Remote access is the main thing. Sign in to pair your Luna so you can open it away from home. A spare copy of files off-site is optional.</CardDescription>
+          <CardDescription>Open your Luna from your phone or computer when you are not at home. You can also keep a spare copy of your files here.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

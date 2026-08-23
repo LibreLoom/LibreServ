@@ -25,15 +25,15 @@ export default function LunaPage() {
 
   return (
     <Layout>
-      <h1 className="font-mono text-3xl mb-2">Remote access</h1>
+      <h1 className="font-mono text-3xl mb-2">Away from home</h1>
       <p className="text-muted-foreground mb-8">
-        Signed in as {me?.email}. Pair a Luna so you can open it away from home. A spare copy of files off-site is optional.
+        Signed in as {me?.email}. Connect a Luna here so you can open it when you are not at home.
       </p>
       <Card className="animate-fade-in-up">
         <CardHeader>
           <CardTitle>Paired devices</CardTitle>
           <CardDescription>
-            On Luna, turn remote access on, then tap Get pairing code. Type that code here.
+            On your Luna, turn on access from away, then tap Get pairing code and type it here.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
