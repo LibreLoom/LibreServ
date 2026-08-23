@@ -91,7 +91,7 @@ export default function Register() {
                   ? "Sending…"
                   : resendState === "sent"
                   ? "Email resent — check your inbox"
-                  : "Didn't get the email? Resend it"}
+                  : "Resend Verification Email"}
               </button>
               <p className="mt-2 text-xs text-muted-foreground">
                 Check your spam or junk folder too — it sometimes lands there.
@@ -179,7 +179,7 @@ export default function Register() {
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link to="/login" className="text-foreground underline">Sign in</Link>
+            <Link to="/login" className="text-foreground underline">Sign In</Link>
           </p>
         </CardContent>
       </Card>

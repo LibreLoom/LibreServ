@@ -115,7 +115,7 @@ export default function Models() {
                       value={modelForm.provider_id}
                       onChange={(e) => setModelForm({ ...modelForm, provider_id: e.target.value })}
                     >
-                      <option value="">Select provider...</option>
+                      <option value="">Select provider…</option>
                       {(providers?.providers || []).map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}

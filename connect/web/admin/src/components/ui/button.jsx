@@ -37,7 +37,7 @@ export function Button({ className = "", variant, size, asChild = false, loading
       disabled={loading || disabled}
       {...props}
     >
-      {loading ? "Loading..." : children}
+      {loading ? "Loading…" : children}
     </Comp>
   );
 }

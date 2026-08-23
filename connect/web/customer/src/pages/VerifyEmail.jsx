@@ -53,7 +53,7 @@ export default function VerifyEmail() {
                 : "Your email address has been confirmed. You can now generate a license key and connect your LibreServ device."}
             </p>
             <Button size="lg" className="mt-2" onClick={() => navigate(fromOnboarding ? "/onboarding" : "/")}>
-              {fromOnboarding ? "Back to setup" : "Go to Dashboard"}
+              {fromOnboarding ? "Back to Setup" : "Go to Dashboard"}
             </Button>
           </div>
         )}

@@ -730,7 +730,7 @@ export default function Onboarding() {
         </p>
       </div>
       <Button size="lg" onClick={goNext} className="w-full max-w-sm">
-        Get started <ArrowRight className="w-5 h-5 ml-1" />
+        Get Started <ArrowRight className="w-5 h-5 ml-1" />
       </Button>
     </StepShell>
   );
@@ -851,7 +851,7 @@ export default function Onboarding() {
             onClick={() => { setIsLoginMode(!isLoginMode); setError(""); setAuthSubStep(0); setAuthSubDir("left"); }}
             className="text-xs text-muted-foreground hover:text-card-foreground underline underline-offset-4 motion-safe:transition-colors"
           >
-            {isLoginMode ? "Need an account? Register" : "Already have an account? Sign in"}
+            {isLoginMode ? "Need an account? Register" : "Already have an account? Sign In"}
           </button>
         </div>
         <div className="flex gap-1.5">
@@ -909,7 +909,7 @@ export default function Onboarding() {
               loading={isLastAuthSubStep && authLoading}
             >
               {isLastAuthSubStep
-                ? isLoginMode ? "Sign in" : "Create account and sign in"
+                ? isLoginMode ? "Sign In" : "Create Account and Sign In"
                 : "Continue"}
               {!isLastAuthSubStep && <ChevronRight className="w-4 h-4 ml-1" />}
             </Button>
@@ -992,7 +992,7 @@ export default function Onboarding() {
               <ChevronLeft className="w-4 h-4" />
             </Button>
             <Button size="lg" className="flex-1" onClick={handleManualCheck} loading={checkingVerification}>
-              Check again
+              Check Again
             </Button>
           </div>
 
@@ -1009,10 +1009,10 @@ export default function Onboarding() {
                   className="underline underline-offset-2 hover:text-card-foreground motion-safe:transition-colors disabled:opacity-60 disabled:pointer-events-none"
                 >
                   {resendState === "sending"
-                    ? "sending…"
+                    ? "Sending…"
                     : cooldown > 0
-                    ? `resend in ${cooldown}s`
-                    : "resend the email"}
+                    ? `Resend in ${cooldown}s`
+                    : "Resend Verification Email"}
                 </button>
                 .
               </>

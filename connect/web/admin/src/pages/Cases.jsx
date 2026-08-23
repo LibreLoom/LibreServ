@@ -71,7 +71,7 @@ export default function Cases() {
                 <Input
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Type a reply..."
+                  placeholder="Type a reply…"
                   onKeyDown={(e) => { if (e.key === "Enter" && message.trim()) msgMut.mutate({ id: selectedId, text: message }); }}
                 />
                 <Button
