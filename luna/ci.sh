@@ -27,10 +27,11 @@ sh -n os/build-rootfs.sh os/flash.sh os/make-image.sh os/make-iso.sh os/build-is
 	os/lib/alpine-image.sh \
 	os/iso/find-media.sh os/iso/find-media_test.sh \
 	os/iso/stage-debian-live.sh os/iso/build-debian-live.sh os/iso/wait-iso-build.sh \
-	os/debian-live/debian_live_test.sh
+	os/debian-live/debian_live_test.sh os/rootfs_test.sh
 sh os/lib/disk_test.sh
 sh os/iso/find-media_test.sh
 sh os/debian-live/debian_live_test.sh
+sh os/rootfs_test.sh
 for f in os/build-rootfs.sh os/make-image.sh; do
 	grep -q 'os/lib/alpine-image.sh' "$f" || {
 		echo "$f must source os/lib/alpine-image.sh" >&2
