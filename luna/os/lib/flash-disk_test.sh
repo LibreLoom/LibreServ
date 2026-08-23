@@ -33,6 +33,11 @@ _write_efi_grub_cfg "$_esptmp" '11111111-2222-3333-4444-555555555555'
 assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" 'configfile $prefix/grub.cfg' "ESP grub.cfg must chain to root"
 assert_has "$_esptmp/EFI/BOOT/grub/grub.cfg" '11111111-2222-3333-4444-555555555555' "ESP grub.cfg must search root UUID"
 
+if [ -f /usr/lib/grub/x86_64-efi/ext4.mod ]; then
+	_install_grub_modules "$_tmp" x86_64-efi
+	assert_has "$_tmp/boot/grub/x86_64-efi/ext4.mod" '.*' "must copy ext4.mod for UEFI"
+fi
+
 if [ "$fail" -ne 0 ]; then
 	echo "$fail failed" >&2
 	exit 1
