@@ -33,7 +33,7 @@ export default function LunaPage() {
         <CardHeader>
           <CardTitle>Paired devices</CardTitle>
           <CardDescription>
-            On your Luna, turn on access from away, then tap Get pairing code and type it here.
+            On your Luna, turn on opening from away, then tap Get pairing code and type it here.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
