@@ -22,4 +22,6 @@ if command -v systemd-udevd >/dev/null 2>&1; then
 	udevadm settle 2>/dev/null || true
 fi
 
-exec /usr/lib/luna-installer/start.sh
+/usr/lib/luna-installer/start.sh
+sync
+exec /sbin/reboot -f
