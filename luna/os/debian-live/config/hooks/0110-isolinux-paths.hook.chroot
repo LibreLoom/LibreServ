@@ -11,6 +11,9 @@ fi
 mkdir -p /usr/lib/syslinux
 ln -sf ../ISOLINUX/isolinux.bin /usr/lib/syslinux/isolinux.bin
 ln -sf modules/bios/vesamenu.c32 /usr/lib/syslinux/vesamenu.c32
+for _mod in ldlinux.c32 libcom32.c32 libutil.c32 libmenu.c32 libgpl.c32; do
+	ln -sf "modules/bios/$_mod" "/usr/lib/syslinux/$_mod"
+done
 
 # live-build 3.x calls legacy `rsvg`; bookworm ships rsvg-convert with different flags.
 cat >/usr/bin/rsvg <<'EOF'

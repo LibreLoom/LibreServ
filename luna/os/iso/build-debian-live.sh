@@ -49,7 +49,10 @@ _setup_bootloaders() {
 	cp "$_src"/*.cfg "$_bl/"
 	cp "$_src"/*.in "$_bl/" 2>/dev/null || true
 	cp /usr/lib/ISOLINUX/isolinux.bin "$_bl/"
-	cp /usr/lib/syslinux/modules/bios/vesamenu.c32 "$_bl/"
+	# ISOLINUX 6.04+ needs COM32 libs alongside vesamenu.c32 (bookworm split packages).
+	for _mod in ldlinux.c32 libcom32.c32 libutil.c32 libmenu.c32 libgpl.c32 vesamenu.c32; do
+		cp "/usr/lib/syslinux/modules/bios/$_mod" "$_bl/"
+	done
 	_tmpdir="$(mktemp -d)"
 	( cd "$_tmpdir" && find . -depth -print | cpio -o --quiet ) >"$_bl/bootlogo"
 	rm -rf "$_tmpdir"
