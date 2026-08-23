@@ -137,6 +137,41 @@ function LogoMark({ size = 64 }) {
 }
 LogoMark.propTypes = { size: PropTypes.number };
 
+/** Discovery paths — where to find Luna after install (console + setup wizard). */
+function DiscoveryPaths({ name = "Luna" }) {
+  const label = name || "Luna";
+  return (
+    <div className="mt-8 w-full bg-primary/10 border border-primary/15 rounded-large-element p-5 text-left">
+      <p className="text-xs text-primary/60 mb-3">
+        You can find {label} at:
+      </p>
+      <ul className="space-y-2.5 text-xs">
+        <li className="flex items-center gap-2.5">
+          <Cable size={14} className="text-primary/50 shrink-0" />
+          <span className="font-mono text-primary shrink-0">luna.local</span>
+          <span className="text-primary/50">— most phones and computers</span>
+        </li>
+        <li className="flex items-center gap-2.5">
+          <Router size={14} className="text-primary/50 shrink-0" />
+          <span className="font-mono text-primary shrink-0">http://luna</span>
+          <span className="text-primary/50">— through your internet box</span>
+        </li>
+        <li className="flex items-center gap-2.5">
+          <Check size={14} className="text-primary/50 shrink-0" />
+          <span className="font-mono text-primary shrink-0">http://169.254.42.42</span>
+          <span className="text-primary/50">— cable straight from a computer, always works</span>
+        </li>
+      </ul>
+      <p className="mt-3 text-xs text-primary/60">
+        No Wi-Fi yet? Join the open network <span className="font-mono text-primary">Luna Setup</span> from your phone.
+      </p>
+    </div>
+  );
+}
+DiscoveryPaths.propTypes = {
+  name: PropTypes.string,
+};
+
 // ─── STEP: Welcome ────────────────────────────────────────────────────────────
 // Content-only: SetupPage renders the persistent shell (SetupShell + SetupCard
 // with the dots header) around the current step, so the card and the dot row
@@ -152,14 +187,16 @@ function WelcomeStep({ onBegin }) {
         Luna
       </h1>
 
-      <p className="text-primary/68 text-xl leading-[1.65] mb-12 max-w-[22rem]">
+      <p className="text-primary/68 text-xl leading-[1.65] mb-8 max-w-[22rem]">
         Your files, your drives, your house. No subscription — ever.
       </p>
+
+      <DiscoveryPaths />
 
       <Button
         variant="primary"
         onClick={onBegin}
-        className="group px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
+        className="group mt-8 px-9 py-4 font-mono tracking-wide hover:scale-[1.03]"
       >
         Begin Setup
         <ArrowRight className="w-4 h-4 motion-safe:transition-transform motion-safe:duration-200 group-hover:translate-x-0.5" />
@@ -598,28 +635,7 @@ function DoneStep({ name, onGoDrives }) {
         </p>
 
         {/* Discovery paths — where to find Luna after setup */}
-        <div className="mt-8 w-full bg-primary/10 border border-primary/15 rounded-large-element p-5 text-left animate-in fade-in duration-300 delay-300">
-          <p className="text-xs text-primary/60 mb-3">
-            You can always find {label} at:
-          </p>
-          <ul className="space-y-2.5 text-xs">
-            <li className="flex items-center gap-2.5">
-              <Cable size={14} className="text-primary/50 shrink-0" />
-              <span className="font-mono text-primary shrink-0">luna.local</span>
-              <span className="text-primary/50">— most phones and computers</span>
-            </li>
-            <li className="flex items-center gap-2.5">
-              <Router size={14} className="text-primary/50 shrink-0" />
-              <span className="font-mono text-primary shrink-0">http://luna</span>
-              <span className="text-primary/50">— through your internet box</span>
-            </li>
-            <li className="flex items-center gap-2.5">
-              <Check size={14} className="text-primary/50 shrink-0" />
-              <span className="font-mono text-primary shrink-0">http://169.254.42.42</span>
-              <span className="text-primary/50">— cable straight from a computer, always works</span>
-            </li>
-          </ul>
-        </div>
+        <DiscoveryPaths name={label} />
 
         <div className="mt-6 w-full bg-primary text-secondary rounded-large-element p-5 text-left animate-in fade-in duration-300 delay-300">
           <p className="font-mono text-sm text-secondary mb-3">

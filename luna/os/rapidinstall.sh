@@ -149,30 +149,6 @@ size_hint() {
 	printf 'size unknown'
 }
 
-show_access_instructions() {
-	echo
-	echo "============================================================"
-	echo "  Luna is installed on this computer."
-	echo "============================================================"
-	echo
-	echo "  1. Remove the USB stick (if you booted from one)."
-	echo "  2. Reboot. Luna should start on its own — not a grub> screen."
-	echo
-	echo "  On your phone or laptop (same home Wi‑Fi, or cable to Luna):"
-	echo "    http://luna.local"
-	echo "    http://luna"
-	echo
-	echo "  Direct cable with no router:"
-	echo "    http://169.254.42.42"
-	echo
-	echo "  First boot opens setup — follow the steps on screen."
-	echo
-	echo "  If this computer shows a grub> prompt instead of Luna,"
-	echo "  power off, remove the USB stick, and try again."
-	echo "============================================================"
-	echo
-}
-
 discover_install_disk
 
 if [ ! -f "$TARBALL" ]; then
@@ -235,11 +211,7 @@ fi
 
 echo "Erasing $TARGET and installing Luna."
 flash_luna_disk "$TARGET" "$TARBALL"
-show_access_instructions
-printf 'Remove the USB stick and press Enter to reboot, or wait 30 seconds… '
-if [ -t 0 ] && command -v timeout >/dev/null 2>&1; then
-	timeout 30 sh -c 'IFS= read -r _ </dev/tty' 2>/dev/null || true
-else
-	sleep 30
-fi
+echo
+echo "Installation complete. Remove the USB stick if you used one."
+echo "Luna will reboot and show how to connect on the screen and in your browser."
 echo

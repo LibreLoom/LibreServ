@@ -70,6 +70,11 @@ async fn main() -> anyhow::Result<()> {
             .ok();
     }
 
+    std::thread::Builder::new()
+        .name("luna-console-help".into())
+        .spawn(lunad::console::print_connection_help)
+        .ok();
+
     let setup_done = state
         .db
         .lock()
