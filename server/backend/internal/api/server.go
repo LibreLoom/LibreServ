@@ -471,6 +471,17 @@ func resolveStaticDir() string {
 }
 
 func (s *Server) serveStaticPath(w http.ResponseWriter, r *http.Request, path string) {
+	// Content-hashed Vite assets never change: cache hard. index.html must be
+	// revalidated on every load so browsers pick up new deploys immediately.
+	// Everything else (public fonts, etc.) gets a moderate lifetime.
+	if strings.HasPrefix(path, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else if path == "index.html" {
+		w.Header().Set("Cache-Control", "no-cache")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}
+
 	if acceptsGzip(r) {
 		gzPath := path + ".gz"
 		if _, err := fs.Stat(s.staticFS, gzPath); err == nil {
