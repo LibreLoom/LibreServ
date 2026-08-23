@@ -73,9 +73,27 @@ pick_builtin() {
 	printf '%s\n' "$_best"
 }
 
+# One byte from stdin (the console). Dash-safe — no bash read -n/-t.
+# The live ISO attaches /dev/tty1 as stdin; PID 1 often has no /dev/tty.
+# Caller must put the console in cbreak (-icanon) first, or Enter is required.
+read_console_byte() {
+	dd bs=1 count=1 2>/dev/null
+}
+
+console_cbreak() {
+	# Deliver each key immediately — default cooked mode waits for Enter.
+	stty -icanon min 1 time 0 -echo 2>/dev/null || true
+}
+
+console_sane() {
+	stty sane 2>/dev/null || true
+}
+
 drain_stdin() {
-	while IFS= read -r -t 0 -n 1 _; do
-		:
+	# Discard buffered keys without blocking long (dash-safe; needs cbreak).
+	while :; do
+		_k="$(timeout 0.05 dd bs=1 count=1 2>/dev/null)" || break
+		[ -n "$_k" ] || break
 	done
 }
 
@@ -108,17 +126,20 @@ $_list
 EOF
 	print_disks
 	printf "Number: "
+	console_cbreak
 	while :; do
-		if ! IFS= read -r -n 1 _k; then
+		_k="$(read_console_byte)" || {
+			console_sane
 			echo >&2
 			exit 1
-		fi
+		}
 		echo
 		drain_stdin
 		case "$_k" in
 		[1-9])
 			TARGET="$(printf '%s\n' "$_list" | awk -v n="$_k" 'NR == n { print; exit }')"
 			if [ -n "$TARGET" ]; then
+				console_sane
 				return 0
 			fi
 			;;
@@ -177,14 +198,15 @@ if [ -n "$TARGET" ] && [ "$_forced_target" -eq 0 ]; then
 	echo "Installing to $TARGET ($(size_hint "$TARGET"))."
 	echo "Do nothing for 5 seconds to continue. Press any key to pick another disk."
 	_picked_other=0
-	if [ -t 0 ]; then
-		if command -v timeout >/dev/null 2>&1; then
-			if timeout 5 sh -c 'IFS= read -r -n 1 _ </dev/tty'; then
-				_picked_other=1
-			fi
-		elif IFS= read -r -n 1 _; then
+	# Dash has no read -n/-t. timeout+dd reads one byte from the console
+	# (stdin is /dev/tty1 on the live ISO). Exit 0 = key pressed; 124 = timed out.
+	# stty -icanon is required so a key is delivered without waiting for Enter.
+	if [ -t 0 ] && command -v timeout >/dev/null 2>&1; then
+		console_cbreak
+		if timeout 5 dd bs=1 count=1 of=/dev/null 2>/dev/null; then
 			_picked_other=1
 		fi
+		console_sane
 	fi
 	if [ "$_picked_other" -eq 1 ]; then
 		echo
