@@ -19,7 +19,7 @@ lb config noauto \
 	--security false \
 	--iso-volume LUNAINST \
 	--iso-application "Luna rapidinstall" \
-	--bootappend-live "boot=live components text nomodeset console=tty0 noautologin net.ifnames=0 biosdevname=0 systemd.mask=getty@tty1.service" \
+	--bootappend-live "boot=live text nomodeset console=tty0 net.ifnames=0 biosdevname=0 init=/usr/lib/luna-installer/init.sh" \
 	--memtest none \
 	--win32-loader false \
 	--apt-indices false \
