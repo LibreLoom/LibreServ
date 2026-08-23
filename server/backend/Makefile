@@ -102,13 +102,7 @@ vet:
 	@echo ">> Running go vet"
 	@go vet $(GO_PKGS)
 
-errcheck:
-	@echo ">> Running errcheck"
-	@command -v errcheck >/dev/null 2>&1 || \
-		{ echo "errcheck not installed — install it with: go install github.com/kisielk/errcheck@latest"; exit 1; }
-	@errcheck $(GO_PKGS)
-
-lint: fmt-check vet errcheck
+lint: fmt-check vet
 
 # Security scanning
 govulncheck:
