@@ -46,6 +46,7 @@ assert_file_has "$OSROOT/rapidinstall.sh" 'show_access_instructions' "rapidinsta
 assert_file_has "$OSROOT/rapidinstall.sh" 'luna.local' "access instructions must mention luna.local"
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'search_fs_uuid' "installed GRUB must search root by UUID"
 assert_file_has "$OSROOT/lib/flash-disk.sh" 'EFI/BOOT/grub/grub.cfg' "UEFI GRUB must chain from ESP"
+assert_file_has "$OSROOT/rapidinstall.sh" 'timeout 5' "rapidinstall must not use bash-only read -t"
 assert_file_has "$OSROOT/iso/stage-debian-live.sh" 'includes.binary/luna' "stage script must place payload on ISO"
 
 if [ "$fail" -ne 0 ]; then
