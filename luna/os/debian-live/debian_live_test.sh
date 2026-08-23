@@ -31,12 +31,15 @@ assert_file_has "$OSROOT/iso/wait-iso-build.sh" 'exit 1' "wait-iso-build must ex
 assert_file_has "$OSROOT/debian-live/auto/config" 'bookworm' "Debian live must pin bookworm"
 assert_file_has "$OSROOT/debian-live/auto/config" 'iso-hybrid' "Debian live must build hybrid ISO"
 assert_file_has "$OSROOT/debian-live/auto/config" 'LUNAINST' "Debian live ISO volume must stay LUNAINST"
+assert_file_has "$OSROOT/debian-live/auto/config" 'systemd.mask=getty@tty1.service' "kernel cmdline must mask tty1 getty"
 assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'firmware-linux-nonfree' "Debian live must ship non-free firmware"
 assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'grub-efi-amd64-bin' "Debian live must ship UEFI GRUB"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/start.sh" 'rapidinstall.sh' "start.sh must exec rapidinstall"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/start.sh" '/run/live/medium/luna' "start.sh must read installer from live medium"
-assert_file_has "$OSROOT/debian-live/config/hooks/0100-luna-installer.hook.chroot" 'luna-installer.service' "hook must enable luna-installer"
-assert_file_has "$OSROOT/debian-live/config/hooks/0100-luna-installer.hook.chroot" 'getty@tty1' "hook must mask tty1 getty"
+assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/live/config/9999-luna-installer" 'openvt' "live-config must launch installer on tty1"
+assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/live/config/9999-luna-installer" 'getty@tty1' "live-config must keep getty off tty1"
+assert_file_has "$OSROOT/debian-live/config/hooks/0100-luna-installer.hook.chroot" 'mask getty@tty1' "hook must mask tty1 getty at build time"
+assert_file_lacks "$OSROOT/debian-live/config/includes.chroot/etc/systemd/system/luna-installer.service" 'rapidinstall' "standalone installer unit must not ship"
 assert_file_has "$OSROOT/iso/stage-debian-live.sh" 'includes.binary/luna' "stage script must place payload on ISO"
 
 if [ "$fail" -ne 0 ]; then
