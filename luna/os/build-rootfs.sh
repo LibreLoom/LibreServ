@@ -44,7 +44,7 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         avahi wpa_supplicant hostapd \
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux dnsmasq \
-        dhcpcd ca-certificates ssl_client \
+        dhcpcd ca-certificates ssl_client pciutils curl \
         libheif libheif-tools \
         hdparm \
         chrony logrotate
@@ -105,10 +105,16 @@ cat > "$ROOTFS/usr/local/bin/luna-network-up" <<'INIT'
 #!/bin/sh
 set -eu
 
+# ProDesk / Wyse: drivers are modules, not always autoloaded before we run.
+for mod in e1000e igc igb ixgbe r8169 atl1c iwlwifi iwlmvm mt76x2u \
+    rt2800usb rt2800lib rt2x00usb rt2x00lib ath9k_htc mac80211 cfg80211; do
+    modprobe "$mod" 2>/dev/null || true
+done
+
 for iface_path in /sys/class/net/*; do
     iface="${iface_path##*/}"
     [ "$iface" = lo ] && continue
-    [ -e "$iface_path/wireless" ] && continue
+    [ -e "$iface_path/wireless" ] || [ -e "$iface_path/phy80211" ] && continue
 
     ip link set "$iface" up 2>/dev/null || continue
 
