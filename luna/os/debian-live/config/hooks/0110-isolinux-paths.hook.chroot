@@ -1,0 +1,38 @@
+#!/bin/bash
+# live-build's isolinux templates symlink to /usr/lib/syslinux/isolinux.bin, but
+# bookworm ships that file in the isolinux package under /usr/lib/ISOLINUX/.
+set -e
+
+if [ ! -f /usr/lib/ISOLINUX/isolinux.bin ]; then
+	echo "isolinux package missing — cannot set up BIOS bootloader" >&2
+	exit 1
+fi
+
+mkdir -p /usr/lib/syslinux
+ln -sf ../ISOLINUX/isolinux.bin /usr/lib/syslinux/isolinux.bin
+ln -sf modules/bios/vesamenu.c32 /usr/lib/syslinux/vesamenu.c32
+for _mod in ldlinux.c32 libcom32.c32 libutil.c32 libmenu.c32 libgpl.c32; do
+	ln -sf "modules/bios/$_mod" "/usr/lib/syslinux/$_mod"
+done
+
+# live-build 3.x calls legacy `rsvg`; bookworm ships rsvg-convert with different flags.
+cat >/usr/bin/rsvg <<'EOF'
+#!/bin/sh
+set -eu
+fmt=png w= h= out=
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--format) fmt="$2"; shift 2 ;;
+		--width) w="$2"; shift 2 ;;
+		--height) h="$2"; shift 2 ;;
+		-*) shift 2 ;;
+		*)
+			if [ -z "${in:-}" ]; then in="$1"; else out="$1"; fi
+			shift
+			;;
+	esac
+done
+[ -n "${in:-}" ] && [ -n "${out:-}" ] || { echo "rsvg wrapper: need input and output" >&2; exit 1; }
+exec rsvg-convert -f "$fmt" ${w:+-w "$w"} ${h:+-h "$h"} "$in" -o "$out"
+EOF
+chmod +x /usr/bin/rsvg

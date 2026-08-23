@@ -1,0 +1,16 @@
+#!/bin/bash
+# Rapidinstall live: custom init owns the console; no getty/login stack.
+set -e
+
+chmod +x /usr/lib/luna-installer/init.sh
+chmod +x /usr/lib/luna-installer/start.sh
+chmod +x /usr/lib/luna-installer/network-up.sh
+chmod +x /usr/lib/live/config/9999-luna-installer
+
+systemctl mask getty.target 2>/dev/null || true
+systemctl mask getty@tty1.service 2>/dev/null || true
+systemctl mask getty@ttyS0.service 2>/dev/null || true
+systemctl mask serial-getty@ttyS0.service 2>/dev/null || true
+systemctl disable luna-installer.service 2>/dev/null || true
+rm -f /etc/systemd/system/luna-installer.service
+rm -f /etc/systemd/system/multi-user.target.wants/luna-installer.service

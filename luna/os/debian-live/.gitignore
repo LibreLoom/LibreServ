@@ -1,0 +1,19 @@
+# Staged at ISO build time (rootfs tarball is large).
+config/includes.binary/
+
+# Never commit live-build artifacts if lb is run in-tree by mistake.
+.build/
+.local/
+chroot/
+cache/
+binary/
+*.hybrid.iso
+build.log
+config/bootstrap
+config/chroot
+config/binary
+config/source
+config/common
+config/bootloaders
+config/hooks/normal/
+config/package-lists/*.list.chroot~

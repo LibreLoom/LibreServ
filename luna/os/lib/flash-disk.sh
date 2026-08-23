@@ -14,9 +14,8 @@ _wait_block() {
 	[ -b "$_path" ]
 }
 
-_write_grub_cfg() {
+_find_boot_images() {
 	_rootmnt="$1"
-	mkdir -p "$_rootmnt/boot/grub"
 	_k=vmlinuz-lts
 	_i=initramfs-lts
 	if [ ! -e "$_rootmnt/boot/$_k" ]; then
@@ -29,19 +28,51 @@ _write_grub_cfg() {
 		echo "The Luna archive has no kernel in /boot. Refusing to write a bootloader that cannot start." >&2
 		return 1
 	fi
+	printf '%s\n' "$_k" "$_i"
+}
+
+# Main GRUB menu on the Luna root partition (/boot/grub/grub.cfg).
+_write_grub_cfg() {
+	_rootmnt="$1"
+	_root_uuid="$2"
+	_k="$3"
+	_i="$4"
+
+	mkdir -p "$_rootmnt/boot/grub"
 	{
-		echo 'set default=0'
 		echo 'set timeout=2'
-		echo 'insmod part_gpt'
-		echo 'insmod ext2'
-		echo 'search --no-floppy --set=root --label LUNA'
-		if [ -n "$_k" ] && [ "$_k" != "." ]; then
-			echo "linux /boot/${_k} root=LABEL=LUNA modules=ext4 quiet"
-		fi
-		if [ -n "$_i" ] && [ "$_i" != "." ]; then
-			echo "initrd /boot/${_i}"
-		fi
+		echo 'set default=0'
+		echo 'menuentry "Luna" {'
+		echo '    insmod part_gpt'
+		echo '    insmod ext2'
+		echo '    insmod ext4'
+		echo '    insmod search'
+		echo '    insmod search_fs_uuid'
+		echo "    search --no-floppy --fs-uuid --set=root ${_root_uuid}"
+		echo "    linux /boot/${_k} root=UUID=${_root_uuid} modules=ext4 rootfstype=ext4 quiet"
+		echo "    initrd /boot/${_i}"
+		echo '}'
 	} >"$_rootmnt/boot/grub/grub.cfg"
+}
+
+# UEFI fallback loader on the ESP — chain-loads the root config by UUID.
+_write_efi_grub_cfg() {
+	_espmnt="$1"
+	_root_uuid="$2"
+
+	mkdir -p "$_espmnt/EFI/BOOT/grub"
+	{
+		echo 'insmod part_gpt'
+		echo 'insmod fat'
+		echo 'insmod ext2'
+		echo 'insmod ext4'
+		echo 'insmod search'
+		echo 'insmod search_fs_uuid'
+		echo "search --no-floppy --fs-uuid --set=root ${_root_uuid}"
+		echo 'set prefix=($root)/boot/grub'
+		echo 'export prefix'
+		echo 'configfile $prefix/grub.cfg'
+	} >"$_espmnt/EFI/BOOT/grub/grub.cfg"
 }
 
 flash_luna_disk() {
@@ -100,6 +131,11 @@ PART
 	echo "==> formatting EFI and Luna partitions"
 	mkfs.vfat -F 32 -n LUNAESP "$_esp"
 	mkfs.ext4 -F -L LUNA "$_root"
+	_root_uuid="$(blkid -s UUID -o value "$_root")"
+	if [ -z "$_root_uuid" ]; then
+		echo "Could not read the Luna partition UUID for GRUB." >&2
+		return 1
+	fi
 
 	_mnt="$(mktemp -d)"
 	_espmnt="$(mktemp -d)"
@@ -113,20 +149,27 @@ PART
 
 	echo "==> installing bootloader (BIOS and UEFI)"
 	mkdir -p "$_mnt/boot" "$_espmnt/EFI/BOOT"
-	if ! _write_grub_cfg "$_mnt"; then
+	if ! _boot_imgs="$(_find_boot_images "$_mnt")"; then
 		return 1
 	fi
+	_k="$(printf '%s\n' "$_boot_imgs" | sed -n '1p')"
+	_i="$(printf '%s\n' "$_boot_imgs" | sed -n '2p')"
+	if ! _write_grub_cfg "$_mnt" "$_root_uuid" "$_k" "$_i"; then
+		return 1
+	fi
+	_write_efi_grub_cfg "$_espmnt" "$_root_uuid"
+
 	_bios_ok=0
 	_efi_ok=0
-	if grub-install --target=i386-pc --boot-directory="$_mnt/boot" "$_dev"; then
+	if grub-install --target=i386-pc --boot-directory="$_mnt/boot" --root-directory="$_mnt" "$_dev"; then
 		_bios_ok=1
 	fi
 	if grub-install --target=x86_64-efi --efi-directory="$_espmnt" \
-		--boot-directory="$_mnt/boot" --removable --no-nvram "$_dev"; then
+		--boot-directory="$_mnt/boot" --root-directory="$_mnt" --removable --no-nvram "$_dev"; then
 		_efi_ok=1
 	fi
 	grub-install --target=i386-efi --efi-directory="$_espmnt" \
-		--boot-directory="$_mnt/boot" --removable --no-nvram "$_dev" 2>/dev/null || true
+		--boot-directory="$_mnt/boot" --root-directory="$_mnt" --removable --no-nvram "$_dev" 2>/dev/null || true
 	if [ -f "$_espmnt/EFI/BOOT/BOOTX64.EFI" ] || [ -f "$_espmnt/EFI/BOOT/BOOTIA32.EFI" ]; then
 		_efi_ok=1
 	fi
@@ -134,7 +177,6 @@ PART
 		echo "GRUB could not install a BIOS or UEFI bootloader. This computer would not start after reboot." >&2
 		return 1
 	fi
-	cp "$_mnt/boot/grub/grub.cfg" "$_espmnt/EFI/BOOT/grub.cfg" 2>/dev/null || true
 
 	echo "==> syncing"
 	sync
@@ -142,6 +184,4 @@ PART
 	umount "$_mnt"
 	rmdir "$_espmnt" "$_mnt" 2>/dev/null || true
 	trap - EXIT INT
-	echo "done. Remove the USB stick (if you used one) and reboot to start Luna."
-	echo "If the computer talks about 'secure boot', turn that off in the firmware menu."
 }
