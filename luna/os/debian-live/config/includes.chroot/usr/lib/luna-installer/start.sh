@@ -1,9 +1,10 @@
 #!/bin/sh
-# Debian live entry: locate the USB/ISO payload and run rapidinstall.sh.
+# Attach rapidinstall to the live ISO medium and run it on the physical console.
 set -eu
+
 _wait_medium() {
 	_i=0
-	while [ "$_i" -lt 60 ]; do
+	while [ "$_i" -lt 120 ]; do
 		if [ -f /run/live/medium/luna/rapidinstall.sh ]; then
 			return 0
 		fi
@@ -52,10 +53,21 @@ _install_media_dev() {
 	return 1
 }
 
+_on_console() {
+	if [ ! -c /dev/tty1 ]; then
+		return 1
+	fi
+	chvt 1 2>/dev/null || true
+	if [ -t 0 ] && command -v stty >/dev/null 2>&1; then
+		stty sane 2>/dev/null || true
+	fi
+}
+
 if ! _wait_medium; then
 	echo "Could not find Luna installer files on the USB stick." >&2
 	echo "Devices Luna can see:" >&2
 	ls /sys/class/block 2>/dev/null || true
+	_on_console || true
 	exec /bin/sh
 fi
 
@@ -65,10 +77,11 @@ if DEV="$(_install_media_dev)"; then
 	export LUNA_INSTALL_MEDIA="$DEV"
 fi
 
-if [ -t 0 ] && command -v stty >/dev/null 2>&1; then
-	stty sane 2>/dev/null || true
-fi
+mkdir -p /var/lib/live/config
+touch /var/lib/live/config/luna-installer
 
 cd "$DIR"
-touch /var/lib/live/config/luna-installer 2>/dev/null || mkdir -p /var/lib/live/config && touch /var/lib/live/config/luna-installer
+if _on_console; then
+	exec ./rapidinstall.sh </dev/tty1 >/dev/tty1 2>&1
+fi
 exec ./rapidinstall.sh

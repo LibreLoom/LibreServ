@@ -1,10 +1,7 @@
 [Unit]
 Description=Luna rapidinstall
 Documentation=https://gt.plainskill.net/LibreLoom/LibreServ
-DefaultDependencies=no
-After=live-boot.service local-fs.target
-Before=getty.target
-Conflicts=getty@tty1.service
+After=live-config.service live-boot.service local-fs.target
 ConditionPathExists=/usr/lib/luna-installer/start.sh
 
 [Service]
@@ -16,7 +13,6 @@ StandardError=inherit
 TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
-IgnoreSIGPIPE=no
 Restart=no
 
 [Install]

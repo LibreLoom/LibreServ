@@ -7,6 +7,7 @@ chmod +x /usr/lib/live/config/9999-luna-installer
 
 rm -f /etc/systemd/system/getty.target.wants/getty@tty1.service
 systemctl mask getty@tty1.service 2>/dev/null || true
+systemctl mask getty.target 2>/dev/null || true
 systemctl enable luna-installer.service
 systemctl mask getty@ttyS0.service 2>/dev/null || true
 systemctl mask serial-getty@ttyS0.service 2>/dev/null || true
