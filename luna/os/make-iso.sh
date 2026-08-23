@@ -37,6 +37,9 @@ mkdir -p "$OUT"
 
 echo "==> preparing live-build workspace"
 if [ -d "$WORK" ]; then
+	for _m in proc sys dev/pts dev run; do
+		sudo umount -lf "$WORK/chroot/$_m" 2>/dev/null || true
+	done
 	sudo rm -rf "$WORK" || die "could not clean $WORK (leftover root-owned live-build files?)"
 fi
 mkdir -p "$WORK"

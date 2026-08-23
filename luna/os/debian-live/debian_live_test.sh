@@ -35,7 +35,8 @@ assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'fir
 assert_file_has "$OSROOT/debian-live/config/package-lists/luna.list.chroot" 'grub-efi-amd64-bin' "Debian live must ship UEFI GRUB"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/start.sh" 'rapidinstall.sh' "start.sh must exec rapidinstall"
 assert_file_has "$OSROOT/debian-live/config/includes.chroot/usr/lib/luna-installer/start.sh" '/run/live/medium/luna' "start.sh must read installer from live medium"
-assert_file_has "$OSROOT/debian-live/config/hooks/live/0100-luna-installer.hook.chroot" 'luna-installer.service' "hook must enable luna-installer"
+assert_file_has "$OSROOT/debian-live/config/hooks/0100-luna-installer.hook.chroot" 'luna-installer.service' "hook must enable luna-installer"
+assert_file_has "$OSROOT/debian-live/config/hooks/0100-luna-installer.hook.chroot" 'getty@tty1' "hook must mask tty1 getty"
 assert_file_has "$OSROOT/iso/stage-debian-live.sh" 'includes.binary/luna' "stage script must place payload on ISO"
 
 if [ "$fail" -ne 0 ]; then
