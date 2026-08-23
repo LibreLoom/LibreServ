@@ -1,7 +1,7 @@
 server:
   address: "0.0.0.0"
   port: 8092
-  base_url: "https://connect.luna.libreserv.org"
+  base_url: "https://connect.luna.libreloom.org"
   public_zone: "luna.servers.libreloom.org"
   admin_token: ""
   web_dir: "web/dist"

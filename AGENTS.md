@@ -62,7 +62,7 @@ LibreServ/
 │       ├── components/       # UI components
 │       └── index.css         # Theme variables + Tailwind config
 │
-├── luna-connect/             # Luna Connect cloud app (independent Go 1.26). Host: connect.luna.libreserv.org. Device names: *.luna.servers.libreloom.org. Stripe $7/TB/month backups.
+├── luna-connect/             # Luna Connect cloud app (independent Go 1.26). Host: connect.luna.libreloom.org. Device names: *.luna.servers.libreloom.org. Stripe $7/TB/month backups.
 ├── connect/                  # Cloud SaaS companion (LibreServ Connect). Independent Go 1.26 module
 │                             # with chi/v5 API, SQLite, Stripe billing. Provides external services to
 │                             # LibreServ devices: email relay, DNS/domain, cloud backups, tunnel access,
@@ -117,7 +117,7 @@ cp configs/luna-connect.yaml.example configs/luna-connect.yaml
 make test
 make build   # → bin/luna-connect
 ```
-Env prefix: `LUNACONNECT_`. Public URL `https://connect.luna.libreserv.org`.
+Env prefix: `LUNACONNECT_`. Public URL `https://connect.luna.libreloom.org`.
 
 ---
 

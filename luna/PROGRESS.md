@@ -75,7 +75,7 @@
 - [x] "Shared with me" view for non-admin users (done in M11, /shared)
 
 ## M5 — Remote access (IN PROGRESS)
-- [x] Connect client talks to Luna Connect (`connect.luna.libreserv.org`): register name, change domain, pairing code, cloudflared, idle spare-copy sync
+- [x] Connect client talks to Luna Connect (`connect.luna.libreloom.org`): register name, change domain, pairing code, cloudflared, idle spare-copy sync
 - [x] Connect API: GET status, POST enable/domain/deactivate/pairing-code/backup-sources
 - [x] Remote access UI: pick/change `{name}.luna.servers.libreloom.org` plus Tailscale/port-forward alternatives
 - [x] Luna Connect is its own app (`luna-connect/`): pick/change `{name}.luna.servers.libreloom.org`, Cloudflare Tunnel on the device, billed spare copies at $7/TB/month
@@ -165,7 +165,7 @@
 - [x] Desktop tray icon (show/quit menu, left-click opens, tray-enabled release binary built); installer targets configured (deb/appimage/msi/dmg) — final bundling runs per-platform
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI
-- [x] Luna Connect split: device registers a name at connect.luna.libreserv.org; LibreServ Connect no longer issues Luna keys
+- [x] Luna Connect split: device registers a name at connect.luna.libreloom.org; LibreServ Connect no longer issues Luna keys
 - [x] Locked-out admin recovery: USB keyboard sequence (Esc, then type `luna`, then Enter) on the appliance; TTY password reset; rate-limited; documented on setup done + Settings
 - [x] Software updates: Forgejo `luna-v*` releases, SHA-256 verified `lunad-*` binary, tap-to-install in Settings (no silent apply)
 - [ ] Physical 5-unit rehearsal on Wyse 3040 hardware

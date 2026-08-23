@@ -83,7 +83,7 @@ export default function RemotePage() {
               <p className="text-primary text-sm font-mono">{newName ? `${newName.toLowerCase()}.luna.servers.libreloom.org` : "name.luna.servers.libreloom.org"}</p>
               <Button variant="primary" loading={change.isPending} disabled={newName.trim().length < 3} onClick={() => change.mutate()}>Save new address</Button>
               <p className="text-primary text-sm">
-                To store a spare copy of files in the cloud, add a card at connect.luna.libreserv.org, then pair this Luna.
+                To store a spare copy of files in the cloud, add a card at connect.luna.libreloom.org, then pair this Luna.
               </p>
               {s.pairing_code && <p className="font-mono text-primary">Pairing code: {s.pairing_code}</p>}
               <Button variant="outline" loading={pair.isPending} onClick={() => pair.mutate()}>Get pairing code</Button>

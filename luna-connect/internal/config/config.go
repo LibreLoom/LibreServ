@@ -67,7 +67,7 @@ func Load(path string) error {
 func setDefaults() {
 	viper.SetDefault("server.address", "0.0.0.0")
 	viper.SetDefault("server.port", 8092)
-	viper.SetDefault("server.base_url", "https://connect.luna.libreserv.org")
+	viper.SetDefault("server.base_url", "https://connect.luna.libreloom.org")
 	viper.SetDefault("server.public_zone", "luna.servers.libreloom.org")
 	viper.SetDefault("database.path", "dev/luna-connect.db")
 	viper.SetDefault("data_dir", "dev/data")

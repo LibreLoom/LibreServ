@@ -1,6 +1,6 @@
 //! Luna Connect client — free address plus optional billed spare copies.
 //!
-//! Default cloud: `https://connect.luna.libreserv.org`.
+//! Default cloud: `https://connect.luna.libreloom.org`.
 //! Device address: `{name}.luna.servers.libreloom.org` via cloudflared.
 
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use serde::Serialize;
 use serde_json::{Value, json};
 
-const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreserv.org";
+const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {

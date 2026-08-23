@@ -177,7 +177,7 @@ export default function SettingsPage() {
               </div>
             ) : (
               <p className="text-primary text-sm">
-                Add a card at connect.luna.libreserv.org, then pair this Luna. After that you can copy any folder or a whole drive off-site.
+                Add a card at connect.luna.libreloom.org, then pair this Luna. After that you can copy any folder or a whole drive off-site.
               </p>
             )}
           </Card>
