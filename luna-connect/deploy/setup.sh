@@ -13,7 +13,7 @@ DATA_DIR="/var/lib/luna-connect"
 LOG_DIR="/var/log/luna-connect"
 USER="luna-connect"
 INSTANCES=("a:8101" "b:8102")
-BASE_URL="${BASE_URL:-https://connect.luna.libreserv.org}"
+BASE_URL="${BASE_URL:-https://connect.luna.libreloom.org}"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log_info()  { echo -e "${GREEN}[INFO]${NC} $1"; }

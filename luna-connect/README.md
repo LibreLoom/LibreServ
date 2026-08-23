@@ -1,6 +1,6 @@
 # Luna Connect
 
-Cloud companion for Luna. Public site: `https://connect.luna.libreserv.org`.
+Cloud companion for Luna. Public site: `https://connect.luna.libreloom.org`.
 
 Each Luna is reachable at `https://{name}.luna.servers.libreloom.org` through a Cloudflare Tunnel. That address is free.
 
@@ -36,7 +36,7 @@ sudo caddy reload --config /etc/caddy/Caddyfile
 # ./luna-connect/deploy/deploy.sh
 ```
 
-Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db`. Host: `connect.luna.libreserv.org`.
+Instances: `luna-connect-a` `:8101`, `luna-connect-b` `:8102`. Shared DB: `/var/lib/luna-connect/luna-connect.db`. Host: `connect.luna.libreloom.org`.
 
 Fill Cloudflare and Stripe in both `/etc/luna-connect/luna-connect-{a,b}.yaml`, then restart both units.
 

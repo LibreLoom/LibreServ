@@ -315,7 +315,7 @@ No remaining open questions.
 
 ## Luna Connect rebuild
 
-Done as a split: Luna Connect lives in `luna-connect/` (own app at `connect.luna.libreserv.org`). LibreServ Connect no longer mints Luna free keys.
+Done as a split: Luna Connect lives in `luna-connect/` (own app at `connect.luna.libreloom.org`). LibreServ Connect no longer mints Luna free keys.
 
 ---
 

@@ -29,11 +29,11 @@ func backupUnlocked(h Deps, accountID string) bool {
 func (h BackupHandler) PutObject(w http.ResponseWriter, r *http.Request) {
 	dev, ok := DeviceFrom(r.Context())
 	if !ok || !dev.AccountID.Valid {
-		JSONError(w, http.StatusForbidden, "Pair this Luna at connect.luna.libreserv.org and add a payment card first.")
+		JSONError(w, http.StatusForbidden, "Pair this Luna at connect.luna.libreloom.org and add a payment card first.")
 		return
 	}
 	if !backupUnlocked(h.Deps, dev.AccountID.String) {
-		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreserv.org so we can store a spare copy. It costs $7 per terabyte each month.")
+		JSONError(w, http.StatusPaymentRequired, "Add a payment card at connect.luna.libreloom.org so we can store a spare copy. It costs $7 per terabyte each month.")
 		return
 	}
 	rel := objectPath(r)
