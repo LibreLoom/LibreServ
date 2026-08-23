@@ -135,9 +135,12 @@ export default function SettingsPage() {
             ))}
           </div>
           <div className="mt-4">
+            {/* Both states reserve the outline variant's 2px border so the
+                toggle never changes height (the card animates around it). */}
             <Button
               size="sm"
               variant={hapticsOn ? "primary" : "outline"}
+              className={hapticsOn ? "border-2 border-transparent" : "border-2"}
               onClick={() => setHapticsEnabled(!hapticsOn)}
             >
               {hapticsOn ? "Vibration on" : "Vibration off"}

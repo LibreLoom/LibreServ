@@ -389,9 +389,16 @@ export default function Navbar() {
               >
                 {user?.username || ""}
               </button>
-              <div className="h-8 w-8 rounded-full bg-primary text-secondary flex items-center justify-center" aria-hidden="true">
-                <User size={16} />
-              </div>
+              <button
+                type="button"
+                className={cn("h-8", "w-8", "rounded-full", "bg-primary", "text-secondary", "flex", "items-center", "justify-center", TRANSITION.full, "focus-visible:ring-3", "focus-visible:ring-accent")}
+                aria-label="User menu"
+                aria-haspopup="menu"
+                aria-expanded={isUserMenuOpen}
+                onClick={() => setIsUserMenuOpen((v) => !v)}
+              >
+                <User size={16} aria-hidden="true" />
+              </button>
 
               <div
                 role="menu"
