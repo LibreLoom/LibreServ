@@ -2,7 +2,7 @@
 
 Cloud companion for Luna. Public site: `https://connect.luna.libreloom.org`.
 
-Each Luna is reachable at `https://{name}.luna.servers.libreloom.org` through a Cloudflare Tunnel. That address is free.
+The main feature is remote access: sign in to pair your Luna and open it away from home at `https://{name}.luna.servers.libreloom.org`. That address is free.
 
 Cloud backups are a spare copy of chosen folders or whole drives — not version history. They cost **$7 per terabyte each month**, billed through Stripe after the household adds a payment card here. Luna uploads during idle time.
 

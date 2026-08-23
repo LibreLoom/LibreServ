@@ -25,8 +25,10 @@ export default function LunaPage() {
 
   return (
     <Layout>
-      <h1 className="font-mono text-3xl mb-2">Your Luna</h1>
-      <p className="text-muted-foreground mb-8">Signed in as {me?.email}. Pair a Luna so phones can open it away from home.</p>
+      <h1 className="font-mono text-3xl mb-2">Remote access</h1>
+      <p className="text-muted-foreground mb-8">
+        Signed in as {me?.email}. Pair a Luna so you can open it away from home. A spare copy of files off-site is optional.
+      </p>
       <Card className="animate-fade-in-up">
         <CardHeader>
           <CardTitle>Paired devices</CardTitle>
