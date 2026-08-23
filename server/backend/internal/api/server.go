@@ -397,6 +397,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.selfHealMonitor != nil {
 		s.selfHealMonitor.Stop()
 	}
+	middleware.StopRateLimiters()
 	return s.httpServer.Shutdown(ctx)
 }
 

@@ -62,12 +62,53 @@ func (cm *ComposeManager) getComposeArgs(composePath string) (composeFile string
 	return
 }
 
+// pinnedAlpineImage is used for bind-mount chown operations. Using a pinned
+// major version (not :latest) prevents supply-chain hijack via mutable tags.
+// Prefer host chown when possible; the container is fallback for root-owned dirs.
+const pinnedAlpineImage = "docker.io/library/alpine:3.20"
+
+// isSafeBindMountPath rejects host paths that would give an app compose file
+// host takeover. Only absolute paths under the app data tree are expected;
+// bare "/", "/etc", "/var/lib/*", host root mounts are denied.
+func isSafeBindMountPath(hostPath string) bool {
+	clean := filepath.Clean(hostPath)
+	if clean == "/" || clean == "." {
+		return false
+	}
+	deniedPrefixes := []string{"/etc", "/root", "/usr", "/boot", "/dev", "/proc", "/sys", "/home", "/opt", "/tmp", "/var/log", "/var/run", "/var/tmp"}
+	for _, p := range deniedPrefixes {
+		if clean == p || strings.HasPrefix(clean, p+"/") {
+			return false
+		}
+	}
+	lower := strings.ToLower(clean)
+	if strings.Contains(lower, "shadow") || strings.Contains(lower, "passwd") || strings.Contains(lower, ".ssh") {
+		return false
+	}
+	if strings.HasPrefix(clean, "/var/lib") {
+		if strings.HasPrefix(clean, "/var/lib/libreserv") || strings.HasPrefix(clean, "/var/lib/docker") {
+			return true
+		}
+		return false
+	}
+	if clean == "/var" || strings.HasPrefix(clean, "/var/") {
+		return false
+	}
+	return true
+}
+
 // extractBindMountPaths parses a compose file and returns all host-side bind mount paths.
 func extractBindMountPaths(composePath string) ([]string, error) {
 	data, err := os.ReadFile(composePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read compose file: %w", err)
 	}
+
+	// Intentionally do NOT expand host environment variables. Compose handles
+	// ${VAR} / ${VAR:-default} interpolation at runtime; expanding os.Getenv
+	// here would leak host secrets into the parsed file and mishandle
+	// ${DATA:-/etc}/shadow (Go's ExpandEnv only handles $VAR/${VAR} and would
+	// turn it into /shadow, bypassing denylist checks).
 
 	var compose map[string]interface{}
 	if err := yaml.Unmarshal(data, &compose); err != nil {
@@ -106,6 +147,10 @@ func extractBindMountPaths(composePath string) ([]string, error) {
 			if !strings.HasPrefix(hostPath, "/") {
 				continue
 			}
+			if !isSafeBindMountPath(hostPath) {
+				log.Printf("Warning: skipping unsafe bind mount host path %s in %s", hostPath, composePath)
+				continue
+			}
 
 			paths = append(paths, hostPath)
 		}
@@ -123,6 +168,10 @@ func CreateVolumeDirs(composePath string) error {
 	}
 
 	for _, hostPath := range paths {
+		if !isSafeBindMountPath(hostPath) {
+			log.Printf("Warning: refusing to pre-create unsafe volume directory %s", hostPath)
+			continue
+		}
 		if err := os.MkdirAll(hostPath, 0750); err != nil {
 			log.Printf("Warning: failed to pre-create volume directory %s: %v", hostPath, err)
 			continue
@@ -229,10 +278,10 @@ func (cm *ComposeManager) Stop(ctx context.Context, composePath string) error {
 	return nil
 }
 
-// ChownBindMounts re-owns all bind mount host paths to the given uid/gid using a
-// temporary Alpine container. This is necessary because container processes may write
-// files with their internal UID (e.g. dnsmasq, polkitd), making them impossible for the
-// host user to delete. The Alpine container runs as root and can chown any file.
+// ChownBindMounts re-owns all bind mount host paths to the given uid/gid.
+// It first attempts host-native chown (no container, no image pull, no supply-chain
+// risk). If that fails (e.g. permission), it falls back to a pinned Alpine
+// container with a validated image reference.
 func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) error {
 	paths, err := extractBindMountPaths(composePath)
 	if err != nil {
@@ -249,10 +298,48 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 		if _, err := os.Stat(hostPath); os.IsNotExist(err) {
 			continue
 		}
-
+		if !isSafeBindMountPath(hostPath) {
+			log.Printf("Warning: refusing to chown unsafe bind mount %s", hostPath)
+			continue
+		}
+		// Try host chown first — avoids pulling any image and runs without container.
+		hostChownFailed := false
+		_ = filepath.Walk(hostPath, func(p string, info os.FileInfo, walkErr error) error {
+			if walkErr != nil {
+				hostChownFailed = true
+				return nil
+			}
+			if info != nil && info.Mode()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if fi, err := os.Lstat(p); err != nil {
+				hostChownFailed = true
+				return nil
+			} else if fi.Mode()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if err := os.Chown(p, uid, gid); err != nil {
+				hostChownFailed = true
+			}
+			return nil
+		})
+		if !hostChownFailed {
+			_ = filepath.Walk(hostPath, func(p string, info os.FileInfo, walkErr error) error {
+				if walkErr != nil || info == nil {
+					return nil
+				}
+				if info.Mode()&os.ModeSymlink != 0 {
+					return nil
+				}
+				_ = os.Chmod(p, info.Mode()|0o600)
+				return nil
+			})
+			continue
+		}
+		// Fallback: pinned Alpine container.
 		cmd := exec.CommandContext(ctx, runtimeBinary(), "run", "--rm",
 			"-v", hostPath+":/cleanup",
-			"alpine:latest",
+			pinnedAlpineImage,
 			"chown", "-R", owner, "/cleanup",
 		)
 		output, err := cmd.CombinedOutput()
@@ -263,7 +350,7 @@ func ChownBindMounts(ctx context.Context, composePath string, uid, gid int) erro
 
 		cmd2 := exec.CommandContext(ctx, runtimeBinary(), "run", "--rm",
 			"-v", hostPath+":/cleanup",
-			"alpine:latest",
+			pinnedAlpineImage,
 			"chmod", "-R", "u+rw", "/cleanup",
 		)
 		output2, err2 := cmd2.CombinedOutput()

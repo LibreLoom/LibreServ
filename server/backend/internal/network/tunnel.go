@@ -334,8 +334,16 @@ func (c *cloudflareProvider) Start(ctx context.Context) error {
 	// orphan keeps the old tunnel alive and Start() appears to do nothing.
 	reapStaleCloudflared(c.cloudflaredPath())
 
+	// SECURITY FIX (audit #1): never pass the tunnel token via command-line args —
+	// it would be visible to any local user or container via /proc/<pid>/cmdline
+	// and `ps`. Instead inject it via environment (TUNNEL_TOKEN is read by
+	// cloudflared) so the cmdline contains no secret.
 	cmd := exec.CommandContext(ctx, c.cloudflaredPath(),
-		"tunnel", "--no-autoupdate", "run", "--token", c.config.Token)
+		"tunnel", "--no-autoupdate", "run")
+	cmd.Env = append(os.Environ(),
+		"TUNNEL_TOKEN="+c.config.Token,
+		"CLOUDFLARED_TUNNEL_TOKEN="+c.config.Token,
+	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

@@ -317,7 +317,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("logging.path", "/var/log/libreserv/libreserv.log")
 	v.SetDefault("smtp.port", 587)
 	v.SetDefault("network.caddy.mode", "disabled")
-	v.SetDefault("network.caddy.admin_api", "localhost:2019")
+	v.SetDefault("network.caddy.admin_api", "127.0.0.1:2019")
 	v.SetDefault("network.caddy.config_path", "/etc/libreserv/caddy/Caddyfile")
 	v.SetDefault("network.caddy.certs_path", "/etc/libreserv/caddy/certs")
 	v.SetDefault("network.caddy.auto_https", false)

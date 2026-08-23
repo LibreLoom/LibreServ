@@ -41,13 +41,14 @@ func init() {
 		}
 	}
 	if len(trustedProxyNets) == 0 {
+		// SECURITY FIX (audit #7): default trusted proxies are loopback only.
+		// Previously RFC1918 (10/8, 172.16/12, 192.168/16, fc00::/7) were trusted, so any
+		// container on the Podman bridge (10.0.2.x) could spoof X-Forwarded-For
+		// and bypass per-IP lockouts / rate-limits. Operators who run behind a
+		// real reverse proxy must set LIBRESERV_TRUSTED_PROXIES explicitly.
 		for _, cidr := range []string{
 			"127.0.0.0/8",
 			"::1/128",
-			"172.16.0.0/12",
-			"10.0.0.0/8",
-			"192.168.0.0/16",
-			"fc00::/7",
 		} {
 			_, network, err := net.ParseCIDR(cidr)
 			if err == nil {
@@ -92,8 +93,31 @@ func RateLimitDefault() func(http.Handler) http.Handler {
 		{Prefix: "/api/v1/setup/preflight", Limit: defaultSetupCheckLimit, Window: defaultRateLimitWindow, ByUser: false},
 		{Prefix: "/api/v1/setup/status", Limit: defaultSetupStatusLimit, Window: defaultRateLimitWindow, ByUser: false},
 		{Prefix: "/api/v1/auth", Limit: defaultAuthLimit, Window: defaultRateLimitWindow, ByUser: false},
+		// SECURITY FIX (audit #7): default per-user limit for all other /api/v1/ endpoints.
+		// Previously only /setup/* and /auth were limited — authenticated endpoints like
+		// /apps/install, /repos/pull, /backups/repos/test were unlimited and allowed
+		// DoS via stolen cookie. Placing this last ensures more specific prefixes match first.
+		{Prefix: "/api/v1/", Limit: 300, Window: defaultRateLimitWindow, ByUser: true},
 	}
 	return RateLimit(rules)
+}
+
+// activeLimiters tracks every limiter created by RateLimit so their cleanup
+// goroutines can be stopped on server shutdown.
+var (
+	activeLimitersMu sync.Mutex
+	activeLimiters   []*limiter
+)
+
+// StopRateLimiters stops all rate-limiter background goroutines created by
+// RateLimit/RateLimitDefault. Call once from server shutdown.
+func StopRateLimiters() {
+	activeLimitersMu.Lock()
+	defer activeLimitersMu.Unlock()
+	for _, l := range activeLimiters {
+		l.Stop()
+	}
+	activeLimiters = nil
 }
 
 func RateLimit(rules []RateRule) func(http.Handler) http.Handler {
@@ -104,6 +128,10 @@ func RateLimit(rules []RateRule) func(http.Handler) http.Handler {
 		logger:        slog.Default().With("component", "rate_limiter"),
 		cleanupTicker: time.NewTicker(5 * time.Minute),
 	}
+
+	activeLimitersMu.Lock()
+	activeLimiters = append(activeLimiters, l)
+	activeLimitersMu.Unlock()
 
 	go l.cleanupRoutine()
 
@@ -229,6 +257,19 @@ func (l *limiter) take(key string, rule RateRule) (remaining int, reset time.Dur
 
 func intToStr(v int) string {
 	return strconv.Itoa(v)
+}
+
+// Stop releases the limiter's background goroutine and ticker. Call on server
+// shutdown to avoid goroutine/ticker leaks when many RateLimit instances are
+// created (one per route group). SECURITY FIX (audit #7): previously each
+// RateLimit() call leaked a permanent goroutine+ticker with no Stop.
+func (l *limiter) Stop() {
+	select {
+	case <-l.stopCh:
+		return
+	default:
+		close(l.stopCh)
+	}
 }
 
 func (l *limiter) cleanupRoutine() {

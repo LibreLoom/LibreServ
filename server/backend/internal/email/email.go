@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/smtp"
+	"os"
 	"strings"
 	"text/template"
 
@@ -149,14 +150,24 @@ func TestSMTP(cfg config.SMTPConfig) error {
 }
 
 func resolveSkipVerify(skipVerify bool) bool {
-	if skipVerify {
-		slog.Warn("SMTP TLS certificate verification is disabled — connections are vulnerable to man-in-the-middle attacks")
-		if c := config.Get(); c != nil && c.Server.Mode == "production" {
-			slog.Warn("InsecureSkipVerify overridden to false in production mode — set smtp.skip_verify to false to suppress this warning")
-			return false
-		}
+	if !skipVerify {
+		return false
 	}
-	return skipVerify
+	slog.Warn("SMTP TLS certificate verification is disabled — connections are vulnerable to man-in-the-middle attacks")
+	// SECURITY FIX (audit #10): skip_verify is only allowed when explicitly
+	// gated for insecure development. In all other cases it is forced false,
+	// even outside production mode, because it enables MITM for password-reset
+	// and MFA email links (full account takeover). Operators needing it for
+	// local testing must set LIBRESERV_INSECURE_DEV=true (dev-only env).
+	if os.Getenv("LIBRESERV_INSECURE_DEV") != "true" {
+		slog.Warn("InsecureSkipVerify overridden to false — set LIBRESERV_INSECURE_DEV=true to allow skip_verify (dev-only)")
+		return false
+	}
+	if c := config.Get(); c != nil && c.Server.Mode == "production" {
+		slog.Warn("InsecureSkipVerify overridden to false in production mode — set smtp.skip_verify to false to suppress this warning")
+		return false
+	}
+	return true
 }
 
 func checkSTARTTLS(addr string, cfg config.SMTPConfig, skipVerify bool) error {

@@ -106,6 +106,15 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 		return result, result.Error
 	}
 
+	// SECURITY FIX (audit #4): validate the restored tree for symlink escapes
+	// and path-traversal before moving anything to the live app directory.
+	// Restic can materialize symlinks inside tmpRestoreDir; a crafted backup
+	// could contain `data -> /etc` and cause os.Rename to overwrite host files.
+	if err := validateRestoredTree(tmpRestoreDir); err != nil {
+		result.Error = fmt.Errorf("restored tree validation failed: %w", err)
+		return result, result.Error
+	}
+
 	if err := os.MkdirAll(appPath, 0750); err != nil {
 		result.Error = fmt.Errorf("failed to create app directory: %w", err)
 		return result, result.Error
@@ -132,22 +141,18 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 		for _, entry := range innerEntries {
 			src := filepath.Join(restoredAppDir, entry.Name())
 			dst := filepath.Join(appPath, entry.Name())
-			if err := os.Rename(src, dst); err != nil {
-				if moveDirContents(src, dst) != nil {
-					result.Error = fmt.Errorf("move restored content: %w", err)
-					return result, result.Error
-				}
+			if err := secureMove(src, dst, appPath); err != nil {
+				result.Error = fmt.Errorf("move restored content: %w", err)
+				return result, result.Error
 			}
 		}
 	} else {
 		for _, entry := range entries {
 			src := filepath.Join(tmpRestoreDir, entry.Name())
 			dst := filepath.Join(appPath, entry.Name())
-			if err := os.Rename(src, dst); err != nil {
-				if moveDirContents(src, dst) != nil {
-					result.Error = fmt.Errorf("move restored content: %w", err)
-					return result, result.Error
-				}
+			if err := secureMove(src, dst, appPath); err != nil {
+				result.Error = fmt.Errorf("move restored content: %w", err)
+				return result, result.Error
 			}
 		}
 	}
@@ -189,7 +194,7 @@ func findRestoredAppDir(root, appPath string) (string, error) {
 	parentBase := filepath.Base(filepath.Dir(appPath))
 
 	candidate := filepath.Join(root, appPath)
-	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+	if info, err := os.Lstat(candidate); err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
 		return candidate, nil
 	}
 
@@ -204,9 +209,15 @@ func findRestoredAppDir(root, appPath string) (string, error) {
 		if result != "" {
 			return filepath.SkipAll
 		}
-		if info.IsDir() && filepath.Base(path) == appBase {
+		// Use Lstat semantics via Walk's info — but double-check symlink bit
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+		cleanBase := filepath.Base(filepath.Clean(path))
+		if info.IsDir() && cleanBase == appBase {
 			dir := filepath.Dir(path)
-			if filepath.Base(dir) == parentBase || parentBase == "." || parentBase == "" {
+			dirBase := filepath.Base(filepath.Clean(dir))
+			if dirBase == parentBase || parentBase == "." || parentBase == "" {
 				result = path
 				return filepath.SkipAll
 			}
@@ -230,6 +241,10 @@ func moveDirContents(srcDir, dstDir string) error {
 	for _, entry := range entries {
 		src := filepath.Join(srcDir, entry.Name())
 		dst := filepath.Join(dstDir, entry.Name())
+		// Validate dst stays within intended parent before any filesystem write.
+		if !isSafeRestoreDestination(dst, dstDir) {
+			return fmt.Errorf("unsafe restore destination: %s", dst)
+		}
 		if err := os.Rename(src, dst); err != nil {
 			if entry.IsDir() {
 				if moveErr := moveDirContents(src, dst); moveErr != nil {
@@ -413,6 +428,73 @@ func (s *BackupService) CleanupGhostDatabaseBackups(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// SECURITY FIX (audit #4): helpers to validate restored file trees and destinations.
+func validateRestoredTree(root string) error {
+	absRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return err
+	}
+	var walkErr error
+	err = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			walkErr = err
+			return nil
+		}
+		// Reject ALL symlinks outright. Even an in-root link is a TOCTOU hazard:
+		// a later os.Rename of a path through this link would follow it. The
+		// escape-resolution logic below was removed because it was dead code —
+		// every symlink reaches this rejection regardless of where it points.
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, _ := os.Readlink(path)
+			return fmt.Errorf("restored tree contains symlink (rejected): %s -> %s", path, target)
+		}
+		rel, err := filepath.Rel(absRoot, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if !isSafeTarPath(absRoot, rel) {
+			return fmt.Errorf("path traversal in restored tree: %s", rel)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	return err
+}
+
+func isSafeRestoreDestination(dst, allowedParent string) bool {
+	absDst, err := filepath.Abs(filepath.Clean(dst))
+	if err != nil {
+		return false
+	}
+	absParent, err := filepath.Abs(filepath.Clean(allowedParent))
+	if err != nil {
+		return false
+	}
+	if absDst == absParent {
+		return true
+	}
+	return strings.HasPrefix(absDst, absParent+string(filepath.Separator))
+}
+
+func secureMove(src, dst, allowedParent string) error {
+	if !isSafeRestoreDestination(dst, allowedParent) {
+		return fmt.Errorf("unsafe restore destination: %s", dst)
+	}
+	// Lstat src to reject symlink sources.
+	if info, err := os.Lstat(src); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to move symlink: %s", src)
+	}
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	return moveDirContents(src, dst)
 }
 
 func rewriteInstanceID(appPath, oldInstanceID, newInstanceID string) error {
