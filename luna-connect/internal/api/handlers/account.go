@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -91,19 +92,23 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	if !config.C.Stripe.Ready() {
-		sub, _ := billing.Subscribe(acct.StripeCustomer)
-		_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'dev', stripe_subscription_id = ? WHERE id = ?`, sub, acct.ID)
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "dev": true})
-		return
-	}
 	sub, err := billing.Subscribe(acct.StripeCustomer)
 	if err != nil {
+		if errors.Is(err, billing.ErrNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Ask the person who looks after it, then try again.")
+			return
+		}
 		JSONError(w, http.StatusBadGateway, "Could not start the monthly bill. Check the card and try again.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active', stripe_subscription_id = ? WHERE id = ?`, sub, acct.ID)
-	JSON(w, http.StatusOK, map[string]any{"ok": true})
+	status := "active"
+	out := map[string]any{"ok": true}
+	if billing.DevBypass() {
+		status = "dev"
+		out["dev"] = true
+	}
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ? WHERE id = ?`, status, sub, acct.ID)
+	JSON(w, http.StatusOK, out)
 }
 
 func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
