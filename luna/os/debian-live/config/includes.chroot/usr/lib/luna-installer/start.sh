@@ -82,6 +82,8 @@ touch /var/lib/live/config/luna-installer
 
 cd "$DIR"
 if _on_console; then
-	exec ./rapidinstall.sh </dev/tty1 >/dev/tty1 2>&1
+	./rapidinstall.sh </dev/tty1 >/dev/tty1 2>&1
+	exit $?
 fi
-exec ./rapidinstall.sh
+./rapidinstall.sh
+exit $?

@@ -23,9 +23,10 @@ if ! command -v lb >/dev/null 2>&1; then
 	die "live-build missing (apt install live-build debootstrap debian-archive-keyring xorriso)"
 fi
 
-# Host tools live-build invokes directly (not via chroot package lists).
+# Host tools live-build invokes directly (not via chroot package lists),
+# plus tools for the UEFI remaster step (Ubuntu live-build 3.x is BIOS-only).
 _missing=""
-for _pkg in xorriso syslinux-utils apt-utils isolinux; do
+for _pkg in xorriso syslinux-utils apt-utils isolinux grub-efi-amd64-bin dosfstools mtools; do
 	dpkg -s "$_pkg" >/dev/null 2>&1 || _missing="$_missing $_pkg"
 done
 if [ -n "$_missing" ]; then
@@ -116,7 +117,18 @@ fi
 [ -n "$_iso" ] && [ -f "$_iso" ] || die "live-build produced no *.hybrid.iso (see $LOG)"
 
 _out="$OUT/luna-rapidinstall-${ARCH}.iso"
-cp "$_iso" "$_out" || die "could not copy ISO to $_out"
+_uefi="$(CDPATH= cd -- "$(dirname "$0")" && pwd)/add-uefi-boot.sh"
+[ -x "$_uefi" ] || die "missing $_uefi"
+
+echo "==> adding UEFI El Torito boot (BIOS+UEFI hybrid)" | tee -a "$LOG"
+_uefi_tmp="$OUT/.luna-rapidinstall-${ARCH}.uefi.tmp.iso"
+rm -f "$_uefi_tmp"
+if ! "$_uefi" "$_iso" "$_uefi_tmp" >>"$LOG" 2>&1; then
+	echo "==> UEFI remaster failed; last 40 log lines:" >&2
+	tail -40 "$LOG" >&2
+	die "add-uefi-boot.sh failed (see $LOG)"
+fi
+mv -f "$_uefi_tmp" "$_out" || die "could not publish $_out"
 
 if [ -n "${SUDO_USER:-}" ]; then
 	chown "$SUDO_USER:$SUDO_USER" "$_out" "$LOG" 2>/dev/null || true

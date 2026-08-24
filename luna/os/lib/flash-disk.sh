@@ -44,8 +44,8 @@ _write_grub_cfg() {
 		echo 'set default=0'
 		echo 'menuentry "Luna" {'
 		echo '    insmod part_gpt'
+		# GRUB's ext2.mod reads ext2/ext3/ext4; there is no separate ext4.mod.
 		echo '    insmod ext2'
-		echo '    insmod ext4'
 		echo '    insmod search'
 		echo '    insmod search_fs_uuid'
 		echo "    search --no-floppy --fs-uuid --set=root ${_root_uuid}"
@@ -64,8 +64,8 @@ _write_efi_grub_cfg() {
 	{
 		echo 'insmod part_gpt'
 		echo 'insmod fat'
+		# ext2.mod covers ext4 on the Luna root partition.
 		echo 'insmod ext2'
-		echo 'insmod ext4'
 		echo 'insmod search'
 		echo 'insmod search_fs_uuid'
 		echo "search --no-floppy --fs-uuid --set=root ${_root_uuid}"
@@ -73,6 +73,50 @@ _write_efi_grub_cfg() {
 		echo 'export prefix'
 		echo 'configfile $prefix/grub.cfg'
 	} >"$_espmnt/EFI/BOOT/grub/grub.cfg"
+}
+
+# Debian live's grub-install puts BOOTX64.EFI on the ESP but often does not
+# populate ($root)/boot/grub/x86_64-efi/*.mod. The ESP chainloader sets
+# prefix=($root)/boot/grub, so insmod ext2 fails with "file not found".
+# Note: GRUB uses ext2.mod for ext4 filesystems — there is no ext4.mod.
+_install_grub_modules() {
+	_rootmnt="$1"
+	_platform="$2"
+	_modsrc=""
+	case "$_platform" in
+	x86_64-efi)
+		for _d in /usr/lib/grub/x86_64-efi /usr/lib/grub-efi-amd64; do
+			if [ -f "$_d/ext2.mod" ]; then
+				_modsrc="$_d"
+				break
+			fi
+		done
+		;;
+	i386-pc)
+		for _d in /usr/lib/grub/i386-pc /usr/lib/grub-pc; do
+			if [ -f "$_d/ext2.mod" ]; then
+				_modsrc="$_d"
+				break
+			fi
+		done
+		;;
+	*)
+		echo "unknown GRUB platform: $_platform" >&2
+		return 1
+		;;
+	esac
+	if [ -z "$_modsrc" ]; then
+		echo "GRUB $_platform modules not found in the installer environment." >&2
+		return 1
+	fi
+	_destdir="$_rootmnt/boot/grub/$_platform"
+	mkdir -p "$_destdir"
+	cp -a "$_modsrc"/*.mod "$_destdir/" 2>/dev/null || true
+	cp -a "$_modsrc"/*.lst "$_destdir/" 2>/dev/null || true
+	if [ ! -f "$_destdir/ext2.mod" ]; then
+		echo "GRUB $_platform ext2.mod missing after copy to $_destdir." >&2
+		return 1
+	fi
 }
 
 flash_luna_disk() {
@@ -173,6 +217,11 @@ PART
 	if [ -f "$_espmnt/EFI/BOOT/BOOTX64.EFI" ] || [ -f "$_espmnt/EFI/BOOT/BOOTIA32.EFI" ]; then
 		_efi_ok=1
 	fi
+	if ! _install_grub_modules "$_mnt" x86_64-efi; then
+		echo "UEFI GRUB modules could not be installed on the Luna partition." >&2
+		return 1
+	fi
+	_install_grub_modules "$_mnt" i386-pc 2>/dev/null || true
 	if [ "$_bios_ok" -eq 0 ] && [ "$_efi_ok" -eq 0 ]; then
 		echo "GRUB could not install a BIOS or UEFI bootloader. This computer would not start after reboot." >&2
 		return 1

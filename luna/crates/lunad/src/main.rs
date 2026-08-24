@@ -86,10 +86,12 @@ async fn main() -> anyhow::Result<()> {
     if lunad::hotspot::should_start_setup_hotspot(
         setup_done,
         net.ethernet_connected,
-        net.wifi_connected,
+        lunad::hotspot::wifi_uplink_connected(state.wifi.as_ref()),
     ) && let Some(iface) = net.wifi_interface.clone()
     {
+        let scan_cache = state.wifi.scan().unwrap_or_default();
         let hotspot = lunad::hotspot::CommandHotspot::new(iface, &cfg.data_dir.join("run"));
+        hotspot.set_cache(scan_cache);
         match hotspot.start() {
             Ok(()) => {
                 tracing::info!(ssid = lunad::hotspot::SETUP_SSID, "setup hotspot active");
@@ -189,6 +191,7 @@ async fn main() -> anyhow::Result<()> {
 
     let hotspot_db = state.db.clone();
     let hotspot_state = state.clone();
+    let hotspot_wifi = state.wifi.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
         loop {
@@ -202,7 +205,13 @@ async fn main() -> anyhow::Result<()> {
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
                 .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
                 .unwrap_or(false);
-            if (setup_done || net.ethernet_connected || net.wifi_connected)
+            let wifi_connected = tokio::task::spawn_blocking({
+                let wifi = hotspot_wifi.clone();
+                move || lunad::hotspot::wifi_uplink_connected(wifi.as_ref())
+            })
+            .await
+            .unwrap_or(false);
+            if (setup_done || net.ethernet_connected || wifi_connected)
                 && let Some(hotspot) = hotspot_state.hotspot.lock().unwrap().take()
             {
                 let _ = hotspot.stop();
