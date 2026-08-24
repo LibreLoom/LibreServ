@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/handlers"
@@ -72,6 +73,17 @@ func (s *Server) setupRoutes() {
 	// Global middleware
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	// Per-IP limits on the unauthenticated, credential-accepting endpoints so
+	// admin/customer passwords and device connect keys cannot be brute-forced.
+	// More specific prefixes first.
+	r.Use(middleware.RateLimit([]middleware.RateRule{
+		{Prefix: "/admin/seed", Limit: 5, Window: time.Minute},
+		{Prefix: "/admin/login", Limit: 10, Window: time.Minute},
+		{Prefix: "/portal/login", Limit: 10, Window: time.Minute},
+		{Prefix: "/portal/register", Limit: 5, Window: time.Minute},
+		{Prefix: "/portal/verify-email", Limit: 10, Window: time.Minute},
+		{Prefix: "/api/v1/activate", Limit: 20, Window: time.Minute},
+	}))
 
 	// Health
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {

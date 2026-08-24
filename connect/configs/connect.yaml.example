@@ -19,6 +19,10 @@ auth:
   admin_token_secret: "CHANGE_ME"    # admin JWT signing secret
   customer_token_secret: "CHANGE_ME"  # customer portal JWT signing secret
   session_ttl_hours: 168              # 7 days
+  # Required to call POST /admin/seed (first admin bootstrap) from a non-loopback
+  # address; send it as the X-Seed-Token header. Leave empty to allow seeding
+  # only from localhost.
+  admin_seed_token: ""
 
 stripe:
   enabled: false
