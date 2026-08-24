@@ -968,7 +968,8 @@ mod guard_tests {
     #[tokio::test]
     async fn first_account_on_public_hostname_needs_setup_secret() {
         let (dir, _) = test_app();
-        let connect = crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        let connect =
+            crate::connect::ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
         connect
             .apply_claimed(&serde_json::json!({
                 "device_token": "tok",
@@ -991,24 +992,64 @@ mod guard_tests {
             Some(r#"{"username":"max","password":"hunter22hunter"}"#),
             None,
         );
-        denied.headers_mut().insert(
-            "host",
-            "photos.luna.servers.libreloom.org".parse().unwrap(),
-        );
+        denied
+            .headers_mut()
+            .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
         let res = call(&app, denied).await;
         assert_eq!(res.status(), 403, "{}", text(res).await);
 
-        let mut ok = req(
+        let mut via_query = req(
             Method::POST,
             "/api/v1/auth/register?setup=one-time-secret",
             Some(r#"{"username":"max","password":"hunter22hunter"}"#),
             None,
         );
-        ok.headers_mut().insert(
-            "host",
-            "photos.luna.servers.libreloom.org".parse().unwrap(),
+        via_query
+            .headers_mut()
+            .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
+        let res = call(&app, via_query).await;
+        assert_eq!(
+            res.status(),
+            403,
+            "setup secret in the URL must not pass: {}",
+            text(res).await
         );
+
+        let mut via_cookie = req(
+            Method::POST,
+            "/api/v1/auth/register",
+            Some(r#"{"username":"max","password":"hunter22hunter"}"#),
+            None,
+        );
+        via_cookie
+            .headers_mut()
+            .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
+        via_cookie
+            .headers_mut()
+            .insert("cookie", "luna_setup=one-time-secret".parse().unwrap());
+        let res = call(&app, via_cookie).await;
+        assert_eq!(
+            res.status(),
+            403,
+            "setup secret in a cookie must not pass: {}",
+            text(res).await
+        );
+
+        let mut ok = req(
+            Method::POST,
+            "/api/v1/auth/register",
+            Some(
+                r#"{"username":"max","password":"hunter22hunter","setup_secret":"one-time-secret"}"#,
+            ),
+            None,
+        );
+        ok.headers_mut()
+            .insert("host", "photos.luna.servers.libreloom.org".parse().unwrap());
         let res = call(&app, ok).await;
         assert_eq!(res.status(), 200, "{}", text(res).await);
+        assert!(
+            connect.first_user_secret().is_none(),
+            "first-user secret must be one-time"
+        );
     }
 }

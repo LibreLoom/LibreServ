@@ -108,17 +108,18 @@ impl ConnectService {
         if claimed {
             return None;
         }
-        self.read_factory_token()
-            .or_else(|| self.ephemeral.lock().unwrap().as_ref().map(|e| e.code.clone()))
+        self.read_factory_token().or_else(|| {
+            self.ephemeral
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|e| e.code.clone())
+        })
     }
 
     pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
         let code = code.trim().to_uppercase();
-        if code.len() != 6
-            || !code
-                .chars()
-                .all(|c| c.is_ascii_hexdigit())
-        {
+        if code.len() != 6 || !code.chars().all(|c| c.is_ascii_hexdigit()) {
             return Err(ConnectError::Other(
                 "That code should be six letters and numbers from the Luna Connect site.".into(),
             ));
@@ -170,6 +171,18 @@ impl ConnectService {
             .and_then(|v| v.as_str())
             .filter(|s| !s.is_empty())
             .map(str::to_string)
+    }
+
+    /// One-time: drop the public-hostname first-user code after it is used.
+    pub fn clear_first_user_secret(&self) -> Result<(), ConnectError> {
+        let mut state = self.load();
+        let Some(obj) = state.as_object_mut() else {
+            return Ok(());
+        };
+        if obj.remove("first_user_secret").is_none() {
+            return Ok(());
+        }
+        self.save(&state)
     }
 
     pub fn public_hostname(&self) -> Option<String> {
@@ -521,10 +534,15 @@ mod tests {
             }))
             .unwrap();
         let st = service.status();
-        assert_eq!(st.hostname.as_deref(), Some("photos.luna.servers.libreloom.org"));
+        assert_eq!(
+            st.hostname.as_deref(),
+            Some("photos.luna.servers.libreloom.org")
+        );
         assert_eq!(service.first_user_secret().as_deref(), Some("secret-abc"));
         assert!(st.enabled);
         assert!(!st.unclaimed);
+        service.clear_first_user_secret().unwrap();
+        assert!(service.first_user_secret().is_none());
     }
 
     #[test]
