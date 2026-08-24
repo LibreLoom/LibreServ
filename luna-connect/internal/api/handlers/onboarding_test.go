@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/security"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 )
@@ -378,8 +379,64 @@ func TestTokenHelpers(t *testing.T) {
 	}
 }
 
+type recordingCloud struct {
+	creates    []string
+	deletes    []string
+	dnsUpserts []string
+	dnsDeletes []string
+}
+
+func (c *recordingCloud) CreateTunnel(_, _, name string) (*providers.TunnelCredentials, error) {
+	c.creates = append(c.creates, name)
+	return &providers.TunnelCredentials{TunnelID: "tun-" + name, Token: "tok-" + name}, nil
+}
+
+func (c *recordingCloud) ConfigureIngress(_, _, _, _, _ string) error { return nil }
+
+func (c *recordingCloud) DeleteTunnel(_, _, tunnelID string) error {
+	c.deletes = append(c.deletes, tunnelID)
+	return nil
+}
+
+func (c *recordingCloud) UpsertCNAME(_, _, hostname, _ string) error {
+	c.dnsUpserts = append(c.dnsUpserts, hostname)
+	return nil
+}
+
+func (c *recordingCloud) DeleteRecord(_, _, hostname string) error {
+	c.dnsDeletes = append(c.dnsDeletes, hostname)
+	return nil
+}
+
+func attachRecordingCloud(onb *OnboardingHandler) *recordingCloud {
+	rec := &recordingCloud{}
+	onb.Tunnel = rec
+	onb.DNS = rec
+	return rec
+}
+
+func (c *recordingCloud) assertRolledBack(t *testing.T, sub string) {
+	t.Helper()
+	wantTun := "luna-" + sub
+	if len(c.creates) != 1 || c.creates[0] != wantTun {
+		t.Fatalf("creates %v want [%s]", c.creates, wantTun)
+	}
+	wantID := "tun-" + wantTun
+	if len(c.deletes) != 1 || c.deletes[0] != wantID {
+		t.Fatalf("deletes %v want [%s]", c.deletes, wantID)
+	}
+	host := sub + "." + config.C.Server.PublicZone
+	if len(c.dnsUpserts) != 1 || c.dnsUpserts[0] != host {
+		t.Fatalf("dns upserts %v want [%s]", c.dnsUpserts, host)
+	}
+	if len(c.dnsDeletes) != 1 || c.dnsDeletes[0] != host {
+		t.Fatalf("dns deletes %v want [%s]", c.dnsDeletes, host)
+	}
+}
+
 func TestNameRollbackOnPushFail(t *testing.T) {
 	onb, acct, _ := testOnboarding(t)
+	rec := attachRecordingCloud(&onb)
 	token := mintOfficial(t, onb)
 	cookie := registerAccount(t, acct, "pushfail@b.co")
 	bind := httptest.NewRequest(http.MethodPost, "/onboarding/bind", bytes.NewBufferString(`{"code":"`+token+`"}`))
@@ -412,6 +469,43 @@ func TestNameRollbackOnPushFail(t *testing.T) {
 	if sessStatus == "claimed" {
 		t.Fatal("session claimed after failed push")
 	}
+	rec.assertRolledBack(t, "retryme")
+}
+
+func TestNameRollbackOnInsertFail(t *testing.T) {
+	onb, acct, _ := testOnboarding(t)
+	rec := attachRecordingCloud(&onb)
+	token := mintOfficial(t, onb)
+	cookie := registerAccount(t, acct, "insfail@b.co")
+	bind := httptest.NewRequest(http.MethodPost, "/onboarding/bind", bytes.NewBufferString(`{"code":"`+token+`"}`))
+	bind.AddCookie(cookie)
+	bind.RemoteAddr = "203.0.113.43:4"
+	brec := httptest.NewRecorder()
+	onb.Bind(brec, bind)
+	if brec.Code != 200 {
+		t.Fatalf("bind %d %s", brec.Code, brec.Body.String())
+	}
+	registerHubSocket(t, onb, token, false)
+	if _, err := onb.DB.Exec(`CREATE TRIGGER fail_devices BEFORE INSERT ON devices BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	nameReq := httptest.NewRequest(http.MethodPost, "/onboarding/name", bytes.NewBufferString(`{"subdomain":"orphanme"}`))
+	nameReq.AddCookie(cookie)
+	nameReq.AddCookie(brec.Result().Cookies()[0])
+	nrec := withAccount(acct, onb.Name, nameReq)
+	if nrec.Code != http.StatusConflict {
+		t.Fatalf("want insert fail, got %d %s", nrec.Code, nrec.Body.String())
+	}
+	var n int
+	_ = onb.DB.QueryRow(`SELECT COUNT(*) FROM devices`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("device row after failed insert: %d", n)
+	}
+	if tokenStatus(t, onb, token) != "issued" {
+		t.Fatalf("token should stay issued, got %s", tokenStatus(t, onb, token))
+	}
+	rec.assertRolledBack(t, "orphanme")
 }
 
 func TestNameRejectsClaimedToken(t *testing.T) {
@@ -592,11 +686,46 @@ func TestStripeNotReadyFailsClosed(t *testing.T) {
 		t.Fatalf("backups fail-closed %d %s", brec.Code, brec.Body.String())
 	}
 
+	card := httptest.NewRequest(http.MethodPost, "/billing/attach-card", nil)
+	card.AddCookie(cookie)
+	crec := withAccount(acct, acct.AttachCard, card)
+	if crec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("attach-card fail-closed %d %s", crec.Code, crec.Body.String())
+	}
+	var has int
+	var status string
+	_ = onb.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE email = 'nocard@b.co'`).Scan(&has, &status)
+	if has != 0 || status != "none" {
+		t.Fatalf("attach-card must not mark billed, has=%d status=%s", has, status)
+	}
+
 	config.C.Stripe.SecretKey = "sk_test_fake"
 	missing := httptest.NewRequest(http.MethodPost, "/account/verify-human", nil)
 	missing.AddCookie(cookie)
 	mrec := withAccount(acct, onb.VerifyHuman, missing)
 	if mrec.Code != http.StatusBadRequest {
 		t.Fatalf("missing payment_method %d %s", mrec.Code, mrec.Body.String())
+	}
+}
+
+func TestAttachCardDevBypass(t *testing.T) {
+	_, acct, _ := testOnboarding(t)
+	cookie := registerAccount(t, acct, "devcard@b.co")
+	prev := config.C.Stripe
+	config.C.Stripe.Enabled = false
+	config.C.Stripe.SecretKey = ""
+	t.Cleanup(func() { config.C.Stripe = prev })
+
+	card := httptest.NewRequest(http.MethodPost, "/billing/attach-card", nil)
+	card.AddCookie(cookie)
+	crec := withAccount(acct, acct.AttachCard, card)
+	if crec.Code != 200 {
+		t.Fatalf("dev attach-card %d %s", crec.Code, crec.Body.String())
+	}
+	var has int
+	var status string
+	_ = acct.DB.QueryRow(`SELECT has_card, billing_status FROM accounts WHERE email = 'devcard@b.co'`).Scan(&has, &status)
+	if has != 1 || status != "dev" {
+		t.Fatalf("dev attach-card has=%d status=%s", has, status)
 	}
 }

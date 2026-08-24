@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+// Tunnel is the Cloudflare tunnel surface Name/Unregister use.
+type Tunnel interface {
+	CreateTunnel(accountID, apiToken, name string) (*TunnelCredentials, error)
+	ConfigureIngress(accountID, apiToken, tunnelID, hostname, serviceURL string) error
+	DeleteTunnel(accountID, apiToken, tunnelID string) error
+}
+
 type TunnelClient struct {
 	HTTP     *http.Client
 	BaseURL  string

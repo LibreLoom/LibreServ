@@ -263,11 +263,13 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	}
 	serviceURL := "http://127.0.0.1:" + itoa(port)
 	if err := h.Tunnel.ConfigureIngress(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, creds.TunnelID, hostname, serviceURL); err != nil {
+		h.rollbackCloud(creds.TunnelID, hostname)
 		JSONError(w, http.StatusBadGateway, "Could not finish the protected connection. Try again.")
 		return
 	}
 	target := creds.TunnelID + ".cfargotunnel.com"
 	if err := h.DNS.UpsertCNAME(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, hostname, target); err != nil {
+		h.rollbackCloud(creds.TunnelID, hostname)
 		JSONError(w, http.StatusBadGateway, "Could not publish the address. Try again.")
 		return
 	}
@@ -284,6 +286,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		Subdomain:   sub,
 	})
 	if !pushed {
+		h.rollbackCloud(creds.TunnelID, hostname)
 		JSONError(w, http.StatusConflict, "Luna dropped off the line before we could finish. Plug the cable in and try again.")
 		return
 	}
@@ -291,6 +294,10 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, acct.ID, security.HashToken(deviceToken), "Luna", sub, creds.TunnelID, creds.Token, port, time.Now().Unix())
 	if err != nil {
+		// Luna may already have tunnel creds from ClaimAndDrop. Drop Cloudflare
+		// resources and leave the booklet token issued so a later hello + Name
+		// can mint a new tunnel. Do not mark the token claimed.
+		h.rollbackCloud(creds.TunnelID, hostname)
 		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
 		return
 	}
@@ -413,11 +420,22 @@ VALUES (?, ?, 'oss', 'issued', ?, ?, ?)`, id, security.HashToken(code), acct.ID,
 	})
 }
 
+func (h OnboardingHandler) rollbackCloud(tunnelID, hostname string) {
+	if h.DNS != nil && hostname != "" {
+		_ = h.DNS.DeleteRecord(config.C.Cloudflare.APIToken, config.C.Cloudflare.ZoneID, hostname)
+	}
+	if h.Tunnel != nil && tunnelID != "" {
+		_ = h.Tunnel.DeleteTunnel(config.C.Cloudflare.AccountID, config.C.Cloudflare.APIToken, tunnelID)
+	}
+}
+
 func (h OnboardingHandler) AdminMint(w http.ResponseWriter, r *http.Request) {
 	if config.C.Server.AdminToken == "" || r.Header.Get("Authorization") != "Bearer "+config.C.Server.AdminToken {
 		JSONError(w, http.StatusUnauthorized, "Admin sign-in required.")
 		return
 	}
+	// Replacement official tokens: there is no public remint. Support mints here
+	// after the owner contacts support with their order id (lost booklet / wiped disk).
 	display := security.OfficialBookletToken()
 	norm := security.NormalizeToken(display)
 	id := security.NewID("tok")
