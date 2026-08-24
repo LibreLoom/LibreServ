@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/auth"
+	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LibreServConnect/internal/security"
 )
 
@@ -161,7 +163,23 @@ func (h *AdminAuthHandler) Verify2FA(w http.ResponseWriter, r *http.Request) {
 }
 
 // SeedAdmin creates the first admin account (only if none exist).
+//
+// The endpoint is unauthenticated by nature, so it is additionally gated: the
+// caller must present the operator-provisioned bootstrap token in X-Seed-Token,
+// or, when no token is configured, connect from loopback. Without this an
+// internet-reachable but not-yet-seeded deployment could be claimed by anyone.
 func (h *AdminAuthHandler) SeedAdmin(w http.ResponseWriter, r *http.Request) {
+	seedToken := config.C.Auth.AdminSeedToken
+	if seedToken == "" {
+		if !middleware.IsLocalRequest(r) {
+			JSONError(w, http.StatusForbidden, "admin seeding is restricted to local requests. Set auth.admin_seed_token to seed remotely.")
+			return
+		}
+	} else if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Seed-Token")), []byte(seedToken)) != 1 {
+		JSONError(w, http.StatusForbidden, "invalid or missing seed token")
+		return
+	}
+
 	var count int
 	_ = h.db.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM admin_accounts").Scan(&count)
 	if count > 0 {
@@ -190,11 +208,18 @@ func (h *AdminAuthHandler) SeedAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	adminID := security.GenerateID("admin")
-	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO admin_accounts (id, email, password_hash, name) VALUES ($1, $2, $3, $4)`,
+	// Conditional insert so concurrent seed requests cannot each create an
+	// admin after both observed an empty table.
+	res, err := h.db.ExecContext(r.Context(),
+		`INSERT INTO admin_accounts (id, email, password_hash, name)
+		 SELECT $1, $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM admin_accounts)`,
 		adminID, req.Email, hash, req.Name)
 	if err != nil {
 		JSONError(w, http.StatusInternalServerError, "could not create admin account")
+		return
+	}
+	if rows, err := res.RowsAffected(); err == nil && rows == 0 {
+		JSONError(w, http.StatusForbidden, "admin accounts already exist. Use login instead.")
 		return
 	}
 

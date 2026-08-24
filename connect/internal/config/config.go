@@ -53,6 +53,9 @@ type AuthConfig struct {
 	AdminTokenSecret    string `mapstructure:"admin_token_secret" yaml:"admin_token_secret"`
 	CustomerTokenSecret string `mapstructure:"customer_token_secret" yaml:"customer_token_secret"`
 	SessionTTLHours     int    `mapstructure:"session_ttl_hours" yaml:"session_ttl_hours"`
+	// AdminSeedToken authorizes POST /admin/seed, which creates the very first
+	// admin account. When empty, seeding is only accepted from loopback.
+	AdminSeedToken string `mapstructure:"admin_seed_token" yaml:"admin_seed_token"`
 }
 
 type StripeConfig struct {
@@ -138,6 +141,7 @@ func SetDefaults(v *viper.Viper) {
 	v.SetDefault("server.port", 8080)
 	v.SetDefault("database.url", "postgres://localhost:5432/libreserv_connect?sslmode=disable")
 	v.SetDefault("auth.session_ttl_hours", 168)
+	v.SetDefault("auth.admin_seed_token", "")
 	v.SetDefault("web.customer_dir", "web/customer/dist")
 	v.SetDefault("web.admin_dir", "web/admin/dist")
 	v.SetDefault("scheduler.domain_sync_interval", "6h")
