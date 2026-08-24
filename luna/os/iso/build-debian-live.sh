@@ -26,7 +26,7 @@ fi
 # Host tools live-build invokes directly (not via chroot package lists),
 # plus tools for the UEFI remaster step (Ubuntu live-build 3.x is BIOS-only).
 _missing=""
-for _pkg in xorriso syslinux-utils apt-utils isolinux grub-efi-amd64-bin dosfstools mtools; do
+for _pkg in xorriso syslinux-utils syslinux-common apt-utils isolinux grub-efi-amd64-bin dosfstools mtools; do
 	dpkg -s "$_pkg" >/dev/null 2>&1 || _missing="$_missing $_pkg"
 done
 if [ -n "$_missing" ]; then
