@@ -18,6 +18,7 @@ dosfstools
 tar
 gzip
 util-linux
+coreutils
 fdisk
 iproute2
 isc-dhcp-client

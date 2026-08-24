@@ -53,21 +53,31 @@ _install_media_dev() {
 	return 1
 }
 
-_on_console() {
-	if [ ! -c /dev/tty1 ]; then
-		return 1
+# Kernel console (console=tty0 → /dev/console), not tty1. Switching VTs hid
+# the 5s disk-override prompt when chvt lagged or failed.
+_attach_console() {
+	_dev=""
+	if [ -c /dev/console ]; then
+		_dev=/dev/console
+	elif [ -c /dev/tty0 ]; then
+		_dev=/dev/tty0
+	elif [ -c /dev/tty1 ]; then
+		_dev=/dev/tty1
 	fi
-	chvt 1 2>/dev/null || true
-	if [ -t 0 ] && command -v stty >/dev/null 2>&1; then
+	[ -n "$_dev" ] || return 1
+	exec <"$_dev" >"$_dev" 2>&1 || return 1
+	if command -v stty >/dev/null 2>&1; then
 		stty sane 2>/dev/null || true
 	fi
+	return 0
 }
+
+_attach_console || true
 
 if ! _wait_medium; then
 	echo "Could not find Luna installer files on the USB stick." >&2
 	echo "Devices Luna can see:" >&2
 	ls /sys/class/block 2>/dev/null || true
-	_on_console || true
 	exec /bin/sh
 fi
 
@@ -81,9 +91,5 @@ mkdir -p /var/lib/live/config
 touch /var/lib/live/config/luna-installer
 
 cd "$DIR"
-if _on_console; then
-	./rapidinstall.sh </dev/tty1 >/dev/tty1 2>&1
-	exit $?
-fi
 ./rapidinstall.sh
 exit $?

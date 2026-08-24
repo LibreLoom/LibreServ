@@ -22,6 +22,7 @@ mkdir -p "$BINL/lib" "$CHROOT_LIB"
 cp "$ROOT/os/rapidinstall.sh" "$BINL/rapidinstall.sh"
 cp "$ROOT/os/lib/disk.sh" "$BINL/lib/disk.sh"
 cp "$ROOT/os/lib/flash-disk.sh" "$BINL/lib/flash-disk.sh"
+cp "$ROOT/os/lib/console.sh" "$BINL/lib/console.sh"
 chmod +x "$BINL/rapidinstall.sh" "$BINL/lib/flash-disk.sh"
 
 cp "$TARBALL" "$BINL/luna-rootfs-$ARCH.tar.gz"
