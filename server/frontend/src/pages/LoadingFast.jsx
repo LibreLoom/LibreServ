@@ -20,10 +20,10 @@ function LoadingFast({
       data-testid={testId}
     >
       <div className="w-full max-w-xs px-6 sm:max-w-sm">
-        {/* Typography & Branding */}
-        <div
-          className={cn("mb-10 text-center", !disableAnimation && "animate-fade-in-up")}
-        >
+        {/* Typography & Branding — kept animation-free on purpose: this is the
+            first-paint splash, and an opacity:0 entrance delays FCP by the full
+            fade duration while making the "loading" state invisible. */}
+        <div className="mb-10 text-center">
           <div className="mb-3 text-[0.65rem] font-sans font-semibold uppercase tracking-[0.3em] text-secondary">
             LibreServ
           </div>
