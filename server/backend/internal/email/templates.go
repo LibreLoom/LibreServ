@@ -331,10 +331,10 @@ func (s *Sender) SendHTMLEmail(to []string, subject, htmlBody string) error {
 	msg := s.buildHTMLMessage(s.from, to, subject, htmlBody)
 	port := s.port()
 	if port == 465 || port == 2465 {
-		return s.sendImplicitTLS(to, msg)
+		return s.sendImplicitTLS(s.from, to, msg)
 	}
 	if s.useTLS {
-		return s.sendSTARTTLS(to, msg)
+		return s.sendSTARTTLS(s.from, to, msg)
 	}
 	return smtp.SendMail(s.host, s.makeAuth(), s.from, to, []byte(msg))
 }

@@ -217,10 +217,10 @@ func (s *Sender) Send(to []string, subject, body string) error {
 	msg := buildMessage(s.from, to, subject, body)
 	port := s.port()
 	if port == 465 || port == 2465 {
-		return s.sendImplicitTLS(to, msg)
+		return s.sendImplicitTLS(s.from, to, msg)
 	}
 	if s.useTLS {
-		return s.sendSTARTTLS(to, msg)
+		return s.sendSTARTTLS(s.from, to, msg)
 	}
 	return s.sendPlaintext(s.from, to, msg)
 }
@@ -234,10 +234,10 @@ func (s *Sender) SendRaw(to []string, from, rawMsg string) error {
 	}
 	port := s.port()
 	if port == 465 || port == 2465 {
-		return s.sendImplicitTLSRaw(to, from, rawMsg)
+		return s.sendImplicitTLS(from, to, rawMsg)
 	}
 	if s.useTLS {
-		return s.sendSTARTTLSRaw(to, from, rawMsg)
+		return s.sendSTARTTLS(from, to, rawMsg)
 	}
 	return s.sendPlaintext(from, to, rawMsg)
 }
@@ -252,20 +252,10 @@ func (s *Sender) port() int {
 	return port
 }
 
-func (s *Sender) sendSTARTTLS(to []string, msg string) error {
-	c, err := smtp.Dial(s.host)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	skipVerify := resolveSkipVerify(s.skipVerify)
-	if err := c.StartTLS(&tls.Config{ServerName: strings.Split(s.host, ":")[0], InsecureSkipVerify: skipVerify}); err != nil {
-		return err
-	}
-	if err := c.Auth(s.makeAuth()); err != nil {
-		return err
-	}
-	if err := c.Mail(s.from); err != nil {
+// submitMessage runs the MAIL FROM / RCPT TO / DATA exchange on an
+// established SMTP client.
+func submitMessage(c *smtp.Client, from string, to []string, msg string) error {
+	if err := c.Mail(from); err != nil {
 		return err
 	}
 	for _, r := range to {
@@ -281,6 +271,22 @@ func (s *Sender) sendSTARTTLS(to []string, msg string) error {
 		return err
 	}
 	return w.Close()
+}
+
+func (s *Sender) sendSTARTTLS(from string, to []string, msg string) error {
+	c, err := smtp.Dial(s.host)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	skipVerify := resolveSkipVerify(s.skipVerify)
+	if err := c.StartTLS(&tls.Config{ServerName: strings.Split(s.host, ":")[0], InsecureSkipVerify: skipVerify}); err != nil {
+		return err
+	}
+	if err := c.Auth(s.makeAuth()); err != nil {
+		return err
+	}
+	return submitMessage(c, from, to, msg)
 }
 
 // sendPlaintext dials, authenticates with plainAuth (no TLS guard), and
@@ -297,56 +303,10 @@ func (s *Sender) sendPlaintext(from string, to []string, msg string) error {
 			return err
 		}
 	}
-	if err := c.Mail(from); err != nil {
-		return err
-	}
-	for _, r := range to {
-		if err := c.Rcpt(r); err != nil {
-			return err
-		}
-	}
-	w, err := c.Data()
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte(msg)); err != nil {
-		return err
-	}
-	return w.Close()
+	return submitMessage(c, from, to, msg)
 }
 
-func (s *Sender) sendSTARTTLSRaw(to []string, from, msg string) error {
-	c, err := smtp.Dial(s.host)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	skipVerify := resolveSkipVerify(s.skipVerify)
-	if err := c.StartTLS(&tls.Config{ServerName: strings.Split(s.host, ":")[0], InsecureSkipVerify: skipVerify}); err != nil {
-		return err
-	}
-	if err := c.Auth(s.makeAuth()); err != nil {
-		return err
-	}
-	if err := c.Mail(from); err != nil {
-		return err
-	}
-	for _, r := range to {
-		if err := c.Rcpt(r); err != nil {
-			return err
-		}
-	}
-	w, err := c.Data()
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte(msg)); err != nil {
-		return err
-	}
-	return w.Close()
-}
-
-func (s *Sender) sendImplicitTLSRaw(to []string, from, msg string) error {
+func (s *Sender) sendImplicitTLS(from string, to []string, msg string) error {
 	skipVerify := resolveSkipVerify(s.skipVerify)
 	conn, err := tls.Dial("tcp", s.host, &tls.Config{InsecureSkipVerify: skipVerify})
 	if err != nil {
@@ -360,54 +320,7 @@ func (s *Sender) sendImplicitTLSRaw(to []string, from, msg string) error {
 	if err := client.Auth(s.makeAuth()); err != nil {
 		return err
 	}
-	if err := client.Mail(from); err != nil {
-		return err
-	}
-	for _, r := range to {
-		if err := client.Rcpt(r); err != nil {
-			return err
-		}
-	}
-	w, err := client.Data()
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte(msg)); err != nil {
-		return err
-	}
-	return w.Close()
-}
-
-func (s *Sender) sendImplicitTLS(to []string, msg string) error {
-	skipVerify := resolveSkipVerify(s.skipVerify)
-	conn, err := tls.Dial("tcp", s.host, &tls.Config{InsecureSkipVerify: skipVerify})
-	if err != nil {
-		return err
-	}
-	client, err := smtp.NewClient(conn, strings.Split(s.host, ":")[0])
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if err := client.Auth(s.makeAuth()); err != nil {
-		return err
-	}
-	if err := client.Mail(s.from); err != nil {
-		return err
-	}
-	for _, r := range to {
-		if err := client.Rcpt(r); err != nil {
-			return err
-		}
-	}
-	w, err := client.Data()
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write([]byte(msg)); err != nil {
-		return err
-	}
-	return w.Close()
+	return submitMessage(client, from, to, msg)
 }
 
 // sanitizeHeader removes CR and LF characters to prevent email header injection
