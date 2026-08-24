@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { Layout } from "../components/Layout.jsx";
 import { Button } from "../components/ui/button.jsx";
-import { Input } from "../components/ui/input.jsx";
-import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
 import { api } from "../api.js";
@@ -10,17 +8,12 @@ import { api } from "../api.js";
 export default function LunaPage() {
   const { me } = useAuth();
   const [devices, setDevices] = useState([]);
-  const [code, setCode] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function load() {
-    const d = await api("/api/v1/account/devices");
-    setDevices(d.devices || []);
-  }
 
   useEffect(() => {
-    load().catch((err) => setError(err.message));
+    api("/api/v1/account/devices")
+      .then((d) => setDevices(d.devices || []))
+      .catch((err) => setError(err.message));
   }, []);
 
   return (
@@ -31,14 +24,14 @@ export default function LunaPage() {
       </p>
       <Card className="animate-fade-in-up">
         <CardHeader>
-          <CardTitle>Paired devices</CardTitle>
+          <CardTitle>Your Lunas</CardTitle>
           <CardDescription>
-            On your Luna, turn on opening from away, then tap Get pairing code and type it here.
+            Open Setup to type the booklet code, or the short code if you set this computer up yourself.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {devices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No Luna is paired yet.</p>
+            <p className="text-sm text-muted-foreground">No Luna is connected yet.</p>
           ) : (
             <ul className="space-y-2">
               {devices.map((d) => (
@@ -48,29 +41,7 @@ export default function LunaPage() {
               ))}
             </ul>
           )}
-          <form
-            className="flex flex-col sm:flex-row gap-3"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              setError("");
-              setLoading(true);
-              try {
-                await api("/api/v1/account/pair", { method: "POST", body: JSON.stringify({ code }) });
-                setCode("");
-                await load();
-              } catch (err) {
-                setError(err.message);
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            <div className="flex-1">
-              <Label htmlFor="pair">Pairing code from Luna</Label>
-              <Input id="pair" className="uppercase" value={code} onChange={(e) => setCode(e.target.value)} placeholder="ABC123" />
-            </div>
-            <Button type="submit" className="sm:self-end" loading={loading}>Pair this Luna</Button>
-          </form>
+          <Button type="button" onClick={() => { window.location.href = "/onboarding"; }}>Start setup</Button>
           {error && <p className="text-sm text-error">{error}</p>}
         </CardContent>
       </Card>

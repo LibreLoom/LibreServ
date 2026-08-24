@@ -21,6 +21,7 @@ pub struct NetworkStatus {
     pub wifi_interface: Option<String>,
     pub wifi_connected: bool,
     pub has_default_route: bool,
+    pub ipv4: Vec<String>,
     pub interfaces: Vec<InterfaceStatus>,
 }
 
@@ -32,6 +33,7 @@ pub fn read_status(sys_net: &Path, proc_route: &str) -> NetworkStatus {
             wifi_interface: None,
             wifi_connected: false,
             has_default_route: default_route(proc_route).is_some(),
+            ipv4: Vec::new(),
             interfaces,
         };
     };
@@ -71,8 +73,42 @@ pub fn read_status(sys_net: &Path, proc_route: &str) -> NetworkStatus {
         wifi_interface,
         wifi_connected,
         has_default_route: route_iface.is_some(),
+        ipv4: live_ipv4(),
         interfaces,
     }
+}
+
+/// Current IPv4 addresses on non-loopback interfaces (never the old 169.254 product address).
+pub fn live_ipv4() -> Vec<String> {
+    let out = std::process::Command::new("ip")
+        .args(["-4", "-o", "addr", "show"])
+        .output()
+        .ok();
+    let text = out
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_default();
+    parse_ip_dash_o(&text)
+}
+
+pub fn parse_ip_dash_o(text: &str) -> Vec<String> {
+    let mut ips = Vec::new();
+    for line in text.lines() {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        let Some(inet_idx) = parts.iter().position(|p| *p == "inet") else {
+            continue;
+        };
+        let Some(cidr) = parts.get(inet_idx + 1) else {
+            continue;
+        };
+        let ip = cidr.split('/').next().unwrap_or("");
+        if ip.is_empty() || ip.starts_with("127.") || ip.starts_with("169.254.") {
+            continue;
+        }
+        if !ips.iter().any(|e| e == ip) {
+            ips.push(ip.to_string());
+        }
+    }
+    ips
 }
 
 /// Parse `/proc/net/route` for the interface with a zero-destination route.
@@ -149,6 +185,11 @@ mod tests {
         assert_eq!(status.wifi_interface.as_deref(), Some("wlan0"));
         assert!(!status.wifi_connected);
         assert!(status.has_default_route);
+        assert_eq!(
+            parse_ip_dash_o("2: eth0    inet 192.168.1.20/24 brd 192.168.1.255\n").as_slice(),
+            ["192.168.1.20"]
+        );
+        assert!(parse_ip_dash_o("2: eth0    inet 169.254.42.42/16\n").is_empty());
         assert_eq!(
             default_route("Iface\tDestination\neth0\t00000000\n").as_deref(),
             Some("eth0")

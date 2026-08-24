@@ -10,11 +10,6 @@ use crate::api::response::json_error;
 use crate::connect::ConnectError;
 
 #[derive(Deserialize)]
-struct EnableBody {
-    subdomain: String,
-}
-
-#[derive(Deserialize)]
 struct DomainBody {
     subdomain: String,
 }
@@ -24,13 +19,18 @@ struct SourcesBody {
     sources: Vec<Value>,
 }
 
+#[derive(Deserialize)]
+struct CodeBody {
+    code: String,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/v1/connect/status", get(status))
-        .route("/api/v1/connect/enable", post(enable))
         .route("/api/v1/connect/domain", post(set_domain))
         .route("/api/v1/connect/deactivate", post(deactivate))
-        .route("/api/v1/connect/pairing-code", post(pairing_code))
+        .route("/api/v1/connect/setup-code", post(setup_code))
+        .route("/api/v1/connect/redeem", post(redeem))
         .route("/api/v1/connect/backup-sources", post(set_sources))
 }
 
@@ -40,24 +40,56 @@ async fn status(State(state): State<AppState>) -> Json<crate::connect::ConnectSt
     Json(state.connect.status())
 }
 
-async fn enable(
+fn setup_or_admin(state: &AppState, current: Option<&Extension<crate::auth::CurrentUser>>) -> bool {
+    if state.auth.count_users().unwrap_or(1) == 0 {
+        return true;
+    }
+    current.map(|u| u.role == "admin").unwrap_or(false)
+}
+
+async fn setup_code(
     State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-    Json(body): Json<EnableBody>,
+    current: Option<Extension<crate::auth::CurrentUser>>,
+    Json(body): Json<CodeBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    require_admin(user)?;
+    if !setup_or_admin(&state, current.as_ref()) {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only an admin can enter a Connect code.",
+        ));
+    }
     let service = state.connect.clone();
-    let port = 8090u16;
-    let result = tokio::task::spawn_blocking(move || service.enable(&body.subdomain, port))
+    tokio::task::spawn_blocking(move || service.set_oss_code(&body.code))
         .await
         .map_err(|_| {
             json_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't reach Connect.",
+                "Luna couldn't save that code.",
             )
         })?
         .map_err(map_connect_err)?;
-    Ok(Json(result))
+    Ok(Json(json!({
+        "ok": true,
+        "message": "Luna will use this code to meet Luna Connect. Keep this page open."
+    })))
+}
+
+async fn redeem(
+    State(state): State<AppState>,
+    Extension(user): Extension<crate::auth::CurrentUser>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_admin(user)?;
+    let service = state.connect.clone();
+    tokio::task::spawn_blocking(move || service.redeem_booklet())
+        .await
+        .map_err(|_| {
+            json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Luna couldn't start booklet setup.",
+            )
+        })?
+        .map_err(map_connect_err)?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn set_domain(
@@ -95,24 +127,6 @@ async fn deactivate(
         })?
         .map_err(map_connect_err)?;
     Ok(Json(json!({ "ok": true })))
-}
-
-async fn pairing_code(
-    State(state): State<AppState>,
-    Extension(user): Extension<crate::auth::CurrentUser>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    require_admin(user)?;
-    let service = state.connect.clone();
-    let code = tokio::task::spawn_blocking(move || service.pairing_code())
-        .await
-        .map_err(|_| {
-            json_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Luna couldn't get a pairing code.",
-            )
-        })?
-        .map_err(map_connect_err)?;
-    Ok(Json(json!({ "pairing_code": code })))
 }
 
 async fn set_sources(
@@ -154,6 +168,6 @@ fn map_connect_err(err: ConnectError) -> (StatusCode, Json<Value>) {
             StatusCode::CONFLICT,
             "That name is already in use, or Connect is already on. Pick another name or turn it off first.",
         ),
-        ConnectError::Other(msg) => json_error(StatusCode::INTERNAL_SERVER_ERROR, msg),
+        ConnectError::Other(msg) => json_error(StatusCode::BAD_REQUEST, msg),
     }
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -91,19 +92,23 @@ func (h AccountHandler) AttachCard(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
 		return
 	}
-	if !config.C.Stripe.Ready() {
-		sub, _ := billing.Subscribe(acct.StripeCustomer)
-		_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'dev', stripe_subscription_id = ? WHERE id = ?`, sub, acct.ID)
-		JSON(w, http.StatusOK, map[string]any{"ok": true, "dev": true})
-		return
-	}
 	sub, err := billing.Subscribe(acct.StripeCustomer)
 	if err != nil {
+		if errors.Is(err, billing.ErrNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Ask the person who looks after it, then try again.")
+			return
+		}
 		JSONError(w, http.StatusBadGateway, "Could not start the monthly bill. Check the card and try again.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active', stripe_subscription_id = ? WHERE id = ?`, sub, acct.ID)
-	JSON(w, http.StatusOK, map[string]any{"ok": true})
+	status := "active"
+	out := map[string]any{"ok": true}
+	if billing.DevBypass() {
+		status = "dev"
+		out["dev"] = true
+	}
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ? WHERE id = ?`, status, sub, acct.ID)
+	JSON(w, http.StatusOK, out)
 }
 
 func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
@@ -121,25 +126,7 @@ func (h AccountHandler) Usage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h AccountHandler) Pair(w http.ResponseWriter, r *http.Request) {
-	acct, ok := AccountFrom(r.Context())
-	if !ok {
-		JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
-		return
-	}
-	var req struct {
-		Code string `json:"code"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	code := strings.ToUpper(strings.TrimSpace(req.Code))
-	var id string
-	var exp int64
-	err := h.DB.QueryRow(`SELECT id, pairing_expires FROM devices WHERE pairing_code = ?`, code).Scan(&id, &exp)
-	if err != nil || time.Now().Unix() > exp {
-		JSONError(w, http.StatusBadRequest, "That pairing code is wrong or expired. Get a new one from Luna.")
-		return
-	}
-	_, _ = h.DB.Exec(`UPDATE devices SET account_id = ?, pairing_code = NULL, pairing_expires = NULL WHERE id = ?`, acct.ID, id)
-	JSON(w, http.StatusOK, map[string]any{"ok": true, "device_id": id})
+	JSONError(w, http.StatusGone, "Pairing codes from Luna are gone. Open Setup on this site, type the booklet or website code, and pick a name.")
 }
 
 func (h AccountHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -205,6 +192,30 @@ WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.
 			Scan(&id, &email, &has, &status, &cust, &sub)
 		if err != nil {
 			JSONError(w, http.StatusUnauthorized, "Sign in to continue.")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{
+			ID: id, Email: email, HasCard: has == 1, BillingStatus: status, StripeCustomer: cust, StripeSub: sub,
+		})))
+	})
+}
+
+func (h AccountHandler) OptionalAccountAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := r.Cookie("luna_connect_session")
+		if err != nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var id, email, status, cust, sub string
+		var has int
+		err = h.DB.QueryRow(`
+SELECT a.id, a.email, a.has_card, a.billing_status, COALESCE(a.stripe_customer_id,''), COALESCE(a.stripe_subscription_id,'')
+FROM sessions s JOIN accounts a ON a.id = s.account_id
+WHERE s.token_hash = ? AND s.expires_at > ?`, security.HashToken(c.Value), time.Now().Unix()).
+			Scan(&id, &email, &has, &status, &cust, &sub)
+		if err != nil {
+			next.ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(WithAccount(r.Context(), Account{

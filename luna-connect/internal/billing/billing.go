@@ -2,11 +2,14 @@ package billing
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/customer"
+	"github.com/stripe/stripe-go/v76/paymentintent"
 	"github.com/stripe/stripe-go/v76/subscription"
 	"github.com/stripe/stripe-go/v76/usagerecord"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
@@ -15,13 +18,39 @@ import (
 const DollarsPerTB = 7.0
 const BytesPerTB = 1_000_000_000_000
 
+var (
+	// ErrNotConfigured: Stripe is turned on but not usable (empty secret in production).
+	ErrNotConfigured = errors.New("stripe not configured")
+	// ErrPaymentMethodRequired: a card id is required when Stripe is live.
+	ErrPaymentMethodRequired = errors.New("payment method required")
+)
+
 func EstimateUSD(bytes int64) float64 {
 	return float64(bytes) / float64(BytesPerTB) * DollarsPerTB
 }
 
-func CreateCustomer(email string) (string, error) {
+// DevBypass is true when stripe.enabled is false in config — the explicit
+// local/dev path. Empty secret_key with enabled=true is not a bypass.
+func DevBypass() bool {
+	return !config.C.Stripe.Enabled
+}
+
+func requireLiveStripe() error {
+	if DevBypass() {
+		return nil
+	}
 	if !config.C.Stripe.Ready() {
+		return ErrNotConfigured
+	}
+	return nil
+}
+
+func CreateCustomer(email string) (string, error) {
+	if DevBypass() {
 		return "cus_dev_" + email, nil
+	}
+	if err := requireLiveStripe(); err != nil {
+		return "", err
 	}
 	stripe.Key = config.C.Stripe.SecretKey
 	c, err := customer.New(&stripe.CustomerParams{Email: stripe.String(email)})
@@ -31,9 +60,45 @@ func CreateCustomer(email string) (string, error) {
 	return c.ID, nil
 }
 
+func ChargeOneDollar(customerID, paymentMethodID string) (paymentIntentID string, err error) {
+	if DevBypass() {
+		return "pi_dev_verify_" + customerID, nil
+	}
+	if err := requireLiveStripe(); err != nil {
+		return "", err
+	}
+	if paymentMethodID == "" {
+		return "", ErrPaymentMethodRequired
+	}
+	stripe.Key = config.C.Stripe.SecretKey
+	params := &stripe.PaymentIntentParams{
+		Amount:        stripe.Int64(100),
+		Currency:      stripe.String(string(stripe.CurrencyUSD)),
+		Customer:      stripe.String(customerID),
+		PaymentMethod: stripe.String(paymentMethodID),
+		Confirm:       stripe.Bool(true),
+		AutomaticPaymentMethods: &stripe.PaymentIntentAutomaticPaymentMethodsParams{
+			Enabled:        stripe.Bool(true),
+			AllowRedirects: stripe.String("never"),
+		},
+		Description: stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud copies if you turn those on."),
+	}
+	pi, err := paymentintent.New(params)
+	if err != nil {
+		return "", err
+	}
+	if pi.Status != stripe.PaymentIntentStatusSucceeded {
+		return "", fmt.Errorf("payment not succeeded")
+	}
+	return pi.ID, nil
+}
+
 func Subscribe(customerID string) (string, error) {
-	if !config.C.Stripe.Ready() {
+	if DevBypass() {
 		return "sub_dev", nil
+	}
+	if err := requireLiveStripe(); err != nil {
+		return "", err
 	}
 	stripe.Key = config.C.Stripe.SecretKey
 	params := &stripe.SubscriptionParams{

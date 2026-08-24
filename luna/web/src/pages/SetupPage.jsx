@@ -1,9 +1,10 @@
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, Router, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { getJson, postJson } from "../lib/api";
+import { isPublicLunaHost } from "../lib/publicHost";
 import NetworkStep from "../components/setup/NetworkStep";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
@@ -137,39 +138,34 @@ function LogoMark({ size = 64 }) {
 }
 LogoMark.propTypes = { size: PropTypes.number };
 
-/** Discovery paths — where to find Luna after install (console + setup wizard). */
-function DiscoveryPaths({ name = "Luna" }) {
+/** Where to find Luna after install. Phone stays on home Wi-Fi. */
+function DiscoveryPaths({ name = "Luna", ipv4 = [] }) {
   const label = name || "Luna";
   return (
-    <div className="mt-8 w-full bg-primary/10 border border-primary/15 rounded-large-element p-5 text-left">
-      <p className="text-xs text-primary/60 mb-3">
-        You can find {label} at:
+    <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left">
+      <p className="text-xs text-secondary mb-3">
+        Stay on your home Wi-Fi. You can find {label} at:
       </p>
       <ul className="space-y-2.5 text-xs">
         <li className="flex items-center gap-2.5">
-          <Cable size={14} className="text-primary/50 shrink-0" />
-          <span className="font-mono text-primary shrink-0">luna.local</span>
-          <span className="text-primary/50">— most phones and computers</span>
+          <Cable size={14} className="text-secondary shrink-0" />
+          <span className="font-mono text-secondary shrink-0">luna.local</span>
+          <span className="text-secondary">— if your phone finds it</span>
         </li>
-        <li className="flex items-center gap-2.5">
-          <Router size={14} className="text-primary/50 shrink-0" />
-          <span className="font-mono text-primary shrink-0">http://luna</span>
-          <span className="text-primary/50">— through your internet box</span>
-        </li>
-        <li className="flex items-center gap-2.5">
-          <Check size={14} className="text-primary/50 shrink-0" />
-          <span className="font-mono text-primary shrink-0">http://169.254.42.42</span>
-          <span className="text-primary/50">— cable straight from a computer, always works</span>
-        </li>
+        {ipv4.map((ip) => (
+          <li key={ip} className="flex items-center gap-2.5">
+            <Check size={14} className="text-secondary shrink-0" />
+            <span className="font-mono text-secondary shrink-0">{ip}</span>
+            <span className="text-secondary">— current address on the screen</span>
+          </li>
+        ))}
       </ul>
-      <p className="mt-3 text-xs text-primary/60">
-        No Wi-Fi yet? Join the open network <span className="font-mono text-primary">Luna Setup</span> from your phone.
-      </p>
     </div>
   );
 }
 DiscoveryPaths.propTypes = {
   name: PropTypes.string,
+  ipv4: PropTypes.arrayOf(PropTypes.string),
 };
 
 // ─── STEP: Welcome ────────────────────────────────────────────────────────────
@@ -273,11 +269,13 @@ FormField.propTypes = {
 // ─── STEP: Account ────────────────────────────────────────────────────────────
 function AccountStep({ hasAdmin, onContinue }) {
   const { user, register, login } = useAuth();
+  const needsSetupCode = isPublicLunaHost();
   const [form, setForm] = useState({
     display_name:     "",
     username:         "",
     password:         "",
     confirm_password: "",
+    setup_secret:     "",
   });
   const [showPw, setShowPw]       = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -289,7 +287,7 @@ function AccountStep({ hasAdmin, onContinue }) {
   const meetsPolicy = !!strength?.hasLength;
   const usernameOk  = form.username.trim().length >= 3;
   const confirmOk   = confirm === pw && pw !== "";
-  const isValid = !!(usernameOk && pw && meetsPolicy && confirmOk);
+  const isValid = !!(usernameOk && pw && meetsPolicy && confirmOk && (!needsSetupCode || form.setup_secret.trim()));
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -303,7 +301,7 @@ function AccountStep({ hasAdmin, onContinue }) {
     setFieldError(null);
     try {
       const displayName = form.display_name.trim() || form.username.trim();
-      await register(form.username.trim(), displayName, pw);
+      await register(form.username.trim(), displayName, pw, needsSetupCode ? form.setup_secret.trim() : undefined);
       await login(form.username.trim(), pw);
       onContinue();
     } catch (err) {
@@ -371,7 +369,7 @@ function AccountStep({ hasAdmin, onContinue }) {
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             Create your account
           </h2>
-          <p className="text-primary/50 text-sm mt-2">
+          <p className="text-primary text-sm mt-2">
             This account protects every file on Luna. You can add people for the rest of your household later.
           </p>
         </div>
@@ -493,6 +491,30 @@ function AccountStep({ hasAdmin, onContinue }) {
               )}
             </FormField>
           </div>
+
+          {needsSetupCode && (
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300">
+              <FormField
+                id="setup_secret"
+                label="One-time setup code"
+                hint="Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login."
+              >
+                <input
+                  id="setup_secret"
+                  name="setup_secret"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Paste the code from Luna Connect"
+                  value={form.setup_secret}
+                  onChange={handleChange}
+                  disabled={submitting}
+                  required
+                  className={WIZARD_INPUT_CLASS}
+                />
+              </FormField>
+            </div>
+          )}
 
           {/* Inline error */}
           {fieldError && (

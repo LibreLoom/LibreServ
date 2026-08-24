@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS devices (
   subdomain TEXT NOT NULL UNIQUE,
   tunnel_id TEXT,
   tunnel_token TEXT,
+  device_token TEXT,
+  setup_secret TEXT,
   local_port INTEGER NOT NULL DEFAULT 8090,
   pairing_code TEXT,
   pairing_expires INTEGER,
@@ -69,9 +71,42 @@ CREATE TABLE IF NOT EXISTS register_attempts (
   count INTEGER NOT NULL,
   start INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS issued_tokens (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  account_id TEXT,
+  claimed_device_id TEXT,
+  expires_at INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS setup_sessions (
+  id TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL,
+  account_id TEXT,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS guess_attempts (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL,
+  start INTEGER NOT NULL,
+  last INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oss_payments (
+  account_id TEXT PRIMARY KEY,
+  payment_intent_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 `)
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+	// Existing files created before these columns; ignore duplicate-column errors.
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN device_token TEXT`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN setup_secret TEXT`)
 	return nil
 }

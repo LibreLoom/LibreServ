@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// DNS is the Cloudflare DNS surface Name/Unregister use.
+type DNS interface {
+	UpsertCNAME(apiToken, zoneID, hostname, target string) error
+	DeleteRecord(apiToken, zoneID, hostname string) error
+}
+
 type DNSClient struct {
 	HTTP     *http.Client
 	BaseURL  string

@@ -1,20 +1,8 @@
-//! Setup hotspot (AP mode): how a phone reaches Luna when there is no cable.
-//!
-//! When Luna boots with no network connection and setup isn't finished, it
-//! briefly broadcasts an open network named "Luna Setup". Any phone can join,
-//! open the setup wizard, connect Luna to Wi-Fi, and the hotspot disappears
-//! as soon as a real connection exists or setup completes.
-
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+//! Setup AP is removed. Uplink is Ethernet only.
 
 use serde::Serialize;
 
-use crate::wifi::WifiNetwork;
-
-pub const SETUP_SSID: &str = "Luna Setup";
-const HOTSPOT_IP: &str = "10.42.0.1";
-const HOTSPOT_CIDR: &str = "10.42.0.1/24";
+pub const SETUP_SSID: &str = "";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct HotspotStatus {
@@ -24,161 +12,43 @@ pub struct HotspotStatus {
     pub ssid: String,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum HotspotError {
-    #[error("This Luna's Wi-Fi adapter can't create a hotspot.")]
-    Unavailable,
-    #[error("{0}")]
-    Io(#[source] std::io::Error),
-    #[error("The hotspot tool failed: {0}")]
-    Tool(String),
+pub fn should_start_setup_hotspot(
+    _setup_completed: bool,
+    _ethernet_connected: bool,
+    _wifi_connected: bool,
+) -> bool {
+    false
 }
 
-pub struct CommandHotspot {
-    interface: String,
-    run_dir: PathBuf,
-    scan_cache: Mutex<Vec<WifiNetwork>>,
+pub fn wifi_uplink_connected(wifi: &dyn crate::wifi::WifiProvider) -> bool {
+    wifi.status().map(|st| st.connected).unwrap_or(false)
 }
+
+/// Kept so older call sites compile. Start always fails — there is no setup AP.
+pub struct CommandHotspot;
 
 impl CommandHotspot {
-    pub fn new(interface: impl Into<String>, run_dir: &Path) -> Self {
-        Self {
-            interface: interface.into(),
-            run_dir: run_dir.to_path_buf(),
-            scan_cache: Mutex::new(Vec::new()),
-        }
+    pub fn new(_iface: impl Into<String>, _run_dir: &std::path::Path) -> Self {
+        Self
     }
-
-    pub fn set_cache(&self, networks: Vec<WifiNetwork>) {
-        *self.scan_cache.lock().unwrap() = networks;
+    pub fn start(&self) -> Result<(), String> {
+        Err("Luna uses a cable. There is no setup Wi-Fi network.".into())
     }
-
-    pub fn cached_scan(&self) -> Vec<WifiNetwork> {
-        self.scan_cache.lock().unwrap().clone()
+    pub fn stop(&self) -> Result<(), String> {
+        Ok(())
     }
-
     pub fn status(&self) -> HotspotStatus {
         HotspotStatus {
-            available: true,
-            running: self.pid_path().exists(),
-            interface: Some(self.interface.clone()),
-            ssid: SETUP_SSID.into(),
+            available: false,
+            running: false,
+            interface: None,
+            ssid: String::new(),
         }
     }
-
-    /// Start an open WPA-less setup hotspot (temporary, no password so an
-    /// iOS-only household can always get in). Idempotent.
-    pub fn start(&self) -> Result<(), HotspotError> {
-        if self.status().running {
-            return Ok(());
-        }
-        pause_wpa_supplicant();
-        std::fs::create_dir_all(&self.run_dir).map_err(HotspotError::Io)?;
-        let conf = self.run_dir.join("luna-setup-hostapd.conf");
-        std::fs::write(&conf, hostapd_config(&self.interface)).map_err(HotspotError::Io)?;
-
-        let hostapd = std::process::Command::new("hostapd")
-            .args([
-                "-B",
-                "-P",
-                self.pid_path().to_str().unwrap_or(""),
-                conf.to_str().unwrap_or(""),
-            ])
-            .output()
-            .map_err(HotspotError::Io)?;
-        if !hostapd.status.success() {
-            resume_wpa_supplicant();
-            return Err(HotspotError::Tool(
-                String::from_utf8_lossy(&hostapd.stderr).trim().into(),
-            ));
-        }
-
-        let _ = std::process::Command::new("ip")
-            .args(["addr", "add", HOTSPOT_CIDR, "dev", &self.interface])
-            .output();
-
-        let _dnsmasq = std::process::Command::new("dnsmasq")
-            .args([
-                "--no-resolv",
-                "--no-poll",
-                "--bind-interfaces",
-                &format!("--listen-address={HOTSPOT_IP}"),
-                "--dhcp-range=10.42.0.50,10.42.0.150,12h",
-                &format!("--dhcp-option=option:router,{HOTSPOT_IP}"),
-                "--interface",
-                &self.interface,
-                "--except-interface=lo",
-                &format!("--address=/#/{HOTSPOT_IP}"),
-                &format!("--pid-file={}", self.dnsmasq_pid_path().display()),
-            ])
-            .spawn()
-            .map_err(|e| {
-                let _ = self.stop();
-                HotspotError::Io(e)
-            })?;
-        Ok(())
+    pub fn set_cache(&self, _networks: Vec<crate::wifi::WifiNetwork>) {}
+    pub fn cached_scan(&self) -> Vec<crate::wifi::WifiNetwork> {
+        Vec::new()
     }
-
-    pub fn stop(&self) -> Result<(), HotspotError> {
-        let pid_path = self.pid_path();
-        if let Ok(pid) = std::fs::read_to_string(&pid_path) {
-            let _ = std::process::Command::new("kill").arg(pid.trim()).output();
-            let _ = std::fs::remove_file(&pid_path);
-        }
-        let dns_pid = self.dnsmasq_pid_path();
-        if let Ok(pid) = std::fs::read_to_string(&dns_pid) {
-            let _ = std::process::Command::new("kill").arg(pid.trim()).output();
-            let _ = std::fs::remove_file(&dns_pid);
-        }
-        let _ = std::process::Command::new("ip")
-            .args(["addr", "del", HOTSPOT_CIDR, "dev", &self.interface])
-            .output();
-        resume_wpa_supplicant();
-        Ok(())
-    }
-
-    fn pid_path(&self) -> PathBuf {
-        self.run_dir.join("luna-setup-hostapd.pid")
-    }
-
-    fn dnsmasq_pid_path(&self) -> PathBuf {
-        self.run_dir.join("luna-setup-dnsmasq.pid")
-    }
-}
-
-/// Open setup AP only while setup is unfinished and there is no cable or
-/// home Wi-Fi. Never start it just because Wi-Fi is down after setup.
-pub fn should_start_setup_hotspot(
-    setup_completed: bool,
-    ethernet_connected: bool,
-    wifi_connected: bool,
-) -> bool {
-    !setup_completed && !ethernet_connected && !wifi_connected
-}
-
-pub fn hostapd_config(interface: &str) -> String {
-    format!(
-        "interface={interface}\ndriver=nl80211\nssid={SETUP_SSID}\nhw_mode=g\nchannel=6\nwmm_enabled=1\n"
-    )
-}
-
-fn pause_wpa_supplicant() {
-    let _ = std::process::Command::new("rc-service")
-        .args(["wpa_supplicant", "stop"])
-        .output();
-}
-
-fn resume_wpa_supplicant() {
-    let _ = std::process::Command::new("rc-service")
-        .args(["wpa_supplicant", "start"])
-        .output();
-}
-
-/// True when wpa_supplicant reports a completed association to a home network.
-pub fn wifi_uplink_connected(wifi: &dyn crate::wifi::WifiProvider) -> bool {
-    wifi.status()
-        .map(|st| st.connected)
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -186,40 +56,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn config_is_open_and_named_luna_setup() {
-        let cfg = hostapd_config("wlan0");
-        assert!(cfg.contains("interface=wlan0"));
-        assert!(cfg.contains("ssid=Luna Setup"));
-        assert!(!cfg.contains("wpa_passphrase"), "setup hotspot is open");
-    }
-
-    #[test]
-    fn setup_hotspot_starts_only_without_uplink_and_unfinished_setup() {
-        assert!(should_start_setup_hotspot(false, false, false));
+    fn never_starts_a_setup_access_point() {
+        assert!(!should_start_setup_hotspot(false, false, false));
         assert!(!should_start_setup_hotspot(true, false, false));
-        assert!(!should_start_setup_hotspot(false, true, false));
-        assert!(!should_start_setup_hotspot(false, false, true));
-    }
-
-    #[test]
-    fn cached_scan_round_trip() {
-        let dir = tempfile::tempdir().unwrap();
-        let hs = CommandHotspot::new("wlan0", dir.path());
-        hs.set_cache(vec![crate::wifi::WifiNetwork {
-            ssid: "Home".into(),
-            signal: -42,
-            encrypted: true,
-        }]);
-        assert_eq!(hs.cached_scan().len(), 1);
-    }
-
-    #[test]
-    fn stop_records_a_dnsmasq_pid_path() {
-        let dir = tempfile::tempdir().unwrap();
-        let hs = CommandHotspot::new("wlan0", dir.path());
-        assert_eq!(
-            hs.dnsmasq_pid_path(),
-            dir.path().join("luna-setup-dnsmasq.pid")
-        );
     }
 }

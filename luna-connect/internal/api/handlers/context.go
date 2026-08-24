@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -54,8 +55,9 @@ func AccountFrom(ctx context.Context) (Account, bool) {
 type Deps struct {
 	DB     *sql.DB
 	Store  store.Store
-	Tunnel *providers.TunnelClient
-	DNS    *providers.DNSClient
+	Tunnel providers.Tunnel
+	DNS    providers.DNS
+	Hub    *setuphub.Hub
 }
 
 func ClientIP(r *http.Request) string {

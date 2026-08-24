@@ -15,6 +15,7 @@ struct RegisterBody {
     username: String,
     display_name: Option<String>,
     password: String,
+    setup_secret: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -37,6 +38,7 @@ pub fn router() -> Router<AppState> {
 async fn register(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     current: Option<Extension<CurrentUser>>,
     Json(body): Json<RegisterBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -60,6 +62,8 @@ async fn register(
                 "Only an admin can do that.",
             ));
         }
+    } else if let Err(msg) = first_user_on_public_host(&state, &headers, &body) {
+        return Err(json_error(StatusCode::FORBIDDEN, msg));
     }
     let user = state
         .auth
@@ -70,6 +74,9 @@ async fn register(
             "user",
         )
         .map_err(map_auth_err)?;
+    if !has_users {
+        let _ = state.connect.clear_first_user_secret();
+    }
     Ok(Json(json!({
         "id": user.id,
         "username": user.username,
@@ -184,6 +191,38 @@ async fn me(req: Request) -> Json<Value> {
 async fn status(State(state): State<AppState>) -> Json<Value> {
     let has_admin = state.auth.count_users().map(|n| n > 0).unwrap_or(false);
     Json(json!({ "has_admin": has_admin }))
+}
+
+fn first_user_on_public_host(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &RegisterBody,
+) -> Result<(), String> {
+    let Some(hostname) = state.connect.public_hostname() else {
+        return Ok(());
+    };
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    if !host.eq_ignore_ascii_case(&hostname) {
+        return Ok(());
+    }
+    let Some(want) = state.connect.first_user_secret() else {
+        return Err(
+            "Open this Luna from the address on its screen first. If you opened it from the internet, paste the one-time setup code from the Luna Connect page into the setup field.".into(),
+        );
+    };
+    let offered = body.setup_secret.clone().unwrap_or_default();
+    if offered != want {
+        return Err(
+            "This address is on the internet. Paste the one-time setup code from Luna Connect into the setup field, or open Luna from the address on its screen instead.".into(),
+        );
+    }
+    Ok(())
 }
 
 fn map_auth_err(err: AuthError) -> (StatusCode, Json<Value>) {

@@ -41,7 +41,7 @@ podman run --rm --privileged -v "$ROOTFS:/rootfs:z" "$ALPINE_IMAGE" sh -euc '
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/main" \
         --repository "https://dl-cdn.alpinelinux.org/alpine/'"$ALPINE_VERSION"'/community" \
         alpine-base openrc linux-lts \
-        avahi wpa_supplicant hostapd \
+        avahi wpa_supplicant \
         e2fsprogs exfatprogs ntfs-3g-progs \
         smartmontools syslinux util-linux dnsmasq \
         dhcpcd ca-certificates ssl_client pciutils curl \
@@ -87,18 +87,7 @@ depend() {
 INIT
 chmod +x "$ROOTFS/etc/init.d/luna"
 
-# Link-local fallback: when DHCP gives nothing, Luna still answers on 169.254.42.42.
-cat > "$ROOTFS/usr/local/bin/luna-net-fallback" <<'INIT'
-#!/bin/sh
-# Direct-cable fallback printed on the quick-start card.
-iface="${1:-eth0}"
-if ! ip -4 addr show dev "$iface" | grep -q 'inet '; then
-    ip addr add 169.254.42.42/16 dev "$iface" 2>/dev/null || true
-fi
-INIT
-chmod +x "$ROOTFS/usr/local/bin/luna-net-fallback"
-
-# Wired bring-up: DHCP every non-wireless interface, then link-local fallback.
+# Wired bring-up: DHCP every non-wireless interface on cable insert / boot.
 # Alpine's stock `networking` service requires /etc/network/interfaces; Luna
 # ships without a static eth0 name (enp*, eth*, etc.), so we probe sysfs instead.
 cat > "$ROOTFS/usr/local/bin/luna-network-up" <<'INIT'
@@ -120,10 +109,6 @@ for iface_path in /sys/class/net/*; do
 
     if ! ip -4 addr show dev "$iface" | grep -q 'inet '; then
         udhcpc -i "$iface" -q -n -t 15 2>/dev/null || true
-    fi
-
-    if ! ip -4 addr show dev "$iface" | grep -q 'inet '; then
-        /usr/local/bin/luna-net-fallback "$iface"
     fi
 done
 INIT

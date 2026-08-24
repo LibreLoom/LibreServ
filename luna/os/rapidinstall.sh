@@ -239,6 +239,41 @@ if ! flash_luna_disk "$TARGET" "$TARBALL"; then
 	exit 1
 fi
 echo
-echo "Installation complete. Remove the USB stick if you used one."
-echo "Luna will reboot and show how to connect on the screen and in your browser."
+echo "Installation complete."
+
+# Official booklet code: installer USB file named setup-token next to the ISO payload, or paste.
+_token_src=""
+for _c in "$HERE/setup-token" /src/setup-token /iso/setup-token; do
+	if [ -f "$_c" ]; then
+		_token_src="$_c"
+		break
+	fi
+done
+_rootp="$(partition_root "$TARGET")"
+_mnt="$(mktemp -d)"
+if mount "$_rootp" "$_mnt" 2>/dev/null; then
+	mkdir -p "$_mnt/var/lib/luna"
+	if [ -n "$_token_src" ]; then
+		cp "$_token_src" "$_mnt/var/lib/luna/setup-token"
+		chmod 600 "$_mnt/var/lib/luna/setup-token"
+		echo "Official setup code saved from the installer USB."
+	elif [ -t 0 ]; then
+		echo
+		echo "Official setup code from Luna Connect. Paste it and press Enter, or press Enter to skip."
+		# shellcheck disable=SC2162
+		read _tok || _tok=""
+		if [ -n "$_tok" ]; then
+			printf '%s\n' "$_tok" > "$_mnt/var/lib/luna/setup-token"
+			chmod 600 "$_mnt/var/lib/luna/setup-token"
+			echo "Setup code saved."
+		else
+			echo "Skipped. This install is local-only until you enter a code in Luna."
+		fi
+	fi
+	umount "$_mnt" 2>/dev/null || true
+fi
+rmdir "$_mnt" 2>/dev/null || true
+
+echo "Remove the USB stick if you used one."
+echo "Luna will reboot and show its address on the screen. Stay on home Wi-Fi on your phone."
 echo

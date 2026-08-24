@@ -77,12 +77,14 @@ export function AuthProvider({ children }) {
     return me;
   }, []);
 
-  const register = useCallback(async (username, displayName, password) => {
-    const created = await postJson("/api/v1/auth/register", {
+  const register = useCallback(async (username, displayName, password, setupSecret) => {
+    const body = {
       username,
       display_name: displayName,
       password,
-    });
+    };
+    if (setupSecret) body.setup_secret = setupSecret;
+    const created = await postJson("/api/v1/auth/register", body);
     return created;
   }, []);
 
