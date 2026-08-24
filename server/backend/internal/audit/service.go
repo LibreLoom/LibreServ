@@ -102,8 +102,17 @@ func (s *Service) List(ctx context.Context, limit int) ([]Entry, error) {
 			continue
 		}
 
-		_ = json.Unmarshal([]byte(metadataStr), &e.Metadata)
+		if metadataStr != "" {
+			if err := json.Unmarshal([]byte(metadataStr), &e.Metadata); err != nil {
+				// The entry is still worth returning without its metadata, but a
+				// silently blank field in an audit trail is misleading.
+				s.logger.Warn("Failed to decode audit entry metadata", "entry_id", e.ID, "error", err)
+			}
+		}
 		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate audit entries: %w", err)
 	}
 
 	return entries, nil

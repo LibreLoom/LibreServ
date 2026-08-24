@@ -611,6 +611,7 @@ func (e *Engine) Backup(ctx context.Context, repo RepoConfig, paths []string, ta
 	}
 
 	var summary BackupSummary
+	var summaryErr error
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -621,20 +622,40 @@ func (e *Engine) Backup(ctx context.Context, repo RepoConfig, paths []string, ta
 		if msgType, ok := msg["message_type"]; ok {
 			var mt string
 			if err := json.Unmarshal(msgType, &mt); err == nil && mt == "summary" {
-				json.Unmarshal([]byte(line), &summary)
+				if err := json.Unmarshal([]byte(line), &summary); err != nil {
+					// Without the summary the caller records a backup with no
+					// snapshot ID and zero size as if it had succeeded.
+					summaryErr = fmt.Errorf("parse restic backup summary: %w", err)
+				}
 			}
 		}
 	}
+	scanErr := scanner.Err()
 
 	errOutput, _ := io.ReadAll(stderr)
 	waitErr := cmd.Wait()
-	os.Remove(pwFile)
+	removePasswordFile(pwFile)
 
 	if waitErr != nil {
 		return nil, fmt.Errorf("restic backup failed: %w\nstderr: %s", waitErr, string(errOutput))
 	}
+	if scanErr != nil {
+		return nil, fmt.Errorf("read restic backup output: %w", scanErr)
+	}
+	if summaryErr != nil {
+		return nil, summaryErr
+	}
 
 	return &summary, nil
+}
+
+// removePasswordFile deletes the temporary repository password file. Leaving it
+// behind exposes the repository password, so a failure is reported even though
+// the caller cannot act on it.
+func removePasswordFile(path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		slog.Error("failed to remove restic password file; repository password may remain on disk", "path", path, "error", err)
+	}
 }
 
 func (e *Engine) BackupWithProgress(ctx context.Context, repo RepoConfig, paths []string, tags []string, excludePatterns []string, progressCh chan<- ProgressInfo) (*BackupSummary, error) {
@@ -675,6 +696,7 @@ func (e *Engine) BackupWithProgress(ctx context.Context, repo RepoConfig, paths 
 	}
 
 	var summary BackupSummary
+	var summaryErr error
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -697,17 +719,26 @@ func (e *Engine) BackupWithProgress(ctx context.Context, repo RepoConfig, paths 
 					}
 				}
 			case "summary":
-				json.Unmarshal([]byte(line), &summary)
+				if err := json.Unmarshal([]byte(line), &summary); err != nil {
+					summaryErr = fmt.Errorf("parse restic backup summary: %w", err)
+				}
 			}
 		}
 	}
+	scanErr := scanner.Err()
 
 	errOutput, _ := io.ReadAll(stderr)
 	waitErr := cmd.Wait()
-	os.Remove(pwFile)
+	removePasswordFile(pwFile)
 
 	if waitErr != nil {
 		return nil, fmt.Errorf("restic backup failed: %w\nstderr: %s", waitErr, string(errOutput))
+	}
+	if scanErr != nil {
+		return nil, fmt.Errorf("read restic backup output: %w", scanErr)
+	}
+	if summaryErr != nil {
+		return nil, summaryErr
 	}
 
 	return &summary, nil

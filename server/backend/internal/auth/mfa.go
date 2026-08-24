@@ -686,6 +686,9 @@ func (s *Service) loadWebAuthnCreds(ctx context.Context, userID, mfaType string)
 		}
 		var d webauthnData
 		if err := json.Unmarshal([]byte(dataStr), &d); err != nil {
+			// Skipping the credential locks the user out of that key, so the
+			// corrupt row has to be traceable.
+			s.logger.Error("Failed to decode stored WebAuthn credential", "method_id", id, "user_id", userID, "error", err)
 			continue
 		}
 		cid, _ := base64.RawURLEncoding.DecodeString(d.CredentialID)

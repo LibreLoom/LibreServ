@@ -86,11 +86,23 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 	defer func() {
 		if result.Error == nil {
 			log.Printf("Cleaning up pre-restore backup %s", currentBackupPath)
-			_ = os.RemoveAll(currentBackupPath)
-		} else {
-			log.Printf("Restore failed, rolling back from %s", currentBackupPath)
-			_ = os.RemoveAll(appPath)
-			_ = os.Rename(currentBackupPath, appPath)
+			if err := os.RemoveAll(currentBackupPath); err != nil {
+				log.Printf("Warning: failed to remove pre-restore backup %s: %v", currentBackupPath, err)
+			}
+			return
+		}
+		// A failed rollback leaves the app directory half-restored or missing
+		// entirely. Reporting only the original restore error would hide that,
+		// so the rollback failure is folded into result.Error.
+		log.Printf("Restore failed, rolling back from %s", currentBackupPath)
+		if err := os.RemoveAll(appPath); err != nil {
+			log.Printf("Rollback: failed to clear app directory %s: %v", appPath, err)
+			result.Error = fmt.Errorf("%w (rollback also failed: could not clear %s: %v)", result.Error, appPath, err)
+			return
+		}
+		if err := os.Rename(currentBackupPath, appPath); err != nil {
+			log.Printf("Rollback: failed to restore previous app state from %s: %v", currentBackupPath, err)
+			result.Error = fmt.Errorf("%w (rollback also failed: previous app state left at %s: %v)", result.Error, currentBackupPath, err)
 		}
 	}()
 
@@ -171,9 +183,9 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 		defer cancel()
 		if err := s.runtime.ComposeUp(startCtx, appPath); err != nil {
 			log.Printf("Warning: failed to start app %s after restore: %v", targetAppID, err)
-			_, _ = s.db.Exec("UPDATE apps SET status = 'stopped', updated_at = ? WHERE id = ?", time.Now(), targetAppID)
+			s.setAppStatus(targetAppID, "stopped")
 		} else {
-			_, _ = s.db.Exec("UPDATE apps SET status = 'running', updated_at = ? WHERE id = ?", time.Now(), targetAppID)
+			s.setAppStatus(targetAppID, "running")
 		}
 	}
 
@@ -189,6 +201,15 @@ func (s *BackupService) restoreWithRestic(ctx context.Context, backup *Backup, t
 	return result, nil
 }
 
+// setAppStatus records an app status after a restore. The restore itself has
+// already succeeded or failed by this point, so a write failure must not change
+// the outcome — but a stale status in the UI needs a trace.
+func (s *BackupService) setAppStatus(appID, status string) {
+	if _, err := s.db.Exec("UPDATE apps SET status = ?, updated_at = ? WHERE id = ?", status, time.Now(), appID); err != nil {
+		log.Printf("Warning: failed to set app %s status to %s: %v", appID, status, err)
+	}
+}
+
 func findRestoredAppDir(root, appPath string) (string, error) {
 	appBase := filepath.Base(appPath)
 	parentBase := filepath.Base(filepath.Dir(appPath))
@@ -200,7 +221,7 @@ func findRestoredAppDir(root, appPath string) (string, error) {
 
 	var result string
 	var walkErr error
-	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			walkErr = err
 			slog.Warn("findRestoredAppDir: walk error", "path", path, "error", err)
@@ -223,7 +244,9 @@ func findRestoredAppDir(root, appPath string) (string, error) {
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return "", fmt.Errorf("findRestoredAppDir: walk %s: %w", root, err)
+	}
 	if result == "" && walkErr != nil {
 		return "", fmt.Errorf("findRestoredAppDir: walk error: %w", walkErr)
 	}
@@ -329,7 +352,11 @@ func (s *BackupService) RestoreDatabase(ctx context.Context, backupID string, op
 	if err := decompressGzipFile(backup.Path, restoreTmp, 0600); err != nil {
 		return fmt.Errorf("failed to decompress database backup: %w", err)
 	}
-	defer func() { _ = os.Remove(restoreTmp) }()
+	defer func() {
+		if err := os.Remove(restoreTmp); err != nil && !os.IsNotExist(err) {
+			log.Printf("Warning: failed to remove temporary restore file %s: %v", restoreTmp, err)
+		}
+	}()
 
 	log.Printf("Restoring database from backup %s into %s", backupID, dbPath)
 	if err := s.db.ReplaceFile(ctx, restoreTmp); err != nil {
@@ -379,9 +406,13 @@ func (s *BackupService) ListDatabaseBackups(ctx context.Context) ([]DatabaseBack
 	for rows.Next() {
 		var b DatabaseBackup
 		if err := rows.Scan(&b.ID, &b.Path, &b.Size, &b.CreatedAt, &b.Checksum); err != nil {
+			log.Printf("failed to scan database backup row: %v", err)
 			continue
 		}
 		backups = append(backups, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate database backups: %w", err)
 	}
 
 	return backups, nil
@@ -402,7 +433,9 @@ func (s *BackupService) CleanupOldDatabaseBackups(ctx context.Context, retention
 			log.Printf("Failed to delete old database backup file %s: %v", backups[i].Path, err)
 		}
 
-		_, _ = s.db.Exec("DELETE FROM database_backups WHERE id = ?", backups[i].ID)
+		if err := s.DeleteDatabaseBackupRecord(ctx, backups[i].ID); err != nil {
+			log.Printf("Failed to delete old database backup record %s: %v", backups[i].ID, err)
+		}
 	}
 
 	return nil
@@ -462,10 +495,12 @@ func validateRestoredTree(root string) error {
 		}
 		return nil
 	})
-	if walkErr != nil {
-		return walkErr
+	// The callback error comes first: it carries the symlink/traversal
+	// rejection, which must not be masked by an unrelated stat failure.
+	if err != nil {
+		return err
 	}
-	return err
+	return walkErr
 }
 
 func isSafeRestoreDestination(dst, allowedParent string) bool {

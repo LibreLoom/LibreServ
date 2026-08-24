@@ -70,6 +70,11 @@ func (pm *PortManager) Init() error {
 			pm.usedPorts[port] = instanceID
 		}
 	}
+	if err := rows.Err(); err != nil {
+		// A truncated scan means ports look free when they are not, so the
+		// next allocation would collide with a running app.
+		return fmt.Errorf("failed to iterate installed apps for port init: %w", err)
+	}
 
 	pm.logger.Info("Port manager initialized", "allocated_ports", len(pm.usedPorts))
 	return nil

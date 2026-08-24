@@ -143,12 +143,17 @@ func (s *Scheduler) checkAppUpdates() {
 			s.logger.Error("Automated update failed", "app", au.AppName, "error", err)
 			subject := fmt.Sprintf("[LibreServ] Automated Update FAILED: %s", au.AppName)
 			body := fmt.Sprintf("The automated update for %s failed.\n\nError: %v\n\nThe system has attempted to rollback to the previous version.", au.AppName, err)
-			_ = s.notify.AdminNotify(ctx, subject, body)
+			if nerr := s.notify.AdminNotify(ctx, subject, body); nerr != nil {
+				// The admin never learns about the failed update otherwise.
+				s.logger.Error("Failed to notify admin of failed automated update", "app", au.AppName, "error", nerr)
+			}
 		} else {
 			s.logger.Info("Automated update successful", "app", au.AppName)
 			subject := fmt.Sprintf("[LibreServ] Automated Update Successful: %s", au.AppName)
 			body := fmt.Sprintf("LibreServ has successfully updated %s to version %s.", au.AppName, au.LatestVersion)
-			_ = s.notify.AdminNotify(ctx, subject, body)
+			if nerr := s.notify.AdminNotify(ctx, subject, body); nerr != nil {
+				s.logger.Error("Failed to notify admin of successful automated update", "app", au.AppName, "error", nerr)
+			}
 		}
 	}
 
@@ -258,11 +263,17 @@ func (s *Scheduler) runBackupSchedules() {
 				s.logger.Error("Scheduled backup failed", "app_id", sc.AppID, "schedule_id", sc.ID, "error", err)
 				subject := fmt.Sprintf("[LibreServ] Scheduled Backup FAILED: %s", sc.AppID)
 				body := fmt.Sprintf("The scheduled backup for app %s failed.\n\nError: %v", sc.AppID, err)
-				_ = s.notify.AdminNotify(backupCtx, subject, body)
+				if nerr := s.notify.AdminNotify(backupCtx, subject, body); nerr != nil {
+					s.logger.Error("Failed to notify admin of failed scheduled backup", "app_id", sc.AppID, "error", nerr)
+				}
 
 				// On failure, reschedule from the original next_run so the
 				// schedule stays on its normal cadence (not from failure time).
-				_ = s.backupService.UpdateScheduleNextRun(backupCtx, sc.ID, now, computedNextRun)
+				if nerr := s.backupService.UpdateScheduleNextRun(backupCtx, sc.ID, now, computedNextRun); nerr != nil {
+					// Without a new next_run the schedule can re-fire in a tight
+					// loop or stall entirely.
+					s.logger.Error("Failed to reschedule backup after failure", "schedule_id", sc.ID, "error", nerr)
+				}
 			} else {
 				s.logger.Info("Scheduled backup completed", "app_id", sc.AppID, "schedule_id", sc.ID, "duration", result.Duration)
 

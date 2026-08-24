@@ -437,6 +437,10 @@ func (p *Provider) openaiChatStream(ctx context.Context, model string, messages 
 type SSEChunk struct {
 	Data  string
 	Event string
+	// Err is set on the final chunk when the stream ended abnormally (connection
+	// dropped, line over the buffer limit). Without it a truncated response is
+	// indistinguishable from a complete one.
+	Err error
 }
 
 func (p *Provider) parseSSE(r io.Reader, ch chan<- SSEChunk) {
@@ -458,6 +462,9 @@ func (p *Provider) parseSSE(r io.Reader, ch chan<- SSEChunk) {
 			ch <- SSEChunk{Data: data, Event: event}
 			event = ""
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		ch <- SSEChunk{Err: fmt.Errorf("stream ended before completion: %w", err)}
 	}
 }
 

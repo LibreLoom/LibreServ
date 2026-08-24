@@ -142,7 +142,11 @@ func (s *BackupService) BackupApp(ctx context.Context, appID string, opts Backup
 		}
 		defer func() {
 			log.Printf("Restarting app %s after backup", appID)
-			_ = s.runtime.ComposeUp(ctx, appPath)
+			if err := s.runtime.ComposeUp(ctx, appPath); err != nil {
+				// The app was running before the backup and is now down; the
+				// backup result says nothing about that, so it must be logged.
+				log.Printf("ERROR: failed to restart app %s after backup, app is left stopped: %v", appID, err)
+			}
 		}()
 	}
 
@@ -232,6 +236,7 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 		var backupType, source, format, snapshotID, repoID string
 		var checksum, appID sql.NullString
 		if err := rows.Scan(&b.ID, &appID, &backupType, &b.Path, &b.Size, &b.CreatedAt, &checksum, &source, &format, &snapshotID, &repoID, &b.DataAdded); err != nil {
+			log.Printf("failed to scan backup row: %v", err)
 			continue
 		}
 		if appID.Valid {
@@ -246,6 +251,11 @@ func (s *BackupService) ListBackups(ctx context.Context, appID string) ([]Backup
 			b.Checksum = checksum.String
 		}
 		backups = append(backups, b)
+	}
+	if err := rows.Err(); err != nil {
+		// A short list here reads as "these backups do not exist", which is the
+		// worst possible lie for a restore UI.
+		return nil, fmt.Errorf("failed to iterate backups: %w", err)
 	}
 
 	return backups, nil
@@ -349,10 +359,10 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 	}
 
 	if err := compressFile(tempPath, backupPath); err != nil {
-		_ = os.Remove(tempPath)
+		removeTemp(tempPath)
 		return nil, fmt.Errorf("compression failed: %w", err)
 	}
-	_ = os.Remove(tempPath)
+	removeTemp(tempPath)
 
 	fileInfo, err := os.Stat(backupPath)
 	if err != nil {
@@ -361,6 +371,9 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 
 	checksum, err := fileChecksum(backupPath)
 	if err != nil {
+		// An empty checksum makes later verified restores refuse this backup,
+		// so record why it is missing.
+		log.Printf("Warning: failed to checksum database backup %s, restore verification will be unavailable: %v", backupPath, err)
 		checksum = ""
 	}
 
@@ -378,7 +391,7 @@ func (s *BackupService) BackupDatabase(ctx context.Context) (*DatabaseBackup, er
 	`, backup.ID, backup.Path, backup.Size, backup.CreatedAt, backup.Checksum)
 
 	if err != nil {
-		_ = os.Remove(backupPath)
+		removeTemp(backupPath)
 		return nil, fmt.Errorf("failed to save backup record: %w", err)
 	}
 
@@ -599,6 +612,9 @@ func (s *BackupService) ListSchedules(ctx context.Context) ([]BackupSchedule, er
 		}
 		schedules = append(schedules, bs)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate backup schedules: %w", err)
+	}
 
 	return schedules, nil
 }
@@ -754,9 +770,13 @@ func (s *BackupService) ListRepositories(ctx context.Context) ([]BackupRepositor
 	for rows.Next() {
 		var repo BackupRepository
 		if err := rows.Scan(&repo.ID, &repo.AppID, &repo.RepoType, &repo.RepoPath, &repo.Password, &repo.Credentials, &repo.IsSystem, &repo.LimitUploadKbps, &repo.LimitDownloadKbps, &repo.CreatedAt, &repo.UpdatedAt); err != nil {
+			log.Printf("failed to scan backup repository row: %v", err)
 			continue
 		}
 		repos = append(repos, repo)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate backup repositories: %w", err)
 	}
 	return repos, nil
 }
@@ -963,6 +983,14 @@ func (s *BackupService) runPreBackupHook(ctx context.Context, appID, appPath str
 		return fmt.Errorf("backup hook failed: %w\noutput: %s", err, string(output))
 	}
 	return nil
+}
+
+// removeTemp deletes an intermediate file. Failing to clean it up is not worth
+// failing the caller over, but a leaked file eats disk until someone notices.
+func removeTemp(path string) {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to remove temporary file %s: %v", path, err)
+	}
 }
 
 func compressFile(srcPath, destPath string) error {
