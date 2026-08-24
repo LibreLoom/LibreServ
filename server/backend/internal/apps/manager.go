@@ -451,6 +451,7 @@ func (m *Manager) ReconcileConnectDomains(ctx context.Context, currentDefaultDom
 		for rows.Next() {
 			var domain string
 			if err := rows.Scan(&domain); err != nil {
+				m.logger.Warn("Failed to scan route domain for reconciliation", "error", err)
 				continue
 			}
 			if domain == "" || domain == currentDefaultDomain {
@@ -459,6 +460,9 @@ func (m *Manager) ReconcileConnectDomains(ctx context.Context, currentDefaultDom
 			if strings.HasSuffix(domain, connectDomainSuffix) {
 				stale[domain] = struct{}{}
 			}
+		}
+		if err := rows.Err(); err != nil {
+			m.logger.Warn("Route domain reconciliation ended early", "error", err)
 		}
 	}()
 
@@ -472,6 +476,7 @@ func (m *Manager) ReconcileConnectDomains(ctx context.Context, currentDefaultDom
 		for appRows.Next() {
 			var domain sql.NullString
 			if err := appRows.Scan(&domain); err != nil {
+				m.logger.Warn("Failed to scan app domain for reconciliation", "error", err)
 				continue
 			}
 			d := domain.String
@@ -481,6 +486,9 @@ func (m *Manager) ReconcileConnectDomains(ctx context.Context, currentDefaultDom
 			if strings.HasSuffix(d, connectDomainSuffix) {
 				stale[d] = struct{}{}
 			}
+		}
+		if err := appRows.Err(); err != nil {
+			m.logger.Warn("App domain reconciliation ended early", "error", err)
 		}
 	}()
 
@@ -708,7 +716,7 @@ func (m *Manager) StartInstalledApps(ctx context.Context) {
 		composePath := filepath.Join(m.appsDataDir, app.ID, "docker-compose.yml")
 		if _, err := os.Stat(composePath); os.IsNotExist(err) {
 			m.logger.Warn("Compose file missing for app, marking as error", "instance_id", app.ID)
-			m.updateStatus(ctx, app.ID, StatusError)
+			m.setStatus(ctx, app.ID, StatusError)
 			continue
 		}
 
@@ -716,9 +724,9 @@ func (m *Manager) StartInstalledApps(ctx context.Context) {
 			m.logger.Info("Starting app on boot", "instance_id", app.ID, "app_id", app.AppID)
 			if err := m.runtime.ComposeUp(ctx, composePath); err != nil {
 				m.logger.Error("Failed to start app on boot", "instance_id", app.ID, "error", err)
-				m.updateStatus(ctx, app.ID, StatusError)
+				m.setStatus(ctx, app.ID, StatusError)
 			} else {
-				m.updateStatus(ctx, app.ID, StatusRunning)
+				m.setStatus(ctx, app.ID, StatusRunning)
 			}
 		}
 	}
@@ -959,6 +967,9 @@ func (m *Manager) ListInstalledApps(ctx context.Context) ([]*InstalledApp, error
 
 		apps = append(apps, app)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate installed apps: %w", err)
+	}
 
 	return apps, nil
 }
@@ -1083,7 +1094,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 		})
 		if err != nil {
 			m.recordUpdateFailure(updateID, fmt.Errorf("backup failed: %w", err), false, "")
-			m.updateStatus(ctx, instanceID, prevStatus)
+			m.setStatus(ctx, instanceID, prevStatus)
 			return fmt.Errorf("backup failed: %w", err)
 		}
 		backupID = backupRes.Backup.ID
@@ -1118,7 +1129,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 		// Re-validate existing config values against the updated catalog schema.
 		if err := m.installer.ValidateConfig(catalogApp.ID, app.Config); err != nil {
 			m.recordUpdateFailure(updateID, fmt.Errorf("config validation failed: %w", err), false, backupID)
-			m.updateStatus(ctx, instanceID, prevStatus)
+			m.setStatus(ctx, instanceID, prevStatus)
 			return fmt.Errorf("config validation failed: %w", err)
 		}
 		app.Config["server"] = map[string]interface{}{
@@ -1144,7 +1155,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 		_, err := m.installer.processComposeTemplate(catalogApp, filepath.Join(m.appsDataDir, instanceID), app.Config)
 		if err != nil {
 			m.recordUpdateFailure(updateID, fmt.Errorf("compose template render failed: %w", err), false, backupID)
-			m.updateStatus(ctx, instanceID, prevStatus)
+			m.setStatus(ctx, instanceID, prevStatus)
 			return fmt.Errorf("compose template render failed: %w", err)
 		}
 	}
@@ -1173,7 +1184,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 		result, err := m.scriptExecutor.ExecuteAt(ctx, instanceID, updateScriptPath, app.Path, app.Config)
 		if err != nil || !result.Success {
 			m.recordUpdateFailure(updateID, fmt.Errorf("system-update script failed: %v, %s", err, result.Error), false, backupID)
-			m.updateStatus(ctx, instanceID, prevStatus)
+			m.setStatus(ctx, instanceID, prevStatus)
 			return fmt.Errorf("system-update script failed: %w", err)
 		}
 		m.logger.Info("system-update script completed", "instance_id", instanceID)
@@ -1181,7 +1192,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 
 	if err := m.runtime.ComposePull(ctx, composePath); err != nil {
 		m.recordUpdateFailure(updateID, err, false, backupID)
-		m.updateStatus(ctx, instanceID, prevStatus)
+		m.setStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("failed to pull images: %w", err)
 	}
 
@@ -1204,7 +1215,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 			}
 		}
 		m.recordUpdateFailure(updateID, err, rolledBack, backupID)
-		m.updateStatus(ctx, instanceID, prevStatus)
+		m.setStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("failed to recreate containers: %w", err)
 	}
 
@@ -1230,7 +1241,7 @@ func (m *Manager) UpdateApp(ctx context.Context, instanceID string, overridePin 
 			}
 		}
 		m.recordUpdateFailure(updateID, fmt.Errorf("app unhealthy after update"), rolledBack, backupID)
-		m.updateStatus(ctx, instanceID, prevStatus)
+		m.setStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("app unhealthy after update (rollback attempted)")
 	}
 
@@ -1368,7 +1379,7 @@ func (m *Manager) Reconfigure(ctx context.Context, instanceID string, userConfig
 	// Re-render the compose template with the updated config.
 	composePath := filepath.Join(m.appsDataDir, instanceID, "docker-compose.yml")
 	if _, err := m.installer.processComposeTemplate(catalogApp, filepath.Join(m.appsDataDir, instanceID), merged); err != nil {
-		m.updateStatus(ctx, instanceID, prevStatus)
+		m.setStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("compose template render failed: %w", err)
 	}
 
@@ -1377,7 +1388,7 @@ func (m *Manager) Reconfigure(ctx context.Context, instanceID string, userConfig
 		m.logger.Warn("ComposeDown failed during reconfigure, continuing with ComposeUp", "error", err)
 	}
 	if err := m.runtime.ComposeUp(ctx, composePath); err != nil {
-		m.updateStatus(ctx, instanceID, prevStatus)
+		m.setStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("failed to recreate containers: %w", err)
 	}
 
@@ -1402,13 +1413,13 @@ func (m *Manager) Reconfigure(ctx context.Context, instanceID string, userConfig
 	// In production, the monitor updates the status asynchronously, but for
 	// testability (and to avoid a 60s timeout when the monitor hasn't caught
 	// up yet), we set it here synchronously.
-	m.updateStatus(ctx, instanceID, StatusRunning)
+	m.setStatus(ctx, instanceID, StatusRunning)
 
 	// Wait for the app to become healthy.
 	m.logger.Info("Verifying health after reconfigure", "instance_id", instanceID)
 	if !m.waitForHealthy(ctx, instanceID, 60*time.Second) {
 		m.logger.Error("App unhealthy after reconfigure", "instance_id", instanceID)
-		m.updateStatus(ctx, instanceID, prevStatus)
+		m.setStatus(ctx, instanceID, prevStatus)
 		return fmt.Errorf("app is not healthy after reconfiguration")
 	}
 
@@ -1491,9 +1502,13 @@ func (m *Manager) CleanupStaleInstallations(ctx context.Context) error {
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
+			m.logger.Warn("Failed to scan stale installation row", "error", err)
 			continue
 		}
 		staleIDs = append(staleIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate stale installations: %w", err)
 	}
 
 	for _, id := range staleIDs {
@@ -1546,6 +1561,9 @@ func (m *Manager) ListUpdateHistory(ctx context.Context, instanceID string) ([]A
 		u.RolledBack = rolledBack.Bool
 		u.BackupID = backupID.String
 		updates = append(updates, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate update history: %w", err)
 	}
 
 	return updates, nil
@@ -1702,7 +1720,7 @@ func (m *Manager) CheckRevocations(ctx context.Context) error {
 		if revoked.RevokedAt != nil && !revoked.RevokedAt.IsZero() {
 			revokedAt = *revoked.RevokedAt
 		}
-		_, _ = m.db.Exec(`
+		if _, err := m.db.Exec(`
 			UPDATE apps SET
 				status = 'revoked',
 				revocation_severity = ?,
@@ -1710,11 +1728,21 @@ func (m *Manager) CheckRevocations(ctx context.Context) error {
 				revocation_revoked_at = ?,
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ?
-		`, revoked.Severity, revoked.RevocationReason, revokedAt, app.ID)
+		`, revoked.Severity, revoked.RevocationReason, revokedAt, app.ID); err != nil {
+			m.logger.Error("Failed to record app revocation",
+				"instance_id", app.ID,
+				"severity", revoked.Severity,
+				"error", err,
+			)
+			continue
+		}
 
 		if m.metricsCache != nil {
 			m.metricsCache.UpdateStatus(app.ID, StatusRevoked)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate apps for revocation check: %w", err)
 	}
 
 	return nil
@@ -1801,6 +1829,15 @@ func (m *Manager) removeBackendRegistrations(appID string) {
 
 	// Remove from backendByName
 	delete(m.backendByName, appID)
+}
+
+// setStatus persists a status change on paths that cannot act on a failure
+// (rollbacks, boot recovery). The write failing means the reported status now
+// diverges from reality, so it must not disappear silently.
+func (m *Manager) setStatus(ctx context.Context, instanceID string, status AppStatus) {
+	if err := m.updateStatus(ctx, instanceID, status); err != nil {
+		m.logger.Error("Failed to persist app status", "instance_id", instanceID, "status", status, "error", err)
+	}
 }
 
 // updateStatus updates the status and updated_at fields for an app

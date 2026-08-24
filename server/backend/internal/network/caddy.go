@@ -321,10 +321,11 @@ func (cm *CaddyManager) AddRoute(ctx context.Context, subdomain, domain, backend
 
 	// Apply the new configuration
 	if err := cm.regenerateCaddyfileLocked(); err != nil {
-		// Rollback - best effort, ignore errors during rollback
+		// Rollback is best effort — the caller still gets the original error —
+		// but a failed rollback leaves an orphaned route row or a stale
+		// Caddyfile, so it cannot be dropped silently.
 		delete(cm.routes, route.ID)
-		_ = cm.deleteRoute(ctx, route.ID)
-		_ = cm.restoreBackup()
+		cm.rollbackRoute(ctx, route.ID)
 		cm.routesMu.Unlock()
 		return nil, fmt.Errorf("failed to apply configuration: %w", err)
 	}
@@ -391,8 +392,7 @@ func (cm *CaddyManager) AddDomainRoute(ctx context.Context, domain, backend, com
 	}
 	if err := cm.regenerateCaddyfileLocked(); err != nil {
 		delete(cm.routes, route.ID)
-		_ = cm.deleteRoute(ctx, route.ID)
-		_ = cm.restoreBackup()
+		cm.rollbackRoute(ctx, route.ID)
 		cm.routesMu.Unlock()
 		return nil, fmt.Errorf("failed to apply configuration: %w", err)
 	}
@@ -437,7 +437,7 @@ func (cm *CaddyManager) RemoveRoute(ctx context.Context, routeID string) error {
 	if err := cm.reloadCaddy(); err != nil {
 		cm.routesMu.Lock()
 		cm.routes[routeID] = route
-		_ = cm.restoreBackup()
+		cm.restoreBackupLogged()
 		cm.routesMu.Unlock()
 		return fmt.Errorf("failed to reload Caddy: %w", err)
 	}
@@ -526,7 +526,7 @@ func (cm *CaddyManager) UpdateRoute(ctx context.Context, routeID string, backend
 		cm.routesMu.Lock()
 		route.Backend = oldBackend
 		route.Enabled = oldEnabled
-		_ = cm.restoreBackup()
+		cm.restoreBackupLogged()
 		cm.routesMu.Unlock()
 		return nil, fmt.Errorf("failed to reload Caddy: %w", err)
 	}
@@ -1220,6 +1220,25 @@ func (cm *CaddyManager) backupCurrentConfig() {
 	}
 }
 
+// restoreBackupLogged reverts the Caddyfile after a failed apply. The caller
+// already returns the original failure, so this only reports that the rollback
+// itself did not land and the on-disk config no longer matches the route table.
+func (cm *CaddyManager) restoreBackupLogged() {
+	if err := cm.restoreBackup(); err != nil {
+		slog.Error("failed to restore Caddyfile backup; on-disk config may not match stored routes", "error", err)
+	}
+}
+
+// rollbackRoute undoes a partially applied route: it removes the persisted row
+// and reverts the Caddyfile. Failures leave inconsistent state behind, so they
+// are logged rather than discarded.
+func (cm *CaddyManager) rollbackRoute(ctx context.Context, routeID string) {
+	if err := cm.deleteRoute(ctx, routeID); err != nil {
+		slog.Error("failed to roll back route row; orphaned route left in database", "route_id", routeID, "error", err)
+	}
+	cm.restoreBackupLogged()
+}
+
 // restoreBackup restores the backed up Caddyfile
 func (cm *CaddyManager) restoreBackup() error {
 	if cm.configBackup == "" {
@@ -1251,9 +1270,15 @@ func (cm *CaddyManager) loadRoutes(ctx context.Context) error {
 			&route.AppID, &route.SSL, &route.Enabled, &route.RestrictedAccess, &route.CreatedAt, &route.UpdatedAt,
 		)
 		if err != nil {
+			slog.Error("failed to scan route row; route will not be served", "error", err)
 			continue
 		}
 		cm.routes[route.ID] = &route
+	}
+	if err := rows.Err(); err != nil {
+		// A partial route set would regenerate a Caddyfile that quietly drops
+		// the missing routes.
+		return fmt.Errorf("failed to iterate routes: %w", err)
 	}
 
 	return nil

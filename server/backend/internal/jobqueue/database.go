@@ -452,6 +452,7 @@ func GetQueueStats(ctx context.Context, db *database.DB) (*QueueStats, error) {
 		var status string
 		var count int
 		if err := rows.Scan(&status, &count); err != nil {
+			log.Printf("failed to scan job stats row: %v", err)
 			continue
 		}
 		switch JobStatus(status) {
@@ -464,6 +465,9 @@ func GetQueueStats(ctx context.Context, db *database.DB) (*QueueStats, error) {
 		case JobStatusFailed:
 			stats.Failed = count
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate stats: %w", err)
 	}
 
 	// Total pending/running
@@ -508,7 +512,11 @@ func scanJob(row *sql.Row) (*Job, error) {
 	job.NextRetryAt = nextRetryAt
 
 	if logsJSON != "" {
-		_ = job.LoadLogsFromJSON(logsJSON)
+		if err := job.LoadLogsFromJSON(logsJSON); err != nil {
+			// Losing the logs hides why an ACME job failed, which is the whole
+			// reason anyone looks at this record.
+			log.Printf("failed to load logs for job %s: %v", job.ID, err)
+		}
 	}
 
 	return &job, nil
@@ -553,7 +561,9 @@ func scanJobs(rows *sql.Rows) ([]*Job, error) {
 		job.NextRetryAt = nextRetryAt
 
 		if logsJSON != "" {
-			_ = job.LoadLogsFromJSON(logsJSON)
+			if err := job.LoadLogsFromJSON(logsJSON); err != nil {
+				log.Printf("failed to load logs for job %s: %v", job.ID, err)
+			}
 		}
 
 		jobs = append(jobs, &job)

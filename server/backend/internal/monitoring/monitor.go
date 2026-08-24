@@ -348,9 +348,13 @@ func (m *Monitor) GetMetricsHistory(ctx context.Context, appID string, since tim
 			&metric.NetworkTx,
 		)
 		if err != nil {
+			log.Printf("failed to scan metrics row: %v", err)
 			continue
 		}
 		metrics = append(metrics, metric)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate metrics: %w", err)
 	}
 
 	return metrics, nil
@@ -491,10 +495,14 @@ func (m *Monitor) getRecentChecks(ctx context.Context, appID string, limit int) 
 		var status string
 		err := rows.Scan(&r.CheckType, &status, &r.Message, &r.Timestamp)
 		if err != nil {
+			log.Printf("failed to scan health check row: %v", err)
 			continue
 		}
 		r.Status = HealthStatus(status)
 		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate health check results: %w", err)
 	}
 
 	return results, nil

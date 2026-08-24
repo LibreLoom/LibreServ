@@ -129,13 +129,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == auth.ErrInvalidCredentials {
 			// Record failed login attempt
-			_ = h.securityService.RecordFailedLogin(req.Username, clientIP, r.UserAgent(), "invalid credentials")
+			if err := h.securityService.RecordFailedLogin(req.Username, clientIP, r.UserAgent(), "invalid credentials"); err != nil {
+				slog.Error("Failed to record failed login attempt", "username", req.Username, "ip", clientIP, "error", err)
+			}
 			JSONError(w, http.StatusUnauthorized, "The username or password you entered is incorrect")
 			return
 		}
 		if strings.Contains(err.Error(), "locked") {
 			// Record failed login attempt for lockout before returning error
-			_ = h.securityService.RecordFailedLogin(req.Username, clientIP, r.UserAgent(), "account locked")
+			if err := h.securityService.RecordFailedLogin(req.Username, clientIP, r.UserAgent(), "account locked"); err != nil {
+				slog.Error("Failed to record locked-account login attempt", "username", req.Username, "ip", clientIP, "error", err)
+			}
 			JSONError(w, http.StatusTooManyRequests, "Your account is temporarily locked. Please try again later.")
 			return
 		}
@@ -154,7 +158,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		UserAgent:     r.UserAgent(),
 		Details:       fmt.Sprintf("Successful login for user %s", response.User.Username),
 	}
-	h.securityService.RecordEvent(r.Context(), &event)
+	recordSecurityEvent(r.Context(), h.securityService, &event)
 	h.securityService.ClearFailedAttempts(clientIP, response.User.Username)
 
 	// Set access + refresh tokens as HTTP-only cookies.
@@ -211,7 +215,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 			UserAgent:     r.UserAgent(),
 			Details:       fmt.Sprintf("User %s logged out", user.Username),
 		}
-		h.securityService.RecordEvent(r.Context(), &event)
+		recordSecurityEvent(r.Context(), h.securityService, &event)
 	}
 
 	clearAuthCookies(w, r)
@@ -349,7 +353,7 @@ func (h *AuthHandler) ConfirmPasswordReset(w http.ResponseWriter, r *http.Reques
 		UserAgent:     r.UserAgent(),
 		Details:       fmt.Sprintf("Password reset completed for user %s", user.Username),
 	}
-	h.securityService.RecordEvent(r.Context(), &event)
+	recordSecurityEvent(r.Context(), h.securityService, &event)
 
 	JSON(w, http.StatusOK, map[string]string{
 		"message": "Password reset successfully",
