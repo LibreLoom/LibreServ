@@ -12,22 +12,22 @@ export default function RemotePage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [name, setName] = useState("");
   const [newName, setNewName] = useState("");
+  const [code, setCode] = useState("");
   const status = useQuery({ queryKey: ["connect-status"], queryFn: () => getJson("/api/v1/connect/status") });
 
-  const activate = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/enable", { subdomain: name.trim().toLowerCase() }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); },
-    onError: (err) => setError(apiErrorMessage(err, "Luna couldn't turn remote access on. Check that this Luna can reach the internet.")),
-  });
   const change = useMutation({
     mutationFn: () => postJson("/api/v1/connect/domain", { subdomain: newName.trim().toLowerCase() }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); setNewName(""); },
     onError: (err) => setError(apiErrorMessage(err)),
   });
-  const pair = useMutation({
-    mutationFn: () => postJson("/api/v1/connect/pairing-code", {}),
+  const saveCode = useMutation({
+    mutationFn: () => postJson("/api/v1/connect/setup-code", { code: code.trim() }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+  const redeem = useMutation({
+    mutationFn: () => postJson("/api/v1/connect/redeem", {}),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["connect-status"] }); setError(null); },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -43,7 +43,7 @@ export default function RemotePage() {
 
   return (
     <Page title="Remote access" titleId="remote-title"
-      bottomContent={<p className="text-sm">Remote access is off until you pick a name. The address is free forever.</p>}
+      bottomContent={<p className="text-sm">Pick a name at connect.luna.libreloom.org. The address is free forever.</p>}
     >
       {error && <PageNotice variant="error" className="mb-4">{error}</PageNotice>}
       <div className="grid gap-5 md:grid-cols-2">
@@ -53,7 +53,7 @@ export default function RemotePage() {
               <p className="text-primary text-sm">
                 Your Luna is reachable anywhere at{" "}
                 <span className="font-mono">{host || "your Luna address"}</span>.
-                Open that address on a phone or computer the same way you open Luna at home, then sign in.
+                Open that address on a phone or computer the same way you open Luna at home, then sign in. That sign-in is a Luna account, not your Luna Connect account.
               </p>
               {address && (
                 <Button
@@ -82,30 +82,27 @@ export default function RemotePage() {
               </label>
               <p className="text-primary text-sm font-mono">{newName ? `${newName.toLowerCase()}.luna.servers.libreloom.org` : "name.luna.servers.libreloom.org"}</p>
               <Button variant="primary" loading={change.isPending} disabled={newName.trim().length < 3} onClick={() => change.mutate()}>Save new address</Button>
-              <p className="text-primary text-sm">
-                To store a spare copy of files in the cloud, add a card at connect.luna.libreloom.org, then pair this Luna.
-              </p>
-              {s.pairing_code && <p className="font-mono text-primary">Pairing code: {s.pairing_code}</p>}
-              <Button variant="outline" loading={pair.isPending} onClick={() => pair.mutate()}>Get pairing code</Button>
               <Button variant="danger" loading={off.isPending} onClick={() => off.mutate()}>Turn Luna Connect off</Button>
             </div>
           ) : (
             <div className="space-y-3">
               <p className="text-primary text-sm">
-                Pick a short name so you can open Luna from a phone away from home at an address like photos.luna.servers.libreloom.org. No router changes. The address is free forever.
+                Code from the Luna Connect site. If you bought Luna, the booklet code is already on this disk — tap Use booklet code. If you set this computer up yourself, paste the short code from the website.
               </p>
               <label className="block text-primary text-sm">
-                Name
+                Code from the Luna Connect site
                 <input
                   className="mt-1 w-full rounded-pill bg-primary text-secondary px-4 py-2 font-mono"
-                  placeholder="photos"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Six letters from the site"
                 />
               </label>
-              <p className="text-primary text-sm font-mono">{name ? `${name.toLowerCase()}.luna.servers.libreloom.org` : "name.luna.servers.libreloom.org"}</p>
-              <Button variant="primary" fullWidth loading={activate.isPending} disabled={name.trim().length < 3} onClick={() => activate.mutate()}>
-                Turn Luna Connect on
+              <Button variant="primary" fullWidth loading={saveCode.isPending} disabled={code.trim().length < 6} onClick={() => saveCode.mutate()}>
+                Save code
+              </Button>
+              <Button variant="outline" fullWidth loading={redeem.isPending} onClick={() => redeem.mutate()}>
+                Use booklet code
               </Button>
             </div>
           )}
@@ -119,17 +116,16 @@ export default function RemotePage() {
             <li className="flex items-start gap-2">
               <Unplug size={14} className="text-accent mt-1 shrink-0" />
               <span>
-                Tailscale or WireGuard: install the app on Luna&apos;s computer (or the device that shares this network), then on your phone. Open Luna at its private address from that app — often luna.local still works once both devices are on the same private network.
+                Tailscale or WireGuard: install the app on Luna&apos;s computer, then on your phone. Open Luna at its private address from that app — often luna.local still works once both devices are on the same private network.
               </span>
             </li>
             <li className="flex items-start gap-2">
               <KeyRound size={14} className="text-accent mt-1 shrink-0" />
               <span>
-                Port forwarding: in your internet box, send web traffic (ports 80 and 443) to Luna. Then open Luna at your home&apos;s public internet address. Your browser may warn about the certificate — that is expected for a numbered internet address.
+                Port forwarding: in your internet box, send web traffic (ports 80 and 443) to Luna. Then open Luna at your home&apos;s public internet address.
               </span>
             </li>
           </ul>
-          <p className="text-primary text-sm mt-3">Luna Connect is the easy path if you are not sure.</p>
         </Card>
       </div>
     </Page>

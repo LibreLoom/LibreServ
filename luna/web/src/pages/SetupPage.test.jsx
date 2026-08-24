@@ -42,9 +42,9 @@ describe("SetupPage", () => {
     expect(await screen.findByRole("heading", { name: "Luna" })).toBeTruthy();
     expect(screen.getByText(/Your files, your drives, your house/i)).toBeTruthy();
     expect(screen.getByText("luna.local")).toBeTruthy();
-    expect(screen.getByText("http://luna")).toBeTruthy();
-    expect(screen.getByText("http://169.254.42.42")).toBeTruthy();
-    expect(screen.getByText(/Luna Setup/i)).toBeTruthy();
+    expect(screen.queryByText("http://luna")).toBeNull();
+    expect(screen.queryByText("http://169.254.42.42")).toBeNull();
+    expect(screen.queryByText(/Luna Setup/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Begin Setup/i })).toBeTruthy();
   });
 
@@ -52,7 +52,7 @@ describe("SetupPage", () => {
     vi.stubGlobal("fetch", stubFetch());
     renderSetup();
     fireEvent.click(await screen.findByRole("button", { name: /Begin Setup/i }));
-    expect(await screen.findByRole("heading", { name: /Get online/i })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: /Plug in the cable/i })).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Cable")).toBeTruthy());
   });
 });

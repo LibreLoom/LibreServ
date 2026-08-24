@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -56,6 +57,7 @@ type Deps struct {
 	Store  store.Store
 	Tunnel *providers.TunnelClient
 	DNS    *providers.DNSClient
+	Hub    *setuphub.Hub
 }
 
 func ClientIP(r *http.Request) string {

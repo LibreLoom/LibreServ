@@ -1,16 +1,15 @@
-//! Luna Connect client — free address plus optional billed spare copies.
-//!
-//! Default cloud: `https://connect.luna.libreloom.org`.
-//! Device address: `{name}.luna.servers.libreloom.org` via cloudflared.
+//! Luna Connect client — setup websocket, then cloudflared after a name is picked.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{Value, json};
 
 const DEFAULT_CONNECT_URL: &str = "https://connect.luna.libreloom.org";
+const OSS_TTL: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConnectError {
@@ -31,25 +30,37 @@ pub struct ConnectStatus {
     pub subdomain: Option<String>,
     pub tunnel_active: bool,
     pub backup_unlocked: bool,
-    pub pairing_code: Option<String>,
     pub paired: bool,
+    pub unclaimed: bool,
+    pub setup_code: Option<String>,
     pub backup_sources: Vec<Value>,
+}
+
+struct Ephemeral {
+    code: String,
+    until: Instant,
 }
 
 pub struct ConnectService {
     state_path: PathBuf,
+    token_path: PathBuf,
     base_url: String,
     child: Arc<Mutex<Option<Child>>>,
+    ephemeral: Mutex<Option<Ephemeral>>,
+    redeem: Mutex<bool>,
 }
 
 impl ConnectService {
     pub fn new(data_dir: &Path, base_url: Option<String>) -> Self {
         Self {
             state_path: data_dir.join("connect.json"),
+            token_path: data_dir.join("setup-token"),
             base_url: base_url
                 .filter(|u| !u.is_empty())
                 .unwrap_or_else(|| DEFAULT_CONNECT_URL.to_string()),
             child: Arc::new(Mutex::new(None)),
+            ephemeral: Mutex::new(None),
+            redeem: Mutex::new(false),
         }
     }
 
@@ -82,14 +93,9 @@ impl ConnectService {
                 .get("backup_unlocked")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
-            pairing_code: state
-                .get("pairing_code")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            paired: state
-                .get("paired")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
+            paired: enabled,
+            unclaimed: !enabled,
+            setup_code: self.display_setup_code(enabled),
             backup_sources: state
                 .get("backup_sources")
                 .and_then(|v| v.as_array())
@@ -98,46 +104,145 @@ impl ConnectService {
         }
     }
 
-    pub fn enable(&self, subdomain: &str, local_port: u16) -> Result<Value, ConnectError> {
-        if self.status().enabled {
-            return Err(ConnectError::Conflict);
+    fn display_setup_code(&self, claimed: bool) -> Option<String> {
+        if claimed {
+            return None;
         }
-        let body = json!({
-            "device_name": "Luna",
-            "subdomain": subdomain,
-            "local_port": local_port,
+        self.read_factory_token()
+            .or_else(|| self.ephemeral.lock().unwrap().as_ref().map(|e| e.code.clone()))
+    }
+
+    pub fn set_oss_code(&self, code: &str) -> Result<(), ConnectError> {
+        let code = code.trim().to_uppercase();
+        if code.len() != 6
+            || !code
+                .chars()
+                .all(|c| c.is_ascii_hexdigit())
+        {
+            return Err(ConnectError::Other(
+                "That code should be six letters and numbers from the Luna Connect site.".into(),
+            ));
+        }
+        *self.ephemeral.lock().unwrap() = Some(Ephemeral {
+            code,
+            until: Instant::now() + OSS_TTL,
         });
-        let created = self.call_json("POST", "/api/v1/register", None, Some(body))?;
-        let token = created
-            .get("device_token")
+        Ok(())
+    }
+
+    pub fn redeem_booklet(&self) -> Result<(), ConnectError> {
+        if self.read_factory_token().is_none() {
+            return Err(ConnectError::Other(
+                "This Luna has no booklet code on disk. Paste the code from the Luna Connect site instead.".into(),
+            ));
+        }
+        *self.redeem.lock().unwrap() = true;
+        Ok(())
+    }
+
+    pub fn apply_claimed(&self, claimed: &Value) -> Result<(), ConnectError> {
+        let mut state = self.load();
+        if let Some(t) = claimed.get("device_token") {
+            state["device_token"] = t.clone();
+        }
+        if let Some(h) = claimed.get("hostname") {
+            state["hostname"] = h.clone();
+        }
+        if let Some(s) = claimed.get("subdomain") {
+            state["subdomain"] = s.clone();
+        }
+        if let Some(t) = claimed.get("tunnel_token") {
+            state["tunnel_token"] = t.clone();
+        }
+        if let Some(s) = claimed.get("setup_secret") {
+            state["first_user_secret"] = s.clone();
+        }
+        self.save(&state)?;
+        *self.ephemeral.lock().unwrap() = None;
+        *self.redeem.lock().unwrap() = false;
+        let _ = self.ensure_tunnel();
+        Ok(())
+    }
+
+    pub fn first_user_secret(&self) -> Option<String> {
+        self.load()
+            .get("first_user_secret")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| {
-                ConnectError::Other("Connect did not finish setting up this Luna.".into())
-            })?;
-        let hostname = created
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    }
+
+    pub fn public_hostname(&self) -> Option<String> {
+        self.load()
             .get("hostname")
             .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let tunnel_token = created
-            .get("tunnel_token")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let mut state = json!({
-            "base_url": self.base_url,
-            "device_token": token,
-            "hostname": hostname,
-            "subdomain": created.get("subdomain").cloned().unwrap_or(json!(subdomain)),
-            "tunnel_token": tunnel_token,
-            "backup_sources": [],
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    }
+
+    fn read_factory_token(&self) -> Option<String> {
+        std::fs::read_to_string(&self.token_path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    fn setup_hello_token(&self, setup_completed: bool) -> Option<(String, &'static str)> {
+        if self.status().enabled {
+            return None;
+        }
+        if let Some(e) = self.ephemeral.lock().unwrap().as_ref()
+            && Instant::now() < e.until
+        {
+            return Some((e.code.clone(), "anonymous"));
+        }
+        let factory = self.read_factory_token()?;
+        if *self.redeem.lock().unwrap() {
+            return Some((factory, "settings"));
+        }
+        if setup_completed {
+            // Official disk that finished local setup: no anonymous hello.
+            return None;
+        }
+        Some((factory, "anonymous"))
+    }
+
+    pub fn hello_once(&self, setup_completed: bool) {
+        let Some((token, source)) = self.setup_hello_token(setup_completed) else {
+            return;
+        };
+        let ws = http_to_ws(&self.base_url) + "/api/v1/setup/ws";
+        let Ok((mut socket, _)) = tungstenite::connect(&ws) else {
+            return;
+        };
+        let hello = json!({
+            "type": "hello",
+            "token": token,
+            "local_port": 8090,
+            "source": source,
         });
-        self.save(&state)?;
-        let _ = self.refresh_remote(&mut state);
-        self.save(&state)?;
-        let _ = self.ensure_tunnel();
-        Ok(json!({
-            "hostname": hostname,
-            "subdomain": subdomain,
-        }))
+        if socket
+            .send(tungstenite::Message::Text(hello.to_string().into()))
+            .is_err()
+        {
+            return;
+        }
+        while let Ok(msg) = socket.read() {
+            let tungstenite::Message::Text(text) = msg else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_str::<Value>(&text) else {
+                continue;
+            };
+            match v.get("type").and_then(|t| t.as_str()) {
+                Some("error") => break,
+                Some("claimed") => {
+                    let _ = self.apply_claimed(&v);
+                    break;
+                }
+                _ => {}
+            }
+        }
     }
 
     pub fn set_domain(&self, subdomain: &str) -> Result<Value, ConnectError> {
@@ -171,20 +276,6 @@ impl ConnectService {
         Ok(())
     }
 
-    pub fn pairing_code(&self) -> Result<String, ConnectError> {
-        let token = self.token()?;
-        let v = self.call_json("POST", "/api/v1/pairing-code", Some(&token), None)?;
-        let code = v
-            .get("pairing_code")
-            .and_then(|c| c.as_str())
-            .unwrap_or("")
-            .to_string();
-        let mut state = self.load();
-        state["pairing_code"] = json!(code);
-        self.save(&state)?;
-        Ok(code)
-    }
-
     pub fn set_backup_sources(&self, sources: Vec<Value>) -> Result<(), ConnectError> {
         let mut state = self.load();
         state["backup_sources"] = json!(sources);
@@ -212,9 +303,6 @@ impl ConnectService {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
         );
-        if let Some(c) = remote.get("pairing_code") {
-            state["pairing_code"] = c.clone();
-        }
         Ok(())
     }
 
@@ -300,7 +388,7 @@ impl ConnectService {
             .spawn()
             .map_err(|_| {
                 ConnectError::Other(
-                    "Luna couldn't start the protected connection. Install cloudflared or try again."
+                    "Luna couldn't start the protected connection. Try again in a few minutes."
                         .into(),
                 )
             })?;
@@ -394,6 +482,16 @@ impl ConnectService {
     }
 }
 
+fn http_to_ws(base: &str) -> String {
+    if let Some(rest) = base.strip_prefix("https://") {
+        format!("wss://{}", rest.trim_end_matches('/'))
+    } else if let Some(rest) = base.strip_prefix("http://") {
+        format!("ws://{}", rest.trim_end_matches('/'))
+    } else {
+        base.trim_end_matches('/').to_string()
+    }
+}
+
 fn map_transport_error(err: ureq::Error) -> ConnectError {
     match err {
         ureq::Error::StatusCode(409) => ConnectError::Conflict,
@@ -401,7 +499,6 @@ fn map_transport_error(err: ureq::Error) -> ConnectError {
     }
 }
 
-/// True when the box has been quiet long enough to upload spare copies.
 pub fn is_idle(last_io_unix: i64, now_unix: i64) -> bool {
     now_unix.saturating_sub(last_io_unix) >= 30
 }
@@ -409,100 +506,52 @@ pub fn is_idle(last_io_unix: i64, now_unix: i64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::routing::{get, post};
-    use axum::{Json, Router};
 
-    async fn test_server() -> (u16, tokio::task::JoinHandle<()>) {
-        let app = Router::new()
-            .route(
-                "/api/v1/register",
-                post(|Json(_): Json<Value>| async {
-                    Json(json!({
-                        "device_token": "tok-1",
-                        "hostname": "photos.luna.servers.libreloom.org",
-                        "subdomain": "photos",
-                        "tunnel_token": "mock-token"
-                    }))
-                }),
-            )
-            .route(
-                "/api/v1/status",
-                get(|| async {
-                    Json(json!({
-                        "hostname": "photos.luna.servers.libreloom.org",
-                        "backup_unlocked": false,
-                        "paired": false
-                    }))
-                }),
-            )
-            .route(
-                "/api/v1/domain",
-                post(|Json(body): Json<Value>| async move {
-                    let sub = body.get("subdomain").and_then(|v| v.as_str()).unwrap_or("");
-                    Json(json!({
-                        "hostname": format!("{sub}.luna.servers.libreloom.org"),
-                        "subdomain": sub
-                    }))
-                }),
-            );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let handle = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        (port, handle)
+    #[test]
+    fn apply_claimed_persists_secret_and_starts_mock_tunnel() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service
+            .apply_claimed(&json!({
+                "device_token": "tok-1",
+                "hostname": "photos.luna.servers.libreloom.org",
+                "subdomain": "photos",
+                "tunnel_token": "mock-token",
+                "setup_secret": "secret-abc"
+            }))
+            .unwrap();
+        let st = service.status();
+        assert_eq!(st.hostname.as_deref(), Some("photos.luna.servers.libreloom.org"));
+        assert_eq!(service.first_user_secret().as_deref(), Some("secret-abc"));
+        assert!(st.enabled);
+        assert!(!st.unclaimed);
     }
 
-    #[tokio::test]
-    async fn enable_registers_and_hides_token() {
-        let (port, server) = test_server().await;
+    #[test]
+    fn oss_code_is_memory_only() {
         let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(format!("http://127.0.0.1:{port}")));
-        let result = tokio::task::spawn_blocking(move || service.enable("photos", 8090))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(result["hostname"], "photos.luna.servers.libreloom.org");
-        let raw = std::fs::read_to_string(dir.path().join("connect.json")).unwrap();
-        assert!(raw.contains("tok-1"));
-        server.abort();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        service.set_oss_code("a1b2c3").unwrap();
+        assert!(!dir.path().join("setup-token").exists());
+        assert_eq!(service.status().setup_code.as_deref(), Some("A1B2C3"));
     }
 
-    #[tokio::test]
-    async fn set_domain_updates_hostname() {
-        let (port, server) = test_server().await;
+    #[test]
+    fn local_complete_stops_anonymous_factory_hello() {
         let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some(format!("http://127.0.0.1:{port}")));
-        tokio::task::spawn_blocking({
-            let service = ConnectService::new(dir.path(), Some(format!("http://127.0.0.1:{port}")));
-            move || service.enable("photos", 8090)
-        })
-        .await
-        .unwrap()
-        .unwrap();
-        let changed = tokio::task::spawn_blocking(move || service.set_domain("kitchen"))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(changed["hostname"], "kitchen.luna.servers.libreloom.org");
-        server.abort();
+        std::fs::write(dir.path().join("setup-token"), "ABCD-EFGH-IJKM-NPQR-STUV").unwrap();
+        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
+        assert!(service.setup_hello_token(false).is_some());
+        assert!(service.setup_hello_token(true).is_none());
+        service.redeem_booklet().unwrap();
+        let (code, source) = service.setup_hello_token(true).unwrap();
+        assert_eq!(source, "settings");
+        assert!(code.contains("ABCD"));
     }
 
     #[test]
     fn idle_requires_quiet_window() {
         assert!(!is_idle(100, 110));
         assert!(is_idle(100, 140));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn state_file_is_owner_only() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let service = ConnectService::new(dir.path(), Some("http://127.0.0.1:1".into()));
-        service.save(&json!({ "device_token": "secret" })).unwrap();
-        let mode = std::fs::metadata(dir.path().join("connect.json"))
-            .unwrap()
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
     }
 }

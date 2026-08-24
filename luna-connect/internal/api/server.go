@@ -12,6 +12,7 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/api/handlers"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/providers"
+	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/store"
 )
 
@@ -31,7 +32,7 @@ func NewServer(db *sql.DB, objectStore store.Store) *Server {
 	s := &Server{
 		db: db,
 		deps: handlers.Deps{
-			DB: db, Store: objectStore, Tunnel: tunnel, DNS: dns,
+			DB: db, Store: objectStore, Tunnel: tunnel, DNS: dns, Hub: setuphub.New(),
 		},
 	}
 	s.routes()
@@ -50,19 +51,26 @@ func (s *Server) routes() {
 	dev := handlers.DeviceHandler{Deps: s.deps}
 	acct := handlers.AccountHandler{Deps: s.deps}
 	bak := handlers.BackupHandler{Deps: s.deps}
+	onb := handlers.OnboardingHandler{Deps: s.deps}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/domain/available", dev.Available)
 		r.Post("/register", dev.Register)
 		r.Post("/account/register", acct.Register)
 		r.Post("/account/login", acct.Login)
+		r.Get("/setup/ws", onb.SetupWS)
+
+		r.Group(func(r chi.Router) {
+			r.Use(acct.OptionalAccountAuth)
+			r.Post("/onboarding/bind", onb.Bind)
+			r.Get("/onboarding/session", onb.Session)
+		})
 
 		r.Group(func(r chi.Router) {
 			r.Use(dev.DeviceAuth)
 			r.Get("/status", dev.Status)
 			r.Post("/domain", dev.Domain)
 			r.Post("/unregister", dev.Unregister)
-			r.Post("/pairing-code", dev.PairingCode)
 			r.Put("/backup/objects/*", bak.PutObject)
 			r.Delete("/backup/objects/*", bak.DeleteObject)
 		})
@@ -78,8 +86,15 @@ func (s *Server) routes() {
 			r.Get("/backups", bak.List)
 			r.Get("/backups/download", bak.Download)
 			r.Delete("/backups", bak.DeleteAccountObject)
+			r.Post("/onboarding/attach-account", onb.AttachAccount)
+			r.Post("/onboarding/name", onb.Name)
+			r.Post("/onboarding/backups", onb.Backups)
+			r.Post("/account/verify-human", onb.VerifyHuman)
+			r.Post("/account/oss-token", onb.MintOSS)
 		})
 	})
+
+	r.Post("/admin/setup-tokens", onb.AdminMint)
 
 	r.Get("/admin/devices", func(w http.ResponseWriter, r *http.Request) {
 		if config.C.Server.AdminToken == "" || r.Header.Get("Authorization") != "Bearer "+config.C.Server.AdminToken {

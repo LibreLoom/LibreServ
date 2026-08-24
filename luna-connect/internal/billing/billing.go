@@ -5,8 +5,11 @@ import (
 	"log/slog"
 	"time"
 
+	"fmt"
+
 	"github.com/stripe/stripe-go/v76"
 	"github.com/stripe/stripe-go/v76/customer"
+	"github.com/stripe/stripe-go/v76/paymentintent"
 	"github.com/stripe/stripe-go/v76/subscription"
 	"github.com/stripe/stripe-go/v76/usagerecord"
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/config"
@@ -29,6 +32,32 @@ func CreateCustomer(email string) (string, error) {
 		return "", err
 	}
 	return c.ID, nil
+}
+
+func ChargeOneDollar(customerID string) (paymentIntentID string, err error) {
+	if !config.C.Stripe.Ready() {
+		return "pi_dev_verify_" + customerID, nil
+	}
+	stripe.Key = config.C.Stripe.SecretKey
+	params := &stripe.PaymentIntentParams{
+		Amount:   stripe.Int64(100),
+		Currency: stripe.String(string(stripe.CurrencyUSD)),
+		Customer: stripe.String(customerID),
+		Confirm:  stripe.Bool(true),
+		AutomaticPaymentMethods: &stripe.PaymentIntentAutomaticPaymentMethodsParams{
+			Enabled:        stripe.Bool(true),
+			AllowRedirects: stripe.String("never"),
+		},
+		Description: stripe.String("Luna Connect: a dollar to confirm this is a real person. It counts toward cloud copies if you turn those on."),
+	}
+	pi, err := paymentintent.New(params)
+	if err != nil {
+		return "", err
+	}
+	if pi.Status != stripe.PaymentIntentStatusSucceeded {
+		return "", fmt.Errorf("payment not succeeded")
+	}
+	return pi.ID, nil
 }
 
 func Subscribe(customerID string) (string, error) {

@@ -184,13 +184,13 @@ async fn hotspot_status(State(state): State<AppState>) -> Json<crate::hotspot::H
             available: false,
             running: false,
             interface: None,
-            ssid: crate::hotspot::SETUP_SSID.into(),
+            ssid: String::new(),
         })
     }
 }
 
 async fn hotspot_start(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(user): Extension<crate::auth::CurrentUser>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     if user.role != "admin" {
@@ -199,41 +199,9 @@ async fn hotspot_start(
             "Only an admin can do that.",
         ));
     }
-    let status = crate::net::read_status(
-        std::path::Path::new("/sys/class/net"),
-        &std::fs::read_to_string("/proc/net/route").unwrap_or_default(),
-    );
-    let Some(iface) = status.wifi_interface else {
-        return Err(json_error(
-            StatusCode::CONFLICT,
-            "This Luna's Wi-Fi adapter can't create a hotspot.",
-        ));
-    };
-    let setup_done = state
-        .db
-        .lock()
-        .ok()
-        .and_then(|conn| crate::db::get_meta(&conn, "setup").ok().flatten())
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-        .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if !crate::hotspot::should_start_setup_hotspot(
-        setup_done,
-        status.ethernet_connected,
-        crate::hotspot::wifi_uplink_connected(state.wifi.as_ref()),
-    ) {
-        return Err(json_error(
-            StatusCode::CONFLICT,
-            "The setup network is only for first setup, when this Luna is not on your home network yet.",
-        ));
-    }
-    let hotspot = crate::hotspot::CommandHotspot::new(iface, std::path::Path::new("/run/luna"));
-    hotspot
-        .start()
-        .map_err(|e| json_error(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    state.set_hotspot(hotspot);
-    Ok(Json(
-        json!({ "ok": true, "ssid": crate::hotspot::SETUP_SSID }),
+    Err(json_error(
+        StatusCode::GONE,
+        "Luna uses the included cable. There is no setup Wi-Fi network to start.",
     ))
 }
 

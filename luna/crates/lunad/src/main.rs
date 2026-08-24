@@ -71,34 +71,63 @@ async fn main() -> anyhow::Result<()> {
     }
 
     std::thread::Builder::new()
-        .name("luna-console-help".into())
-        .spawn(lunad::console::print_connection_help)
+        .name("luna-dhcp-link".into())
+        .spawn(|| {
+            lunad::dhcp::request_on_wired(std::path::Path::new("/sys/class/net"));
+            lunad::dhcp::watch_link_up(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                false,
+            )));
+        })
         .ok();
 
-    let setup_done = state
-        .db
-        .lock()
-        .ok()
-        .and_then(|conn| lunad::db::get_meta(&conn, "setup").ok().flatten())
-        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-        .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
-        .unwrap_or(false);
-    if lunad::hotspot::should_start_setup_hotspot(
-        setup_done,
-        net.ethernet_connected,
-        lunad::hotspot::wifi_uplink_connected(state.wifi.as_ref()),
-    ) && let Some(iface) = net.wifi_interface.clone()
     {
-        let scan_cache = state.wifi.scan().unwrap_or_default();
-        let hotspot = lunad::hotspot::CommandHotspot::new(iface, &cfg.data_dir.join("run"));
-        hotspot.set_cache(scan_cache);
-        match hotspot.start() {
-            Ok(()) => {
-                tracing::info!(ssid = lunad::hotspot::SETUP_SSID, "setup hotspot active");
-                state.set_hotspot(hotspot);
-            }
-            Err(e) => tracing::warn!(error = %e, "setup hotspot unavailable"),
-        }
+        let connect = state.connect.clone();
+        let db = state.db.clone();
+        std::thread::Builder::new()
+            .name("luna-connect-hello".into())
+            .spawn(move || loop {
+                let setup_done = db
+                    .lock()
+                    .ok()
+                    .and_then(|conn| lunad::db::get_meta(&conn, "setup").ok().flatten())
+                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                    .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
+                    .unwrap_or(false);
+                connect.hello_once(setup_done);
+                std::thread::sleep(std::time::Duration::from_secs(3));
+            })
+            .ok();
+    }
+
+    {
+        let connect = state.connect.clone();
+        std::thread::Builder::new()
+            .name("luna-console-help".into())
+            .spawn(move || {
+                let mut last = String::new();
+                loop {
+                    let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
+                    let net = lunad::net::read_status(
+                        std::path::Path::new("/sys/class/net"),
+                        &proc_route,
+                    );
+                    let st = connect.status();
+                    let snap = lunad::console::ConsoleSnapshot {
+                        ipv4: net.ipv4.clone(),
+                        cable_in: net.ethernet_connected,
+                        setup_code: st.setup_code.clone(),
+                        connect_hostname: st.hostname.clone(),
+                        unclaimed: st.unclaimed,
+                    };
+                    let text = lunad::console::help_text(&snap);
+                    if text != last {
+                        lunad::console::print_snapshot(&snap);
+                        last = text;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                }
+            })
+            .ok();
     }
 
     let health_db = state.db.clone();
@@ -186,37 +215,6 @@ async fn main() -> anyhow::Result<()> {
                 flag.store(false, std::sync::atomic::Ordering::SeqCst);
             })
             .await;
-        }
-    });
-
-    let hotspot_db = state.db.clone();
-    let hotspot_state = state.clone();
-    let hotspot_wifi = state.wifi.clone();
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
-        loop {
-            ticker.tick().await;
-            let proc_route = std::fs::read_to_string("/proc/net/route").unwrap_or_default();
-            let net = lunad::net::read_status(std::path::Path::new("/sys/class/net"), &proc_route);
-            let setup_done = hotspot_db
-                .lock()
-                .ok()
-                .and_then(|conn| lunad::db::get_meta(&conn, "setup").ok().flatten())
-                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-                .and_then(|v| v.get("setup_completed").and_then(|b| b.as_bool()))
-                .unwrap_or(false);
-            let wifi_connected = tokio::task::spawn_blocking({
-                let wifi = hotspot_wifi.clone();
-                move || lunad::hotspot::wifi_uplink_connected(wifi.as_ref())
-            })
-            .await
-            .unwrap_or(false);
-            if (setup_done || net.ethernet_connected || wifi_connected)
-                && let Some(hotspot) = hotspot_state.hotspot.lock().unwrap().take()
-            {
-                let _ = hotspot.stop();
-                tracing::info!("setup hotspot stopped");
-            }
         }
     });
 

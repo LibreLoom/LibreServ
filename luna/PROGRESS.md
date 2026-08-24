@@ -75,8 +75,8 @@
 - [x] "Shared with me" view for non-admin users (done in M11, /shared)
 
 ## M5 — Remote access (IN PROGRESS)
-- [x] Connect client talks to Luna Connect (`connect.luna.libreloom.org`): register name, change domain, pairing code, cloudflared, idle spare-copy sync
-- [x] Connect API: GET status, POST enable/domain/deactivate/pairing-code/backup-sources
+- [x] Connect client talks to Luna Connect (`connect.luna.libreloom.org`): setup websocket, waiting room, tunnel only after a name is picked, cloudflared, idle spare-copy sync
+- [x] Connect onboarding: booklet or $1 then 6-hex; HDMI IP; Ethernet-only; no setup AP
 - [x] Remote access UI: pick/change `{name}.luna.servers.libreloom.org` plus Tailscale/port-forward alternatives
 - [x] Luna Connect is its own app (`luna-connect/`): pick/change `{name}.luna.servers.libreloom.org`, Cloudflare Tunnel on the device, billed spare copies at $7/TB/month
 
@@ -161,7 +161,7 @@
 - [x] "Shared with me" view (/shared): lists the current user's grants with
       drive labels and opens FilesPage at the granted path (`?path=`)
 - [x] OS build uses the default lunad binary (no BLE feature); rootfs ships hostapd+dnsmasq for setup AP
-- [x] AP-mode hotspot software: auto-starts open "Luna Setup" when no Ethernet/Wi-Fi and setup incomplete, stops when connected/setup done; hostapd+dnsmasq config; API start/stop/status; hardware qualification still pending
+- [x] Ethernet-only setup: no AP-mode hotspot; HDMI live IP + booklet code
 - [x] Desktop tray icon (show/quit menu, left-click opens, tray-enabled release binary built); installer targets configured (deb/appimage/msi/dmg) — final bundling runs per-platform
 - [x] Full-disk/read-only detection in write paths: upload and chunked-upload failures transition the drive to `readonly`
 - [x] Protect-a-folder redundancy: append-only second copy on another drive, 30-min background sync + manual run, `/settings/protect` UI

@@ -1,4 +1,4 @@
-use axum::extract::{ConnectInfo, Extension, Request, State};
+use axum::extract::{ConnectInfo, Extension, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -15,6 +15,7 @@ struct RegisterBody {
     username: String,
     display_name: Option<String>,
     password: String,
+    setup_secret: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -37,6 +38,8 @@ pub fn router() -> Router<AppState> {
 async fn register(
     State(state): State<AppState>,
     ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
+    Query(query): Query<std::collections::HashMap<String, String>>,
     current: Option<Extension<CurrentUser>>,
     Json(body): Json<RegisterBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -60,6 +63,8 @@ async fn register(
                 "Only an admin can do that.",
             ));
         }
+    } else if let Err(msg) = first_user_on_public_host(&state, &headers, &query, &body) {
+        return Err(json_error(StatusCode::FORBIDDEN, msg));
     }
     let user = state
         .auth
@@ -184,6 +189,48 @@ async fn me(req: Request) -> Json<Value> {
 async fn status(State(state): State<AppState>) -> Json<Value> {
     let has_admin = state.auth.count_users().map(|n| n > 0).unwrap_or(false);
     Json(json!({ "has_admin": has_admin }))
+}
+
+fn first_user_on_public_host(
+    state: &AppState,
+    headers: &HeaderMap,
+    query: &std::collections::HashMap<String, String>,
+    body: &RegisterBody,
+) -> Result<(), String> {
+    let Some(hostname) = state.connect.public_hostname() else {
+        return Ok(());
+    };
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .split(':')
+        .next()
+        .unwrap_or("");
+    if !host.eq_ignore_ascii_case(&hostname) {
+        return Ok(());
+    }
+    let Some(want) = state.connect.first_user_secret() else {
+        return Err("Open this Luna from the address on its screen first, or add ?setup= from the Luna Connect page.".into());
+    };
+    let mut offered = body.setup_secret.clone().unwrap_or_default();
+    if offered.is_empty() {
+        offered = query.get("setup").cloned().unwrap_or_default();
+    }
+    if offered.is_empty()
+        && let Some(c) = headers.get(header::COOKIE).and_then(|v| v.to_str().ok())
+    {
+        for part in c.split(';') {
+            let part = part.trim();
+            if let Some(v) = part.strip_prefix("luna_setup=") {
+                offered = v.to_string();
+            }
+        }
+    }
+    if offered != want {
+        return Err("This address is on the internet. Use the one-time link from Luna Connect, or open Luna on your home Wi-Fi instead.".into());
+    }
+    Ok(())
 }
 
 fn map_auth_err(err: AuthError) -> (StatusCode, Json<Value>) {

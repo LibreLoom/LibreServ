@@ -7,6 +7,7 @@ pub mod console;
 pub mod dav;
 pub mod db;
 pub mod detect;
+pub mod dhcp;
 pub mod drives;
 pub mod exif;
 pub mod files;

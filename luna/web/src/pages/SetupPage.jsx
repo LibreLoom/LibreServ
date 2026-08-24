@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useContext } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, Router, X } from "lucide-react";
+import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { getJson, postJson } from "../lib/api";
 import NetworkStep from "../components/setup/NetworkStep";
@@ -137,39 +137,34 @@ function LogoMark({ size = 64 }) {
 }
 LogoMark.propTypes = { size: PropTypes.number };
 
-/** Discovery paths — where to find Luna after install (console + setup wizard). */
-function DiscoveryPaths({ name = "Luna" }) {
+/** Where to find Luna after install. Phone stays on home Wi-Fi. */
+function DiscoveryPaths({ name = "Luna", ipv4 = [] }) {
   const label = name || "Luna";
   return (
-    <div className="mt-8 w-full bg-primary/10 border border-primary/15 rounded-large-element p-5 text-left">
-      <p className="text-xs text-primary/60 mb-3">
-        You can find {label} at:
+    <div className="mt-8 w-full bg-primary text-secondary rounded-large-element p-5 text-left">
+      <p className="text-xs text-secondary mb-3">
+        Stay on your home Wi-Fi. You can find {label} at:
       </p>
       <ul className="space-y-2.5 text-xs">
         <li className="flex items-center gap-2.5">
-          <Cable size={14} className="text-primary/50 shrink-0" />
-          <span className="font-mono text-primary shrink-0">luna.local</span>
-          <span className="text-primary/50">— most phones and computers</span>
+          <Cable size={14} className="text-secondary shrink-0" />
+          <span className="font-mono text-secondary shrink-0">luna.local</span>
+          <span className="text-secondary">— if your phone finds it</span>
         </li>
-        <li className="flex items-center gap-2.5">
-          <Router size={14} className="text-primary/50 shrink-0" />
-          <span className="font-mono text-primary shrink-0">http://luna</span>
-          <span className="text-primary/50">— through your internet box</span>
-        </li>
-        <li className="flex items-center gap-2.5">
-          <Check size={14} className="text-primary/50 shrink-0" />
-          <span className="font-mono text-primary shrink-0">http://169.254.42.42</span>
-          <span className="text-primary/50">— cable straight from a computer, always works</span>
-        </li>
+        {ipv4.map((ip) => (
+          <li key={ip} className="flex items-center gap-2.5">
+            <Check size={14} className="text-secondary shrink-0" />
+            <span className="font-mono text-secondary shrink-0">{ip}</span>
+            <span className="text-secondary">— current address on the screen</span>
+          </li>
+        ))}
       </ul>
-      <p className="mt-3 text-xs text-primary/60">
-        No Wi-Fi yet? Join the open network <span className="font-mono text-primary">Luna Setup</span> from your phone.
-      </p>
     </div>
   );
 }
 DiscoveryPaths.propTypes = {
   name: PropTypes.string,
+  ipv4: PropTypes.arrayOf(PropTypes.string),
 };
 
 // ─── STEP: Welcome ────────────────────────────────────────────────────────────
