@@ -10,6 +10,8 @@ HERE="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 . "$HERE/lib/disk.sh"
 # shellcheck disable=SC1091
 . "$HERE/lib/flash-disk.sh"
+# shellcheck disable=SC1091
+. "$HERE/lib/console.sh"
 
 ARCH="${ARCH:-x86_64}"
 TARBALL="${LUNA_ROOTFS:-$HERE/luna-rootfs-$ARCH.tar.gz}"
@@ -71,30 +73,6 @@ pick_builtin() {
 	done
 	[ -n "$_best" ] || return 1
 	printf '%s\n' "$_best"
-}
-
-# One byte from stdin (the console). Dash-safe — no bash read -n/-t.
-# The live ISO attaches /dev/tty1 as stdin; PID 1 often has no /dev/tty.
-# Caller must put the console in cbreak (-icanon) first, or Enter is required.
-read_console_byte() {
-	dd bs=1 count=1 2>/dev/null
-}
-
-console_cbreak() {
-	# Deliver each key immediately — default cooked mode waits for Enter.
-	stty -icanon min 1 time 0 -echo 2>/dev/null || true
-}
-
-console_sane() {
-	stty sane 2>/dev/null || true
-}
-
-drain_stdin() {
-	# Discard buffered keys without blocking long (dash-safe; needs cbreak).
-	while :; do
-		_k="$(timeout 0.05 dd bs=1 count=1 2>/dev/null)" || break
-		[ -n "$_k" ] || break
-	done
 }
 
 list_candidates() {
@@ -171,6 +149,7 @@ size_hint() {
 }
 
 discover_install_disk
+attach_installer_console || true
 
 if [ ! -f "$TARBALL" ]; then
 	echo "This USB is missing the Luna OS archive. Rebuild the ISO with make-iso.sh." >&2
@@ -196,25 +175,12 @@ fi
 
 if [ -n "$TARGET" ] && [ "$_forced_target" -eq 0 ]; then
 	echo "Installing to $TARGET ($(size_hint "$TARGET"))."
-	echo "Do nothing for 5 seconds to continue. Press any key to pick another disk."
-	_picked_other=0
-	# Dash has no read -n/-t. timeout+dd reads one byte from the console
-	# (stdin is /dev/tty1 on the live ISO). Exit 0 = key pressed; 124 = timed out.
-	# stty -icanon is required so a key is delivered without waiting for Enter.
-	if [ -t 0 ] && command -v timeout >/dev/null 2>&1; then
-		console_cbreak
-		if timeout 5 dd bs=1 count=1 of=/dev/null 2>/dev/null; then
-			_picked_other=1
-		fi
-		console_sane
-	fi
-	if [ "$_picked_other" -eq 1 ]; then
-		echo
+	# Always wait ~5s (countdown on the console). A missing tty or timeout
+	# binary must not skip straight to erase.
+	if wait_override_key "${LUNA_OVERRIDE_WAIT:-5}"; then
 		drain_stdin
 		TARGET=""
 		prompt_target
-	else
-		echo
 	fi
 elif [ -z "$TARGET" ]; then
 	echo "Luna could not pick built-in storage automatically."

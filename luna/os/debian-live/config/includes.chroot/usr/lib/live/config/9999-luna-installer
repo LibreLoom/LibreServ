@@ -24,8 +24,7 @@ Config() {
 		echo "Luna installer missing." >&2
 		return 1
 	fi
-	chvt 1 2>/dev/null || true
-	/usr/lib/luna-installer/start.sh </dev/tty1 >/dev/tty1 2>&1
+	/usr/lib/luna-installer/start.sh
 	touch /var/lib/live/config/luna-installer
 }
 

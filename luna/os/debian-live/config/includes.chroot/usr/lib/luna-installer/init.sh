@@ -2,6 +2,8 @@
 # PID 1 for the rapidinstall live ISO: bring up devices, then run the installer.
 set -eu
 
+export PATH="/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}"
+
 mount -o remount,rw / 2>/dev/null || true
 
 for _fs in proc sys dev; do
@@ -24,6 +26,12 @@ fi
 
 if [ -x /usr/lib/luna-installer/network-up.sh ]; then
 	/usr/lib/luna-installer/network-up.sh &
+fi
+
+if [ -c /dev/console ]; then
+	exec </dev/console >/dev/console 2>&1 || true
+elif [ -c /dev/tty0 ]; then
+	exec </dev/tty0 >/dev/tty0 2>&1 || true
 fi
 
 if /usr/lib/luna-installer/start.sh; then
