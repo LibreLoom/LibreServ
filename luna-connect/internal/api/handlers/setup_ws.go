@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -10,8 +11,21 @@ import (
 	"gt.plainskill.net/LibreLoom/LunaConnect/internal/setuphub"
 )
 
+const (
+	setupGuessMax    = 8
+	setupGuessWindow = 15 * 60
+)
+
 var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+func rejectHello(conn *websocket.Conn, message string) {
+	_ = conn.WriteJSON(setuphub.Message{Type: "error", Message: message})
+}
+
+func clientKeyToken(norm string) string {
+	return "tok:" + security.HashToken(norm)
 }
 
 func (h OnboardingHandler) SetupWS(w http.ResponseWriter, r *http.Request) {
@@ -25,19 +39,25 @@ func (h OnboardingHandler) SetupWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	ipKey := clientKeyIP(r)
+	if !allowGuess(h.DB, ipKey, setupGuessMax, setupGuessWindow) {
+		rejectHello(conn, "Too many tries from this network. Wait a few minutes, then try again.")
+		return
+	}
 	var hello setuphub.Message
 	if err := json.Unmarshal(raw, &hello); err != nil || hello.Type != "hello" {
-		_ = conn.WriteJSON(setuphub.Message{Type: "error", Message: "Luna must say hello with its setup code."})
+		rejectHello(conn, "Luna must say hello with its setup code.")
 		return
 	}
 	norm := security.NormalizeToken(hello.Token)
 	if norm == "" {
-		_ = conn.WriteJSON(setuphub.Message{Type: "error", Message: "Missing setup code."})
+		rejectHello(conn, "Missing setup code.")
 		return
 	}
 	tok, ok := lookupIssued(h.DB, norm)
 	if !ok || tok.Status != "issued" {
-		_ = conn.WriteJSON(setuphub.Message{Type: "error", Message: "unknown"})
+		_ = allowGuess(h.DB, clientKeyToken(norm), setupGuessMax, setupGuessWindow)
+		rejectHello(conn, "unknown")
 		return
 	}
 	source := hello.Source
@@ -46,7 +66,11 @@ func (h OnboardingHandler) SetupWS(w http.ResponseWriter, r *http.Request) {
 	}
 	sock := setuphub.NewSocket(tok.Hash, ClientIP(r), source, hello.LocalPort)
 	if err := h.Hub.Register(sock); err != nil {
-		_ = conn.WriteJSON(setuphub.Message{Type: "error", Message: "Too many Lunas are waiting. Try again in a few minutes."})
+		if errors.Is(err, setuphub.ErrAlreadyLive) {
+			rejectHello(conn, "This Luna is already talking to us. Wait a moment and try again.")
+			return
+		}
+		rejectHello(conn, "Too many Lunas are waiting. Try again in a few minutes.")
 		return
 	}
 	defer h.Hub.Drop(tok.Hash)

@@ -84,6 +84,12 @@ func (s *Socket) Close() {
 	close(s.closed)
 }
 
+func (s *Socket) Dead() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dead
+}
+
 type Hub struct {
 	mu             sync.Mutex
 	sockets        map[string]*Socket // token hash → live unclaimed socket
@@ -103,6 +109,7 @@ var (
 	ErrSocketCap      = errText("too many waiting Lunas")
 	ErrNoSocket       = errText("no live luna")
 	ErrAlreadyClaimed = errText("already claimed")
+	ErrAlreadyLive    = errText("luna already connected")
 )
 
 type errText string
@@ -112,19 +119,17 @@ func (e errText) Error() string { return string(e) }
 func (h *Hub) Register(sock *Socket) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if old, ok := h.sockets[sock.TokenHash]; ok {
+		if !old.Dead() {
+			return ErrAlreadyLive
+		}
+		h.dropLocked(sock.TokenHash)
+	}
 	if h.unclaimedTotal >= MaxUnclaimedGlobal {
 		return ErrSocketCap
 	}
 	if h.unclaimedByIP[sock.IP] >= MaxUnclaimedPerIP {
 		return ErrSocketCap
-	}
-	if old, ok := h.sockets[sock.TokenHash]; ok {
-		old.Close()
-		h.unclaimedByIP[old.IP]--
-		if h.unclaimedByIP[old.IP] <= 0 {
-			delete(h.unclaimedByIP, old.IP)
-		}
-		h.unclaimedTotal--
 	}
 	h.sockets[sock.TokenHash] = sock
 	h.unclaimedByIP[sock.IP]++
