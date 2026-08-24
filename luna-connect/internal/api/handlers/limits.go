@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -39,6 +40,15 @@ func cookieSessionID(r *http.Request) string {
 		return ""
 	}
 	return c.Value
+}
+
+// setupSessionID prefers the HttpOnly cookie. Query ?session= is only used when
+// the cookie is missing so a query string cannot override a live setup cookie.
+func setupSessionID(r *http.Request) string {
+	if id := cookieSessionID(r); id != "" {
+		return id
+	}
+	return strings.TrimSpace(r.URL.Query().Get("session"))
 }
 
 func setSetupSessionCookie(w http.ResponseWriter, id string) {

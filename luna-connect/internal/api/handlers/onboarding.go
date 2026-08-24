@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -28,7 +29,10 @@ type issuedToken struct {
 }
 
 func lookupIssued(db *sql.DB, norm string) (issuedToken, bool) {
-	hash := security.HashToken(norm)
+	return lookupIssuedByHash(db, security.HashToken(norm))
+}
+
+func lookupIssuedByHash(db *sql.DB, hash string) (issuedToken, bool) {
 	var t issuedToken
 	err := db.QueryRow(`SELECT id, token_hash, kind, status, account_id, expires_at FROM issued_tokens WHERE token_hash = ?`, hash).
 		Scan(&t.ID, &t.Hash, &t.Kind, &t.Status, &t.AccountID, &t.Expires)
@@ -40,6 +44,24 @@ func lookupIssued(db *sql.DB, norm string) (issuedToken, bool) {
 		t.Status = "expired"
 	}
 	return t, true
+}
+
+func tokenAccountID(t issuedToken) string {
+	if t.AccountID.Valid {
+		return t.AccountID.String
+	}
+	return ""
+}
+
+func sessionAccountID(s *sessionRow) string {
+	if s != nil && s.accountID.Valid {
+		return s.accountID.String
+	}
+	return ""
+}
+
+func liveSetupStatus(status string) bool {
+	return status == "waiting_device" || status == "attached"
 }
 
 func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
@@ -67,11 +89,22 @@ func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusBadRequest, "That code is wrong, already used, or expired. Check the booklet or the Luna Connect site.")
 		return
 	}
+	acct, hasAcct := AccountFrom(r.Context())
+	if tok.Kind == "oss" {
+		if !hasAcct {
+			JSONError(w, http.StatusUnauthorized, "Sign in to the Luna Connect account that created this short code, then type it again.")
+			return
+		}
+		if tokenAccountID(tok) != acct.ID {
+			JSONError(w, http.StatusForbidden, "That short code belongs to a different account. Sign in to the account that created it, then try again.")
+			return
+		}
+	}
 	id := security.NewID("sess")
 	now := time.Now()
 	exp := now.Add(setuphub.SessionTTL).Unix()
 	acctID := ""
-	if acct, ok := AccountFrom(r.Context()); ok {
+	if hasAcct {
 		acctID = acct.ID
 	}
 	_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'replaced' WHERE token_hash = ? AND status IN ('waiting_device','attached')`, tok.Hash)
@@ -134,13 +167,29 @@ func (h OnboardingHandler) AttachAccount(w http.ResponseWriter, r *http.Request)
 		JSONError(w, http.StatusUnauthorized, "Create a Luna Connect account, then continue.")
 		return
 	}
-	sess := h.loadSession(r)
+	sess := h.loadWritableSession(r)
 	if sess == nil {
 		JSONError(w, http.StatusNotFound, "Type the device code first.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE setup_sessions SET account_id = ? WHERE id = ?`, acct.ID, sess.id)
-	JSON(w, http.StatusOK, map[string]any{"ok": true})
+	if existing := sessionAccountID(sess); existing != "" && existing != acct.ID {
+		JSONError(w, http.StatusForbidden, "This setup page is already tied to another account. Sign in to that account to continue.")
+		return
+	}
+	newID := security.NewID("sess")
+	res, err := h.DB.Exec(`UPDATE setup_sessions SET id = ?, account_id = ? WHERE id = ? AND (account_id IS NULL OR account_id = ?)`,
+		newID, acct.ID, sess.id, acct.ID)
+	if err != nil {
+		JSONError(w, http.StatusInternalServerError, "Could not link this account to setup. Try again.")
+		return
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		JSONError(w, http.StatusForbidden, "This setup page is already tied to another account. Sign in to that account to continue.")
+		return
+	}
+	setSetupSessionCookie(w, newID)
+	JSON(w, http.StatusOK, map[string]any{"ok": true, "session_id": newID})
 }
 
 func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
@@ -149,13 +198,26 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Create a Luna Connect account, then pick a name.")
 		return
 	}
-	sess := h.loadSession(r)
+	sess := h.loadWritableSession(r)
 	if sess == nil {
 		JSONError(w, http.StatusNotFound, "Type the device code first.")
 		return
 	}
-	if time.Now().Unix() > sess.expires && sess.status != "claimed" {
+	if time.Now().Unix() > sess.expires {
 		JSONError(w, http.StatusGone, "This setup page expired. Plug the cable in, then type the device code again.")
+		return
+	}
+	if existing := sessionAccountID(sess); existing != "" && existing != acct.ID {
+		JSONError(w, http.StatusForbidden, "This setup page is already tied to another account. Sign in to that account to pick a name.")
+		return
+	}
+	tok, tokOK := lookupIssuedByHash(h.DB, sess.tokenHash)
+	if !tokOK || tok.Status != "issued" {
+		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
+		return
+	}
+	if tok.Kind == "oss" && tokenAccountID(tok) != acct.ID {
+		JSONError(w, http.StatusForbidden, "That short code belongs to a different account. Sign in to the account that created it, then try again.")
 		return
 	}
 	if h.Hub == nil || !h.Hub.HasLive(sess.tokenHash) {
@@ -213,16 +275,6 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	deviceToken := security.RandomHex(24)
 	setupSecret := security.RandomHex(16)
 	id := security.NewID("dev")
-	_, err = h.DB.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, tunnel_token, local_port, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, acct.ID, security.HashToken(deviceToken), "Luna", sub, creds.TunnelID, creds.Token, port, time.Now().Unix())
-	if err != nil {
-		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
-		return
-	}
-	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'claimed', claimed_device_id = ? WHERE token_hash = ?`, id, sess.tokenHash)
-	_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'claimed', account_id = ? WHERE id = ?`, acct.ID, sess.id)
-
 	pushed := h.Hub.ClaimAndDrop(sess.tokenHash, setuphub.Message{
 		Type:        "claimed",
 		DeviceToken: deviceToken,
@@ -235,6 +287,15 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		JSONError(w, http.StatusConflict, "Luna dropped off the line before we could finish. Plug the cable in and try again.")
 		return
 	}
+	_, err = h.DB.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, tunnel_token, local_port, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, acct.ID, security.HashToken(deviceToken), "Luna", sub, creds.TunnelID, creds.Token, port, time.Now().Unix())
+	if err != nil {
+		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
+		return
+	}
+	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'claimed', claimed_device_id = ? WHERE token_hash = ?`, id, sess.tokenHash)
+	_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'claimed', account_id = ? WHERE id = ?`, acct.ID, sess.id)
 	JSON(w, http.StatusCreated, map[string]any{
 		"device_id": id,
 		"hostname":  hostname,
@@ -256,24 +317,25 @@ func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
 		JSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
 		return
 	}
-	if !config.C.Stripe.Ready() {
-		sub, _ := billing.Subscribe(acct.StripeCustomer)
-		_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'dev', stripe_subscription_id = ? WHERE id = ?`, sub, acct.ID)
-		JSON(w, http.StatusOK, map[string]any{
-			"ok": true, "enabled": true,
-			"price_copy": "Spare copies cost $7 per terabyte each month. Luna will turn cloud copies on when it is next quiet.",
-		})
-		return
-	}
 	sub, err := billing.Subscribe(acct.StripeCustomer)
 	if err != nil {
+		if errors.Is(err, billing.ErrNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, "Card billing is not set up on this Luna Connect site. Ask the person who looks after it, then try again.")
+			return
+		}
 		JSONError(w, http.StatusBadGateway, "Could not start spare copies. Check the card and try again.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = 'active', stripe_subscription_id = ? WHERE id = ?`, sub, acct.ID)
+	status := "active"
+	price := "Spare copies cost $7 per terabyte each month."
+	if billing.DevBypass() {
+		status = "dev"
+		price = "Spare copies cost $7 per terabyte each month. Luna will turn cloud copies on when it is next quiet."
+	}
+	_, _ = h.DB.Exec(`UPDATE accounts SET has_card = 1, billing_status = ?, stripe_subscription_id = ? WHERE id = ?`, status, sub, acct.ID)
 	JSON(w, http.StatusOK, map[string]any{
 		"ok": true, "enabled": true,
-		"price_copy": "Spare copies cost $7 per terabyte each month.",
+		"price_copy": price,
 	})
 }
 
@@ -283,8 +345,34 @@ func (h OnboardingHandler) VerifyHuman(w http.ResponseWriter, r *http.Request) {
 		JSONError(w, http.StatusUnauthorized, "Create a Luna Connect account first.")
 		return
 	}
-	pi, err := billing.ChargeOneDollar(acct.StripeCustomer)
+	okMsg := "A dollar to confirm this is a real person. It counts toward cloud copies if you turn those on."
+	var existing string
+	err := h.DB.QueryRow(`SELECT payment_intent_id FROM oss_payments WHERE account_id = ? AND status = 'succeeded'`, acct.ID).Scan(&existing)
+	if err == nil && existing != "" {
+		JSON(w, http.StatusOK, map[string]any{"ok": true, "message": okMsg})
+		return
+	}
+	// JSON body: { "payment_method_id": "<id>" } (website) or { "payment_method": "<id>" }.
+	// Stripe PaymentMethod id after the person saved a card. Required when card charges are on.
+	var req struct {
+		PaymentMethod   string `json:"payment_method"`
+		PaymentMethodID string `json:"payment_method_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	pm := strings.TrimSpace(req.PaymentMethod)
+	if pm == "" {
+		pm = strings.TrimSpace(req.PaymentMethodID)
+	}
+	pi, err := billing.ChargeOneDollar(acct.StripeCustomer, pm)
 	if err != nil {
+		if errors.Is(err, billing.ErrPaymentMethodRequired) {
+			JSONError(w, http.StatusBadRequest, "Add a card on this page first, then try again.")
+			return
+		}
+		if errors.Is(err, billing.ErrNotConfigured) {
+			JSONError(w, http.StatusServiceUnavailable, "Card checks are not available right now. Try again later, or ask the person who looks after this Luna Connect site.")
+			return
+		}
 		JSONError(w, http.StatusBadGateway, "We could not take the dollar to confirm this is a real person. Check the card and try again.")
 		return
 	}
@@ -293,7 +381,7 @@ ON CONFLICT(account_id) DO UPDATE SET payment_intent_id=excluded.payment_intent_
 		acct.ID, pi, time.Now().Unix())
 	JSON(w, http.StatusOK, map[string]any{
 		"ok":      true,
-		"message": "A dollar to confirm this is a real person. It counts toward cloud copies if you turn those on.",
+		"message": okMsg,
 	})
 }
 
@@ -357,10 +445,7 @@ type sessionRow struct {
 }
 
 func (h OnboardingHandler) loadSession(r *http.Request) *sessionRow {
-	id := cookieSessionID(r)
-	if q := strings.TrimSpace(r.URL.Query().Get("session")); q != "" {
-		id = q
-	}
+	id := setupSessionID(r)
 	if id == "" {
 		return nil
 	}
@@ -371,7 +456,18 @@ WHERE s.id = ?`, id).Scan(&s.id, &s.tokenHash, &s.accountID, &s.status, &s.expir
 	if err != nil {
 		return nil
 	}
+	if s.status == "replaced" {
+		return nil
+	}
 	return &s
+}
+
+func (h OnboardingHandler) loadWritableSession(r *http.Request) *sessionRow {
+	sess := h.loadSession(r)
+	if sess == nil || !liveSetupStatus(sess.status) {
+		return nil
+	}
+	return sess
 }
 
 func nullIfEmpty(s string) any {
