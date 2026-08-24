@@ -185,6 +185,11 @@ func TestWaitingRoomCodeBeforeHello(t *testing.T) {
 	if claimed["tunnel_token"] == "" {
 		t.Fatalf("missing tunnel token")
 	}
+	var named map[string]any
+	_ = json.Unmarshal(nrec.Body.Bytes(), &named)
+	if named["setup_secret"] != claimed["setup_secret"] || named["hostname"] != claimed["hostname"] {
+		t.Fatalf("name body %v claimed %v", named, claimed)
+	}
 }
 
 func TestNoTunnelBeforeSubdomain(t *testing.T) {
@@ -434,9 +439,9 @@ func (c *recordingCloud) assertRolledBack(t *testing.T, sub string) {
 	}
 }
 
-func TestNameRollbackOnPushFail(t *testing.T) {
+func TestNameInsertOkPushFailKeepsDeviceThenRetry(t *testing.T) {
 	onb, acct, _ := testOnboarding(t)
-	rec := attachRecordingCloud(&onb)
+	cloud := attachRecordingCloud(&onb)
 	token := mintOfficial(t, onb)
 	cookie := registerAccount(t, acct, "pushfail@b.co")
 	bind := httptest.NewRequest(http.MethodPost, "/onboarding/bind", bytes.NewBufferString(`{"code":"`+token+`"}`))
@@ -458,18 +463,51 @@ func TestNameRollbackOnPushFail(t *testing.T) {
 	}
 	var n int
 	_ = onb.DB.QueryRow(`SELECT COUNT(*) FROM devices`).Scan(&n)
-	if n != 0 {
+	if n != 1 {
 		t.Fatalf("device row after failed push: %d", n)
 	}
-	if tokenStatus(t, onb, token) != "issued" {
-		t.Fatalf("token should stay issued, got %s", tokenStatus(t, onb, token))
+	if tokenStatus(t, onb, token) != "claimed" {
+		t.Fatalf("token should stay claimed, got %s", tokenStatus(t, onb, token))
 	}
-	var sessStatus string
-	_ = onb.DB.QueryRow(`SELECT status FROM setup_sessions WHERE id = ?`, brec.Result().Cookies()[0].Value).Scan(&sessStatus)
-	if sessStatus == "claimed" {
-		t.Fatal("session claimed after failed push")
+	if len(cloud.creates) != 1 {
+		t.Fatalf("creates %v", cloud.creates)
 	}
-	rec.assertRolledBack(t, "retryme")
+	if len(cloud.deletes) != 0 {
+		t.Fatalf("must not roll back Cloudflare after insert: deletes %v", cloud.deletes)
+	}
+
+	registerHubSocket(t, onb, token, false)
+	hash := security.HashToken(security.NormalizeToken(token))
+	live := onb.Hub.Live(hash)
+	if live == nil {
+		t.Fatal("expected live socket for retry")
+	}
+	retry := httptest.NewRequest(http.MethodPost, "/onboarding/name", bytes.NewBufferString(`{"subdomain":"retryme"}`))
+	retry.AddCookie(cookie)
+	retry.AddCookie(brec.Result().Cookies()[0])
+	rrec := withAccount(acct, onb.Name, retry)
+	if rrec.Code != 201 {
+		t.Fatalf("retry name %d %s", rrec.Code, rrec.Body.String())
+	}
+	if len(cloud.creates) != 1 {
+		t.Fatalf("retry must not create a second tunnel: %v", cloud.creates)
+	}
+	select {
+	case msg := <-live.Recv():
+		if msg.Type != "claimed" || msg.SetupSecret == "" || msg.TunnelToken == "" {
+			t.Fatalf("retry claimed %v", msg)
+		}
+	default:
+		t.Fatal("retry must re-push claimed without a second tunnel")
+	}
+	if onb.Hub.Live(hash) != nil {
+		t.Fatal("ClaimAndDrop should drop the live socket after a successful retry push")
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rrec.Body.Bytes(), &body)
+	if body["setup_secret"] == "" || body["hostname"] != "retryme.luna.servers.libreloom.org" {
+		t.Fatalf("retry body %v", body)
+	}
 }
 
 func TestNameRollbackOnInsertFail(t *testing.T) {
@@ -506,6 +544,16 @@ func TestNameRollbackOnInsertFail(t *testing.T) {
 		t.Fatalf("token should stay issued, got %s", tokenStatus(t, onb, token))
 	}
 	rec.assertRolledBack(t, "orphanme")
+	hash := security.HashToken(security.NormalizeToken(token))
+	sock := onb.Hub.Live(hash)
+	if sock == nil || sock.Dead() {
+		t.Fatal("insert fail must not push claimed or drop the live socket")
+	}
+	select {
+	case msg := <-sock.Recv():
+		t.Fatalf("claimed must not be pushed before insert: %v", msg)
+	default:
+	}
 }
 
 func TestNameRejectsClaimedToken(t *testing.T) {

@@ -6,6 +6,7 @@ import { api } from "../api.js";
 import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 
 const register = vi.fn();
+const authState = vi.hoisted(() => ({ isAuthenticated: false, me: null }));
 
 vi.mock("../api.js", () => ({
   api: vi.fn(),
@@ -25,9 +26,9 @@ vi.mock("../components/VerifyHumanCard.jsx", () => ({
 
 vi.mock("../context/AuthContext.jsx", () => ({
   useAuth: () => ({
-    isAuthenticated: false,
+    isAuthenticated: authState.isAuthenticated,
     register,
-    me: null,
+    me: authState.me,
   }),
 }));
 
@@ -49,6 +50,8 @@ async function createOssAccount() {
 describe("OnboardingPage OSS verify", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.isAuthenticated = false;
+    authState.me = null;
     register.mockResolvedValue({});
     stripeLooksConfigured.mockReturnValue(false);
     api.mockImplementation(async (path) => {
@@ -116,5 +119,50 @@ describe("OnboardingPage OSS verify", () => {
     });
     expect(api.mock.calls.map((c) => c[0])).not.toContain("/api/v1/account/verify-human");
     expect(screen.queryByRole("button", { name: /confirm with a dollar/i })).toBeNull();
+  });
+});
+
+describe("OnboardingPage done card", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.isAuthenticated = true;
+    authState.me = { email: "owner@example.com" };
+    api.mockImplementation(async (path) => {
+      if (path === "/api/v1/onboarding/bind") return { status: "attached", message: "ok" };
+      if (path === "/api/v1/onboarding/session") return { status: "attached" };
+      if (path === "/api/v1/onboarding/attach-account") return { ok: true };
+      if (path === "/api/v1/onboarding/name") {
+        return {
+          device_id: "dev_1",
+          hostname: "kitchen.luna.servers.libreloom.org",
+          subdomain: "kitchen",
+          setup_secret: "once-only-code",
+        };
+      }
+      return {};
+    });
+  });
+
+  it("shows the hostname and one-time code after name is taken", async () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /I have a booklet/i }));
+    fireEvent.change(screen.getByLabelText(/device code/i), { target: { value: "ABCDEF" } });
+    fireEvent.click(screen.getByRole("button", { name: /continue/i }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Name$/i)).toBeTruthy();
+    });
+    fireEvent.change(screen.getByLabelText(/^Name$/i), { target: { value: "kitchen" } });
+    fireEvent.click(screen.getByRole("button", { name: /Use this name/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Skip for now/i })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Skip for now/i }));
+
+    expect(await screen.findByText("kitchen.luna.servers.libreloom.org")).toBeTruthy();
+    expect(screen.getByText("once-only-code")).toBeTruthy();
+    expect(screen.getByText(/paste this one-time code/i)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/\?setup=/);
   });
 });

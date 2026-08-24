@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS devices (
   subdomain TEXT NOT NULL UNIQUE,
   tunnel_id TEXT,
   tunnel_token TEXT,
+  device_token TEXT,
+  setup_secret TEXT,
   local_port INTEGER NOT NULL DEFAULT 8090,
   pairing_code TEXT,
   pairing_expires INTEGER,
@@ -103,5 +105,8 @@ CREATE TABLE IF NOT EXISTS oss_payments (
 	if err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
+	// Existing files created before these columns; ignore duplicate-column errors.
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN device_token TEXT`)
+	_, _ = db.Exec(`ALTER TABLE devices ADD COLUMN setup_secret TEXT`)
 	return nil
 }

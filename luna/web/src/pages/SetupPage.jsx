@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowRight, Cable, Check, Eye, EyeOff, Lock, X } from "lucide-react";
 import PropTypes from "prop-types";
 import { getJson, postJson } from "../lib/api";
+import { isPublicLunaHost } from "../lib/publicHost";
 import NetworkStep from "../components/setup/NetworkStep";
 import { useAuth } from "../context/AuthContext";
 import { useAnimatedHeight } from "../hooks/useAnimatedHeight";
@@ -268,11 +269,13 @@ FormField.propTypes = {
 // ─── STEP: Account ────────────────────────────────────────────────────────────
 function AccountStep({ hasAdmin, onContinue }) {
   const { user, register, login } = useAuth();
+  const needsSetupCode = isPublicLunaHost();
   const [form, setForm] = useState({
     display_name:     "",
     username:         "",
     password:         "",
     confirm_password: "",
+    setup_secret:     "",
   });
   const [showPw, setShowPw]       = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -284,7 +287,7 @@ function AccountStep({ hasAdmin, onContinue }) {
   const meetsPolicy = !!strength?.hasLength;
   const usernameOk  = form.username.trim().length >= 3;
   const confirmOk   = confirm === pw && pw !== "";
-  const isValid = !!(usernameOk && pw && meetsPolicy && confirmOk);
+  const isValid = !!(usernameOk && pw && meetsPolicy && confirmOk && (!needsSetupCode || form.setup_secret.trim()));
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -298,7 +301,7 @@ function AccountStep({ hasAdmin, onContinue }) {
     setFieldError(null);
     try {
       const displayName = form.display_name.trim() || form.username.trim();
-      await register(form.username.trim(), displayName, pw);
+      await register(form.username.trim(), displayName, pw, needsSetupCode ? form.setup_secret.trim() : undefined);
       await login(form.username.trim(), pw);
       onContinue();
     } catch (err) {
@@ -366,7 +369,7 @@ function AccountStep({ hasAdmin, onContinue }) {
           <h2 className="font-mono text-3xl font-normal text-primary tracking-tight">
             Create your account
           </h2>
-          <p className="text-primary/50 text-sm mt-2">
+          <p className="text-primary text-sm mt-2">
             This account protects every file on Luna. You can add people for the rest of your household later.
           </p>
         </div>
@@ -488,6 +491,30 @@ function AccountStep({ hasAdmin, onContinue }) {
               )}
             </FormField>
           </div>
+
+          {needsSetupCode && (
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 delay-300">
+              <FormField
+                id="setup_secret"
+                label="One-time setup code"
+                hint="Paste the code from the Luna Connect page after you picked this Luna's name. It proves you finished setup there, so nobody else on the internet can create this first login."
+              >
+                <input
+                  id="setup_secret"
+                  name="setup_secret"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="Paste the code from Luna Connect"
+                  value={form.setup_secret}
+                  onChange={handleChange}
+                  disabled={submitting}
+                  required
+                  className={WIZARD_INPUT_CLASS}
+                />
+              </FormField>
+            </div>
+          )}
 
           {/* Inline error */}
           {fieldError && (

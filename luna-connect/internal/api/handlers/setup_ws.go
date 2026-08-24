@@ -55,7 +55,7 @@ func (h OnboardingHandler) SetupWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, ok := lookupIssued(h.DB, norm)
-	if !ok || tok.Status != "issued" {
+	if !ok || (tok.Status != "issued" && tok.Status != "claimed") {
 		_ = allowGuess(h.DB, clientKeyToken(norm), setupGuessMax, setupGuessWindow)
 		rejectHello(conn, "unknown")
 		return

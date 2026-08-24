@@ -20,6 +20,7 @@ export default function OnboardingPage() {
   const [name, setName] = useState("");
   const [ossCode, setOssCode] = useState("");
   const [hostname, setHostname] = useState("");
+  const [setupSecret, setSetupSecret] = useState("");
   const [error, setError] = useState("");
   const [waitMsg, setWaitMsg] = useState("");
   const [loading, setLoading] = useState(false);
@@ -182,6 +183,7 @@ export default function OnboardingPage() {
                   await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
                   const created = await api("/api/v1/onboarding/name", { method: "POST", body: JSON.stringify({ subdomain: name }) });
                   setHostname(created.hostname);
+                  setSetupSecret(created.setup_secret || "");
                   setStep("copies");
                 } catch (err) {
                   setError(err.message);
@@ -215,7 +217,13 @@ export default function OnboardingPage() {
             <div className="space-y-3">
               <p className="text-sm text-foreground">Open Luna at:</p>
               <p className="font-mono text-lg break-all">{hostname}</p>
-              <p className="text-sm text-foreground">The first time you visit that address, create a Luna account there. That is separate from this Luna Connect account.</p>
+              <p className="text-sm text-foreground">
+                The first time you visit that address, create your Luna login there. That login is separate from this Luna Connect account. Paste this one-time code when you create it so only you — the person who just finished setup here — can make that first account. People who only know the address cannot.
+              </p>
+              {setupSecret && (
+                <p className="font-mono text-lg break-all rounded-large-element border border-border bg-background px-4 py-3 text-foreground">{setupSecret}</p>
+              )}
+              <p className="text-sm text-foreground">Write the code down. You type it once. Do not put it in the address bar.</p>
               <Button className="w-full" onClick={() => navigate("/")}>Done</Button>
             </div>
           )}

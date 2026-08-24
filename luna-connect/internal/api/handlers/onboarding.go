@@ -20,12 +20,13 @@ type OnboardingHandler struct {
 }
 
 type issuedToken struct {
-	ID        string
-	Hash      string
-	Kind      string
-	Status    string
-	AccountID sql.NullString
-	Expires   sql.NullInt64
+	ID              string
+	Hash            string
+	Kind            string
+	Status          string
+	AccountID       sql.NullString
+	Expires         sql.NullInt64
+	ClaimedDeviceID sql.NullString
 }
 
 func lookupIssued(db *sql.DB, norm string) (issuedToken, bool) {
@@ -34,8 +35,8 @@ func lookupIssued(db *sql.DB, norm string) (issuedToken, bool) {
 
 func lookupIssuedByHash(db *sql.DB, hash string) (issuedToken, bool) {
 	var t issuedToken
-	err := db.QueryRow(`SELECT id, token_hash, kind, status, account_id, expires_at FROM issued_tokens WHERE token_hash = ?`, hash).
-		Scan(&t.ID, &t.Hash, &t.Kind, &t.Status, &t.AccountID, &t.Expires)
+	err := db.QueryRow(`SELECT id, token_hash, kind, status, account_id, expires_at, claimed_device_id FROM issued_tokens WHERE token_hash = ?`, hash).
+		Scan(&t.ID, &t.Hash, &t.Kind, &t.Status, &t.AccountID, &t.Expires, &t.ClaimedDeviceID)
 	if err != nil {
 		return t, false
 	}
@@ -61,7 +62,7 @@ func sessionAccountID(s *sessionRow) string {
 }
 
 func liveSetupStatus(status string) bool {
-	return status == "waiting_device" || status == "attached"
+	return status == "waiting_device" || status == "attached" || status == "claimed"
 }
 
 func (h OnboardingHandler) Bind(w http.ResponseWriter, r *http.Request) {
@@ -212,7 +213,7 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tok, tokOK := lookupIssuedByHash(h.DB, sess.tokenHash)
-	if !tokOK || tok.Status != "issued" {
+	if !tokOK || (tok.Status != "issued" && tok.Status != "claimed") {
 		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
 		return
 	}
@@ -222,6 +223,10 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.Hub == nil || !h.Hub.HasLive(sess.tokenHash) {
 		JSONError(w, http.StatusConflict, "Luna is not online yet. Plug the included cable from Luna into a LAN socket on your internet box, then wait until this page says it is connected.")
+		return
+	}
+	if tok.Status == "claimed" {
+		h.retryClaimedName(w, acct, sess, tok)
 		return
 	}
 	var n int
@@ -277,37 +282,86 @@ func (h OnboardingHandler) Name(w http.ResponseWriter, r *http.Request) {
 	deviceToken := security.RandomHex(24)
 	setupSecret := security.RandomHex(16)
 	id := security.NewID("dev")
-	pushed := h.Hub.ClaimAndDrop(sess.tokenHash, setuphub.Message{
-		Type:        "claimed",
-		DeviceToken: deviceToken,
-		Hostname:    hostname,
-		TunnelToken: creds.Token,
-		SetupSecret: setupSecret,
-		Subdomain:   sub,
-	})
-	if !pushed {
-		h.rollbackCloud(creds.TunnelID, hostname)
-		JSONError(w, http.StatusConflict, "Luna dropped off the line before we could finish. Plug the cable in and try again.")
-		return
-	}
-	_, err = h.DB.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, tunnel_token, local_port, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, acct.ID, security.HashToken(deviceToken), "Luna", sub, creds.TunnelID, creds.Token, port, time.Now().Unix())
-	if err != nil {
-		// Luna may already have tunnel creds from ClaimAndDrop. Drop Cloudflare
-		// resources and leave the booklet token issued so a later hello + Name
-		// can mint a new tunnel. Do not mark the token claimed.
+	if err := h.commitClaimedDevice(id, acct.ID, sess, deviceToken, sub, creds.TunnelID, creds.Token, setupSecret, port); err != nil {
 		h.rollbackCloud(creds.TunnelID, hostname)
 		JSONError(w, http.StatusConflict, "That name is already in use. Pick another.")
 		return
 	}
-	_, _ = h.DB.Exec(`UPDATE issued_tokens SET status = 'claimed', claimed_device_id = ? WHERE token_hash = ?`, id, sess.tokenHash)
-	_, _ = h.DB.Exec(`UPDATE setup_sessions SET status = 'claimed', account_id = ? WHERE id = ?`, acct.ID, sess.id)
-	JSON(w, http.StatusCreated, map[string]any{
-		"device_id": id,
-		"hostname":  hostname,
-		"subdomain": sub,
+	if !h.pushClaimed(sess.tokenHash, deviceToken, hostname, creds.Token, setupSecret, sub) {
+		JSONError(w, http.StatusConflict, "Luna dropped off the line before we could finish. Keep this page open, plug the cable in, and try again.")
+		return
+	}
+	JSON(w, http.StatusCreated, nameResult(id, hostname, sub, setupSecret))
+}
+
+func (h OnboardingHandler) retryClaimedName(w http.ResponseWriter, acct Account, sess *sessionRow, tok issuedToken) {
+	if !tok.ClaimedDeviceID.Valid || tok.ClaimedDeviceID.String == "" {
+		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
+		return
+	}
+	var id, sub, tunTok, setupSecret, deviceToken string
+	err := h.DB.QueryRow(`SELECT id, subdomain, COALESCE(tunnel_token,''), COALESCE(setup_secret,''), COALESCE(device_token,'')
+FROM devices WHERE id = ? AND account_id = ?`, tok.ClaimedDeviceID.String, acct.ID).
+		Scan(&id, &sub, &tunTok, &setupSecret, &deviceToken)
+	if err != nil || deviceToken == "" {
+		JSONError(w, http.StatusConflict, "This setup code was already used or expired. Type a new code from the booklet or the Luna Connect site.")
+		return
+	}
+	hostname := domainname.Hostname(sub, config.C.Server.PublicZone)
+	if !h.pushClaimed(sess.tokenHash, deviceToken, hostname, tunTok, setupSecret, sub) {
+		JSONError(w, http.StatusConflict, "Luna dropped off the line before we could finish. Keep this page open, plug the cable in, and try again.")
+		return
+	}
+	JSON(w, http.StatusCreated, nameResult(id, hostname, sub, setupSecret))
+}
+
+func (h OnboardingHandler) commitClaimedDevice(id, accountID string, sess *sessionRow, deviceToken, sub, tunnelID, tunnelToken, setupSecret string, port int) error {
+	tx, err := h.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.Exec(`INSERT INTO devices (id, account_id, token_hash, name, subdomain, tunnel_id, tunnel_token, device_token, setup_secret, local_port, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, accountID, security.HashToken(deviceToken), "Luna", sub, tunnelID, tunnelToken, deviceToken, setupSecret, port, time.Now().Unix())
+	if err != nil {
+		return err
+	}
+	res, err := tx.Exec(`UPDATE issued_tokens SET status = 'claimed', claimed_device_id = ? WHERE token_hash = ? AND status = 'issued'`, id, sess.tokenHash)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	if _, err := tx.Exec(`UPDATE setup_sessions SET status = 'claimed', account_id = ? WHERE id = ?`, accountID, sess.id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (h OnboardingHandler) pushClaimed(tokenHash, deviceToken, hostname, tunnelToken, setupSecret, subdomain string) bool {
+	if h.Hub == nil {
+		return false
+	}
+	return h.Hub.ClaimAndDrop(tokenHash, setuphub.Message{
+		Type:        "claimed",
+		DeviceToken: deviceToken,
+		Hostname:    hostname,
+		TunnelToken: tunnelToken,
+		SetupSecret: setupSecret,
+		Subdomain:   subdomain,
 	})
+}
+
+func nameResult(id, hostname, sub, setupSecret string) map[string]any {
+	return map[string]any{
+		"device_id":    id,
+		"hostname":     hostname,
+		"subdomain":    sub,
+		"setup_secret": setupSecret,
+	}
 }
 
 func (h OnboardingHandler) Backups(w http.ResponseWriter, r *http.Request) {
