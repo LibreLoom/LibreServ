@@ -572,7 +572,19 @@ func (e *Engine) Init(ctx context.Context, repo RepoConfig) error {
 
 var pathRegex = regexp.MustCompile(`^[a-zA-Z0-9._/\-:]+$`)
 
+// Backup runs a restic backup and returns its summary.
 func (e *Engine) Backup(ctx context.Context, repo RepoConfig, paths []string, tags []string, excludePatterns []string) (*BackupSummary, error) {
+	return e.runBackup(ctx, repo, paths, tags, excludePatterns, nil)
+}
+
+// BackupWithProgress runs a restic backup, sending status updates to
+// progressCh, which is closed when the backup finishes.
+func (e *Engine) BackupWithProgress(ctx context.Context, repo RepoConfig, paths []string, tags []string, excludePatterns []string, progressCh chan<- ProgressInfo) (*BackupSummary, error) {
+	defer close(progressCh)
+	return e.runBackup(ctx, repo, paths, tags, excludePatterns, progressCh)
+}
+
+func (e *Engine) runBackup(ctx context.Context, repo RepoConfig, paths []string, tags []string, excludePatterns []string, progressCh chan<- ProgressInfo) (*BackupSummary, error) {
 	for _, p := range paths {
 		if !pathRegex.MatchString(p) {
 			return nil, fmt.Errorf("invalid backup path: %q", p)
@@ -584,70 +596,6 @@ func (e *Engine) Backup(ctx context.Context, repo RepoConfig, paths []string, ta
 		if !pathRegex.MatchString(t) {
 			return nil, fmt.Errorf("invalid tag: %q", t)
 		}
-		args = append(args, "--tag", t)
-	}
-	for _, ex := range excludePatterns {
-		args = append(args, "--exclude", ex)
-	}
-
-	cmd, pwFile, err := e.buildCmd(ctx, repo, args...)
-	if err != nil {
-		return nil, fmt.Errorf("restic backup build: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		os.Remove(pwFile)
-		return nil, fmt.Errorf("restic backup pipe: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		os.Remove(pwFile)
-		return nil, fmt.Errorf("restic backup stderr pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		os.Remove(pwFile)
-		return nil, fmt.Errorf("restic backup start: %w", err)
-	}
-
-	var summary BackupSummary
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		var msg map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
-		}
-		if msgType, ok := msg["message_type"]; ok {
-			var mt string
-			if err := json.Unmarshal(msgType, &mt); err == nil && mt == "summary" {
-				json.Unmarshal([]byte(line), &summary)
-			}
-		}
-	}
-
-	errOutput, _ := io.ReadAll(stderr)
-	waitErr := cmd.Wait()
-	os.Remove(pwFile)
-
-	if waitErr != nil {
-		return nil, fmt.Errorf("restic backup failed: %w\nstderr: %s", waitErr, string(errOutput))
-	}
-
-	return &summary, nil
-}
-
-func (e *Engine) BackupWithProgress(ctx context.Context, repo RepoConfig, paths []string, tags []string, excludePatterns []string, progressCh chan<- ProgressInfo) (*BackupSummary, error) {
-	defer close(progressCh)
-
-	for _, p := range paths {
-		if !pathRegex.MatchString(p) {
-			return nil, fmt.Errorf("invalid backup path: %q", p)
-		}
-	}
-
-	args := append([]string{"backup"}, paths...)
-	for _, t := range tags {
 		args = append(args, "--tag", t)
 	}
 	for _, ex := range excludePatterns {

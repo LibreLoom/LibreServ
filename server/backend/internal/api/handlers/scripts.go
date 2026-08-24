@@ -24,23 +24,79 @@ type ListActionsResponse struct {
 	Actions    []apps.ScriptAction `json:"actions"`
 }
 
-func (h *ScriptsHandler) ListActions(w http.ResponseWriter, r *http.Request) {
-	instanceID := chi.URLParam(r, "instanceId")
+// loadAppContext resolves the instance ID from the URL and loads the installed
+// app plus its catalog definition, writing an error response and returning
+// ok=false on failure.
+func (h *ScriptsHandler) loadAppContext(w http.ResponseWriter, r *http.Request) (instanceID string, app *apps.InstalledApp, appDef *apps.AppDefinition, ok bool) {
+	instanceID = chi.URLParam(r, "instanceId")
 	if instanceID == "" {
 		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
-		return
+		return "", nil, nil, false
 	}
 
 	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
 	if err != nil {
 		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
-		return
+		return "", nil, nil, false
 	}
 
-	catalog := h.manager.GetCatalog()
-	appDef, err := catalog.GetApp(app.AppID)
+	appDef, err = h.manager.GetCatalog().GetApp(app.AppID)
 	if err != nil {
 		JSONError(w, http.StatusNotFound, "We couldn't find that app's definition. It may have been removed from the catalog.")
+		return "", nil, nil, false
+	}
+
+	return instanceID, app, appDef, true
+}
+
+// destructiveRepairAction builds the synthetic system action for destructive
+// repair, or returns nil when the app doesn't provide one.
+func (h *ScriptsHandler) destructiveRepairAction(appDef *apps.AppDefinition) *apps.ScriptAction {
+	if appDef.Scripts.System.DestructiveRepair.Script == "" {
+		return nil
+	}
+	if h.manager.GetScriptExecutor().GetSystemScriptPath(appDef.CatalogPath, "destructiveRepair") == "" {
+		return nil
+	}
+	desc := appDef.Scripts.System.DestructiveRepair.Description
+	if desc == "" {
+		desc = "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair."
+	}
+	return &apps.ScriptAction{
+		Name:        "destructive-repair",
+		Label:       "Destructive Repair",
+		Description: desc,
+		Script:      appDef.Scripts.System.DestructiveRepair.Script,
+		Icon:        "alert-octagon",
+		Confirm: apps.ActionConfirm{
+			Enabled:  true,
+			Message:  desc,
+			Typename: "destructive",
+		},
+		Execution: apps.ScriptExecution{
+			Timeout:      120,
+			StreamOutput: true,
+		},
+	}
+}
+
+// resolveActionScript returns the script path for a named action, checking
+// custom actions first and then the system destructive-repair action.
+func resolveActionScript(appDef *apps.AppDefinition, actionName string) string {
+	for _, action := range appDef.Scripts.Actions {
+		if action.Name == actionName {
+			return action.Script
+		}
+	}
+	if actionName == "destructive-repair" {
+		return appDef.Scripts.System.DestructiveRepair.Script
+	}
+	return ""
+}
+
+func (h *ScriptsHandler) ListActions(w http.ResponseWriter, r *http.Request) {
+	instanceID, _, appDef, ok := h.loadAppContext(w, r)
+	if !ok {
 		return
 	}
 
@@ -48,30 +104,8 @@ func (h *ScriptsHandler) ListActions(w http.ResponseWriter, r *http.Request) {
 	actions := make([]apps.ScriptAction, len(appDef.Scripts.Actions))
 	copy(actions, appDef.Scripts.Actions)
 
-	if appDef.Scripts.System.DestructiveRepair.Script != "" {
-		scriptPath := h.manager.GetScriptExecutor().GetSystemScriptPath(appDef.CatalogPath, "destructiveRepair")
-		if scriptPath != "" {
-			desc := appDef.Scripts.System.DestructiveRepair.Description
-			if desc == "" {
-				desc = "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair."
-			}
-			actions = append(actions, apps.ScriptAction{
-				Name:        "destructive-repair",
-				Label:       "Destructive Repair",
-				Description: desc,
-				Script:      appDef.Scripts.System.DestructiveRepair.Script,
-				Icon:        "alert-octagon",
-				Confirm: apps.ActionConfirm{
-					Enabled:  true,
-					Message:  desc,
-					Typename: "destructive",
-				},
-				Execution: apps.ScriptExecution{
-					Timeout:      120,
-					StreamOutput: true,
-				},
-			})
-		}
+	if repair := h.destructiveRepairAction(appDef); repair != nil {
+		actions = append(actions, *repair)
 	}
 
 	JSON(w, http.StatusOK, ListActionsResponse{
@@ -85,27 +119,14 @@ type GetActionResponse struct {
 }
 
 func (h *ScriptsHandler) GetAction(w http.ResponseWriter, r *http.Request) {
-	instanceID := chi.URLParam(r, "instanceId")
 	actionName := chi.URLParam(r, "actionName")
-	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
-		return
-	}
-	if actionName == "" {
+	if chi.URLParam(r, "instanceId") != "" && actionName == "" {
 		JSONError(w, http.StatusBadRequest, "Please choose which action to run.")
 		return
 	}
 
-	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
-	if err != nil {
-		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
-		return
-	}
-
-	catalog := h.manager.GetCatalog()
-	appDef, err := catalog.GetApp(app.AppID)
-	if err != nil {
-		JSONError(w, http.StatusNotFound, "We couldn't find that app's definition. It may have been removed from the catalog.")
+	_, _, appDef, ok := h.loadAppContext(w, r)
+	if !ok {
 		return
 	}
 
@@ -117,29 +138,9 @@ func (h *ScriptsHandler) GetAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// System action: destructive repair
-	if actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair.Script != "" {
-		scriptPath := h.manager.GetScriptExecutor().GetSystemScriptPath(appDef.CatalogPath, "destructiveRepair")
-		if scriptPath != "" {
-			desc := appDef.Scripts.System.DestructiveRepair.Description
-			if desc == "" {
-				desc = "Wipes all app data and starts fresh. This cannot be undone — use only if the app is broken beyond normal repair."
-			}
-			JSON(w, http.StatusOK, GetActionResponse{Action: apps.ScriptAction{
-				Name:        "destructive-repair",
-				Label:       "Destructive Repair",
-				Description: desc,
-				Script:      appDef.Scripts.System.DestructiveRepair.Script,
-				Icon:        "alert-octagon",
-				Confirm: apps.ActionConfirm{
-					Enabled:  true,
-					Message:  desc,
-					Typename: "destructive",
-				},
-				Execution: apps.ScriptExecution{
-					Timeout:      120,
-					StreamOutput: true,
-				},
-			}})
+	if actionName == "destructive-repair" {
+		if repair := h.destructiveRepairAction(appDef); repair != nil {
+			JSON(w, http.StatusOK, GetActionResponse{Action: *repair})
 			return
 		}
 	}
@@ -160,12 +161,6 @@ type ExecuteActionResponse struct {
 }
 
 func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
-	instanceID := chi.URLParam(r, "instanceId")
-	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
-		return
-	}
-
 	var req ExecuteActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		JSONError(w, http.StatusBadRequest, "We couldn't understand that request. Please check the format and try again.")
@@ -177,32 +172,12 @@ func (h *ScriptsHandler) ExecuteAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
-	if err != nil {
-		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
+	instanceID, app, appDef, ok := h.loadAppContext(w, r)
+	if !ok {
 		return
 	}
 
-	catalog := h.manager.GetCatalog()
-	appDef, err := catalog.GetApp(app.AppID)
-	if err != nil {
-		JSONError(w, http.StatusNotFound, "We couldn't find that app's definition. It may have been removed from the catalog.")
-		return
-	}
-
-	var scriptPath string
-	for _, action := range appDef.Scripts.Actions {
-		if action.Name == req.Action {
-			scriptPath = action.Script
-			break
-		}
-	}
-
-	// System action: destructive repair
-	if scriptPath == "" && req.Action == "destructive-repair" && appDef.Scripts.System.DestructiveRepair.Script != "" {
-		scriptPath = appDef.Scripts.System.DestructiveRepair.Script
-	}
-
+	scriptPath := resolveActionScript(appDef, req.Action)
 	if scriptPath == "" {
 		JSONError(w, http.StatusNotFound, "We couldn't find that action for this app.")
 		return
@@ -261,43 +236,18 @@ type StreamActionRequest struct {
 }
 
 func (h *ScriptsHandler) StreamAction(w http.ResponseWriter, r *http.Request) {
-	instanceID := chi.URLParam(r, "instanceId")
 	actionName := chi.URLParam(r, "actionName")
-	if instanceID == "" {
-		JSONError(w, http.StatusBadRequest, "We couldn't identify which app instance. Please refresh and try again.")
-		return
-	}
-	if actionName == "" {
+	if chi.URLParam(r, "instanceId") != "" && actionName == "" {
 		JSONError(w, http.StatusBadRequest, "Please choose which action to run.")
 		return
 	}
 
-	app, err := h.manager.GetInstalledApp(r.Context(), instanceID)
-	if err != nil {
-		JSONError(w, http.StatusNotFound, "We couldn't find that app. It may have been uninstalled.")
+	instanceID, app, appDef, ok := h.loadAppContext(w, r)
+	if !ok {
 		return
 	}
 
-	catalog := h.manager.GetCatalog()
-	appDef, err := catalog.GetApp(app.AppID)
-	if err != nil {
-		JSONError(w, http.StatusNotFound, "We couldn't find that app's definition. It may have been removed from the catalog.")
-		return
-	}
-
-	var scriptPath string
-	for _, action := range appDef.Scripts.Actions {
-		if action.Name == actionName {
-			scriptPath = action.Script
-			break
-		}
-	}
-
-	// System action: destructive repair
-	if scriptPath == "" && actionName == "destructive-repair" && appDef.Scripts.System.DestructiveRepair.Script != "" {
-		scriptPath = appDef.Scripts.System.DestructiveRepair.Script
-	}
-
+	scriptPath := resolveActionScript(appDef, actionName)
 	if scriptPath == "" {
 		JSONError(w, http.StatusNotFound, "We couldn't find that action for this app.")
 		return

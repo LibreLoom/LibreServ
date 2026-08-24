@@ -106,6 +106,35 @@ func (e *ScriptExecutor) validateScriptPath(scriptPath string) (string, error) {
 	return "", fmt.Errorf("script path outside allowed directory: %s", scriptPath)
 }
 
+// prepareScriptConfig derives the install path (when not given) and writes the
+// script execution config file, returning its path and the resolved install path.
+func (e *ScriptExecutor) prepareScriptConfig(instanceID, validatedPath, installPath string, options map[string]interface{}) (string, string, error) {
+	if installPath == "" {
+		installPath = filepath.Dir(filepath.Dir(validatedPath))
+	}
+	configPath := filepath.Join(installPath, "config.json")
+
+	scriptConfig := ScriptExecutionConfig{
+		InstanceID:  instanceID,
+		InstallPath: installPath,
+		AppDataPath: filepath.Join(installPath, "data"),
+		ConfigPath:  configPath,
+		ConfigDir:   filepath.Join(installPath, "config"),
+		Runtime: RuntimeInfo{
+			ComposeFile: filepath.Join(installPath, "docker-compose.yml"),
+			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
+		},
+		Server:  e.serverCtx,
+		Options: options,
+	}
+
+	configFile, err := e.createConfigFile(configPath, scriptConfig)
+	if err != nil {
+		return "", "", err
+	}
+	return configFile, installPath, nil
+}
+
 func (e *ScriptExecutor) Execute(ctx context.Context, instanceID, scriptPath string, options map[string]interface{}) (*ScriptResult, error) {
 	return e.ExecuteAt(ctx, instanceID, scriptPath, "", options)
 }
@@ -145,28 +174,7 @@ func (e *ScriptExecutor) ExecuteAt(ctx context.Context, instanceID, scriptPath, 
 		}, fmt.Errorf("script not found: %s", validatedPath)
 	}
 
-	if installPath == "" {
-		installPath = filepath.Dir(filepath.Dir(validatedPath))
-	}
-	appDataPath := filepath.Join(installPath, "data")
-	configPath := filepath.Join(installPath, "config.json")
-	configDir := filepath.Join(installPath, "config")
-
-	scriptConfig := ScriptExecutionConfig{
-		InstanceID:  instanceID,
-		InstallPath: installPath,
-		AppDataPath: appDataPath,
-		ConfigPath:  configPath,
-		ConfigDir:   configDir,
-		Runtime: RuntimeInfo{
-			ComposeFile: filepath.Join(installPath, "docker-compose.yml"),
-			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
-		},
-		Server:  e.serverCtx,
-		Options: options,
-	}
-
-	configFile, err := e.createConfigFile(configPath, scriptConfig)
+	configFile, installPath, err := e.prepareScriptConfig(instanceID, validatedPath, installPath, options)
 	if err != nil {
 		return &ScriptResult{
 			Success:  false,
@@ -279,28 +287,7 @@ func (e *ScriptExecutor) StreamExecuteAt(ctx context.Context, instanceID, script
 		return nil, err
 	}
 
-	if installPath == "" {
-		installPath = filepath.Dir(filepath.Dir(validatedPath))
-	}
-	appDataPath := filepath.Join(installPath, "data")
-	configPath := filepath.Join(installPath, "config.json")
-	configDir := filepath.Join(installPath, "config")
-
-	scriptConfig := ScriptExecutionConfig{
-		InstanceID:  instanceID,
-		InstallPath: installPath,
-		AppDataPath: appDataPath,
-		ConfigPath:  configPath,
-		ConfigDir:   configDir,
-		Runtime: RuntimeInfo{
-			ComposeFile: filepath.Join(installPath, "docker-compose.yml"),
-			ProjectName: fmt.Sprintf("libreserv-%s", instanceID),
-		},
-		Server:  e.serverCtx,
-		Options: options,
-	}
-
-	configFile, err := e.createConfigFile(configPath, scriptConfig)
+	configFile, installPath, err := e.prepareScriptConfig(instanceID, validatedPath, installPath, options)
 	if err != nil {
 		return nil, err
 	}

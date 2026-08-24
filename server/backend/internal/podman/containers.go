@@ -70,9 +70,11 @@ func (c *Client) runtimeBinary() string {
 	return c.binary
 }
 
-// ListContainersByLabel returns containers matching a label selector using the Podman CLI.
-func (c *Client) ListContainersByLabel(ctx context.Context, label string) ([]runtime.ContainerInfo, error) {
-	args := []string{"ps", "-a", "--filter", "label=" + label, "--format", "json"}
+// listContainers runs `podman ps -a` with the given extra filter args and
+// parses the JSON output into runtime container info.
+func (c *Client) listContainers(ctx context.Context, filterArgs ...string) ([]runtime.ContainerInfo, error) {
+	args := append([]string{"ps", "-a"}, filterArgs...)
+	args = append(args, "--format", "json")
 	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -101,35 +103,14 @@ func (c *Client) ListContainersByLabel(ctx context.Context, label string) ([]run
 	return result, nil
 }
 
+// ListContainersByLabel returns containers matching a label selector using the Podman CLI.
+func (c *Client) ListContainersByLabel(ctx context.Context, label string) ([]runtime.ContainerInfo, error) {
+	return c.listContainers(ctx, "--filter", "label="+label)
+}
+
 // ListContainersAll returns all containers (running and stopped) using the Podman CLI.
 func (c *Client) ListContainersAll(ctx context.Context) ([]runtime.ContainerInfo, error) {
-	args := []string{"ps", "-a", "--format", "json"}
-	cmd := exec.CommandContext(ctx, c.runtimeBinary(), args...)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("podman ps failed: %w", err)
-	}
-
-	var containers []podmanContainer
-	if len(out) == 0 || string(out) == "[]\n" {
-		return nil, nil
-	}
-	if err := json.Unmarshal(out, &containers); err != nil {
-		return nil, err
-	}
-
-	var result []runtime.ContainerInfo
-	for _, pc := range containers {
-		result = append(result, runtime.ContainerInfo{
-			ID:     pc.Id,
-			Names:  pc.Names,
-			Image:  pc.Image,
-			State:  pc.State,
-			Status: pc.Status,
-			Labels: pc.Labels,
-		})
-	}
-	return result, nil
+	return c.listContainers(ctx)
 }
 
 // GetContainerStats retrieves real-time stats using the Podman CLI.

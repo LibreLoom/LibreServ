@@ -472,15 +472,20 @@ func GetQueueStats(ctx context.Context, db *database.DB) (*QueueStats, error) {
 	return stats, nil
 }
 
-// scanJob scans a single job from a row
-func scanJob(row *sql.Row) (*Job, error) {
+// rowScanner is satisfied by both *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanJobFrom scans a single job from a row or rows cursor.
+func scanJobFrom(s rowScanner) (*Job, error) {
 	var job Job
 	var status, jobType string
 	var errorMsg, routeID, webhookURL, workerID *string
 	var startedAt, endedAt, nextRetryAt *time.Time
 	var logsJSON string
 
-	err := row.Scan(
+	err := s.Scan(
 		&job.ID, &jobType, &job.Domain, &job.Email, &routeID, &status, &job.Priority,
 		&errorMsg, &job.RetryCount, &job.MaxRetries, &job.PanicCount, &nextRetryAt,
 		&job.CreatedAt, &startedAt, &endedAt, &logsJSON, &webhookURL, &workerID,
@@ -514,49 +519,21 @@ func scanJob(row *sql.Row) (*Job, error) {
 	return &job, nil
 }
 
+// scanJob scans a single job from a row
+func scanJob(row *sql.Row) (*Job, error) {
+	return scanJobFrom(row)
+}
+
 // scanJobs scans multiple jobs from rows
 func scanJobs(rows *sql.Rows) ([]*Job, error) {
 	var jobs []*Job
 
 	for rows.Next() {
-		var job Job
-		var status, jobType string
-		var errorMsg, routeID, webhookURL, workerID *string
-		var startedAt, endedAt, nextRetryAt *time.Time
-		var logsJSON string
-
-		err := rows.Scan(
-			&job.ID, &jobType, &job.Domain, &job.Email, &routeID, &status, &job.Priority,
-			&errorMsg, &job.RetryCount, &job.MaxRetries, &job.PanicCount, &nextRetryAt,
-			&job.CreatedAt, &startedAt, &endedAt, &logsJSON, &webhookURL, &workerID,
-		)
+		job, err := scanJobFrom(rows)
 		if err != nil {
 			return nil, err
 		}
-
-		job.Type = JobType(jobType)
-		job.Status = JobStatus(status)
-		if errorMsg != nil {
-			job.Error = *errorMsg
-		}
-		if routeID != nil {
-			job.RouteID = *routeID
-		}
-		if webhookURL != nil {
-			job.WebhookURL = *webhookURL
-		}
-		if workerID != nil {
-			job.WorkerID = *workerID
-		}
-		job.StartedAt = startedAt
-		job.EndedAt = endedAt
-		job.NextRetryAt = nextRetryAt
-
-		if logsJSON != "" {
-			_ = job.LoadLogsFromJSON(logsJSON)
-		}
-
-		jobs = append(jobs, &job)
+		jobs = append(jobs, job)
 	}
 
 	return jobs, rows.Err()
