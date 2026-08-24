@@ -297,6 +297,10 @@ func (s *Service) loadLockoutsFromDB() {
 		now,
 	)
 	if err != nil {
+		// Losing the persisted lockouts silently would hand an attacker a clean
+		// slate on every restart, so this has to be loud even though the
+		// service can still start.
+		s.logger.Error("Failed to load account lockouts; active lockouts are not enforced until the next write", "error", err)
 		return
 	}
 	defer rows.Close()
@@ -307,9 +311,13 @@ func (s *Service) loadLockoutsFromDB() {
 		var uname string
 		var lockedUntil time.Time
 		if err := rows.Scan(&uname, &lockedUntil); err != nil {
+			s.logger.Error("Failed to scan account lockout row", "error", err)
 			continue
 		}
 		s.failed[uname] = &loginAttempts{lockedUntil: lockedUntil}
+	}
+	if err := rows.Err(); err != nil {
+		s.logger.Error("Account lockout load ended early; some lockouts are not enforced", "error", err)
 	}
 }
 

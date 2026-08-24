@@ -73,7 +73,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 					UserAgent:     r.UserAgent(),
 					Details:       "Failed password change attempt - incorrect current password",
 				}
-				h.securityService.RecordEvent(r.Context(), &event)
+				recordSecurityEvent(r.Context(), h.securityService, &event)
 			}
 			JSONError(w, http.StatusUnauthorized, "Your current password is incorrect.")
 			return
@@ -94,7 +94,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 			UserAgent:     r.UserAgent(),
 			Details:       fmt.Sprintf("Password changed for user %s", user.Username),
 		}
-		h.securityService.RecordEvent(r.Context(), &event)
+		recordSecurityEvent(r.Context(), h.securityService, &event)
 	}
 
 	JSON(w, http.StatusOK, map[string]string{

@@ -50,7 +50,7 @@ func (h *AppsHandler) recordAppEvent(r *http.Request, eventType security.EventTy
 		userID = user.ID
 		username = user.Username
 	}
-	_ = h.securityEvents.RecordEvent(r.Context(), &security.Event{
+	recordSecurityEvent(r.Context(), h.securityEvents, &security.Event{
 		EventType:     eventType,
 		Severity:      security.SeverityInfo,
 		ActorID:       userID,

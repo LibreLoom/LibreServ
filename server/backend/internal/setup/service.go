@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"os"
 	"strings"
@@ -225,7 +226,12 @@ func (s *Service) get(ctx context.Context) (*State, error) {
 	}
 	st.StepData = map[string]interface{}{}
 	if dataStr.Valid && dataStr.String != "" {
-		_ = json.Unmarshal([]byte(dataStr.String), &st.StepData)
+		if err := json.Unmarshal([]byte(dataStr.String), &st.StepData); err != nil {
+			// Setup continues with empty step data rather than wedging the
+			// wizard, but the corrupt row has to be visible.
+			slog.Warn("Failed to decode setup step data", "current_step", st.CurrentStep, "error", err)
+			st.StepData = map[string]interface{}{}
+		}
 	}
 	return st, nil
 }

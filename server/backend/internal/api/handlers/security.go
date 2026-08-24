@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -10,6 +12,20 @@ import (
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/api/middleware"
 	"gt.plainskill.net/LibreLoom/LibreServ/internal/security"
 )
+
+// recordSecurityEvent persists an audit event without failing the request it
+// describes. The write is not worth a 500, but a dropped audit record is: on a
+// WAN-exposed box the event log is the only trace of who did what, so a failure
+// has to reach the logs instead of vanishing.
+func recordSecurityEvent(ctx context.Context, svc *security.Service, event *security.Event) {
+	if err := svc.RecordEvent(ctx, event); err != nil {
+		slog.Error("Failed to record security event",
+			"event_type", event.EventType,
+			"actor", event.ActorUsername,
+			"error", err,
+		)
+	}
+}
 
 type SecurityHandler struct {
 	securityService *security.Service

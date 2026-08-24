@@ -1230,7 +1230,9 @@ export default function SetupPage() {
         noticeDetail="Log in again and we&rsquo;ll bring you right back to setup."
         onLoginSuccess={() => {
           setShowLoginGate(false);
-          refreshAuth().catch(() => {});
+          refreshAuth().catch((err) => {
+            console.error("Failed to refresh auth state after login:", err);
+          });
         }}
       />
     );

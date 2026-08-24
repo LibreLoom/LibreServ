@@ -142,7 +142,9 @@ export function AuthProvider({ children, queryClient }) {
       try { setCsrfToken((await csrfResponse.value.json()).csrf_token); } catch { /* ignore JSON errors; still have refreshAuth fallback */ }
     }
     if (meResponse.status === "rejected" || csrfResponse.status === "rejected") {
-      refreshAuth().catch(() => {});
+      refreshAuth().catch((err) => {
+        console.error("Failed to refresh auth state:", err);
+      });
     }
     queryClient?.invalidateQueries({ queryKey: ["user"] });
   }, [refreshAuth, queryClient]);
@@ -165,7 +167,9 @@ export function AuthProvider({ children, queryClient }) {
       try { setCsrfToken((await csrfResponse.value.json()).csrf_token); } catch { /* ignore JSON errors; still have refreshAuth fallback */ }
     }
     if (meResponse.status === "rejected" || csrfResponse.status === "rejected") {
-      refreshAuth().catch(() => {});
+      refreshAuth().catch((err) => {
+        console.error("Failed to refresh auth state:", err);
+      });
     }
   }, [refreshAuth]);
 

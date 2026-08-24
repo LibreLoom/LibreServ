@@ -601,7 +601,9 @@ func (i *Installer) handleInstallFailure(instanceID, installPath, errMsg string,
 	ctx := context.Background()
 
 	// Mark as error in DB (keep the record so frontend can show the error message)
-	i.updateAppStatus(instanceID, StatusError, errMsg)
+	if err := i.updateAppStatus(instanceID, StatusError, errMsg); err != nil {
+		i.logger.Error("Failed to mark app as failed after install failure", "instance_id", instanceID, "error", err)
+	}
 
 	// Cleanup route if it was created
 	if i.cleanupRoute != nil && domainConfig != nil {
