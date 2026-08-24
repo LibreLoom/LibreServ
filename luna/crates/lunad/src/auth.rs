@@ -981,7 +981,7 @@ mod guard_tests {
         let connect = std::sync::Arc::new(connect);
         let conn = crate::db::open(&dir.path().join("luna.db")).unwrap();
         let drive_manager = std::sync::Arc::new(DriveManager::new(shared_mock(), dir.path()));
-        let state = crate::AppState::new(conn, drive_manager).with_connect(connect);
+        let state = crate::AppState::new(conn, drive_manager).with_connect(connect.clone());
         let app = api::router()
             .layer(axum::middleware::from_fn_with_state(state.clone(), guard))
             .with_state(state);
