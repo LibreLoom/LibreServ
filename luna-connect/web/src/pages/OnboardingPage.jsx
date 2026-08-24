@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import { stripeLooksConfigured } from "../billing/stripeConfig.js";
 import { Button } from "../components/ui/button.jsx";
+import { VerifyHumanCard } from "../components/VerifyHumanCard.jsx";
 import { Input } from "../components/ui/input.jsx";
 import { Label } from "../components/ui/label.jsx";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card.jsx";
@@ -42,6 +44,25 @@ export default function OnboardingPage() {
     return s;
   }
 
+  async function finishOssVerify(paymentMethodId) {
+    const body = paymentMethodId
+      ? JSON.stringify({ payment_method_id: paymentMethodId })
+      : "{}";
+    await api("/api/v1/account/verify-human", { method: "POST", body });
+    const minted = await api("/api/v1/account/oss-token", { method: "POST", body: "{}" });
+    setOssCode(minted.code);
+    setWaitMsg(minted.message);
+    setStep("oss-code");
+  }
+
+  async function afterOssAccount(account) {
+    if (stripeLooksConfigured(account || me)) {
+      setStep("card");
+      return;
+    }
+    await finishOssVerify();
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
       <Card className="w-full max-w-lg animate-pop-in bg-card text-card-foreground">
@@ -51,6 +72,7 @@ export default function OnboardingPage() {
             {step === "path" && "How did this Luna arrive?"}
             {step === "code" && "Type the device code."}
             {step === "account" && "Create your Luna Connect account."}
+            {step === "card" && "A dollar to confirm this is a real person; it counts toward cloud copies if you turn those on."}
             {step === "name" && "Pick a name people will type in a browser."}
             {step === "copies" && "Optional spare copies in the cloud."}
             {step === "done" && "You can open Luna from away."}
@@ -95,13 +117,9 @@ export default function OnboardingPage() {
                 setError("");
                 setLoading(true);
                 try {
-                  await register(email, password);
+                  const account = await register(email, password);
                   if (path === "oss") {
-                    await api("/api/v1/account/verify-human", { method: "POST", body: "{}" });
-                    const minted = await api("/api/v1/account/oss-token", { method: "POST", body: "{}" });
-                    setOssCode(minted.code);
-                    setWaitMsg(minted.message);
-                    setStep("oss-code");
+                    await afterOssAccount(account);
                   } else {
                     if (code) await bindCode(code);
                     await api("/api/v1/onboarding/attach-account", { method: "POST", body: "{}" });
@@ -122,9 +140,25 @@ export default function OnboardingPage() {
               <p className="text-sm text-muted-foreground">Already have an account? <Link className="underline" to="/login">Sign in</Link></p>
             </form>
           )}
+          {step === "card" && (
+            <VerifyHumanCard
+              account={me}
+              loading={loading}
+              onConfirm={async (paymentMethodId) => {
+                setError("");
+                setLoading(true);
+                try {
+                  await finishOssVerify(paymentMethodId);
+                } catch (err) {
+                  setError(err.message);
+                } finally {
+                  setLoading(false);
+                }
+              }}
+            />
+          )}
           {step === "oss-code" && (
             <div className="space-y-3">
-              <p className="text-sm text-foreground">A dollar confirms this is a real person. It counts toward cloud copies if you turn those on.</p>
               <p className="font-mono text-3xl tracking-widest text-center">{ossCode}</p>
               <p className="text-sm text-foreground">On Luna, open the address on the screen and enter this code.</p>
               <Button className="w-full" onClick={async () => {
