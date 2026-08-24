@@ -18,7 +18,11 @@ make run
 
 Env prefix: `LUNACONNECT_` (viper), e.g. `LUNACONNECT_SERVER_PORT`.
 
-Without Cloudflare or Stripe keys, register still assigns a hostname and “add a card” works in local-dev mode so Luna can unlock backups against disk storage.
+Stripe only skips real charges when `stripe.enabled` is **false** (local/dev). `enabled: true` with an empty key fails closed.
+
+## Official booklet codes
+
+Official units that lost their setup file cannot start on their own. There is no public “I lost my code” form. The owner contacts support and refers to their order id. Support then issues a replacement official token (admin New token page) and they paste it on Luna or put `setup-token` on the installer USB.
 
 ## Deploy (ZDU)
 

@@ -15,6 +15,14 @@ export default function AdminTokensPage() {
       <p className="text-muted-foreground mb-8">
         Official setup codes are created here, then printed in the box. The public OS image has no code.
       </p>
+      <Card className="mb-6" data-testid="official-token-recovery">
+        <CardHeader>
+          <CardTitle>Lost booklet code</CardTitle>
+          <CardDescription>
+            We need a way to mint a new official booklet token for a device that no longer has the old one. For now: the owner should contact support and refer to their order id. Support/provisioning then issues a replacement official token (same admin New token flow) and they paste it on Luna or put setup-token on the installer USB.
+          </CardDescription>
+        </CardHeader>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Factory token</CardTitle>
