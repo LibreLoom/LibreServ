@@ -42,11 +42,14 @@ struct InspectionJson {
     folders: u64,
     files: u64,
     unreadable: u64,
+    needs_erase: bool,
 }
 
 #[derive(Deserialize)]
 struct AdoptBody {
     label: String,
+    #[serde(default)]
+    erase: bool,
 }
 
 pub fn router() -> Router<AppState> {
@@ -144,6 +147,7 @@ async fn inspect(
         folders: inspection.summary.folders,
         files: inspection.summary.files,
         unreadable: inspection.summary.unreadable,
+        needs_erase: inspection.needs_erase,
     }))
 }
 
@@ -168,7 +172,7 @@ async fn adopt(
         )
     })?;
     let row = with_db(&state.db, |conn| {
-        state.drive_manager.adopt(conn, &device, &label)
+        state.drive_manager.adopt(conn, &device, &label, body.erase)
     })
     .map_err(|e| {
         json_error(
@@ -259,9 +263,12 @@ fn require_admin(
 
 fn plain_adopt_error(err: &anyhow::Error) -> String {
     let text = err.to_string();
-    if text.contains("Could not mark this drive as its own") {
-        "The drive is read-only or full, so Luna can't put its marker file on it.".into()
-    } else if text.contains("mount") {
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("installer") || lower.contains("cannot be changed") {
+        crate::drives::INSTALLER_USB_MESSAGE.into()
+    } else if lower.contains("could not mark") || lower.contains("read-only") {
+        "This USB still has the Luna installer on it, or the drive is locked. Erase a Luna installer stick to use it for files, or check for a lock switch.".into()
+    } else if lower.contains("mount") {
         "Make sure the drive is plugged in and your computer isn't using it.".into()
     } else {
         text
@@ -298,5 +305,17 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let conn = db::open(&dir.path().join("luna.db")).unwrap();
         assert!(db::list_drives(&conn).unwrap().is_empty());
+    }
+
+    #[test]
+    fn installer_error_is_plain_language() {
+        let err = anyhow::anyhow!("{}", crate::drives::INSTALLER_USB_MESSAGE);
+        assert!(super::plain_adopt_error(&err).contains("Erase it to use it"));
+        let raw = anyhow::anyhow!(
+            "Luna could not mark this drive as its own. could not write the marker: Read-only file system (os error 30)"
+        );
+        let plain = super::plain_adopt_error(&raw);
+        assert!(!plain.contains("os error"));
+        assert!(!plain.contains("marker"));
     }
 }

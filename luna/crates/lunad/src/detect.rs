@@ -26,6 +26,8 @@ pub struct DetectedDrive {
     pub mount_point: Option<String>,
     /// Current filesystem type, if mounted.
     pub fs_type: Option<String>,
+    /// True when `/proc/mounts` lists the mount as `ro` (exact option token).
+    pub mount_readonly: bool,
 }
 
 impl DetectedDrive {
@@ -66,7 +68,10 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
         let size_bytes = size_sectors.saturating_mul(512);
         let model = read_model(&dir);
         let usb = device_path_is_usb(&dir);
-        let (mount_point, fs_type) = mounts.get(&name).cloned().unwrap_or((None, None));
+        let mounted = mounts.get(&name);
+        let mount_point = mounted.map(|m| m.mount_point.clone());
+        let fs_type = mounted.map(|m| m.fs_type.clone());
+        let mount_readonly = mounted.map(|m| m.read_only).unwrap_or(false);
 
         // Never surface the live OS disk (or anything mounted at the system
         // root) as an adoptable drive.
@@ -82,6 +87,7 @@ pub fn scan(sys_block: &Path, proc_mounts: &str) -> Vec<DetectedDrive> {
             usb,
             mount_point,
             fs_type,
+            mount_readonly,
         });
     }
     drives.sort_by(|a, b| a.name.cmp(&b.name));
@@ -173,8 +179,16 @@ fn parent_device(name: &str) -> Option<String> {
     }
 }
 
-/// Parse `/proc/mounts` into `device -> (mount_point, fs_type)`.
-pub fn parse_mounts(proc_mounts: &str) -> HashMap<String, (Option<String>, Option<String>)> {
+/// A filesystem currently mounted, as `/proc/mounts` reported it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MountedFs {
+    pub mount_point: String,
+    pub fs_type: String,
+    pub read_only: bool,
+}
+
+/// Parse `/proc/mounts` into `device -> MountedFs`.
+pub fn parse_mounts(proc_mounts: &str) -> HashMap<String, MountedFs> {
     let mut map = HashMap::new();
     for line in proc_mounts.lines() {
         let mut fields = line.split_whitespace();
@@ -183,18 +197,31 @@ pub fn parse_mounts(proc_mounts: &str) -> HashMap<String, (Option<String>, Optio
         };
         let Some(point) = fields.next() else { continue };
         let Some(fs) = fields.next() else { continue };
+        let opts = fields.next().unwrap_or("");
+        let read_only = opts.split(',').any(|t| t == "ro");
+        let info = MountedFs {
+            mount_point: point.to_string(),
+            fs_type: fs.to_string(),
+            read_only,
+        };
         let dev = Path::new(device)
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| device.to_string());
-        map.insert(dev.clone(), (Some(point.to_string()), Some(fs.to_string())));
+        map.insert(dev.clone(), info.clone());
         // A mount on `sda1` is a mount on drive `sda` for drive-level reporting.
         if let Some(parent) = parent_device(&dev).filter(|parent| *parent != dev) {
-            map.entry(parent)
-                .or_insert_with(|| (Some(point.to_string()), Some(fs.to_string())));
+            map.entry(parent).or_insert(info);
         }
     }
     map
+}
+
+pub(crate) fn is_partition_of(disk: &str, name: &str) -> bool {
+    if name == disk {
+        return true;
+    }
+    parent_device(name).as_deref() == Some(disk)
 }
 
 #[cfg(test)]
@@ -243,6 +270,7 @@ mod tests {
             usb: false,
             mount_point: None,
             fs_type: None,
+            mount_readonly: false,
         };
         assert!(d.is_storage_candidate());
         d.name = "sda1".into();
@@ -254,9 +282,19 @@ mod tests {
     #[test]
     fn parse_mounts_maps_whole_devices() {
         let map = parse_mounts("/dev/sdb1 /mnt/one ext4 rw 0 0\n/dev/nvme0n1p2 / ext4 rw 0 0\n");
-        let (point, fs) = map.get("sdb1").unwrap();
-        assert_eq!(point.as_deref(), Some("/mnt/one"));
-        assert_eq!(fs.as_deref(), Some("ext4"));
+        let info = map.get("sdb1").unwrap();
+        assert_eq!(info.mount_point, "/mnt/one");
+        assert_eq!(info.fs_type, "ext4");
+        assert!(!info.read_only);
+    }
+
+    #[test]
+    fn parse_mounts_treats_ro_token_not_remount_ro_substring() {
+        let map = parse_mounts(
+            "/dev/sdb1 /mnt/iso iso9660 ro,relatime 0 0\n/dev/sdc1 /mnt/data ext4 rw,errors=remount-ro 0 0\n",
+        );
+        assert!(map.get("sdb1").unwrap().read_only);
+        assert!(!map.get("sdc1").unwrap().read_only);
     }
 
     #[test]
