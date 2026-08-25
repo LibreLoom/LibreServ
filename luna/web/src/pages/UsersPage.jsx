@@ -100,7 +100,9 @@ export default function UsersPage() {
                 : "Member — grant folder access before they can see files."}
             </p>
             <div className="mt-3 flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => { setSelected(u); setError(null); }}>Access</Button>
+              {u.role !== "admin" && (
+                <Button size="sm" variant="outline" onClick={() => { setSelected(u); setError(null); }}>Access</Button>
+              )}
               <Button size="sm" variant="danger" disabled={u.id === user.id} onClick={() => deleteMutation.mutate(u.id)}>
                 <Trash2 size={12} /> Remove
               </Button>
@@ -117,7 +119,7 @@ export default function UsersPage() {
         />
       )}
 
-      {selected && (
+      {selected && selected.role !== "admin" && (
         <ModalCard title={`Access for ${selected.display_name}`} onClose={() => setSelected(null)}>
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {(grants.data || []).filter((g) => g.user_id === selected.id).map((g) => {
