@@ -80,6 +80,24 @@ describe("DrivesPage", () => {
     expect(await screen.findByText(/Nothing new plugged in/i)).toBeInTheDocument();
   });
 
+  it("puts Ignore for now in the header and Look inside in the body", async () => {
+    stubDrivesApi({
+      fetch: (u) => {
+        if (u.endsWith("/drives/detected")) {
+          return new Response(JSON.stringify([{
+            name: "sdb", model: "Lexar USB Flash Drive", size_bytes: 8000000000,
+            removable: true, usb: true, mount_point: null, fs_type: "vfat",
+          }]), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return null;
+      },
+    });
+    renderPage();
+    const ignore = await screen.findByRole("button", { name: /Ignore for now/i });
+    const look = screen.getByRole("button", { name: /Look inside/i });
+    expect(ignore.compareDocumentPosition(look) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("shows granted folders for a household member", async () => {
     stubDrivesApi({
       fetch: (u) => {
